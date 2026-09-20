@@ -4,6 +4,9 @@
 [![Release](https://img.shields.io/github/v/release/Routarr/Routarr?sort=semver)](https://github.com/Routarr/Routarr/releases)
 [![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue)](LICENSE)
 
+[**routarr.app**](https://routarr.app) shows what it does, how it decides, and what it refuses
+to do.
+
 **Routarr** sorts your **Radarr** and **Sonarr** libraries into the right root folder
 (`/movies/anime`, `/movies/kids`, `/series/documentaries`) from rules you write, and it explains
 every move before it makes one.
@@ -13,7 +16,7 @@ every move before it makes one.
 > upgrading from one version to the next.
 
 ![The simulation screen: moves proposed for the library, each with its source and target folder,
-the rule that matched, a confidence and a justification.](site/public/assets/shots/simulation.webp)
+the rule that matched, a confidence and a justification.](.github/assets/simulation.webp)
 
 ## Features
 
