@@ -1,6 +1,6 @@
 ---
 import { version } from '../version';
-import { LANGUAGES, useTranslations, pathFor, type Locale } from '../i18n';
+import { LANGUAGES, useTranslations, pathFor, type Locale, type Page } from '../i18n';
 import { themeBootstrap } from '../theme-bootstrap';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -8,10 +8,16 @@ import '../styles/site.css';
 
 interface Props {
   locale: Locale;
+  page?: Page;
 }
 
-const { locale } = Astro.props;
+const { locale, page = 'landing' } = Astro.props;
 const t = useTranslations(locale);
+
+/* The second page states its own title and description. Everything else on
+   this page is the same for both, which is why they are the only two. */
+const title = page === 'how' ? t('head.title.how') : t('head.title');
+const description = page === 'how' ? t('head.description.how') : t('head.description');
 
 /**
  * Absolute URLs, all from `site` in astro.config.mjs.
@@ -21,7 +27,7 @@ const t = useTranslations(locale);
  * the only arrangement in which they cannot disagree.
  */
 const origin = Astro.site!;
-const canonical = new URL(pathFor(locale), origin).href;
+const canonical = new URL(pathFor(locale, page), origin).href;
 
 /** What Open Graph calls each language; the page itself says `lang`. */
 const OG_LOCALE: Record<Locale, string> = { en: 'en_US', fr: 'fr_FR', de: 'de_DE', es: 'es_ES' };
@@ -50,8 +56,8 @@ const schema = {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>{t('head.title')}</title>
-    <meta name="description" content={t('head.description')} />
+    <title>{title}</title>
+    <meta name="description" content={description} />
 
     <link rel="canonical" href={canonical} />
 
@@ -63,11 +69,11 @@ const schema = {
         <link
           rel="alternate"
           hreflang={language.code}
-          href={new URL(language.path, origin).href}
+          href={new URL(pathFor(language.code, page), origin).href}
         />
       ))
     }
-    <link rel="alternate" hreflang="x-default" href={origin.href} />
+    <link rel="alternate" hreflang="x-default" href={new URL(pathFor('en', page), origin).href} />
 
     <meta name="theme-color" content="#131519" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)" />
@@ -81,12 +87,12 @@ const schema = {
       ))
     }
     <meta property="og:url" content={canonical} />
-    <meta property="og:title" content={t('head.title')} />
+    <meta property="og:title" content={title} />
     <meta property="og:description" content={t('head.og-description')} />
     <meta property="og:image" content={new URL('/assets/og.png', origin).href} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content={t('head.title')} />
+    <meta property="og:image:alt" content={title} />
     <meta name="twitter:card" content="summary_large_image" />
 
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
@@ -104,7 +110,7 @@ const schema = {
   <body>
     <a class="skip" href="#main">{t('page.skip')}</a>
 
-    <Header locale={locale} />
+    <Header locale={locale} page={page} />
 
     {/* Offered, never imposed: `site.js` fills this in when the browser prefers
         a language the site speaks and the reader has not already chosen one. */}

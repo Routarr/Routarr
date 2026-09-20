@@ -39,7 +39,17 @@ export function useTranslations(locale: Locale) {
 }
 
 
-/** Where a given language's copy of this page lives. */
-export function pathFor(locale: Locale): string {
-  return LANGUAGES.find((l) => l.code === locale)!.path;
+/** The two pages the site has. */
+export type Page = 'landing' | 'how';
+
+/**
+ * Where a given language's copy of a page lives.
+ *
+ * Built from the language's own path rather than assembled from a locale code,
+ * so English staying at `/` while the others sit under a prefix is stated once
+ * in `languages.ts` and nothing else has to know about the exception.
+ */
+export function pathFor(locale: Locale, page: Page = 'landing'): string {
+  const base = LANGUAGES.find((l) => l.code === locale)!.path;
+  return page === 'landing' ? base : `${base}how`;
 }

@@ -3,20 +3,23 @@ import Base from './Base.astro';
 import type { Locale } from '../i18n';
 
 import Hero from '../components/sections/Hero.astro';
-import Why from '../components/sections/Why.astro';
-import How from '../components/sections/How.astro';
 import Rules from '../components/sections/Rules.astro';
-import Explain from '../components/sections/Explain.astro';
 import Safety from '../components/sections/Safety.astro';
-import Folders from '../components/sections/Folders.astro';
-import Features from '../components/sections/Features.astro';
 import Start from '../components/sections/Start.astro';
-import Faq from '../components/sections/Faq.astro';
-import Cta from '../components/sections/Cta.astro';
+import More from '../components/sections/More.astro';
 
 /**
- * The page, once. Four routes render it with a different locale, which is what
- * stops the translations drifting from the markup: there is only one markup.
+ * The landing page, once. Four routes render it with a different locale, which
+ * is what stops the translations drifting from the markup: there is only one
+ * markup.
+ *
+ * Four blocks, and the choice of which four is the whole point. On a 390px
+ * phone the ten-section page measured 17905px, twenty-one screens, because
+ * every section was a device built for a wide window that unfolds into a list
+ * when it cannot be wide — and a comparison laid out as a list compares
+ * nothing. The hero is already the demonstration, so nothing below it repeats
+ * it: what decides, what refuses to write, how to run it, and a door to the
+ * rest.
  */
 interface Props {
   locale: Locale;
@@ -25,16 +28,10 @@ interface Props {
 const { locale } = Astro.props;
 ---
 
-<Base locale={locale}>
+<Base locale={locale} page="landing">
   <Hero locale={locale} />
-  <Why locale={locale} />
-  <How locale={locale} />
   <Rules locale={locale} />
-  <Explain locale={locale} />
   <Safety locale={locale} />
-  <Folders locale={locale} />
-  <Features locale={locale} />
   <Start locale={locale} />
-  <Faq locale={locale} />
-  <Cta locale={locale} />
+  <More locale={locale} />
 </Base>

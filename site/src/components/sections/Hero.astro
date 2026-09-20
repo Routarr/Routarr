@@ -1,9 +1,14 @@
 ---
 import { version } from '../../version';
-import { useTranslations, type Key, type Locale } from '../../i18n';
+import { useTranslations, pathFor, type Key, type Locale } from '../../i18n';
 
 interface Props { locale: Locale }
-const t = useTranslations(Astro.props.locale);
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/* The second button leaves the page: what it offers is the whole detail page,
+   which is where the sections this one dropped now live. */
+const detail = pathFor(locale, 'how');
 
 /**
  * The board announces six departures from the demonstration library. Titles,
@@ -125,7 +130,7 @@ const rows = DEPARTURES.map((d, i) => ({
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
             {t('page.a.get-started')}
           </a>
-          <a class="btn btn-secondary" href="#how">{t('page.a')}</a>
+          <a class="btn btn-secondary" href={detail}>{t('page.a')}</a>
         </div>
         <p class="hero-note">{t('page.p.2')}</p>
       </div>

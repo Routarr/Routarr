@@ -1,0 +1,46 @@
+---
+import Base from './Base.astro';
+import { useTranslations, type Locale } from '../i18n';
+
+import Why from '../components/sections/Why.astro';
+import How from '../components/sections/How.astro';
+import Explain from '../components/sections/Explain.astro';
+import Folders from '../components/sections/Folders.astro';
+import Features from '../components/sections/Features.astro';
+import Faq from '../components/sections/Faq.astro';
+import Cta from '../components/sections/Cta.astro';
+
+/**
+ * The second page: everything somebody reads because they are already
+ * interested. It carries the sections the landing page dropped, in the order
+ * an argument wants them, and it is reached from the landing and from the
+ * Index panel rather than being something to scroll past.
+ */
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+---
+
+<Base locale={locale} page="how">
+  {/* The page's own `h1`. It lived in the hero, which is on the landing and
+      not here, and a page whose first heading is an `h2` has a level missing
+      rather than a heading spare. */}
+  <section id="detail-head">
+    <div class="wrap section-head">
+      <span class="eyebrow">{t('detail.span')}</span>
+      <h1 set:html={t('detail.h1')} />
+      <p>{t('detail.p')}</p>
+    </div>
+  </section>
+
+  <Why locale={locale} />
+  <How locale={locale} />
+  <Explain locale={locale} />
+  <Folders locale={locale} />
+  <Features locale={locale} />
+  <Faq locale={locale} />
+  <Cta locale={locale} />
+</Base>

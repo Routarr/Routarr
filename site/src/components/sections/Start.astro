@@ -11,9 +11,12 @@ const t = useTranslations(Astro.props.locale);
  * comment inside the second terminal rather than a line under the command it
  * explains.
  */
-const STEPS: { number: string; command: string; prompt: boolean; note: Key }[] = [
+const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] = [
   { number: '01', command: 'mkdir -p data && sudo chown 1000:1000 data', prompt: true, note: 'start.step' },
-  { number: '02', command: 'docker compose up -d', prompt: true, note: 'start.step.2' },
+  /* No note: the sentence above already says one image carries both, and a
+     line repeating it under the command is the kind of detail that makes a
+     page long without making it clearer. */
+  { number: '02', command: 'docker compose up -d', prompt: true },
   { number: '03', command: 'docker exec routarr cat /data/routarr.api_key', prompt: true, note: 'start.step.3' },
   { number: '04', command: 'http://localhost:9876', prompt: false, note: 'start.step.4' },
 ];
@@ -38,7 +41,7 @@ const STEPS: { number: string; command: string; prompt: boolean; note: Key }[] =
                   {step.prompt && <span class="install-prompt" aria-hidden="true">$</span>}
                   {step.command}
                 </p>
-                <p class="install-note" set:html={t(step.note)} />
+                {step.note && <p class="install-note" set:html={t(step.note)} />}
               </div>
             </li>
           ))
@@ -71,10 +74,6 @@ const STEPS: { number: string; command: string; prompt: boolean; note: Key }[] =
           <p set:html={t('start.p.3')} />
         </div>
       </div>
-    </div>
-
-    <div class="callout">
-      <p>{t('start.p.2')}</p>
     </div>
   </div>
 </section>

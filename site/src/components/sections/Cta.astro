@@ -1,8 +1,13 @@
 ---
-import { useTranslations, type Key, type Locale } from '../../i18n';
+import { useTranslations, pathFor, type Key, type Locale } from '../../i18n';
 
 interface Props { locale: Locale }
-const t = useTranslations(Astro.props.locale);
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/* `#start` is on the landing page, not on this one, so the link is absolute
+   within the site. An anchor to a section that is not here scrolls nowhere. */
+const install = `${pathFor(locale)}#start`;
 
 /**
  * A close that sums up rather than exhorts. Each line is something the page
@@ -23,7 +28,7 @@ const RECAP: { claim: Key; detail: Key }[] = [
       <h2>{t('cta.h2')}</h2>
       <p>{t('cta.p')}</p>
       <div class="hero-cta">
-        <a class="btn btn-primary" href="#start">
+        <a class="btn btn-primary" href={install}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
           {t('cta.a.install')}
         </a>

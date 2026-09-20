@@ -1,0 +1,19 @@
+---
+import Detail from '../../layouts/Detail.astro';
+import { LANGUAGES, type Locale } from '../../i18n';
+
+/**
+ * The three translated copies of the second page. English is not among them:
+ * `prefixDefaultLocale` is false, so it is served from `/how` by
+ * `src/pages/how.astro`.
+ */
+export function getStaticPaths() {
+  return LANGUAGES.filter((language) => language.code !== 'en').map((language) => ({
+    params: { lang: language.code },
+  }));
+}
+
+const { lang } = Astro.params;
+---
+
+<Detail locale={lang as Locale} />
