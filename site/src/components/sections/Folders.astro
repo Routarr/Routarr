@@ -1,0 +1,72 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * Both kinds of destination in one table. The column that earns its place is
+ * the origin: a folder an Arr lists and a folder you typed here are both
+ * destinations, both mapped to a category you named, and neither was created
+ * by Routarr. Without it the headline is a promise; with it, it is a property
+ * of every row.
+ *
+ * Paths, instance names and categories are the operator's own words, so
+ * nothing in the body is translated but the two origins and the two states.
+ */
+interface Folder { path: string; instance: string; declared: boolean; free: string | null; category: string | null }
+const FOLDERS: Folder[] = [
+  { path: '/movies', instance: 'Radarr', declared: false, free: '2.4 TiB', category: 'standard' },
+  { path: '/movies/anime', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'anime' },
+  { path: '/movies/kids', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'kids' },
+  { path: '/movies/concerts', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'concerts' },
+  { path: '/tv', instance: 'Sonarr', declared: false, free: '6.1 TiB', category: 'standard' },
+  { path: '/tv/anime', instance: 'Sonarr', declared: false, free: '6.1 TiB', category: 'anime' },
+  { path: '/mnt/archive', instance: 'Sonarr', declared: false, free: null, category: null },
+];
+const COLUMNS: Key[] = ['folders.col.path', 'folders.col.instance', 'folders.col.origin', 'folders.col.free', 'folders.col.category'];
+---
+
+<section id="folders" class="section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('folders.span')}</span>
+      <h2 set:html={t('folders.h2')} />
+      <p set:html={t('folders.p')} />
+    </div>
+
+    <div class="folders">
+      <p class="folder-row folder-head">{COLUMNS.map((column) => <span>{t(column)}</span>)}</p>
+      {
+        FOLDERS.map((folder) => (
+          <p class="folder-row">
+            <span class="folder-path">{folder.path}</span>
+            <span class="folder-instance">{folder.instance}</span>
+            <span class:list={['folder-origin', { declared: folder.declared }]}>
+              {t(folder.declared ? 'folders.origin.declared' : 'folders.origin.arr')}
+            </span>
+            <span class="folder-free">
+              <span class:list={['folder-dot', { off: !folder.free }]} aria-hidden="true" />
+              {folder.free ?? t('folders.unreachable')}
+            </span>
+            <span class:list={['folder-cat', { none: !folder.category }]}>
+              {folder.category ?? t('folders.unmapped')}
+            </span>
+          </p>
+        ))
+      }
+      <p class="folder-foot"><span>{t('folders.foot')}</span><span>{t('folders.foot.2')}</span></p>
+    </div>
+
+    <p class="folders-note" set:html={t('folders.p.2')} />
+
+    <figure class="shot">
+      <picture>
+        <source srcset="/assets/shots/root-folders.avif" type="image/avif">
+        <img src="/assets/shots/root-folders.webp" width="2880" height="1800" loading="lazy" decoding="async"
+             alt={t('folders.img-attr')}>
+      </picture>
+      <figcaption>{t('folders.figcaption')}</figcaption>
+    </figure>
+  </div>
+</section>

@@ -1,0 +1,167 @@
+name: Release
+
+# Tags only. `ci.yml` already builds the image on every push to main with
+# `push: false`, which proves the Dockerfile works; this is the one place an
+# image leaves the runner, and it should happen because someone tagged a
+# release rather than because someone merged.
+on:
+  push:
+    tags: ['v*']
+
+# Every `uses:` is pinned to a commit, with the tag it was in a comment beside
+# it. A tag is a mutable pointer its owner can move: `@v7` means "whatever the
+# owner calls v7 the next time this runs", and one of these workflows holds
+# `packages: write` and pushes an image to GHCR. A commit id cannot be moved.
+# Dependabot updates both the id and the comment, so this costs nothing to keep
+# current — it only changes who decides when the code changes.
+
+jobs:
+  # A tag can be pushed onto a commit whose CI failed, and the tag triggers the
+  # publish directly. GHCR is not a place to take something back from, so this
+  # asks the one question worth asking first.
+  guard:
+    name: The commit is green
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+    steps:
+      - name: Check CI on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          runs=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[] | select(.name != "Release") | "\(.name)\t\(.conclusion // .status)"')
+
+          if [ -z "$runs" ]; then
+            echo "::error::No workflow run for $SHA. Push the commit to main and let CI finish before tagging it."
+            exit 1
+          fi
+
+          printf '%s\n' "$runs"
+
+          # A skipped run is a legitimate answer — the path filters skip whole
+          # areas a commit did not touch. A failed or cancelled one is not.
+          #
+          # awk, not grep: the two fields are separated by a tab, and `\t` in an
+          # ERE is a literal `t`, so a grep pattern written that way matches
+          # nothing and refuses every commit ever tagged.
+          rejected=$(printf '%s\n' "$runs" | awk -F'\t' '$2 != "success" && $2 != "skipped"')
+          if [ -n "$rejected" ]; then
+            printf 'Not green:\n%s\n' "$rejected"
+            echo "::error::At least one workflow on $SHA did not succeed. Nothing published."
+            exit 1
+          fi
+
+  image:
+    name: Publish the image
+    needs: guard
+    runs-on: ubuntu-latest
+    # The arm64 leg is emulated and took 115 minutes on a cold cache. Tags read
+    # the cache the default branch wrote, so this is normally minutes — the
+    # ceiling is here for the run where it is not.
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      packages: write
+      # For the provenance attestation below: `id-token` signs it, and
+      # `attestations` records it against the repository.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Sign in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # No secret to manage: the token GitHub already hands the job is
+          # enough, given `packages: write` above.
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # metadata-action lower-cases the repository name, which matters: the
+      # repository is `Routarr/Routarr` and a registry path with a capital
+      # letter in it is rejected. It also derives the tag set from the git tag,
+      # so `v1.2.3` publishes 1.2.3, 1.2, 1 and latest, and a pre-release does
+      # not take `latest`, `1.2` or `1` with it.
+      #
+      # No `0` tag: semver makes no compatibility promise across 0.x, so a tag
+      # following every 0.x release would promise exactly what those releases
+      # do not. The major tag starts with 1.0.0.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+          flavor: |
+            latest=auto
+
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Signed evidence of which workflow, on which commit, built this exact
+      # digest — attached to the image in the registry, so `gh attestation
+      # verify` answers it without trusting this repository's own word for it.
+      # An image people pull onto machines holding their media library is worth
+      # the three lines.
+      - name: Attest the build's provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+  # The release itself. Publishing it by hand — `gh release create` from a
+  # laptop — is the kind of step that gets forgotten or done differently each
+  # time, so it happens here. Notes are generated from the commits since the
+  # last tag, which is what the log is written for.
+  release:
+    name: Publish the release
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Create it
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # `--generate-notes` finds the previous tag on its own; naming one
+          # explicitly only creates a way to name the wrong one. `--verify-tag`
+          # refuses to invent a tag that does not exist, which it cannot here —
+          # but the day someone runs this by hand it can.
+          #
+          # A draft, because generated notes are a list of every commit since the
+          # last tag and most of them are internal. The release is announced once
+          # somebody has written what changed for a user; the image is on GHCR
+          # either way, so nothing waits on that. See CONTRIBUTING.md.
+          # A hyphen after the version is what semver calls a pre-release, and
+          # it is the same rule metadata-action applies when it declines to move
+          # `latest`. Without this the image would treat v1.0.0-rc1 as a
+          # pre-release while the release page called it the real thing.
+          case "$TAG" in
+            *-*) prerelease=--prerelease ;;
+            *) prerelease= ;;
+          esac
+          gh release create "$TAG" --title "$TAG" --generate-notes --verify-tag --draft $prerelease

@@ -1,0 +1,133 @@
+version: 2
+
+# Staleness is not what `cargo audit` and `npm audit` cover: a deprecated
+# runtime or an action about to stop working is not an advisory.
+#
+# Monthly, and two groups per ecosystem — safe updates in one, majors in the
+# other. A pull request per dependency is how a bot gets ignored, and majors
+# need reading where minor and patch do not. `open-pull-requests-limit` is the
+# backstop for a month when a whole ecosystem moves.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns: ['*']
+
+  # The base images are how a new compiler, runtime or distribution reaches the
+  # repository, and no other ecosystem sees them: cargo reads Cargo.toml, npm
+  # reads package.json, and `rust-toolchain.toml` has no ecosystem at all.
+  #
+  # Dependabot moves the `FROM` line and only that line, while the Rust version
+  # is written three more times and the Node major four.
+  # `scripts/check-versions.py` fails a partial bump rather than letting the
+  # copies drift.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      images:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      images-breaking:
+        patterns: ['*']
+        update-types: ['major']
+    ignore:
+      # Node's even majors reach LTS in the October of their release year, and
+      # the image is what people run: it tracks LTS, never Current. Raise the
+      # major here by hand, in the four files that carry it together, once the
+      # line it moves to is LTS. Minor and patch updates are untouched, so an
+      # advisory against the shipped line still arrives.
+      - dependency-name: 'node'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: docker
+    directory: /.devcontainer
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      devcontainer-images:
+        patterns: ['*']
+
+  # `/backend`, not `/`: that is where the Cargo.toml is. A directory pointing
+  # anywhere else fails silently, in a workflow nobody reads unless they go
+  # looking.
+  - package-ecosystem: cargo
+    directory: /backend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      # Almost always safe, and not worth reading one at a time.
+      rust:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      # Together: breaking changes in one tree tend to need each other, and a
+      # major taken alone often does not build.
+      rust-breaking:
+        patterns: ['*']
+        update-types: ['major']
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      frontend:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      # Same reasoning: a build tool and its plugins have to move together.
+      frontend-breaking:
+        patterns: ['*']
+        update-types: ['major']
+    ignore:
+      # These types describe the API of the Node the code runs on, so they
+      # follow the runtime rather than lead it, and the runtime follows LTS.
+      # Raised together with the four files that carry the Node major, in the
+      # October a line becomes LTS.
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # `svelte-check` requires `typescript` to be `>= 5.0 and <= 6.0`, and
+      # loads TypeScript 7 from a second aliased dependency instead
+      # (`@typescript/native`, behind `--tsgo`). A major bump therefore moves
+      # the one package that has to stay at 6, and blocks its whole group.
+      #
+      # Remove when `svelte-check` drops the `<= 6.0` ceiling — not when
+      # TypeScript 7 ships. Minor and patch updates are unaffected.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
+
+  # The showcase site has its own lockfile. It deploys to Cloudflare Pages
+  # rather than into the image, so nothing here ships to a user — but it is
+  # still a build CI has to keep green.
+  - package-ecosystem: npm
+    directory: /site
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      site:
+        patterns: ['*']
+        update-types: ['minor', 'patch']
+      site-breaking:
+        patterns: ['*']
+        update-types: ['major']
+    ignore:
+      # `astro check` needs TypeScript's programmatic API (`findConfigFile`,
+      # `ts.sys`), which the native 7.0 compiler does not ship — and unlike
+      # `frontend/`, no aliased second install works around it.
+      #
+      # Remove when withastro/roadmap discussion 1321 lands.
+      #
+      # **Remove this the day `svelte-check` accepts TypeScript 7 with a single
+      # installation.** Minor and patch updates are untouched, so an advisory
+      # against the 6.x line still arrives.
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']

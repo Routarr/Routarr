@@ -1,0 +1,80 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * The rule drawn the way the application draws it, so ALL and ANY are a
+ * control you can see is set rather than two words in a sentence, and the
+ * exclusion is a block working against the one above it rather than a
+ * paragraph about one.
+ *
+ * Field names are the engine's own identifiers and values are the library's,
+ * so neither is translated — only the operators between them, and the labels
+ * around the card.
+ */
+const CONDITIONS: { field: string; operator: Key; values: string[] }[] = [
+  { field: 'original_language', operator: 'rules.card.is-one-of', values: ['ja'] },
+  { field: 'genre_contains', operator: 'rules.card.contains', values: ['Animation'] },
+];
+const EXCLUSIONS: typeof CONDITIONS = [
+  { field: 'certification_in', operator: 'rules.card.is-one-of', values: ['G', 'U', 'TV-Y'] },
+];
+---
+
+<section id="rules">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('rules.span')}</span>
+      <h2 set:html={t('rules.h2')} />
+      <p set:html={t('rules.p')} />
+    </div>
+
+    <article class="rule-card">
+      <header class="rule-top">
+        <h3>{t('page.text.3')}</h3>
+        <span class="rule-pill">{t('rules.card.priority')} 10</span>
+        <span class="rule-pill">{t('rules.card.types')}</span>
+        <p class="rule-target">{t('rules.card.routes')} <b>anime</b></p>
+      </header>
+
+      <div class="rule-group">
+        <div class="rule-group-head">
+          <h4>{t('rules.card.conditions')}</h4>
+          {/* Both modes are named and the one in force is lit, the way the
+               theme switch in the bar names both of its states. */}
+          <p class="rule-mode"><span class="on">{t('rules.card.all')}</span><span>{t('rules.card.any')}</span></p>
+        </div>
+        {
+          CONDITIONS.map((condition) => (
+            <p class="rule-cond">
+              <span class="rule-field">{condition.field}</span>
+              <span class="rule-op">{t(condition.operator)}</span>
+              <span class="rule-values">{condition.values.map((value) => <span class="val">{value}</span>)}</span>
+            </p>
+          ))
+        }
+      </div>
+
+      <div class="rule-group rule-group-except">
+        <div class="rule-group-head"><h4>{t('rules.card.except')}</h4></div>
+        {
+          EXCLUSIONS.map((condition) => (
+            <p class="rule-cond">
+              <span class="rule-field">{condition.field}</span>
+              <span class="rule-op">{t(condition.operator)}</span>
+              <span class="rule-values">{condition.values.map((value) => <span class="val">{value}</span>)}</span>
+            </p>
+          ))
+        }
+        <p class="rule-note" set:html={t('rules.p.3')} />
+      </div>
+
+      <footer class="rule-foot">
+        <span class="rule-braces" aria-hidden="true">{'{ }'}</span>
+        <p set:html={t('rules.p.2')} />
+      </footer>
+    </article>
+  </div>
+</section>

@@ -1,0 +1,404 @@
+name: CI
+
+# No `paths-ignore` here on purpose: the `changes` job below is the filter, and
+# it always runs. A commit the workflow skips entirely has no run at all, and
+# the release guard then refuses to tag it while telling the author to wait for
+# a CI that was never going to come.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Nothing here writes to the repository: the token can only read it. A job that
+# one day needs more states it on the job, not here.
+permissions:
+  contents: read
+
+# One run per branch; a new push cancels the one it supersedes. Keying on
+# `head_ref` for a pull request and `ref` otherwise keeps a PR and its target
+# branch in separate groups, so they never cancel each other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+# Every `uses:` is pinned to a commit, with its tag in the comment beside it. A
+# tag is a mutable pointer its owner can move, and `release.yml` holds
+# `packages: write`. Dependabot updates the id and the comment together.
+
+jobs:
+  # Which of the three deliverables a commit touched.
+  #
+  # The three directories are disjoint, so a site-only commit costs neither
+  # Rust nor Playwright.
+  #
+  # **It fails open.** A base commit that cannot be resolved — force push, first
+  # push to a branch, shallow fetch — runs everything: skipping too much lets a
+  # broken commit through, running too much costs minutes.
+  changes:
+    name: What changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Both sides of the comparison have to be present in the clone.
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -u
+
+          everything=false
+          if [ -z "${BASE:-}" ] \
+            || [ "$BASE" = "0000000000000000000000000000000000000000" ] \
+            || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            echo "No usable base commit ('${BASE:-}') — running everything."
+            everything=true
+            changed=""
+          else
+            changed=$(git diff --name-only "$BASE" "$HEAD")
+            printf 'Changed:\n%s\n' "$changed"
+          fi
+
+          decide() {
+            if [ "$everything" = true ]; then
+              echo true
+            elif printf '%s\n' "$changed" | grep -qE "$1"; then
+              echo true
+            else
+              echo false
+            fi
+          }
+
+          # `scripts/` is the locale tooling, which the backend job runs.
+          backend=$(decide '^(backend/|scripts/|\.github/workflows/ci\.yml)')
+          frontend=$(decide '^(frontend/|\.github/workflows/ci\.yml)')
+          # `site/check.mjs` reads the version out of the crate's manifest, and
+          # `site/verify.mjs` loads Playwright out of the frontend's
+          # `node_modules`. Both are real dependencies on another deliverable,
+          # so both have to re-run the site checks — a Dependabot bump of
+          # `@playwright/test` matches neither `site/` nor anything else the
+          # site job watches, and would land green while breaking it.
+          site=$(decide '^(site/|backend/Cargo\.toml|frontend/package(-lock)?\.json|\.github/workflows/ci\.yml)')
+
+          {
+            echo "backend=$backend"
+            echo "frontend=$frontend"
+            echo "site=$site"
+          } | tee -a "$GITHUB_OUTPUT"
+
+      # In this job because it is the only one with no path filter: a commit
+      # touching just `Dockerfile` matches none of the three above, so every
+      # other job would skip and a partial version bump would land green.
+      - name: Check the toolchain versions agree
+        run: python3 scripts/check-versions.py
+
+  # What no deliverable's job reads: the workflows, the shell harnesses, the
+  # Dockerfiles and the history. Unfiltered for the same reason as `changes`.
+  #
+  # The three binaries are fetched from their releases and checked against the
+  # sums recorded here, so a moved tag or a replaced asset fails the step
+  # rather than running; shellcheck ships with the runner image.
+  repository:
+    name: Repository lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # gitleaks reads every commit, not the last one.
+          fetch-depth: 0
+
+      - name: Install the pinned linters
+        env:
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+          HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/bin"
+          curl -fsSL -o /tmp/actionlint.tgz \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz
+          echo "$ACTIONLINT_SHA256  /tmp/actionlint.tgz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tgz -C "$HOME/bin" actionlint
+          curl -fsSL -o "$HOME/bin/hadolint" \
+            https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64
+          echo "$HADOLINT_SHA256  $HOME/bin/hadolint" | sha256sum -c -
+          chmod +x "$HOME/bin/hadolint"
+          curl -fsSL -o /tmp/gitleaks.tgz \
+            https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+          echo "$GITLEAKS_SHA256  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C "$HOME/bin" gitleaks
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      - name: Lint the workflows
+        run: actionlint -no-color
+      - name: Lint the shell scripts
+        run: git ls-files -z '*.sh' | xargs -0 shellcheck -S style
+      - name: Lint the Dockerfiles
+        run: hadolint Dockerfile .devcontainer/Dockerfile
+      - name: Look for committed secrets
+        run: gitleaks git --no-banner --redact .
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    # Every job carries a ceiling because GitHub's own is six hours. Sized to
+    # catch a hang, not a slow day.
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # No toolchain pin here on purpose: rustup reads rust-toolchain.toml, so
+      # CI compiles with the exact version the release image ships.
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      # A broken intra-doc link is the one warning `clippy` does not see.
+      - name: Check the documentation builds clean
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --no-deps --locked
+
+      - name: Check locales
+        # Run from the root: it reads backend/locales but scans both source
+        # trees for the keys that reference them.
+        working-directory: .
+        run: python3 scripts/check-locales.py
+
+      # The contract is written twice, in two languages, and nothing else joins
+      # them: a renamed field compiles, passes both suites, and renders
+      # `undefined`.
+      - name: Check the API contract
+        working-directory: .
+        run: python3 scripts/check-api-types.py
+
+      - name: Test
+        run: cargo test --locked
+
+      # Fails on any RUSTSEC advisory. The dependency tree is pruned
+      # (`sqlx` with `default-features = false`) so this can be a hard gate.
+      - name: Audit dependencies
+        uses: taiki-e/install-action@aa7e9e10a2fd43c88f1948b7de4af2f4efd56483 # cargo-audit
+        with:
+          # Named rather than taken from the ref (`@cargo-audit`), whose
+          # meaning a commit pin silently changes.
+          tool: cargo-audit
+      - run: cargo audit
+
+      # What `cargo audit` does not look at: a licence the GPL cannot ship
+      # beside, a crate from a source nobody named, a yanked version.
+      # `deny.toml` states the allow-list.
+      - name: Check licences and sources
+        uses: taiki-e/install-action@aa7e9e10a2fd43c88f1948b7de4af2f4efd56483 # cargo-deny
+        with:
+          tool: cargo-deny
+      - run: cargo deny --locked check
+
+  coverage:
+    name: Backend coverage
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    # Instrumented, so it cannot reuse the test job's artifacts. Kept separate
+    # so a slow measurement never delays "do the tests pass".
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+      - uses: taiki-e/install-action@aa7e9e10a2fd43c88f1948b7de4af2f4efd56483 # cargo-llvm-cov
+        with:
+          tool: cargo-llvm-cov
+
+      # A floor, not a target: it catches a module landing with no test, not a
+      # refactor that moves a point. `src/tests/` is excluded because measuring
+      # the tests' own coverage inflates the figure, and `main.rs` because the
+      # end-to-end suite covers it and this one cannot.
+      - name: Measure coverage
+        run: |
+          cargo llvm-cov --summary-only --fail-under-lines 90 \
+            --ignore-filename-regex 'src/(tests/|main\.rs)'
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      # The counterpart of `cargo audit`, over the whole tree including
+      # development dependencies, for symmetry with what it checks in
+      # Cargo.lock. `high` rather than `moderate`: a gate that fires on
+      # everything is one people learn to skip. `--omit=dev` narrows it to what
+      # ships if dev-only advisories make it noisy.
+      - name: Audit dependencies
+        run: npm audit --audit-level=high
+
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+
+      # Also in the backend job: the contract breaks from either side, and the
+      # path filters gate the two separately.
+      - name: Check the API contract
+        working-directory: .
+        run: python3 scripts/check-api-types.py
+
+      # Same reason: the dictionaries live in `backend/`, the keys that read
+      # them in `frontend/src`. A pull request touching only a component never
+      # runs the backend job, so a key with no dictionary entry — rendered raw
+      # on screen — passed here and failed on the next person's backend change.
+      - name: Check locales
+        working-directory: .
+        run: python3 scripts/check-locales.py
+
+      # `all: true` in vite.config.ts is load-bearing: without it v8 counts
+      # only the files a test imported, reporting a high number over a small
+      # fraction of the tree.
+      - name: Test
+        run: npm run coverage
+
+      # `npm run build` runs tsc first, so this is the type check too.
+      - name: Build
+        run: npm run build
+
+      # The two bundles every visit downloads, held to a ceiling: nothing else
+      # measures them, and a size that drifts up is invisible until the
+      # dashboard downloads the rule builder with it.
+      - name: Check the bundle size
+        working-directory: .
+        run: node scripts/check-bundle-size.mjs
+
+  e2e:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: changes
+    # Drives the release binary *serving the built frontend*, so either side
+    # changing is reason enough to run it.
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: backend
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install chromium --with-deps
+        working-directory: frontend
+
+      # Drives the release binary serving the built frontend against a fake
+      # Radarr: the only place a broken route, a dead control or a folded table
+      # cell can actually be caught.
+      - name: End-to-end
+        run: npm run test:e2e
+        working-directory: frontend
+
+      # Mounted under a sub-path, the case that only ever breaks behind a
+      # reverse proxy — where it is hardest to diagnose.
+      - name: End-to-end behind a sub-path
+        run: npm run test:e2e:base
+        working-directory: frontend
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: failure()
+        with:
+          name: playwright-report
+          path: frontend/test-results/
+          retention-days: 7
+
+  site:
+    name: Showcase site
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            site/package-lock.json
+            frontend/package-lock.json
+
+      - run: npm ci
+        working-directory: site
+
+      # Everything below reads `site/dist`, which is what Cloudflare serves.
+      # Checking the sources would test the intention; this tests the artefact.
+      - name: Build
+        run: npm run build
+        working-directory: site
+
+      # Astro's own type check over the components and the i18n catalogue: a
+      # key the markup asks for and English does not have fails here, before
+      # anything is rendered.
+      - name: Type-check the components
+        run: npx astro check
+        working-directory: site
+
+      # Playwright, for the browser pass below. The site has no runtime
+      # dependency of its own.
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install chromium --with-deps
+        working-directory: frontend
+
+      # Origins, CSP hash, image dimensions, contrast, dead links.
+      - name: Static checks
+        run: node site/check.mjs
+
+      # Loads the page under the real `_headers`, so a CSP that blocks the
+      # stylesheet fails here instead of on the deployed site.
+      - name: Browser checks
+        run: node site/verify.mjs

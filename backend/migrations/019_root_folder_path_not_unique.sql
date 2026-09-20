@@ -1,0 +1,16 @@
+-- Uniqueness on the path is asserted where a path is typed, not by the schema.
+--
+-- As an index it fails twice. A folder removed and re-added in Radarr keeps its
+-- path and gets a new `arr_id`, and the sync inserts the new row *before* the
+-- orphan cleanup deletes the old one — so the insert hits the index, the
+-- transaction rolls back, and that instance never syncs again. And on a
+-- database written before 018, where only `(instance_id, arr_id)` was unique,
+-- two rows may already share a path: creating the index fails the migration
+-- outright and the installation will not start.
+--
+-- Without it the renumbering case resolves itself: the duplicate lives only
+-- inside the sync's transaction, and the cleanup removes the row that carries
+-- no token from this pass. What the index was for — two *declared* rows on one
+-- path — is refused by `api/root_folders::create`, which is where a person
+-- types one.
+DROP INDEX IF EXISTS idx_root_folders_path;

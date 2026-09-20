@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<!-- Dark is the default, stamped here so the first paint is already it: the
+     theme lives in the `ui_theme` setting, which the shell can only read after
+     its first request, and a light-system reader saw a white frame until it
+     landed. `auto` is what removes this attribute again. -->
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Routarr — Media Routing Engine</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

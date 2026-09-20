@@ -1,0 +1,2837 @@
+/* Servarr-inspired Modern Dark Theme Design System */
+
+:root {
+  /* What the browser paints for itself: the `<select>` popup list, the caret,
+     the spin buttons, the focus rings. Without it the option list a select
+     opens is white whatever the interface does, which is the one piece of the
+     form nobody can style. Declared alongside the palette in all three theme
+     blocks so it follows the setting, not the operating system. */
+  color-scheme: dark;
+  --bg-base: #131519;
+  --bg-surface: #1a1d24;
+  --bg-card: #21252e;
+  --bg-card-hover: #292d38;
+  --bg-input: #17191f;
+  --bg-overlay: rgba(15, 17, 21, 0.85);
+
+  --border-subtle: #2d323e;
+  /* The border of anything that takes a click or a keystroke. WCAG 1.4.11
+     asks 3:1 of the boundary that identifies a control, and `--border-subtle`
+     reads 1.37:1 against `--bg-input` — a field whose frame is a suggestion.
+     This one measures 3.22:1; see theme.contrast.test.ts. Passive separations
+     (card edges, table rules) keep the subtle one, which identifies nothing. */
+  --border-strong: #616a79;
+  --border-focus: #ffa500;
+  --scrollbar-thumb: #3a4150;
+  --scrollbar-thumb-hover: #4d5566;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  /* A navigation entry at rest. Brighter than `--text-secondary` so the gap
+     with the group heading — which stays at `--text-muted` — is a step rather
+     than the 5% of luminance that had a heading read as an entry missing its
+     icon. */
+  --text-nav: #b9bec8;
+  /* #6b7280 sat at 3.17:1 on a card — below WCAG AA, and this token carries
+     timestamps and hints at 12–13px, where legibility matters most. The values
+     here are the smallest step that clears 4.5:1; see theme.contrast.test.ts. */
+  --text-muted: #888e99;
+
+  --accent-primary: #ffa500;
+  /* The fill behind a distribution row. Neutral on purpose: the accent is this
+     interface's *action* colour, and spending it on passive reference data
+     claims an emphasis the panel does not have — at 16% over #131519 it also
+     came out a muddy brown that read as a stain rather than a measure. Defined
+     per theme because a light tint on a dark ground has to invert. */
+  --facet-bar: rgba(255, 255, 255, 0.08);
+  --accent-primary-hover: #ffb733;
+  /* The accent as text or border. Identical to the fill on a dark background;
+     the light theme darkens it, because #ffa500 on white is about 1.9:1 and
+     unreadable. */
+  --accent-strong: #ffa500;
+  --accent-radarr: #3b82f6;
+  --accent-sonarr: #10b981;
+
+  --status-success: #10b981;
+  --status-success-bg: rgba(16, 185, 129, 0.15);
+  --status-warning: #f59e0b;
+  --status-warning-bg: rgba(245, 158, 11, 0.15);
+  /* Both were unreadable *on their own badge*: the tint darkens the background
+     the text sits on, which the eye forgives and the arithmetic does not. */
+  --status-danger: #f37070;
+  --status-danger-bg: rgba(239, 68, 68, 0.15);
+  --status-info: #649cf8;
+  --status-info-bg: rgba(59, 130, 246, 0.15);
+
+  /* The sidebar header and the top bar draw one continuous rule across the
+     window, so their heights are the same number stated once. They were 72px
+     and 64px, which put a nine-pixel step in the middle of the chrome. */
+  --chrome-height: 64px;
+
+  /* A 4px scale, stated once. Spacing was the only part of the system still
+     written as bare numbers — colours, radii and fonts were already tokens,
+     while margins lived inline in the JSX. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* The shell's own measurements. The sidebar width was written twice — here
+     and in `.main-content`'s margin — which is how the two drift apart. */
+  --sidebar-width: 250px;
+  --sidebar-rail: 68px;
+
+  /* One duration for the whole interface. Long enough to be seen, short enough
+     never to be waited for. */
+  --transition: 140ms ease;
+
+  /* The angle is what separates; colour signals and weight ranks. A 10px
+     radius on a 36px button is 28% of its height — the proportion of a
+     consumer application rather than of an operations tool.
+
+     `--radius-full` is a closed list: the 7px kind dot, the progress bar, the
+     navigation count and the scrollbar thumb. A pill anywhere else is a badge
+     pretending to be a state. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 4px;
+  --radius-full: 9999px;
+
+  /* One scale for what sits above what. A literal picked per component is how
+     a new menu ends up under the bar it opened from. */
+  --z-sticky: 1;
+  --z-bar: 5;
+  --z-scrim: 9;
+  --z-nav: 10;
+  --z-menu: 20;
+  --z-modal: 100;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+
+  /* System stacks, never web fonts: fetching a face from a third party tells
+     it the address of every installation that opens the interface, and leaves
+     the typography broken on an air-gapped host. Inter and JetBrains Mono lead
+     the stacks so anyone who has them installed gets them. */
+  --font-sans:
+    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+/* Light theme.
+ *
+ * Only the colours are redefined; every radius, shadow and font token is shared,
+ * so the two themes cannot drift into different layouts. `auto` follows the
+ * operating system, and an explicit choice wins over it — the same three-state
+ * arrangement the showcase site uses.
+ */
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg-base: #f4f5f7;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #eef0f4;
+  --bg-input: #ffffff;
+  --bg-overlay: rgba(17, 20, 26, 0.45);
+
+  --border-subtle: #d7dbe2;
+  --border-strong: #8b93a1;
+  --border-focus: #b45309;
+  --scrollbar-thumb: #c2c8d2;
+  --scrollbar-thumb-hover: #a4acb9;
+
+  --text-primary: #16181d;
+  --text-secondary: #4b5563;
+  --text-muted: #686f7d;
+  --text-nav: #3f4653;
+
+  /* The fill keeps its orange — `.btn-primary` writes #111 on it either way.
+     The text form darkens to stay legible on white. */
+  --accent-strong: #b45309;
+  --facet-bar: rgba(17, 20, 26, 0.07);
+
+  --status-success: #047857;
+  --status-success-bg: rgba(4, 120, 87, 0.12);
+  --status-warning: #ab4f09;
+  --status-warning-bg: rgba(180, 83, 9, 0.12);
+  --status-danger: #b91c1c;
+  --status-danger-bg: rgba(185, 28, 28, 0.1);
+  --status-info: #1d4ed8;
+  --status-info-bg: rgba(29, 78, 216, 0.1);
+
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+}
+
+/* The light palette again, for the setting that stamps nothing.
+
+   `auto` resolves through the system rather than through an attribute, so no
+   selector can be shared with the block above and every token has to be
+   restated. A token added there and forgotten here keeps its *dark* value on a
+   white ground — 1.86:1 for the navigation, and only for the readers who never
+   opened the setting, which is most of them. `theme.contrast.test.ts` measures
+   this block and compares the two token sets for that reason. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme='dark']) {
+    color-scheme: light;
+    --facet-bar: rgba(17, 20, 26, 0.07);
+    --bg-base: #f4f5f7;
+    --bg-surface: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-hover: #eef0f4;
+    --bg-input: #ffffff;
+    --bg-overlay: rgba(17, 20, 26, 0.45);
+
+    --border-subtle: #d7dbe2;
+    --border-strong: #8b93a1;
+    --border-focus: #b45309;
+    --scrollbar-thumb: #c2c8d2;
+    --scrollbar-thumb-hover: #a4acb9;
+
+    --text-primary: #16181d;
+    --text-secondary: #4b5563;
+    --text-muted: #686f7d;
+    --text-nav: #3f4653;
+
+    --accent-strong: #b45309;
+
+    --status-success: #047857;
+    --status-success-bg: rgba(4, 120, 87, 0.12);
+    --status-warning: #ab4f09;
+    --status-warning-bg: rgba(180, 83, 9, 0.12);
+    --status-danger: #b91c1c;
+    --status-danger-bg: rgba(185, 28, 28, 0.1);
+    --status-info: #1d4ed8;
+    --status-info-bg: rgba(29, 78, 216, 0.1);
+
+    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+    --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--accent-strong);
+  text-decoration: none;
+}
+
+/* Layout */
+.app-container {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* Logical rather than physical throughout the shell: `inline-start` is the left
+   edge in English and the right edge in Arabic, so the sidebar changes sides
+   with the language and nothing has to be restated per direction. */
+.sidebar {
+  width: var(--sidebar-width);
+  background-color: var(--bg-surface);
+  border-inline-end: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  inset-inline-start: 0;
+  z-index: var(--z-nav);
+}
+
+.sidebar-header {
+  /* Fixed rather than derived from the logo, so the rule below it lands exactly
+     where the top bar's does. */
+  height: var(--chrome-height);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sidebar-logo {
+  width: 32px;
+  height: 32px;
+  color: var(--accent-strong);
+}
+
+.sidebar-title {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+.sidebar-nav {
+  padding: 16px 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* The group's name, and the space above it. Not a heading element: the
+   accessibility sweep refuses a skipped level and a navigation is not an
+   outline, so the grouping is carried by aria-labelledby instead. */
+/* A heading, and it has to be unmistakably not an entry.
+ *
+ * It was 11px muted against 14px secondary — about 5% of luminance apart — set
+ * on the icon column with 16px above and 6px below. A group title therefore
+ * read as an entry that had lost its icon. Four things separate them now: the
+ * entry is brighter (`--text-nav`), the heading is smaller and tracked wider,
+ * the space above is five times the space below so the title binds to what it
+ * titles, and a hairline runs from the words to the edge — a rule no entry
+ * ever carries. In the rail that hairline is all that survives, which is the
+ * same device reduced rather than a second one. */
+.nav-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 22px 0 4px;
+  padding-inline: 14px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.nav-group::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background-color: var(--border-subtle);
+}
+
+/* What the top bar already counts, on the entry that answers it. */
+/* A count pastille keeps its pill: it is a small round thing holding a
+   number, which is the one shape that reads as a count. Neutral unless it is
+   asking for something — four amber badges in a column would say everything
+   is urgent, which is how nothing is. */
+.nav-badge {
+  margin-inline-start: auto;
+  min-width: 18px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.nav-badge.is-warning {
+  border-color: var(--status-warning);
+  color: var(--status-warning);
+}
+
+.nav-badge.is-critical {
+  border-color: var(--status-danger);
+  color: var(--status-danger);
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  /* Reserved on every entry and coloured on the active one, so nothing shifts
+     by two pixels when the page changes — and logical, so it moves to the
+     right-hand edge in Arabic without a second rule. */
+  border-inline-start: 2px solid transparent;
+  color: var(--text-nav);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+/* Icons keep their size whatever the label length; the label may wrap. */
+.nav-item > svg,
+.btn > svg {
+  flex-shrink: 0;
+}
+
+.nav-item:hover {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* A mark in the margin rather than a rounded pill: it says "you are here" in
+   a tree, where the pill said "this is a tag". */
+.nav-item.active {
+  background-color: var(--bg-card-hover);
+  border-inline-start-color: var(--accent-primary);
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+/* The version, at the foot of the navigation. Quiet, one line, and it keeps
+   its place in the rail — where the label column is gone, the number alone
+   still fits 68px. */
+.sidebar-foot {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.main-content {
+  margin-inline-start: var(--sidebar-width);
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  height: var(--chrome-height);
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+  position: sticky;
+  top: 0;
+  z-index: var(--z-bar);
+}
+
+.page-container {
+  padding: var(--space-6);
+  flex: 1;
+}
+
+/* Headings */
+.page-header {
+  margin-bottom: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+/* The header is `flex-wrap: wrap`, but its action group was not: fourteen
+   pages put their buttons in a bare `.flex`, so on a narrow screen the last
+   one was simply cut off at the edge. Stated here rather than in fourteen
+   markups. */
+.page-header > * {
+  min-width: 0;
+}
+.page-header > .flex {
+  flex-wrap: wrap;
+}
+
+.page-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--text-primary);
+}
+
+.page-subtitle {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+/* Cards Grid & Cards */
+
+.card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+/* A sentence that governs the card, under its title. Not a field's help text,
+   which belongs under the field: this one introduces everything below it. */
+.card-note {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 62ch;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  /* A flex row defaults to `stretch`, so a button grouped next to a taller
+     sibling — a file-input label, a text field — grew to match it. The same
+     `.btn btn-primary` measured 34px on one page and 41px on another. A button
+     is sized by what it is, never by what it stands beside. */
+  align-self: center;
+  /* And never by what it contains either. A minimum was not enough: a text
+     label produced a taller line box than a 16px icon, so buttons with words
+     stood a pixel above buttons with only a glyph. A fixed height with the
+     content centred inside it is the only version that cannot drift — and
+     `white-space: nowrap` above guarantees a single line to centre. */
+  height: 36px;
+  /* Stated, not inherited. A <button> gets a normalised line-height from the
+     user agent and a <label class="btn"> does not, so the import label stood 5px
+     taller than the buttons beside it; and a 13px text line is a pixel taller
+     than a 16px icon, which split the small buttons into two sizes. */
+  line-height: 1.2;
+  gap: 8px;
+  /* A translated label is often much longer than the English one. Keep it on
+     one line and let the surrounding row wrap instead of shredding the button. */
+  white-space: nowrap;
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  /* 500, not 600. Titles, buttons, badges and table headings were all
+     semibold, which left the weight axis no range to rank anything with. Only
+     the primary action keeps 600, and it is then the heaviest thing in its row
+     rather than one heavy thing among several. */
+  font-weight: 500;
+  /* Declared rather than absent, so a bordered variant and a filled one are
+     the same height and sit on the same baseline. */
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* A disabled button had no styling at all: full opacity, a pointer cursor, and
+   the primary fill still on it. Thirty controls across the application looked
+   clickable while doing nothing — "run the tests" with nothing to run, "apply"
+   under a dry run, "sync" while a sync is going. Every test asserted the
+   `disabled` attribute was set; none asserted anybody could tell. */
+.btn:disabled,
+.btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  /* Otherwise the hover fill still lights up under a cursor that cannot act. */
+  filter: none;
+}
+
+.btn-primary {
+  background-color: var(--accent-primary);
+  color: #111;
+  font-weight: 600;
+}
+
+/* A shift of fill, not a halo. The glow said nothing the colour change does
+   not, and it is the kind of effect that dates a screenshot to a year. */
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--accent-primary-hover);
+}
+
+.btn-secondary {
+  background-color: transparent;
+  color: var(--text-primary);
+  /* The border at rest is what says "this is a control" without a pointer
+     hovering it — which is the only way a finger can tell. */
+  border-color: var(--border-strong);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--bg-card-hover);
+}
+
+/* Outlined where it *asks*, filled where it *acts*. A row of solid red
+   buttons that only open a confirmation spends the strongest colour in the
+   palette on a question; the dialog is where the answer is given. */
+.btn-danger {
+  background-color: transparent;
+  color: var(--status-danger);
+  border-color: var(--status-danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--status-danger-bg);
+}
+
+.modal-content .btn-danger {
+  background-color: var(--status-danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+.modal-content .btn-danger:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.btn-sm {
+  padding: 6px 12px;
+  font-size: 13px;
+  height: 28px;
+}
+
+/* A fingertip is not a pointer: the compact controls that fit a table row on a
+   desktop grow to a target a thumb can hit without the row around it. */
+@media (pointer: coarse) {
+  /* 16px is under the 24px WCAG 2.2 asks of a target, and a checkbox is the
+     control that selects what gets moved. The tick grows with the box. */
+  input[type='checkbox'] {
+    width: 24px;
+    height: 24px;
+  }
+  input[type='checkbox']:checked::after {
+    width: 12px;
+    height: 7px;
+  }
+
+  .btn-sm,
+  .chip-remove,
+  /* A badge that is a link is a control, and eighty-four of them measured
+     under 40px on the library in a tablet. The padding grows, not the font,
+     so a row keeps its rhythm. */
+  a.badge,
+  .attention,
+  .nav-item,
+  .tab {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  a.badge,
+  .tab {
+    padding-block: 12px;
+  }
+}
+
+/* ─────────────────────────────────────────────── the top bar's two controls
+ *
+ * The bar carried up to five badges, each a translated sentence: 878px of
+ * chrome on a 1280px laptop in French, and 168px of horizontal *document*
+ * overflow at 360px, where they wrapped to three lines and burst out of a
+ * 64px bar. Their width was a function of the language.
+ *
+ * Two objects replace them, both of locale-independent width. A mode is not
+ * an alert: it says what a click will do, and the state the application is
+ * meant to run in is never painted in the danger colour. The four counts
+ * moved to the navigation, onto the entry that answers each of them.
+ */
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 10px;
+  flex: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  /* Measured, not assumed. Centring a fixed-height box on its line box leaves
+     the ink half a pixel high, because ascenders reach further above the
+     x-height than the baseline sits below it. A pixel of padding on one side
+     moves the content half of one, which is what the eye was catching. */
+  padding-block: 1px 0;
+}
+
+/* The dot carries the state, the word names it, and neither is the only
+   carrier — the full sentence is the accessible name. */
+.mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  flex: none;
+  /* Optical, not geometric. A round mark beside lowercase text aligns to the
+     middle of the x-height; centred on the line box it reads a pixel high,
+     because the ink of "Simulation" runs from the cap to the baseline while
+     the box also reserves room for a descender the word never uses. Nudged
+     rather than derived: the face is whatever the fallback stack resolves to,
+     so there is no one metric to compute it from. */
+  transform: translateY(1px);
+}
+.mode-dot.is-live {
+  background-color: var(--status-success);
+}
+.mode-dot.is-held {
+  background-color: var(--status-warning);
+}
+
+/* One control for everything that wants attention, and none at all when
+   nothing does. The figure is a total; the accessible name enumerates. */
+.attention {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* Same reasoning as `.mode-dot`, applied to the glyph: a triangle carries
+     its mass low, so centred on its own box it sits high against a digit. */
+  line-height: 1;
+  height: 28px;
+  padding: 0 9px;
+  flex: none;
+  border: 1px solid var(--status-warning);
+  border-radius: var(--radius-sm);
+  color: var(--status-warning);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+  padding-block: 1px 0;
+}
+
+/* Two alignments, and they are not the same one.
+ *
+ * A triangle hangs lower than a digit — its base sits well under the baseline
+ * while its apex barely clears the cap — so centring the pair inside the box
+ * still leaves the glyph reading 0.8px low against the number it labels, which
+ * is the alignment the eye actually judges. The glyph is lifted onto the
+ * digit, and the pair is then pushed back to the middle of the box. Both
+ * figures were measured off a 10x capture, not derived. */
+.attention > svg {
+  transform: translateY(-0.3px);
+}
+.attention.is-critical {
+  border-color: var(--status-danger);
+  color: var(--status-danger);
+}
+.attention:hover {
+  background-color: var(--bg-card-hover);
+}
+
+/* ─────────────────────────────────────────────────── the command palette
+ *
+ * "Why did Routarr put this film there?" is the question this product exists
+ * to answer, and from any screen it took four steps: open the library, type,
+ * search, then find the row and press its button. The palette answers it in
+ * one, and it is the only thing the bar gained back after the five badges left.
+ */
+.palette-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  flex: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-base);
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.palette-trigger:hover {
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.palette-trigger-key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 5px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+}
+
+/* No keyboard to teach a shortcut to, and the label would cost the width the
+   mode chip needs. The icon alone keeps its touch target. */
+@media (max-width: 900px) {
+  .palette-trigger-label,
+  .palette-trigger-key {
+    display: none;
+  }
+  .palette-trigger {
+    padding-inline: 8px;
+  }
+}
+
+.palette-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 var(--space-2) var(--space-3);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+}
+
+/* Anchored high rather than centred: the list changes height with every
+   keystroke, and a centred dialog would slide up and down under the fingers. */
+.modal-overlay:has(.palette) {
+  align-items: flex-start;
+  padding-block-start: 12svh;
+}
+
+/* Borderless: the dialog is the frame, and a box inside a box reads as two. */
+.palette-input:focus-visible {
+  outline: none;
+}
+
+.palette-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  /* The one place a focus ring is not wanted: the dialog is modal, this field
+     has the focus from the moment it opens and never gives it up, so the ring
+     draws a box inside the box rather than telling anyone anything. Every
+     other control in the application keeps its own. */
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 15px;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 46svh;
+  overflow-y: auto;
+}
+
+/* The same heading as the navigation's, because it groups the same things. */
+.palette-group {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: var(--space-3) var(--space-2) var(--space-1);
+}
+
+.palette-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border-inline-start: 2px solid transparent;
+  font-size: 13.5px;
+  cursor: pointer;
+}
+
+/* The mark the navigation uses for "you are here", reused for "this is what
+   Enter opens" — one shape, one meaning. */
+.palette-row.is-current {
+  background-color: var(--bg-card-hover);
+  border-inline-start-color: var(--accent-primary);
+}
+
+.palette-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.palette-meta {
+  flex: none;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* Above the results rather than in their place: only the library needs the
+   network, so a failure there must not remove the destinations too. */
+.palette-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-4);
+  border-block-end: 1px solid var(--border-subtle);
+  font-size: 12.5px;
+  color: var(--status-danger);
+}
+
+.palette-empty {
+  padding: var(--space-6) var(--space-4);
+  margin: 0;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+}
+
+.palette-empty span {
+  display: block;
+  margin-top: var(--space-2);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+@media (pointer: coarse) {
+  .palette-row {
+    min-height: 44px;
+  }
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Three roles, three shapes, so colour only ever means one thing.
+ *
+ * Coding two axes in one hue leaves a reader nothing to learn: the same green
+ * would mean "Sonarr", "connected" and "category" at once, and one category
+ * could come out green on one screen and blue on another.
+ *
+ *   .badge-success/warning/danger/info  filled, saturated  — a STATE
+ *   .badge-kind                         outlined + dot     — WHAT a thing is
+ *   .badge-value / .num                 neutral            — a value you typed
+ *
+ * The brand hues survive in the dot, so Radarr and Sonarr stay recognisable
+ * without competing with an outcome. */
+
+.badge-kind {
+  border: 1px solid var(--border-subtle);
+  background-color: transparent;
+  color: var(--text-secondary);
+  padding: 3px 10px;
+}
+.badge-kind::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: currentColor;
+  flex: none;
+  /* See `.mode-dot`: the label beside it is lowercase, so the dot belongs on
+     the x-height rather than on the middle of the line box. */
+  transform: translateY(1px);
+}
+.kind-radarr {
+  color: #7aa8f7;
+}
+/* Violet rather than Sonarr's green: the identity dot sat two shades from the
+   `connected` badge beside it, which is the confusion this whole vocabulary
+   exists to end. None of the four status hues is free, so the kind takes one
+   that is. */
+.kind-sonarr {
+  color: #a78bfa;
+}
+
+/* A value the user chose — a category, a scope, a match mode. Vocabulary, not
+   judgement, so it carries no semantic hue. */
+.badge-value {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+.badge-value.muted {
+  color: var(--text-secondary);
+}
+
+/* A count or an ordinal, in its own shape: as a `.badge-success` it says two
+   mapped folders are a success rather than a number. */
+.num {
+  display: inline-flex;
+  padding: 3px 8px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background-color: var(--bg-card-hover);
+  color: var(--text-secondary);
+}
+
+.badge-success {
+  background-color: var(--status-success-bg);
+  color: var(--status-success);
+}
+.badge-warning {
+  background-color: var(--status-warning-bg);
+  color: var(--status-warning);
+}
+.badge-danger {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger);
+}
+.badge-info {
+  background-color: var(--status-info-bg);
+  color: var(--status-info);
+}
+
+/* A list of sources with their state — a list, because the state is a phrase
+   and not a figure. Laid out as counts, the phrase takes the place a number
+   would and the source name reads as its caption. */
+.source-list {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.source-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  background-color: var(--bg-surface);
+}
+.source-row + .source-row {
+  border-top: 1px solid var(--border-subtle);
+}
+/* Not `opacity`: a source waiting for a key is not disabled, and dimming it
+   makes its own explanation harder to read than the rest. */
+.source-row.waiting {
+  background-color: transparent;
+}
+.source-row.waiting .source-name {
+  color: var(--text-secondary);
+}
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.source-name {
+  font-weight: 600;
+}
+/* Three columns rather than a flex row: the rank keeps its own lane, so a row
+   without one does not shift its neighbour's name sideways. */
+.source-list .source-row:has(.source-rank) {
+  grid-template-columns: 24px 1fr auto;
+}
+.source-rank {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--accent-strong);
+  text-align: end;
+}
+/* One width for the whole group, so a row with one button and a row with three
+   share the same right edge. */
+.source-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  min-width: 190px;
+}
+.source-group {
+  margin: 16px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.source-group:first-child {
+  margin-top: 0;
+}
+/* The credential, inside the row of the source it unlocks. Full width under
+   the name rather than beside it: the placeholder carries an environment
+   variable, which is long in every language, and a field squeezed next to a
+   button is a field nobody can read what they typed into. */
+.source-key {
+  margin-block-start: var(--space-2);
+}
+
+.source-key .form-input {
+  font-size: 13px;
+  padding-block: 7px;
+}
+
+.source-detail {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.source-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 20px;
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.source-footer b {
+  color: var(--text-primary);
+}
+
+/* Tables */
+/* A timestamp column. The value and whatever qualifies it (a sync outcome, a
+   status badge) belong on one line: stacked, they make every row in the table
+   twice as tall for no added meaning. `nowrap` keeps a long locale format from
+   folding — the column is scrollable via .table-container if it ever has to be. */
+.cell-timestamp {
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.cell-timestamp > * + * {
+  margin-inline-start: 8px;
+}
+
+/* Focusable, so a keyboard can scroll a table wider than its window: an
+   overflow region nothing can reach is unreachable content. */
+.table-container {
+  overflow-x: auto;
+  /* The containing block for anything positioned inside a table — the
+     visually-hidden name of an icon-only column, for one. Unpositioned, an
+     absolutely placed descendant escapes this box's scroll and lands at its
+     static position in the page: 600px into a 375px phone, and the page
+     scrolls sideways for a word nobody sees. */
+  position: relative;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  /* `start`, not `left`: a table of Arabic titles reads from the right. */
+  text-align: start;
+}
+
+th {
+  background-color: var(--bg-surface);
+  /* The browser's own sheet sets `th { text-align: center }`, and a declaration
+     beats the `start` inherited from `table` — so every heading sat centred
+     over values aligned to the start. Invisible on a narrow column, glaring on
+     a wide one. */
+  text-align: start;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  vertical-align: middle;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Form inputs */
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* A row of fields sitting side by side. Labels translate to wildly different
+   lengths — «Type» is one line, «Synchroniser toutes les (min)» is two — so the
+   controls are bottom-aligned rather than top-aligned: whatever the label does,
+   the inputs stay on the same line. */
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.form-row > .form-group {
+  min-width: 0;
+}
+
+.form-label {
+  /* A wrapped label must not collide with the control below it. */
+  line-height: 1.35;
+}
+
+/* The frame every field shares. This body was lost when a rule believed dead
+   was deleted: the removal took the shared base with it and merged its
+   selectors into the focus rule below, so every input and select fell back to
+   the user agent — a white box with the operating system's own chrome — while
+   wearing the accent border permanently, as though always focused. Nothing
+   caught it because no test asserts that a text field has a background. One
+   does now. */
+/* `.form-textarea` is a provision, not an oversight: no `<textarea>` exists
+   yet, and the day one does it must be drawn here rather than by the browser —
+   which is what `layout.test.ts` refuses for every other field. Two selector
+   entries are cheaper than the field that ships unstyled. */
+.form-input,
+.form-select,
+.form-textarea {
+  width: 100%;
+  padding: 9px 12px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+  border-color: var(--accent-strong);
+}
+
+/* The checkbox was the one control still drawn entirely by the browser: a 13px
+   pale box that no palette reaches, beside 14px text. `accent-color` alone only
+   reaches the *checked* fill, so the box itself is drawn here.
+   
+   Unlike the dialog, this is worth taking over. A checkbox has three states and
+   all three are visual — checked, focused, disabled — with no focus trap, no
+   top layer and no restoration behind them. There is no indeterminate state
+   anywhere in this interface, and no radio button at all, so neither is styled:
+   a rule for a control nobody renders is the dead CSS this file has already
+   been pruned of once. */
+input[type='checkbox'] {
+  appearance: none;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-input);
+  display: inline-grid;
+  place-content: center;
+  /* Out of baseline alignment, which is not cosmetic here: an inline-grid with
+     no in-flow child synthesises its baseline from the bottom of its margin
+     box, and the tick only exists when the box is checked. The two states
+     therefore made line boxes of different heights — the table head measured
+     39px unchecked and 35px checked, so ticking "select all" lifted every row
+     below it by 4px. Only a head is sensitive to it: a body row is as tall as
+     its text. */
+  vertical-align: middle;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+input[type='checkbox']:checked {
+  background-color: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+/* Drawn rather than a glyph: a character would inherit the font, and the tick
+   would then change shape with the language. */
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  border: 2px solid var(--bg-base);
+  border-block-start: 0;
+  border-inline-end: 0;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+/* `:focus-visible`, not `:focus` — the ring belongs to keyboard navigation, and
+   on a mouse click it reads as a control stuck in an error state. */
+input[type='checkbox']:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Modals */
+/* The <dialog> element itself, so the user-agent's border, padding, centring
+   margins and size caps all have to be undone; the dim is painted here rather
+   than on ::backdrop so the blur applies to the same layer as before. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  color: inherit;
+  background-color: var(--bg-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A margin at every width: the dialog was `width: 100%` inside a full-bleed
+     overlay, so on a phone it touched both edges. */
+  padding: var(--space-6);
+  z-index: var(--z-modal);
+}
+
+.modal-overlay:not([open]) {
+  display: none;
+}
+
+.modal-overlay::backdrop {
+  background-color: transparent;
+}
+
+.modal-content {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  width: 100%;
+  max-width: 560px;
+  /* The rule that styles this element's scrollbar has always been in this
+     file; nothing ever made it scroll. The rule editor is the longest form in
+     the application and it ran off the bottom of the viewport with no way
+     down. `svh` rather than `vh`, so a phone's collapsing address bar cannot
+     put the footer out of reach. */
+  max-height: calc(100svh - 2 * var(--space-6));
+  overflow-y: auto;
+  padding: var(--space-6);
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.modal-title {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* Helper utilities */
+.flex {
+  display: flex;
+}
+.flex-col {
+  display: flex;
+  flex-direction: column;
+}
+.items-center {
+  align-items: center;
+}
+.justify-between {
+  justify-content: space-between;
+}
+.gap-2 {
+  gap: 8px;
+}
+.gap-4 {
+  gap: 16px;
+}
+.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  /* Paths, ids, condition summaries and raw timestamps read left to right in
+     every language. Without this they are laid out in the page's paragraph
+     direction, which in Arabic turned `2026-08-26 14:02:30` into
+     `14:02:30 2026-08-26`: the digits are direction-neutral, so the two runs
+     swapped around the space between them. `isolate` keeps the reordering from
+     leaking into the text around it. */
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* ---------------------------------------------- bidirectional table content
+   A table column mixes our translated headings with values we did not write:
+   a rule name, a media title, a category. Laid out in the page's direction,
+   an English sentence in an Arabic interface loses its full stop to the left
+   edge — the characters are right, the order is not, and no translation fixes
+   it.
+
+   `plaintext` resolves each cell by its own first strong character, so an
+   English title stays English and an Arabic one stays Arabic in the same
+   column. It is a no-op in a left-to-right interface, where content and page
+   already agree. `.mono` is more specific and keeps its stricter rule. */
+/* The descendants are named as well because `unicode-bidi` does not inherit:
+   the rule name in its <strong> and the description in its <div> each form
+   their own paragraph, and a rule set on the cell alone leaves both behind. */
+th,
+td,
+th *,
+td * {
+  unicode-bidi: plaintext;
+}
+
+/* ------------------------------------------------------------ feedback */
+/* The editor's live validation: one banner per issue, no bullets. */
+.validation-issues {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+/* A stripe and an icon, not a wash.
+ *
+ * Three stacked full-width tinted blocks with a saturated border on every side
+ * read as a wall, and a wall is what makes the fourth one invisible. The
+ * surface stays quiet, the colour is spent on a 3px edge and the glyph, and
+ * the severity is still carried by two channels rather than by hue alone. */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 3px solid var(--border-strong);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+.banner > svg {
+  flex: none;
+}
+.banner-danger {
+  border-inline-start-color: var(--status-danger);
+}
+.banner-danger > svg {
+  color: var(--status-danger);
+}
+.banner-warning {
+  border-inline-start-color: var(--status-warning);
+}
+.banner-warning > svg {
+  color: var(--status-warning);
+}
+.banner-success {
+  border-inline-start-color: var(--status-success);
+}
+.banner-success > svg {
+  color: var(--status-success);
+}
+
+/* The warnings a block enumerates. Plain text rather than one banner each: the
+   severity is stated once, by the stripe above them. */
+.banner-list {
+  margin: var(--space-2) 0 0;
+  padding-inline-start: var(--space-5);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.banner-list li {
+  margin-block: 2px;
+}
+.empty-state {
+  display: flex;
+  /* Stacked, because an empty state now carries the action that fills it and a
+     sentence beside a button reads as a caption for it. */
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-5);
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ------------------------------------------------------------ confidence */
+/* The figure, then the meter — never the figure *on* the meter.
+ *
+ * Centred over the bar, the value sat on the fill on one side and the track on
+ * the other, and between 50 and 70% the boundary ran under the digits. Its
+ * contrast measured 16:1 against the track and 1.95:1 against the amber fill,
+ * which is what the text shadow was hiding. Outside, it is always on the card.
+ */
+.confidence {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* Bounded, because this is read in two places: a 90px table column, where it
+     fills, and the explanation panel, where an unbounded track would draw a
+     four-pixel line across the whole dialog. */
+  max-width: 180px;
+}
+
+/* Tabular, so a column of values lines up its units and can be compared by
+   scanning rather than by reading. The reserve fits "100 %". */
+.confidence-value {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  /* Five, not four: an override is 1.0 and French writes `100 %` with a
+     narrow space, so a four-character reserve let the meter beside it shift on
+     exactly the rows somebody pinned by hand. */
+  min-width: 5ch;
+  text-align: end;
+  color: var(--text-primary);
+}
+
+/* Nothing agreed. An empty bar cannot say it, so the figure does. */
+.confidence-value.is-none {
+  color: var(--status-danger);
+}
+
+/* One ramp, two shapes. `--mix` is set per element by the component, which is
+   what makes the formula shareable at all: an unregistered custom property
+   inside a colour function is invalid at computed-value time, so the
+   arithmetic cannot live in the `calc()` here. */
+.confidence-dot,
+.confidence-fill {
+  --confidence-ramp: color-mix(in oklab, var(--status-success) var(--mix), var(--text-muted));
+}
+
+/* The mark a table column has room for.
+ *
+ * The meter below is for the explanation panel, where it has 150px. A column
+ * gives it 28px after the figure, which measures nothing and reads as a smudge.
+ * The dot carries the same ramp at a size the column cannot take away.
+ *
+ * Muted to success, not warning to success: starting at the warning colour made
+ * an ordinary two-condition rule look like a problem, which is the claim the
+ * three bands used to make in another form. */
+.confidence-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: var(--radius-full);
+  background-color: var(--confidence-ramp);
+}
+
+/* Nothing agreed: the one value that asks for something. */
+.confidence-dot.is-none {
+  background-color: var(--status-danger);
+}
+
+.confidence-track {
+  flex: 1;
+  min-width: 28px;
+  height: 4px;
+  border-radius: var(--radius-xs);
+  background-color: var(--facet-bar);
+  overflow: hidden;
+}
+
+/* A ramp, not three bands.
+ *
+ * `confidence_for` scales differently per match mode — an `all` rule with one
+ * condition is 60%, an `any` rule with two is 53% — so no percentage threshold
+ * can order them, and the old bands painted an ordinary two-condition rule as
+ * a warning. Mixed in oklab from the tokens, so both themes follow and the
+ * fill is never one of the four saturated status hues at full strength.
+ */
+.confidence-fill {
+  /* Stated: the element is a `<span>`, and an inline box ignores both width
+     and height — the fill computed its colour correctly and drew nothing. */
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-xs);
+  background-color: var(--confidence-ramp);
+  transition: width 0.2s ease;
+}
+
+/* ------------------------------------------------------------ rule editor */
+.condition-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.condition-row.excluded {
+  border-color: var(--status-danger);
+}
+.condition-row .form-input,
+.condition-row .form-select {
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.explain-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.explain-row:last-child {
+  border-bottom: none;
+}
+.explain-match {
+  color: var(--status-success);
+}
+.explain-miss {
+  color: var(--status-danger);
+}
+.explain-observed {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* ------------------------------------------------------------ misc */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.toolbar .form-input,
+.toolbar .form-select {
+  width: auto;
+  min-width: 160px;
+}
+
+/* The search box holds its width; the spare space collects at the end of the
+   row instead.
+ *
+ * As `flex: 1 1 240px` it absorbed every spare pixel of the toolbar, so
+ * revealing "clear filters" took that width straight back out of it and shifted
+ * everything between them to the left — on the first keystroke, and by however
+ * wide that label happens to be in the language being read. Anchored, the row
+ * no longer moves when a control appears at its end.
+ *
+ * Not scoped to `.toolbar`: the same box sits inside a form on the overrides
+ * screen, and scoped, three of the four screens that search kept a different
+ * width from the one this rule was written for. It sits after the toolbar's
+ * own sizing on purpose — the two selectors weigh the same, so order is what
+ * decides. */
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 320px;
+  min-width: 0;
+}
+.search-field .form-input {
+  flex: 1;
+  min-width: 0;
+}
+.progress-track {
+  height: 6px;
+  background-color: var(--bg-input);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  min-width: 90px;
+}
+.progress-fill {
+  height: 100%;
+  background-color: var(--accent-primary);
+}
+.text-muted {
+  color: var(--text-muted);
+}
+.text-danger {
+  color: var(--status-danger);
+}
+.text-success {
+  color: var(--status-success);
+}
+.gap-1 {
+  gap: 4px;
+}
+.mt-2 {
+  margin-top: 8px;
+}
+.mt-4 {
+  margin-top: 16px;
+}
+
+/* The API-key gate: the whole viewport, because nothing else can be shown until
+   the key is in. */
+.gate {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background-color: var(--bg-base);
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 460px;
+}
+
+/* A command meant for a terminal, so one click selects all of it: a drag that
+   stops a character short pastes a path that does not exist. */
+.gate-command {
+  display: block;
+  margin: 6px 0 20px;
+  padding: 8px 12px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+/* Settings sections. A strip of tabs rather than one long column: twenty
+   settings in a row meant scrolling past automation to reach a retention
+   count. */
+
+/* The measure for the whole screen, strip included.
+   Every other page is a table and wants the window; this one is a form, and a
+   caption stretched across 1400px stops reading as the label of the field
+   under it. The strip is capped with the cards: a full-width rule over a narrow
+   block is a mismatch, and the mismatch is what reads as broken, not the width. */
+.settings-column {
+  max-width: 880px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tab {
+  padding: 8px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tab:hover {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+.tab.active {
+  color: var(--accent-strong);
+  border-bottom-color: var(--accent-strong);
+}
+
+/* The strip carries a roving tab order, so the focus ring is the only thing
+   telling a keyboard user where they are. */
+.tab:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+}
+
+/* An arrow means "towards", so it has to turn around when the writing does.
+   Mirrored rather than swapped for a different glyph: one rule covers the text
+   arrows and the icon components alike. */
+[dir='rtl'] .dir-aware {
+  transform: scaleX(-1);
+}
+
+.dir-aware {
+  display: inline-block;
+}
+
+/* ===================================================== interaction and motion
+ *
+ * The stylesheet carried five transitions and a single `:focus-visible` rule,
+ * so the interface barely acknowledged a pointer and almost never a keyboard.
+ * A focus ring is an accessibility requirement before it is a style: without
+ * one, tabbing through the application is navigating blind.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+:where(a, button, .btn, .badge, .card, tr, .source-row) {
+  transition:
+    background-color var(--transition),
+    border-color var(--transition),
+    color var(--transition),
+    opacity var(--transition);
+}
+
+/* Movement is decoration; the information never depends on it. Anyone who has
+   asked their system for less gets none. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* A third button weight: an action repeated once per row, where a bordered
+   button twenty times over reads as a wall rather than as twenty choices. */
+.btn-ghost {
+  background-color: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+.btn-ghost:hover:not(:disabled) {
+  background-color: var(--bg-card-hover);
+  color: var(--text-primary);
+}
+
+/* ============================================================ loading state
+ *
+ * Going from empty to full in one step reads as a stall followed by a jump. A
+ * skeleton says "a table is coming, this wide" and keeps the layout from moving
+ * underneath the reader.
+ */
+.skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--bg-card-hover) 25%,
+    var(--bg-card) 37%,
+    var(--bg-card-hover) 63%
+  );
+  background-size: 400% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+@keyframes skeleton-sweep {
+  from {
+    background-position: 100% 50%;
+  }
+  to {
+    background-position: 0 50%;
+  }
+}
+.skeleton-line {
+  height: 12px;
+  margin: var(--space-2) 0;
+}
+
+/* ============================================================ sticky headings
+ *
+ * A long table scrolled without this leaves a grid of values with nothing to
+ * say what they are. The offset is the chrome height, so headings stop exactly
+ * under the top bar.
+ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-bar);
+}
+
+/* Sticky headings need a scrolling ancestor, and `.table-container` already is
+   one — `overflow-x: auto` makes it the reference for `position: sticky`, so an
+   offset of the chrome height pushed the heading down *inside* the card and
+   left a band of nothing above it.
+ *
+ * So the container scrolls vertically too, capped, and the heading sticks to
+ * its own top. Only above the drawer breakpoint: a scroll region inside a
+ * scrolling page is unpleasant on a phone, and there the page scroll is enough.
+ */
+@media (min-width: 901px) {
+  .table-container {
+    overflow: auto;
+    max-height: calc(100vh - 260px);
+  }
+  thead th {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+  }
+}
+
+/* ================================================================ responsive
+ *
+ * Without a breakpoint this interface is a fixed 250px rail, seven-column
+ * tables, and horizontal scrolling for anyone under a wide desktop.
+ *
+ * Two steps. The rail loses its labels first, which buys 180px without moving
+ * anything else. Then it leaves the flow entirely and returns as a drawer —
+ * because below that width the choice is not "narrower navigation", it is
+ * "navigation or content".
+ */
+@media (max-width: 1200px) {
+  .sidebar {
+    width: var(--sidebar-rail);
+  }
+  .sidebar .sidebar-title,
+  .sidebar .nav-label,
+  .sidebar .foot-name {
+    display: none;
+  }
+  /* 68px fits no word, so the group is drawn rather than named. The rule is
+     what keeps the grouping legible where the label cannot be. */
+  .sidebar .nav-group {
+    /* Back to a block, so `text-indent` still reaches the words: a flex
+       container hands them to an anonymous item the indent does not move. */
+    display: block;
+    margin: 12px 10px 8px;
+    padding: 0;
+    height: 1px;
+    overflow: hidden;
+    text-indent: -999em;
+    background: var(--border-subtle);
+  }
+  .sidebar .nav-badge {
+    position: absolute;
+    inset-block-start: 4px;
+    inset-inline-end: 8px;
+    margin: 0;
+  }
+  .sidebar .nav-item {
+    position: relative;
+  }
+  .sidebar-header,
+  .sidebar-nav a {
+    justify-content: center;
+    padding-inline: 0;
+  }
+  .main-content {
+    margin-inline-start: var(--sidebar-rail);
+  }
+  /* 68px leaves the number no room beside a 16px inset. */
+  .sidebar-foot {
+    padding-inline: var(--space-1);
+  }
+  .topbar,
+  .page-container {
+    padding-inline: var(--space-5);
+  }
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+  }
+  /* `translate` in the writing direction, so the drawer enters from the side
+     the navigation lives on in Arabic too. */
+  [dir='rtl'] .sidebar {
+    transform: translateX(100%);
+  }
+  .sidebar.is-open,
+  [dir='rtl'] .sidebar.is-open {
+    transform: none;
+  }
+  .sidebar .sidebar-title,
+  .sidebar .nav-label,
+  .sidebar .foot-name {
+    display: revert;
+  }
+  /* The drawer is the full 250px, so the group gets its name back. The rail's
+     rule above applies at every width below 1200px, and nothing here undid
+     it: on a phone the navigation showed four unlabelled hairlines where its
+     four section titles should be. The text was in the DOM the whole time —
+     a screen reader had it through `aria-labelledby`, and nobody looking at
+     the screen did. */
+  .sidebar .nav-group {
+    display: flex;
+    height: auto;
+    margin: 22px 0 4px;
+    padding-inline: 14px;
+    overflow: visible;
+    text-indent: 0;
+    background: none;
+  }
+  .sidebar-header,
+  .sidebar-nav a {
+    justify-content: flex-start;
+    padding-inline: var(--space-6);
+  }
+  .main-content {
+    margin-inline-start: 0;
+  }
+  .sidebar-scrim {
+    position: fixed;
+    inset: 0;
+    background-color: var(--bg-overlay);
+    z-index: var(--z-scrim);
+  }
+  .topbar,
+  .page-container {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* Below this the screen is narrower than a comfortable measure, so the layout
+ * stops shrinking and starts restructuring: the actions of a page take a line
+ * of their own, a dialog keeps a margin it can breathe in, and the tab strip
+ * scrolls rather than stacking six rows deep.
+ */
+@media (max-width: 560px) {
+  .topbar,
+  .page-container {
+    padding-inline: var(--space-3);
+  }
+  .page-container {
+    padding-block: var(--space-4);
+  }
+  .card {
+    padding: var(--space-4);
+  }
+  /* Full width and sharing it: a row of three buttons at their natural widths
+     leaves the last one alone on a line. */
+  .page-header > .flex {
+    width: 100%;
+  }
+  .page-header > .flex > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+  /* A card used as one flex row — a label on one side, its actions on the
+     other — puts each half on a line of its own rather than pushing the
+     second off the screen. Measured: the apply bar of the simulation ran
+     11px past a 360px viewport. */
+  .card.flex {
+    flex-wrap: wrap;
+  }
+  .modal-overlay {
+    padding: var(--space-3);
+  }
+  .modal-content {
+    max-height: calc(100svh - 2 * var(--space-3));
+    padding: var(--space-4);
+  }
+  /* The source row is three lanes on a laptop and a stack on a phone. Holding
+     its shape, the actions kept the 190px that aligns their right edges and
+     the credential field beside them measured 51px — narrower than the word
+     it holds — while "Disable" was clipped 50px outside its own row. The
+     document never scrolled, so nothing but a measurement showed it. */
+  .source-list .source-row,
+  .source-list .source-row:has(.source-rank) {
+    grid-template-columns: 24px 1fr;
+  }
+  /* Second lane, not the first: aligned under the name rather than under the
+     rank, the actions read as belonging to the source above them. */
+  .source-actions {
+    grid-column: 2 / -1;
+    justify-content: flex-start;
+    min-width: 0;
+  }
+
+  /* One line that scrolls, rather than six rows of tabs above the panel they
+     label. */
+  .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex: none;
+  }
+  /* The save bar stacks: its scope line and its buttons each take a line
+     rather than fighting for one. */
+  .save-bar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .save-bar .flex {
+    justify-content: stretch;
+  }
+  .save-bar .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+}
+
+/* The drawer button only exists where the drawer does. */
+.sidebar-toggle {
+  display: none;
+}
+@media (max-width: 900px) {
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+}
+
+/* Two lines, then an ellipsis and the full sentence in the tooltip. Rows kept
+   a rhythm of their own otherwise: a three-line justification made its row
+   twice the height of the one above. */
+.reason-line {
+  font-size: 12px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Announced but not drawn: the skeleton rows are decoration, the status line is
+   the part a screen reader needs. */
+/* Off-screen until it has focus, then the first thing on the page. */
+.skip-link {
+  position: absolute;
+  inset-inline-start: 12px;
+  top: -100px;
+  z-index: var(--z-modal);
+  padding: 8px 14px;
+  background-color: var(--accent-primary);
+  color: #111;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus-visible {
+  top: 12px;
+}
+
+/* The target takes focus programmatically; the ring belongs on controls, not on
+   the whole page. */
+.main-content:focus {
+  outline: none;
+}
+
+/* ---------------------------------------------------------------- utilities
+ *
+ * The handful of adjustments the screens kept writing as `style="…"`. Named
+ * once here, they are the reason `style-src` can one day lose 'unsafe-inline'.
+ */
+.text-xs {
+  font-size: 11px;
+}
+.text-sm {
+  font-size: 12px;
+}
+.text-md {
+  font-size: 13px;
+}
+.ms-1 {
+  margin-inline-start: 6px;
+}
+.ms-2 {
+  margin-inline-start: 8px;
+}
+.flex-1 {
+  flex: 1;
+}
+.flex-wrap {
+  flex-wrap: wrap;
+}
+.cursor-pointer {
+  cursor: pointer;
+}
+/* Column widths, the only place a pixel value belongs in markup. */
+.w-70 {
+  width: 70px;
+}
+.w-90 {
+  width: 90px;
+}
+.w-120 {
+  width: 120px;
+}
+.w-190 {
+  width: 190px;
+}
+.w-40 {
+  width: 40px;
+}
+.w-80 {
+  width: 80px;
+}
+.w-220 {
+  width: 220px;
+}
+.w-230 {
+  width: 230px;
+}
+.w-auto {
+  width: auto;
+  flex: 0 0 auto;
+}
+.min-w-190 {
+  min-width: 190px;
+}
+.max-w-320 {
+  max-width: 320px;
+}
+/* A field in a row of fields: grows, and wraps once it cannot keep this width. */
+.flex-fill-200 {
+  flex: 1 1 200px;
+}
+.flex-fill-240 {
+  flex: 1 1 240px;
+}
+.text-base {
+  font-size: 14px;
+}
+.text-center {
+  text-align: center;
+}
+.items-start {
+  align-items: flex-start;
+}
+.mt-3 {
+  margin-top: 12px;
+}
+/* A control that keeps its width in a row of fields that share the rest. */
+.flex-fixed-120 {
+  flex: 0 0 120px;
+}
+.flex-fixed-160 {
+  flex: 0 0 160px;
+}
+/* Status and source colours on an icon or a word, where the badge shape would
+   be too much. */
+.text-success {
+  color: var(--status-success);
+}
+.text-warning {
+  color: var(--status-warning);
+}
+.text-radarr {
+  color: var(--accent-radarr);
+}
+.text-sonarr {
+  color: var(--accent-sonarr);
+}
+.mt-1 {
+  margin-top: 4px;
+}
+.mb-3 {
+  margin-bottom: 12px;
+}
+.scroll-y-220 {
+  max-height: 220px;
+  overflow-y: auto;
+}
+/* A message kept as written, line breaks included. */
+.pre-line {
+  margin: 0;
+  white-space: pre-line;
+}
+/* A row that is still listed but no longer counts: a disabled rule, a superseded
+   proposal. */
+.row-muted {
+  opacity: 0.55;
+}
+/* The row a click picked, in a list of candidates. */
+.row-selected {
+  background-color: var(--bg-card-hover);
+}
+/* The control that picks a candidate row. The whole cell is the target, and it
+   is a button so the keyboard and a screen reader reach it at all. */
+.row-pick {
+  all: unset;
+  display: block;
+  width: 100%;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.row-pick:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+/* A card set into the surface behind it, for a panel inside a panel. */
+.card-inset {
+  background-color: var(--bg-input);
+}
+.badge-plain {
+  background-color: var(--bg-surface);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* A title is one line. Anything longer is cut, and the whole of it is one hover
+   away — a row that grows to fit its longest value breaks the rhythm of every
+   row around it. */
+.cell-title {
+  display: inline-block;
+  /* A cap, not a hint: without one the column takes the width of the longest
+     title in the page and the ellipsis never fires, because the cell is always
+     exactly as wide as its content. */
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* The overflow menu of a table row. Anchored to its trigger and drawn above the
+   rows below it, on the trailing edge because that is where the actions column
+   sits — and `inset-inline-end` so it stays on that edge in Arabic. */
+.action-menu {
+  position: relative;
+  display: inline-flex;
+}
+.action-menu-list {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  z-index: var(--z-menu);
+  min-width: 200px;
+  padding: var(--space-1);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+}
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background-color: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.action-menu-item:hover {
+  background-color: var(--bg-card-hover);
+}
+.action-menu-item.is-danger {
+  color: var(--status-danger);
+}
+
+/* A row's menu has to escape the cell it lives in. `.table-container` scrolls,
+   which clips it — so the row that owns an open menu lifts out of the clip. */
+.table-container:has(.action-menu-list) {
+  overflow: visible;
+  max-height: none;
+}
+
+/* The actions of a row, kept on one line and never wrapping: a wrapped action
+   group is what makes one row twice the height of the next. */
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: nowrap;
+}
+
+/* A filesystem path is the widest thing in any of these tables and the least
+   worth its width: it is read to recognise, not to parse. Truncated at the
+   start, because the end — the folder that changes — is the part that matters,
+   with the whole of it a hover away. */
+.cell-path {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* A table that scrolls says so.
+ *
+ * Below a certain width a dense table has to scroll — the mistake was doing it
+ * in silence, so a row simply ended mid-word. These are two shadows painted on
+ * the scroll container itself: `background-attachment: local` pins one pair to
+ * the content and `scroll` pins the other to the frame, so each shadow is only
+ * visible while there is something in that direction. No JavaScript, and no
+ * listener to keep in step with a resize.
+ */
+.table-container {
+  /* The cover has to be *opaque* for at least the width of the shadow it
+     hides, then fade. Fading from the first pixel left the shadow showing
+     through at around half strength for its whole 14px — a permanent dark
+     band down both edges of every table that had nothing to scroll, which is
+     most of them. Measured, not guessed: #21252e against #1e212a at x=6. */
+  background-image:
+    linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
+    linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
+    linear-gradient(to right, rgba(0, 0, 0, 0.35), transparent 14px),
+    linear-gradient(to left, rgba(0, 0, 0, 0.35), transparent 14px);
+  background-position:
+    0 0,
+    100% 0,
+    0 0,
+    100% 0;
+  background-repeat: no-repeat;
+  background-size:
+    32px 100%,
+    32px 100%,
+    14px 100%,
+    14px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* ============================================================ scrollbars
+ *
+ * The platform's own bar is a grey slab sized for a document, and a table that
+ * scrolls a little got a control that looked like a browser chrome fitting
+ * borrowed into the card. Styled to the theme instead: a thin pill, inset from
+ * the edge, that darkens on hover.
+ *
+ * `scrollbar-width`/`scrollbar-color` is the standard property and is what
+ * Firefox honours; the `::-webkit-` block is what Chromium and Safari read.
+ * Both are declared because neither covers the browsers a self-hosted app is
+ * opened in. The colours are tokens, so the light theme gets its own rather
+ * than a dark pill on a white card.
+ */
+.table-container,
+.sidebar-nav,
+.modal-content,
+.action-menu-list {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.table-container::-webkit-scrollbar,
+.sidebar-nav::-webkit-scrollbar,
+.modal-content::-webkit-scrollbar,
+.action-menu-list::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.table-container::-webkit-scrollbar-track,
+.sidebar-nav::-webkit-scrollbar-track,
+.modal-content::-webkit-scrollbar-track,
+.action-menu-list::-webkit-scrollbar-track,
+.table-container::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.table-container::-webkit-scrollbar-thumb,
+.sidebar-nav::-webkit-scrollbar-thumb,
+.modal-content::-webkit-scrollbar-thumb,
+.action-menu-list::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 999px;
+  /* Transparent border rather than a margin: it is the only way to inset a
+     webkit thumb, and `background-clip: content-box` is what keeps the border
+     from being painted in the thumb's own colour. */
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.table-container::-webkit-scrollbar-thumb:hover,
+.sidebar-nav::-webkit-scrollbar-thumb:hover,
+.modal-content::-webkit-scrollbar-thumb:hover,
+.action-menu-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+/* ============================================================ the headline
+ *
+ * The one thing a dashboard is for. Everything under it is context, and reads
+ * as one line of facts rather than six cards of equal weight.
+ */
+.headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-inline-start: 3px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+}
+.headline-value {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--accent-strong);
+}
+.headline-label {
+  margin-top: var(--space-1);
+  color: var(--text-secondary);
+}
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-8);
+  padding: var(--space-4) var(--space-6);
+  margin-bottom: var(--space-4);
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.metric {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.metric-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+.metric-label {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+/* Colour is spent on a figure that asks for something, and on no other.
+   `is-alert` is the dashboard's own name for the danger case; the three status
+   names are what `Stat` passes through from the screens that summarise a run. */
+.metric.is-alert .metric-value,
+.metric.is-danger .metric-value {
+  color: var(--status-danger);
+}
+.metric.is-warning .metric-value {
+  color: var(--status-warning);
+}
+.metric.is-success .metric-value {
+  color: var(--status-success);
+}
+
+/* A line of prose between two blocks: no card, no heading, no border. */
+.page-note {
+  margin: 0 0 var(--space-4);
+  padding-inline: var(--space-1);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+/* The save bar. Sticky at the foot of the viewport rather than at the end of
+   the form: the form is five sections long, and a control that only appears
+   after the last field is a control most people never meet. */
+.save-bar {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: var(--z-bar);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-card);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.save-bar-scope {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+/* Native selects carry the operating system's own chrome and sat oddly against
+   fields drawn entirely here. The element stays native — so it keeps its
+   keyboard behaviour and its platform picker on a phone — and only the frame
+   is ours. */
+select.form-input,
+select.form-select {
+  appearance: none;
+  padding-inline-end: var(--space-8);
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--text-secondary) 50%),
+    linear-gradient(135deg, var(--text-secondary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) 50%,
+    calc(100% - 13px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+[dir='rtl'] select.form-input,
+[dir='rtl'] select.form-select {
+  background-position:
+    18px 50%,
+    13px 50%;
+}
+
+/* Distribution panels — what the library carries, per axis a condition reads.
+ *
+ * Small multiples rather than a wall of pills. Five rows of identical chips
+ * gave "Adventure 27" and "Thriller 1" the same visual weight across a 27×
+ * difference, and put the only number that matters in the smallest element on
+ * screen. A chip also promises a filter you can click; this is data.
+ *
+ * The bar carries the proportion, the figure carries the value, and the figure
+ * is what a screen reader gets — the bar is decorative and says so.
+ */
+/* Flowed columns rather than a grid. These cards differ wildly in height — one
+   axis holds eleven values and another holds one — and a grid row waits for its
+   tallest member, which left a hole the size of a card under every short one.
+   Multi-column packs them and balances the columns on its own; the DOM order is
+   untouched, so what a screen reader hears does not change. */
+/* The disclosure that holds the library's facets.
+ *
+ * The marker is drawn rather than inherited: the browsers' own triangles differ
+ * in size, colour and position, and one of them sits outside the padding box.
+ * `list-style: none` plus the WebKit pseudo-element is what removes both. */
+.facet-panel > summary {
+  cursor: pointer;
+  list-style: none;
+  /* Closed, the header is the whole card, so it should not reserve the gap it
+     leaves above content that is not there. */
+  margin-bottom: 0;
+}
+.facet-panel[open] > summary {
+  margin-bottom: 20px;
+}
+.facet-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.facet-panel > summary::after {
+  content: '';
+  width: 7px;
+  height: 7px;
+  margin-inline-start: auto;
+  border-inline-end: 2px solid var(--text-muted);
+  border-block-end: 2px solid var(--text-muted);
+  transform: rotate(45deg) translate(-2px, -2px);
+  transition: transform var(--transition);
+}
+.facet-panel[open] > summary::after {
+  transform: rotate(-135deg) translate(-2px, -2px);
+}
+.facet-panel > summary:hover::after {
+  border-color: var(--text-secondary);
+}
+
+.facet-grid {
+  columns: 260px;
+  column-gap: var(--space-4, 16px);
+  margin-top: 16px;
+}
+
+.facet-card {
+  /* A card split across a column boundary is unreadable. */
+  break-inside: avoid;
+  margin-bottom: var(--space-4, 16px);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  min-width: 0;
+}
+
+.facet-card > header {
+  margin-bottom: 10px;
+}
+
+.facet-card h3 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* The condition that reads this axis, under the name rather than beside it:
+   on one line the two competed and the caption stopped being readable. */
+.facet-card header .mono {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.facet-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+/* Logical inset, so the fill grows from the reading edge in Arabic too. */
+.facet-bar {
+  position: absolute;
+  /* Inset, so it does not touch the row's edges: filling the full height made
+     it read as a selected row rather than as a quantity. */
+  inset-block: 3px;
+  inset-inline-start: 0;
+  background-color: var(--facet-bar);
+  border-radius: var(--radius-sm);
+  pointer-events: none;
+}
+
+.facet-value {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.facet-count {
+  position: relative;
+  /* Tabular figures, or a column of counts stops lining up the moment a 1 sits
+     above a 27. */
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.facet-more {
+  margin-top: 6px;
+  padding-inline-start: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ---------------------------------------------------------------- value picker
+ *
+ * A combo box for a condition's values: chips for what is chosen, a filtered
+ * list of what the library holds below the field. The list is positioned out of
+ * flow so opening it does not push the rest of the form down — inside a dialog
+ * that reads as the form jumping under the pointer.
+ */
+.value-picker {
+  position: relative;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 6px;
+  padding: 0;
+  list-style: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  background-color: var(--bg-card-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+.chip-remove {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.chip-remove:hover,
+.chip-remove:focus-visible {
+  color: var(--text-primary);
+  background-color: var(--bg-card);
+}
+
+.picker-list {
+  position: absolute;
+  z-index: var(--z-menu);
+  inset-inline: 0;
+  max-height: 240px;
+  margin-top: 4px;
+  overflow-y: auto;
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 35%));
+}
+
+.picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.picker-option:hover,
+.picker-option:focus-visible {
+  background-color: var(--bg-card-hover);
+}
+
+/* The figure is reference data, so it recedes rather than competing with the
+   value it describes. */
+.picker-count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.picker-note {
+  margin: 0;
+  padding: 8px 12px;
+  color: var(--text-muted);
+  font-size: 13px;
+}

@@ -1,0 +1,99 @@
+name: Docker image
+
+# Its own workflow, and that is the whole point.
+#
+# As a job in `ci.yml`, which cancels in progress on a new push, it would take
+# several minutes where everything else takes one — so on any active day it
+# would be killed before finishing, and the only thing that checks the
+# Dockerfile would almost never run to the end.
+#
+# So: a group that queues rather than cancels. At most one build in flight, at
+# most one waiting, and the one in flight finishes.
+
+# Only when something that reaches the image changes. A site or a
+# documentation commit cannot break a build that never sees them.
+#
+# On a pull request as well as on `main`, because `ci.yml` cannot see this file:
+# a commit touching only the Dockerfile matches none of its three path filters,
+# so a broken base image passes every check a pull request runs and breaks
+# `main` on merge — found by whoever merged, not by whoever wrote it. Not
+# hypothetical: 59375eb raised the Rust version, passed CI, and failed the image
+# build on `rust:1.98.1-alpine: not found`.
+#
+# The two lists are written twice because GitHub Actions does not read YAML
+# anchors; an alias here is silently not the list it names.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'scripts/smoke-image.sh'
+      # Copied into the image, so a change to it is a change to the image.
+      - 'LICENSE'
+      - '.github/workflows/docker.yml'
+  pull_request:
+    paths:
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'backend/**'
+      - 'frontend/**'
+      - 'scripts/smoke-image.sh'
+      # Copied into the image, so a change to it is a change to the image.
+      - 'LICENSE'
+      - '.github/workflows/docker.yml'
+
+# The job runs a pull request's Dockerfile; the token it holds reads and
+# nothing more.
+permissions:
+  contents: read
+
+# Queues rather than cancels — see above. Keyed on the head branch so a pull
+# request and the branch it targets never wait on each other.
+concurrency:
+  group: docker-${{ github.head_ref || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Does the image still build and start — native, one architecture.
+  #
+  # Building linux/arm64 here as well would compile it under QEMU: 100 to 150
+  # minutes per run, against 8 for every other job put together — enough to
+  # exhaust the account's free Actions tier in two days.
+  #
+  # What it actually buys is the answer to "does the Dockerfile still work", and
+  # one architecture answers that: an arm64-specific break would have to come
+  # from a base image or a dependency, not from this repository's code. Both
+  # architectures are still built by `release.yml`, where the cost is paid once
+  # per tag rather than once per push.
+  image:
+    name: Docker image (amd64)
+    runs-on: ubuntu-latest
+    # Native, no emulation. The ceiling catches a stuck build, not a slow one.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          # Into the runner's Docker, so the next step can start it.
+          load: true
+          tags: routarr:smoke
+          cache-from: type=gha
+          # Written from `main` only. The cache is 10 GB for the repository and
+          # evicted oldest-first; every pull request writing its own layers
+          # pushed the arm64 layers `release.yml` needs out, and a tag then
+          # built under QEMU from nothing.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
+
+      # A build that succeeds says the Dockerfile compiles, not that the image
+      # runs: the script starts it as the README does and says what it checked.
+      - name: Start the image and check it serves
+        run: bash scripts/smoke-image.sh routarr:smoke

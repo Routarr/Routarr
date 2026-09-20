@@ -1,0 +1,73 @@
+---
+import { useTranslations, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * The argument is the facts, not the folders. Every chip below is a field the
+ * sync already reads off the Arr's own payload, and the column on the right
+ * says the same thing five times — which is the gap, stated once by the page
+ * rather than claimed in a sentence.
+ *
+ * Titles, genres, language and certification codes are the library's own
+ * values and read the same in every language, exactly as the departure board
+ * treats them. Nothing here is translated but the bands.
+ */
+const FILMS = [
+  { title: 'Akira (1988)', facts: ['Animation', 'Science Fiction', 'ja', '15'], rule: '#10', folder: '/movies/anime' },
+  { title: 'Heat (1995)', facts: ['Crime', 'Thriller', 'en', '15'], rule: null, folder: '/movies' },
+  { title: 'My Neighbor Totoro', facts: ['Animation', 'Family', 'ja', 'U'], rule: '#30', folder: '/movies/kids' },
+  { title: 'Perfect Blue', facts: ['Animation', 'Thriller', 'ja', '18'], rule: '#10', folder: '/movies/anime' },
+  { title: 'Stop Making Sense', facts: ['Documentary', 'Music', 'en', 'U', 'concert'], rule: '#20', folder: '/movies/concerts' },
+];
+---
+
+<section id="why">
+  <div class="wrap">
+    <div class="section-head section-head-tight">
+      <span class="eyebrow">{t('why.span')}</span>
+      <h2 set:html={t('why.h2')} />
+      <p set:html={t('why.p.2')} />
+    </div>
+
+    <div class="ledger">
+      <p class="ledger-band">
+        <span>{t('why.band.facts')}</span><span>{t('why.band.lands')}</span>
+      </p>
+      <ul class="ledger-rows">
+        {
+          FILMS.map((film) => (
+            <li class="ledger-row">
+              <span class="ledger-title">{film.title}</span>
+              <span class="ledger-facts">{film.facts.map((fact) => <span class="fact">{fact}</span>)}</span>
+              <span class="ledger-dest">/movies</span>
+            </li>
+          ))
+        }
+      </ul>
+      <p class="ledger-verdict">
+        <span>{t('why.verdict.read')}</span><span>{t('why.verdict.folder')}</span>
+      </p>
+
+      {/* The same five rows, read. The repetition is the argument: nothing
+           about the films changed, only whether anything looked at them. */}
+      <div class="ledger-read">
+        <p class="ledger-band ledger-band-lit">
+          <span>{t('why.band.routarr')}</span><span>{t('why.band.lands')}</span>
+        </p>
+        <ul class="ledger-rows">
+          {
+            FILMS.map((film) => (
+              <li class="ledger-row">
+                <span class="ledger-title">{film.title}</span>
+                <span class="ledger-facts">{film.facts.map((fact) => <span class="fact">{fact}</span>)}</span>
+                <span class="ledger-dest">{film.rule && <b>{film.rule}</b>}{film.folder}</span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>

@@ -1,0 +1,28 @@
+# Build artefacts and dependencies: rebuilt inside the image, and the largest
+# things in the tree.
+**/target/
+**/node_modules/
+**/dist/
+**/coverage/
+**/test-results/
+**/playwright-report/
+.git/
+
+# Anything that could hold a secret or a library, wherever it sits: the context
+# is sent to BuildKit whole, and `backend/.env` or a development database at
+# `backend/data/` matched none of the root-only patterns this file once had.
+**/.env
+**/*.db
+**/*.db-*
+**/routarr.key
+**/routarr.api_key
+**/routarr.password
+**/backups/
+data/
+
+# Not part of the image: the showcase site is deployed separately (Cloudflare
+# Pages), the docs and the dev container are for people.
+site/
+docs/
+.devcontainer/
+AUDIT_*

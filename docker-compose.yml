@@ -1,0 +1,54 @@
+services:
+  routarr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: routarr:latest
+    container_name: routarr
+    # Every interface, since the machines that need Routarr are elsewhere on the
+    # LAN. Behind a reverse proxy on the same host, bind the loopback instead:
+    # "127.0.0.1:9876:9876".
+    ports:
+      - "9876:9876"
+    volumes:
+      # The container runs as uid 1000, and Docker creates a missing bind-mount
+      # directory owned by root — which it then cannot write. `mkdir -p data &&
+      # chown 1000:1000 data` before the first start, or use a named volume.
+      - ./data:/data
+    environment:
+      - ROUTARR_PORT=9876
+      - ROUTARR_HOST=0.0.0.0
+      - ROUTARR_DB_PATH=/data/routarr.db
+      - ROUTARR_LOG_LEVEL=info
+      # Protects every /api/v1 route except /ping. Left unset, Routarr generates
+      # one into /data/routarr.api_key on first start and prints it in the log
+      # (`docker compose logs routarr`), and Settings can replace it later
+      # without a restart. Setting it here pins it instead: this value wins, and
+      # changing the key then means changing this line and restarting.
+      - ROUTARR_API_KEY=${ROUTARR_API_KEY:-}
+      # `external` delegates to a reverse proxy and asks for nothing, so bind
+      # the port to that proxy alone. `none` turns authentication off entirely —
+      # only on a network where anything that can reach Routarr may also move
+      # your files.
+      - ROUTARR_AUTH=${ROUTARR_AUTH:-apikey}
+      # Encrypts the stored Arr API keys. Generated into /data/routarr.key when
+      # unset — back that file up with the database.
+      - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
+      # Only while rotating ROUTARR_SECRET_KEY; remove afterwards.
+      - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+    restart: unless-stopped
+    # Routarr opens a socket, reads and writes /data, and makes outbound HTTPS
+    # calls. None of that needs a Linux capability, so it drops all of them —
+    # the image already runs as uid 1000, and this is what stops a future
+    # dependency from quietly using one. `no-new-privileges` closes the other
+    # half: no setuid binary in the image can raise what this line lowered.
+    #
+    # Not `read_only: true`. SQLite writes its `-wal` and `-shm` beside the
+    # database, backups land in /data/backups, and the master key is generated
+    # there on first start — a read-only root filesystem would need /data and
+    # /tmp carved out again and buys nothing this does not already.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

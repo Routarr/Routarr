@@ -1,0 +1,64 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * Every step answers the same two questions, and the last column is where the
+ * headline stops being a claim and becomes something a suspicious reader can
+ * check line by line. It is also the only honest phrasing: enrichment does
+ * write, to a cache of its own, so a flat "nothing is written" would be false.
+ *
+ * `reads` is a source name for the first two steps and a translated phrase for
+ * the last two, because Radarr and TMDb are called that in every language.
+ */
+const STEPS: { number: string; name: Key; note: Key; reads: Key | string; writes: Key }[] = [
+  { number: '01', name: 'how.h3', note: 'how.p.2', reads: 'Radarr, Sonarr', writes: 'how.writes' },
+  { number: '02', name: 'how.h3.2', note: 'how.p.3', reads: 'TMDb, AniList, OMDb…', writes: 'how.writes.2' },
+  { number: '03', name: 'how.h3.3', note: 'how.p.4', reads: 'how.reads.3', writes: 'how.writes.3' },
+  { number: '04', name: 'how.h3.4', note: 'how.p.5', reads: 'how.reads.4', writes: 'how.writes.4' },
+];
+const reading = (value: Key | string) => (value.includes(' ') && !value.startsWith('how.') ? value : t(value as Key));
+---
+
+<section id="how" class="section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('how.span')}</span>
+      <h2 set:html={t('how.h2')} />
+      <p>{t('how.p')}</p>
+    </div>
+
+    <div class="steps">
+      <p class="steps-band">
+        <span class="steps-band-step">{t('how.band.step')}</span>
+        <span class="steps-band-k">{t('how.band.reads')}</span>
+        <span class="steps-band-k">{t('how.band.writes')}</span>
+      </p>
+      {
+        STEPS.map((step, index) => (
+          <article class:list={['step', { 'step-writes': index === STEPS.length - 1 }]}>
+            <div class="step-head">
+              <span class="step-n">{step.number}</span>
+              <h3>{t(step.name)}</h3>
+              <p>{t(step.note)}</p>
+            </div>
+            <p class="step-k" data-label={t('how.band.reads')}>{reading(step.reads)}</p>
+            <p class="step-k step-k-writes" data-label={t('how.band.writes')}>{t(step.writes)}</p>
+          </article>
+        ))
+      }
+      <p class="steps-foot"><span>{t('how.foot')}</span><span set:html={t('how.foot.2')} /></p>
+    </div>
+
+    <figure class="shot shot-how">
+      <picture>
+        <source srcset="/assets/shots/simulation.avif" type="image/avif">
+        <img src="/assets/shots/simulation.webp" width="2880" height="1800" loading="lazy" decoding="async"
+             alt={t('page.img-attr')}>
+      </picture>
+      <figcaption>{t('page.figcaption')}</figcaption>
+    </figure>
+  </div>
+</section>

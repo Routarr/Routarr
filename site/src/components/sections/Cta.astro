@@ -1,0 +1,52 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * A close that sums up rather than exhorts. Each line is something the page
+ * proved a few screens above, so the last thing a hesitant reader sees is the
+ * three facts that answer the three reasons not to install it, and the slogan
+ * stops carrying the section on its own.
+ */
+const RECAP: { claim: Key; detail: Key }[] = [
+  { claim: 'cta.recap', detail: 'cta.recap.p' },
+  { claim: 'cta.recap.2', detail: 'cta.recap.p.2' },
+  { claim: 'cta.recap.3', detail: 'cta.recap.p.3' },
+];
+---
+
+<section id="cta">
+  <div class="wrap cta-close">
+    <div class="cta-say">
+      <h2>{t('cta.h2')}</h2>
+      <p>{t('cta.p')}</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#start">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          {t('cta.a.install')}
+        </a>
+        <a class="btn btn-secondary" href="https://github.com/Routarr/Routarr">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12a11.5 11.5 0 0 0 7.9 10.9c.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0C17.6 4.6 18.6 5 18.6 5c.6 1.7.2 2.9.1 3.2.8.9 1.2 1.9 1.2 3.2 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.5 11.5 0 0 0 23.5 12C23.5 5.7 18.3.5 12 .5z"/></svg>
+          {t('cta.a.github')}
+        </a>
+      </div>
+    </div>
+
+    <div class="cta-recap">
+      <p class="cta-recap-band">{t('cta.band')}</p>
+      {
+        RECAP.map((line) => (
+          <div class="cta-line">
+            <span class="cta-mark" aria-hidden="true">✓</span>
+            <div>
+              <b>{t(line.claim)}</b>
+              <p>{t(line.detail)}</p>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

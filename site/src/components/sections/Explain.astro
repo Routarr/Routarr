@@ -1,0 +1,95 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * The headline promises the rules that lost, so they get a card the size of
+ * the one that won. Nothing is greyed out: a dimmed card reads as something
+ * the page would rather you skipped, which is the opposite of what this
+ * section is for. The winner is lit, the others are simply not.
+ *
+ * Condition names are the engine's identifiers and the values are the
+ * library's, so only the two words of the pair and the verdicts are
+ * translated.
+ */
+interface Outcome { field: string; met: boolean; expected: string; observed: string }
+interface Verdict { number: string; name: Key; won: boolean; outcomes: Outcome[]; foot: Key }
+
+const OBSERVED_GENRES = 'Animation, Science Fiction';
+const VERDICTS: Verdict[] = [
+  {
+    number: '#10', name: 'page.text.3', won: true, foot: 'explain.foot',
+    outcomes: [
+      { field: 'original_language', met: true, expected: 'ja', observed: 'ja' },
+      { field: 'genre_contains', met: true, expected: 'Animation', observed: OBSERVED_GENRES },
+      { field: 'certification_in', met: true, expected: 'not G, U, TV-Y', observed: '15' },
+    ],
+  },
+  {
+    number: '#20', name: 'page.text.6', won: false, foot: 'explain.foot.2',
+    outcomes: [{ field: 'genre_contains', met: false, expected: 'Documentary, Music', observed: OBSERVED_GENRES }],
+  },
+  {
+    number: '#30', name: 'page.text.8', won: false, foot: 'explain.foot.3',
+    outcomes: [
+      { field: 'certification_in', met: false, expected: 'G, U, TV-Y', observed: '15' },
+      { field: 'genre_contains', met: true, expected: 'Animation', observed: OBSERVED_GENRES },
+    ],
+  },
+];
+---
+
+<section id="explain" class="section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('explain.span')}</span>
+      <h2 set:html={t('explain.h2')} />
+      <p set:html={t('explain.p')} />
+    </div>
+
+    <p class="verdicts-band">{t('explain.subject')}</p>
+    <div class="verdicts">
+      {
+        VERDICTS.map((verdict) => (
+          <article class:list={['verdict', { 'verdict-won': verdict.won }]}>
+            <header>
+              <b>{verdict.number}</b>
+              <h3>{t(verdict.name)}</h3>
+              <span class="verdict-state">{t(verdict.won ? 'explain.won' : 'explain.lost')}</span>
+            </header>
+            <div class="verdict-body">
+              {
+                verdict.outcomes.map((outcome) => (
+                  <p class="outcome">
+                    <span class:list={['mark', { no: !outcome.met }]} aria-hidden="true">{outcome.met ? '✓' : '✗'}</span>
+                    <span>
+                      <span class="sr-only">{t(outcome.met ? 'explain.met' : 'explain.unmet')} — </span>
+                      <span class="outcome-field">{outcome.field}</span>
+                      <span class="outcome-pair">
+                        {t('explain.expected')} <i>{outcome.expected}</i><br>
+                        {t('explain.observed')} <i>{outcome.observed}</i>
+                      </span>
+                    </span>
+                  </p>
+                ))
+              }
+            </div>
+            <footer>{t(verdict.foot)}</footer>
+          </article>
+        ))
+      }
+    </div>
+
+    <p class="explain-note">{t('explain.p.2')}</p>
+
+    <figure class="shot shot-explain">
+      <picture>
+        <source srcset="/assets/shots/explain.avif" type="image/avif">
+        <img src="/assets/shots/explain.webp" width="1560" height="1800" loading="lazy" decoding="async"
+             alt={t('explain.img-attr')}>
+      </picture>
+    </figure>
+  </div>
+</section>

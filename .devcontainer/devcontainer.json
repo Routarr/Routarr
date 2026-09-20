@@ -1,0 +1,129 @@
+{
+  "name": "Routarr",
+  "dockerFile": "Dockerfile",
+  "context": "..",
+  "workspaceFolder": "/workspaces/Routarr",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "vadimcn.vscode-lldb",
+        "esbenp.prettier-vscode",
+        // The lint CI runs, seen in the editor: a floating promise underlined
+        // where it is typed rather than in a red job an hour later.
+        "dbaeumer.vscode-eslint",
+        "svelte.svelte-vscode",
+        "astro-build.astro-vscode",
+        // Validates the workflows and shows a run's status in the editor.
+        "github.vscode-github-actions",
+        // Cargo.toml and rust-toolchain.toml.
+        "tamasfe.even-better-toml",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.check.command": "clippy",
+        // Named explicitly: there is no Cargo.toml at the repository root, and
+        // a rust-analyzer that finds no project reports nothing.
+        "rust-analyzer.linkedProjects": ["backend/Cargo.toml"],
+        // The config sits in frontend/, not at the root the extension looks in.
+        "eslint.workingDirectories": ["frontend"],
+        "eslint.validate": ["javascript", "typescript", "svelte"],
+        // Prettier owns .svelte through prettier-plugin-svelte, declared in
+        // frontend/.prettierrc.json.
+        "[svelte]": { "editor.defaultFormatter": "esbenp.prettier-vscode" }
+      }
+    }
+  },
+  "runArgs": [
+    "--init",
+    // A 16 GiB ramdisk made by the container runtime: nothing to prepare on
+    // the host, and no privileges or CAP_SYS_ADMIN needed. Docker and Podman
+    // both accept this `--mount` form.
+    //
+    // Size in bytes because `16g` is the unit the two runtimes have read
+    // differently. It is declared *here* and nowhere else: `ramdisk.sh` reads
+    // this line rather than restating the figure, so the assertion cannot go on
+    // passing against a size nobody mounts any more.
+    //
+    // A tmpfs occupies only what is written to it, so the figure is a ceiling
+    // and not a reservation — what it has to clear is one coverage pass, one
+    // test build and one `--release` build coexisting, which is what made 8 GiB
+    // tight enough for `prune.sh` to be the mechanism rather than the spare.
+    //
+    // The contents are gone on stop, rebuild or recreate. That is the trade:
+    // the Rust build tree is gigabytes of small files rewritten constantly,
+    // which is the worst shape of data for a copy-on-write filesystem, and the
+    // price of losing it is one cold `cargo build`.
+    "--mount",
+    "type=tmpfs,destination=/ramdisk,tmpfs-size=17179869184,tmpfs-mode=1777"
+  ],
+  "containerEnv": {
+    "CARGO_HOME": "/cargo",
+    "PLAYWRIGHT_BROWSERS_PATH": "/playwright",
+    // Cargo's own variable rather than a symlink in the workspace: `cargo`,
+    // `cargo-llvm-cov` and rust-analyzer all follow it, and nothing can mistake
+    // a link for a source directory. Unset outside this container, so the
+    // shell harnesses resolve the path instead of assuming either.
+    "CARGO_TARGET_DIR": "/ramdisk/cargo-target",
+    // The mount point itself: processes starting before `ramdisk.sh` inherit
+    // this value, and a TMPDIR that does not exist yet fails `mktemp`.
+    "TMPDIR": "/ramdisk",
+    // Off by default, matching the rule the application follows: no outbound
+    // request nobody asked for. Remove this line to opt in.
+    "RTK_TELEMETRY_DISABLED": "1"
+  },
+  // User-level installers land in ~/.local/bin, which is on no default PATH.
+  // Added after the system directories so the checksum-pinned copies in
+  // /usr/local/bin still win.
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:${containerEnv:HOME}/.local/bin"
+  },
+
+  "mounts": [
+    "source=routarr-cargo,target=/cargo,type=volume",
+    "source=routarr-playwright,target=/playwright,type=volume",
+    // Credentials and history that nothing else reconstructs; a rebuild would
+    // otherwise wipe them.
+    "source=routarr-claude,target=/root/.claude,type=volume",
+    // Same reason: a rebuild would silently sign `gh` out.
+    "source=routarr-gh,target=/root/.config/gh,type=volume",
+    // The largest thing in the container filesystem, otherwise re-downloaded
+    // on every rebuild — after the devcontainer CLI has printed its last line,
+    // so the wait reads as a rebuild that stopped.
+    //
+    // `extensions` only, not the whole `.vscode-server`: `bin` and `data` are
+    // bound to the server build in the /vscode volume, and persisting
+    // version-bound state across upgrades is how a cache becomes a bug.
+    "source=routarr-vscode-extensions,target=/root/.vscode-server/extensions,type=volume"
+  ],
+  // `;` and not `&&`: `ramdisk.sh` is advisory, and an unexpected failure in
+  // it must not leave a container with no node_modules.
+  "postCreateCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/post-create.sh",
+  // `ramdisk.sh` on every start, not only on create: a tmpfs is empty again
+  // after each one.
+  //
+  // Both hooks arm the prune loop because both are events and neither is a
+  // clock. `--daemon` is idempotent, and `|| true` keeps a failed tidy-up from
+  // stopping the container coming up.
+  "postStartCommand": "bash .devcontainer/ramdisk.sh; bash .devcontainer/prune.sh --daemon || true",
+  "postAttachCommand": "bash .devcontainer/prune.sh --daemon || true",
+  "remoteUser": "root",
+  "forwardPorts": [
+    9876,
+    3000,
+    8788
+  ],
+  "portsAttributes": {
+    "9876": {
+      "label": "Routarr (backend + built frontend)"
+    },
+    "3000": {
+      "label": "Vite (dev, proxies /api to 9876)"
+    },
+    "8788": {
+      "label": "Showcase site (node site/serve.mjs)"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+---
+import { version } from '../../version';
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * The back of the box. Each line is headed by what the thing actually is
+ * rather than by a name you have to read the sentence to understand, and the
+ * figure sits in the same mono the page uses for anything a machine wrote.
+ * Six icons in six tinted squares is the one shape here that would sit as
+ * happily on any other product's page.
+ */
+const SPEC: { group: Key; fact: Key; name: Key; note: Key }[] = [
+  { group: 'features.k', fact: 'features.fact', name: 'features.h3', note: 'features.p.2' },
+  { group: 'features.k.2', fact: 'features.fact.2', name: 'features.h3.2', note: 'features.p.3' },
+  { group: 'features.k.3', fact: 'features.fact.3', name: 'features.h3.3', note: 'features.p.4' },
+  { group: 'features.k.4', fact: 'features.fact.4', name: 'features.h3.4', note: 'features.p.5' },
+  { group: 'features.k.5', fact: 'features.fact.5', name: 'features.h3.5', note: 'features.p.6' },
+  { group: 'features.k.6', fact: 'features.fact.6', name: 'features.h3.6', note: 'features.p.7' },
+];
+---
+
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('features.span')}</span>
+      <h2>{t('features.h2')}</h2>
+      <p>{t('features.p')}</p>
+    </div>
+
+    <figure class="shot shot-lead">
+      <picture>
+        <source srcset="/assets/shots/dashboard.avif" type="image/avif">
+        <img src="/assets/shots/dashboard.webp" width="2880" height="1800" loading="lazy" decoding="async"
+             alt={t('features.img-attr')}>
+      </picture>
+    </figure>
+
+    <div class="spec">
+      <p class="spec-band"><span>{t('features.spec')}</span><span>v{version}</span></p>
+      {
+        SPEC.map((row) => (
+          <div class="spec-row">
+            <h3 class="spec-key">{t(row.group)}</h3>
+            <div class="spec-value">
+              <p class="spec-fact">{t(row.fact)}<span>{t(row.name)}</span></p>
+              <p set:html={t(row.note)} />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

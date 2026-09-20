@@ -1,0 +1,17 @@
+# The single source of truth for the compiler version.
+#
+# Both Dockerfiles pin the same version. Letting CI run on `stable` instead
+# would let code relying on anything stabilised later pass every gate and then
+# fail the release build — the one build nobody watches interactively. rustup
+# reads this file in CI, in the dev container and locally, so the four
+# environments cannot drift apart.
+[toolchain]
+channel = "1.98.1"
+# rust-analyzer is listed here as well: the VS Code extension ships its own
+# server, refuses to drive a toolchain this old, and points at this file. With
+# the component declared, the editor uses the rust-analyzer that matches the
+# pinned compiler. It costs CI one extra component download per job.
+# `llvm-tools` is what `cargo llvm-cov` instruments with. Named here rather
+# than installed ad hoc so the dev container, CI and a laptop all get it from
+# the one file that decides the toolchain.
+components = ["rustfmt", "clippy", "rust-analyzer", "llvm-tools"]

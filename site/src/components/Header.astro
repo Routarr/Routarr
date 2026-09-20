@@ -1,0 +1,96 @@
+---
+import { version } from '../version';
+import { LANGUAGES, useTranslations, pathFor, type Key, type Locale } from '../i18n';
+
+interface Props { locale: Locale }
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/**
+ * The destinations live behind the Index control rather than in the bar. Six
+ * translated labels beside the language switch are what pushed the row onto a
+ * second line at 1080px, and a section is not the same kind of thing as the
+ * language or the theme: those are settings, and they stay on the bar where a
+ * reader who landed on the wrong one can act at once.
+ *
+ * Every content section is listed, in page order. The bar used to carry six of
+ * the nine, so the gap, explainability and the root folders could be scrolled
+ * past but never navigated to, and the scroll-spy went blank over all three.
+ */
+const SECTIONS: { number: string; href: string; label: Key; note: Key }[] = [
+  { number: '01', href: '#why', label: 'why.span', note: 'header.desc.7' },
+  { number: '02', href: '#how', label: 'header.li', note: 'header.desc' },
+  { number: '03', href: '#rules', label: 'header.li.2', note: 'header.desc.2' },
+  { number: '04', href: '#explain', label: 'explain.span', note: 'header.desc.8' },
+  { number: '05', href: '#safety', label: 'header.li.4', note: 'header.desc.4' },
+  { number: '06', href: '#folders', label: 'folders.span', note: 'header.desc.9' },
+  { number: '07', href: '#features', label: 'header.li.3', note: 'header.desc.3' },
+  { number: '08', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
+  { number: '09', href: '#faq', label: 'header.li.6', note: 'header.desc.6' },
+];
+---
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href={pathFor(locale)}>
+      <svg viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M6 3v12"/><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M15 6a9 9 0 0 0-9 9"/>
+      </svg>
+      Routarr
+    </a>
+    <span class="version">v{version}</span>
+
+    {/* Plain links, no script: the CSP allows one inline script and it is the
+         theme bootstrap. The route (`[lang]/index.astro`) sets `aria-current` on
+         whichever language it is writing. */}
+    <nav class="seg lang-nav" aria-label={t('header.nav.language')}>
+      {
+        LANGUAGES.map((language) => (
+          <a
+            href={language.path}
+            hreflang={language.code}
+            data-dismiss={language.dismiss}
+            data-offer={language.offer}
+            aria-current={language.code === locale ? 'page' : undefined}
+          >
+            {language.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    {/* Both states are named rather than left to an icon. Which one is lit
+         comes from `data-theme` in CSS, so it is right on the first paint;
+         `aria-pressed` is site.js's, since without it the buttons do nothing
+         anyway. */}
+    <div class="seg theme-nav" role="group" aria-label={t('header.theme')}>
+      <button type="button" data-theme-set="dark">{t('header.theme.dark')}</button>
+      <button type="button" data-theme-set="light">{t('header.theme.light')}</button>
+    </div>
+
+    {/* A <details>, not a scripted menu: it opens and closes with no
+         JavaScript at all, which is the property the rest of this page keeps.
+         site.js only adds Ctrl K, Escape and closing on a click elsewhere. */}
+    <details class="index">
+      <summary>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+        {t('header.index')}
+        <kbd>Ctrl K</kbd>
+      </summary>
+      <nav class="index-panel" aria-label={t('header.nav.sections')}>
+        {
+          SECTIONS.map((section) => (
+            <a href={section.href}>
+              <i>{section.number}</i>
+              <span><b>{t(section.label)}</b><p>{t(section.note)}</p></span>
+            </a>
+          ))
+        }
+      </nav>
+    </details>
+
+    <a class="icon-btn" href="https://github.com/Routarr/Routarr" aria-label={t('header.github')}>
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.7.5.5 5.7.5 12a11.5 11.5 0 0 0 7.9 10.9c.6.1.8-.2.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.7 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.8 0-1.3.5-2.3 1.2-3.2-.1-.3-.5-1.5.1-3.2 0 0 1-.3 3.3 1.2a11.4 11.4 0 0 1 6 0C17.6 4.6 18.6 5 18.6 5c.6 1.7.2 2.9.1 3.2.8.9 1.2 1.9 1.2 3.2 0 4.5-2.7 5.5-5.3 5.8.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.5 11.5 0 0 0 23.5 12C23.5 5.7 18.3.5 12 .5z"/></svg>
+    </a>
+  </div>
+</header>

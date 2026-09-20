@@ -1,0 +1,40 @@
+---
+import Base from './Base.astro';
+import type { Locale } from '../i18n';
+
+import Hero from '../components/sections/Hero.astro';
+import Why from '../components/sections/Why.astro';
+import How from '../components/sections/How.astro';
+import Rules from '../components/sections/Rules.astro';
+import Explain from '../components/sections/Explain.astro';
+import Safety from '../components/sections/Safety.astro';
+import Folders from '../components/sections/Folders.astro';
+import Features from '../components/sections/Features.astro';
+import Start from '../components/sections/Start.astro';
+import Faq from '../components/sections/Faq.astro';
+import Cta from '../components/sections/Cta.astro';
+
+/**
+ * The page, once. Four routes render it with a different locale, which is what
+ * stops the translations drifting from the markup: there is only one markup.
+ */
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+---
+
+<Base locale={locale}>
+  <Hero locale={locale} />
+  <Why locale={locale} />
+  <How locale={locale} />
+  <Rules locale={locale} />
+  <Explain locale={locale} />
+  <Safety locale={locale} />
+  <Folders locale={locale} />
+  <Features locale={locale} />
+  <Start locale={locale} />
+  <Faq locale={locale} />
+  <Cta locale={locale} />
+</Base>

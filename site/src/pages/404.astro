@@ -1,0 +1,78 @@
+---
+import '../styles/site.css';
+import { themeBootstrap } from '../theme-bootstrap';
+
+/**
+ * Served for any path Cloudflare cannot resolve, in every language, so it is
+ * deliberately in English and deliberately minimal: no language switcher to a
+ * page that does not exist, no navigation to sections it does not have.
+ *
+ * It is an Astro page rather than a file in `public/` so that it picks up the
+ * same fingerprinted stylesheet as everything else. A static file would hold a
+ * literal stylesheet path, which the hashed filename outlives — a 404 page
+ * rendered without CSS, and only for people already lost.
+ */
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Page not found — Routarr</title>
+    <meta
+      name="description"
+      content="That page does not exist on the Routarr site. Head back to the home page for the overview, the rule engine and the install steps."
+    />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#131519" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f5f7" media="(prefers-color-scheme: light)" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+    <script is:inline set:html={themeBootstrap} />
+  </head>
+
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href="/">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#ffa500"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 3v12" /><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /><path
+              d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+            /><path d="M15 6a9 9 0 0 0-9 9" />
+          </svg>
+          Routarr
+        </a>
+      </div>
+    </header>
+
+    <main id="main" class="wrap error-page">
+      <div>
+        <p class="eyebrow">404</p>
+        <h1>No rule matched this path.</h1>
+        <p>The page you asked for is not here. Nothing was moved.</p>
+        <div class="hero-cta hero-cta-center">
+          <a class="btn btn-primary" href="/">Back to the home page</a>
+          <a class="btn btn-secondary" href="/#start">Install steps</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>Routarr — GPLv3 licence. Not affiliated with the Servarr project.</span>
+      </div>
+    </footer>
+  </body>
+</html>

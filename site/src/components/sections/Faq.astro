@@ -1,0 +1,52 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * These are not questions, they are objections: what somebody weighs before
+ * letting software touch their library. Six of the seven answers are no,
+ * which an accordion hid behind seven clicks, and the third column names the
+ * thing in the product that answers each one, so a reassurance becomes
+ * something the reader can go and check.
+ */
+type Verdict = 'no' | 'yes' | 'plain';
+const OBJECTIONS: { worry: Key; verdict: Key; kind: Verdict; mechanism: Key; detail: Key }[] = [
+  { worry: 'faq.summary', verdict: 'faq.v', kind: 'no', mechanism: 'faq.m', detail: 'faq.p' },
+  { worry: 'faq.summary.2', verdict: 'faq.v.2', kind: 'no', mechanism: 'faq.m.2', detail: 'faq.p.2' },
+  { worry: 'faq.summary.3', verdict: 'faq.v.3', kind: 'no', mechanism: 'faq.m.3', detail: 'faq.p.3' },
+  { worry: 'faq.summary.4', verdict: 'faq.v.4', kind: 'no', mechanism: 'faq.m.4', detail: 'faq.p.4' },
+  { worry: 'faq.summary.5', verdict: 'faq.v.5', kind: 'no', mechanism: 'faq.m.5', detail: 'faq.p.5' },
+  { worry: 'faq.summary.6', verdict: 'faq.v.6', kind: 'yes', mechanism: 'faq.m.6', detail: 'faq.p.6' },
+  { worry: 'faq.summary.7', verdict: 'faq.v.7', kind: 'plain', mechanism: 'faq.m.7', detail: 'faq.p.7' },
+];
+---
+
+<section id="faq">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('faq.span')}</span>
+      <h2>{t('faq.h2')}</h2>
+      <p>{t('faq.lead')}</p>
+    </div>
+
+    <div class="objections">
+      <p class="objection objection-head">
+        <span>{t('faq.band.worry')}</span><span>{t('faq.band.answer')}</span><span>{t('faq.band.guarantee')}</span>
+      </p>
+      {
+        OBJECTIONS.map((row) => (
+          <div class="objection">
+            <h3>{t(row.worry)}</h3>
+            <p class:list={['objection-verdict', row.kind]}>{t(row.verdict)}</p>
+            <div>
+              <p class="objection-mechanism">{t(row.mechanism)}</p>
+              <p class="objection-detail" set:html={t(row.detail)} />
+            </div>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

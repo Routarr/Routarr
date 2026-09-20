@@ -1,0 +1,58 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * Six gates, in the order the executor runs them, and the first one to object
+ * stops the rest. Two of them ask instead of refusing, which is not a
+ * softening: a destination that did not answer may be a NAS that has spun
+ * down, and two folders reporting the same free space may be one volume where
+ * a move is a rename. Evidence, not proof, so the operator is asked.
+ */
+const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
+  { number: '01', name: 'safety.b', note: 'safety.p.2', asks: false },
+  { number: '02', name: 'safety.b.2', note: 'safety.p.3', asks: false },
+  { number: '03', name: 'safety.reach', note: 'safety.reach.p', asks: true },
+  { number: '04', name: 'safety.capacity', note: 'safety.capacity.p', asks: true },
+  { number: '05', name: 'safety.b.3', note: 'safety.p.4', asks: true },
+  { number: '06', name: 'safety.b.4', note: 'safety.p.5', asks: false },
+];
+---
+
+<section id="safety">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('safety.span')}</span>
+      <h2 set:html={t('safety.h2')} />
+      <p>{t('safety.p')}</p>
+    </div>
+
+    <ol class="gates">
+      {
+        GATES.map((gate) => (
+          <li class:list={['gate', { 'gate-first': gate.number === '01' }]}>
+            <span class="gate-n">{gate.number}</span>
+            <div class="gate-head">
+              <h3>{t(gate.name)}</h3>
+              <span class:list={['gate-verb', gate.asks ? 'asks' : 'refuses']}>
+                {t(gate.asks ? 'safety.asks' : 'safety.refuses')}
+              </span>
+            </div>
+            <p>{t(gate.note)}</p>
+          </li>
+        ))
+      }
+    </ol>
+
+    <p class="gates-legend">
+      <span><span class="gate-verb refuses">{t('safety.refuses')}</span>{t('safety.legend')}</span>
+      <span><span class="gate-verb asks">{t('safety.asks')}</span>{t('safety.legend.2')}</span>
+    </p>
+
+    <div class="callout">
+      <p set:html={t('safety.p.6')} />
+    </div>
+  </div>
+</section>

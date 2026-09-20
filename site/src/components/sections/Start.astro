@@ -1,0 +1,80 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const t = useTranslations(Astro.props.locale);
+
+/**
+ * The four commands in the order you type them. Two terminals side by side
+ * asked the reader to zigzag through a sequence that is strictly linear, and
+ * the reason for the first command, which is the one people get wrong, was a
+ * comment inside the second terminal rather than a line under the command it
+ * explains.
+ */
+const STEPS: { number: string; command: string; prompt: boolean; note: Key }[] = [
+  { number: '01', command: 'mkdir -p data && sudo chown 1000:1000 data', prompt: true, note: 'start.step' },
+  { number: '02', command: 'docker compose up -d', prompt: true, note: 'start.step.2' },
+  { number: '03', command: 'docker exec routarr cat /data/routarr.api_key', prompt: true, note: 'start.step.3' },
+  { number: '04', command: 'http://localhost:9876', prompt: false, note: 'start.step.4' },
+];
+---
+
+<section id="start" class="section-alt">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('start.span')}</span>
+      <h2 set:html={t('start.h2')} />
+      <p>{t('start.p')}</p>
+    </div>
+
+    <div class="install">
+      <ol class="install-steps">
+        {
+          STEPS.map((step) => (
+            <li>
+              <span class="install-n">{step.number}</span>
+              <div>
+                <p class:list={['install-cmd', { url: !step.prompt }]}>
+                  {step.prompt && <span class="install-prompt" aria-hidden="true">$</span>}
+                  {step.command}
+                </p>
+                <p class="install-note" set:html={t(step.note)} />
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+
+      <div class="install-aside">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span></span><span></span><span></span>
+            <span class="name">docker-compose.yml</span>
+            <button class="copy-btn" type="button" aria-label={`${t('page.button.copy')} — docker-compose.yml`} aria-live="polite" data-copied={t('page.button.copied')} data-failed={t('page.button.copy-failed')}>{t('page.button.copy')}</button>
+          </div>
+          <pre tabindex="0"><code><span class="k">services</span>:
+  <span class="k">routarr</span>:
+    <span class="k">image</span>: <span class="s">ghcr.io/routarr/routarr:latest</span>
+    <span class="k">container_name</span>: <span class="s">routarr</span>
+    <span class="k">ports</span>:
+      - <span class="s">"9876:9876"</span>
+    <span class="k">volumes</span>:
+      - <span class="s">./data:/data</span>
+    <span class="k">restart</span>: <span class="s">unless-stopped</span>
+    <span class="k">cap_drop</span>:
+      - <span class="s">ALL</span>
+    <span class="k">security_opt</span>:
+      - <span class="s">no-new-privileges:true</span></code></pre>
+        </div>
+
+        <div class="callout callout-key">
+          <p set:html={t('start.p.3')} />
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <p>{t('start.p.2')}</p>
+    </div>
+  </div>
+</section>
