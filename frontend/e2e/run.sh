@@ -19,7 +19,10 @@ WORK="$(mktemp -d -t routarr-e2e-XXXXXX)"
 
 # Wait for each server to actually go away: `kill` only asks. Returning while a
 # process still holds the port is what makes the *next* run talk to a corpse.
-# shellcheck disable=SC2329  # invoked through the trap below
+# Both codes, because which one fires depends on the shellcheck the runner
+# image happens to ship: 0.10 calls the body unreachable (SC2317), later
+# versions call the function uninvoked (SC2329). Neither can see a trap.
+# shellcheck disable=SC2317,SC2329  # invoked through the trap below
 cleanup() {
   local pid
   for pid in "${ROUTARR_PID:-}" "${ARR_PID:-}"; do
