@@ -315,7 +315,10 @@ for (const [name, source] of Object.entries(pages)) {
   }
 }
 
-if (imagesChecked < 8) fail(`only ${imagesChecked} <img> examined across the pages — the check read nothing`);
+const imagesOnPage = Object.values(pages).reduce((n, html) => n + (html.match(/<img /g) || []).length, 0);
+if (imagesOnPage && imagesChecked < imagesOnPage) {
+  fail(`${imagesOnPage} <img> on the pages and only ${imagesChecked} examined — the check read past some`);
+}
 
 // -------------------------------------------------------------- links
 let linksChecked = 0;
@@ -402,8 +405,13 @@ for (const { code } of LANGUAGES) {
 }
 
 // -------------------------------------------------------------- assets
-const shots = readdirSync(join(DIST, 'assets/shots'));
-if (!shots.length) fail('assets/shots is empty — run site/screenshots/run.sh');
+// The page shows no screenshot at the moment: they were a quarter of its
+// height, and the sections draw what they are about. `screenshots/run.sh`
+// still produces them, so the directory may be empty or full and both are
+// correct; what must never happen is shipping one nothing shows.
+const shots = existsSync(join(DIST, 'assets/shots'))
+  ? readdirSync(join(DIST, 'assets/shots'))
+  : [];
 for (const shot of shots) {
   if (!/\.(webp|avif)$/.test(shot)) {
     fail(`assets/shots/${shot} is neither webp nor avif; run.sh should have converted it`);
@@ -459,7 +467,10 @@ for (const match of index.matchAll(/<source srcset="([^"]+)"/g)) {
   sourcesChecked += 1;
   if (!existsSync(join(DIST, match[1].slice(1)))) fail(`<source> points at a missing ${match[1]}`);
 }
-if (sourcesChecked < 4) fail(`only ${sourcesChecked} <source> examined — the check read nothing`);
+const sourcesOnPage = (index.match(/<source /g) || []).length;
+if (sourcesOnPage && sourcesChecked < sourcesOnPage) {
+  fail(`${sourcesOnPage} <source> on the page and only ${sourcesChecked} examined — the check read past some`);
+}
 
 // -------------------------------------------------------------- icons
 // The SVG favicon is the source of truth, but it is not enough on its own:

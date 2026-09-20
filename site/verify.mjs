@@ -104,7 +104,9 @@ await page.waitForFunction(() => [...document.images].every((i) => i.complete), 
 const images = await page.evaluate(() =>
   [...document.images].map((i) => ({ src: i.currentSrc || i.src, ok: i.naturalWidth > 0 })),
 );
-check(images.length > 0, 'no images on the page');
+// No assertion that the page carries an image: it carries none since the
+// screenshots came out of it. The loop below is the one that matters, and it
+// holds whatever the count.
 for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 
 // ----------------------------------------------------------- accessibility
