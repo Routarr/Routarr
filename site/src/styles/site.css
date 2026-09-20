@@ -412,10 +412,20 @@ img { max-width: 100%; height: auto; }
 section { padding: clamp(56px, 7vw, 96px) 0; }
 /* Alternating grounds break the single-flat-field monotony. */
 .section-alt { background: var(--bg-raised); border-block: 1px solid var(--border); }
-.section-head { max-width: 62ch; margin-bottom: 44px; }
-.section-head p { font-size: 1.06rem; }
-/* For prose-only sections that end with their own paragraph. */
-.section-head-tight { margin-bottom: 0; }
+/* The heading and its sentence both run the width of the section. Capped at
+   62ch and stacked on the left they left 469px of nothing down the right of
+   every section. Beside each other they fill it, but a 535px column cannot
+   hold a 35-character line at this size, and the heading then broke into four
+   lines where it wants two. The heading takes no cap at all: the longest
+   clause of the four languages measures 982px, so anything narrower than the
+   wrap breaks one of them onto a third line. */
+.section-head { margin-bottom: 40px; }
+.section-head h2 { max-width: none; }
+.section-head > p { max-width: none; margin-top: 1.1rem; font-size: 1.06rem; }
+
+/* The claim takes the second line. Every heading here is two sentences, the
+   second one being the one worth reading twice. */
+.section-head h2 em { display: block; }
 
 .eyebrow {
   display: inline-block;
@@ -467,13 +477,35 @@ section { padding: clamp(56px, 7vw, 96px) 0; }
 .hero h1 { font-size: clamp(2.05rem, 1.1rem + 2.9vw, 2.9rem); }
 h1 .grad { color: var(--accent-text); }
 .hero-lower { display: flex; flex-direction: column; gap: 22px; margin-top: 22px; }
+/* The two columns stretch to one height and the buttons sit at the bottom of
+   theirs, so they land on the last line of the sentence opposite whatever
+   that sentence measures. Sized to its content, the right column took the
+   natural width of the note underneath the buttons: 427px in English and
+   675px in French, which left the explanation 385px and seven lines against
+   the 87px facing it. The column is a share of the row now, and the note
+   wraps. */
 @media (min-width: 900px) {
-  .hero-lower { flex-direction: row; justify-content: space-between; align-items: flex-end; gap: 40px; }
-  .hero-actions { flex: none; align-items: flex-end; text-align: end; }
+  .hero-lower { flex-direction: row; justify-content: space-between; align-items: stretch; gap: 40px; }
+  .hero-actions {
+    flex: 0 0 auto;
+    align-items: flex-end;
+    justify-content: flex-end;
+    text-align: end;
+  }
 }
 .hero p.lead { font-size: 1.16rem; max-width: 58ch; margin: 0; }
 .hero-actions { display: flex; flex-direction: column; gap: 12px; }
 .hero-cta { display: flex; gap: 12px; flex-wrap: wrap; }
+/* Below the base rule on purpose: same specificity, and the later one wins.
+   The column is as wide as the pair of buttons, which is the one thing in it
+   that may not break, 387px in English and 452px in German. The note is kept
+   out of that measurement, or it sets the width itself at 675px in French and
+   the buttons stack. Zero width contributes nothing to the column, and the
+   percentage then fills whatever the buttons settled on. */
+@media (min-width: 900px) {
+  .hero-cta { flex-wrap: nowrap; }
+  .hero-note { width: 0; min-width: 100%; }
+}
 /* `.btn` never wraps, which is right for a label the author chose and wrong
    for one a translator did: the German call to action is wider than a 360px
    phone and pushed the whole page sideways. Below 480 the pair stacks and the
@@ -1108,7 +1140,10 @@ h1 .grad { color: var(--accent-text); }
   font-size: 0.76rem;
   color: var(--text-muted);
 }
-.folders-note { margin: 22px 0 30px; max-width: 80ch; }
+/* The sentence closing a section runs the width of the block above it, as
+   the one introducing it does. Capped, it left the same empty right-hand
+   column the section heads used to. */
+.folders-note { margin: 22px 0 30px; max-width: none; }
 
 /* Five columns need about 860px. Below that the path takes a line of its own
    and the rest flow under it, so a row still reads as one destination rather
@@ -1196,7 +1231,7 @@ h1 .grad { color: var(--accent-text); }
 }
 .verdict-won > footer { color: var(--accent-text); }
 
-.explain-note { margin: 22px 0 30px; max-width: 78ch; }
+.explain-note { margin: 22px 0 30px; max-width: none; }
 
 /* Three cards need about 880px before a pair breaks mid-value. Below that the
    winner keeps the top of the list, which is also reading order. */

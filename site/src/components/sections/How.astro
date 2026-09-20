@@ -51,14 +51,5 @@ const reading = (value: Key | string) => (value.includes(' ') && !value.startsWi
       }
       <p class="steps-foot"><span>{t('how.foot')}</span><span set:html={t('how.foot.2')} /></p>
     </div>
-
-    <figure class="shot shot-how">
-      <picture>
-        <source srcset="/assets/shots/simulation.avif" type="image/avif">
-        <img src="/assets/shots/simulation.webp" width="2880" height="1800" loading="lazy" decoding="async"
-             alt={t('page.img-attr')}>
-      </picture>
-      <figcaption>{t('page.figcaption')}</figcaption>
-    </figure>
   </div>
 </section>
