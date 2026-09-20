@@ -1,0 +1,15 @@
+# RFC 9116. Reachable at /.well-known/security.txt, which is where a scanner
+# looks before anything else.
+#
+# The contact is the private reporting form, not an address: a mailbox in a
+# public file is a mailbox that gets scraped, and GitHub's form is what
+# SECURITY.md already asks people to use.
+
+Contact: https://github.com/Routarr/Routarr/security/advisories/new
+Policy: https://github.com/Routarr/Routarr/blob/main/SECURITY.md
+Preferred-Languages: en, fr
+Canonical: https://routarr.app/.well-known/security.txt
+
+# Mandatory, and deliberately short of a year: a stale file says the contact
+# above is no longer watched. Renew it with the release that follows.
+Expires: 2027-09-20T00:00:00.000Z
