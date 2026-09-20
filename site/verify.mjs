@@ -116,7 +116,7 @@ for (const image of images) check(image.ok, `image did not load: ${image.src}`);
    page. Named once, because a probe that quietly stops covering half the site
    is the kind that keeps passing. */
 const LANDINGS = ['/', '/fr/', '/de/', '/es/'];
-const DETAILS = ['/how', '/fr/how', '/de/how', '/es/how'];
+const DETAILS = ['/how/', '/fr/how/', '/de/how/', '/es/how/'];
 const PAGES = [...LANDINGS, ...DETAILS];
 
 for (const path of [...PAGES, '/404.html']) {
