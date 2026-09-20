@@ -13,15 +13,17 @@ site/
 │   ├── i18n/           en/fr/de/es catalogues, and the lookup that throws
 │   └── styles/site.css the whole stylesheet
 ├── public/             copied verbatim into dist/
-│   ├── assets/         favicon.svg, og.png, site.js, shots/*.{avif,webp}
-│   ├── _headers        Cloudflare Pages: CSP, security headers, caching
+│   ├── assets/         favicon.svg, og.png, site.js
+│   ├── _headers        Cloudflare: CSP, security headers, caching
 │   └── robots.txt
 ├── astro.config.mjs
+├── wrangler.jsonc      the Worker: no code, just dist/ as static assets
 ├── serve.mjs           preview server for dist/, applying _headers
 ├── check.mjs           static checks, against dist/
 ├── verify.mjs          browser checks under the real CSP
 ├── icons.mjs           re-renders the raster icons from favicon.svg
-└── screenshots/        the harness that regenerates public/assets/shots
+└── screenshots/        the harness that captures the interface, kept for
+                        whenever a screenshot earns its place back
 ```
 
 ## Working on it
@@ -155,37 +157,49 @@ starts private whatever the repository's visibility, so that snippet only works
 for someone who has authenticated to the registry until the package is made
 public from its settings page — do that before pointing the world at it.
 
-## Deploying to Cloudflare Pages
+## Deploying to Cloudflare
 
-Cloudflare builds the site itself, on every push. Connect the repository once —
-Workers & Pages → Create → Pages → *Connect to Git* — and set:
+Cloudflare builds the site itself, on every push to `main`. The project is a
+**Worker serving static assets**, which is what replaced Pages: there is no
+Worker code, only the files Astro builds, and
+[`wrangler.jsonc`](wrangler.jsonc) is the four lines that say so.
+
+Connect the repository once, under *Compute (Workers) → Create → Import a
+repository*, and set:
 
 | Setting | Value |
 |---|---|
-| Framework preset | Astro |
-| Root directory | `site` |
-| Build command | `npm run build && node check.mjs` |
-| Build output directory | `dist` |
+| Path | `/site` |
+| Build command | `npm ci && npm run build && node check.mjs` |
+| Deploy command | `npx wrangler deploy` |
 
 The checks are part of the build command on purpose: a wrong origin, a stale CSP
 hash, a screenshot whose dimensions no longer match, a lone AVIF or a dead link
 then fails the deployment instead of being published. `verify.mjs` stays out of
-it — it drives Chromium, which the build image does not carry — and runs in CI
-and locally instead.
+it, since it drives Chromium, which the build image does not carry, and runs in
+CI and locally instead.
 
 `.node-version` pins Node 24, matching CI and the production image. Cloudflare
 reads it; without it the build image picks its own default.
 
-Everything in `public/` is copied into `dist/`, `_headers` included, and Pages
-applies it. A custom domain is added under the project's *Custom domains* tab;
-Cloudflare issues the certificate, and the `Strict-Transport-Security` header in
-`_headers` only makes sense once that is in place.
+Everything in `public/` is copied into `dist/`, `_headers` included, and
+Cloudflare applies it from the assets directory exactly as Pages did. That is
+the one property worth checking after a first deployment, because without it the
+site still renders and ships none of its headers:
 
-**`wrangler` is deliberately not used.** `npx wrangler pages deploy dist` works,
-from a laptop or from a GitHub Action, but it means a Cloudflare API token kept
-as a repository secret and an upload that skips the build entirely. The Git
-integration needs no credential of ours, rebuilds from source every time, and
-gives a preview deployment per pull request.
+```bash
+curl -sSI https://routarr.app/ | grep -i content-security-policy
+```
+
+A custom domain is added under the Worker's *Domains & Routes* tab. Cloudflare
+issues the certificate, and the `Strict-Transport-Security` header in `_headers`
+only makes sense once that is in place.
+
+**No API token of ours lives anywhere.** `npx wrangler deploy` runs inside
+Cloudflare's own build, against the repository it was given access to, so there
+is no secret in GitHub and nothing to rotate. Running the same command from a
+laptop would mean a token, and an upload that skips the build and its checks
+entirely.
 
 Nothing here is Cloudflare-specific beyond `_headers`, which any other static
 host ignores harmlessly. On Netlify the same file works as-is; elsewhere the

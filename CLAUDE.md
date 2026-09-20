@@ -13,7 +13,7 @@ Three deliverables, one per directory, and nothing shared but the repository:
 ```
 backend/     the Rust crate — src/, migrations/, locales/, Cargo.toml
 frontend/    the interface, built into frontend/dist and served by the backend
-site/        the showcase site, deployed to Cloudflare Pages, never in the image
+site/        the showcase site, deployed to Cloudflare, never in the image
 scripts/     the consistency checks CI runs, the locale tooling, the image smoke test
 Dockerfile   builds backend + frontend into one image; `site/` is in .dockerignore
 ```
@@ -528,11 +528,12 @@ Frontend: `npm test` runs Vitest with **jsdom**, not happy-dom, which does not d
 
 ## Showcase site
 
-[`site/`](site/) is a separate deliverable: an Astro build deployed to Cloudflare Pages, static, and
-making no external request at run time — which is what keeps its CSP at `default-src 'none'`. It is
+[`site/`](site/) is a separate deliverable: an Astro build deployed to Cloudflare as a Worker
+serving static assets, and making no external request at run time — which is what keeps its CSP
+at `default-src 'none'`. It is
 not served by the application and is excluded from the Docker context.
 
-The build output is **not** committed any more: Cloudflare Pages runs `npm run build`. `site/dist`
+The build output is **not** committed any more: Cloudflare runs `npm run build`. `site/dist`
 is what every check reads, on purpose — checking the sources would test the intention, and what
 matters here is the artefact: a CSP hash, a fingerprinted stylesheet, an image that exists in
 `public/` and never reached the build. `serve.mjs` still exists rather than `astro preview` because
