@@ -51,5 +51,9 @@ export type Page = 'landing' | 'how';
  */
 export function pathFor(locale: Locale, page: Page = 'landing'): string {
   const base = LANGUAGES.find((l) => l.code === locale)!.path;
-  return page === 'landing' ? base : `${base}how`;
+  /* The trailing slash is the path the server actually serves: Astro writes
+     `how/index.html`, and `/how` answers 307 to `/how/`. Without it every
+     internal link took a redirect and, worse, the canonical and the hreflang
+     alternates named a URL that redirects. */
+  return page === 'landing' ? base : `${base}how/`;
 }
