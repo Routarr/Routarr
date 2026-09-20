@@ -1,0 +1,45 @@
+---
+import { useTranslations, pathFor, type Key, type Locale } from '../../i18n';
+
+interface Props { locale: Locale }
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/**
+ * The door to the second page, and the landing page's last block.
+ *
+ * It names what is behind it rather than saying "learn more": the six subjects
+ * are the reason somebody clicks, and a reader who wants none of them has
+ * finished the page instead of scrolling through them.
+ */
+const SUBJECTS: Key[] = [
+  'why.span',
+  'header.li',
+  'explain.span',
+  'folders.span',
+  'header.li.3',
+  'header.li.6',
+];
+
+const href = pathFor(locale, 'how');
+---
+
+<section id="more" class="section-alt">
+  <div class="wrap more">
+    <div class="more-say">
+      <span class="eyebrow">{t('more.span')}</span>
+      <h2 set:html={t('more.h2')} />
+      <p>{t('more.p')}</p>
+    </div>
+
+    <div class="more-go">
+      <ul class="more-list">
+        {SUBJECTS.map((subject) => <li>{t(subject)}</li>)}
+      </ul>
+      <a class="btn btn-primary" href={href}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        {t('more.cta')}
+      </a>
+    </div>
+  </div>
+</section>

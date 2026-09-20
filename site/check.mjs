@@ -134,6 +134,16 @@ for (const { code, path } of LANGUAGES) {
   }
   pages[file] = read(file);
 
+  /* The detail page is checked exactly as the landing is. Left out, half the
+     site shipped with nothing looking at its links, its labels or the English
+     phrases that escape a catalogue. */
+  const detail = code === 'en' ? 'how/index.html' : `${code}/how/index.html`;
+  if (!existsSync(join(DIST, detail))) {
+    fail(`${detail} was not built — run \`npm run build\` in site/`);
+  } else {
+    pages[detail] = read(detail);
+  }
+
   if (!index.includes(`href="${path}" hreflang="${code}"`)) {
     fail(`the built page does not offer ${path} in its language switcher`);
   }
@@ -156,13 +166,16 @@ if (englishLabels.size < 4) {
 }
 const ESCAPED = ['one compose up', 'Global dry-run', 'Batch cap', '// before', 'Press Ctrl+C', 'Not affiliated'];
 for (const { code } of LANGUAGES) {
-  const page = pages[`${code}/index.html`];
-  if (code === 'en' || !page) continue;
-  for (const label of labelsOf(page)) {
-    if (englishLabels.has(label)) fail(`${code}/index.html announces "${label}" in English`);
-  }
-  for (const phrase of ESCAPED) {
-    if (page.includes(phrase)) fail(`${code}/index.html still says "${phrase}" in English`);
+  if (code === 'en') continue;
+  for (const file of [`${code}/index.html`, `${code}/how/index.html`]) {
+    const page = pages[file];
+    if (!page) continue;
+    for (const label of labelsOf(page)) {
+      if (englishLabels.has(label)) fail(`${file} announces "${label}" in English`);
+    }
+    for (const phrase of ESCAPED) {
+      if (page.includes(phrase)) fail(`${file} still says "${phrase}" in English`);
+    }
   }
 }
 

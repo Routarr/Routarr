@@ -262,7 +262,11 @@ img { max-width: 100%; height: auto; }
 /* A <details>: it opens and closes with no JavaScript, which is the property
    the rest of the page keeps. site.js adds Ctrl K, Escape and closing on a
    click elsewhere, and nothing essential depends on any of the three. */
-.index { flex: none; }
+/* The bar is the brand at one edge and the controls at the other. The gap
+   used to be opened by the language switch, which has moved into the panel,
+   and without it everything clustered against the brand with the whole right
+   half of a 1440px window empty. */
+.index { flex: none; margin-inline-start: auto; }
 .index > summary {
   display: inline-flex;
   align-items: center;
@@ -301,16 +305,29 @@ img { max-width: 100%; height: auto; }
   top: calc(100% + 8px);
   z-index: 60;
   width: min(720px, calc(100vw - 32px));
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0 28px;
   padding: 14px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   box-shadow: 0 18px 44px rgb(0 0 0 / 0.38);
 }
-.index-panel a {
+/* The destinations, then the two settings. Both used to sit on the bar, where
+   six language chips and two theme buttons wrapped it onto a second row on a
+   phone and took 118px before a word of the page. */
+/* Named, not `nav`: the language switch is a `<nav>` too, and a type
+   selector here gave it this two-column grid, folded its four chips onto two
+   rows and let the segment's own height clip them. Two of the four languages
+   simply were not there. */
+.index-panel .index-nav {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 28px;
+}
+/* Scoped to the navigation, not to every link in the panel: the language
+   chips are anchors too, and they took this grid, folded onto two rows and
+   were clipped by the segment's own height. Two of the four languages simply
+   were not there. */
+.index-panel .index-nav > a {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
   gap: 0 10px;
@@ -319,23 +336,41 @@ img { max-width: 100%; height: auto; }
   border-bottom: 1px solid var(--border);
   text-decoration: none;
 }
-/* Six entries in two columns: the last row is the last two, whichever way the
-   list is read. */
-.index-panel a:nth-last-child(-n + 2) { border-bottom: 0; }
-.index-panel i {
+/* The last row is the last two entries, whichever way the list is read. */
+.index-panel .index-nav > a:nth-last-child(-n + 2) { border-bottom: 0; }
+.index-panel .index-nav > a i {
   font-style: normal;
   font-family: var(--mono);
   font-size: 0.7rem;
   font-weight: 700;
   color: var(--text-muted);
 }
-.index-panel b { display: block; font-size: 0.95rem; font-weight: 600; color: var(--text); }
-.index-panel p { margin: 2px 0 0; font-size: 0.83rem; color: var(--text-muted); }
-.index-panel a:hover { opacity: 1; }
-.index-panel a:hover b { color: var(--accent-text); }
+.index-panel .index-nav > a b { display: block; font-size: 0.95rem; font-weight: 600; color: var(--text); }
+.index-panel .index-nav > a p { margin: 2px 0 0; font-size: 0.83rem; color: var(--text-muted); }
+.index-panel .index-nav > a:hover { opacity: 1; }
+.index-panel .index-nav > a:hover b { color: var(--accent-text); }
+.index-panel .index-nav > a.cross i { color: var(--accent-text); }
 /* Scroll-spy: set by site.js, styled here, absent without JS — all fine. */
-.index-panel a[aria-current='true'] i,
-.index-panel a[aria-current='true'] b { color: var(--accent-text); }
+.index-panel .index-nav > a[aria-current='true'] i,
+.index-panel .index-nav > a[aria-current='true'] b { color: var(--accent-text); }
+
+.index-settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+/* Inside the panel nothing is pushed to an edge: the rule that did that was
+   written for the bar, where the switch sat after the brand. */
+.index-settings .lang-nav { margin-inline-start: 0; }
+
+@media (max-width: 640px) {
+  .index-panel nav { grid-template-columns: minmax(0, 1fr); }
+  .index-panel .index-nav > a:nth-last-child(-n + 2) { border-bottom: 1px solid var(--border); }
+  .index-panel .index-nav > a:last-child { border-bottom: 0; }
+}
 
 .icon-btn {
   display: inline-grid;
@@ -1426,23 +1461,31 @@ h1 .grad { color: var(--accent-text); }
 /* Six gates in the order the executor runs them. The number is not
    decoration: the first one to object stops the rest, which is the only
    reason the order is worth drawing. */
+/* One list, not six cards. Six bordered boxes with a paragraph each measured
+   1944px on a 390px phone, two and a third screens for a list of six things,
+   and the gaps and the padding were most of it. A row states the same three
+   facts in the space of a line. */
 .gates {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-.gate {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  padding: 15px 18px;
+  overflow: hidden;
 }
+.gate {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 0 14px;
+  align-items: baseline;
+  padding: 13px 18px;
+  border-top: 1px solid var(--border);
+}
+.gate:first-child { border-top: 0; }
 /* The first is the switch that makes the whole application read-only, so it
    is marked rather than left to be read as one of six equals. */
-.gate-first { border-color: var(--accent); box-shadow: inset 3px 0 0 var(--accent); }
+.gate-first { box-shadow: inset 3px 0 0 var(--accent); }
 .gate-n {
   font-family: var(--mono);
   font-size: 0.72rem;
@@ -1450,14 +1493,12 @@ h1 .grad { color: var(--accent-text); }
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
-.gate-head { display: flex; align-items: baseline; gap: 12px; margin: 6px 0 8px; }
-.gate-head h3 { margin: 0; font-size: 1.02rem; font-weight: 650; }
-.gate p { margin: 0; font-size: 0.93rem; }
+.gate-body h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+.gate-body p { margin: 3px 0 0; font-size: 0.9rem; color: var(--text-muted); }
 /* Refusing and asking are different answers, so they are marked differently.
    A same-volume test is evidence, not proof, which is why capacity raises a
    question instead of a wall. */
 .gate-verb {
-  margin-inline-start: auto;
   font-family: var(--mono);
   font-size: 0.66rem;
   font-weight: 700;
@@ -1474,18 +1515,19 @@ h1 .grad { color: var(--accent-text); }
   display: flex;
   flex-wrap: wrap;
   gap: 10px 26px;
-  margin: 16px 0 30px;
+  margin: 16px 0 0;
   font-size: 0.92rem;
   color: var(--text-muted);
 }
 .gates-legend > span { display: flex; align-items: center; gap: 9px; }
-.gates-legend .gate-verb { margin-inline-start: 0; }
+.gates-note { margin: 10px 0 0; font-size: 0.92rem; color: var(--text-muted); }
 
-@media (max-width: 1000px) {
-  .gates { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (max-width: 620px) {
-  .gates { grid-template-columns: minmax(0, 1fr); }
+/* The verb drops under the name rather than squeezing it: a translated
+   "CONFIRMATION THRESHOLD" beside a nine-character badge leaves a phone
+   column too narrow to hold either. */
+@media (max-width: 560px) {
+  .gate { grid-template-columns: 30px minmax(0, 1fr); }
+  .gate-verb { grid-column: 2; justify-self: start; margin-top: 8px; }
 }
 
 /* ---------------------------------------------------------------- faq */
@@ -1717,3 +1759,47 @@ h2 em { font-style: normal; color: var(--accent-text); }
 /* The 404 page centres its two buttons; the rule lives here because the
    page's CSP allows no inline style. */
 .hero-cta-center { justify-content: center; }
+
+/* ---------------------------------------------------------------- the door
+   The landing page's last block, and the only one that leaves the page. It
+   names the six subjects behind it rather than saying "learn more": the
+   subjects are the reason somebody clicks, and a reader who wants none of them
+   has finished the page instead of scrolling through them. */
+.more {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 28px;
+}
+/* The claim takes the second line, as every other heading here does. */
+.more-say h2 { margin: 0.2em 0 0; max-width: 28ch; }
+.more-say h2 em { display: block; }
+.more-say > p { margin: 1rem 0 0; max-width: 62ch; color: var(--text-soft); }
+.more-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding: 0;
+  list-style: none;
+}
+.more-list li {
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-soft);
+}
+@media (min-width: 900px) {
+  .more { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0 56px; align-items: end; }
+  .more-go { justify-self: end; text-align: end; }
+  .more-list { justify-content: flex-end; }
+}
+
+/* The detail page's opening. It takes the section head's shape, since that is
+   what every block below it uses, and its claim takes the second line like
+   every other heading here. */
+#detail-head { padding-bottom: 0; }
+#detail-head h1 { font-size: clamp(1.9rem, 1.2rem + 2.4vw, 2.7rem); }
+#detail-head h1 em { display: block; font-style: normal; color: var(--accent-text); }

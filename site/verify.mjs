@@ -112,7 +112,14 @@ for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 // ----------------------------------------------------------- accessibility
 // Every page at WCAG 2.1 AA, at a desktop and a phone width: what the
 // application's own sweep holds itself to, held here as well.
-for (const path of ['/', '/fr/', '/de/', '/es/', '/404.html']) {
+/* The eight content pages: four languages of the landing, four of the detail
+   page. Named once, because a probe that quietly stops covering half the site
+   is the kind that keeps passing. */
+const LANDINGS = ['/', '/fr/', '/de/', '/es/'];
+const DETAILS = ['/how', '/fr/how', '/de/how', '/es/how'];
+const PAGES = [...LANDINGS, ...DETAILS];
+
+for (const path of [...PAGES, '/404.html']) {
   for (const width of [1440, 375]) {
     const tab = await context.newPage();
     await tab.setViewportSize({ width, height: 900 });
@@ -132,7 +139,7 @@ for (const path of ['/', '/fr/', '/de/', '/es/', '/404.html']) {
 // All four pages, because a German phrase in a fixed column is exactly the
 // kind of thing that only overflows on one of them, and a failure names the
 // element: "the page scrolls sideways by 40px" is a fact nobody can act on.
-for (const path of ['/', '/fr/', '/de/', '/es/']) {
+for (const path of PAGES) {
   const tab = await context.newPage();
   await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
   for (const width of [360, 390, 480, 560, 600, 768, 900, 1024, 1280, 1440]) {
@@ -169,7 +176,7 @@ await page.setViewportSize({ width: 1440, height: 900 });
 // these widths — and the panel is measured open as well, where it overlays the
 // page and must still clear the bar that opened it.
 let headerControls = 0;
-for (const path of ['/', '/fr/', '/de/', '/es/']) {
+for (const path of PAGES) {
   const tab = await context.newPage();
   await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
   for (const width of [360, 600, 739, 768, 860, 900, 1024, 1100, 1440]) {
@@ -208,9 +215,10 @@ for (const path of ['/', '/fr/', '/de/', '/es/']) {
   }
   await tab.close();
 }
-// Nine controls closed and fifteen open, nine widths, four pages: a selector
+// Three controls on the bar and thirteen with the panel open on a landing,
+// sixteen on the detail page, over nine widths and eight pages (1152 measured): a selector
 // that stops matching would compare nothing and pass.
-check(headerControls >= 800, `measured ${headerControls} header control(s), expected at least 800`);
+check(headerControls >= 1100, `measured ${headerControls} header control(s), expected at least 1100`);
 
 // ------------------------------------------------------------ board
 // The departure board sets its words in fixed flap cells and its status in a
@@ -218,9 +226,10 @@ check(headerControls >= 800, `measured ${headerControls} header control(s), expe
 // width: a status one word longer in German, or a flap size wrong at one
 // width, overflows its column and nothing else notices, since the board clips
 // it. Every flap word, status and rule is measured against the box it sits in,
-// on all four pages, in the three layouts.
+// on the four landing pages, in the three layouts. The board is the hero, so
+// it is on those and nowhere else.
 let boardWords = 0;
-for (const path of ['/', '/fr/', '/de/', '/es/']) {
+for (const path of LANDINGS) {
   const tab = await context.newPage();
   for (const width of [1280, 900, 390]) {
     await tab.setViewportSize({ width, height: 900 });
@@ -271,6 +280,10 @@ const before = await page.evaluate(() => getComputedStyle(document.body).backgro
 const other = await page.evaluate(() =>
   document.documentElement.dataset.theme === 'light' ? 'dark' : 'light',
 );
+// The switch lives inside the Index panel now, so it has to be opened first.
+// Both settings moved off the bar: eight controls beside the brand wrapped it
+// onto a second row on a phone.
+await page.click('.index > summary');
 await page.click(`[data-theme-set="${other}"]`);
 await page.waitForTimeout(120);
 const after = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);

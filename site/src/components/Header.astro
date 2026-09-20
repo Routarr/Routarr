@@ -1,33 +1,42 @@
 ---
 import { version } from '../version';
-import { LANGUAGES, useTranslations, pathFor, type Key, type Locale } from '../i18n';
+import { LANGUAGES, useTranslations, pathFor, type Key, type Locale, type Page } from '../i18n';
 
-interface Props { locale: Locale }
-const { locale } = Astro.props;
+interface Props { locale: Locale; page?: Page }
+const { locale, page = 'landing' } = Astro.props;
 const t = useTranslations(locale);
 
 /**
- * The destinations live behind the Index control rather than in the bar. Six
- * translated labels beside the language switch are what pushed the row onto a
- * second line at 1080px, and a section is not the same kind of thing as the
- * language or the theme: those are settings, and they stay on the bar where a
- * reader who landed on the wrong one can act at once.
+ * One row, at every width. The language switch and the theme used to sit on
+ * the bar beside the Index control: six chips and two buttons, which on a
+ * 390px phone wrapped onto a second row and took 118px of an 844px screen
+ * before a word of the page. They are settings, they are consulted once, and
+ * the panel is where a thing consulted once belongs. `site.js` still offers
+ * the reader's own language unprompted, so nothing depends on finding the
+ * switch first.
  *
- * Every content section is listed, in page order. The bar used to carry six of
- * the nine, so the gap, explainability and the root folders could be scrolled
- * past but never navigated to, and the scroll-spy went blank over all three.
+ * Each page lists its own sections. A panel naming anchors that are not on the
+ * page scrolls nowhere, which is worse than not offering them.
  */
-const SECTIONS: { number: string; href: string; label: Key; note: Key }[] = [
+const LANDING: { number: string; href: string; label: Key; note: Key }[] = [
+  { number: '01', href: '#rules', label: 'header.li.2', note: 'header.desc.2' },
+  { number: '02', href: '#safety', label: 'header.li.4', note: 'header.desc.4' },
+  { number: '03', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
+];
+
+const DETAIL: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '01', href: '#why', label: 'why.span', note: 'header.desc.7' },
   { number: '02', href: '#how', label: 'header.li', note: 'header.desc' },
-  { number: '03', href: '#rules', label: 'header.li.2', note: 'header.desc.2' },
-  { number: '04', href: '#explain', label: 'explain.span', note: 'header.desc.8' },
-  { number: '05', href: '#safety', label: 'header.li.4', note: 'header.desc.4' },
-  { number: '06', href: '#folders', label: 'folders.span', note: 'header.desc.9' },
-  { number: '07', href: '#features', label: 'header.li.3', note: 'header.desc.3' },
-  { number: '08', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
-  { number: '09', href: '#faq', label: 'header.li.6', note: 'header.desc.6' },
+  { number: '03', href: '#explain', label: 'explain.span', note: 'header.desc.8' },
+  { number: '04', href: '#folders', label: 'folders.span', note: 'header.desc.9' },
+  { number: '05', href: '#features', label: 'header.li.3', note: 'header.desc.3' },
+  { number: '06', href: '#faq', label: 'header.li.6', note: 'header.desc.6' },
 ];
+
+const sections = page === 'how' ? DETAIL : LANDING;
+const crossLink = page === 'how'
+  ? { href: pathFor(locale), label: t('header.home'), note: t('header.home.note') }
+  : { href: pathFor(locale, 'how'), label: t('header.detail'), note: t('header.detail.note') };
 ---
 
 <header class="site-header">
@@ -40,34 +49,6 @@ const SECTIONS: { number: string; href: string; label: Key; note: Key }[] = [
     </a>
     <span class="version">v{version}</span>
 
-    {/* Plain links, no script: the CSP allows one inline script and it is the
-         theme bootstrap. The route (`[lang]/index.astro`) sets `aria-current` on
-         whichever language it is writing. */}
-    <nav class="seg lang-nav" aria-label={t('header.nav.language')}>
-      {
-        LANGUAGES.map((language) => (
-          <a
-            href={language.path}
-            hreflang={language.code}
-            data-dismiss={language.dismiss}
-            data-offer={language.offer}
-            aria-current={language.code === locale ? 'page' : undefined}
-          >
-            {language.label}
-          </a>
-        ))
-      }
-    </nav>
-
-    {/* Both states are named rather than left to an icon. Which one is lit
-         comes from `data-theme` in CSS, so it is right on the first paint;
-         `aria-pressed` is site.js's, since without it the buttons do nothing
-         anyway. */}
-    <div class="seg theme-nav" role="group" aria-label={t('header.theme')}>
-      <button type="button" data-theme-set="dark">{t('header.theme.dark')}</button>
-      <button type="button" data-theme-set="light">{t('header.theme.light')}</button>
-    </div>
-
     {/* A <details>, not a scripted menu: it opens and closes with no
          JavaScript at all, which is the property the rest of this page keeps.
          site.js only adds Ctrl K, Escape and closing on a click elsewhere. */}
@@ -77,16 +58,52 @@ const SECTIONS: { number: string; href: string; label: Key; note: Key }[] = [
         {t('header.index')}
         <kbd>Ctrl K</kbd>
       </summary>
-      <nav class="index-panel" aria-label={t('header.nav.sections')}>
-        {
-          SECTIONS.map((section) => (
-            <a href={section.href}>
-              <i>{section.number}</i>
-              <span><b>{t(section.label)}</b><p>{t(section.note)}</p></span>
-            </a>
-          ))
-        }
-      </nav>
+      <div class="index-panel">
+        <nav class="index-nav" aria-label={t('header.nav.sections')}>
+          {
+            sections.map((section) => (
+              <a href={section.href}>
+                <i>{section.number}</i>
+                <span><b>{t(section.label)}</b><p>{t(section.note)}</p></span>
+              </a>
+            ))
+          }
+          <a class="cross" href={crossLink.href}>
+            <i aria-hidden="true">&rarr;</i>
+            <span><b>{crossLink.label}</b><p>{crossLink.note}</p></span>
+          </a>
+        </nav>
+
+        {/* Plain links, no script: the CSP allows one inline script and it is
+             the theme bootstrap. Each one points at this same page in that
+             language, so switching language never also changes the subject. */}
+        <div class="index-settings">
+          <nav class="seg lang-nav" aria-label={t('header.nav.language')}>
+            {
+              LANGUAGES.map((language) => (
+                <a
+                  href={pathFor(language.code, page)}
+                  hreflang={language.code}
+                  data-dismiss={language.dismiss}
+                  data-offer={language.offer}
+                  aria-current={language.code === locale ? 'page' : undefined}
+                >
+                  {language.label}
+                </a>
+              ))
+            }
+          </nav>
+
+          {/* Both states are named rather than left to an icon. Which one is
+               lit comes from `data-theme` in CSS, so it is right on the first
+               paint; `aria-pressed` is site.js's, since without it the buttons
+               do nothing anyway. */}
+          <div class="seg theme-nav" role="group" aria-label={t('header.theme')}>
+            <button type="button" data-theme-set="dark">{t('header.theme.dark')}</button>
+            <button type="button" data-theme-set="light">{t('header.theme.light')}</button>
+          </div>
+        </div>
+      </div>
     </details>
 
     <a class="icon-btn" href="https://github.com/Routarr/Routarr" aria-label={t('header.github')}>

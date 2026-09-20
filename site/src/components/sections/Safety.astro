@@ -34,13 +34,13 @@ const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
         GATES.map((gate) => (
           <li class:list={['gate', { 'gate-first': gate.number === '01' }]}>
             <span class="gate-n">{gate.number}</span>
-            <div class="gate-head">
+            <div class="gate-body">
               <h3>{t(gate.name)}</h3>
-              <span class:list={['gate-verb', gate.asks ? 'asks' : 'refuses']}>
-                {t(gate.asks ? 'safety.asks' : 'safety.refuses')}
-              </span>
+              <p>{t(gate.note)}</p>
             </div>
-            <p>{t(gate.note)}</p>
+            <span class:list={['gate-verb', gate.asks ? 'asks' : 'refuses']}>
+              {t(gate.asks ? 'safety.asks' : 'safety.refuses')}
+            </span>
           </li>
         ))
       }
@@ -51,8 +51,6 @@ const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
       <span><span class="gate-verb asks">{t('safety.asks')}</span>{t('safety.legend.2')}</span>
     </p>
 
-    <div class="callout">
-      <p set:html={t('safety.p.6')} />
-    </div>
+    <p class="gates-note" set:html={t('safety.p.6')} />
   </div>
 </section>
