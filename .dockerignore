@@ -20,8 +20,8 @@
 **/backups/
 data/
 
-# Not part of the image: the showcase site is deployed separately (Cloudflare
-# Pages), the docs and the dev container are for people.
+# Not part of the image: the showcase site is deployed separately (Cloudflare),
+# the docs and the dev container are for people.
 site/
 docs/
 .devcontainer/

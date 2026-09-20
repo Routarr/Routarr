@@ -104,7 +104,7 @@ updates:
       - dependency-name: 'typescript'
         update-types: ['version-update:semver-major']
 
-  # The showcase site has its own lockfile. It deploys to Cloudflare Pages
+  # The showcase site has its own lockfile. It deploys to Cloudflare
   # rather than into the image, so nothing here ships to a user — but it is
   # still a build CI has to keep green.
   - package-ecosystem: npm
