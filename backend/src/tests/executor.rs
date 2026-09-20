@@ -63,7 +63,18 @@ async fn hanging_up_mid_apply_still_records_the_move() {
         .await
         .unwrap();
     assert_eq!(path, "/movies/anime", "the row was not brought in line with the Arr");
-    assert!(app.state.jobs.try_lock("apply").is_some(), "the apply lock was left held");
+    // Bounded, not immediate: the lock falls when the detached future ends,
+    // which is after `job.succeed`, itself after the status this test has just
+    // observed. Asserting on it straight away asserts an ordering the executor
+    // never promised, and only holds on a machine fast enough to lose the race
+    // by microseconds — which is why it passed everywhere but on a CI runner.
+    let released = tokio::time::timeout(Duration::from_secs(5), async {
+        while app.state.jobs.try_lock("apply").is_none() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(released.is_ok(), "the apply lock was left held");
     let job: String = sqlx::query_scalar(
         "SELECT status FROM jobs WHERE kind = 'apply' ORDER BY started_at DESC LIMIT 1",
     )
