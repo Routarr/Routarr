@@ -56,25 +56,38 @@ jobs:
             exit 1
           fi
 
+  # One job per architecture, each on a runner of that architecture.
+  #
+  # The arm64 leg used to be emulated beside the other on an amd64 runner,
+  # which for a Rust release build means QEMU: it measured 115 minutes, then
+  # outgrew the three-hour ceiling and was killed with nothing published. The
+  # comment that stood here said a tag read a warm cache written by the default
+  # branch, and that was never true — `docker.yml` builds `linux/amd64` alone,
+  # so no arm64 layer has ever been in that cache and every release paid for a
+  # cold emulated build.
   image:
-    name: Publish the image
+    name: Build ${{ matrix.arch }}
     needs: guard
-    runs-on: ubuntu-latest
-    # The arm64 leg is emulated and took 115 minutes on a cold cache. Tags read
-    # the cache the default branch wrote, so this is normally minutes — the
-    # ceiling is here for the run where it is not.
-    timeout-minutes: 180
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
-      # For the provenance attestation below: `id-token` signs it, and
-      # `attestations` records it against the repository.
-      id-token: write
-      attestations: write
+    strategy:
+      # Both legs run to the end: one architecture failing while the other is
+      # still building tells you less than two verdicts do.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Sign in to the registry
@@ -86,11 +99,88 @@ jobs:
           # enough, given `packages: write` above.
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # metadata-action lower-cases the repository name, which matters: the
-      # repository is `Routarr/Routarr` and a registry path with a capital
-      # letter in it is rejected. It also derives the tag set from the git tag,
-      # so `v1.2.3` publishes 1.2.3, 1.2, 1 and latest, and a pre-release does
-      # not take `latest`, `1.2` or `1` with it.
+      # A registry path holding a capital letter is rejected, and the
+      # repository is `Routarr/Routarr`. metadata-action lower-cases what it
+      # writes; the name handed to `outputs` below is ours to lower-case.
+      - id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # Labels only here. The tags name the manifest list, which does not exist
+      # until the next job assembles it.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+
+      # Pushed by digest and carrying no tag: a tag applied here would be taken
+      # by whichever architecture pushed last, leaving the other unreachable
+      # under the name people pull.
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
+          # A scope per architecture. Sharing one, the two legs evict each
+          # other's layers and neither ever reads a warm cache.
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+
+      - name: Hand the digest to the manifest job
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          touch "${{ runner.temp }}/digests/${DIGEST#sha256:}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # What makes `:0.1.0` mean both architectures. Each is in the registry by
+  # now, reachable only by its own digest; this assembles the manifest list
+  # that carries the tags, and attests that one digest.
+  manifest:
+    name: Publish the image
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      # For the provenance attestation below: `id-token` signs it, and
+      # `attestations` records it against the repository.
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digest-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Sign in to the registry
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      # The tag set derived from the git tag, so `v1.2.3` publishes 1.2.3, 1.2,
+      # 1 and latest, and a pre-release takes none of those with it.
       #
       # No `0` tag: semver makes no compatibility promise across 0.x, so a tag
       # following every 0.x release would promise exactly what those releases
@@ -98,7 +188,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -106,16 +196,32 @@ jobs:
           flavor: |
             latest=auto
 
-      - id: build
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      - name: Create the manifest list
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+        run: |
+          refs=""
+          for digest in *; do
+            refs="$refs ${IMAGE}@sha256:${digest}"
+          done
+          # Both expansions are meant to split into separate arguments: one
+          # `-t` per tag, one reference per architecture.
+          # shellcheck disable=SC2046,SC2086
+          docker buildx imagetools create \
+            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $refs
+
+      # The manifest list's own digest, which is what a `docker pull` of the
+      # tag resolves to and therefore the only one worth attesting.
+      - id: digest
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          value=$(docker buildx imagetools inspect "${IMAGE}:${VERSION}" \
+            --format '{{json .Manifest}}' | jq -r .digest)
+          echo "value=$value" >> "$GITHUB_OUTPUT"
 
       # Signed evidence of which workflow, on which commit, built this exact
       # digest — attached to the image in the registry, so `gh attestation
@@ -125,8 +231,8 @@ jobs:
       - name: Attest the build's provenance
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-name: ghcr.io/${{ github.repository }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.digest.outputs.value }}
           push-to-registry: true
 
   # The release itself. Publishing it by hand — `gh release create` from a
@@ -135,7 +241,7 @@ jobs:
   # last tag, which is what the log is written for.
   release:
     name: Publish the release
-    needs: image
+    needs: manifest
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
