@@ -247,6 +247,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      # `gh release create` shells out to git to work out which repository it
+      # is in, so it needs one to stand in even though nothing here reads a
+      # file: without it the step fails with "not a git repository" before it
+      # reaches the API. The default shallow fetch is enough, since the notes
+      # are generated server-side. This job had never run to the end before —
+      # the image job was cancelled at its ceiling every time — so the fault
+      # shipped unseen.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
       - name: Create it
         env:
           GH_TOKEN: ${{ github.token }}
