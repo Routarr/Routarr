@@ -1,0 +1,11 @@
+<!-- The README's lockup. Cropped to the glyph's own bounds rather than reusing
+     the favicon's 0 0 24 24 box: an inline image sits its bottom edge on the
+     text baseline, so the three empty units under the glyph in that box left it
+     floating above the capitals of the name beside it. GitHub strips `style`
+     from a README, so the viewBox is the only place this is adjustable. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 2 20 20" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M6 3v12"/>
+  <path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+  <path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/>
+  <path d="M15 6a9 9 0 0 0-9 9"/>
+</svg>
