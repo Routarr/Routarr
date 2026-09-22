@@ -1,5 +1,4 @@
 ---
-import { version } from '../../version';
 import { useTranslations, pathFor, type Key, type Locale } from '../../i18n';
 
 interface Props { locale: Locale }
@@ -13,10 +12,9 @@ const detail = pathFor(locale, 'how');
 /**
  * The board announces six departures from the demonstration library. Titles,
  * folders and instances are the library's own words and read the same in every
- * language; the rule names, the statuses and the reasons come from the
- * catalogue. Every row's reasons are the `expected · observed` pairs the
- * application's explanation panel shows, so the board promises nothing the
- * product does not say.
+ * language; the rule names and the statuses come from the catalogue. A row
+ * carries only what the application's own plan shows, so the board promises
+ * nothing the product does not say.
  */
 type Kind = 'go' | 'confirm' | 'still';
 interface Departure {
@@ -24,100 +22,53 @@ interface Departure {
   rule: { number: string; name: Key } | null;
   from: string;
   to: string;
-  gate: 'RADARR' | 'SONARR';
+  gate: 'Radarr' | 'Sonarr';
   status: Key;
   kind: Kind;
-  why: { mark: '✓' | '✗' | ''; text: Key }[];
 }
 
 const DEPARTURES: Departure[] = [
   {
-    title: 'AKIRA (1988)', rule: { number: '#10', name: 'page.text.3' }, from: '/movies', to: '/movies/anime',
-    gate: 'RADARR', status: 'hero.status.proposed', kind: 'go',
-    why: [
-      { mark: '✓', text: 'hero.why.akira.1' }, { mark: '✓', text: 'hero.why.akira.2' },
-      { mark: '✓', text: 'hero.why.akira.3' }, { mark: '', text: 'hero.why.akira.4' },
-    ],
+    title: 'Akira (1988)', rule: { number: '#10', name: 'page.text.3' }, from: '/movies', to: '/movies/anime',
+    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
-    title: 'STOP MAKING SENSE', rule: { number: '#20', name: 'page.text.6' }, from: '/movies', to: '/movies/concerts',
-    gate: 'RADARR', status: 'hero.status.proposed', kind: 'go',
-    why: [
-      { mark: '✗', text: 'hero.why.sms.1' }, { mark: '✓', text: 'hero.why.sms.2' }, { mark: '✓', text: 'hero.why.sms.3' },
-    ],
+    title: 'Stop Making Sense', rule: { number: '#20', name: 'page.text.6' }, from: '/movies', to: '/movies/concerts',
+    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
-    title: 'COWBOY BEBOP', rule: { number: '#10', name: 'page.text.3' }, from: '/tv', to: '/tv/anime',
-    gate: 'SONARR', status: 'hero.status.confirm', kind: 'confirm',
-    why: [
-      { mark: '✓', text: 'hero.why.akira.1' }, { mark: '✓', text: 'hero.why.akira.2' }, { mark: '', text: 'hero.why.bebop.3' },
-    ],
+    title: 'Cowboy Bebop', rule: { number: '#10', name: 'page.text.3' }, from: '/tv', to: '/tv/anime',
+    gate: 'Sonarr', status: 'hero.status.confirm', kind: 'confirm',
   },
   {
-    title: 'PADDINGTON 2', rule: { number: '#30', name: 'page.text.8' }, from: '/movies', to: '/movies/kids',
-    gate: 'RADARR', status: 'hero.status.proposed', kind: 'go',
-    why: [
-      { mark: '✗', text: 'hero.why.paddington.1' }, { mark: '✗', text: 'hero.why.paddington.2' }, { mark: '✓', text: 'hero.why.paddington.3' },
-    ],
+    title: 'Paddington 2', rule: { number: '#30', name: 'page.text.8' }, from: '/movies', to: '/movies/kids',
+    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
-    title: 'WHIPLASH', rule: null, from: '/movies', to: '/movies',
-    gate: 'RADARR', status: 'hero.status.stays', kind: 'still',
-    why: [
-      { mark: '✗', text: 'hero.why.whiplash.1' }, { mark: '✗', text: 'hero.why.whiplash.2' }, { mark: '✗', text: 'hero.why.whiplash.3' },
-    ],
+    title: 'Whiplash', rule: null, from: '/movies', to: '/movies',
+    gate: 'Radarr', status: 'hero.status.stays', kind: 'still',
   },
   {
-    title: 'HOMECOMING', rule: { number: '#20', name: 'page.text.6' }, from: '/movies/concerts', to: '/movies/concerts',
-    gate: 'RADARR', status: 'hero.status.in-place', kind: 'still',
-    why: [{ mark: '✓', text: 'hero.why.sms.2' }, { mark: '', text: 'hero.why.homecoming.2' }],
+    title: 'Homecoming', rule: { number: '#20', name: 'page.text.6' }, from: '/movies/concerts', to: '/movies/concerts',
+    gate: 'Radarr', status: 'hero.status.in-place', kind: 'still',
   },
 ];
 
-/**
- * A word on the board is one flap per character, padded with blank flaps to
- * the column's width. A word that changes flips every one of its flaps, the
- * unchanged letters included: the whole destination goes from the grey folder
- * it is in to the amber folder it is bound for, which is the update the eye is
- * meant to catch. The middle glyph is what the flap shows on its way.
- */
-const GLYPHS = 'AEKMRSTZ0479#/';
-const TITLE_FLAPS = 18;
-const FOLDER_FLAPS = 16;
-const GATE_FLAPS = 6;
+/* Two rows carry the explanation under the plan: one where every condition
+   held, and one where the first rule was asked, failed, and the next took it.
+   A pair of successes would show the panel without showing what it is for. */
 
-interface Flap { ch: string; old?: string; mid?: string; i: number }
-const nbsp = (ch: string) => (ch === ' ' ? ' ' : ch);
-function word(text: string, width: number, from?: string, row = 0): Flap[] {
-  const chars = [...text.slice(0, width).padEnd(width)];
-  const olds = [...(from ?? '').slice(0, width).padEnd(width)];
-  return chars.map((ch, i) =>
-    from === undefined
-      ? { ch: nbsp(ch), i }
-      : { ch: nbsp(ch), old: nbsp(olds[i]), mid: ch === ' ' ? ' ' : GLYPHS[(row * 7 + i * 3) % GLYPHS.length], i },
-  );
-}
-
-const rows = DEPARTURES.map((d, i) => ({
-  ...d,
-  title: word(d.title, TITLE_FLAPS),
-  to: d.kind === 'still' ? word(d.to, FOLDER_FLAPS) : word(d.to, FOLDER_FLAPS, d.from, i),
-  gate: word(d.gate, GATE_FLAPS),
-  id: `why-${i + 1}`,
-  /* The stylesheet holds each row's place in the flip cycle and each flap's
-     stagger, keyed on these: an inline `style` is what the CSP refuses. */
-  number: i + 1,
-  more: i >= 3,
-}));
+const STATUS_CLASS: Record<Kind, string> = { go: 'is-go', confirm: 'is-confirm', still: 'is-still' };
+const LEGEND: { cls: string; label: Key; note: Key }[] = [
+  { cls: 'is-go', label: 'hero.status.proposed', note: 'hero.legend.proposed' },
+  { cls: 'is-confirm', label: 'hero.status.confirm', note: 'hero.legend.confirm' },
+  { cls: 'is-still', label: 'hero.status.stays', note: 'hero.legend.stays' },
+  { cls: 'is-still', label: 'hero.status.in-place', note: 'hero.legend.in-place' },
+];
 ---
 
 <section class="hero">
   <div class="wrap">
-    {/* The headline spans the page, as the board below it does, and the lead
-        sits beside the actions underneath. Boxed into a column next to the
-        buttons it took a third line in French and German, whose labels are
-        longer, and a headline that wraps differently in every language is what
-        made the section read as loose. */}
     <div class="hero-head">
       <span class="eyebrow">{t('page.span')}</span>
       <h1 set:html={t('page.h1')} />
@@ -136,89 +87,60 @@ const rows = DEPARTURES.map((d, i) => ({
       </div>
     </div>
 
-    {/* The board is a physical object: dark in both themes, like the code
-        blocks. Its rows are real table rows, so the columns are announced as
-        columns; the flaps are decoration and each cell also carries its word
-        in plain text for whoever cannot see them. */}
-    <div class="board">
-      <div class="board-band">
-        <span>{t('hero.board')} <span class="board-mode">· {t('hero.board.mode')}</span></span>
-        <span class="board-clock" data-clock aria-hidden="true">--:--:--</span>
+    {/* The plan, as the application draws it. The columns are the ones the
+        simulation screen shows, and every reason below is an `expected ·
+        observed` pair the explanation panel produces, so nothing here promises
+        what the product does not say. */}
+    <div class="plan">
+      <div class="plan-head">
+        <span class="plan-title">{t('hero.plan')}</span>
+        <span class="chip is-go">{t('hero.board.mode')}</span>
+        <span class="plan-tally">{t('hero.tally')}</span>
       </div>
-      <table class="departures">
-        <caption class="sr-only">{t('hero.caption')}</caption>
-        <thead>
-          <tr>
-            <th scope="col">{t('hero.col.title')}</th>
-            <th scope="col">{t('hero.col.rule')}</th>
-            <th scope="col">{t('hero.col.destination')}</th>
-            <th scope="col" class="col-gate">{t('hero.col.gate')}</th>
-            <th scope="col">{t('hero.col.status')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <>
-              <tr class:list={['dep', `dep-${row.kind}`, { 'dep-more': row.more }]} data-row={row.number}>
-                <th scope="row" class="dep-title">
-                  <button type="button" class="dep-toggle" aria-expanded="false" aria-controls={row.id}>
-                    <span class="flaps" aria-hidden="true">{row.title.map((f) => <span class="c">{f.ch}</span>)}</span>
-                    <span class="sr-only">{DEPARTURES[rows.indexOf(row)].title}</span>
-                  </button>
-                </th>
-                <td class="dep-rule">
-                  {row.rule
-                    ? <><b>{row.rule.number}</b>{t(row.rule.name)}</>
-                    : <span class="dep-rule-none">{t('hero.rule.none')}</span>}
-                </td>
-                <td class="dep-to">
-                  <span class="flaps" aria-hidden="true">
-                    {row.to.map((f) =>
-                      f.old === undefined
-                        ? <span class="c a">{f.ch}</span>
-                        : <span class="c a f" data-i={f.i}><span class="g g1">{f.old}</span><span class="g g2">{f.mid}</span><span class="g g3">{f.ch}</span></span>,
-                    )}
-                  </span>
-                  <span class="sr-only">{DEPARTURES[rows.indexOf(row)].to}</span>
-                </td>
-                <td class="dep-gate">
-                  <span class="flaps" aria-hidden="true">{row.gate.map((f) => <span class="c">{f.ch}</span>)}</span>
-                  <span class="sr-only">{DEPARTURES[rows.indexOf(row)].gate}</span>
-                </td>
-                <td class="dep-status">
-                  <span class="st"><i class="dot" aria-hidden="true"></i>{t(row.status)}</span>
-                  <span class="dep-inst">{DEPARTURES[rows.indexOf(row)].gate.charAt(0) + DEPARTURES[rows.indexOf(row)].gate.slice(1).toLowerCase()}</span>
-                </td>
-              </tr>
-              <tr class="why" id={row.id} hidden>
-                <td colspan="5">
-                  <span class="why-k">{t('hero.why')}</span>
-                  <span class="why-lines">
-                    {row.why.map((line) => (
-                      <span>{line.mark && <b class:list={{ no: line.mark === '✗' }}>{line.mark}</b>}{t(line.text)}</span>
-                    ))}
-                  </span>
-                </td>
-              </tr>
-            </>
-          ))}
-        </tbody>
-      </table>
-      <div class="board-foot">
-        <span>{t('hero.tally')}<span class="pages" aria-hidden="true"><i class="on"></i><i></i><i></i></span></span>
-        <span class="board-hint">{t('hero.hint')}</span>
-      </div>
-    </div>
 
-    <div class="hero-after">
-      <ul class="badges">
-        <li>v{version}</li>
-        <li>{t('page.li')}</li>
-        <li>{t('page.li.2')}</li>
-        <li>{t('page.li.3')}</li>
-      </ul>
-      <p class="hero-note">{t('page.p.3')}</p>
+      {/* A region that scrolls has to be reachable from the keyboard, or the
+          rows past the edge belong to the mouse alone. axe names it
+          `scrollable-region-focusable`; the application reconciles the same
+          rule in `TableRegion`. */}
+      <div class="table-scroll" role="region" aria-label={t('hero.plan')} tabindex="0">
+        <table class="plan-table">
+          <caption class="sr-only">{t('hero.caption')}</caption>
+          <thead>
+            <tr>
+              <th scope="col">{t('hero.col.title')}</th>
+              <th scope="col">{t('hero.col.rule')}</th>
+              <th scope="col">{t('hero.col.destination')}</th>
+              <th scope="col">{t('hero.col.gate')}</th>
+              <th scope="col">{t('hero.col.status')}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {
+              DEPARTURES.map((d) => (
+                <tr>
+                  <td class="plan-name">{d.title}</td>
+                  <td class="plan-rule">
+                    {d.rule ? <><b>{d.rule.number}</b>{t(d.rule.name)}</> : <i>{t('hero.rule.none')}</i>}
+                  </td>
+                  <td class="plan-dest">
+                    <span class="mono from">{d.from}</span>
+                    {d.kind === 'still' ? null : <><span class="arrow dir-aware" aria-hidden="true">&rarr;</span><span class="mono to">{d.to}</span></>}
+                  </td>
+                  <td class="plan-gate">{d.gate}</td>
+                  <td><span class={`chip ${STATUS_CLASS[d.kind]}`}>{t(d.status)}</span></td>
+                </tr>
+              ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      <p class="plan-legend">
+        {LEGEND.map((l) => (
+          <span><span class={`chip ${l.cls}`}>{t(l.label)}</span>{t(l.note)}</span>
+        ))}
+      </p>
+
     </div>
-    <p class="hero-note hero-maturity">{t('page.p.maturity')}</p>
   </div>
 </section>

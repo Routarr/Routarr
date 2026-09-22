@@ -27,7 +27,7 @@ const OBJECTIONS: { worry: Key; verdict: Key; kind: Verdict; mechanism: Key; det
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">{t('faq.span')}</span>
-      <h2>{t('faq.h2')}</h2>
+      <h2 set:html={t('faq.h2')} />
       <p>{t('faq.lead')}</p>
     </div>
 

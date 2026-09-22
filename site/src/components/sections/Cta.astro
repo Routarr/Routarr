@@ -25,7 +25,7 @@ const RECAP: { claim: Key; detail: Key }[] = [
 <section id="cta">
   <div class="wrap cta-close">
     <div class="cta-say">
-      <h2>{t('cta.h2')}</h2>
+      <h2 set:html={t('cta.h2')} />
       <p>{t('cta.p')}</p>
       <div class="hero-cta">
         <a class="btn btn-primary" href={install}>

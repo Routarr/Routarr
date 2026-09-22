@@ -19,8 +19,8 @@ routarr.key
 # Anywhere, not only at a package root: Vite writes its dependency cache to
 # `frontend/src/node_modules/.vite`, which a leading-slash pattern misses.
 node_modules/
-# Astro's build output and its generated types. Cloudflare Pages runs the
-# build itself, so what is committed is the source, never the artefact.
+# Astro's build output and its generated types. Cloudflare runs the build
+# itself, so what is committed is the source, never the artefact.
 /site/dist
 /site/.astro
 /frontend/dist

@@ -546,48 +546,65 @@ of its own.
 
 ```bash
 npm --prefix site ci       # once
-npm --prefix site run build   # Astro -> site/dist, the four pages plus /404
+npm --prefix site run build   # Astro -> site/dist, eight pages plus /404
 cd site && npx astro check   # types over the components and the catalogue (npm --prefix does not work: npx resolves the binary from the cwd)
 node site/serve.mjs        # preview site/dist, applying the real _headers
 node site/check.mjs        # origins, CSP hash, contrast, image sizes, dead links
 node site/verify.mjs       # loads the built page in Chromium under that CSP
 node site/icons.mjs        # re-render favicon.ico and the PNG icons from the SVG
-bash site/screenshots/run.sh   # regenerate public/assets/shots from the real binary
+bash site/screenshots/run.sh   # re-render the Open Graph card from screenshots/og.html
 ```
 
-**The hero is a split-flap departure board** ([Hero.astro](site/src/components/sections/Hero.astro)):
-six departures from the demonstration library, one flap per character, the destination flipping from
-the grey folder a title is in to the amber folder it is bound for, the gate being the Arr instance,
-and a *Why* drawer under each row carrying the same `expected · observed` pairs the application's
-explanation panel shows. Three things about it break quietly. The rows are real `<table>` rows laid
-out as a grid sharing one `--cols` template, and the flap size `--flap` is what the breakpoints
-change: the gate folds under the status below 1120px and a phone reads one departure per card, so a
-new column is a change to `--cols` at every width. The CSP allows no inline `style`, so a row's place
-in the flip cycle and a flap's stagger are keyed on `data-row` and `data-i` and stated in `site.css`.
-And the board is a physical object, dark in both themes like the code blocks, with colours of its
-own. `verify.mjs` measures every flap word, status and rule against its column on all four pages at
-1280, 900 and 390px, because a status one word longer in German overflowed its column by 2px and
-nothing else noticed; the count of words measured is the guard on the guard.
+**The site is two pages**, `/` and `/how/`, in four languages each. The landing
+answers what Routarr does and `/how/` answers how, because the one-page version
+measured 17905px on a 390px phone — twenty-one screens, every section a device
+built for a wide window, and a comparison laid out as a list compares nothing.
+`src/layouts/Landing.astro` and `src/layouts/Detail.astro` are the two pages;
+`src/pages/index.astro`, `how.astro` and their `[lang]/` twins are the eight
+routes. `pathFor(locale, page)` is what names a path, and it returns the
+**trailing slash**: Astro writes `how/index.html`, so `/how` answers 307 to
+`/how/`, and without the slash the canonical and every `hreflang` named a URL
+that redirects.
 
-`serve.mjs` parses `_headers` on purpose: previewing with any other static server hides a CSP
-that blocks the stylesheet. The screenshots are captured from a throwaway instance with its own
-database and its own fake Radarr, Sonarr and TMDb, so no real library or API key can reach a
-published image. Re-crop one and `check.mjs` fails until the `width`/`height` in the HTML match.
+**The hero is the plan** ([Hero.astro](site/src/components/sections/Hero.astro)):
+the dry-run table as the simulation screen draws it — title, rule, destination,
+gate, status — then the legend naming its four states. It replaced a split-flap
+departure board, which was a fine picture of a departure and a poor picture of a
+decision. Every cell refuses to wrap and the table scrolls inside its own card
+on a narrow window, so the document never moves sideways; that scroller carries
+`tabindex="0"` and a name, because axe refuses a scrollable region the keyboard
+cannot reach, which is the same reconciliation the application states once in
+`TableRegion`. `verify.mjs` measures every cell and chip against the box it sits
+in, on the eight pages at three widths, and the count of cells measured is the
+guard on the guard.
 
-Each screenshot ships **twice**, AVIF and WebP, both encoded from the same PNG in
-one pass of `run.sh` — never one from the other, since re-encoding lossy into
-lossy compounds both sets of artefacts and these are pictures of text. The
-`<img>` inside each `<picture>` stays the source of truth for `alt`, dimensions
-and loading; the `<source>` above it is the only thing AVIF adds. It halves the
-page: 480 kB down to 232 kB for a browser that takes it. `check.mjs` fails on a
-lone file of either format, on a `<source>` pointing at nothing, and on an
-extension `serve.mjs` has no MIME type for — the last one because a file served
-untyped may be refused by exactly the browser that would have taken it, which is
-visible only in preview.
+**Light is the theme**, and dark is reached only by stamping `data-theme="dark"`,
+which the toggle does and the bootstrap restores before first paint. There is
+deliberately no `prefers-color-scheme` palette and `check.mjs` refuses one: a
+palette the visitor's system picks is a third state nothing measures. The dark
+values are the application's own, unchanged, so a reader who switches does not
+find a second Routarr. The accent is three tokens and that split is what the
+flip made load-bearing: `--accent` decorates, `--accent-text` is the amber that
+passes AA *as text*, and on a white ground those two cannot be the same value.
+
+**Sections alternate by position, not by a class.** `main > section:nth-of-type(even)`
+takes the band. Placed by hand it drifted — the landing banded its last two and
+the detail page banded three in a row then none, which is not a rhythm.
+
+**A heading breaks before its amber clause only below 900px.** Above it, every
+heading is one line in all four languages, and that is checked by counting line
+boxes rather than dividing a height by a line-height, which counts the padding
+too and reports two lines for one. What used to break them was never the
+translation: it was a `max-width` in `ch` doing the work of a line break.
+
+`serve.mjs` parses `_headers` on purpose: previewing with any other static server
+hides a CSP that blocks the stylesheet. The screenshots left the page when it was
+cut from twenty-one phone screens to seven; `screenshots/` stays because it also
+renders `og.html` into the Open Graph card, which is the first thing a shared
+link shows and which said the wrong thing for a day after the redesign.
 
 The site ships in English, French, German and Spanish, from **one** set of Astro components rendered
-four times — `src/layouts/Landing.astro` is the page, and `src/pages/index.astro` and
-`src/pages/[lang]/index.astro` are the routes. `src/i18n/<code>.json` maps a key to a string and
+four times per page. `src/i18n/<code>.json` maps a key to a string and
 `useTranslations` throws on a key no catalogue answers, so a missing translation fails the build
 rather than rendering an empty element; `Key` is derived from `en.json`, so a key English does not
 have fails `astro check` before that.
@@ -596,8 +613,11 @@ Two properties of the catalogues are worth stating, because losing either is sil
 **string, not an anchor**: it must not carry the opening tag it is meant to sit inside
 (`'<span class="eyebrow">Features'`), or the markup leaves the template unbalanced. And a value must
 not carry HTML entities — an `&amp;` lifted out of markup is double-escaped the moment it goes
-through a template that escapes. Comparing the four rendered pages word for word is the check worth
-repeating after any change to this layer.
+through a template that escapes. Both now fail the build: `check.mjs` refuses an entity in a value
+that is not markup, and refuses an escaped tag in a built page, which is what a value carrying
+`<em>` does when its component slots it as text rather than with `set:html`. Each shipped once
+before the guard existed. A third guard refuses a key no component references, after forty-one
+accumulated unnoticed.
 
 `{t('key')}` inside an attribute must not be quoted: `alt="{t('x')}"` is a literal in Astro, not an
 expression — it renders the literal text and breaks every `alt` on the page without a word of warning.

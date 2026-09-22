@@ -179,6 +179,130 @@ for (const { code } of LANGUAGES) {
   }
 }
 
+// ------------------------------------------------------ the sitemap agrees
+// The `hreflang` set is declared twice by two different mechanisms: the pages
+// write it in their `<head>` from `pathFor`, and the sitemap integration
+// writes it from the routes. Google reads both, so they have to say the same
+// thing — and nothing but this compares them. A missing `x-default` on one
+// side is exactly the kind of drift that shows up months later in Search
+// Console and never in a build.
+const sitemapIndex = read('sitemap-index.xml');
+const sitemapFiles = [...sitemapIndex.matchAll(/<loc>[^<]*\/([^/<]+\.xml)<\/loc>/g)].map((m) => m[1]);
+if (!sitemapFiles.length) fail('sitemap-index.xml names no sitemap');
+
+const robotsSitemap = headers === null ? null : read('robots.txt').match(/^Sitemap:\s*(\S+)/m);
+if (!robotsSitemap) {
+  fail('robots.txt names no sitemap');
+} else if (!robotsSitemap[1].startsWith(`https://${ORIGIN}/`) || !robotsSitemap[1].endsWith('sitemap-index.xml')) {
+  fail(`robots.txt points at ${robotsSitemap[1]}, which is not this site's sitemap index`);
+}
+
+const inSitemap = new Set();
+let comparedPages = 0;
+for (const file of sitemapFiles) {
+  const xml = read(file);
+  for (const entry of xml.matchAll(/<url>\s*<loc>([^<]+)<\/loc>([\s\S]*?)<\/url>/g)) {
+    const [, loc, rest] = entry;
+    inSitemap.add(loc);
+
+    const tail = loc.replace(`https://${ORIGIN}/`, '');
+    const file = tail === '' ? 'index.html' : `${tail.replace(/\/$/, '')}/index.html`;
+    const page = pages[file];
+    if (!page) {
+      fail(`the sitemap lists ${loc}, which was not built as ${file}`);
+      continue;
+    }
+    comparedPages += 1;
+
+    const fromSitemap = new Set([...rest.matchAll(/hreflang="([^"]+)"/g)].map((m) => m[1]));
+    const fromPage = new Set([...page.matchAll(/<link rel="alternate" hreflang="([^"]+)"/g)].map((m) => m[1]));
+    const missing = [...fromPage].filter((lang) => !fromSitemap.has(lang));
+    const extra = [...fromSitemap].filter((lang) => !fromPage.has(lang));
+    if (missing.length) fail(`${file}: the sitemap omits hreflang ${missing.join(', ')}, which the page declares`);
+    if (extra.length) fail(`${file}: the sitemap declares hreflang ${extra.join(', ')}, which the page does not`);
+
+    // One fallback, and it names a page that exists.
+    const defaults = [...rest.matchAll(/hreflang="x-default" href="([^"]+)"/g)].map((m) => m[1]);
+    if (defaults.length !== 1) fail(`${file}: the sitemap declares ${defaults.length} x-default entries, expected one`);
+  }
+}
+
+// Every built page is offered, and the count is the guard on the guard.
+for (const file of Object.keys(pages)) {
+  if (file === '404.html') continue;
+  const path = file === 'index.html' ? '' : file.replace(/index\.html$/, '');
+  if (!inSitemap.has(`https://${ORIGIN}/${path}`)) fail(`${file} was built but is not in the sitemap`);
+}
+if (inSitemap.has(`https://${ORIGIN}/404`) || inSitemap.has(`https://${ORIGIN}/404/`)) {
+  fail('the sitemap lists /404, the one page that tells crawlers to go away');
+}
+if (comparedPages < 8) {
+  fail(`compared ${comparedPages} page(s) against the sitemap, so this check is reading almost nothing`);
+}
+
+// -------------------------------------------- every page revalidates
+// Astro fingerprints what it builds and does not fingerprint the pages, so an
+// HTML file cached for any length of time is a page a deploy cannot take back.
+// The four landings each named their rule and the four `/how/` pages did not,
+// because they were added a day later and the file was not: this is what makes
+// the ninth page fail the build instead of going stale quietly.
+for (const file of Object.keys(pages)) {
+  const path = file === 'index.html' ? '/' : `/${file.replace(/index\.html$/, '')}`;
+  const rule = new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n\\s+Cache-Control:[^\\n]*must-revalidate`, 'm');
+  if (!rule.test(headers)) {
+    fail(`_headers has no revalidating Cache-Control for ${path}, so that page can be served stale`);
+  }
+}
+
+// --------------------------------------------- markup that reached the page
+// A catalogue value carrying a tag has to be rendered with `set:html`. Slotted
+// as text it is escaped, and the page shows `<em>26 languages.</em>` in full.
+// Eight sections used `set:html` for their heading and the ninth did not, so
+// the fault was one component wide and invisible to every other check.
+for (const [file, page] of Object.entries(pages)) {
+  const escaped = page.match(/&lt;\/?(em|strong|code|span|br)\b[^&]{0,40}&gt;/);
+  if (escaped) {
+    fail(`${file} shows the markup ${escaped[0]} as text: that value needs set:html, or the tag does not belong in the catalogue`);
+  }
+}
+
+// ------------------------------------------------------- keys nobody asks for
+// A catalogue grows by addition and never by subtraction unless something
+// looks: forty-one keys outlived the sections that used them, in four
+// languages, which is a hundred and sixty-four strings a translator would have
+// been asked to keep. A key is referenced literally by a component, or as the
+// `.exp` half of a pair whose `.obs` is derived from it.
+{
+  const sources = readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile() && /\.(astro|ts)$/.test(e.name))
+    .map((e) => readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8'))
+    .join('\n');
+  const unused = Object.keys(english).filter((key) => {
+    if (sources.includes(`'${key}'`) || sources.includes(`"${key}"`)) return false;
+    // `.obs` is derived from its `.exp` twin rather than named on its own.
+    if (key.endsWith('.obs') && sources.includes(`'${key.slice(0, -4)}.exp'`)) return false;
+    return true;
+  });
+  if (unused.length) {
+    fail(`src/i18n/en.json has ${unused.length} key(s) no component references: ${unused.slice(0, 4).join(', ')}${unused.length > 4 ? '…' : ''}`);
+  }
+}
+
+// ------------------------------------------------- entities in a catalogue
+// A catalogue value is a string, not markup. An `&amp;` written there is
+// double-escaped the moment it goes through a template that escapes, and the
+// page then shows the entity itself. Caught once on the hero's licence line,
+// where `amd64 &amp; arm64` rendered as written.
+for (const { code } of LANGUAGES) {
+  const dictionary = catalogue(code);
+  for (const [key, value] of Object.entries(dictionary)) {
+    const entity = String(value).match(/&(amp|lt|gt|quot|#\d+);/);
+    if (entity && !/<[a-z]/i.test(String(value))) {
+      fail(`src/i18n/${code}.json: ${key} carries the entity ${entity[0]} in a value that is not markup`);
+    }
+  }
+}
+
 // ---------------------------------------------------------- words in CSS
 // A word a stylesheet prints through `content` never reaches a catalogue, so it
 // reads in English on all four pages — and the check above cannot see it,
@@ -211,8 +335,12 @@ else {
   if (!index.includes(`"softwareVersion": "${version}"`)) {
     fail(`index.html: softwareVersion is not ${version}, the version in Cargo.toml`);
   }
-  if (!index.includes(`<li>v${version}</li>`)) {
-    fail(`index.html: the version badge is not v${version}, the version in Cargo.toml`);
+  /* The version is stated on the page, not in one particular element: it moved
+     from a badge under the hero to the header beside the name when the badges
+     went. What matters is that a visitor can read which version the page
+     describes, and that it is the one Cargo.toml declares. */
+  if (!index.includes(`v${version}`)) {
+    fail(`index.html: the page states no version, and Cargo.toml declares ${version}`);
   }
 }
 
@@ -570,16 +698,16 @@ function tokensOf(pattern) {
   const block = css.match(pattern)?.[1] ?? '';
   return Object.fromEntries([...block.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
 }
-// Dark is the default, and light is reached only by stamping
-// `data-theme="light"`. A `prefers-color-scheme` block that redefined the
+// Light is the default, and dark is reached only by stamping
+// `data-theme="dark"`. A `prefers-color-scheme` block that redefined the
 // palette would hand the default back to the visitor's system, which is the
 // one decision here that must not be undone by accident.
 if (/@media\s*\(prefers-color-scheme[^)]*\)\s*\{[^{]*\{[^}]*--bg:/.test(css)) {
-  fail('site.css redefines the palette under prefers-color-scheme: dark is the default, light is a stamped choice');
+  fail('site.css redefines the palette under prefers-color-scheme: light is the default, dark is a stamped choice');
 }
-const explicit = tokensOf(/:root\[data-theme="light"\]\s*\{([\s\S]*?)\}/);
+const explicit = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
 if (Object.keys(explicit).length < 10) {
-  fail(`the light palette reads ${Object.keys(explicit).length} token(s), so this check is reading nothing`);
+  fail(`the dark palette reads ${Object.keys(explicit).length} token(s), so this check is reading nothing`);
 }
 
 // -------------------------------------------------------------- contrast

@@ -1,7 +1,12 @@
 <!doctype html>
 <!-- Source of the Open Graph card. Rendered by capture.mjs at exactly 1200x630
      in the same browser that takes the product screenshots, because
-     ImageMagick's SVG renderer has no usable text layout here. -->
+     ImageMagick's SVG renderer has no usable text layout here.
+
+     It follows the site rather than leading it: light ground, the headline the
+     hero actually carries, and the amber split between a fill and a text
+     colour that passes AA on white. A card showing the previous design is the
+     first thing a shared link says, and it said the wrong thing for a day. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -9,8 +14,8 @@
   * { box-sizing: border-box; margin: 0; }
   html, body { width: 1200px; height: 630px; }
   body {
-    background: #131519;
-    color: #f3f4f6;
+    background: #ffffff;
+    color: #27272a;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Liberation Sans", sans-serif;
     padding: 74px 96px;
     display: flex;
@@ -24,63 +29,49 @@
     position: absolute;
     inset: 0 0 auto;
     height: 6px;
-    background: linear-gradient(90deg, #ffa500, #ffd166);
+    background: #f59e0b;
   }
-  /* The same faded homelab grid as the site's hero. */
+  /* The same faded homelab grid as the site's hero, on the light ground. */
   .grid-layer {
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(#2d323e 1px, transparent 1px),
-      linear-gradient(90deg, #2d323e 1px, transparent 1px);
+      linear-gradient(#dedee0 1px, transparent 1px),
+      linear-gradient(90deg, #dedee0 1px, transparent 1px);
     background-size: 44px 44px;
     -webkit-mask-image: radial-gradient(ellipse 75% 60% at 65% 0%, black, transparent 78%);
     mask-image: radial-gradient(ellipse 75% 60% at 65% 0%, black, transparent 78%);
-    opacity: 0.4;
-  }
-  body::after {
-    content: "";
-    position: absolute;
-    width: 760px;
-    height: 760px;
-    right: -260px;
-    top: -320px;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(255,165,0,0.15) 0%, rgba(255,165,0,0) 68%);
+    opacity: 0.55;
   }
   .brand { display: flex; align-items: center; gap: 18px; position: relative; }
-  .brand svg { width: 62px; height: 62px; }
-  .brand span { font-size: 54px; font-weight: 800; letter-spacing: -1.5px; }
-  h1 { font-size: 62px; line-height: 1.12; font-weight: 800; letter-spacing: -2px; position: relative; }
-  h1 em {
-    font-style: normal;
-    background: linear-gradient(92deg, #ffa500, #ffd166 90%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-  }
-  p { font-size: 27px; color: #b6bcc7; margin-top: 22px; position: relative; }
+  .brand svg { width: 58px; height: 58px; }
+  .brand span { font-size: 48px; font-weight: 600; letter-spacing: -1.4px; }
+  /* Weight 300 against 500, as the hero sets it: the size carries the claim
+     and the weight steps up only for the clause that matters. */
+  h1 { font-size: 92px; line-height: 1; font-weight: 300; letter-spacing: -3.2px; position: relative; }
+  h1 em { display: block; font-style: normal; font-weight: 500; color: #9e5c00; }
+  p { font-size: 26px; color: #52525b; margin-top: 26px; position: relative; }
   ul { display: flex; gap: 12px; list-style: none; padding: 0; position: relative; }
   li {
-    font-size: 21px;
-    color: #9ca3af;
-    border: 1px solid #2d323e;
-    border-radius: 999px;
-    padding: 10px 22px;
+    font-size: 20px;
+    color: #52525b;
+    border: 1px solid #dedee0;
+    border-radius: 6px;
+    padding: 9px 20px;
   }
 </style>
 </head>
 <body>
   <div class="grid-layer"></div>
   <div class="brand">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M6 3v12"/><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M15 6a9 9 0 0 0-9 9"/>
     </svg>
     <span>Routarr</span>
   </div>
 
   <div>
-    <h1>Every title in the right folder,<br><em>decided by your rules.</em></h1>
+    <h1>The right folder,<em>every time.</em></h1>
     <p>Automatic root-folder routing for Radarr and Sonarr.</p>
   </div>
 

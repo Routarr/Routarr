@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Regenerate the showcase screenshots from the real application.
+# Render the showcase's captured images from the real application.
 #
-# Everything is disposable: its own database, its own fake Radarr, Sonarr and
+# The pages show no screenshot since the site was cut to two, so what this
+# produces today is the Open Graph card, and the captures are kept ready for
+# the second page. Everything is disposable: its own database, its own fake Radarr, Sonarr and
 # TMDb, its own ports. A development instance is never touched, and no real
 # library or API key can end up in a published image.
 set -euo pipefail
