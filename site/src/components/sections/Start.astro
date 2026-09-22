@@ -22,7 +22,7 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
 ];
 ---
 
-<section id="start" class="section-alt">
+<section id="start">
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">{t('start.span')}</span>
@@ -70,10 +70,14 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
       - <span class="s">no-new-privileges:true</span></code></pre>
         </div>
 
-        <div class="callout callout-key">
-          <p set:html={t('start.p.3')} />
-        </div>
       </div>
+    </div>
+
+    {/* Out of the right column and under both: it is the one sentence here
+        that is not about a step, and squeezed beside the compose file it read
+        as a footnote to the file rather than as the warning it is. */}
+    <div class="callout callout-key">
+      <p set:html={t('start.p.3')} />
     </div>
   </div>
 </section>

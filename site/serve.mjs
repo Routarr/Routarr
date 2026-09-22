@@ -4,7 +4,7 @@
  *
  * It parses `_headers` and applies it, which is the whole point: a
  * Content-Security-Policy that is only checked by reading it is not checked.
- * Cloudflare Pages applies the same file in production.
+ * The Worker applies the same file in production.
  *
  *   node site/serve.mjs [port]
  */

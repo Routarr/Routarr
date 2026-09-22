@@ -1,4 +1,7 @@
-# Routarr 🔀
+<h1>
+  <img src=".github/assets/logo.svg" width="26" height="26" alt="">
+  Routarr
+</h1>
 
 [![CI](https://github.com/Routarr/Routarr/actions/workflows/ci.yml/badge.svg)](https://github.com/Routarr/Routarr/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Routarr/Routarr?sort=semver)](https://github.com/Routarr/Routarr/releases)

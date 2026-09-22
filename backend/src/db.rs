@@ -10,37 +10,8 @@ use crate::crypto;
 /// Migrations embedded in the binary, applied in order, exactly once.
 ///
 /// Adding a `.sql` file to `migrations/` is not enough — it must be listed here.
-const MIGRATIONS: &[(&str, &str)] = &[
-    ("001_initial_schema", include_str!("../migrations/001_initial_schema.sql")),
-    ("002_engine_v2", include_str!("../migrations/002_engine_v2.sql")),
-    ("003_arr_signals", include_str!("../migrations/003_arr_signals.sql")),
-    ("004_metadata_providers", include_str!("../migrations/004_metadata_providers.sql")),
-    ("005_source_identifiers", include_str!("../migrations/005_source_identifiers.sql")),
-    (
-        "006_default_category_single_source",
-        include_str!("../migrations/006_default_category_single_source.sql"),
-    ),
-    ("007_media_moved_at", include_str!("../migrations/007_media_moved_at.sql")),
-    ("008_rule_tests", include_str!("../migrations/008_rule_tests.sql")),
-    ("009_sync_attempt", include_str!("../migrations/009_sync_attempt.sql")),
-    ("010_identifier_indexes", include_str!("../migrations/010_identifier_indexes.sql")),
-    ("011_ui_language_default", include_str!("../migrations/011_ui_language_default.sql")),
-    ("012_decision_actor", include_str!("../migrations/012_decision_actor.sql")),
-    ("013_accounts", include_str!("../migrations/013_accounts.sql")),
-    ("014_oidc_flows", include_str!("../migrations/014_oidc_flows.sql")),
-    ("015_decision_subject", include_str!("../migrations/015_decision_subject.sql")),
-    ("016_probe_results", include_str!("../migrations/016_probe_results.sql")),
-    (
-        "017_root_folder_last_accessible",
-        include_str!("../migrations/017_root_folder_last_accessible.sql"),
-    ),
-    ("018_declared_root_folders", include_str!("../migrations/018_declared_root_folders.sql")),
-    (
-        "019_root_folder_path_not_unique",
-        include_str!("../migrations/019_root_folder_path_not_unique.sql"),
-    ),
-    ("020_retention_indexes", include_str!("../migrations/020_retention_indexes.sql")),
-];
+const MIGRATIONS: &[(&str, &str)] =
+    &[("001_initial_schema", include_str!("../migrations/001_initial_schema.sql"))];
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
@@ -128,22 +99,10 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
 
 /// Apply any migration not yet recorded in `_migrations`.
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    run_migrations_upto(pool, None).await
+    run_migrations_upto(pool).await
 }
 
-/// Bring a database to the state it was in just after `last` was applied.
-///
-/// One test needs it and nothing else should. Migration 006 repairs an
-/// installation whose two statements of the default category disagree, and that
-/// path is unreachable from a fresh schema: the flag it reads is dropped by the
-/// same migration. Without stopping at 005 those `UPDATE`s can only be verified
-/// by reading them.
-#[cfg(test)]
-pub async fn run_migrations_through(pool: &SqlitePool, last: &str) -> Result<(), sqlx::Error> {
-    run_migrations_upto(pool, Some(last)).await
-}
-
-async fn run_migrations_upto(pool: &SqlitePool, last: Option<&str>) -> Result<(), sqlx::Error> {
+async fn run_migrations_upto(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY,
@@ -180,10 +139,6 @@ async fn run_migrations_upto(pool: &SqlitePool, last: Option<&str>) -> Result<()
         tx.commit().await?;
 
         info!("Migration {} applied successfully", name);
-
-        if last == Some(name) {
-            return Ok(());
-        }
     }
 
     info!("All migrations up to date");
@@ -331,74 +286,6 @@ mod tests {
         assert_eq!(placeholders(0), "");
         assert_eq!(placeholders(1), "?");
         assert_eq!(placeholders(3), "?, ?, ?");
-    }
-
-    /// Upgrading must carry the existing cache over, not start it empty.
-    ///
-    /// Migration 004 re-keys the metadata cache on `(source, external_id)` so a
-    /// provider other than TMDb can be filed in it. Dropping the old table
-    /// without moving its rows would silently re-fetch a whole library — and on
-    /// an installation with no TMDb key any more, it would simply lose it.
-    #[tokio::test]
-    async fn upgrading_moves_the_tmdb_cache_into_the_multi_source_one() {
-        let pool = test_pool_without_migrations().await;
-
-        // Everything up to the migration under test.
-        for (name, sql) in
-            MIGRATIONS.iter().take_while(|(name, _)| *name != "004_metadata_providers")
-        {
-            apply(&pool, name, sql).await;
-        }
-
-        sqlx::query(
-            "INSERT INTO tmdb_cache (tmdb_id, media_type, genres, keywords, expires_at)
-             VALUES (8392, 'movie', '[\"Animation\"]', '[\"anime\"]', '2099-01-01')",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-
-        run_migrations(&pool).await.unwrap();
-
-        let row: (String, String, String) = sqlx::query_as(
-            "SELECT source, external_id, genres FROM metadata_cache WHERE media_type = 'movie'",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-
-        assert_eq!(row.0, "tmdb");
-        assert_eq!(row.1, "8392", "the TMDb id becomes the id in TMDb's namespace");
-        assert_eq!(row.2, r#"["Animation"]"#);
-    }
-
-    async fn test_pool_without_migrations() -> SqlitePool {
-        SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(SqliteConnectOptions::from_str("sqlite::memory:").unwrap())
-            .await
-            .unwrap()
-    }
-
-    async fn apply(pool: &SqlitePool, name: &str, sql: &str) {
-        sqlx::query(
-            "CREATE TABLE IF NOT EXISTS _migrations (
-                id INTEGER PRIMARY KEY,
-                name TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now')))",
-        )
-        .execute(pool)
-        .await
-        .unwrap();
-
-        for statement in split_statements(sql) {
-            sqlx::query(AssertSqlSafe(statement.as_str())).execute(pool).await.unwrap();
-        }
-        sqlx::query("INSERT INTO _migrations (name) VALUES (?)")
-            .bind(name)
-            .execute(pool)
-            .await
-            .unwrap();
     }
 
     /// A stopped Routarr must leave a database file that is complete on its own.

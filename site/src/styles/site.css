@@ -7,13 +7,59 @@
  * three jobs turns the light theme's brand colour brown, because the AA fix for
  * text lands on the fills too. */
 
-/* Dark is the theme, not a preference the system gets to make. The accent is an
-   orange that carries on this ground and loses on a white one, and a reader who
-   never opens the toggle is the common case. Light is reached only by stamping
-   `data-theme="light"`, which the toggle does and the bootstrap restores before
-   first paint. There is deliberately no `prefers-color-scheme` palette, and
-   `check.mjs` refuses one. */
+/* Light is the theme, not a preference the system gets to make. Dark is reached
+   only by stamping `data-theme="dark"`, which the toggle does and the bootstrap
+   restores before first paint. There is deliberately no `prefers-color-scheme`
+   palette, and `check.mjs` refuses one: a palette the visitor's system picks is
+   a third state nothing measures, and the contrast test would then be checking
+   a theme nobody chose.
+
+   The accent is three tokens, not one, and that split is what the flip made
+   load-bearing: `--accent` decorates, `--accent-text` is the amber that passes
+   AA *as text*, and on a white ground those two cannot be the same value. */
 :root {
+  color-scheme: light;
+
+  --bg: #ffffff;
+  --bg-raised: #fafafa;
+  --bg-card: #ffffff;
+  --bg-code: #18181b;
+  --border: #dedee0;
+  --border-strong: #c4c4c8;
+
+  --text: #27272a;
+  --text-soft: #52525b;
+  --text-muted: #71717a;
+
+  --accent: #f59e0b;
+  --accent-text: #9e5c00;
+  /* The focus ring. A state, not decoration: 3:1 against every ground it lands on. */
+  --focus: #9e5c00;
+  --accent-fill: #f59e0b;
+  --accent-fill-hi: #fbbf24;
+  --accent-ink: #1a1200;
+
+  --mark-met: #15803d;
+  --mark-unmet: #b42318;
+
+  /* 3 for a badge, 6 for anything that takes a click, 12 for a surface that
+     holds rows. The application keeps its own 2 / 3 / 4: it is dense, this is
+     not, and the two are read months apart. Two deliberate exceptions stay
+     circular — the terminal's window dots and the numbered markers — because
+     a round mark is what they are, not a rounded rectangle. */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 30px rgba(15, 23, 42, 0.08);
+  --maxw: 1140px;
+
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* The theme the application ships in, kept exactly as it is: a reader who
+   switches to it should not find a second Routarr. */
+:root[data-theme="dark"] {
   color-scheme: dark;
 
   --bg: #131519;
@@ -28,55 +74,16 @@
   --text-muted: #8b93a1;
 
   --accent: #ffa500;
-  --accent-text: #ffa500;
-  /* The focus ring. A state, not decoration: 3:1 against every ground it lands on. */
+  --accent-text: #ffb733;
   --focus: #ffa500;
   --accent-fill: #ff9d00;
   --accent-fill-hi: #ffb733;
   --accent-ink: #1a1200;
 
-  /* The application's scale, under its names: 2 for a badge, 3 for anything
-     that takes a click, 4 for a surface. Two deliberate exceptions stay
-     circular — the terminal's window dots and the numbered markers — because
-     a round mark is what they are, not a rounded rectangle. */
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
-  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --maxw: 1140px;
-
   --mark-met: #6ec98a;
   --mark-unmet: #ef8071;
 
-  --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-
-  --bg: #f4f5f7;
-  --bg-raised: #ffffff;
-  --bg-card: #ffffff;
-  --bg-code: #16181d;
-  --border: #e2e5ea;
-  --border-strong: #cbd1da;
-
-  --text: #14161a;
-  --text-soft: #40474f;
-  --text-muted: #656d78;
-
-  --mark-met: #16703a;
-  --mark-unmet: #a4362a;
-
-  --accent: #f59e0b;
-  --accent-text: #9e5c00;
-  --focus: #9e5c00;
-  --accent-fill: #f59e0b;
-  --accent-fill-hi: #fbbf24;
-  --accent-ink: #1a1200;
-
-  --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 30px rgba(15, 23, 42, 0.08);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -252,8 +259,8 @@ img { max-width: 100%; height: auto; }
    and the rule under it, never by the colour of its letters. Two bold
    characters at 0.72rem are small text, where the accent sits under 4.5:1. */
 .lang-nav a[aria-current='page'],
-:root:not([data-theme='light']) .theme-nav [data-theme-set='dark'],
-:root[data-theme='light'] .theme-nav [data-theme-set='light'] {
+:root:not([data-theme='dark']) .theme-nav [data-theme-set='light'],
+:root[data-theme='dark'] .theme-nav [data-theme-set='dark'] {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
@@ -354,9 +361,12 @@ img { max-width: 100%; height: auto; }
 .index-panel .index-nav > a[aria-current='true'] i,
 .index-panel .index-nav > a[aria-current='true'] b { color: var(--accent-text); }
 
+/* The languages at one end, the theme at the other. Side by side they read as
+   one row of eight cells and the eye has to find where the meaning changes. */
 .index-settings {
   display: flex;
   flex-wrap: wrap;
+  justify-content: space-between;
   gap: 10px;
   margin-top: 14px;
   padding-top: 14px;
@@ -446,7 +456,15 @@ img { max-width: 100%; height: auto; }
 
 section { padding: clamp(56px, 7vw, 96px) 0; }
 /* Alternating grounds break the single-flat-field monotony. */
-.section-alt { background: var(--bg-raised); border-block: 1px solid var(--border); }
+/* Every other section, counted by the page rather than marked by hand. Placed
+   by a class it drifted: the landing banded its last two and the detail page
+   banded three in a row then none, which is not a rhythm, it is an accident
+   that looks like one. The first section is never banded, so the hero and the
+   detail page's own heading keep the page's ground. */
+main > section:nth-of-type(even) {
+  background: var(--bg-raised);
+  border-block: 1px solid var(--border);
+}
 /* The heading and its sentence both run the width of the section. Capped at
    62ch and stacked on the left they left 469px of nothing down the right of
    every section. Beside each other they fill it, but a 535px column cannot
@@ -458,9 +476,16 @@ section { padding: clamp(56px, 7vw, 96px) 0; }
 .section-head h2 { max-width: none; }
 .section-head > p { max-width: none; margin-top: 1.1rem; font-size: 1.06rem; }
 
-/* The claim takes the second line. Every heading here is two sentences, the
-   second one being the one worth reading twice. */
-.section-head h2 em { display: block; }
+/* The claim takes a line of its own only where the width forces it. On a
+   desktop a heading reads better whole, and the break was making short ones
+   look padded; below 900 it is the difference between two lines and four. */
+@media (max-width: 899px) {
+  .section-head h2 em,
+  .more-say h2 em,
+  .cta-say h2 em,
+  #detail-head h1 em,
+  #why h2 em { display: block; }
+}
 
 .eyebrow {
   display: inline-block;
@@ -508,10 +533,25 @@ section { padding: clamp(56px, 7vw, 96px) 0; }
    a headline that wraps differently in every language is what made the section
    read as loose. Measured on the built page: two lines from 900px up in all
    four languages, and the note under the buttons stays on one line there. */
-.hero-head { display: flex; flex-direction: column; gap: 12px; }
-.hero h1 { font-size: clamp(2.05rem, 1.1rem + 2.9vw, 2.9rem); }
-h1 .grad { color: var(--accent-text); }
-.hero-lower { display: flex; flex-direction: column; gap: 22px; margin-top: 22px; }
+/* The hero is centred and the headline is light, not heavy. At 780 the weight
+   made a 46px line shout; the size carries the claim now and the weight steps
+   up only for the clause that matters. The break before that clause is markup,
+   not a wrap: left to the line box it fell differently in each of the four
+   languages. */
+.hero-head { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+.hero h1 {
+  /* The floor is set by the longest of the four headlines, not by taste:
+     "Der richtige Ordner," takes a third line above 2.3rem on a 390px phone. */
+  font-size: clamp(2.25rem, 0.9rem + 5vw, 6rem);
+  font-weight: 300;
+  line-height: 1;
+  letter-spacing: -0.035em;
+  /* Wide enough for the longest of the four first lines. Below this the
+     white half wraps and the deliberate two-line headline becomes three. */
+  max-width: 22ch;
+}
+h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
+.hero-lower { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 26px; margin-top: 34px; }
 /* The two columns stretch to one height and the buttons sit at the bottom of
    theirs, so they land on the last line of the sentence opposite whatever
    that sentence measures. Sized to its content, the right column took the
@@ -519,17 +559,12 @@ h1 .grad { color: var(--accent-text); }
    675px in French, which left the explanation 385px and seven lines against
    the 87px facing it. The column is a share of the row now, and the note
    wraps. */
-@media (min-width: 900px) {
-  .hero-lower { flex-direction: row; justify-content: space-between; align-items: stretch; gap: 40px; }
-  .hero-actions {
-    flex: 0 0 auto;
-    align-items: flex-end;
-    justify-content: flex-end;
-    text-align: end;
-  }
-}
-.hero p.lead { font-size: 1.16rem; max-width: 58ch; margin: 0; }
-.hero-actions { display: flex; flex-direction: column; gap: 12px; }
+/* Nothing to place side by side any more: the hero is one centred column at
+   every width, which is also what stops the lead and the buttons trading
+   widths between languages. */
+
+.hero p.lead { font-size: 1.28rem; line-height: 1.45; max-width: 52ch; margin: 0; }
+.hero-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; }
 .hero-cta { display: flex; gap: 12px; flex-wrap: wrap; }
 /* Below the base rule on purpose: same specificity, and the later one wins.
    The column is as wide as the pair of buttons, which is the one thing in it
@@ -549,10 +584,7 @@ h1 .grad { color: var(--accent-text); }
   .hero-cta { flex-direction: column; align-items: stretch; }
   .hero-cta .btn { white-space: normal; justify-content: center; text-align: center; }
 }
-.hero-note { font-size: 0.88rem; color: var(--text-muted); margin: 0; }
-.hero-after { display: flex; justify-content: space-between; align-items: center; gap: 16px 32px; flex-wrap: wrap; margin-top: 26px; }
-.hero-after .badges { margin: 0; }
-.hero-maturity { margin-top: 18px; }
+.hero-note { font-size: 0.94rem; color: var(--text-muted); margin: 0; }
 /* Read by assistive technology, painted for nobody. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
@@ -564,17 +596,6 @@ h1 .grad { color: var(--accent-text); }
   margin: 26px 0 0;
   padding: 0;
 }
-.badges li {
-  font-family: var(--mono);
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: var(--text-soft);
-  border: 1px solid var(--border);
-  background: color-mix(in srgb, var(--bg-raised) 70%, transparent);
-  padding: 5px 11px;
-  border-radius: var(--radius-xs);
-}
-
 /* ------------------------------------------------------- departure board */
 
 /* A split-flap board is a physical object, so it keeps its own colours in
@@ -607,71 +628,6 @@ h1 .grad { color: var(--accent-text); }
   border-radius: var(--radius-md);
   color: var(--b-ink);
   overflow: hidden;
-}
-.board-band {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  padding: 9px 20px;
-  background: #ff9d00;
-  color: #1a1200;
-  font-family: var(--mono);
-  font-size: 0.85rem;
-  font-weight: 700;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-.board-mode { font-weight: 600; opacity: 0.8; }
-.board-clock { font-variant-numeric: tabular-nums; }
-
-/* Real table rows for the reader who hears columns, laid out as a grid for
-   the one who sees them. Every row shares `--cols`, so the columns line up
-   without the table layout, which has no ellipsis and no card mode. */
-.departures { display: block; width: 100%; margin: 0; border-collapse: collapse; }
-.departures thead, .departures tbody { display: contents; }
-.departures tr {
-  display: grid;
-  grid-template-columns: var(--cols);
-  gap: 0 12px;
-  align-items: center;
-  padding: 7px 20px;
-  border-top: 1px solid var(--b-line);
-}
-.departures thead tr {
-  padding: 8px 20px;
-  border-top: 0;
-  border-bottom: 1px solid var(--b-line);
-  font-family: var(--mono);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--b-muted);
-}
-.departures tbody tr:first-child { border-top: 0; }
-.departures th, .departures td { display: block; padding: 0; min-width: 0; text-align: start; font-weight: inherit; }
-.dep { cursor: pointer; }
-.dep:hover, .dep:has(.dep-toggle[aria-expanded="true"]) { background: #101318; }
-.dep-toggle { all: unset; display: block; cursor: pointer; }
-.dep-toggle:focus-visible { outline: 2px solid var(--b-amber); outline-offset: 3px; border-radius: var(--radius-xs); }
-
-.flaps { display: flex; gap: 1px; }
-.c {
-  position: relative;
-  flex: none;
-  width: var(--flap);
-  height: var(--flap-h);
-  overflow: hidden;
-  border-radius: var(--radius-sm);
-  background: linear-gradient(#1b1f27 0 50%, #12151b 50% 100%);
-  font-family: var(--mono);
-  font-size: var(--flap-font);
-  line-height: var(--flap-h);
-  font-weight: 700;
-  text-align: center;
-  color: var(--b-ink);
-  perspective: 400px;
 }
 .c::after { content: ""; position: absolute; inset: 50% 0 auto; height: 1px; background: #07080a; z-index: 3; }
 .c.a { color: var(--b-amber); }
@@ -728,34 +684,15 @@ h1 .grad { color: var(--accent-text); }
 
 /* The rule takes what the flaps leave and wraps rather than clips: a name is
    longer in French, and a name cut short is a name changed. */
-.dep-rule { font-family: var(--mono); font-size: 0.8rem; line-height: 1.3; color: var(--b-soft); }
-.dep-rule b { color: var(--b-amber); font-weight: 700; margin-inline-end: 8px; }
-.dep-rule-none { color: var(--b-dim); font-style: italic; }
-.st {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--b-amber);
-  white-space: nowrap;
-}
 .st .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--b-amber); flex: none; }
 .dep-still .st { color: var(--b-dim); }
 .dep-still .st .dot { background: #4b5261; }
 .dep-confirm .st { animation: board-blink 1.2s steps(1) infinite; }
 @keyframes board-blink { 50% { opacity: 0.3; } }
-.dep-inst { display: none; font-family: var(--sans); font-size: 0.75rem; color: var(--b-dim); }
 
 .departures tr.why { grid-template-columns: minmax(0, 1fr); padding: 0 20px 12px; border-top: 1px dashed #2d323e; background: #101318; }
 .departures tr.why[hidden] { display: none; }
 .why td { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 16px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.5; color: var(--b-soft); }
-.why-k { padding-top: 5px; font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--b-muted); }
-.why-lines { display: flex; flex-wrap: wrap; gap: 2px 28px; padding-top: 3px; }
-.why-lines b { color: var(--b-amber); font-weight: 700; margin-inline-end: 6px; }
 .why-lines b.no { color: var(--b-dim); }
 
 .board-foot {
@@ -772,16 +709,6 @@ h1 .grad { color: var(--accent-text); }
   text-transform: uppercase;
   color: var(--b-muted);
 }
-.board-hint { font-family: var(--sans); font-size: 0.82rem; letter-spacing: 0; text-transform: none; color: var(--b-soft); }
-.pages { display: inline-flex; gap: 5px; margin-inline-start: 10px; vertical-align: middle; }
-.pages i { width: 6px; height: 6px; border-radius: 50%; background: #3b414f; }
-.pages i.on { background: var(--b-amber); }
-
-@media (prefers-reduced-motion: reduce) {
-  .f .g1, .f .g2 { animation: none; visibility: hidden; }
-  .f .g3 { animation: none; transform: none; opacity: 1; }
-  .dep-confirm .st { animation: none; }
-}
 /* Between the laptop and the phone, the gate folds under the status. */
 @media (max-width: 1119px) {
   .board {
@@ -791,24 +718,15 @@ h1 .grad { color: var(--accent-text); }
     --status-w: 126px;
     --cols: calc(18 * (var(--flap) + 1px) - 1px) minmax(0, 1fr) calc(16 * (var(--flap) + 1px) - 1px) var(--status-w);
   }
-  .departures .dep-gate, .departures .col-gate { display: none; }
-  .dep-inst { display: block; }
 }
 /* A phone reads one departure per card: the title, the destination, then the
    rule and the status on one line. Three departures are enough there. */
 @media (max-width: 859px) {
   .board { --flap: 16px; --flap-h: 28px; --flap-font: 15px; }
-  .departures thead { display: none; }
   .departures tr.dep { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; padding: 11px 12px; }
-  .departures .dep-title { grid-row: 1; grid-column: 1 / -1; }
   .departures .dep-to { grid-row: 2; grid-column: 1 / -1; }
-  .departures .dep-rule { grid-row: 3; grid-column: 1; }
-  .departures .dep-status { grid-row: 3; grid-column: 2; display: flex; align-items: baseline; gap: 8px; justify-self: end; }
-  .dep-inst { display: inline; }
   .departures tr.why { padding: 0 12px 12px; }
   .why td { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
-  .board-band, .board-foot { padding: 8px 12px; }
-  .board-hint { display: none; }
 }
 @media (max-width: 599px) {
   .departures .dep-more, .departures .dep-more + .why { display: none; }
@@ -1025,7 +943,8 @@ h1 .grad { color: var(--accent-text); }
    inside the other terminal, two columns away from the line it was about. */
 .install-note { margin: 7px 0 0; font-size: 0.93rem; }
 .install-aside { display: flex; flex-direction: column; gap: 16px; }
-.callout-key { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+/* Full width, under the two columns rather than inside one of them. */
+.callout-key { margin-top: 24px; border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 
 @media (max-width: 899px) {
   .install { grid-template-columns: minmax(0, 1fr); gap: 26px; }
@@ -1388,67 +1307,11 @@ h1 .grad { color: var(--accent-text); }
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
 }
-.rule-foot p { margin: 0; font-size: 0.88rem; color: var(--text-muted); }
-.rule-braces { font-family: var(--mono); font-size: 0.88rem; color: var(--accent-text); flex: none; }
-
-/* Below 720px the field takes a line of its own and the operator sits with
-   its values, which keeps a condition readable as one statement instead of
-   three columns squeezed to nothing. */
-@media (max-width: 719px) {
-  .rule-cond { grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; }
-  .rule-field { grid-column: 1 / -1; color: var(--text); }
-  .rule-target { margin-inline-start: 0; flex-basis: 100%; }
-}
-
 /* ---------------------------------------------------------------- shots */
 
-.shot {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--bg-raised);
-  box-shadow: var(--shadow);
-  margin: 0;
-}
 /* A lazy image that has not arrived reads as a loading surface, not a void. */
-.shot img {
-  display: block;
-  width: 100%;
-  background:
-    repeating-linear-gradient(45deg,
-      var(--bg-card) 0 14px,
-      color-mix(in srgb, var(--bg-card) 92%, var(--text)) 14px 28px);
-}
-.shot-lead { margin-bottom: 34px; }
-.shot-how { margin-top: 44px; }
-.shot figcaption {
-  padding: 14px 18px;
-  font-size: 0.9rem;
-  color: var(--text-muted);
-  border-top: 1px solid var(--border);
-}
-
 /* Explainability: the full panel with the near-1:1 table crop layered over
    its corner — the one overlapping composition on the page. */
-.layered { position: relative; }
-.layered .shot-back { width: min(78%, 560px); }
-.layered .shot-front {
-  margin: 0; /* a bare <figure> keeps the UA's 40px side margins */
-  position: absolute;
-  right: 0;
-  bottom: -28px;
-  width: 72%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  box-shadow: var(--shadow);
-}
-.layered .shot-front img { display: block; width: 100%; }
-@media (max-width: 700px) {
-  .layered .shot-back { width: 100%; }
-  .layered .shot-front { position: static; width: 100%; margin-top: 14px; }
-}
-
 /* One column below 940px, stated rather than implicit: an implicit track is
    sized to its widest unbreakable content, so the longest line of a `<pre>`
    widened the page instead of scrolling inside its own block. */
@@ -1600,29 +1463,39 @@ h1 .grad { color: var(--accent-text); }
    proved a few screens above, so the slogan stops carrying the section on its
    own and the last thing a hesitant reader sees is the three facts that
    answer the three reasons not to install it. */
+/* The close is one centred column, and the three facts sit underneath it in a
+   row. Beside the heading they were a card of three stacked paragraphs, tall
+   where the column next to it was short, and the section read as two unequal
+   halves rather than as one ending. */
 .cta-close {
-  display: grid;
-  /* The left column has to hold both buttons on one line: at an even split
-     they wrapped, and a stacked pair reads as two separate offers. */
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
   gap: 44px;
-  align-items: start;
   padding-top: 8px;
 }
-.cta-say h2 { margin-bottom: 0.5em; max-width: 16ch; }
-.cta-say > p { margin-bottom: 26px; max-width: 44ch; font-size: 1.06rem; }
+.cta-say { display: flex; flex-direction: column; align-items: center; }
+/* No measure: 16ch broke a six-word heading onto two lines in every
+   language, which is a cap doing the work of a line break. */
+.cta-say h2 { margin-bottom: 0.5em; }
+/* One closing line, not a paragraph: 52ch left «rest.» alone on a second
+   line, and a single centred sentence tolerates a longer measure than body
+   copy does. Sized by the longest of the four, which is the German. */
+.cta-say > p { margin-bottom: 26px; max-width: 82ch; font-size: 1.06rem; }
 
 .cta-recap {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  overflow: hidden;
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0 32px;
 }
 .cta-recap-band {
-  margin: 0;
-  padding: 10px 18px;
-  background: var(--bg-raised);
-  border-bottom: 1px solid var(--border);
+  grid-column: 1 / -1;
+  /* Left of the row and clear of it: centred with a 4px margin it sat at the
+     height of the columns' rules, wedged between the first and the second. */
+  margin: 0 0 16px;
+  text-align: start;
   font-family: var(--mono);
   font-size: 0.7rem;
   font-weight: 700;
@@ -1634,16 +1507,19 @@ h1 .grad { color: var(--accent-text); }
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
   gap: 0 12px;
-  padding: 13px 18px;
+  padding: 16px 0 0;
   border-top: 1px solid var(--border);
+  text-align: start;
 }
-.cta-recap > .cta-line:first-of-type { border-top: 0; }
 .cta-mark { font-family: var(--mono); font-weight: 700; color: var(--accent-text); }
 .cta-line b { display: block; font-size: 1rem; font-weight: 650; }
-.cta-line p { margin: 3px 0 0; font-size: 0.92rem; }
+.cta-line p { margin: 4px 0 0; font-size: 0.92rem; color: var(--text-soft); }
 
+/* Three columns need three usable widths; below this they stack. */
 @media (max-width: 899px) {
-  .cta-close { grid-template-columns: minmax(0, 1fr); gap: 30px; }
+  .cta-recap { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .cta-recap-band { margin-bottom: 8px; }
+  .cta-line { padding: 14px 0; }
 }
 
 /* ---------------------------------------------------------------- footer */
@@ -1684,7 +1560,6 @@ h1 .grad { color: var(--accent-text); }
    gap the claim also takes a line of its own; no other section needs that. */
 h2 { text-wrap: balance; }
 h2 em { font-style: normal; color: var(--accent-text); }
-#why h2 em { display: block; }
 
 /* The gap, drawn as a ledger rather than as two folder listings: every chip on
    a row is a field the sync already reads off the Arr's payload, and the
@@ -1770,31 +1645,68 @@ h2 em { font-style: normal; color: var(--accent-text); }
   grid-template-columns: minmax(0, 1fr);
   gap: 28px;
 }
+.more-say h2 { margin-top: 0; }
 /* The claim takes the second line, as every other heading here does. */
-.more-say h2 { margin: 0.2em 0 0; max-width: 28ch; }
-.more-say h2 em { display: block; }
+/* No measure on a heading of six words: the cap, not the language, is what
+   broke it onto a second line in three of the four. */
+.more-say h2 { margin: 0.2em 0 0; }
 .more-say > p { margin: 1rem 0 0; max-width: 62ch; color: var(--text-soft); }
+/* The same shape as every other object on the page: a card with a header
+   band, then rows. As bare rows with hairlines it read a tone below the rest,
+   which was never about the contents list being the wrong thing to show. */
+.more-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.more-band {
+  margin: 0;
+  padding: 12px 20px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
 .more-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0 0 20px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
   padding: 0;
   list-style: none;
 }
-.more-list li {
-  padding: 5px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
+.more-list li { display: flex; align-items: baseline; gap: 11px; padding: 13px 20px; }
+/* The rule runs between rows, and the second column's first row has none: the
+   two columns start together. */
+.more-list li:nth-child(n + 3) { border-top: 1px solid var(--border); }
+.more-list li:nth-child(odd) { border-inline-end: 1px solid var(--border); }
+.more-list i {
+  font-style: normal;
   font-family: var(--mono);
-  font-size: 0.78rem;
-  color: var(--text-soft);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
 }
+.more-list a { color: var(--text); text-decoration: none; font-size: 0.97rem; }
+.more-list a:hover { color: var(--accent-text); }
+.more-say .btn { margin-top: 26px; }
+
+/* One column on a phone: two leave a German subject about 150px. */
+@media (max-width: 559px) {
+  .more-list { grid-template-columns: minmax(0, 1fr); }
+  .more-list li:nth-child(odd) { border-inline-end: 0; }
+  .more-list li:nth-child(n + 2) { border-top: 1px solid var(--border); }
+}
+
 @media (min-width: 900px) {
-  .more { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0 56px; align-items: end; }
-  .more-go { justify-self: end; text-align: end; }
-  .more-list { justify-content: flex-end; }
+  /* The heading column keeps enough width that no language breaks it; the
+     card holds two columns of six short words in the rest. */
+  .more { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 56px; align-items: center; }
 }
 
 /* The detail page's opening. It takes the section head's shape, since that is
@@ -1802,4 +1714,127 @@ h2 em { font-style: normal; color: var(--accent-text); }
    every other heading here. */
 #detail-head { padding-bottom: 0; }
 #detail-head h1 { font-size: clamp(1.9rem, 1.2rem + 2.4vw, 2.7rem); }
-#detail-head h1 em { display: block; font-style: normal; color: var(--accent-text); }
+#detail-head h1 em { font-style: normal; color: var(--accent-text); }
+
+/* ------------------------------------------------------------------- the plan
+   The hero's object: the plan as the simulation screen draws it, then the
+   explanation the panel produces for two of its rows. It replaced a split-flap
+   board, which was a fine picture of a departure and a poor picture of a
+   decision: the thing worth showing is why a title goes where it goes, and a
+   flap cannot say that. */
+.plan {
+  margin-top: 56px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 24px;
+  height: 54px;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}
+.plan-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+.plan-tally { margin-inline-start: auto; font-size: 0.88rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+.plan-table { width: 100%; border-collapse: collapse; }
+.plan-table th {
+  padding: 12px 24px;
+  text-align: start;
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+/* Every cell refuses to wrap. A rule name broken over two lines turns a row
+   into a paragraph, and the column that did it was always the same one. */
+.plan-table td { padding: 15px 24px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.plan-table tr:last-child td { border-bottom: 0; }
+/* The same size as everything else in the row. It read as a headline when
+   the titles were still set in capitals. */
+.plan-name { font-size: 0.94rem; font-weight: 600; }
+.plan-rule { font-size: 0.94rem; color: var(--text-soft); }
+/* The number sits beside the rule, not above it: stacked, every row was two
+   lines tall for a value that reads as one thing, "#10 Japanese animation". */
+.plan-rule b { margin-inline-end: 7px; color: var(--accent-text); }
+.plan-rule i { color: var(--text-muted); font-style: italic; }
+.plan-dest .mono { font-family: var(--mono); font-size: 0.94rem; }
+.plan-dest .from { color: var(--text-muted); }
+.plan-dest .to { color: var(--accent-text); font-weight: 600; }
+.plan-dest .arrow { padding: 0 10px; color: var(--border-strong); }
+.plan-gate { font-size: 0.9rem; color: var(--text-soft); }
+
+/* One line, in four languages. Four pairs across 1092px leave about twenty
+   characters per note, so the notes are two words and the row may not wrap:
+   a legend on four lines is a paragraph pretending to be a key. */
+.plan-legend {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  gap: 0 18px;
+  margin: 0;
+  padding: 14px 24px;
+  border-top: 1px solid var(--border);
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+.plan-legend > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+/* Below 1000 the row stops being a row rather than bursting its card: the
+   French notes need 852px on the desktop and 19px more than the card has
+   here. One line is the goal where the card is wide, not a rule to keep at
+   the cost of overflow. */
+@media (max-width: 999px) {
+  .plan-legend { flex-wrap: wrap; justify-content: flex-start; gap: 10px 24px; }
+}
+
+/* One grid for both explanations, not one each: two grids sized themselves on
+   their own text and the rows stopped lining up, which is exactly what a
+   side-by-side comparison may not do. The divider is a cell spanning every
+   row. */
+/* The heading of each explanation spans its own three columns. */
+/* A status is a mark, not a sentence: small, on a wash, and the same object in
+   the table, the legend and the explanation. Three states, and the middle one
+   is bordered rather than filled because asking is not the same answer as
+   proposing. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-xs);
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chip.is-go { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); }
+.chip.is-confirm {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent-text);
+}
+.chip.is-still { background: var(--bg-raised); border-color: var(--border); color: var(--text-soft); }
+:root[data-theme="dark"] .chip.is-still { background: var(--bg-card); }
+
+/* The plan's columns do not wrap, so on a narrow window the table scrolls
+   inside its own card rather than pushing the document sideways. Named here
+   and not on the card, because the head, the legend and the explanation must
+   stay put while only the rows move. */
+.table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+.table-scroll::-webkit-scrollbar { height: 8px; }
+.table-scroll::-webkit-scrollbar-track { background: transparent; }
+.table-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }

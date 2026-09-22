@@ -22,7 +22,7 @@ const STEPS: { number: string; name: Key; note: Key; reads: Key | string; writes
 const reading = (value: Key | string) => (value.includes(' ') && !value.startsWith('how.') ? value : t(value as Key));
 ---
 
-<section id="how" class="section-alt">
+<section id="how">
   <div class="wrap">
     <div class="section-head">
       <span class="eyebrow">{t('how.span')}</span>

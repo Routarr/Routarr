@@ -11,6 +11,11 @@ const t = useTranslations(locale);
  * It names what is behind it rather than saying "learn more": the six subjects
  * are the reason somebody clicks, and a reader who wants none of them has
  * finished the page instead of scrolling through them.
+ *
+ * They sit in a card with a header band, which is the shape every other object
+ * on this page has. Set as bare rows with hairlines they read a tone below the
+ * rest — not because a contents list is the wrong thing to show, but because
+ * it was the only thing here not speaking the page's own vocabulary.
  */
 const SUBJECTS: Key[] = [
   'why.span',
@@ -24,22 +29,28 @@ const SUBJECTS: Key[] = [
 const href = pathFor(locale, 'how');
 ---
 
-<section id="more" class="section-alt">
+<section id="more">
   <div class="wrap more">
     <div class="more-say">
       <span class="eyebrow">{t('more.span')}</span>
       <h2 set:html={t('more.h2')} />
       <p>{t('more.p')}</p>
-    </div>
-
-    <div class="more-go">
-      <ul class="more-list">
-        {SUBJECTS.map((subject) => <li>{t(subject)}</li>)}
-      </ul>
       <a class="btn btn-primary" href={href}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
         {t('more.cta')}
       </a>
+    </div>
+
+    <div class="more-card">
+      <p class="more-band">{t('more.band')}</p>
+      <ul class="more-list">
+        {SUBJECTS.map((subject, i) => (
+          <li>
+            <i aria-hidden="true">{String(i + 1).padStart(2, '0')}</i>
+            <a href={href}>{t(subject)}</a>
+          </li>
+        ))}
+      </ul>
     </div>
   </div>
 </section>

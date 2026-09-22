@@ -31,6 +31,21 @@
 /es/
   Cache-Control: public, max-age=0, must-revalidate
 
+# The second page, in its four languages. Added with the page itself would have
+# been the moment; `check.mjs` now fails a built page that has no rule here, so
+# the ninth cannot be forgotten the way these four were.
+/how/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/fr/how/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/de/how/
+  Cache-Control: public, max-age=0, must-revalidate
+
+/es/how/
+  Cache-Control: public, max-age=0, must-revalidate
+
 # Same reasoning: the root icon carries no fingerprint either, and a year-long
 # immutable copy of a wrong icon is not something a deploy can take back.
 /favicon.ico
@@ -39,16 +54,13 @@
 # No blanket rule over `/assets/`: nothing in it carries a fingerprint, so a
 # file added there tomorrow would otherwise be cached for a year on the first
 # visit unless somebody remembered to carve it out. Each file states its own.
-# The screenshots are hand-placed and keep their names across a re-capture:
-# `screenshots/run.sh` overwrites `dashboard.avif` in place, and it has done so
-# four times in three days. Left immutable, a corrected screenshot never reaches
-# a returning visitor for a year, and the site shows an interface that no longer
-# exists. A week bounds the staleness without revalidating ten images on every
-# visit, which `must-revalidate` would.
-/assets/shots/*
-  Cache-Control: public, max-age=604800
+#
+# `/assets/shots/*` stood here until the screenshots left the page. The rule
+# named a directory that no longer ships, which is how a headers file rots; it
+# is one block to write again the day a screenshot earns its place back, and
+# the reasoning is the same as the icons below.
 
-# Same position: hand-placed, unfingerprinted, and replaced by `icons.mjs`.
+# Hand-placed, unfingerprinted, and replaced by `icons.mjs`.
 # `/favicon.ico` at the root is already carved out for this exact reason; these
 # three were missed because they sit one directory further in.
 /assets/favicon.svg

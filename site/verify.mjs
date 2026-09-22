@@ -221,49 +221,47 @@ for (const path of PAGES) {
 check(headerControls >= 1100, `measured ${headerControls} header control(s), expected at least 1100`);
 
 // ------------------------------------------------------------ board
-// The departure board sets its words in fixed flap cells and its status in a
-// fixed column, while both are translated and the flap size changes with the
-// width: a status one word longer in German, or a flap size wrong at one
-// width, overflows its column and nothing else notices, since the board clips
-// it. Every flap word, status and rule is measured against the box it sits in,
-// on the four landing pages, in the three layouts. The board is the hero, so
-// it is on those and nowhere else.
-let boardWords = 0;
+// The plan is a table of translated strings in columns that do not wrap: a
+// rule name one word longer in German, or a status that grew, pushes its cell
+// past the card and nothing else notices. Every cell and every chip is
+// measured against the box it sits in, on the four landing pages, in the three
+// layouts. The plan is the hero, so it is on those and nowhere else.
+//
+// It replaced a split-flap board, whose probe this is: the object changed, the
+// failure it guards against did not.
+let planCells = 0;
 for (const path of LANDINGS) {
   const tab = await context.newPage();
   for (const width of [1280, 900, 390]) {
     await tab.setViewportSize({ width, height: 900 });
     await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
     const measured = await tab.evaluate(() => {
-      const board = document.querySelector('.board');
-      if (!board) return null;
-      const edge = board.getBoundingClientRect().right - 1;
-      return [...board.querySelectorAll('.flaps, .st, .dep-rule')]
-        .filter((el) => el.offsetParent !== null)
-        .map((el) => {
-          const own = el.getBoundingClientRect();
-          const cell = el.closest('td, th');
-          const clipped = cell ? Math.max(0, el.scrollWidth - cell.clientWidth) : 0;
-          return {
-            word: el.textContent.trim().slice(0, 24),
-            spill: Math.round(Math.max(own.right - edge, clipped)),
-          };
-        });
+      const plan = document.querySelector('.plan');
+      if (!plan) return null;
+      // Only clipping counts. The table scrolls sideways on a phone, so a cell
+      // sitting past the visible frame is the scroller working, not a fault —
+      // measuring against that edge reported every row on every narrow page.
+      return [...plan.querySelectorAll('td, .chip, .why-exp, .why-obs')]
+        .filter((el) => el.checkVisibility())
+        .map((el) => ({
+          word: el.textContent.trim().slice(0, 28),
+          spill: Math.round(Math.max(0, el.scrollWidth - el.clientWidth)),
+        }));
     });
     if (!measured) {
-      fail(`${path} at ${width}px: the departure board is missing`);
+      fail(`${path} at ${width}px: the plan is missing`);
       continue;
     }
     for (const { word, spill } of measured) {
-      boardWords += 1;
-      if (spill > 0) fail(`${path} at ${width}px: "${word}" overflows its column by ${spill}px`);
+      planCells += 1;
+      if (spill > 0) fail(`${path} at ${width}px: "${word}" is clipped by ${spill}px`);
     }
   }
   await tab.close();
 }
 // The count is the guard on the guard: a selector that stops matching would
 // measure nothing and pass.
-check(boardWords >= 120, `measured ${boardWords} board word(s) across four pages, expected at least 120`);
+check(planCells >= 400, `measured ${planCells} plan cell(s) across four pages, expected at least 400`);
 
 // ------------------------------------------------------------ anchors
 const anchors = await page.evaluate(() =>
@@ -277,8 +275,10 @@ check(anchors.length === 0, `in-page links pointing nowhere: ${anchors.join(', '
 // Both states are named, so the test asks for the one the page is not in:
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+// Nothing is stamped on the default, which is light, so the question is
+// whether dark was chosen — not whether light was.
 const other = await page.evaluate(() =>
-  document.documentElement.dataset.theme === 'light' ? 'dark' : 'light',
+  document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
 );
 // The switch lives inside the Index panel now, so it has to be opened first.
 // Both settings moved off the bar: eight controls beside the brand wrapped it

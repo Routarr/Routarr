@@ -51,6 +51,22 @@ export default defineConfig({
         defaultLocale: 'en',
         locales: Object.fromEntries(LANGUAGES.map((language) => [language.code, language.code])),
       },
+      // `x-default` names the page a crawler should serve when it matches none
+      // of the four languages, and the integration's `i18n` option emits only
+      // the languages themselves. Without this the sitemap declares four
+      // alternates while every page's `<head>` declares five, and the two
+      // methods disagree about a set Google reads from both. English is the
+      // fallback, as `prefixDefaultLocale: false` already makes it the site's
+      // root.
+      //
+      // A copy, never a push: the four pages of one translation group share a
+      // single `links` array, so mutating it adds the entry once per page and
+      // every group ends up with four `x-default`s.
+      serialize(item) {
+        const english = item.links?.find((link) => link.lang === 'en');
+        if (!english) return item;
+        return { ...item, links: [...item.links, { lang: 'x-default', url: english.url }] };
+      },
     }),
   ],
 });
