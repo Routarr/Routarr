@@ -310,6 +310,77 @@ await page.keyboard.press('Tab');
 const firstStop = await page.evaluate(() => document.activeElement?.className ?? '');
 check(firstStop.includes('skip'), `the first tab stop should be the skip link, got "${firstStop}"`);
 
+// --------------------------------------------------- the language offer
+// `site.js` reads `navigator.languages` and offers the reader's own language in
+// a banner. Nothing else exercises it: the pages render identically whether it
+// works or not, so it survived two reworks of this site unmeasured.
+//
+// Each case takes a context of its own. The offer writes the choice to
+// `localStorage` and returns early when it finds one, so a reused context makes
+// every case after the first pass for the wrong reason.
+//
+// The expected sentence is read off the switcher's own `data-offer` rather than
+// written here: what is being asked is whether the mechanism picks the language
+// the browser asked for, and a second copy of four sentences would only drift.
+async function offered(path, locale) {
+  const ctx = await browser.newContext({ locale, viewport: { width: 1280, height: 800 } });
+  const tab = await ctx.newPage();
+  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  const hint = tab.locator('#lang-hint');
+  const shown = await hint.isVisible();
+  const text = shown ? (await hint.innerText()).split('\n')[0].trim() : null;
+  return { ctx, tab, hint, shown, text };
+}
+
+for (const [path, locale] of [['/', 'fr-FR'], ['/', 'de'], ['/how/', 'es-MX']]) {
+  const { ctx, tab, shown, text } = await offered(path, locale);
+  const want = await tab.evaluate(
+    (code) => document.querySelector(`.lang-nav a[hreflang="${code}"]`)?.getAttribute('data-offer'),
+    locale.split('-')[0],
+  );
+  check(shown, `${path} offers nothing to a ${locale} browser`);
+  check(text === want, `${path} offered "${text}" to a ${locale} browser, expected "${want}"`);
+  await ctx.close();
+}
+
+// Silent where it has nothing to say: on a page already in that language, and
+// for a language the site does not speak. A banner in either case is worse than
+// none, since it sends the reader somewhere they already are or nowhere.
+for (const [path, locale, why] of [
+  ['/fr/', 'fr', 'the page is already French'],
+  ['/', 'ja', 'the site does not speak Japanese'],
+]) {
+  const { ctx, shown, text } = await offered(path, locale);
+  check(!shown, `${path} offered "${text}" to a ${locale} browser though ${why}`);
+  await ctx.close();
+}
+
+// Dismissing is a decision, and it outranks the browser from then on. Without
+// this the banner argues on every page of the visit.
+{
+  const { ctx, tab, hint, shown } = await offered('/', 'fr-FR');
+  // The button clicked is the one the banner rendered, never one looked up by a
+  // name this file guessed: asked for "Fermer" while the banner had offered
+  // German, the locator spends its whole timeout and throws, which kills the
+  // run before the failures already recorded above are ever printed. Its name
+  // is worth asserting, and that is a check rather than a way to find it.
+  const button = hint.getByRole('button');
+  if (!shown || (await button.count()) !== 1) {
+    fail(`the language offer rendered ${shown ? 'no single button' : 'nothing'}, so dismissing it could not be checked`);
+  } else {
+    const want = await tab.evaluate(
+      () => document.querySelector('.lang-nav a[hreflang="fr"]')?.getAttribute('data-dismiss'),
+    );
+    const named = await button.getAttribute('aria-label');
+    check(named === want, `the dismissal is named "${named}", expected "${want}"`);
+    await button.click({ timeout: 5000 });
+    check(!(await hint.isVisible()), 'dismissing the language offer left it on screen');
+    await tab.reload({ waitUntil: 'networkidle' });
+    check(!(await hint.isVisible()), 'the language offer came back after a reload it had been dismissed on');
+  }
+  await ctx.close();
+}
+
 // ------------------------------------------------------------ 404
 const missing = await page.goto(`${BASE}/does-not-exist`);
 check(missing.status() === 404, `an unknown path answered ${missing.status()}, expected 404`);
