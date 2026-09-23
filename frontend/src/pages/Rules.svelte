@@ -37,11 +37,11 @@
     instance_ids: null,
   });
 
-  const bundle = createAsync(async () => {
+  const bundle = createAsync(async (signal) => {
     const [rules, categories, catalog, health, facets] = await Promise.all([
-      api.getRules(),
-      api.getCategories(),
-      api.getConditionCatalog(),
+      api.getRules(signal),
+      api.getCategories(signal),
+      api.getConditionCatalog(signal),
       // Which rules are actually deciding anything. Validation looks inside one
       // rule and nothing else looks between them, which is where
       // first-match-by-priority puts its one trap — a rule under a broader one
@@ -52,10 +52,10 @@
       // Tolerated rather than awaited hard: the report evaluates the whole
       // library, and a rule list that refuses to render because a diagnostic
       // failed is worse than a rule list without badges.
-      api.getRuleHealth().catch(() => null),
+      api.getRuleHealth(signal).catch(() => null),
       // Same tolerance, same reason: an aggregation that failed must not take
       // the rule list down with it.
-      api.getLibraryFacets().catch(() => null),
+      api.getLibraryFacets(signal).catch(() => null),
     ]);
     return { rules, categories, catalog, health, facets };
   });

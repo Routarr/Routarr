@@ -35,14 +35,17 @@
   let notice = $state<string | null>(null);
 
   const history = createAsync(
-    () =>
-      api.getDecisions({
-        status: status || undefined,
-        search: search || undefined,
-        include_superseded: includeSuperseded,
-        page,
-        per_page: 50,
-      }),
+    (signal) =>
+      api.getDecisions(
+        {
+          status: status || undefined,
+          search: search || undefined,
+          include_superseded: includeSuperseded,
+          page,
+          per_page: 50,
+        },
+        signal,
+      ),
     () => [status, search, includeSuperseded, page],
   );
 

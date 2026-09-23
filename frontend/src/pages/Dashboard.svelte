@@ -19,8 +19,8 @@
    * the instance table shows what is known immediately and fills its status
    * column in behind.
    */
-  const quick = createAsync(() => api.getHealth({ probe: false }));
-  const probed = createAsync(() => api.getHealth());
+  const quick = createAsync((signal) => api.getHealth({ probe: false }, signal));
+  const probed = createAsync((signal) => api.getHealth(undefined, signal));
 
   const health = $derived(probed.data ?? quick.data);
   const stats = $derived(health?.stats);

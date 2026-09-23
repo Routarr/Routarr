@@ -19,7 +19,7 @@
    * every rule below it, and the routing that quietly moves is the one nobody
    * was watching.
    */
-  const cases = createAsync(() => api.getRuleTests());
+  const cases = createAsync((signal) => api.getRuleTests(signal));
 
   let outcome = $state<RuleTestRun | null>(null);
   let busy = $state(false);

@@ -102,7 +102,10 @@ describe('Tasks', () => {
     await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'failed');
 
     await waitFor(() =>
-      expect(getJobs).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' })),
+      expect(getJobs).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 });

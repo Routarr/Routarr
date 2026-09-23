@@ -14,8 +14,11 @@
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
 
-  const bundle = createAsync(async () => {
-    const [overrides, categories] = await Promise.all([api.getOverrides(), api.getCategories()]);
+  const bundle = createAsync(async (signal) => {
+    const [overrides, categories] = await Promise.all([
+      api.getOverrides(signal),
+      api.getCategories(signal),
+    ]);
     return { overrides, categories };
   });
 

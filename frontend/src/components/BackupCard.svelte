@@ -18,7 +18,7 @@
   let { onError, onNotice }: { onError: (m: string) => void; onNotice: (m: string) => void } =
     $props();
 
-  const backups = createAsync(() => api.listBackups());
+  const backups = createAsync((signal) => api.listBackups(signal));
   let busy = $state(false);
 
   async function run(action: () => Promise<void>) {

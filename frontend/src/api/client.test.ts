@@ -301,6 +301,58 @@ describe('a server that never answers', () => {
     expect(init?.signal).toBeInstanceOf(AbortSignal);
   });
 
+  /** `fetch` as a browser implements it: pending until its signal aborts, then rejected with the reason. */
+  function stubPendingFetch() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init?.signal;
+            if (signal?.aborted) return reject(signal.reason);
+            signal?.addEventListener('abort', () => reject(signal.reason));
+          }),
+      ),
+    );
+  }
+
+  /**
+   * The point of handing a load a signal. A superseded or abandoned load has
+   * to stop at the network, not only be ignored when it lands, and it has to
+   * surface as a cancellation rather than as a timeout the banner would report.
+   */
+  it("aborts the request when the caller's signal aborts", async () => {
+    stubPendingFetch();
+    const caller = new AbortController();
+    const pending = api.getStatus(caller.signal);
+    caller.abort(new DOMException('superseded', 'AbortError'));
+
+    const failure = await pending.catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(DOMException);
+    expect((failure as DOMException).name).toBe('AbortError');
+  });
+
+  /**
+   * Written as a fallback, a caller's signal replaced the timeout instead of
+   * joining it, so the one request most likely to be waiting on a host that
+   * never answers lost its bound the moment it became cancellable.
+   */
+  it('keeps the timeout when the caller passes a signal of its own', async () => {
+    stubPendingFetch();
+    const timer = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal);
+    try {
+      const pending = api.getStatus(new AbortController().signal);
+      timer.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+
+      const failure = await pending.catch((e: unknown) => e);
+      expect(failure).toBeInstanceOf(ApiError);
+      expect((failure as ApiError).kind).toBe('timeout');
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   /// Any other network failure keeps its own identity: a refused connection is
   /// not a timeout, and saying so would send the user looking in the wrong place.
   it('leaves other failures untouched', async () => {

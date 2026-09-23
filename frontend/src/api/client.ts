@@ -117,7 +117,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // Arr calls the backend makes are bounded on its side; this bounds the one
   // the browser makes to the backend. The kind is what `describeError` reads,
   // so the wording stays with the other translated messages.
-  const signal = options.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  //
+  // Composed with the caller's signal rather than replaced by it: written as a
+  // fallback, passing a signal to cancel a superseded load silently removed the
+  // timeout from that request, which is the one request most likely to be
+  // waiting on a host that never answers. `any` propagates the reason of
+  // whichever fired, so a timeout still arrives as `TimeoutError` and a
+  // cancellation as `AbortError`.
+  //
+  // The `instanceof` is not belt and braces over a typed parameter: the
+  // endpoint sweep in `client.test.ts` calls every method on this object with
+  // positional placeholders, so a signal parameter receives a string there.
+  // `AbortSignal.any` throws on one, and the method would then answer without
+  // issuing the request the sweep exists to inspect — a whole class of URL
+  // faults going unchecked to spare one line here.
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const caller = options.signal instanceof AbortSignal ? options.signal : null;
+  const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, { ...options, headers, signal });
@@ -167,25 +183,26 @@ export type QueryParams = Record<string, string | number | boolean | undefined>;
 export const api = {
   // ---------------------------------------------------------- health & jobs
   getLocalization: () => request<Localization>('/localization'),
-  getLanguages: () =>
+  getLanguages: (signal?: AbortSignal) =>
     request<{
       default: string;
       /** `completion` is the share of English keys translated, 0–100. */
       languages: { code: string; name: string; completion: number; direction: 'ltr' | 'rtl' }[];
-    }>('/localization/languages'),
-  getStatus: () => request<Status>('/status'),
+    }>('/localization/languages', { signal }),
+  getStatus: (signal?: AbortSignal) => request<Status>('/status', { signal }),
   /**
    * `probe: false` answers from the database alone. The probe is what costs
    * five seconds when an Arr is unreachable, and every instance then reports
    * `status: 'unchecked'` rather than a guess.
    */
-  getHealth: (options: { probe?: boolean } = {}) =>
-    request<Health>(`/health${options.probe === false ? '?probe=false' : ''}`),
-  getJobs: (params?: QueryParams) => request<Paginated<Job>>(`/jobs${query(params)}`),
+  getHealth: (options: { probe?: boolean } = {}, signal?: AbortSignal) =>
+    request<Health>(`/health${options.probe === false ? '?probe=false' : ''}`, { signal }),
+  getJobs: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<Job>>(`/jobs${query(params)}`, { signal }),
   purge: () => request<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
 
   // ---------------------------------------------------------- instances
-  getInstances: () => request<Instance[]>('/instances'),
+  getInstances: (signal?: AbortSignal) => request<Instance[]>('/instances', { signal }),
   createInstance: (data: unknown) =>
     request<Instance>('/instances', { method: 'POST', body: body(data) }),
   updateInstance: (id: string, data: unknown) =>
@@ -199,7 +216,7 @@ export const api = {
     request<Instance>(`/instances/${id}/webhook-token`, { method: 'POST' }),
 
   // ---------------------------------------------------------- root folders
-  getRootFolders: () => request<RootFolder[]>('/root-folders'),
+  getRootFolders: (signal?: AbortSignal) => request<RootFolder[]>('/root-folders', { signal }),
   /** Declare a destination the instance does not report as a root folder. */
   declareRootFolder: (instance_id: string, path: string) =>
     request<{ id: string; path: string; verified: boolean }>('/root-folders', {
@@ -208,7 +225,8 @@ export const api = {
     }),
   deleteRootFolder: (id: string) =>
     request<unknown>(`/root-folders/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  getMappingConflicts: () => request<MappingConflict[]>('/root-folders/conflicts'),
+  getMappingConflicts: (signal?: AbortSignal) =>
+    request<MappingConflict[]>('/root-folders/conflicts', { signal }),
   updateRootFolderCategory: (id: string, category: string | null) =>
     request<unknown>(`/root-folders/${id}/category`, {
       method: 'PUT',
@@ -216,7 +234,7 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- categories
-  getCategories: () => request<Category[]>('/categories'),
+  getCategories: (signal?: AbortSignal) => request<Category[]>('/categories', { signal }),
   createCategory: (data: unknown) =>
     request<Category>('/categories', { method: 'POST', body: body(data) }),
   renameCategory: (id: string, name: string) =>
@@ -224,12 +242,12 @@ export const api = {
   deleteCategory: (id: string) => request<unknown>(`/categories/${id}`, { method: 'DELETE' }),
 
   // ---------------------------------------------------------- rules
-  getRules: () => request<Rule[]>('/rules'),
+  getRules: (signal?: AbortSignal) => request<Rule[]>('/rules', { signal }),
 
-  getRuleHealth: () => request<RuleHealthReport>('/rules/health'),
-  getLibraryFacets: () => request<LibraryFacets>('/media/facets'),
+  getRuleHealth: (signal?: AbortSignal) => request<RuleHealthReport>('/rules/health', { signal }),
+  getLibraryFacets: (signal?: AbortSignal) => request<LibraryFacets>('/media/facets', { signal }),
 
-  getRuleTests: () => request<RuleTest[]>('/rule-tests'),
+  getRuleTests: (signal?: AbortSignal) => request<RuleTest[]>('/rule-tests', { signal }),
   runRuleTests: () => request<RuleTestRun>('/rule-tests/run', { method: 'POST' }),
   pinRuleTest: (name: string, mediaId: string, expectedCategory?: string) =>
     request<RuleTest>('/rule-tests', {
@@ -242,7 +260,8 @@ export const api = {
     }),
   deleteRuleTest: (id: string) =>
     request<{ deleted: string }>(`/rule-tests/${id}`, { method: 'DELETE' }),
-  getConditionCatalog: () => request<ConditionCatalog>('/rules/conditions'),
+  getConditionCatalog: (signal?: AbortSignal) =>
+    request<ConditionCatalog>('/rules/conditions', { signal }),
   createRule: (data: RuleDraft) => request<Rule>('/rules', { method: 'POST', body: body(data) }),
   updateRule: (id: string, data: RuleDraft) =>
     request<Rule>(`/rules/${id}`, { method: 'PUT', body: body(data) }),
@@ -250,7 +269,7 @@ export const api = {
   duplicateRule: (id: string) => request<Rule>(`/rules/${id}/duplicate`, { method: 'POST' }),
   reorderRules: (rule_ids: string[]) =>
     request<unknown>('/rules/reorder', { method: 'POST', body: body({ rule_ids }) }),
-  authMode: () => request<AuthMode>('/auth/mode'),
+  authMode: (signal?: AbortSignal) => request<AuthMode>('/auth/mode', { signal }),
   login: (username: string, password: string) =>
     request<{ username: string }>('/auth/login', {
       method: 'POST',
@@ -287,14 +306,15 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- media
-  getMedia: (params?: QueryParams) => request<Paginated<MediaListItem>>(`/media${query(params)}`),
+  getMedia: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<MediaListItem>>(`/media${query(params)}`, { signal }),
   explainMedia: (id: string) => request<Explanation>(`/media/${id}/explain`),
 
   // ---------------------------------------------------------- decisions
   runSimulation: (data?: unknown) =>
     request<SimulationResult>('/simulate', { method: 'POST', body: body(data) }),
-  getDecisions: (params?: QueryParams) =>
-    request<Paginated<Decision>>(`/decisions${query(params)}`),
+  getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
   /** `confirm` names the guardrails already answered, not a blanket yes. */
   applyDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
     request<ApplyReport>('/decisions/apply', {
@@ -315,22 +335,24 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- overrides
-  getOverrides: () => request<OverrideEntry[]>('/overrides'),
+  getOverrides: (signal?: AbortSignal) => request<OverrideEntry[]>('/overrides', { signal }),
   createOverride: (data: unknown) =>
     request<OverrideEntry>('/overrides', { method: 'POST', body: body(data) }),
   deleteOverride: (id: string) => request<unknown>(`/overrides/${id}`, { method: 'DELETE' }),
 
   // ---------------------------------------------------------- logs
-  getLogs: (params?: QueryParams) => request<Paginated<LogEntry>>(`/logs${query(params)}`),
+  getLogs: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<LogEntry>>(`/logs${query(params)}`, { signal }),
   /// A link the browser follows itself: the sign-in has to leave this origin,
   /// so it cannot be a fetch.
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
   logsExportUrl: (params?: QueryParams) => `${API_BASE}/logs/export${query(params)}`,
 
   // ---------------------------------------------------------- settings
-  getSettings: () => request<Settings>('/settings'),
-  getMetadataProviders: () => request<MetadataProviders>('/metadata/providers'),
-  listBackups: () => request<BackupList>('/backups'),
+  getSettings: (signal?: AbortSignal) => request<Settings>('/settings', { signal }),
+  getMetadataProviders: (signal?: AbortSignal) =>
+    request<MetadataProviders>('/metadata/providers', { signal }),
+  listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),
   createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),

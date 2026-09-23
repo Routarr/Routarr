@@ -7,9 +7,10 @@
    * the dependency a screen would pass as `deps`: a test re-renders with a new
    * one to move the inputs on.
    */
-  let { loader, filter }: { loader: () => Promise<string>; filter: string } = $props();
+  let { loader, filter }: { loader: (signal: AbortSignal) => Promise<string>; filter: string } =
+    $props();
   const value = createAsync(
-    () => loader(),
+    (signal) => loader(signal),
     () => filter,
   );
 </script>

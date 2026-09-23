@@ -26,7 +26,7 @@
   let status = $state('');
 
   const jobsPage = createAsync(
-    () => api.getJobs({ status: status || undefined, per_page: 50 }),
+    (signal) => api.getJobs({ status: status || undefined, per_page: 50 }, signal),
     () => status,
   );
 

@@ -136,7 +136,10 @@ describe('History', () => {
     await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'failed');
 
     await waitFor(() =>
-      expect(getDecisions).toHaveBeenCalledWith(expect.objectContaining({ status: 'failed' })),
+      expect(getDecisions).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 

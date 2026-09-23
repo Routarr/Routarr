@@ -43,10 +43,28 @@ export interface Async<T> {
  * implementation does carry is a generation counter — a response that arrives
  * after the inputs moved on must not overwrite the result of a newer one.
  *
+ * It is handed an `AbortSignal`, aborted when a newer run supersedes it and
+ * when the component goes away. The generation counter already stopped a late
+ * response from overwriting a newer one, but the request itself went on: a
+ * filter typed into quickly opened one request per keystroke against somebody's
+ * own host, and navigating away left every one of them in flight. A loader that
+ * ignores the argument still works, and simply cannot be cancelled.
+ *
+ * A cancellation is not a failure, and is not reported as one. Supersession is
+ * already covered by the generation counter, which discards the whole outcome
+ * of a run a newer one replaced; what the filter below adds is the **teardown**
+ * case, where the run is still the current generation and there is no longer a
+ * component to render a banner into. That is deliberately not asserted by a
+ * test: nothing observable distinguishes it, and a test written against it
+ * passes with the filter removed.
+ *
  * Call it during component initialisation: it opens an effect, which is what
  * both the first load and the reload-on-`deps` depend on.
  */
-export function createAsync<T>(loader: () => Promise<T>, deps?: () => unknown): Async<T> {
+export function createAsync<T>(
+  loader: (signal: AbortSignal) => Promise<T>,
+  deps?: () => unknown,
+): Async<T> {
   const state = $state({
     data: null as T | null,
     loading: true,
@@ -55,22 +73,38 @@ export function createAsync<T>(loader: () => Promise<T>, deps?: () => unknown): 
   });
 
   let generation = 0;
+  let inFlight: AbortController | null = null;
+
+  /**
+   * A cancellation this helper caused, which is not something to report.
+   *
+   * Matched on the exception rather than on `signal.aborted`, because a request
+   * can fail for its own reasons in the same turn that a newer run starts, and
+   * the operator is owed that error.
+   */
+  const cancelled = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
 
   async function reload() {
+    inFlight?.abort(new DOMException('superseded', 'AbortError'));
+    const controller = new AbortController();
+    inFlight = controller;
     const current = ++generation;
     state.loading = true;
     state.error = null;
     state.failure = null;
     try {
-      const result = await loader();
+      const result = await loader(controller.signal);
       if (current === generation) state.data = result;
     } catch (err) {
-      if (current === generation) {
+      if (current === generation && !cancelled(err)) {
         state.error = describeError(err);
         state.failure = err;
       }
     } finally {
-      if (current === generation) state.loading = false;
+      if (current === generation) {
+        state.loading = false;
+        inFlight = null;
+      }
     }
   }
 
@@ -81,6 +115,9 @@ export function createAsync<T>(loader: () => Promise<T>, deps?: () => unknown): 
   $effect(() => {
     deps?.();
     void reload();
+    // Teardown, not just supersession: a screen left mid-load would otherwise
+    // hold its request open against a machine that is also running Radarr.
+    return () => inFlight?.abort(new DOMException('unmounted', 'AbortError'));
   });
 
   return {

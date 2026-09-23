@@ -116,7 +116,10 @@ describe('Activity log', () => {
 
     // The screen speaks in outcomes; the API takes a boolean.
     await waitFor(() =>
-      expect(getLogs).toHaveBeenCalledWith(expect.objectContaining({ success: true })),
+      expect(getLogs).toHaveBeenCalledWith(
+        expect.objectContaining({ success: true }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 
