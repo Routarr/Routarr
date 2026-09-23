@@ -662,7 +662,13 @@ one site origin, so a half-finished rename fails rather than ships.
 Each screen is its own chunk: `App.svelte` holds a route table of dynamic
 imports and renders the match through `{#await}`, so opening the dashboard does
 not download the rule builder, the log viewer and the settings form with it. The
-entry bundle is 21 kB beside 67 kB of shared runtime — a figure nothing checks, so it is the kind that drifts; a size floor in CI is what would make it verifiable rather than remembered.
+entry bundle is 21 kB beside 67 kB of shared runtime, held under 25 kB and 75 kB by
+[`scripts/check-bundle-size.mjs`](scripts/check-bundle-size.mjs) in the frontend job. A ceiling
+rather than a recorded figure, because the number moves on every dependency bump and a check that
+fails on every bump is one somebody silences. It reads `frontend/dist/assets/`, so it measures what
+ships and not what the source suggests, and a pattern matching anything other than exactly one file
+is a failure naming that pattern: a pattern that matches nothing would otherwise pass without
+measuring, which is the shape a renamed output would take.
 
 **The router is written, not installed** ([lib/router.svelte.ts](frontend/src/lib/router.svelte.ts), fifty lines) for one
 reason specific to this application: the mount point is discovered at *runtime*
