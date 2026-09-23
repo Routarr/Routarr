@@ -21,12 +21,12 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { downloadJson } from '../lib/download';
 
-  const bundle = createAsync(async () => {
+  const bundle = createAsync(async (signal) => {
     const [settings, categories, languages, metadata] = await Promise.all([
-      api.getSettings(),
-      api.getCategories(),
-      api.getLanguages(),
-      api.getMetadataProviders(),
+      api.getSettings(signal),
+      api.getCategories(signal),
+      api.getLanguages(signal),
+      api.getMetadataProviders(signal),
     ]);
     return {
       settings,
@@ -60,7 +60,7 @@
    * two session modes a key exists only if somebody set one, which is why the
    * server says so rather than the interface assuming it.
    */
-  const auth = createAsync(() => api.authMode());
+  const auth = createAsync((signal) => api.authMode(signal));
   const keyCard = $derived.by(() => {
     const data = auth.data;
     if (!data) return null;

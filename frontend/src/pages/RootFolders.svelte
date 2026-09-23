@@ -13,12 +13,12 @@
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
 
-  const bundle = createAsync(async () => {
+  const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances] = await Promise.all([
-      api.getRootFolders(),
-      api.getCategories(),
-      api.getMappingConflicts(),
-      api.getInstances(),
+      api.getRootFolders(signal),
+      api.getCategories(signal),
+      api.getMappingConflicts(signal),
+      api.getInstances(signal),
     ]);
     return { folders, categories, conflicts, instances };
   });

@@ -10,7 +10,7 @@
   import Stat from '../components/Stat.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
-  const report = createAsync(() => api.getHealth());
+  const report = createAsync((signal) => api.getHealth(undefined, signal));
   const health = $derived(report.data);
 </script>
 

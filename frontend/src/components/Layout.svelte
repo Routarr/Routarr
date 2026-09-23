@@ -27,14 +27,14 @@
   // the bar and the navigation correct themselves at once rather than at the
   // next idle poll a minute later.
   const status = createAsync(
-    () => api.getStatus(),
+    (signal) => api.getStatus(signal),
     () => statusRevision(),
   );
 
   // Which gate to show, and whether to offer a way out. Public and cheap, and
   // asked once: a browser that has not signed in cannot be asked for a session
   // in order to learn that it needs one.
-  const auth = createAsync(() => api.authMode());
+  const auth = createAsync((signal) => api.authMode(signal));
 
   // The theme is a server setting, like the language, so it has to be fetched
   // rather than read from the browser. Following the OS is a choice one makes.

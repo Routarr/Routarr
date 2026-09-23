@@ -23,7 +23,7 @@
   });
 
   const logs = createAsync(
-    () => api.getLogs(filters),
+    (signal) => api.getLogs(filters, signal),
     () => [search, outcome, page],
   );
 

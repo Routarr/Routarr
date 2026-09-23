@@ -19,14 +19,17 @@
   let explaining = $state<Explanation | null>(null);
 
   const library = createAsync(
-    () =>
-      api.getMedia({
-        search: search || undefined,
-        media_type: mediaType || undefined,
-        unmatched: unmatched || undefined,
-        page,
-        per_page: 50,
-      }),
+    (signal) =>
+      api.getMedia(
+        {
+          search: search || undefined,
+          media_type: mediaType || undefined,
+          unmatched: unmatched || undefined,
+          page,
+          per_page: 50,
+        },
+        signal,
+      ),
     () => [search, mediaType, unmatched, page],
   );
 

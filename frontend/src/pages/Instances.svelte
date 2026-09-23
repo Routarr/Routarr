@@ -33,7 +33,7 @@
     sync_interval_minutes: 15,
   });
 
-  const list = createAsync(() => api.getInstances());
+  const list = createAsync((signal) => api.getInstances(signal));
   let notice = $state<string | null>(null);
   let busyId = $state<string | null>(null);
   let editing = $state<{ form: FormState; id?: string } | null>(null);

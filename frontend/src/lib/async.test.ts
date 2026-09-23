@@ -101,4 +101,42 @@ describe('createAsync', () => {
     second.resolve('fresh');
     await waitFor(() => expect(screen.getByTestId('data')).toHaveTextContent('fresh'));
   });
+
+  /**
+   * The generation counter stopped a late response overwriting a newer one,
+   * but the request itself went on. A filter typed into quickly opened one
+   * request per keystroke against somebody's own host, and every one of them
+   * stayed in flight.
+   */
+  it('aborts the request a newer load supersedes', async () => {
+    const signals: AbortSignal[] = [];
+    const loader = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<string>(() => {});
+    });
+    const { rerender } = render(AsyncHarness, { loader, filter: 'a' });
+    await waitFor(() => expect(signals).toHaveLength(1));
+    expect(signals[0]?.aborted).toBe(false);
+
+    await rerender({ loader, filter: 'b' });
+    await waitFor(() => expect(signals).toHaveLength(2));
+
+    expect(signals[0]?.aborted).toBe(true);
+    expect((signals[0]?.reason as DOMException | undefined)?.name).toBe('AbortError');
+    expect(signals[1]?.aborted).toBe(false);
+  });
+
+  /** A screen left mid-load must not hold its request open. */
+  it('aborts the request in flight when the component goes away', async () => {
+    const signals: AbortSignal[] = [];
+    const loader = vi.fn((signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<string>(() => {});
+    });
+    const { unmount } = render(AsyncHarness, { loader, filter: 'a' });
+    await waitFor(() => expect(signals).toHaveLength(1));
+
+    unmount();
+    expect(signals[0]?.aborted).toBe(true);
+  });
 });

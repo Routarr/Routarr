@@ -136,7 +136,10 @@ describe('Media explorer', () => {
     await userEvent.selectOptions(screen.getByLabelText('Filter by type'), 'series');
 
     await waitFor(() =>
-      expect(getMedia).toHaveBeenCalledWith(expect.objectContaining({ media_type: 'series' })),
+      expect(getMedia).toHaveBeenCalledWith(
+        expect.objectContaining({ media_type: 'series' }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 
@@ -146,7 +149,10 @@ describe('Media explorer', () => {
     // From page 2, or the assertion below holds on a page that never moved.
     await userEvent.click(screen.getByRole('button', { name: 'Next' }));
     await waitFor(() =>
-      expect(getMedia).toHaveBeenLastCalledWith(expect.objectContaining({ page: 2 })),
+      expect(getMedia).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 2 }),
+        expect.any(AbortSignal),
+      ),
     );
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by type'), 'movie');
@@ -154,7 +160,10 @@ describe('Media explorer', () => {
     // Otherwise a narrower filter lands the user on page 7 of 2, which renders
     // as an empty library.
     await waitFor(() =>
-      expect(getMedia).toHaveBeenLastCalledWith(expect.objectContaining({ page: 1 })),
+      expect(getMedia).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 1 }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 });
