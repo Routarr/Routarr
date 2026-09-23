@@ -24,6 +24,10 @@ const LANDING: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '03', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
 ];
 
+/* The order is the page's, not a reading of the subjects: an index that
+   numbers 01, 02, 03 down a page whose sections come in another order sends
+   the reader backwards. `#how` is a block inside the gap's section rather
+   than a section of its own, and is listed because it is still a place. */
 const DETAIL: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '01', href: '#why', label: 'why.span', note: 'header.desc.7' },
   { number: '02', href: '#how', label: 'header.li', note: 'header.desc' },

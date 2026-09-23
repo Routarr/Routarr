@@ -591,6 +591,37 @@ passes AA *as text*, and on a white ground those two cannot be the same value.
 takes the band. Placed by hand it drifted — the landing banded its last two and
 the detail page banded three in a row then none, which is not a rhythm.
 
+**The gap between two sections is their padding and nothing else.** A trailing
+margin on the last element inside adds to it, which made that gap 210px after
+one section and 214px after another where every other pair measured 180 — an
+irregularity the eye reads without being able to name it. One rule zeroes the
+bottom margin of the last element, three levels deep, because the last thing in
+a section is sometimes the last thing inside its last block inside the wrap.
+The hero keeps only its *top* padding: it opens under the header and above the
+fold, while the gap to what follows is the page's rhythm and not its business.
+One figure per width across every page, `/404` included, is the check worth
+re-running after any section is added.
+
+**`/how/` runs in the order `detail.p` announces**, that sentence being the
+page's own table of contents: the gap and the four steps that close it, then how
+a decision explains itself, the declared destination, the specification and the
+objections. Explainability was moved ahead of the gap once, on the grounds that
+it is the only thing here no other tool does, and it read as an answer before
+anything had posed a question — while that lead sentence went on describing the
+old order in four languages. A structural change that forces a rewrite of the
+sentence describing the structure is usually the change that is wrong.
+
+**Not every block on it is a framed grid.** Six of them were, against one on the
+landing, which reads as a spec sheet rather than as an argument. What earns a
+framed grid is a second axis: `folders` crosses paths with attributes and `faq`
+crosses an objection with a verdict and a guarantee. A sequence is not a grid —
+the four steps are a `flow`, ordered by their number, with `reads` and `writes`
+labelled per step rather than by a heading three rows up. A one-dimensional list
+is not a grid either — `features` is a `dl`, its terms `dt` and not `h3`, since
+six labels do not make an outline. The FAQ folds its *justification* and never
+its verdicts: six of the seven answers are no, and that is an argument only when
+they are read together, which is what the accordion it replaced got wrong.
+
 **A heading breaks before its amber clause only below 900px.** Above it, every
 heading is one line in all four languages, and that is checked by counting line
 boxes rather than dividing a height by a line-height, which counts the padding

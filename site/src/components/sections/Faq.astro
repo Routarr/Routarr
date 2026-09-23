@@ -6,10 +6,14 @@ const t = useTranslations(Astro.props.locale);
 
 /**
  * These are not questions, they are objections: what somebody weighs before
- * letting software touch their library. Six of the seven answers are no,
- * which an accordion hid behind seven clicks, and the third column names the
- * thing in the product that answers each one, so a reassurance becomes
- * something the reader can go and check.
+ * letting software touch their library. Six of the seven answers are no, and
+ * the third column names the thing in the product that answers each one, so a
+ * reassurance becomes something the reader can go and check.
+ *
+ * The objection and its verdict are never folded away, which is what an
+ * accordion over the whole row got wrong: six noes are an argument only when
+ * they are read together. What folds is the justification under the
+ * mechanism, which measured 1055px of a 2247px section on a 390px phone.
  */
 type Verdict = 'no' | 'yes' | 'plain';
 const OBJECTIONS: { worry: Key; verdict: Key; kind: Verdict; mechanism: Key; detail: Key }[] = [
@@ -42,7 +46,12 @@ const OBJECTIONS: { worry: Key; verdict: Key; kind: Verdict; mechanism: Key; det
             <p class:list={['objection-verdict', row.kind]}>{t(row.verdict)}</p>
             <div>
               <p class="objection-mechanism">{t(row.mechanism)}</p>
-              <p class="objection-detail" set:html={t(row.detail)} />
+              <details class="objection-why">
+                <summary aria-label={`${t('faq.detail.open')} — ${t(row.worry)}`}>
+                  {t('faq.detail.open')}
+                </summary>
+                <p class="objection-detail" set:html={t(row.detail)} />
+              </details>
             </div>
           </div>
         ))

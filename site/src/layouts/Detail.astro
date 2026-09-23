@@ -3,7 +3,6 @@ import Base from './Base.astro';
 import { useTranslations, type Locale } from '../i18n';
 
 import Why from '../components/sections/Why.astro';
-import How from '../components/sections/How.astro';
 import Explain from '../components/sections/Explain.astro';
 import Folders from '../components/sections/Folders.astro';
 import Features from '../components/sections/Features.astro';
@@ -36,8 +35,13 @@ const t = useTranslations(locale);
     </div>
   </section>
 
+  {/* The order is the one `detail.p` announces, which is the page's own table
+      of contents: the gap and the four steps that close it, then how a
+      decision explains itself. Explainability was moved ahead of the gap once,
+      on the grounds that it is the only thing here no other tool does, and it
+      reads as an answer before anything has posed a question. A page whose
+      heading promises the whole argument owes the argument an order. */}
   <Why locale={locale} />
-  <How locale={locale} />
   <Explain locale={locale} />
   <Folders locale={locale} />
   <Features locale={locale} />
