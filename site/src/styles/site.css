@@ -455,6 +455,15 @@ img { max-width: 100%; height: auto; }
 /* ---------------------------------------------------------------- sections */
 
 section { padding: clamp(56px, 7vw, 96px) 0; }
+/* The gap between two sections is their padding and nothing else. A trailing
+   margin on the last element inside made that gap 210px after one section and
+   214px after another where every other pair measured 180, which the eye reads
+   as an irregularity without being able to name it. Three levels, because the
+   last thing in a section is sometimes the last thing inside its last block,
+   inside the wrap. */
+main > section > :last-child,
+main > section > :last-child > :last-child,
+main > section > :last-child > :last-child > :last-child { margin-block-end: 0; }
 /* Alternating grounds break the single-flat-field monotony. */
 /* Every other section, counted by the page rather than marked by hand. Placed
    by a class it drifted: the landing banded its last two and the detail page
@@ -475,6 +484,17 @@ main > section:nth-of-type(even) {
 .section-head { margin-bottom: 40px; }
 .section-head h2 { max-width: none; }
 .section-head > p { max-width: none; margin-top: 1.1rem; font-size: 1.06rem; }
+
+/* The second half of a section that carries two subjects. It is set apart by
+   space and by a heading a level down, never by a rule or a ground: those say
+   "new section", which is the thing this arrangement exists to stop claiming
+   twice. The gap above it is wider than the one under a heading, so the half
+   reads as a turn rather than as a paragraph. */
+.half { margin-top: clamp(48px, 6vw, 76px); }
+.half-head { margin-bottom: 30px; }
+.half-head h3 { font-size: clamp(1.35rem, 1.1rem + 1vw, 1.75rem); font-weight: 700; letter-spacing: -0.02em; }
+.half-head h3 em { font-style: normal; color: var(--accent-text); }
+.half-head > p { max-width: none; margin: 0; font-size: 1.02rem; }
 
 /* The claim takes a line of its own only where the width forces it. On a
    desktop a heading reads better whole, and the break was making short ones
@@ -502,8 +522,11 @@ main > section:nth-of-type(even) {
 /* ---------------------------------------------------------------- hero */
 
 .hero {
+  /* Only the top is the hero's own. It sits under the header and above the
+     fold, so it opens tighter than a section in the middle of a page. The
+     bottom is deliberately left to `section`, because the gap to what follows
+     is the page's rhythm and not the hero's business. */
   padding-top: clamp(48px, 6vw, 84px);
-  padding-bottom: clamp(40px, 5vw, 72px);
   position: relative;
   overflow: hidden;
   background:
@@ -588,152 +611,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* Read by assistive technology, painted for nobody. */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
-.badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  list-style: none;
-  margin: 26px 0 0;
-  padding: 0;
-}
-/* ------------------------------------------------------- departure board */
-
-/* A split-flap board is a physical object, so it keeps its own colours in
-   both themes, as the code blocks do. One flap per character, padded to the
-   column with blank flaps; a destination that changes flips every flap, from
-   the grey folder the title is in to the amber folder it is bound for, so the
-   update reads as an update. The column widths follow the flap size, and
-   `--flap` is what the breakpoints change. */
-.board {
-  --b-line: #1f232b;
-  --b-ink: #eceef1;
-  --b-soft: #b6bcc7;
-  --b-muted: #8b93a1;
-  --b-dim: #7c8491;
-  --b-amber: #ffa500;
-  --flap: 16px;
-  --flap-h: 28px;
-  --flap-font: 15px;
-  --status-w: 128px;
-  --cols:
-    calc(18 * (var(--flap) + 1px) - 1px)
-    minmax(0, 1fr)
-    calc(16 * (var(--flap) + 1px) - 1px)
-    calc(6 * (var(--flap) + 1px) - 1px)
-    var(--status-w);
-  margin-top: clamp(28px, 4vw, 44px);
-  background: #0b0c0f;
-  border: 1px solid #3b414f;
-  box-shadow: inset 0 0 0 1px #1a1d24;
-  border-radius: var(--radius-md);
-  color: var(--b-ink);
-  overflow: hidden;
-}
-.c::after { content: ""; position: absolute; inset: 50% 0 auto; height: 1px; background: #07080a; z-index: 3; }
-.c.a { color: var(--b-amber); }
-.dep-still .c { color: var(--b-dim); }
-.g { position: absolute; inset: 0; backface-visibility: hidden; transform-origin: 50% 50%; }
-.g1, .g2 { color: var(--b-dim); }
-.f .g1 { animation: flap-out 16s linear infinite; }
-.f .g2 { animation: flap-mid 16s linear infinite; }
-.f .g3 { animation: flap-in 16s linear infinite; }
-/* Each row starts its cycle at its own `--row`, negative so the board is at
-   rest on first paint, and each flap 40 ms after the one before it. Both are
-   keyed on data attributes: the CSP allows no inline style. */
-.f .g { animation-delay: calc(var(--row) + var(--i) * 40ms); }
-.dep[data-row="1"] { --row: -4s; }
-.dep[data-row="2"] { --row: -8s; }
-.dep[data-row="3"] { --row: -12s; }
-.dep[data-row="4"] { --row: -6s; }
-.dep[data-row="5"] { --row: -10s; }
-.dep[data-row="6"] { --row: -14s; }
-.f[data-i="0"] { --i: 0; }
-.f[data-i="1"] { --i: 1; }
-.f[data-i="2"] { --i: 2; }
-.f[data-i="3"] { --i: 3; }
-.f[data-i="4"] { --i: 4; }
-.f[data-i="5"] { --i: 5; }
-.f[data-i="6"] { --i: 6; }
-.f[data-i="7"] { --i: 7; }
-.f[data-i="8"] { --i: 8; }
-.f[data-i="9"] { --i: 9; }
-.f[data-i="10"] { --i: 10; }
-.f[data-i="11"] { --i: 11; }
-.f[data-i="12"] { --i: 12; }
-.f[data-i="13"] { --i: 13; }
-.f[data-i="14"] { --i: 14; }
-.f[data-i="15"] { --i: 15; }
-@keyframes flap-out {
-  0%, 8% { transform: rotateX(0); opacity: 1; }
-  10% { transform: rotateX(-90deg); opacity: 1; }
-  10.01%, 100% { transform: rotateX(-90deg); opacity: 0; }
-}
-@keyframes flap-mid {
-  0%, 10% { transform: rotateX(90deg); opacity: 0; }
-  10.01% { opacity: 1; }
-  12%, 13% { transform: rotateX(0); opacity: 1; }
-  15% { transform: rotateX(-90deg); opacity: 1; }
-  15.01%, 100% { transform: rotateX(-90deg); opacity: 0; }
-}
-@keyframes flap-in {
-  0%, 15% { transform: rotateX(90deg); opacity: 0; }
-  15.01% { opacity: 1; }
-  17% { transform: rotateX(0); opacity: 1; }
-  100% { transform: rotateX(0); opacity: 1; }
-}
-
-/* The rule takes what the flaps leave and wraps rather than clips: a name is
-   longer in French, and a name cut short is a name changed. */
-.st .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--b-amber); flex: none; }
-.dep-still .st { color: var(--b-dim); }
-.dep-still .st .dot { background: #4b5261; }
-.dep-confirm .st { animation: board-blink 1.2s steps(1) infinite; }
-@keyframes board-blink { 50% { opacity: 0.3; } }
-
-.departures tr.why { grid-template-columns: minmax(0, 1fr); padding: 0 20px 12px; border-top: 1px dashed #2d323e; background: #101318; }
-.departures tr.why[hidden] { display: none; }
-.why td { display: grid; grid-template-columns: 56px minmax(0, 1fr); gap: 0 16px; font-family: var(--mono); font-size: 0.78rem; line-height: 1.5; color: var(--b-soft); }
-.why-lines b.no { color: var(--b-dim); }
-
-.board-foot {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px 16px;
-  flex-wrap: wrap;
-  padding: 9px 20px;
-  border-top: 1px solid var(--b-line);
-  font-family: var(--mono);
-  font-size: 0.74rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--b-muted);
-}
-/* Between the laptop and the phone, the gate folds under the status. */
-@media (max-width: 1119px) {
-  .board {
-    --flap: 14px;
-    --flap-h: 26px;
-    --flap-font: 13.5px;
-    --status-w: 126px;
-    --cols: calc(18 * (var(--flap) + 1px) - 1px) minmax(0, 1fr) calc(16 * (var(--flap) + 1px) - 1px) var(--status-w);
-  }
-}
-/* A phone reads one departure per card: the title, the destination, then the
-   rule and the status on one line. Three departures are enough there. */
-@media (max-width: 859px) {
-  .board { --flap: 16px; --flap-h: 28px; --flap-font: 15px; }
-  .departures tr.dep { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 10px; padding: 11px 12px; }
-  .departures .dep-to { grid-row: 2; grid-column: 1 / -1; }
-  .departures tr.why { padding: 0 12px 12px; }
-  .why td { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
-}
-@media (max-width: 599px) {
-  .departures .dep-more, .departures .dep-more + .why { display: none; }
-}
-@media (max-width: 400px) { .board { --flap: 15px; --flap-font: 14px; } }
-@media (max-width: 350px) { .board { --flap: 13px; --flap-h: 24px; --flap-font: 12.5px; } }
-
 /* ---------------------------------------------------------------- terminal */
 
 .terminal {
@@ -804,100 +681,93 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* Every step answers the same two questions, and the last column is what makes
    the headline checkable rather than a claim: three steps write nothing you
    own, and only the fourth does. */
-.steps {
-  margin-bottom: 34px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  overflow: hidden;
-}
-.steps-band,
-.steps-foot {
+/* The four steps, as a sequence rather than as a grid. No frame and no
+   banded header: the ledger above is the section's one framed object, and a
+   second under it is what made this section the only one on either page
+   carrying two. The number is the ordering, and `reads`/`writes` are labelled
+   per step, so nothing depends on a column heading three rows up. */
+.flow { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 22px; }
+/* The pair sits in the third column rather than under the note. Stacked, a
+   note capped at its measure left 400px of nothing down the right of every
+   step, which is the same emptiness the section heads were widened to close. */
+.flow-step {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px 250px;
-  margin: 0;
-  background: var(--bg-raised);
+  grid-template-columns: 42px minmax(0, 1fr) 290px;
+  gap: 0 4px;
+  align-items: start;
+}
+.flow-n {
   font-family: var(--mono);
-  font-size: 0.72rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding-top: 3px;
+}
+.flow-body h4 { margin: 0; font-size: 1.12rem; font-weight: 680; letter-spacing: -0.015em; }
+.flow-body > p { margin: 5px 0 0; font-size: 0.95rem; max-width: 74ch; }
+/* The pair is the honest part of the claim, so it is marked as data rather
+   than written into the sentence: enrichment does write, to a cache of its
+   own, and a flat "nothing is written" would be false. */
+.flow-k {
+  display: grid;
+  gap: 7px;
+  align-content: start;
+  margin: 3px 0 0;
+  padding-inline-start: 22px;
+  border-inline-start: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text-soft);
+}
+.flow-k i {
+  font-style: normal;
+  font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
+  margin-inline-end: 8px;
 }
-.steps-band { border-bottom: 1px solid var(--border); }
-.steps-band > span { padding: 10px 18px; }
-.steps-band-k { border-inline-start: 1px solid var(--border); }
-.steps-foot {
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px 20px;
-  padding: 12px 18px;
+/* Only the last step writes to somebody's library, which is the whole point
+   of the column, so it is the one value the eye should find. */
+.flow-writes .flow-k-writes { color: var(--accent-text); }
+.flow-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 20px;
+  margin: 0 0 34px;
+  padding-top: 16px;
   border-top: 1px solid var(--border);
-  font-weight: 600;
-  letter-spacing: 0.05em;
-}
-.steps-foot span:last-child { text-align: end; }
-.steps-foot b { color: var(--accent-text); }
-
-.step {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 250px 250px;
-  border-top: 1px solid var(--border);
-}
-.steps > .step:first-of-type { border-top: 0; }
-.step-head { padding: 15px 18px; }
-.step-n {
   font-family: var(--mono);
   font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--text-muted);
-  margin-inline-end: 12px;
 }
-.step h3 { display: inline; font-size: 1.05rem; }
-.step-head p { margin: 6px 0 0; font-size: 0.93rem; }
-.step-k {
-  margin: 0;
-  padding: 15px 18px;
-  border-inline-start: 1px solid var(--border);
-  font-family: var(--mono);
-  font-size: 0.82rem;
-  color: var(--text-soft);
-}
-/* The one row that touches your library says so in three ways at once, because
-   it is the only thing on this screen a reader needs to find. */
-.step-writes { box-shadow: inset 3px 0 0 var(--accent); }
-.step-writes .step-k-writes {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--accent-text);
-  font-weight: 700;
-}
+.flow-foot b { color: var(--accent-text); }
 
-/* Below 900px the two answers drop under the step and carry their own label,
-   since the band above them no longer has columns to head. They stay side by
-   side down to 560px, where the phrases start breaking mid-word. */
+/* A flow needs one breakpoint, not two: the number moves above the step
+   rather than beside it, because a 42px gutter out of 358px is a tenth of the
+   line and the notes then break every fourth word. */
 @media (max-width: 899px) {
-  .steps-band { grid-template-columns: minmax(0, 1fr); }
-  .steps-band-k { display: none; }
-  .step { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .step-head { grid-column: 1 / -1; padding-bottom: 12px; }
-  .step-k { border-top: 1px solid var(--border); padding-top: 11px; padding-bottom: 13px; }
-  .step-k:first-of-type { border-inline-start: 0; }
-  .step-k::before {
-    content: attr(data-label);
-    display: block;
-    margin-bottom: 4px;
-    font-size: 0.68rem;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--text-muted);
+  .flow-step { grid-template-columns: 42px minmax(0, 1fr); }
+  .flow-k {
+    grid-column: 2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 26px;
+    margin-top: 10px;
+    padding-inline-start: 0;
+    border-inline-start: 0;
   }
-  .steps-foot { grid-template-columns: minmax(0, 1fr); }
-  .steps-foot span:last-child { text-align: start; }
 }
 @media (max-width: 559px) {
-  .step { grid-template-columns: minmax(0, 1fr); }
-  .step-k { border-inline-start: 0; }
+  .flow-step { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  .flow-k { grid-column: 1; }
+  .flow-n { padding-top: 0; }
 }
 
 /* -------------------------------------------------------------- install */
@@ -952,24 +822,16 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 
 /* ----------------------------------------------------------------- spec */
 
-/* The back of the box. The fact carries the line and the name is a label,
-   which is what a specification sheet is for and what six icon tiles never
-   managed to be. */
-.spec {
-  margin-top: 34px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  overflow: hidden;
-}
-.spec-band {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0;
-  padding: 10px 18px;
-  background: var(--bg-raised);
-  border-bottom: 1px solid var(--border);
+/* A list of definitions, not a grid: six independent capabilities, each a
+   term and what it means, so there is no second axis for a table to draw. Two
+   columns because six short entries down one leave the right half of the
+   section empty, and a hairline over each entry because six of them with
+   nothing between reads as one block of prose. */
+.spec { margin: 34px 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 44px; }
+.spec-item { padding: 18px 0; border-top: 1px solid var(--border); }
+/* The top two sit under the head, which already separates them. */
+.spec-item:nth-child(-n + 2) { border-top: 0; padding-top: 0; }
+.spec dt {
   font-family: var(--mono);
   font-size: 0.7rem;
   font-weight: 700;
@@ -977,20 +839,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.spec-row { display: grid; grid-template-columns: 180px minmax(0, 1fr); border-top: 1px solid var(--border); }
-.spec > .spec-row:first-of-type { border-top: 0; }
-.spec-key {
-  margin: 0;
-  padding: 14px 18px;
-  background: var(--bg-raised);
-  font-family: var(--mono);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.spec-value { padding: 14px 18px; }
+.spec dd { margin: 7px 0 0; }
 .spec-fact {
   margin: 0 0 5px;
   font-family: var(--mono);
@@ -1008,14 +857,13 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   text-transform: uppercase;
   color: var(--text-muted);
 }
-.spec-value p:last-child { margin: 0; font-size: 0.95rem; }
+.spec dd p:last-child { margin: 0; font-size: 0.95rem; }
 
-/* Below 640px the label takes its own line: at 180px a translated group name
-   sits on three lines beside a two-line sentence. */
-@media (max-width: 639px) {
-  .spec-row { grid-template-columns: minmax(0, 1fr); }
-  .spec-key { padding-bottom: 6px; background: none; }
-  .spec-value { padding-top: 0; }
+/* One column below 860px: two 380px columns break a mono fact every second
+   word, and the fact is the line that carries the entry. */
+@media (max-width: 859px) {
+  .spec { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .spec-item:nth-child(2) { border-top: 1px solid var(--border); padding-top: 18px; }
 }
 
 /* -------------------------------------------------------------- folders */
@@ -1299,14 +1147,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .rule-note { margin: 12px 0 0; font-size: 0.94rem; }
 .rule-note code { color: var(--accent-text); }
 
-.rule-foot {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-raised);
-}
 /* ---------------------------------------------------------------- shots */
 
 /* A lazy image that has not arrived reads as a loading surface, not a void. */
@@ -1396,8 +1236,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* ---------------------------------------------------------------- faq */
 
 /* Not questions, objections: what somebody weighs before letting software
-   touch their library. Six of the seven answers are no, which an accordion
-   hid behind seven clicks. */
+   touch their library. Six of the seven answers are no, and they have to be
+   read together to be an argument, so the row itself never folds. */
 .objections {
   margin-top: 30px;
   border: 1px solid var(--border);
@@ -1446,6 +1286,22 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* The third column is the point: every answer is a property of something in
    the product, not a promise made on a landing page. */
 .objection-mechanism { margin: 0; font-family: var(--mono); font-size: 0.82rem; color: var(--accent-text); }
+/* The mechanism is the guarantee and stays in the open; this is the prose
+   under it. Folded, because on a 390px phone the seven of them measured 1055px
+   of a 2247px section, and the marker is left to the browser: it is the only
+   thing saying the control opens. */
+.objection-why { margin-top: 6px; }
+/* Not the mono capitals of the bands around it. Seven of those down one
+   column read as seven more headers on a page that already carries more
+   banding than the rest of the site put together: a control is not a label
+   for the thing under it. */
+.objection-why > summary {
+  cursor: pointer;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+.objection-why > summary:hover { color: var(--text); }
+.objection-why > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .objection-detail { margin: 6px 0 0; font-size: 0.93rem; }
 
 /* Below 900px the worry takes a line of its own, the verdict and the
@@ -1537,7 +1393,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 
 /* ---------------------------------------------------------------- misc */
 
-.muted { color: var(--text-muted); }
 .callout {
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
@@ -1560,74 +1415,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    gap the claim also takes a line of its own; no other section needs that. */
 h2 { text-wrap: balance; }
 h2 em { font-style: normal; color: var(--accent-text); }
-
-/* The gap, drawn as a ledger rather than as two folder listings: every chip on
-   a row is a field the sync already reads off the Arr's payload, and the
-   column on the right says the same thing five times. The argument is the
-   information nobody reads, so the chips are what carries it. */
-.ledger {
-  margin-top: 30px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  overflow: hidden;
-}
-.ledger-band,
-.ledger-verdict {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0;
-  padding: 10px 18px;
-  font-family: var(--mono);
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.ledger-band { background: var(--bg-raised); border-bottom: 1px solid var(--border); }
-.ledger-band-lit { background: var(--accent-fill); color: #1a1200; border-bottom-color: transparent; }
-.ledger-verdict { font-weight: 600; letter-spacing: 0.06em; }
-.ledger-rows { list-style: none; margin: 0; padding: 0; }
-.ledger-row {
-  display: grid;
-  grid-template-columns: 216px minmax(0, 1fr) 196px;
-  align-items: center;
-  gap: 0 20px;
-  padding: 11px 18px;
-  border-top: 1px solid var(--border);
-}
-.ledger-rows > .ledger-row:first-child { border-top: 0; }
-.ledger-title { font-weight: 600; font-size: 0.95rem; }
-.ledger-facts { display: flex; flex-wrap: wrap; gap: 6px; }
-/* Dashed, because nothing acts on any of it. The second block draws the same
-   chips solid, which is the only thing that changes between the two. */
-.fact {
-  font-family: var(--mono);
-  font-size: 0.76rem;
-  padding: 3px 8px;
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--radius-sm);
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.ledger-dest { font-family: var(--mono); font-size: 0.82rem; color: var(--text-muted); text-align: end; }
-.ledger-read { border-top: 2px solid var(--accent); }
-.ledger-read .ledger-row { background: color-mix(in srgb, var(--accent) 6%, transparent); }
-.ledger-read .fact { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, transparent); color: var(--accent-text); }
-.ledger-read .ledger-dest { color: var(--accent-text); font-weight: 700; }
-.ledger-read .ledger-dest b { color: var(--text-soft); margin-inline-end: 8px; }
-
-/* Three columns need about 740px before the chips start breaking mid-row. The
-   title takes a line of its own below that, and the destination sits on it,
-   so a row stays one readable block rather than a squeezed table. */
-@media (max-width: 739px) {
-  .ledger-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
-  .ledger-facts { grid-column: 1 / -1; }
-  .ledger-dest { text-align: end; }
-}
-
 
 .error-page { min-height: 70vh; display: grid; place-items: center; text-align: center; }
 
@@ -1712,7 +1499,6 @@ h2 em { font-style: normal; color: var(--accent-text); }
 /* The detail page's opening. It takes the section head's shape, since that is
    what every block below it uses, and its claim takes the second line like
    every other heading here. */
-#detail-head { padding-bottom: 0; }
 #detail-head h1 { font-size: clamp(1.9rem, 1.2rem + 2.4vw, 2.7rem); }
 #detail-head h1 em { font-style: normal; color: var(--accent-text); }
 

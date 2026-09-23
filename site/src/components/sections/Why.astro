@@ -1,26 +1,34 @@
 ---
-import { useTranslations, type Locale } from '../../i18n';
+import { useTranslations, type Key, type Locale } from '../../i18n';
 
 interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
 
 /**
- * The argument is the facts, not the folders. Every chip below is a field the
- * sync already reads off the Arr's own payload, and the column on the right
- * says the same thing five times — which is the gap, stated once by the page
- * rather than claimed in a sentence.
+ * The context, in two halves: the gap stated in prose, then the four steps
+ * that close it. They were two sections of the same weight side by side, which
+ * put 4.1 phone screens of argument between the demonstration above and the
+ * specifics below.
  *
- * Titles, genres, language and certification codes are the library's own
- * values and read the same in every language, exactly as the departure board
- * treats them. Nothing here is translated but the bands.
+ * The gap used to be drawn as a ledger of five films all landing in one
+ * folder. That was the setup for a second ledger showing the same five routed,
+ * and the contrast was the argument; with `explain` now opening the page the
+ * second one only repeated it, and the first alone spent five rows saying
+ * `/movies` five times. The heading and its sentence say it, and `explain`
+ * shows it.
+ *
+ * The steps keep `id="how"` so the index's own entry still resolves. A
+ * heading is not an anchor, and an index that points at a section the page no
+ * longer has is a fault this header has already shipped once.
  */
-const FILMS = [
-  { title: 'Akira (1988)', facts: ['Animation', 'Science Fiction', 'ja', '15'], rule: '#10', folder: '/movies/anime' },
-  { title: 'Heat (1995)', facts: ['Crime', 'Thriller', 'en', '15'], rule: null, folder: '/movies' },
-  { title: 'My Neighbor Totoro', facts: ['Animation', 'Family', 'ja', 'U'], rule: '#30', folder: '/movies/kids' },
-  { title: 'Perfect Blue', facts: ['Animation', 'Thriller', 'ja', '18'], rule: '#10', folder: '/movies/anime' },
-  { title: 'Stop Making Sense', facts: ['Documentary', 'Music', 'en', 'U', 'concert'], rule: '#20', folder: '/movies/concerts' },
+
+const STEPS: { number: string; name: Key; note: Key; reads: Key | string; writes: Key }[] = [
+  { number: '01', name: 'how.h3', note: 'how.p.2', reads: 'Radarr, Sonarr', writes: 'how.writes' },
+  { number: '02', name: 'how.h3.2', note: 'how.p.3', reads: 'TMDb, AniList, OMDb…', writes: 'how.writes.2' },
+  { number: '03', name: 'how.h3.3', note: 'how.p.4', reads: 'how.reads.3', writes: 'how.writes.3' },
+  { number: '04', name: 'how.h3.4', note: 'how.p.5', reads: 'how.reads.4', writes: 'how.writes.4' },
 ];
+const reading = (value: Key | string) => (value.includes(' ') && !value.startsWith('how.') ? value : t(value as Key));
 ---
 
 <section id="why">
@@ -28,46 +36,44 @@ const FILMS = [
     <div class="section-head section-head-tight">
       <span class="eyebrow">{t('why.span')}</span>
       <h2 set:html={t('why.h2')} />
+      {/* The gap, then the answer to it, in that order and as two paragraphs.
+          The heading asserts that the Arrs know and do not choose, and the
+          answer below used to follow it directly: what they actually carry
+          and what becomes of it was shown by a ledger of five films, not
+          said, so removing the ledger left the claim with nothing under it. */}
+      <p>{t('why.p')}</p>
       <p set:html={t('why.p.2')} />
     </div>
 
-    <div class="ledger">
-      <p class="ledger-band">
-        <span>{t('why.band.facts')}</span><span>{t('why.band.lands')}</span>
-      </p>
-      <ul class="ledger-rows">
+    <div id="how" class="half">
+      <div class="half-head">
+        <h3 set:html={t('how.h2')} />
+        <p>{t('how.p')}</p>
+      </div>
+
+      {/* A flow, not a table. A sequence is not a grid: its rows have an
+          order and only two of its cells are alike, so the ordering is the
+          number and the pair is labelled per step rather than by a heading
+          three rows up. It is also the page's answer to carrying six framed
+          grids with banded headers where the landing carries one. */}
+      <ol class="flow">
         {
-          FILMS.map((film) => (
-            <li class="ledger-row">
-              <span class="ledger-title">{film.title}</span>
-              <span class="ledger-facts">{film.facts.map((fact) => <span class="fact">{fact}</span>)}</span>
-              <span class="ledger-dest">/movies</span>
+          STEPS.map((step, index) => (
+            <li class:list={['flow-step', { 'flow-writes': index === STEPS.length - 1 }]}>
+              <span class="flow-n">{step.number}</span>
+              <div class="flow-body">
+                <h4>{t(step.name)}</h4>
+                <p>{t(step.note)}</p>
+              </div>
+              <p class="flow-k">
+                <span><i>{t('how.band.reads')}</i>{reading(step.reads)}</span>
+                <span class="flow-k-writes"><i>{t('how.band.writes')}</i>{t(step.writes)}</span>
+              </p>
             </li>
           ))
         }
-      </ul>
-      <p class="ledger-verdict">
-        <span>{t('why.verdict.read')}</span><span>{t('why.verdict.folder')}</span>
-      </p>
-
-      {/* The same five rows, read. The repetition is the argument: nothing
-           about the films changed, only whether anything looked at them. */}
-      <div class="ledger-read">
-        <p class="ledger-band ledger-band-lit">
-          <span>{t('why.band.routarr')}</span><span>{t('why.band.lands')}</span>
-        </p>
-        <ul class="ledger-rows">
-          {
-            FILMS.map((film) => (
-              <li class="ledger-row">
-                <span class="ledger-title">{film.title}</span>
-                <span class="ledger-facts">{film.facts.map((fact) => <span class="fact">{fact}</span>)}</span>
-                <span class="ledger-dest">{film.rule && <b>{film.rule}</b>}{film.folder}</span>
-              </li>
-            ))
-          }
-        </ul>
-      </div>
+      </ol>
+      <p class="flow-foot"><span>{t('how.foot')}</span><span set:html={t('how.foot.2')} /></p>
     </div>
   </div>
 </section>
