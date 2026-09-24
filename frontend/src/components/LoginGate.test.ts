@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
+import { interceptLinks, router } from '../lib/router.svelte';
 import LoginGate from './LoginGate.svelte';
 
 /**
@@ -67,6 +68,20 @@ describe('LoginGate', () => {
     const link = screen.getByRole('link', { name: 'Sign in with your provider' });
     expect(link).toHaveAttribute('href', expect.stringContaining('/auth/oidc/start'));
     expect(screen.queryByLabelText('Password')).toBeNull();
+  });
+
+  /// The gate renders inside `App`, whose router listens to every click on the
+  /// page. The link is only a way out if that listener lets it go.
+  it('lets the provider link leave the page with the router listening', async () => {
+    const stop = interceptLinks();
+    renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });
+
+    const link = screen.getByRole('link', { name: 'Sign in with your provider' });
+    const followed = await fireEvent.click(link);
+
+    stop();
+    expect(followed, 'the router took the click').toBe(true);
+    expect(router.path).not.toContain('/auth/oidc/start');
   });
 
   it('does not submit an empty password', async () => {

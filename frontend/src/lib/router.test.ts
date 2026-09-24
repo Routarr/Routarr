@@ -139,6 +139,46 @@ describe('intercepting links', () => {
     stop();
   });
 
+  /**
+   * No screen lives under `/api`: a link there is the server's to answer. The
+   * sign-in with an identity provider is one, and, taken by the router, it
+   * changes the address and leaves the screen where it was.
+   */
+  it.each([
+    ['without a mount point', null, '/api/v1/auth/oidc/start'],
+    ['under a mount point', '/routarr/', '/routarr/api/v1/auth/oidc/start'],
+  ])('leaves a link into the API to the browser, %s', (_, base, link) => {
+    withBase(base);
+    const stop = interceptLinks();
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', link);
+    document.body.append(anchor);
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    anchor.dispatchEvent(event);
+    anchor.remove();
+    stop();
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(router.path).toBe('/');
+  });
+
+  /** `/api` is a path segment, not a prefix: `/apix` would be a screen's. */
+  it('still follows a path that only begins with the letters api', () => {
+    const stop = interceptLinks();
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', '/apix');
+    document.body.append(anchor);
+
+    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
+    anchor.dispatchEvent(event);
+    anchor.remove();
+    stop();
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(router.path).toBe('/apix');
+  });
+
   it('leaves an external link to the browser', () => {
     const stop = interceptLinks();
     const anchor = document.createElement('a');

@@ -68,9 +68,13 @@ export function interceptLinks() {
     // Another application on the same host, beside this mount point.
     const base = basePath();
     if (base && target !== base && !target.startsWith(`${base}/`)) return;
+    // The server answers anything under `/api`, the sign-in with an identity
+    // provider included. Taken here, it changes the address and nothing else.
+    const route = strip(target);
+    if (route === '/api' || route.startsWith('/api/')) return;
 
     event.preventDefault();
-    navigate(strip(target));
+    navigate(route);
   };
 
   const onPop = () => {

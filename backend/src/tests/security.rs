@@ -1162,9 +1162,12 @@ async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     let app = oidc_app(&idp).await;
 
     let response = app.get("/api/v1/auth/oidc/start").await;
-    assert_eq!(response.status, StatusCode::INTERNAL_SERVER_ERROR, "{}", response.json);
-    // The body hides a configuration fault from the anonymous caller; the log
-    // line the operator reads names what to fix.
+    // The caller is a browser following the sign-in link. It lands back on the
+    // sign-in screen, which says the sign-in did not complete, rather than on
+    // an error body, and the fault stays out of what an anonymous caller sees.
+    assert_eq!(response.status, StatusCode::SEE_OTHER, "{}", response.json);
+    assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
+    // The log line the operator reads names what to fix.
     let message = match crate::services::oidc::start(&app.state).await {
         Ok(_) => String::from("the flow started"),
         Err(e) => e.to_string(),
