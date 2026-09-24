@@ -101,6 +101,26 @@ export function setApiKey(key: string): void {
   else localStorage.removeItem(API_KEY_STORAGE);
 }
 
+/**
+ * `AbortSignal.any` where the browser has it, and the same composition by hand
+ * where it does not. It is Safari 17.4, Chrome 116 and Firefox 124, and every
+ * load passes through it: called bare, an older browser, an iPad held on
+ * iPadOS 16 or Firefox ESR 115, throws a `TypeError` on every screen. Whichever
+ * signal fires first lends its reason, so a timeout still reads as a timeout.
+ */
+function anySignal(signals: AbortSignal[]): AbortSignal {
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
+  const composed = new AbortController();
+  for (const signal of signals) {
+    if (signal.aborted) {
+      composed.abort(signal.reason);
+      break;
+    }
+    signal.addEventListener('abort', () => composed.abort(signal.reason), { once: true });
+  }
+  return composed.signal;
+}
+
 /** Long enough for a simulation over a large library, short enough to be a signal. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -118,11 +138,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // the browser makes to the backend. The kind is what `describeError` reads,
   // so the wording stays with the other translated messages.
   //
-  // Composed with the caller's signal rather than replaced by it: written as a
-  // fallback, passing a signal to cancel a superseded load silently removed the
-  // timeout from that request, which is the one request most likely to be
-  // waiting on a host that never answers. `any` propagates the reason of
-  // whichever fired, so a timeout still arrives as `TimeoutError` and a
+  // Composed with the caller's signal, never replaced by it: replaced, the
+  // request most likely to be waiting on a host that never answers would lose
+  // its bound the moment it became cancellable. Whichever signal fires first
+  // lends its reason, so a timeout still arrives as `TimeoutError` and a
   // cancellation as `AbortError`.
   //
   // The `instanceof` is not belt and braces over a typed parameter: the
@@ -133,16 +152,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   // faults going unchecked to spare one line here.
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
-  const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
-  let res: Response;
+  const signal = caller ? anySignal([caller, timeout]) : timeout;
   try {
-    res = await fetch(`${API_BASE}${path}`, { ...options, headers, signal });
+    return await exchange<T>(path, { ...options, headers, signal });
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
     }
     throw cause;
   }
+}
+
+/**
+ * The request and the reading of its body, which the timeout covers as one.
+ * A large page can send its headers at once and its body past the bound, and
+ * mapped around `fetch` alone that timeout would reach the banner as the
+ * browser's own untranslated sentence.
+ */
+async function exchange<T>(path: string, init: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init);
 
   if (!res.ok) {
     const body = await res.text();
