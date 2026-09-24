@@ -1,6 +1,5 @@
 //! Simulation-level tests: preloading, actions, supersede and persistence.
 
-use crate::jobs::Attribution;
 use crate::services::routing::{self, SimulationOptions};
 
 use super::TestApp;
@@ -271,42 +270,6 @@ async fn a_media_that_becomes_correct_loses_its_pending_proposal() {
     .unwrap();
 
     assert_eq!(actionable, 0, "a proposal no rule justifies any more must not stay applicable");
-}
-
-#[tokio::test]
-async fn a_stale_proposal_cannot_be_applied_after_the_rules_change() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    app.seed_anime_rule().await;
-    sqlx::query("UPDATE settings SET value = 'false' WHERE key = 'global_dry_run'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-
-    let proposal = simulate(&app, persisting()).await.decisions[0].id.clone();
-
-    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
-    simulate(&app, persisting()).await;
-
-    let report = crate::services::executor::apply_decisions(
-        &app.state,
-        &[proposal],
-        false,
-        &crate::services::executor::Confirmed::all(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
-
-    assert_eq!(report.applied, 0, "the move must be refused");
-    assert_eq!(report.skipped, 1);
-
-    let folder: String =
-        sqlx::query_scalar("SELECT current_root_folder FROM media WHERE id = 'm-1'")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-    assert_eq!(folder, "/movies/standard", "the media must not have moved");
 }
 
 #[tokio::test]

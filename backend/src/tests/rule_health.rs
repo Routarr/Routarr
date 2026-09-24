@@ -124,6 +124,14 @@ async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i
     .execute(&app.state.pool)
     .await
     .unwrap();
+    // What sends the item to `anime`. An apply decides each item again, and a
+    // decision nothing justifies is skipped before it reaches the Arr.
+    sqlx::query(
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm1', 'anime')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     sqlx::query(
         "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id, current_root_folder,
          target_category, target_root_folder, action, status, reasons, alternatives, confidence)
