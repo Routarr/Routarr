@@ -62,6 +62,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .display()
     );
 
+    // Before the pool opens, since a restore swaps the database file itself,
+    // which cannot be done safely underneath live connections. And before the
+    // API key is read, since the archive can carry another one: read first,
+    // the old key is served until the restart after, when it changes under
+    // every client without a word.
+    services::backup::sweep_leftovers(&config);
+    if services::backup::apply_pending_restore(&config).await? {
+        info!("A staged backup was restored");
+    }
+
     // Resolve authentication before anything can serve a request. An API that
     // moves files must not be open because a variable was forgotten.
     //
@@ -93,12 +103,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     };
-
-    // Before the pool opens: a restore swaps the database file itself, which is
-    // impossible to do safely underneath live connections.
-    if services::backup::apply_pending_restore(&config)? {
-        info!("A staged backup was restored");
-    }
 
     let pool = db::init_pool(&config).await?;
     let secrets = crypto::SecretBox::load(

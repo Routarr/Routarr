@@ -13,13 +13,15 @@
 //! * **A restore never half-applies.** The bundle is validated and *staged*;
 //!   the swap happens at the next startup, before the pool opens. Replacing a
 //!   database under an open pool is how a restore destroys what it recovers.
+//!   Nothing is marked pending until every file is written and the database
+//!   has been opened and checked, and the start checks it again.
 
 use sqlx::AssertSqlSafe;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::jobs::JobKind;
@@ -56,9 +58,43 @@ const MANIFEST_ENTRY: &str = "manifest.json";
 /// Marker telling the next startup that a restore is pending.
 const PENDING_SUFFIX: &str = ".restore-pending";
 
+/// A restore being written. Never applied: only a complete set whose database
+/// has been checked is renamed to the pending suffix.
+const STAGING_SUFFIX: &str = ".restore-staging";
+
+/// Files that exist only until the work writing them succeeds.
+///
+/// Removed on drop unless kept, so every early return takes them away. Left
+/// behind, a half-written archive under a backup name is listed, counted by the
+/// retention and restorable, and a half-written restore is applied at the next
+/// start.
+struct Scaffold(Vec<PathBuf>);
+
+impl Scaffold {
+    fn keep(mut self) {
+        self.0.clear();
+    }
+
+    fn holds(&self, path: &Path) -> bool {
+        self.0.iter().any(|held| held == path)
+    }
+}
+
+impl Drop for Scaffold {
+    fn drop(&mut self) {
+        for path in &self.0 {
+            std::fs::remove_file(path).ok();
+        }
+    }
+}
+
 /// Where archives live: a `backups` directory beside the database.
 pub fn backup_dir(state: &AppState) -> PathBuf {
-    state.config.data_dir.join("backups")
+    backups_in(&state.config.data_dir)
+}
+
+fn backups_in(data_dir: &Path) -> PathBuf {
+    data_dir.join("backups")
 }
 
 /// A name Routarr generated, and nothing else.
@@ -113,6 +149,12 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
     // file sits beside the archive so the copy never lands somewhere the
     // container cannot write.
     let snapshot = dir.join(format!(".{stamp}.db"));
+    // A copy of the whole database, sealed credentials included, and twice
+    // the space a backup costs: gone on every way out of this function. It
+    // moves into the archive task below, which runs to its end whatever
+    // happens to the future awaiting it, so a cancelled caller does not
+    // remove it under the task that reads it.
+    let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
     vacuum_into(state, &snapshot).await?;
 
     let schema: String =
@@ -130,20 +172,14 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
     };
 
     // Off the runtime, and the whole of it: deflating a library-sized database
-    // holds a worker for as long as it takes, and `accounts.rs` already states
-    // the rule for a hash that costs 355 ms. Everything the closure needs is
+    // holds a worker for as long as it takes. Everything the closure needs is
     // taken by value first, so nothing borrows `state` across the boundary.
     let (archive, snapshot_path) = (path.clone(), snapshot.clone());
     let keys = [state.config.secret_key_path(), state.config.api_key_path()];
     let manifest_for_zip = manifest.clone();
     let result = tokio::task::spawn_blocking(move || {
-        let outcome = build_zip(&archive, &snapshot_path, &manifest_for_zip, &keys);
-        // The snapshot is scaffolding; leaving it behind would double the space
-        // a backup costs and look like a stray database. Removed inside the
-        // task so a cancelled caller does not leave it: a blocking task runs to
-        // the end whatever happens to the future awaiting it.
-        std::fs::remove_file(&snapshot_path).ok();
-        outcome
+        let _snapshot = snapshot_scaffold;
+        build_zip(&archive, &snapshot_path, &manifest_for_zip, &keys)
     })
     .await
     .map_err(|e| AppError::Internal(format!("the archive task failed: {e}")))?;
@@ -199,10 +235,17 @@ fn build_zip(
     manifest: &BackupManifest,
     keys: &[PathBuf; 2],
 ) -> AppResult<()> {
+    // Written under a name `list` does not show, and given its own only once
+    // whole: a zip is readable as soon as it is finished, and `ZipWriter`
+    // finishes it on drop, early return included.
+    let partial = partial_path(path);
+    std::fs::remove_file(&partial).ok();
+    let scaffold = Scaffold(vec![partial.clone()]);
+
     // The zip carries the master key and the API key in clear: private from
-    // its first byte, and never written over an archive that already exists.
-    let file = crate::crypto::create_private(path, true)
-        .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", path.display())))?;
+    // its first byte.
+    let file = crate::crypto::create_private(&partial, true)
+        .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", partial.display())))?;
     let mut zip = zip::ZipWriter::new(file);
     let options: zip::write::FileOptions<'_, ()> =
         zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -225,9 +268,9 @@ fn build_zip(
 
     add(&mut zip, options, MANIFEST_ENTRY, serde_json::to_string_pretty(manifest)?.as_bytes())?;
 
-    // Copied through, never materialised: `std::fs::read` here held the entire
-    // database in a `Vec<u8>` and then handed it to the deflater, which is two
-    // copies of a file that grows with somebody's library.
+    // Copied through, never materialised: read whole, the database would sit
+    // in memory twice, once as bytes and once in the deflater, and it grows
+    // with somebody's library.
     zip.start_file(DB_ENTRY, options)
         .map_err(|e| AppError::Internal(format!("cannot add {DB_ENTRY} to the archive: {e}")))?;
     let mut source = std::fs::File::open(snapshot)
@@ -246,8 +289,26 @@ fn build_zip(
         }
     }
 
-    zip.finish().map_err(|e| AppError::Internal(format!("cannot finish the archive: {e}")))?;
+    let file =
+        zip.finish().map_err(|e| AppError::Internal(format!("cannot finish the archive: {e}")))?;
+    // On disk before it takes a backup name: renamed first, a power cut can
+    // leave an empty file under that name, listed and counted by the retention.
+    file.sync_all()
+        .map_err(|e| AppError::Internal(format!("cannot write {}: {e}", partial.display())))?;
+
+    // Never over an archive that already exists, which `rename` would replace.
+    if path.exists() {
+        return Err(AppError::Internal(format!("{} already exists", path.display())));
+    }
+    std::fs::rename(&partial, path)
+        .map_err(|e| AppError::Internal(format!("cannot name {}: {e}", path.display())))?;
+    scaffold.keep();
     Ok(())
+}
+
+fn partial_path(archive: &Path) -> PathBuf {
+    let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    archive.with_file_name(format!(".{name}.partial"))
 }
 
 /// Every archive on disk, newest first.
@@ -337,13 +398,35 @@ pub fn read_manifest(archive: &Path) -> AppResult<BackupManifest> {
 ///
 /// Nothing is swapped here on purpose. Replacing the database file under an
 /// open connection pool is how a restore destroys what it was recovering, so
-/// the files are written beside their targets and a marker tells `main` to move
-/// them into place before it opens anything.
+/// the files are written beside their targets and `main` moves them into place
+/// before it opens anything. Each is written under a staging name and renamed
+/// to its pending name only once every file is complete and the database has
+/// been opened and checked, the database last: its pending file is what a
+/// start takes for a restore.
+///
+/// One staging at a time, run to its end on a task of its own. The stagings
+/// write the same files, and a request dropped halfway, by a proxy giving up
+/// on a large database, would release its lock while its copy goes on: a
+/// retry beside it would then see its checked files removed or overwritten.
 pub async fn stage_restore(state: &AppState, name: &str) -> AppResult<BackupManifest> {
     if !is_valid_backup_name(name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
+    let Some(lock) = state.jobs.try_lock("restore") else {
+        return Err(AppError::Conflict("A restore is already being staged".into()));
+    };
 
+    let state = state.clone();
+    let name = name.to_string();
+    tokio::spawn(async move {
+        let _lock = lock;
+        stage(&state, &name).await
+    })
+    .await
+    .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))?
+}
+
+async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
     let archive = backup_dir(state).join(name);
     let manifest = read_manifest(&archive)?;
 
@@ -364,70 +447,278 @@ pub async fn stage_restore(state: &AppState, name: &str) -> AppResult<BackupMani
         (MASTER_KEY_ENTRY, state.config.secret_key_path()),
         (API_KEY_ENTRY, state.config.api_key_path()),
     ];
+    let paths = targets.clone().map(|(_, target)| target);
+
     let named = name.to_string();
-    tokio::task::spawn_blocking(move || extract_staged(&archive, &targets, &named))
-        .await
-        .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
+    let listed_key = manifest.includes_master_key;
+    let staged =
+        tokio::task::spawn_blocking(move || extract_staged(&archive, &targets, &named, listed_key))
+            .await
+            .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
+
+    // A zero-byte or truncated file opens as a database, and would be moved
+    // over the live one.
+    if let Err(reason) = check_database(&staging_path(&state.config.db_path)).await {
+        return Err(AppError::BadRequest(format!(
+            "the archive's database cannot be restored: {reason}"
+        )));
+    }
+
+    // A new restore replaces an earlier one entirely, and only once it is
+    // known to be one: a file the new archive does not carry would otherwise
+    // be applied beside it, from the old one, and a refused archive would take
+    // the earlier restore with it.
+    discard_pending(&paths);
+
+    // The database last: its pending file is what a start takes for the
+    // restore, so a set interrupted before it is rejected whole.
+    for target in paths.iter().rev() {
+        let staging = staging_path(target);
+        if !staged.holds(&staging) {
+            continue;
+        }
+        if let Err(e) = std::fs::rename(&staging, pending_path(target)) {
+            discard_pending(&paths);
+            return Err(AppError::Internal(format!("cannot stage {}: {e}", target.display())));
+        }
+        sync_parent(target);
+    }
+    staged.keep();
 
     info!("Backup {name} staged; it is applied on the next start");
     Ok(manifest)
 }
 
-/// Copy the three known entries beside their targets.
+/// Copy the three known entries beside their targets, under the staging suffix.
 ///
 /// Synchronous on purpose — the caller runs it on a blocking thread. The entry
 /// names are literals and the destinations are computed here, so no name out of
-/// the archive ever reaches a path.
-fn extract_staged(archive: &Path, targets: &[(&str, PathBuf); 3], name: &str) -> AppResult<()> {
+/// the archive ever reaches a path. The files come back as a scaffold, removed
+/// unless the caller keeps them.
+fn extract_staged(
+    archive: &Path,
+    targets: &[(&str, PathBuf); 3],
+    name: &str,
+    listed_key: bool,
+) -> AppResult<Scaffold> {
     let file =
         std::fs::File::open(archive).map_err(|_| AppError::NotFound("Unknown backup".into()))?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|e| AppError::BadRequest(format!("not a readable archive: {e}")))?;
 
+    let mut scaffold = Scaffold(Vec::new());
     for (entry, target) in targets {
-        let Ok(mut source) = zip.by_name(entry) else {
-            // Said out loud. An archive without the master key restores a
-            // database whose every sealed credential this installation cannot
-            // open, and the only other trace is `reseal_secrets` reporting them
-            // one by one at the next start. The manifest carries the same
-            // answer to the caller, which is what the interface warns on.
-            warn!(
-                "Backup {name} carries no '{entry}'; the restore leaves the current one in place"
-            );
-            continue;
+        let mut source = match zip.by_name(entry) {
+            Ok(source) => source,
+            Err(zip::result::ZipError::FileNotFound) => {
+                // The keys alone, restored under a database they were not
+                // sealed for, are not a restore.
+                if *entry == DB_ENTRY {
+                    return Err(AppError::BadRequest("the archive carries no database".into()));
+                }
+                // The manifest records whether the key was there when the
+                // archive was written, so a key it lists and the archive lacks
+                // has been lost, and the restore would leave every sealed
+                // credential unreadable.
+                if *entry == MASTER_KEY_ENTRY && listed_key {
+                    return Err(AppError::BadRequest(
+                        "the archive lists its master key and does not carry it".into(),
+                    ));
+                }
+                // Said out loud. An archive without the master key restores a
+                // database whose every sealed credential this installation
+                // cannot open, and the only other trace is `reseal_secrets`
+                // reporting them one by one at the next start. The manifest
+                // carries the same answer to the caller, which is what the
+                // interface warns on.
+                warn!(
+                    "Backup {name} carries no '{entry}'; the restore leaves the current one in place"
+                );
+                continue;
+            }
+            // Present and unreadable is a damaged archive, not a missing entry:
+            // taken for an absent key, the restore would go ahead without it.
+            Err(e) => {
+                return Err(AppError::BadRequest(format!(
+                    "the archive is damaged: {entry} cannot be read ({e})"
+                )));
+            }
         };
-        let staged = staged_path(target);
-        let mut out = crate::crypto::create_private(&staged, false)
-            .map_err(|e| AppError::Internal(format!("cannot stage {}: {e}", staged.display())))?;
-        std::io::copy(&mut source, &mut out)
-            .map_err(|e| AppError::Internal(format!("cannot stage {entry}: {e}")))?;
+        let staging = staging_path(target);
+        scaffold.0.push(staging.clone());
+        let mut out = crate::crypto::create_private(&staging, false)
+            .map_err(|e| AppError::Internal(format!("cannot stage {}: {e}", staging.display())))?;
+        std::io::copy(&mut source, &mut out).map_err(|e| copy_error(entry, e))?;
+        // On disk before a rename marks it pending: after a power cut, a
+        // pending file must hold what was checked, not what was cached.
+        out.sync_all().map_err(|e| AppError::Internal(format!("cannot stage {entry}: {e}")))?;
     }
 
-    Ok(())
+    Ok(scaffold)
 }
 
-fn staged_path(target: &Path) -> PathBuf {
+/// A read that fails on the archive's side is a damaged archive, which the
+/// operator chose and can replace, so it is said as such rather than as an
+/// internal error. The CRC of an entry is checked only at its end, so this is
+/// found after part of it was copied.
+fn copy_error(entry: &str, e: std::io::Error) -> AppError {
+    use std::io::ErrorKind::{InvalidData, InvalidInput, UnexpectedEof};
+    match e.kind() {
+        InvalidData | InvalidInput | UnexpectedEof => {
+            AppError::BadRequest(format!("the archive is damaged: {entry} cannot be read ({e})"))
+        }
+        _ => AppError::Internal(format!("cannot stage {entry}: {e}")),
+    }
+}
+
+fn with_suffix(target: &Path, suffix: &str) -> PathBuf {
     let mut name = target.as_os_str().to_os_string();
-    name.push(PENDING_SUFFIX);
+    name.push(suffix);
     PathBuf::from(name)
+}
+
+fn staging_path(target: &Path) -> PathBuf {
+    with_suffix(target, STAGING_SUFFIX)
+}
+
+fn pending_path(target: &Path) -> PathBuf {
+    with_suffix(target, PENDING_SUFFIX)
+}
+
+/// Remove every pending file of a restore.
+fn discard_pending(targets: &[PathBuf]) {
+    for target in targets {
+        std::fs::remove_file(pending_path(target)).ok();
+    }
+}
+
+/// Make a rename durable before the next one.
+///
+/// The database is renamed last so that a set interrupted before it is
+/// rejected whole, and that order survives a power cut only once each rename
+/// has reached the disk. Best effort: a filesystem that cannot open a
+/// directory to sync it still renames.
+fn sync_parent(path: &Path) {
+    if let Some(dir) = path.parent() {
+        std::fs::File::open(dir).and_then(|dir| dir.sync_all()).ok();
+    }
+}
+
+/// Remove what an interrupted backup or staging leaves behind.
+///
+/// Called from `main` before anything runs, the one moment none of these files
+/// can belong to work in progress. A snapshot is a copy of the whole database
+/// and a partial archive holds the master key in clear, and no later pass
+/// takes either away. A staged file is never applied.
+pub fn sweep_leftovers(config: &crate::config::Config) {
+    for target in [&config.db_path, &config.secret_key_path(), &config.api_key_path()] {
+        std::fs::remove_file(staging_path(target)).ok();
+    }
+    let Ok(entries) = std::fs::read_dir(backups_in(&config.data_dir)) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        if entry.file_name().to_str().is_some_and(is_leftover) {
+            std::fs::remove_file(entry.path()).ok();
+        }
+    }
+}
+
+/// A name only an interrupted run leaves: a partial archive or a snapshot.
+fn is_leftover(name: &str) -> bool {
+    let Some(hidden) = name.strip_prefix('.') else {
+        return false;
+    };
+    let partial = hidden.strip_suffix(".partial").is_some_and(is_valid_backup_name);
+    let snapshot = hidden.strip_suffix(".db").is_some_and(|stamp| {
+        stamp.len() == 15
+            && stamp.char_indices().all(|(i, c)| if i == 8 { c == '-' } else { c.is_ascii_digit() })
+    });
+    partial || snapshot
+}
+
+/// Whether a file is a Routarr database this build can open.
+///
+/// Opened read-only and immutable, so the check writes nothing beside the file.
+/// `integrity_check` finds a truncated or damaged file, and the migrations table
+/// an empty one: SQLite opens a zero-byte file as a valid, empty database. The
+/// last migration it records has to be one this build knows, since migrations
+/// only go forward and a start is not always made by the build that staged it.
+async fn check_database(path: &Path) -> Result<(), String> {
+    use sqlx::{ConnectOptions, Connection};
+
+    let options =
+        sqlx::sqlite::SqliteConnectOptions::new().filename(path).read_only(true).immutable(true);
+    let mut connection = options.connect().await.map_err(|e| e.to_string())?;
+
+    let verdict: Result<Result<(), String>, sqlx::Error> = async {
+        let integrity: String =
+            sqlx::query_scalar("PRAGMA integrity_check").fetch_one(&mut connection).await?;
+        if integrity != "ok" {
+            return Ok(Err(integrity));
+        }
+        let migrated: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
+        )
+        .fetch_one(&mut connection)
+        .await?;
+        if !migrated {
+            return Ok(Err("it holds no Routarr schema".into()));
+        }
+        let schema: Option<String> =
+            sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
+                .fetch_optional(&mut connection)
+                .await?;
+        Ok(match schema {
+            None => Err("it holds no Routarr schema".into()),
+            Some(schema) if crate::db::is_newer_schema(&schema) => Err(format!(
+                "it is at schema '{schema}', which this version of Routarr does not know"
+            )),
+            Some(_) => Ok(()),
+        })
+    }
+    .await;
+    connection.close().await.ok();
+
+    verdict.map_err(|e| e.to_string())?
 }
 
 /// Apply a staged restore, if one is pending.
 ///
 /// Called from `main` **before** the pool is opened. Each file is moved into
 /// place with a rename, which is atomic within a filesystem, so an interruption
-/// leaves either the old file or the new one — never half of either.
-pub fn apply_pending_restore(config: &crate::config::Config) -> AppResult<bool> {
+/// leaves either the old file or the new one — never half of either. The
+/// database goes last, as it was staged last: a pending database means its keys
+/// are pending or applied, and keys pending without one are an interrupted
+/// staging.
+///
+/// The database is checked again first. A pending set damaged since it was
+/// staged would otherwise replace the live database on the next start, which
+/// is also the start that follows an upgrade or a downgrade. Rejected, it is
+/// removed rather than refused again on every start.
+pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<bool> {
     let targets = [config.db_path.clone(), config.secret_key_path(), config.api_key_path()];
 
-    if !targets.iter().any(|target| staged_path(target).exists()) {
+    if !targets.iter().any(|target| pending_path(target).exists()) {
+        return Ok(false);
+    }
+
+    let database = pending_path(&config.db_path);
+    let verdict = if database.exists() {
+        check_database(&database).await
+    } else {
+        Err("it carries no database".to_string())
+    };
+    if let Err(reason) = verdict {
+        error!("A pending restore was rejected and the current database kept: {reason}");
+        discard_pending(&targets);
         return Ok(false);
     }
 
     info!("A restore is pending; applying it before opening the database");
 
-    for target in targets {
-        let staged = staged_path(&target);
+    for target in targets.into_iter().rev() {
+        let staged = pending_path(&target);
         if !staged.exists() {
             continue;
         }
@@ -443,6 +734,7 @@ pub fn apply_pending_restore(config: &crate::config::Config) -> AppResult<bool> 
 
         std::fs::rename(&staged, &target)
             .map_err(|e| AppError::Config(format!("cannot restore {}: {e}", target.display())))?;
+        sync_parent(&target);
         crate::crypto::restrict_permissions(&target);
         info!("Restored {}", target.display());
     }
@@ -467,6 +759,67 @@ mod tests {
         assert!(!is_valid_backup_name("routarr.db"));
         assert!(!is_valid_backup_name("backup.zip"));
         assert!(!is_valid_backup_name(""));
+    }
+
+    fn manifest() -> BackupManifest {
+        BackupManifest {
+            version: "0.0.0".into(),
+            schema: "001_initial_schema".into(),
+            created_at: String::new(),
+            includes_master_key: false,
+        }
+    }
+
+    #[test]
+    fn an_archive_is_never_written_over_one_that_exists() {
+        let dir = std::env::temp_dir().join(format!("routarr-zip-exists-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        let archive = dir.join("routarr-backup-20260101-000000.zip");
+        std::fs::write(&archive, b"an earlier archive").unwrap();
+        let snapshot = dir.join(".20260101-000000.db");
+        std::fs::write(&snapshot, b"a database").unwrap();
+
+        let outcome = build_zip(
+            &archive,
+            &snapshot,
+            &manifest(),
+            &[dir.join("routarr.key"), dir.join("routarr.api_key")],
+        );
+
+        assert!(outcome.is_err(), "an archive was written over another");
+        assert_eq!(std::fs::read(&archive).unwrap(), b"an earlier archive");
+        assert!(!partial_path(&archive).exists(), "the refused archive was left behind");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn an_archive_that_fails_midway_is_not_left_under_a_backup_name() {
+        let dir = std::env::temp_dir().join(format!("routarr-zip-fails-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // The snapshot is gone by the time the database entry is copied, so
+        // the archive fails after it was opened.
+        let outcome = build_zip(
+            &dir.join("routarr-backup-20260101-000000.zip"),
+            &dir.join(".missing.db"),
+            &manifest(),
+            &[dir.join("routarr.key"), dir.join("routarr.api_key")],
+        );
+
+        assert!(outcome.is_err(), "the archive was written without its database");
+        let left: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        // A file under a backup name is listed, counted by the retention,
+        // and restorable: an empty database the next start would move in.
+        assert_eq!(left, Vec::<String>::new(), "a failed archive was left behind");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
 
