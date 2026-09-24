@@ -262,7 +262,7 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     // What `main` does before opening anything.
     let config = app.state.config.clone();
     app.state.pool.close().await;
-    assert!(backup::apply_pending_restore(&config).unwrap());
+    assert!(backup::apply_pending_restore(&config).await.unwrap());
     assert!(!dir.join("routarr.db.restore-pending").exists());
 
     let pool =
@@ -278,7 +278,429 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
 #[tokio::test]
 async fn nothing_is_applied_when_no_restore_is_pending() {
     let (app, dir) = app_with_files("nopending").await;
-    assert!(!backup::apply_pending_restore(&app.state.config).unwrap());
+    assert!(!backup::apply_pending_restore(&app.state.config).await.unwrap());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Every file a restore leaves beside its targets, staged, pending or set aside.
+fn restore_leftovers(dir: &std::path::Path) -> Vec<String> {
+    std::fs::read_dir(dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".restore-"))
+        .collect()
+}
+
+/// Flip one byte in the middle of an entry's compressed data.
+///
+/// The zip reader checks an entry's CRC only once it has read the entry to its
+/// end, so the damage is found after part of it has already been copied out,
+/// which is the moment a restore has to recover from.
+fn damage_entry(archive: &std::path::Path, entry: &str) {
+    let (start, size) = {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
+        let file = zip.by_name(entry).unwrap();
+        (file.data_start().expect("the entry's data offset"), file.compressed_size())
+    };
+    let mut bytes = std::fs::read(archive).unwrap();
+    let middle = usize::try_from(start + size / 2).unwrap();
+    bytes[middle] ^= 0xFF;
+    std::fs::write(archive, bytes).unwrap();
+}
+
+/// Copy an archive, replacing one entry's content.
+fn forge(archive: &std::path::Path, forged: &std::path::Path, entry: &str, content: &[u8]) {
+    rewrite(archive, forged, entry, Some(content));
+}
+
+/// Copy an archive, replacing one entry's content or, given none, leaving the
+/// entry out.
+fn rewrite(
+    archive: &std::path::Path,
+    forged: &std::path::Path,
+    entry: &str,
+    content: Option<&[u8]>,
+) {
+    let mut source = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
+    let mut out = zip::ZipWriter::new(std::fs::File::create(forged).unwrap());
+    let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+    for i in 0..source.len() {
+        let mut file = source.by_index(i).unwrap();
+        let name = file.name().to_string();
+        if name != entry {
+            out.start_file(&name, options).unwrap();
+            std::io::copy(&mut file, &mut out).unwrap();
+        } else if let Some(content) = content {
+            out.start_file(&name, options).unwrap();
+            std::io::Write::write_all(&mut out, content).unwrap();
+        }
+    }
+    out.finish().unwrap();
+}
+
+/// An archive's entry, read whole.
+fn entry_bytes(archive: &std::path::Path, entry: &str) -> Vec<u8> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(archive).unwrap()).unwrap();
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut zip.by_name(entry).unwrap(), &mut bytes).unwrap();
+    bytes
+}
+
+async fn media_count(config: &crate::config::Config) -> i64 {
+    let pool =
+        sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display())).await.unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
+    pool.close().await;
+    count
+}
+
+#[tokio::test]
+async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() {
+    let (app, dir) = app_with_files("staging-fails").await;
+    app.seed_library().await;
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    damage_entry(&dir.join("backups").join(&file.name), "routarr.db");
+
+    let refused = backup::stage_restore(&app.state, &file.name)
+        .await
+        .expect_err("a damaged archive must be refused");
+
+    // What was copied before the damage was found must not stay behind: the
+    // next start would move it over the live database.
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+    assert!(
+        matches!(refused, crate::error::AppError::BadRequest(_)),
+        "a damaged archive is the operator's to hear about, not an internal error: {refused}"
+    );
+
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+    assert!(!backup::apply_pending_restore(&config).await.unwrap(), "something was applied");
+    assert_eq!(media_count(&config).await, 1, "the live database did not survive");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn an_archive_whose_database_is_not_one_is_refused_before_anything_is_staged() {
+    let (app, dir) = app_with_files("empty-db").await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    // A well-formed archive whose database entry is empty: its CRC is right,
+    // its manifest reads, and restoring it would start the next run on an
+    // empty schema.
+    forge(
+        &backups.join(&file.name),
+        &backups.join("routarr-backup-20000101-000000.zip"),
+        "routarr.db",
+        b"",
+    );
+
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+        .await
+        .expect_err("an archive holding no database must be refused");
+
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+    assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn a_pending_restore_that_cannot_be_read_is_not_applied_at_the_next_start() {
+    let (app, dir) = app_with_files("unreadable-pending").await;
+    app.seed_library().await;
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    // A pending set whose database is not one, damaged since it was staged.
+    // The next start is where it would be applied.
+    std::fs::write(dir.join("routarr.db.restore-pending"), b"not a database").unwrap();
+    std::fs::write(dir.join("routarr.key.restore-pending"), b"another-master-key").unwrap();
+
+    assert!(
+        !backup::apply_pending_restore(&config).await.unwrap(),
+        "an unreadable restore was applied"
+    );
+    assert_eq!(media_count(&config).await, 1, "the live database did not survive");
+    assert_eq!(
+        std::fs::read_to_string(config.secret_key_path()).unwrap(),
+        "a-master-key",
+        "half of a rejected restore was applied"
+    );
+    // Left pending, it would be retried, and refused, on every start.
+    assert_eq!(
+        restore_leftovers(&dir),
+        Vec::<String>::new(),
+        "the rejected restore is still pending"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn keys_pending_without_their_database_are_not_applied() {
+    let (app, dir) = app_with_files("keys-alone").await;
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    // The database is staged, and applied, last. Keys pending without it are a
+    // staging that stopped before its end, and applied alone they would leave
+    // the live database under a master key that does not open it.
+    std::fs::write(dir.join("routarr.key.restore-pending"), b"another-master-key").unwrap();
+
+    assert!(!backup::apply_pending_restore(&config).await.unwrap(), "keys were applied alone");
+    assert_eq!(std::fs::read_to_string(config.secret_key_path()).unwrap(), "a-master-key");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "the keys are still pending");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn staging_a_second_backup_replaces_the_first_entirely() {
+    let (app, dir) = app_with_files("restage").await;
+    let backups = dir.join("backups");
+
+    let first = backup::create(&app.state, "manual").await.unwrap();
+    // Two archives taken in one second would share a name.
+    std::fs::rename(backups.join(&first.name), backups.join("routarr-backup-20000101-000000.zip"))
+        .unwrap();
+    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip").await.unwrap();
+    assert!(
+        dir.join("routarr.api_key.restore-pending").exists(),
+        "precondition: the first archive carries the API key"
+    );
+
+    std::fs::remove_file(app.state.config.api_key_path()).unwrap();
+    let second = backup::create(&app.state, "manual").await.unwrap();
+    assert!(
+        !entries(&backups.join(&second.name)).contains(&"routarr.api_key".to_string()),
+        "precondition: the second archive carries no API key"
+    );
+    backup::stage_restore(&app.state, &second.name).await.unwrap();
+
+    assert!(
+        !dir.join("routarr.api_key.restore-pending").exists(),
+        "the first archive's API key would be restored beside the second archive's database"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// `integrity_check` is what finds damage inside a database whose first pages
+/// read: the migrations table answers, and a page further in is garbage that
+/// the first query to reach it after the restart reports as a malformed file.
+#[tokio::test]
+async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
+    let (app, dir) = app_with_files("damaged-inside").await;
+    app.seed_library().await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+
+    // The media table's page, found in the archive's own database and then
+    // overwritten with a page type SQLite does not have.
+    let copy = dir.join("inspected.db");
+    std::fs::write(&copy, entry_bytes(&backups.join(&file.name), "routarr.db")).unwrap();
+    let inspect = sqlx::SqlitePool::connect(&format!("sqlite://{}", copy.display())).await.unwrap();
+    let page: i64 = sqlx::query_scalar("SELECT rootpage FROM sqlite_master WHERE name = 'media'")
+        .fetch_one(&inspect)
+        .await
+        .unwrap();
+    let page_size: i64 = sqlx::query_scalar("PRAGMA page_size").fetch_one(&inspect).await.unwrap();
+    inspect.close().await;
+    let mut bytes = std::fs::read(&copy).unwrap();
+    bytes[usize::try_from((page - 1) * page_size).unwrap()] = 0xFF;
+    forge(
+        &backups.join(&file.name),
+        &backups.join("routarr-backup-20000101-000000.zip"),
+        "routarr.db",
+        &bytes,
+    );
+
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+        .await
+        .expect_err("a database damaged inside must be refused");
+
+    assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A key entry the archive holds and cannot read is a damaged archive, not an
+/// archive without a key. Taken for an absent one, the restore goes ahead
+/// without it while the manifest says the key is included, and after the
+/// restart no Arr credential opens.
+#[tokio::test]
+async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
+    let (app, dir) = app_with_files("damaged-key").await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    let archive = backups.join(&file.name);
+
+    // The entry's local header, which the reader checks before its data.
+    let header = {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(&archive).unwrap()).unwrap();
+        zip.by_name("routarr.key").unwrap().header_start()
+    };
+    let mut bytes = std::fs::read(&archive).unwrap();
+    bytes[usize::try_from(header).unwrap()] ^= 0xFF;
+    std::fs::write(&archive, bytes).unwrap();
+
+    let refused = backup::stage_restore(&app.state, &file.name)
+        .await
+        .expect_err("a key that cannot be read must be refused");
+
+    assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// The manifest says whether the master key travelled. An archive that says
+/// it did and does not carry it has lost it, and restoring its database under
+/// the current key leaves every sealed credential unreadable.
+#[tokio::test]
+async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
+    let (app, dir) = app_with_files("missing-key").await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    rewrite(
+        &backups.join(&file.name),
+        &backups.join("routarr-backup-20000101-000000.zip"),
+        "routarr.key",
+        None,
+    );
+
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+        .await
+        .expect_err("an archive that lost its master key must be refused");
+
+    assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A restore that is refused replaces nothing. Discarded before the second
+/// archive is read, the first one is lost, and the operator hears only about
+/// the second.
+#[tokio::test]
+async fn a_refused_restore_leaves_the_one_already_staged() {
+    let (app, dir) = app_with_files("refused-second").await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+
+    forge(
+        &backups.join(&file.name),
+        &backups.join("routarr-backup-20000101-000000.zip"),
+        "routarr.db",
+        b"",
+    );
+    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+        .await
+        .expect_err("precondition: the second archive is refused");
+
+    let mut left = restore_leftovers(&dir);
+    left.sort();
+    assert_eq!(
+        left,
+        [
+            "routarr.api_key.restore-pending",
+            "routarr.db.restore-pending",
+            "routarr.key.restore-pending"
+        ],
+        "the restore staged first did not survive a refused one"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Two stagings write the same files. A request dropped by a proxy leaves its
+/// staging running on a blocking thread, and a retry beside it would have the
+/// first one remove, or overwrite, what the second has just checked.
+#[tokio::test]
+async fn a_restore_is_staged_one_at_a_time() {
+    let (app, dir) = app_with_files("one-at-a-time").await;
+    let file = backup::create(&app.state, "manual").await.unwrap();
+
+    let held = app.state.jobs.try_lock("restore").expect("the restore lock");
+    let refused = backup::stage_restore(&app.state, &file.name)
+        .await
+        .expect_err("a second staging must wait for the first");
+    assert!(matches!(refused, crate::error::AppError::Conflict(_)), "{refused}");
+    drop(held);
+
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A newer binary may stage a restore and an older one make the next start.
+/// The migrations only go forward, so the older one would run against a schema
+/// it does not know.
+#[tokio::test]
+async fn a_pending_database_from_a_newer_schema_is_not_applied() {
+    let (app, dir) = app_with_files("newer-pending").await;
+    app.seed_library().await;
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    let pending = dir.join("routarr.db.restore-pending");
+    std::fs::write(&pending, entry_bytes(&dir.join("backups").join(&file.name), "routarr.db"))
+        .unwrap();
+    let future =
+        sqlx::SqlitePool::connect(&format!("sqlite://{}", pending.display())).await.unwrap();
+    sqlx::query("INSERT INTO _migrations (id, name) VALUES (9999, '9999_from_the_future')")
+        .execute(&future)
+        .await
+        .unwrap();
+    future.close().await;
+
+    assert!(!backup::apply_pending_restore(&config).await.unwrap(), "a newer schema was applied");
+    assert_eq!(media_count(&config).await, 1, "the live database did not survive");
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A process killed mid-backup or mid-staging leaves files no later pass takes
+/// away: a copy of the whole database, an archive holding the master key in
+/// clear, a staged database. Nothing else runs at a start, so that is where
+/// they go.
+#[tokio::test]
+async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
+    let (app, dir) = app_with_files("sweep").await;
+    let backups = dir.join("backups");
+    let file = backup::create(&app.state, "manual").await.unwrap();
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    for leftover in [
+        backups.join(".routarr-backup-20260101-000000.zip.partial"),
+        backups.join(".20260101-000000.db"),
+        dir.join("routarr.db.restore-staging"),
+        dir.join("routarr.key.restore-staging"),
+    ] {
+        std::fs::write(leftover, b"left behind").unwrap();
+    }
+    // Not Routarr's, even in its directory.
+    std::fs::write(backups.join(".keep"), b"").unwrap();
+
+    backup::sweep_leftovers(&config);
+
+    let mut left: Vec<String> = std::fs::read_dir(&backups)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    left.sort();
+    assert_eq!(left, [".keep".to_string(), file.name], "a leftover survived, or more went");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a staged file survived");
+
     std::fs::remove_dir_all(&dir).ok();
 }
 
