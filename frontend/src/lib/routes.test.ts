@@ -15,6 +15,11 @@ describe('the route table', () => {
     for (const screen of SCREENS) expect(screen).toMatch(/^\//);
   });
 
+  /** The router leaves `/api` to the server, so a screen there is unreachable. */
+  it('puts no screen under /api', () => {
+    for (const screen of SCREENS) expect(screen).not.toMatch(/^\/api(\/|$)/);
+  });
+
   it('is dressed with an icon for every destination and nothing lost', () => {
     expect(DESTINATIONS).toHaveLength(SCREENS.length);
     expect(GROUPS.map((group) => group.key)).toEqual(ROUTE_GROUPS.map((group) => group.key));
