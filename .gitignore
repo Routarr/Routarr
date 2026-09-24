@@ -28,6 +28,12 @@ node_modules/
 # Working documents, deliberately unpublished. Not build artefacts.
 /docs
 
+# A second checkout made with `git worktree add`, for parallel work.
+/.worktrees
+# Claude Code's personal settings and notes. `.claude/rules/` is shared and committed.
+.claude/settings.local.json
+CLAUDE.local.md
+
 # IDE
 .vscode
 .idea

@@ -104,7 +104,9 @@ jobs:
         run: python3 scripts/check-versions.py
 
   # What no deliverable's job reads: the workflows, the shell harnesses, the
-  # Dockerfiles and the history. Unfiltered for the same reason as `changes`.
+  # Dockerfiles, the memory files Claude Code loads and the history. Unfiltered
+  # for the same reason as `changes`, and needed by no other job, so a failure
+  # here skips nothing else.
   #
   # The three binaries are fetched from their releases and checked against the
   # sums recorded here, so a moved tag or a replaced asset fails the step
@@ -118,6 +120,9 @@ jobs:
         with:
           # gitleaks reads every commit, not the last one.
           fetch-depth: 0
+
+      - name: Check the memory files stay short
+        run: python3 scripts/check-claude-md.py
 
       - name: Install the pinned linters
         env:
