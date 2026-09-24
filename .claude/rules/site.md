@@ -61,6 +61,12 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## Domain
 
-- The domain is written in `astro.config.mjs` (`site`), `public/robots.txt`,
+- The domain is written in `astro.config.mjs` (`site`), `public/robots.txt`, `public/llms.txt`,
   `public/.well-known/security.txt` and the root `README.md`. `check.mjs` refuses a second origin
   but reads neither `security.txt` nor the README.
+
+## llms.txt
+
+- `public/llms.txt` restates the pages, the README and what Routarr does not do, for language
+  models (llmstxt.org). `check.mjs` checks its shape and links, never its facts: it changes with
+  them.

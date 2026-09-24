@@ -9,7 +9,7 @@
  *
  *   node site/check.mjs
  */
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -81,13 +81,16 @@ const index = read('index.html');
 const notFound = read('404.html');
 const headers = read('_headers');
 const pages = { 'index.html': index, '404.html': notFound };
+// Read before the origin check, which scans it, and only when it exists: a
+// missing file is a failure the llms.txt section names, not a crash here.
+const llms = existsSync(join(DIST, 'llms.txt')) ? read('llms.txt') : null;
 
 
 // -------------------------------------------------------------- one origin
-// The site states its own origin in the canonical, the sitemap and robots.txt.
+// The canonical, the sitemap, robots.txt and llms.txt state the site's origin.
 // A partial rename — one updated, another forgotten — is the failure mode.
 const origins = new Set();
-for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml')]) {
+for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '']) {
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
 // `localhost` appears in the install instructions as prose, not as a host the
@@ -528,6 +531,37 @@ for (const [name, source] of Object.entries(pages)) {
   if (alternates < expected) {
     fail(`the sitemap carries ${alternates} hreflang alternate(s), expected ${expected}`);
   }
+}
+
+// -------------------------------------------------------------- llms.txt
+// Written by hand, so a link in it can name a page the build never produced.
+// The convention (llmstxt.org) fixes how it opens: an H1 naming the project,
+// then a blockquote summing it up. A page is linked by its trailing slash,
+// since the bare directory answers with a redirect.
+if (llms === null) {
+  fail('dist/llms.txt is missing: the build copies it from site/public/llms.txt');
+} else {
+  const [first = '', second = ''] = llms.split('\n').filter((line) => line.trim());
+  if (!first.startsWith('# ')) fail(`llms.txt opens with "${first}" instead of an H1 naming the project`);
+  if (!second.startsWith('> ')) fail(`llms.txt follows its first line with "${second}" instead of a blockquote summary`);
+
+  let linked = 0;
+  for (const [written] of llms.matchAll(/https?:\/\/[^\s()<>[\]"'`]+/g)) {
+    const address = written.replace(/[.,:!?]+$/, '');
+    const url = new URL(address);
+    if (url.hostname !== ORIGIN) continue;
+    linked += 1;
+    const file = url.pathname.endsWith('/') ? `${url.pathname}index.html` : url.pathname;
+    const entry = statSync(join(DIST, file), { throwIfNoEntry: false });
+    if (entry?.isDirectory()) {
+      fail(`llms.txt links to ${address}, a directory that answers with a redirect: end the path with a slash`);
+    } else if (!entry?.isFile()) {
+      fail(`llms.txt links to ${address}, and nothing is built at dist${file}`);
+    }
+  }
+  // The count is the guard on the guard: a pattern that stops matching the
+  // links passes having checked none.
+  if (!linked) fail(`llms.txt links to no page on ${ORIGIN}, so the link check read nothing`);
 }
 
 // ------------------------------------------------------------- og:locale

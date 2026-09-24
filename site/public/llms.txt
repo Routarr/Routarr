@@ -1,0 +1,145 @@
+# Routarr
+
+> Routarr is a self-hosted routing and classification layer for Radarr and Sonarr. It reads their
+> libraries, enriches every film and series from metadata sources in an order the user sets,
+> evaluates rules the user writes, and moves each title to the right root folder through the Arr
+> API. It shows the whole plan first and writes only when the user says so.
+
+It ships as one Docker image for amd64 and arm64, so a Pi or an N100 is enough. Storage is a
+single SQLite file, with no database service to run. It is licensed GPL-3.0-only and is not
+affiliated with the Servarr project.
+
+Routarr never manages downloads, indexers or the library itself, and it does not replace Radarr
+or Sonarr. A move writes exactly two things through the Arr API, the root folder and the path,
+then asks for a rescan. The folder name stays as it is, so a library that Plex or Jellyfin reads
+keeps working.
+
+It works in four steps, and only the last one writes to the library:
+
+1. Sync reads films, series, tags and root folders from every connected Radarr and Sonarr. An
+   empty response is never treated as a mass deletion.
+2. Enrich writes only to Routarr's own cache. Genres, original language and certification come
+   with the sync. TMDb and AniList add keywords and origin country.
+3. Decide runs the rules by ascending priority, and the first match wins. Exclusions veto a rule
+   that otherwise matched, and a title no rule matches falls to the default category. The result
+   is a plan the user can read.
+4. Apply groups the moves per instance and target folder, writes them through the Arr API, then
+   asks for a rescan. Every applied move can be reverted.
+
+A rule combines conditions with ALL or ANY, can carry explicit exclusions, has a priority, and
+routes to a category. The 28 conditions include genre, keywords, language, country,
+certification, age, size, paths, tags, Sonarr's series type and season count. The impact of a
+rule can be previewed before it is saved. An override pins a title to a category and outranks
+every rule. For every title, the explanation shows what each condition expected and what it
+observed, for the winning rule and for every rule that did not win.
+
+The user names the categories and attaches root folders to them. A root folder is either one
+that Radarr or Sonarr reports or one declared in Routarr, and a declared folder takes its free
+space and reachability from the synced folder it sits under. Routarr never creates a library
+layout.
+
+Six gates run in this order before anything is written, and the first to object stops the rest:
+global dry-run, batch cap, reachability, capacity, confirmation threshold, and revalidation at
+apply time. All six are on by default. The global dry-run is on from the first launch, blocks
+writes at the server whatever the interface does, and alone makes the whole application
+read-only. Reachability, capacity and the confirmation threshold ask the user a question, and
+the other three refuse. Moving files on disk is an option, unchecked by default. Without it,
+Routarr re-points the library entry and leaves the files where they are. Automatic application
+exists and is off by default. When enabled, it touches only titles with no files on disk yet.
+
+Metadata sources form an ordered list, and the order decides which source wins when they
+disagree. No metadata key is required: Radarr and Sonarr are a source of their own, and AniList
+and Jikan need no key. TMDb, OMDb and TheTVDB are optional.
+
+Routarr also provides:
+
+- Any number of Radarr and Sonarr instances, each with its own sync interval, folders and
+  mappings.
+- A secret webhook URL per instance. A title added in Radarr or Sonarr is synced, enriched and
+  evaluated at once rather than at the next poll, and can be routed before it downloads.
+- Authentication on by default: an API key, a single account, or OpenID Connect.
+- Prometheus metrics at /metrics, behind the same API key.
+- Notifications through one generic JSON webhook for Discord, Gotify, ntfy or Apprise, fired on
+  a state change.
+- A backup into data/backups/ every day, unless the interval is changed.
+- Export of rules, categories, mappings and overrides as JSON. Arr API keys are encrypted at rest
+  with AES-256-GCM and are left out of the export.
+- Translations into 26 languages, decision justifications included.
+
+It has no telemetry, no analytics and no update check. Its only outbound calls go to the
+configured Radarr and Sonarr instances, to the metadata sources the user enables, to an OpenID
+Connect provider if one is used, and to a notification webhook if one is set.
+
+To install, save the compose file from the README (image ghcr.io/routarr/routarr:latest, port
+9876, ./data mounted at /data) and run:
+
+```bash
+mkdir -p data && sudo chown 1000:1000 data
+docker compose up -d
+docker exec routarr cat /data/routarr.api_key
+```
+
+The last command prints the API key generated on first start. Open http://localhost:9876 and
+paste it. The container runs as uid 1000 and drops every capability, so the data directory has
+to belong to uid 1000. Back up the whole data/ directory: without routarr.key, the stored Arr
+credentials cannot be recovered. The image tag latest follows the most recent release, 0.1
+follows the patch releases of 0.1, and a full version such as 0.1.0 pins one.
+
+First use, in the interface: Instances (add Radarr or Sonarr, test the connection, sync), Root
+Folders (create categories, map folders to them, declare any destination the Arrs do not list),
+Rules (write rules and preview their impact), Simulation (run it, read the justifications, apply
+what you agree with), and Settings (turn off the global dry-run once the result is trusted).
+
+ROUTARR_AUTH selects authentication: apikey (the default), forms (one account with a password),
+oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open).
+ROUTARR_BASE_PATH serves Routarr under a sub-path such as /routarr behind a reverse proxy. The
+API, the interface and the webhook URLs all move with it, and no image rebuild is needed.
+ROUTARR_API_KEY sets the API key instead of generating one, and ROUTARR_SECRET_KEY sets the key
+that encrypts the stored Arr keys. Every variable is listed in backend/.env.example, and
+everything else is set from the Settings page.
+
+Security issues are reported privately through GitHub, as SECURITY.md describes, never in a
+public issue. Only the most recent release is supported. Out of scope by design: a permission
+model (there is one level of access), telemetry of any kind (opt-in included), a second database
+engine, signal weighting, nested condition groups, temporary overrides and a persistent job
+queue.
+
+The Site links below are the two English pages of the showcase site, and their French, German
+and Spanish copies are under Optional. Under Docs, repository files are linked as raw text, and
+the README is the reference for installation and configuration.
+
+## Site
+
+- [Landing page](https://routarr.app/): what Routarr does, with an example dry-run plan, a rule,
+  the six gates and the install steps.
+- [How it decides](https://routarr.app/how/): the gap Routarr fills, the four steps, how a
+  decision is explained, how root folders are declared, the full specification, and the
+  objections answered.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Routarr/Routarr/main/README.md): features, quick
+  start, image tags, configuration and backups.
+- [Environment variables](https://raw.githubusercontent.com/Routarr/Routarr/main/backend/.env.example):
+  every variable, listed and commented, OpenID Connect and the metadata source keys included.
+- [Security policy](https://raw.githubusercontent.com/Routarr/Routarr/main/SECURITY.md): how to
+  report a vulnerability, which versions are supported, what is already in place, and the known
+  limits.
+- [Contributing guide](https://raw.githubusercontent.com/Routarr/Routarr/main/CONTRIBUTING.md):
+  the development setup, the checks CI runs, commit conventions, the release process, and what
+  will be turned down.
+- [Source repository](https://github.com/Routarr/Routarr): code, issues and releases.
+
+## Optional
+
+- [Licence](https://raw.githubusercontent.com/Routarr/Routarr/main/LICENSE): the full text of the
+  GNU General Public License, version 3.
+- [Compose file](https://raw.githubusercontent.com/Routarr/Routarr/main/docker-compose.yml): the
+  repository's own, which builds the image from source, with comments on the volume,
+  authentication and the container hardening.
+- [Landing page (French)](https://routarr.app/fr/)
+- [How it decides (French)](https://routarr.app/fr/how/)
+- [Landing page (German)](https://routarr.app/de/)
+- [How it decides (German)](https://routarr.app/de/how/)
+- [Landing page (Spanish)](https://routarr.app/es/)
+- [How it decides (Spanish)](https://routarr.app/es/how/)
