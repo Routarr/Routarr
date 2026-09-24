@@ -411,6 +411,10 @@ pub async fn me(
 ///
 /// A redirect rather than a JSON URL the shell would follow: the browser has to
 /// leave, and the one thing that cannot go wrong here is a fetch that stays.
+/// A failure is a redirect too, back to the sign-in screen with the marker the
+/// shell shows, since the caller is a browser following a link. The reason goes
+/// to the log, where a configuration fault is fixed, and never to an anonymous
+/// caller.
 pub async fn oidc_start(State(state): State<AppState>, headers: HeaderMap) -> Response {
     match crate::services::oidc::start(&state).await {
         Ok(start) => (
@@ -427,7 +431,19 @@ pub async fn oidc_start(State(state): State<AppState>, headers: HeaderMap) -> Re
             axum::response::Redirect::to(&start.redirect_to),
         )
             .into_response(),
-        Err(e) => e.into_response(),
+        Err(e) => {
+            tracing::error!("An OpenID Connect sign-in could not start: {e}");
+            axum::response::Redirect::to(&format!("{}?signin=failed", home(&state))).into_response()
+        }
+    }
+}
+
+/// Where a browser comes back to the application.
+fn home(state: &AppState) -> String {
+    if state.config.base_path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("{}/", state.config.base_path)
     }
 }
 
@@ -452,11 +468,7 @@ pub async fn oidc_callback(
     headers: HeaderMap,
     axum::extract::Query(callback): axum::extract::Query<Callback>,
 ) -> Response {
-    let home = if state.config.base_path.is_empty() {
-        "/".to_string()
-    } else {
-        format!("{}/", state.config.base_path)
-    };
+    let home = home(&state);
 
     // The attempt is over either way, so the cookie that carried it goes.
     let cleared = cookie_header(&state, &headers, OIDC_COOKIE, "", 0);
