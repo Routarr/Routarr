@@ -119,9 +119,19 @@ jobs:
       # under the name people pull.
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          # The build record carries the event that started the run, the
+          # pusher's address included, and an artifact of a public repository
+          # is public.
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: .
           platforms: ${{ matrix.platform }}
+          # A public repository gets the `max` level by default, which writes
+          # the build environment into the image, the triggering event
+          # included. The provenance that is verified is the signed one
+          # attested below.
+          provenance: mode=min
           labels: ${{ steps.meta.outputs.labels }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           # A scope per architecture. Sharing one, the two legs evict each
