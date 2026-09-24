@@ -103,10 +103,9 @@ describe('createAsync', () => {
   });
 
   /**
-   * The generation counter stopped a late response overwriting a newer one,
-   * but the request itself went on. A filter typed into quickly opened one
-   * request per keystroke against somebody's own host, and every one of them
-   * stayed in flight.
+   * The generation counter keeps a late response off the screen, but only the
+   * signal stops the request itself. Without it every superseded load would
+   * stay open against the operator's own host.
    */
   it('aborts the request a newer load supersedes', async () => {
     const signals: AbortSignal[] = [];
@@ -124,6 +123,40 @@ describe('createAsync', () => {
     expect(signals[0]?.aborted).toBe(true);
     expect((signals[0]?.reason as DOMException | undefined)?.name).toBe('AbortError');
     expect(signals[1]?.aborted).toBe(false);
+  });
+
+  /**
+   * Only a cancellation this helper caused is silent. An abort from anywhere
+   * else, the browser stopping its requests or a loader cancelling its own, is
+   * a load that did not happen, and swallowing it would leave an empty table
+   * with no banner, the one failure this helper exists to prevent.
+   */
+  it('reports an abort it did not cause', async () => {
+    const loader = vi.fn(() =>
+      Promise.reject(new DOMException('The request was stopped', 'AbortError')),
+    );
+    render(AsyncHarness, { loader, filter: 'a' });
+
+    await waitFor(() =>
+      expect(screen.getByTestId('error')).toHaveTextContent('The request was stopped'),
+    );
+    expect(screen.getByTestId('loading')).toHaveTextContent('idle');
+  });
+
+  /**
+   * An action that finishes after its screen closed still calls `reload`, and
+   * nothing would ever cancel what that started: every request its loader
+   * makes, against the operator's host, for a screen nobody is looking at.
+   */
+  it('loads nothing once the component has gone away', async () => {
+    const loader = vi.fn(() => Promise.resolve('data'));
+    const { component, unmount } = render(AsyncHarness, { loader, filter: 'a' });
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
+
+    unmount();
+    await component.reload();
+
+    expect(loader).toHaveBeenCalledTimes(1);
   });
 
   /** A screen left mid-load must not hold its request open. */

@@ -1,3 +1,5 @@
+import { onDestroy } from 'svelte';
+
 import { ApiError } from '../api/client';
 import { t } from './i18n.svelte';
 
@@ -44,19 +46,13 @@ export interface Async<T> {
  * after the inputs moved on must not overwrite the result of a newer one.
  *
  * It is handed an `AbortSignal`, aborted when a newer run supersedes it and
- * when the component goes away. The generation counter already stopped a late
- * response from overwriting a newer one, but the request itself went on: a
- * filter typed into quickly opened one request per keystroke against somebody's
- * own host, and navigating away left every one of them in flight. A loader that
- * ignores the argument still works, and simply cannot be cancelled.
+ * when the component goes away. The generation counter keeps a late response
+ * off the screen, and the signal is what stops the request itself, which would
+ * otherwise stay open against the operator's own host after nobody wants it. A
+ * loader that ignores the argument still works, and simply cannot be cancelled.
  *
- * A cancellation is not a failure, and is not reported as one. Supersession is
- * already covered by the generation counter, which discards the whole outcome
- * of a run a newer one replaced; what the filter below adds is the **teardown**
- * case, where the run is still the current generation and there is no longer a
- * component to render a banner into. That is deliberately not asserted by a
- * test: nothing observable distinguishes it, and a test written against it
- * passes with the filter removed.
+ * A cancellation it caused itself is not a failure and is not reported as one.
+ * An abort from anywhere else is.
  *
  * Call it during component initialisation: it opens an effect, which is what
  * both the first load and the reload-on-`deps` depend on.
@@ -74,17 +70,12 @@ export function createAsync<T>(
 
   let generation = 0;
   let inFlight: AbortController | null = null;
-
-  /**
-   * A cancellation this helper caused, which is not something to report.
-   *
-   * Matched on the exception rather than on `signal.aborted`, because a request
-   * can fail for its own reasons in the same turn that a newer run starts, and
-   * the operator is owed that error.
-   */
-  const cancelled = (err: unknown) => err instanceof DOMException && err.name === 'AbortError';
+  let destroyed = false;
 
   async function reload() {
+    // An action that finishes after its screen closed still calls this, and
+    // nothing would ever cancel what it started.
+    if (destroyed) return;
     inFlight?.abort(new DOMException('superseded', 'AbortError'));
     const controller = new AbortController();
     inFlight = controller;
@@ -96,7 +87,12 @@ export function createAsync<T>(
       const result = await loader(controller.signal);
       if (current === generation) state.data = result;
     } catch (err) {
-      if (current === generation && !cancelled(err)) {
+      // Silent only for a run this helper cancelled itself: a superseded run is
+      // already discarded by the generation, and on teardown there is no
+      // component left to show it in. An abort from anywhere else is a load
+      // that did not happen, and reporting it as nothing would leave an empty
+      // table with no banner.
+      if (current === generation && !controller.signal.aborted) {
         state.error = describeError(err);
         state.failure = err;
       }
@@ -115,9 +111,14 @@ export function createAsync<T>(
   $effect(() => {
     deps?.();
     void reload();
-    // Teardown, not just supersession: a screen left mid-load would otherwise
-    // hold its request open against a machine that is also running Radarr.
-    return () => inFlight?.abort(new DOMException('unmounted', 'AbortError'));
+  });
+
+  // `onDestroy` rather than the effect's own cleanup, which also runs before
+  // every re-run on a `deps` change: marked destroyed there, a screen would stop
+  // loading the first time a filter moved.
+  onDestroy(() => {
+    destroyed = true;
+    inFlight?.abort(new DOMException('unmounted', 'AbortError'));
   });
 
   return {
