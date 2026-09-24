@@ -121,11 +121,9 @@ reports. Under no known root it inherits nothing, and `guard_capacity` then
 the Arr published none, but for a declared one it means nothing upstream will
 catch a full disk either.
 
-The path is checked against the **Arr's** filesystem (`/api/v3/filesystem`) by
-listing its *parent* and looking for the leaf among the children — asked about the
-path itself, that endpoint answers with the nearest directory above it, so every
-misspelt last segment under a real root reads as verified. Not checked
-against Routarr's own filesystem either: the two run in different containers as often as not, and a
+The path is checked against the **Arr's** filesystem (`/api/v3/filesystem`),
+asked about the path itself, since the Arr lists the directory above the one
+asked (`integrations::directory_query`). Not checked against Routarr's own filesystem: the two run in different containers as often as not, and a
 path that exists here says nothing about the process that will do the writing.
 An instance that cannot be asked does not block the save — refusing on an
 unavailable probe locks the operator out at the worst moment — but the answer is

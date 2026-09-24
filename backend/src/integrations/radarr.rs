@@ -131,39 +131,10 @@ impl RadarrClient {
     /// reach it. That mismatch is the commonest homelab fault of all, and it is
     /// otherwise discovered at apply time.
     pub async fn directory_exists(&self, path: &str) -> AppResult<bool> {
-        #[derive(serde::Deserialize)]
-        struct Entry {
-            #[serde(default)]
-            path: String,
-        }
-        #[derive(serde::Deserialize)]
-        struct Listing {
-            #[serde(default)]
-            directories: Vec<Entry>,
-        }
-
-        // The *parent* is listed and the leaf looked for among its children.
-        // Asked about the path itself, the endpoint answers with the contents of
-        // the nearest directory above it — so a typo in the last segment comes
-        // back describing the folder that does exist, and every misspelling
-        // under a real root read as verified.
-        let trimmed = path.trim_end_matches('/');
-        let (parent, leaf) = trimmed.rsplit_once('/').unwrap_or(("", trimmed));
-        let parent = if parent.is_empty() { "/" } else { parent };
-
-        let listing: Listing = send_json(
-            SERVICE,
-            self.client
-                .get(format!("{}/api/v3/filesystem", self.base_url))
-                .header("X-Api-Key", &self.api_key)
-                .query(&[("path", parent)]),
-        )
-        .await?;
-
-        Ok(listing.directories.iter().any(|entry| {
-            let seen = entry.path.trim_end_matches('/');
-            seen == trimmed || seen.rsplit('/').next() == Some(leaf)
-        }))
+        let query = super::directory_query(path);
+        let listing: super::DirectoryListing =
+            send_json(SERVICE, self.get("/api/v3/filesystem").query(&[("path", query)])).await?;
+        Ok(listing.holds(path))
     }
 
     /// Bulk update movies: change root folder and optionally move files.

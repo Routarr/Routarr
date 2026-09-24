@@ -224,18 +224,28 @@ async fn root_folders(
 /// The Arr's own view of its filesystem, which is the only one that counts:
 /// Routarr and the Arr run in different containers as often as not.
 ///
-/// Anything under `/movies` is visible; nothing else is. That is enough to tell
-/// a path the instance can reach from one it cannot.
+/// The folders listed below are all the instance can see, which is enough to
+/// tell a path it can reach from one it cannot.
+///
+/// Answered the way Radarr's and Sonarr's `FileSystemLookupService.LookupContents`
+/// answers when `allowFoldersWithoutTrailingSlashes` is left at its default:
+/// the query is cut after its last separator and what remains is listed, each
+/// directory's path ending in a separator. Asked `/movies/anime`, it lists
+/// `/movies/`, and asked `/movies`, it lists `/`. Listing exactly the path given is
+/// the behaviour a client would wish for and no Arr has, and a fake with it
+/// passes a client that asks every real Arr about the wrong directory.
 async fn filesystem(
     State(state): State<FakeState>,
     headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
-    // The real endpoint lists the *contents* of the directory it is given, and
-    // answers about the nearest one above when the path does not exist — which
-    // is why a prefix match here would let a misspelt leaf read as verified.
-    let path = query.get("path").cloned().unwrap_or_default();
+    let asked =
+        query.get("path").filter(|path| !path.trim().is_empty()).map_or("/", String::as_str);
+    let Some(cut) = asked.rfind('/') else {
+        return Json(serde_json::json!({ "parent": null, "directories": [], "files": [] }));
+    };
+    let listed = asked[..cut].to_string();
     let known = [
         "/movies",
         "/movies/standard",
@@ -243,18 +253,19 @@ async fn filesystem(
         "/movies/anime/films",
         "/movies/anime/kids",
         "/movies/kids",
+        "/movies/Kids & Family+",
         "/tv",
         "/tv/standard",
         "/tv/anime",
     ];
-    let asked = path.trim_end_matches('/');
     let children: Vec<serde_json::Value> = known
         .iter()
-        .filter(|candidate| {
-            candidate.rsplit_once('/').map(|(parent, _)| parent) == Some(asked)
-                || (asked == "/" && candidate.matches('/').count() == 1)
+        .filter_map(|candidate| {
+            let (parent, name) = candidate.rsplit_once('/')?;
+            (parent == listed).then(|| {
+                serde_json::json!({ "type": "folder", "name": name, "path": format!("{candidate}/") })
+            })
         })
-        .map(|candidate| serde_json::json!({ "type": "folder", "path": candidate }))
         .collect();
     Json(serde_json::json!({ "parent": null, "directories": children, "files": [] }))
 }
