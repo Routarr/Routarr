@@ -13,6 +13,11 @@
     (signal) => loader(signal),
     () => filter,
   );
+
+  /** What an action handler calls after its write, exposed so a test can call it late. */
+  export function reload() {
+    return value.reload();
+  }
 </script>
 
 <output data-testid="data">{value.data ?? ''}</output>
