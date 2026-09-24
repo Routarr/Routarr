@@ -187,30 +187,23 @@ pub async fn simulate_loaded(
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
 
     for media in media_list {
-        let metadata = resolve_metadata(media, &ctx.providers, &ctx.metadata, &ctx.identifiers);
-
-        let evaluation = rule_engine::evaluate_rules(
-            EvalContext { media, metadata: metadata.as_ref(), now },
-            rules,
-            ctx.overrides.get(&media.id).map(String::as_str),
-        );
+        let Route { evaluation, category: target_category, target: target_root_folder } =
+            route(ctx, media, rules, now);
 
         let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
         if is_override {
             summary.overrides_applied += 1;
         }
 
-        let (target_category, matched_rule_id, matched_rule_name, reasons, confidence) =
+        let (matched_rule_id, matched_rule_name, reasons, confidence) =
             match &evaluation.winner {
                 Some(m) if is_override => (
-                    m.category.clone(),
                     Some(m.rule_id.clone()),
                     Some(localizer.translate("ManualOverrideRuleName", &[])),
                     vec![localizer.translate("ReasonManualOverride", &[])],
                     m.confidence,
                 ),
                 Some(m) => (
-                    m.category.clone(),
                     Some(m.rule_id.clone()),
                     Some(m.rule_name.clone()),
                     localizer.describe_all(&m.evaluations, m.excluded_by.as_ref()),
@@ -219,7 +212,6 @@ pub async fn simulate_loaded(
                 None => {
                     summary.no_category_match += 1;
                     (
-                        ctx.default_category.clone(),
                         None,
                         None,
                         vec![localizer.translate(
@@ -230,9 +222,6 @@ pub async fn simulate_loaded(
                     )
                 }
             };
-
-        let target_root_folder =
-            ctx.root_folders.get(&(media.instance_id.clone(), target_category.clone())).cloned();
 
         let action = match &target_root_folder {
             Some(target) => {
@@ -382,6 +371,66 @@ pub async fn simulate_loaded(
         excluded_by_rule: summary.excluded_by_rule,
         elapsed_ms: (library.loaded_in + started.elapsed()).as_millis() as u64,
     })
+}
+
+/// Where one item goes under a rule set, and why.
+struct Route {
+    evaluation: rule_engine::Evaluation,
+    /// The winner's category, or the default one when no rule matched.
+    category: String,
+    /// The folder mapped to that category on the item's instance, if any.
+    target: Option<String>,
+}
+
+/// Decide one item: its metadata, the rules, its override and the mappings.
+///
+/// Shared by the simulation and by the revalidation at apply time, which have
+/// to agree on where an item goes: a second spelling of it would retire a
+/// proposal the simulation still makes, or apply one it no longer makes.
+fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateTime<Utc>) -> Route {
+    let metadata = resolve_metadata(media, &ctx.providers, &ctx.metadata, &ctx.identifiers);
+    let evaluation = rule_engine::evaluate_rules(
+        EvalContext { media, metadata: metadata.as_ref(), now },
+        rules,
+        ctx.overrides.get(&media.id).map(String::as_str),
+    );
+    let category = evaluation
+        .winner
+        .as_ref()
+        .map_or_else(|| ctx.default_category.clone(), |winner| winner.category.clone());
+    let target = ctx.root_folders.get(&(media.instance_id.clone(), category.clone())).cloned();
+    Route { evaluation, category, target }
+}
+
+/// Where the rules and mappings as they stand now send each of these items.
+///
+/// `None` for an item they send nowhere, its category having no folder on its
+/// instance, and no entry for an id with no media row. This is what an apply
+/// checks a proposal against: a proposal records what the rules said when the
+/// simulation ran, and nothing retires it when a rule, a mapping or the
+/// metadata changes afterwards.
+///
+/// Holds a library-pass permit, since it loads the whole metadata cache, which
+/// is what that bound exists for.
+pub async fn current_targets(
+    pool: &SqlitePool,
+    media_ids: &[String],
+) -> AppResult<HashMap<String, Option<String>>> {
+    let mut targets = HashMap::with_capacity(media_ids.len());
+    if media_ids.is_empty() {
+        return Ok(targets);
+    }
+
+    let _pass = library_pass().await;
+    let ctx = load_context(pool).await?;
+    let now = Utc::now();
+    for chunk in media_ids.chunks(BIND_CHUNK) {
+        for media in load_media(pool, &[], Some(chunk), None).await? {
+            let Route { target, .. } = route(&ctx, &media, &ctx.rules, now);
+            targets.insert(media.id, target);
+        }
+    }
+    Ok(targets)
 }
 
 #[derive(Default)]
@@ -717,19 +766,39 @@ pub const BIND_CHUNK: usize = 400;
 
 /// Retire every pending proposal for these media, in place.
 ///
-/// The one writer of `superseded` over a list: a run supersedes what it
-/// re-evaluated, and a row that leaves the library — a full sync, a delete
-/// event — takes its proposals with it. Two copies of this statement had two
-/// chunk sizes within a day of each other.
+/// A run supersedes what it re-evaluated, and a row that leaves the library,
+/// a full sync or a delete event, takes its proposals with it.
 pub async fn supersede_pending(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     media_ids: &[&str],
 ) -> AppResult<()> {
-    for chunk in media_ids.chunks(BIND_CHUNK) {
+    retire_pending(tx, "media_id", media_ids).await
+}
+
+/// Retire these pending proposals, and only these.
+///
+/// An apply retires the proposals it found stale by their own ids: a
+/// simulation may have written the item's next proposal since the apply read
+/// this one, and that one stands.
+pub async fn supersede_decisions(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    decision_ids: &[&str],
+) -> AppResult<()> {
+    retire_pending(tx, "id", decision_ids).await
+}
+
+/// The one statement that writes `superseded`, whichever list it is given,
+/// so a change to its chunking or its filter reaches every caller.
+async fn retire_pending(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    column: &'static str,
+    ids: &[&str],
+) -> AppResult<()> {
+    for chunk in ids.chunks(BIND_CHUNK) {
         let placeholders = crate::db::placeholders(chunk.len());
         let sql = format!(
             "UPDATE decisions SET superseded = 1
-             WHERE status = 'pending' AND superseded = 0 AND media_id IN ({placeholders})"
+             WHERE status = 'pending' AND superseded = 0 AND {column} IN ({placeholders})"
         );
         let mut q = sqlx::query(AssertSqlSafe(sql.as_str()));
         for id in chunk {

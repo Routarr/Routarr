@@ -137,6 +137,258 @@ async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied(
     assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale decision");
 }
 
+/// A proposal records what the rules said when the simulation ran. Nothing
+/// retires it when a rule is deleted, edited or reordered, so the plan the
+/// Simulation screen reloads after the edit is still pending, and applied as it
+/// stands it sends the item where no rule sends it any more.
+#[tokio::test]
+async fn a_proposal_the_rules_no_longer_justify_is_skipped_at_apply_time() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
+    assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale proposal");
+    // Left pending, it is still counted as awaiting review and offered again,
+    // to be skipped again on every apply.
+    let superseded: bool = sqlx::query_scalar("SELECT superseded FROM decisions WHERE id = ?")
+        .bind(&decision_id)
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert!(superseded, "a proposal found stale is still offered");
+}
+
+/// Remapping a category moves its destination, and the proposal still names
+/// the old one: the files would go to a folder no category points at, and the
+/// next simulation would propose moving every one of them back.
+#[tokio::test]
+async fn a_proposal_whose_category_was_remapped_is_skipped_at_apply_time() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query("UPDATE root_folders SET category = NULL WHERE id = 'rf-2'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+         VALUES ('rf-3', 'inst-1', 3, '/data/anime', 1, 'anime')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
+    assert!(arr.recorded().writes.is_empty(), "the files went to the folder the category left");
+}
+
+/// Apply all loads its moves slice by slice through the same loader, and a
+/// plan reloaded after an edit is exactly what it is pointed at.
+#[tokio::test]
+async fn apply_all_skips_a_proposal_the_rules_no_longer_justify() {
+    let arr = FakeArr::start().await;
+    let (app, _) = ready(&arr).await;
+    let simulation_id: String = sqlx::query_scalar("SELECT simulation_id FROM decisions")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
+
+    let report = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation_id,
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
+    assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale proposal");
+}
+
+/// What is revalidated is where the item goes, not which rule sent it there.
+/// Another rule sending the item to the same category changes the winner and
+/// nothing the move depends on.
+#[tokio::test]
+async fn a_proposal_another_rule_now_justifies_is_still_applied() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query(
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+         target_category, match_mode)
+         VALUES ('rule-ja', 'Japanese', 5, 1, 'both',
+                 '[{\"type\":\"original_language\",\"value\":[\"ja\"]}]', 'anime', 'all')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    // The rule that proposed the move is gone, so only the new one can
+    // justify it.
+    sqlx::query("DELETE FROM rules WHERE id = 'rule-anime'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (1, 0), "{report:?}");
+    assert_eq!(arr.recorded().writes[0]["rootFolderPath"], "/movies/anime");
+}
+
+/// A sync can spell the same folder with a trailing slash, and the proposal
+/// still names the folder the rules send the item to.
+#[tokio::test]
+async fn a_folder_respelt_with_a_trailing_slash_does_not_make_a_proposal_stale() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query("UPDATE root_folders SET path = '/movies/anime/' WHERE id = 'rf-2'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (1, 0), "{report:?}");
+}
+
+/// One selection, one proposal still justified and one not: only the second
+/// is retired. A retired decision is hidden from the history and the metrics,
+/// so an applied one carrying the flag disappears from both.
+#[tokio::test]
+async fn only_the_stale_proposal_of_a_selection_is_retired() {
+    let arr = FakeArr::start().await;
+    let (app, _) = ready(&arr).await;
+    // A second film, pinned to `anime`, so it keeps its destination when the
+    // rules go.
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+         current_root_folder, monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira', 8392,
+                 '/movies/standard/Akira', '/movies/standard', 1, 1)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-2', 'm-2', 'anime')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let result = routing::run_simulation(
+        &app.state.pool,
+        SimulationOptions { persist: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    let ids: Vec<String> = result.decisions.iter().map(|d| d.id.clone()).collect();
+    assert_eq!(ids.len(), 2, "precondition: both films are proposed");
+    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &ids,
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (1, 1), "{report:?}");
+    let rows: Vec<(String, String, bool)> = sqlx::query_as(
+        "SELECT media_id, status, superseded FROM decisions WHERE simulation_id = ?
+          ORDER BY media_id",
+    )
+    .bind(&result.simulation_id)
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("m-1".to_string(), "pending".to_string(), true),
+            ("m-2".to_string(), "applied".to_string(), false)
+        ],
+        "the retirement took the wrong proposal"
+    );
+}
+
+/// A simulation can land between the apply reading a proposal and retiring
+/// it, and write the item's new proposal. What the apply found stale is the
+/// proposal it read, not every proposal the item has.
+#[tokio::test]
+async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         current_root_folder, target_category, target_root_folder, action, status, reasons,
+         alternatives, confidence)
+         VALUES ('d-newer', 'm-1', 'Totoro', 'movie', 'inst-1', '/movies/standard', 'standard',
+                 NULL, 'skip', 'pending', '[]', '[]', 0.0)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.skipped, 1, "{report:?}");
+    let newer: bool = sqlx::query_scalar("SELECT superseded FROM decisions WHERE id = 'd-newer'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert!(!newer, "the item's newer proposal was retired with the stale one");
+}
+
 async fn ready(arr: &FakeArr) -> (TestApp, String) {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;

@@ -7,13 +7,14 @@
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, JobKind};
 use crate::models::Instance;
-use crate::services::routing::format_timestamp;
+use crate::services::routing::{self, format_timestamp};
+use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Outcome of an apply or revert run.
@@ -898,7 +899,10 @@ fn human_bytes(bytes: i64, localizer: &crate::localization::Localizer) -> String
 ///
 /// Revalidated at apply time rather than trusted from the simulation: the rules,
 /// the mappings or the library may have changed since, and a superseded proposal
-/// must never be executed.
+/// must never be executed. A proposal the current rules no longer send to the
+/// same folder is skipped and retired, since nothing else retires it when a
+/// rule or a mapping changes and it would otherwise stay on screen as pending,
+/// skipped again on every apply.
 async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<PendingMove>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -925,10 +929,31 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
     for id in ids {
         query = query.bind(id);
     }
+    let rows = query.fetch_all(pool).await?;
 
-    Ok(query
-        .fetch_all(pool)
-        .await?
+    let media_ids: Vec<String> = rows.iter().map(|row| row.1.clone()).collect();
+    let targets = routing::current_targets(pool, &media_ids).await?;
+    let (current, stale): (Vec<MoveRow>, Vec<MoveRow>) = rows.into_iter().partition(|row| {
+        targets
+            .get(&row.1)
+            .and_then(Option::as_deref)
+            .is_some_and(|target| normalize_path(target) == normalize_path(&row.5))
+    });
+
+    if !stale.is_empty() {
+        let stale_ids: Vec<&str> = stale.iter().map(|row| row.0.as_str()).collect();
+        // The skip is what keeps the library safe, and the retirement only
+        // takes the proposals off the screen. A database busy past its timeout
+        // must not fail the moves that are still current.
+        match retire(pool, &stale_ids).await {
+            Ok(()) => {
+                info!(retired = stale.len(), "Proposals the rules no longer justify were retired")
+            }
+            Err(e) => warn!("Could not retire the proposals the rules no longer justify: {e}"),
+        }
+    }
+
+    Ok(current
         .into_iter()
         .map(|(decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path)| {
             PendingMove {
@@ -943,6 +968,13 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
             }
         })
         .collect())
+}
+
+async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {
+    let mut tx = pool.begin().await?;
+    routing::supersede_decisions(&mut tx, decision_ids).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 /// Load applied decisions that can still be rolled back.
