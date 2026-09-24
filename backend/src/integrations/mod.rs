@@ -140,6 +140,45 @@ where
     })
 }
 
+/// What Radarr and Sonarr answer on `GET /api/v3/filesystem`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct DirectoryListing {
+    #[serde(default)]
+    directories: Vec<ListedDirectory>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListedDirectory {
+    #[serde(default)]
+    path: String,
+}
+
+impl DirectoryListing {
+    /// Whether this listing holds the directory, named in full.
+    ///
+    /// A leaf name alone matches a namesake in another directory, so
+    /// `/movies/standard/kids` would read as seen because `/movies/kids`
+    /// exists. The Arr ends every directory's path with its separator.
+    pub(crate) fn holds(&self, path: &str) -> bool {
+        let wanted = directory_query(path);
+        self.directories.iter().any(|entry| directory_query(&entry.path) == wanted)
+    }
+}
+
+/// The `path` to send to `/api/v3/filesystem` so the answer lists the
+/// directory that holds `path`.
+///
+/// Both Arrs answer through `FileSystemLookupService.LookupContents`, which
+/// cuts the query after its last separator and lists what is left: asked
+/// `/movies/anime` it lists `/movies/`, where the directory has to appear.
+/// Asked for the parent without a trailing separator, it lists the
+/// grandparent. Only a trailing `/` is trimmed, as `root_folders::create`
+/// trims it before storing the path: the path checked is the path stored,
+/// and anything else in it, a backslash included, belongs to a folder name.
+pub(crate) fn directory_query(path: &str) -> &str {
+    path.trim_end_matches('/')
+}
+
 fn truncate(input: &str, max: usize) -> String {
     let trimmed = input.trim();
     if trimmed.chars().count() <= max {
@@ -174,6 +213,40 @@ mod tests {
         let described = describe_transport_error(&error);
         assert!(!described.contains("SUPERSECRET123"), "the key leaked: {described}");
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
+    }
+
+    /// The listing in the shape `FileSystemResult` serialises to: camelCase,
+    /// every directory's path ending in the Arr's separator. Written from
+    /// Radarr's and Sonarr's `FileSystemLookupService`, not captured from a
+    /// running instance.
+    const LISTING_OF_MOVIES: &str = r#"{
+        "parent": "/",
+        "directories": [
+            { "type": "folder", "name": "anime", "path": "/movies/anime/",
+              "lastModified": "2026-09-01T10:00:00Z", "size": 0 },
+            { "type": "folder", "name": "kids", "path": "/movies/kids/",
+              "lastModified": "2026-09-01T10:00:00Z", "size": 0 }
+        ],
+        "files": []
+    }"#;
+
+    #[test]
+    fn the_query_names_the_directory_itself_so_the_arr_lists_its_parent() {
+        // Cut after its last separator by the Arr, `/movies/anime` lists
+        // `/movies/`. A query naming the parent would list the grandparent.
+        assert_eq!(directory_query("/movies/anime/"), "/movies/anime");
+        assert_eq!(directory_query("/movies/anime\\"), "/movies/anime\\", "a backslash is a name");
+    }
+
+    #[test]
+    fn a_listed_directory_is_held_and_a_namesake_elsewhere_is_not() {
+        let listing: DirectoryListing = serde_json::from_str(LISTING_OF_MOVIES).unwrap();
+
+        assert!(listing.holds("/movies/anime"));
+        assert!(listing.holds("/movies/anime/"), "a trailing separator is the same folder");
+        assert!(!listing.holds("/movies/anmie"), "a misspelt leaf read as seen");
+        // `kids` is listed, but under `/movies`, not under `/movies/standard`.
+        assert!(!listing.holds("/movies/standard/kids"), "a namesake read as the folder asked");
     }
 
     #[test]

@@ -29,7 +29,7 @@ SERIES_ROOTS = [
 ]
 
 # Every directory the fake filesystem holds: the roots the instance reports
-# plus the parents above them, since the client lists a parent to find its leaf.
+# plus the parents above them, since a folder is found in its parent's listing.
 TREE = sorted(
     {
         segment
@@ -172,27 +172,21 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/v3/rootfolder":
             return self._send(MOVIE_ROOTS if MODE == "radarr" else SERIES_ROOTS)
         if path == "/api/v3/filesystem":
-            # A listing of the asked-for directory's children, which is what the
-            # client reads: it lists a candidate's *parent* and looks for the
-            # leaf among `directories`, because this endpoint answers a path it
-            # does not know with the nearest directory above it — so a
-            # misspelt last segment under a real root comes back looking
-            # verified. `parent` is reported the same way here for that reason,
-            # and nothing is meant to read it.
-            wanted = parse_qs(urlparse(self.path).query).get("path", [""])[0]
-            wanted = wanted.rstrip("/") or "/"
-            children = sorted(
-                {
-                    child
-                    for child in TREE
-                    if child.rsplit("/", 1)[0] == ("" if wanted == "/" else wanted)
-                }
-            )
+            # Answered the way Radarr's and Sonarr's LookupContents answers:
+            # the query is cut after its last separator and what remains is
+            # listed, each directory's path ending in a separator. Asked
+            # `/movies/anime`, it lists `/movies/`, which is where the client
+            # looks for the folder it asked about.
+            asked = parse_qs(urlparse(self.path).query).get("path", [""])[0] or "/"
+            if "/" not in asked:
+                return self._send({"directories": [], "files": []})
+            listed = asked[: asked.rindex("/")]
+            children = sorted(child for child in TREE if child.rsplit("/", 1)[0] == listed)
             return self._send(
                 {
-                    "parent": wanted.rsplit("/", 1)[0] or "/",
                     "directories": [
-                        {"name": c.rsplit("/", 1)[1], "path": c} for c in children
+                        {"type": "folder", "name": c.rsplit("/", 1)[1], "path": c + "/"}
+                        for c in children
                     ],
                     "files": [],
                 }

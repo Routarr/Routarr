@@ -593,11 +593,9 @@ async fn a_declared_folder_publishes_no_arr_id() {
 
 /// A misspelt last segment is a misspelling, not a folder.
 ///
-/// The endpoint lists the *contents* of the directory it is given, and answers
-/// about the nearest one above when the path does not exist — so asking about
-/// the path itself returns the parent that does exist, and every typo under a
-/// real root read as verified. The parent is listed and the leaf looked for
-/// among its children.
+/// The endpoint answers about the directory above the one asked, so a typo in
+/// the last segment still comes back with a listing, of the folder that does
+/// exist. Only an entry naming the whole path verifies it.
 #[tokio::test]
 async fn a_typo_in_the_last_segment_is_not_verified() {
     let arr = FakeArr::start().await;
@@ -615,13 +613,64 @@ async fn a_typo_in_the_last_segment_is_not_verified() {
     assert!(refused.message().contains("/movies/anmie"), "{}", refused.message());
 }
 
-/// The series half of the same journey.
-///
-/// `SonarrClient::directory_exists` is a second copy of the parent-listing
-/// trick, and every declared-destination test above went through a *Radarr*
-/// instance — so the movie copy was covered and the series one was reachable by
-/// nothing. An operator naming `/tv/anime` under Sonarr is doing what this
-/// feature was built for.
+/// A path is checked exactly as it is stored. On the Arr's filesystem a
+/// backslash is a character of a folder name, so `/movies/anime\` names a
+/// folder beside `/movies/anime` that does not exist, and moves sent there
+/// would create it.
+#[tokio::test]
+async fn a_path_is_checked_exactly_as_it_is_stored() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+
+    let refused = app
+        .post(
+            "/api/v1/root-folders",
+            serde_json::json!({ "instance_id": "i-1", "path": "/movies/anime\\" }),
+        )
+        .await;
+    assert_eq!(refused.status, 400, "a folder that does not exist was verified: {}", refused.json);
+}
+
+/// A folder at the top of the Arr's filesystem is found in the listing of its
+/// root, the listing a query ending in a separator never reaches.
+#[tokio::test]
+async fn a_folder_at_the_top_of_the_filesystem_is_verified() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+
+    let created = app
+        .post(
+            "/api/v1/root-folders",
+            serde_json::json!({ "instance_id": "i-1", "path": "/movies" }),
+        )
+        .await;
+    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.json["verified"], true, "{}", created.json);
+}
+
+/// A folder name is sent as a query value, where a space, an ampersand or a
+/// plus sign mean something else unless encoded.
+#[tokio::test]
+async fn a_folder_whose_name_needs_encoding_is_verified() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+
+    let created = app
+        .post(
+            "/api/v1/root-folders",
+            serde_json::json!({ "instance_id": "i-1", "path": "/movies/Kids & Family+" }),
+        )
+        .await;
+    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.json["verified"], true, "{}", created.json);
+}
+
+/// Every declared-destination test above goes through a *Radarr* instance, and
+/// `SonarrClient` asks through a `directory_exists` of its own. An operator
+/// naming `/tv/anime` under Sonarr is exactly what this feature is for.
 #[tokio::test]
 async fn a_declared_series_destination_is_checked_against_sonarr() {
     let arr = FakeArr::start().await;
