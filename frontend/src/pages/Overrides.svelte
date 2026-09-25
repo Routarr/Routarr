@@ -3,13 +3,14 @@
   import { api } from '../api/client';
   import type { Category, MediaListItem } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp } from '../api/format';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -22,7 +23,7 @@
     return { overrides, categories };
   });
 
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
   let creating = $state(false);
 
   const overrides = $derived(bundle.data?.overrides ?? []);
@@ -32,10 +33,10 @@
     if (!(await askConfirmation(t('ConfirmDeleteOverride', { title }), 'Delete'))) return;
     try {
       await api.deleteOverride(id);
-      notice = t('OverrideRemoved');
+      outcome.succeed(t('OverrideRemoved'));
       await bundle.reload();
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
@@ -90,7 +91,7 @@
         locked,
       });
       creating = false;
-      notice = t('OverrideCreated', { title: selected.title, category });
+      outcome.succeed(t('OverrideCreated', { title: selected.title, category }));
       await bundle.reload();
     } catch (err) {
       dialogError = describeError(err);
@@ -115,7 +116,7 @@
     onDismiss={() => (bundle.error = null)}
     onRetry={() => void bundle.reload()}
   />
-  <SuccessBanner message={notice} />
+  <OutcomeBanner {outcome} />
 
   <div class="card">
     <TableRegion label={t('Overrides')}>

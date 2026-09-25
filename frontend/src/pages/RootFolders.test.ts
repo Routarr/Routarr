@@ -282,11 +282,8 @@ describe('Root folders', () => {
   });
 
   /**
-   * A refusal must not be read beside the previous success.
-   *
-   * `notice` outlived the attempt that set it, so a rejected declaration
-   * rendered "Destination added" above the reason it was not — and the older,
-   * louder sentence is the one that gets believed.
+   * A refusal is never read beside the previous success: the older, louder
+   * sentence is the one that gets believed.
    */
   it('drops the previous success when the next attempt is refused', async () => {
     vi.spyOn(api, 'declareRootFolder')
@@ -303,9 +300,18 @@ describe('Root folders', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => expect(screen.queryByText(/added/)).toBeNull());
-    // And the reason is on screen. `reload` clears `error` on entry, so an
-    // error set before it was wiped by the reload itself: every refusal on
-    // this screen passed in silence.
+    expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
+  });
+
+  it('shows a refusal without waiting for the page to reload', async () => {
+    vi.spyOn(api, 'declareRootFolder').mockRejectedValue(new Error('the instance cannot see it'));
+    show([folder()], []);
+    const field = await screen.findByLabelText('Destination folder');
+    vi.spyOn(api, 'getRootFolders').mockReturnValue(new Promise(() => {}));
+
+    await userEvent.type(field, '/mnt/typo');
+    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
   });
 

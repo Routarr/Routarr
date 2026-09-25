@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { statusRevision } from '../lib/status.svelte';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
 import { FIELDS, SOURCE_KEY_SETTING } from '../lib/settings';
 import Settings from './Settings.svelte';
@@ -65,6 +65,10 @@ const STRINGS = {
   SettingGlobalDryRun: 'Global dry-run',
   SettingAutoApplyEnabled: 'Apply automatically',
   SecretConfiguredPlaceholder: 'A key is stored — type to replace it',
+  ConfigImportResult: 'Restored: {settings} settings.',
+  ConfigImportSkipped: 'Not restored: {count}',
+  ConfigImportNeedsKey: 'Instances waiting for their API key: {names}',
+  ListSeparator: ', ',
 };
 
 const APIKEY_MODE: AuthMode = {
@@ -428,9 +432,12 @@ describe('importing a configuration', () => {
     root_folders: 0,
     overrides: 0,
     skipped: [],
+    needs_key: [],
   };
 
   async function importFile(contents: object) {
+    // The page is a spinner while it reloads, file input included.
+    await waitFor(() => expect(document.querySelector('input[type="file"]')).not.toBeNull());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File([JSON.stringify(contents)], 'routarr-config.json', {
       type: 'application/json',
@@ -479,6 +486,110 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
+  });
+
+  /** The import wrote every setting, so an edit made before it is replaced, not kept. */
+  it('replaces an unsaved edit with the values it wrote', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
+    mount({ global_dry_run: 'true', batch_limit: '50' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await openSection('Maintenance');
+    vi.mocked(api.getSettings).mockResolvedValue({ global_dry_run: 'true', batch_limit: '25' });
+
+    await importFile({ version: 1 });
+
+    await screen.findByText('Restored: 3 settings.');
+    await openSection('Routing');
+    await waitFor(() =>
+      expect((screen.getByLabelText('Batch limit') as HTMLInputElement).value).toBe('25'),
+    );
+    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('true');
+    expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
+  });
+
+  /**
+   * The same when the settings cannot be read back at once: the edit carried
+   * over the values a later Retry reads would be written over the import.
+   */
+  it('drops an edit made before it even when the read after it fails', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await openSection('Maintenance');
+    vi.mocked(api.getSettings)
+      .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
+      .mockResolvedValue({ global_dry_run: 'true' });
+
+    await importFile({ version: 1 });
+    await screen.findByText('The settings could not be read');
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
+    await openSection('Routing');
+    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('true');
+    expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
+  });
+
+  /** An instance restored without its key is restored: amber and named, never a refusal. */
+  it('names the instances waiting for their API key without calling them refused', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue({
+      ...BUNDLE,
+      instances: 2,
+      needs_key: ['Radarr', 'Sonarr'],
+    });
+    mount({});
+    await openSection('Maintenance');
+
+    await importFile({ version: 1 });
+
+    const summary = await screen.findByText(
+      'Restored: 3 settings. Instances waiting for their API key: Radarr, Sonarr',
+    );
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  /** Part restored and part refused is a partial result, each refusal on a line of its own. */
+  it('reports what it could not restore, until the next import', async () => {
+    const importConfig = vi
+      .spyOn(api, 'importConfig')
+      .mockResolvedValueOnce({ ...BUNDLE, skipped: ['instance "Radarr": unknown type'] })
+      .mockResolvedValueOnce(BUNDLE);
+    mount({});
+    await openSection('Maintenance');
+
+    await importFile({ version: 1 });
+
+    const summary = await screen.findByText('Restored: 3 settings. Not restored: 1');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.getByText('instance "Radarr": unknown type')).toBeTruthy();
+
+    await importFile({ version: 1 });
+
+    await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(2));
+    await screen.findByText('Restored: 3 settings.');
+    expect(screen.queryByText('instance "Radarr": unknown type')).toBeNull();
+  });
+
+  it('reports an import that restored nothing as a failure', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue({
+      settings: 0,
+      categories: 0,
+      instances: 0,
+      root_folders: 0,
+      overrides: 0,
+      skipped: ['setting "colour": unknown'],
+      needs_key: [],
+    });
+    mount({});
+    await openSection('Maintenance');
+
+    await importFile({ version: 1 });
+
+    const summary = await screen.findByText('Restored: 0 settings. Not restored: 1');
+    expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
   });
 });
 
@@ -597,5 +708,79 @@ describe('a number outside its bounds', () => {
     await fireEvent.input(field, { target: { value: '25' } });
     expect(save.disabled).toBe(false);
     expect(field.hasAttribute('aria-invalid')).toBe(false);
+  });
+});
+
+describe('a refused save', () => {
+  /**
+   * A write that failed is not a load to try again. Offered a Retry, the
+   * refusal would reload the settings and reseed the form, and every unsaved
+   * change in every section would go with it.
+   */
+  it('offers no retry, and keeps every edit', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    vi.spyOn(api, 'updateSettings').mockRejectedValue(
+      new ApiError('The batch limit is out of range', 400, 'bad_request'),
+    );
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(await screen.findByText('The batch limit is out of range')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
+    expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
+  });
+
+  /** Save waits for a read that succeeded, and only Retry gives it one. */
+  it('holds Save while the settings cannot be read', async () => {
+    mount({ global_dry_run: 'true' });
+    vi.mocked(api.getSettings)
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
+      .mockResolvedValue({ global_dry_run: 'true' });
+    cleanup();
+    renderWithI18n(Settings, { strings: STRINGS });
+    await screen.findByText('The settings could not be read');
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(
+        false,
+      ),
+    );
+  });
+
+  /**
+   * A reload after a failed load takes the stored values and keeps what was
+   * edited meanwhile. Reseeded, the edit is lost. Kept alone, every field the
+   * failed load never delivered is saved as its fallback.
+   */
+  it('keeps an edit across a reload, over the values it reads', async () => {
+    mount({ global_dry_run: 'true', batch_limit: '25' });
+    vi.mocked(api.getSettings)
+      .mockReset()
+      .mockRejectedValueOnce(new ApiError('The settings could not be read', 409, 'conflict'))
+      .mockResolvedValue({ global_dry_run: 'true', batch_limit: '25' });
+    cleanup();
+    renderWithI18n(Settings, { strings: STRINGS });
+    await screen.findByText('The settings could not be read');
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
+
+    expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
+    const payload = await save();
+    expect(payload.global_dry_run).toBe('false');
+    expect(payload.batch_limit).toBe('25');
   });
 });

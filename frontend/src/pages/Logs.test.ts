@@ -27,6 +27,7 @@ const STRINGS = {
   StatusSuccess: 'succeeded',
   StatusFailed: 'failed',
   None: '—',
+  ExportFailed: 'Export failed with status {status}',
 };
 
 function entry(over: Partial<LogEntry> = {}): LogEntry {
@@ -136,5 +137,41 @@ describe('Activity log', () => {
     // `success=false` would quietly show only the failures.
     await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(3));
     expect(nthCall(getLogs, 2)[0]).toMatchObject({ success: undefined });
+  });
+
+  /** A failed export is not a load to retry: the list is fine, the file is not. */
+  it('reports a failed export without offering to reload the list', async () => {
+    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+
+    show();
+    await fireEvent.click(await screen.findByRole('button', { name: /export csv/i }));
+
+    expect(await screen.findByText('Export failed with status 503')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('takes a failed export off screen once the next one downloads', async () => {
+    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({ ok: false, status: 503 })
+        .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['a,b']) }),
+    );
+    const createObjectURL = vi.fn(() => 'blob:x');
+    Object.assign(URL, { createObjectURL, revokeObjectURL: () => {} });
+
+    show();
+    const exportCsv = await screen.findByRole('button', { name: /export csv/i });
+    await fireEvent.click(exportCsv);
+    expect(await screen.findByText('Export failed with status 503')).toBeTruthy();
+
+    await fireEvent.click(exportCsv);
+
+    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByText('Export failed with status 503')).toBeNull());
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

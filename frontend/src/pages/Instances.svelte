@@ -4,13 +4,14 @@
   import { formatRelative, formatTimestamp } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -34,7 +35,7 @@
   });
 
   const list = createAsync((signal) => api.getInstances(signal));
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
   let busyId = $state<string | null>(null);
   let editing = $state<{ form: FormState; id?: string } | null>(null);
 
@@ -44,17 +45,15 @@
   // the client already declares: a cast here is a field rename nobody sees.
   async function act<T>(id: string, fn: () => Promise<T>, describe: (result: T) => string) {
     busyId = id;
-    list.error = null;
-    notice = null;
     try {
       const result = await fn();
-      notice = describe(result);
+      outcome.succeed(describe(result));
       // Enabling, disabling or removing an instance changes what the shell
       // counts, and it has no other way of hearing about it.
       invalidateStatus();
       await list.reload();
     } catch (err) {
-      list.error = describeError(err);
+      outcome.fail(err);
     } finally {
       busyId = null;
     }
@@ -74,7 +73,7 @@
       else await api.createInstance(editing.form);
       const wasEdit = Boolean(editing.id);
       editing = null;
-      notice = t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded');
+      outcome.succeed(t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded'));
       invalidateStatus();
       await list.reload();
     } catch (err) {
@@ -102,7 +101,46 @@
       },
     );
 
+  async function syncAll() {
+    busyId = 'all';
+    try {
+      const all = await api.syncAll();
+      // One line per failure: an error is free text, commas included.
+      const failed = all.filter((r) => r.error).map((r) => `${r.instance_name}: ${r.error}`);
+      const message = t('SyncAllResult', { count: all.length - failed.length });
+      if (failed.length === 0) outcome.succeed(message);
+      else if (failed.length === all.length) outcome.fail(message, failed);
+      else outcome.warn(message, failed);
+      invalidateStatus();
+      await list.reload();
+    } catch (err) {
+      outcome.fail(err);
+    } finally {
+      busyId = null;
+    }
+  }
+
+  // Said once the clipboard took it. The clipboard exists on secure origins
+  // only, and a homelab serves plain http more often than not, so a refusal
+  // hands over the URL itself.
+  async function copyWebhookUrl(instance: Instance) {
+    const url = `${window.location.origin}${instance.webhook_url}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      outcome.succeed(t('WebhookUrlCopied'));
+    } catch {
+      outcome.fail(t('WebhookUrlCopyFailed', { url }));
+    }
+  }
+
+  // A dialog opens on its own form, never on the refusal of the one before.
+  function startAdd() {
+    formError = null;
+    editing = { form: blankForm() };
+  }
+
   function startEdit(instance: Instance) {
+    formError = null;
     editing = {
       id: instance.id,
       form: {
@@ -132,24 +170,13 @@
     <div class="flex gap-2">
       <button
         class="btn btn-secondary"
-        disabled={instances.length === 0 || busyId !== null}
-        onclick={() =>
-          act('all', api.syncAll, (all) => {
-            const failed = all.filter((r) => r.error);
-            let message = t('SyncAllResult', { count: all.length - failed.length });
-            if (failed.length > 0) {
-              message += ` — ${t('SyncAllFailures', {
-                count: failed.length,
-                details: failed.map((f) => `${f.instance_name}: ${f.error}`).join('; '),
-              })}`;
-            }
-            return message;
-          })}
+        disabled={!instances.some((instance) => instance.enabled) || busyId !== null}
+        onclick={() => void syncAll()}
       >
         <RefreshCw size={16} class={busyId === 'all' ? 'spin' : ''} />
         {t('SyncAll')}
       </button>
-      <button class="btn btn-primary" onclick={() => (editing = { form: blankForm() })}>
+      <button class="btn btn-primary" onclick={startAdd}>
         <Plus size={16} />
         {t('AddInstance')}
       </button>
@@ -161,7 +188,7 @@
     onDismiss={() => (list.error = null)}
     onRetry={() => void list.reload()}
   />
-  <SuccessBanner message={notice} />
+  <OutcomeBanner {outcome} />
 
   <div class="card">
     <TableRegion label={t('ArrInstances')}>
@@ -284,16 +311,12 @@
                           label: t('CopyUrl'),
                           icon: linkIcon,
                           disabled: !instance.webhook_url,
-                          onSelect: () => {
-                            void navigator.clipboard.writeText(
-                              `${window.location.origin}${instance.webhook_url}`,
-                            );
-                            notice = t('WebhookUrlCopied');
-                          },
+                          onSelect: () => void copyWebhookUrl(instance),
                         },
                         {
                           label: t('RotateWebhookToken'),
                           icon: keyIcon,
+                          disabled: busyId !== null,
                           onSelect: () =>
                             void act(
                               instance.id,
@@ -305,6 +328,7 @@
                           label: t('Delete'),
                           icon: trashIcon,
                           danger: true,
+                          disabled: busyId !== null,
                           onSelect: async () => {
                             if (
                               await askConfirmation(

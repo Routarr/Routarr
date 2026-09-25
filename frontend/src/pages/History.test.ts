@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { decision, paginated } from '../test/fixtures';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import History from './History.svelte';
 
 /**
@@ -28,6 +28,7 @@ const STRINGS = {
   ConfirmRevert: 'Send “{title}” back to {path}?',
   ConfirmRevertFiles: 'Move the files back too',
   RevertResult: '{count} reverted',
+  RevertNothing: 'Nothing was reverted',
   FilterByStatus: 'Filter by status',
   SearchATitle: 'Search a title',
   NoDecisionRecorded: 'Nothing decided yet',
@@ -125,6 +126,64 @@ describe('History', () => {
   });
 
   /**
+   * A revert that restored nothing did not do what was asked, and in the success
+   * banner the reason reads as good news under a green tick.
+   */
+  it('reports a revert that restored nothing as a failure, not a success', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'revertDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 0,
+      failed: 1,
+      skipped: 0,
+      errors: [{ decision_id: 'd1', message: 'The file is no longer there' }],
+    } as never);
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The file is no longer there');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  /**
+   * The banner stays until something replaces it. Left standing, the first
+   * revert's count reads as the outcome of the second, printed above the
+   * reason that one was refused.
+   */
+  it('takes the previous success off screen when the next revert is refused', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([
+        decision({ status: 'applied', media_title: 'Akira' }),
+        decision({ status: 'applied', media_title: 'Heat' }),
+      ]),
+    );
+    vi.spyOn(api, 'revertDecisions')
+      .mockResolvedValueOnce({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] })
+      .mockRejectedValueOnce(new ApiError('The Arr refused the move', 502, 'bad_gateway'));
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+    );
+    expect(await screen.findByText('1 reverted')).toBeTruthy();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Heat/ }));
+    await fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+    );
+
+    expect(await screen.findByText(/The Arr refused the move/)).toBeTruthy();
+    expect(screen.queryByText('1 reverted')).toBeNull();
+  });
+
+  /**
    * The list is paginated server-side, so a filter that only hid rows in the
    * browser would filter one page of fifty and call it the answer.
    */
@@ -181,5 +240,59 @@ describe('History', () => {
     const swept = screen.getByRole('row', { name: /Totoro/ });
     expect(within(swept).getByTitle('Triggered by')).toHaveTextContent('schedule');
     expect(within(swept).queryByTitle('Performed by')).toBeNull();
+  });
+
+  /**
+   * The table is read again before a revert is reported. A read that fails
+   * leaves the rows as they were, and the revert's success must not take that
+   * failure off screen, or a stale table sits under a green banner.
+   */
+  it('keeps a failed reload on screen beside the revert it followed', async () => {
+    vi.spyOn(api, 'getDecisions')
+      .mockResolvedValueOnce(paginated([decision({ status: 'applied', media_title: 'Akira' })]))
+      .mockRejectedValue(new ApiError('The history could not be read', 409, 'conflict'));
+    vi.spyOn(api, 'revertDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      errors: [],
+    });
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+    );
+
+    expect(await screen.findByText('1 reverted')).toBeTruthy();
+    expect(screen.getByText('The history could not be read')).toBeTruthy();
+  });
+
+  /** A refusal stays until it is dismissed or replaced, whatever reloads the table. */
+  it('keeps a refused revert on screen when the table reloads', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'revertDecisions').mockRejectedValue(
+      new ApiError('The Arr refused the move', 409, 'conflict'),
+    );
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+    );
+    expect(await screen.findByText('The Arr refused the move')).toBeTruthy();
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'applied');
+
+    await waitFor(() =>
+      expect(api.getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ status: 'applied' }),
+        expect.anything(),
+      ),
+    );
+    expect(screen.getByText('The Arr refused the move')).toBeTruthy();
   });
 });

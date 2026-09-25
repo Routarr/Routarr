@@ -207,6 +207,10 @@ pub struct ImportReport {
     /// Everything that could not be restored, and why. Never silent: a backup
     /// that quietly drops half its contents is worse than none.
     pub skipped: Vec<String>,
+    /// The instances restored disabled, by name: no export carries an API key,
+    /// so each needs one entered before it can be enabled. Restored, so not in
+    /// `skipped`, which the interface reads as what failed.
+    pub needs_key: Vec<String>,
 }
 
 pub async fn import(
@@ -372,10 +376,7 @@ pub async fn import(
         .execute(&mut *tx)
         .await?;
         report.instances += 1;
-        report.skipped.push(format!(
-            "instance '{}' needs its API key re-entered before it can be enabled",
-            instance.name
-        ));
+        report.needs_key.push(name.to_string());
     }
 
     // Mappings are matched on (instance name, path). Both are meaningful on the

@@ -1,14 +1,15 @@
 <script lang="ts">
   import { api } from '../api/client';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { t } from '../lib/i18n.svelte';
-  import { CheckCircle2, Play, Trash2, XCircle } from '../lib/icons';
+  import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -21,22 +22,31 @@
    */
   const cases = createAsync((signal) => api.getRuleTests(signal));
 
-  let outcome = $state<RuleTestRun | null>(null);
+  let run = $state<RuleTestRun | null>(null);
   let busy = $state(false);
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
 
   // Merged by id rather than replacing the list: the run reports on the cases
   // that exist, and the table has to keep showing a case the run never reached.
-  const verdicts = $derived(new Map((outcome?.results ?? []).map((r) => [r.id, r])));
+  const verdicts = $derived(new Map((run?.results ?? []).map((r) => [r.id, r])));
 
   async function runAll() {
     busy = true;
-    cases.error = null;
-    notice = null;
+    // Nothing of the run before stays: its verdicts would read as the answer
+    // to this one, whatever this one ends in.
+    run = null;
+    outcome.clear();
     try {
-      outcome = await api.runRuleTests();
+      run = await api.runRuleTests();
+      // The count is the whole answer on a good day, and a case that moved is
+      // a failure, read before the table.
+      if (run.failed > 0) {
+        outcome.fail(t('RuleTestsFailed', { failed: run.failed, total: run.total }));
+      } else {
+        outcome.succeed(t('RuleTestsPassed', { total: run.total }));
+      }
     } catch (err) {
-      cases.error = describeError(err);
+      outcome.fail(err);
     } finally {
       busy = false;
     }
@@ -46,11 +56,11 @@
     if (!(await askConfirmation(t('ConfirmDeleteRuleTest', { name }), 'Delete'))) return;
     try {
       await api.deleteRuleTest(id);
-      outcome = null;
-      notice = t('RuleTestDeleted');
+      run = null;
+      outcome.succeed(t('RuleTestDeleted'));
       await cases.reload();
     } catch (err) {
-      cases.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
@@ -80,26 +90,7 @@
     onDismiss={() => (cases.error = null)}
     onRetry={() => void cases.reload()}
   />
-  <SuccessBanner message={notice} />
-
-  {#if outcome}
-    <!-- The count first, because "12 of 13" is the whole answer on a good day
-         and the table is only needed on a bad one. -->
-    <!-- Announced like the shared banners: a failed case is an alert, a clean
-         run a status — a plain div reached no reader either way. -->
-    <div
-      class="banner {outcome.failed > 0 ? 'banner-danger' : 'banner-success'}"
-      role={outcome.failed > 0 ? 'alert' : 'status'}
-    >
-      {#if outcome.failed > 0}
-        <XCircle size={16} />
-        {t('RuleTestsFailed', { failed: outcome.failed, total: outcome.total })}
-      {:else}
-        <CheckCircle2 size={16} />
-        {t('RuleTestsPassed', { total: outcome.total })}
-      {/if}
-    </div>
-  {/if}
+  <OutcomeBanner {outcome} />
 
   {#if cases.loading}
     <Loading />

@@ -2,10 +2,12 @@
   import { Film, HelpCircle, Lock, Tv } from '../lib/icons';
   import { api } from '../api/client';
   import type { Explanation, MediaListItem } from '../api/types';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import ExplanationModal from '../components/ExplanationModal.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
@@ -32,6 +34,7 @@
       ),
     () => [search, mediaType, unmatched, page],
   );
+  const outcome = createOutcome();
 
   const items = $derived(library.data?.data ?? []);
   const pagination = $derived(library.data?.pagination);
@@ -39,8 +42,9 @@
   async function explain(media: MediaListItem) {
     try {
       explaining = await api.explainMedia(media.id);
+      outcome.clear();
     } catch (err) {
-      library.error = describeError(err);
+      outcome.fail(err);
     }
   }
 </script>
@@ -58,6 +62,7 @@
     onDismiss={() => (library.error = null)}
     onRetry={() => void library.reload()}
   />
+  <OutcomeBanner {outcome} />
 
   <div class="toolbar">
     <form

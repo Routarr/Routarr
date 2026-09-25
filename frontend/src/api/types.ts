@@ -503,6 +503,8 @@ export interface ConfigImportReport {
   overrides: number;
   /** Everything not restored, and why. Never silent. */
   skipped: string[];
+  /** The instances restored disabled, by name, each waiting for its API key. */
+  needs_key: string[];
 }
 
 /** A pinned expectation: these inputs must keep producing this category. */

@@ -3,7 +3,7 @@ import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { Category, ConditionCatalog, Rule } from '../api/types';
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
@@ -35,6 +35,11 @@ const STRINGS = {
   SeriesOnly: 'Series only',
   ExceptPrefix: 'except',
   AddCondition: 'Add a condition',
+  ImportResult: 'Rules imported: {count}',
+  ImportSkipped: ', skipped: {count}',
+  ImportReplaceQuestion: 'Replace the rules, or add to them?',
+  ImportAppend: 'Add',
+  ImportReplace: 'Replace',
 };
 
 const catalog: ConditionCatalog = {
@@ -161,6 +166,50 @@ describe('Rules', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  /**
+   * The banner stays until something replaces it. Left standing across the
+   * next action, a success reads as that action's outcome, printed above the
+   * reason it was refused, and the older, louder sentence is the one believed.
+   */
+  it('takes the previous success off screen when the next action is refused', async () => {
+    vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
+    vi.spyOn(api, 'deleteRule').mockRejectedValue(
+      new ApiError('The rule is pinned by a test case', 409, 'conflict'),
+    );
+    show([rule({ id: 'r1', name: 'Anime' }), rule({ id: 'r2', name: 'Kids', priority: 20 })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate — Anime' }));
+    expect(await screen.findByText('Rule duplicated')).toBeTruthy();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Kids' }));
+    await answerConfirmation();
+
+    expect(await screen.findByText('The rule is pinned by a test case')).toBeTruthy();
+    expect(screen.queryByText('Rule duplicated')).toBeNull();
+  });
+
+  /**
+   * A cancelled question did nothing, so it has nothing to take off screen. The
+   * last outcome is still the true one.
+   */
+  it('leaves the previous success standing when an import is cancelled', async () => {
+    vi.spyOn(api, 'duplicateRule').mockResolvedValue(undefined as never);
+    const importRules = vi.spyOn(api, 'importRules');
+    const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate — Anime' }));
+    expect(await screen.findByText('Rule duplicated')).toBeTruthy();
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });
+    await fireEvent.change(input, { target: { files: [file] } });
+    await answerConfirmation(null);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(importRules).not.toHaveBeenCalled();
+    expect(screen.getByText('Rule duplicated')).toBeTruthy();
+  });
+
   it('deletes once the question is answered', async () => {
     const remove = vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
     show([rule()]);
@@ -209,5 +258,34 @@ describe('Rules', () => {
     // Offered in both pickers — conditions and exclusions — which is itself the
     // point: one catalogue drives both lists.
     expect((await screen.findAllByText('Genre contains')).length).toBeGreaterThan(0);
+  });
+
+  async function importFile(result: { imported: number; skipped: string[] }) {
+    vi.spyOn(api, 'importRules').mockResolvedValue(result);
+    const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
+    await screen.findByRole('button', { name: 'Duplicate — Anime' });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });
+    await fireEvent.change(input, { target: { files: [file] } });
+    await answerConfirmation('append');
+  }
+
+  /** An import that brought in no rule at all is a failure, not a count of zero. */
+  it('reports an import that skipped every rule as a failure', async () => {
+    await importFile({ imported: 0, skipped: ["'Anime': no condition", "'Kids': no target"] });
+
+    const summary = await screen.findByText('Rules imported: 0, skipped: 2');
+    expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
+    expect(screen.getByText("'Kids': no target")).toBeTruthy();
+  });
+
+  /** Some rules in and some refused is a partial result, each refusal with its reason. */
+  it('reports an import that skipped some rules as a partial result', async () => {
+    await importFile({ imported: 1, skipped: ["'Kids': no target"] });
+
+    const summary = await screen.findByText('Rules imported: 1, skipped: 1');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.getByText("'Kids': no target")).toBeTruthy();
   });
 });

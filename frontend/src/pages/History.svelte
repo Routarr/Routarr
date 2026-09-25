@@ -3,13 +3,14 @@
   import { api } from '../api/client';
   import { formatTimestamp, capitalize } from '../api/format';
   import type { Decision } from '../api/types';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import Confidence from '../components/Confidence.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -32,7 +33,6 @@
   let search = $state('');
   let includeSuperseded = $state(false);
   let page = $state(1);
-  let notice = $state<string | null>(null);
 
   const history = createAsync(
     (signal) =>
@@ -48,6 +48,7 @@
       ),
     () => [status, search, includeSuperseded, page],
   );
+  const outcome = createOutcome();
 
   const decisions = $derived(history.data?.data ?? []);
   const pagination = $derived(history.data?.pagination);
@@ -63,13 +64,16 @@
     reverting = null;
     try {
       const report = await api.revertDecisions([decision.id], moveFiles);
-      notice =
-        report.applied > 0
-          ? t('RevertResult', { count: report.applied })
-          : t('RevertNothing') + (report.errors[0] ? `: ${report.errors[0].message}` : '.');
       await history.reload();
+      // A revert that restored nothing did not do what was asked: under the
+      // success banner its reason would read as good news.
+      if (report.applied > 0) outcome.succeed(t('RevertResult', { count: report.applied }));
+      else
+        outcome.fail(
+          t('RevertNothing') + (report.errors[0] ? `: ${report.errors[0].message}` : '.'),
+        );
     } catch (err) {
-      history.error = describeError(err);
+      outcome.fail(err);
     }
   }
   /**
@@ -93,7 +97,7 @@
     onDismiss={() => (history.error = null)}
     onRetry={() => void history.reload()}
   />
-  <SuccessBanner message={notice} />
+  <OutcomeBanner {outcome} />
 
   <div class="toolbar">
     <SearchField
