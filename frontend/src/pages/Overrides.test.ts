@@ -112,6 +112,28 @@ describe('Overrides', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
+  /**
+   * The banner stays until something replaces it. Left standing, the first
+   * removal reads as the outcome of the second, printed above the reason that
+   * one was refused.
+   */
+  it('takes the previous success off screen when the next removal is refused', async () => {
+    vi.spyOn(api, 'deleteOverride')
+      .mockResolvedValueOnce(undefined as never)
+      .mockRejectedValueOnce(new ApiError('The override is locked', 409, 'conflict'));
+    show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Akira' }));
+    await answerConfirmation();
+    expect(await screen.findByText('Override removed')).toBeTruthy();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Totoro' }));
+    await answerConfirmation();
+
+    expect(await screen.findByText('The override is locked')).toBeTruthy();
+    expect(screen.queryByText('Override removed')).toBeNull();
+  });
+
   it('removes it once the question is answered', async () => {
     const remove = vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
     show([override()]);

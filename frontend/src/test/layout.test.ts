@@ -387,3 +387,65 @@ describe('every class in the markup is a class that exists', () => {
     expect(orphans).toEqual([]);
   });
 });
+
+/**
+ * A screen shows how an action went through `OutcomeBanner`, and nowhere else.
+ *
+ * `lib/outcome.svelte.ts` holds one success or one error per screen, apart
+ * from the page's load, and `OutcomeBanner` renders it with no Retry. A success
+ * drawn anywhere else is a second piece of state that can stand beside a
+ * refusal, whatever it is named. An action's error written into a load's is a
+ * refusal that the next reload wipes and whose Retry reloads instead of
+ * replaying. Checked over the whole source, so an inline handler or a callback
+ * handed to a child is seen as surely as a named action.
+ */
+describe('a screen shows how an action went through its outcome', () => {
+  /** The success banner, imported under any name, or its class, literal or computed. */
+  const SUCCESS = /\bSuccessBanner\b|\bbanner-success\b|\bbanner-\$?\{/;
+  /**
+   * An assignment to an `error`, by property or by index, plain or compound,
+   * that sets it. Any receiver counts, so a form's own error takes another name.
+   */
+  const ERROR_WRITE =
+    /(?:\.error|\[\s*['"`]error['"`]\s*\])\s*(?:\?\?|\|\||&&|\+)?=(?!=)(?!\s*null\b)/g;
+  /** The files that may draw a success, each with the reason it is not an action's. */
+  const DRAWS_A_SUCCESS: Record<string, string> = {
+    'components/SuccessBanner.svelte': 'the banner itself',
+    'components/OutcomeBanner.svelte': 'the one place an outcome is drawn',
+    'pages/Health.svelte': 'the verdict of a load, the installation having no warning',
+  };
+
+  /** The screens, and the helpers beside the loader, which alone owns a load's error. */
+  function writers(): string[] {
+    const helpers = fs
+      .readdirSync(path.join(SRC, 'lib'))
+      .filter((f) => f.endsWith('.svelte.ts') && f !== 'async.svelte.ts')
+      .map((f) => path.join('lib', f));
+    return [...pages(), ...helpers];
+  }
+
+  it('draws the outcome of every screen that holds one', () => {
+    const holders = pages().filter((file) => read(file).includes('createOutcome('));
+    // A glob that matches nothing leaves every check here passing over an
+    // empty list.
+    expect(holders.length).toBeGreaterThan(0);
+    expect(holders.filter((file) => !read(file).includes('<OutcomeBanner'))).toEqual([]);
+  });
+
+  it('draws a success only through OutcomeBanner', () => {
+    const elsewhere = pages().filter(
+      (file) => !(file in DRAWS_A_SUCCESS) && SUCCESS.test(read(file)),
+    );
+    expect(elsewhere).toEqual([]);
+  });
+
+  it("writes a load's error only to clear it", () => {
+    const direct = writers().flatMap((file) => {
+      const source = read(file);
+      return [...source.matchAll(ERROR_WRITE)].map(
+        (m) => `${file}:${source.slice(0, m.index).split('\n').length}`,
+      );
+    });
+    expect(direct).toEqual([]);
+  });
+});

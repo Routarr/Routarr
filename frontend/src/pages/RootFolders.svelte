@@ -3,13 +3,14 @@
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
   import { formatBytes, formatRelative } from '../api/format';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -23,7 +24,7 @@
     return { folders, categories, conflicts, instances };
   });
 
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
   let creating = $state(false);
   /** The destination being declared: an instance and a path it can see. */
   let target = $state('');
@@ -52,24 +53,16 @@
   let newName = $state('');
 
   async function act(fn: () => Promise<unknown>, message: string) {
-    bundle.error = null;
-    // The previous success goes with the previous attempt. Left standing, a
-    // refused action reads as "Destination added" beside the reason it was
-    // not — and the older, louder sentence is the one that gets believed.
-    notice = null;
     try {
       await fn();
-      notice = message;
+      outcome.succeed(message);
       // Mapping a category, or removing one, is what clears the two warnings
       // about categories and instances that reach no folder.
       invalidateStatus();
       await bundle.reload();
     } catch (err) {
-      // Reloaded first, then told. `reload` clears `error` on entry, so setting
-      // it before was wiped by the very reload meant to refresh the rejected
-      // state — and every refusal on this screen passed in silence.
+      outcome.fail(err);
       await bundle.reload();
-      bundle.error = describeError(err);
     }
   }
 
@@ -120,7 +113,7 @@
     onDismiss={() => (bundle.error = null)}
     onRetry={() => void bundle.reload()}
   />
-  <SuccessBanner message={notice} />
+  <OutcomeBanner {outcome} />
 
   {#each conflicts as conflict, index (index)}
     <div class="banner {conflict.severity === 'error' ? 'banner-danger' : 'banner-warning'}">

@@ -2,14 +2,15 @@
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes } from '../api/format';
   import { ApiError, api } from '../api/client';
-  import type { ApplyReport, BatchApplyReport, Decision, SimulationResult } from '../api/types';
+  import type { ApplyReport, Decision, SimulationResult } from '../api/types';
   import { describeError } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import DecisionRow from '../components/DecisionRow.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Stat from '../components/Stat.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
@@ -19,9 +20,9 @@
   const selected = new SvelteSet<string>();
   let moveFiles = $state(false);
   let busy = $state<'run' | 'apply' | null>(null);
-  let error = $state<string | null>(null);
-  let report = $state<ApplyReport | null>(null);
-  let batchReport = $state<BatchApplyReport | null>(null);
+  /** A load that failed: the pending list, or the refresh that follows an apply. */
+  let loadError = $state<string | null>(null);
+  const outcome = createOutcome();
 
   /**
    * Decisions a previous pass left pending.
@@ -47,7 +48,7 @@
       // "12 decisions to review", and a screen saying "run a simulation" over a
       // failed request contradicts it without a word about why.
       .catch((cause: unknown) => {
-        if (!cancelled) error = describeError(cause);
+        if (!cancelled) loadError = describeError(cause);
       });
     return () => {
       cancelled = true;
@@ -57,16 +58,14 @@
   /**
    * Evaluate the library again.
    *
-   * `keepReport` matters: applying finishes by refreshing this view, and if that
-   * refresh cleared the apply report the user would never learn what happened.
+   * After an apply it runs as a refresh. The moves were made whatever the
+   * refresh ends in, so its failure is shown beside the apply's outcome and
+   * never in its place, or the user would not learn what the apply did.
    */
-  async function run({ keepReport = false }: { keepReport?: boolean } = {}) {
+  async function run({ refresh = false }: { refresh?: boolean } = {}) {
     busy = 'run';
-    error = null;
-    if (!keepReport) {
-      report = null;
-      batchReport = null;
-    }
+    loadError = null;
+    if (!refresh) outcome.clear();
     try {
       const data = await api.runSimulation({ persist: true });
       result = data;
@@ -77,10 +76,28 @@
           .map((d) => d.id),
       );
     } catch (err) {
-      error = describeError(err);
+      if (refresh) loadError = describeError(err);
+      else outcome.fail(err);
     } finally {
       busy = null;
     }
+  }
+
+  /**
+   * The outcome of an apply, and the moves it could not make. Nothing made
+   * while some moves failed or were never tried is a failure, some made is a
+   * partial result, and only everything made is a success.
+   */
+  function reportApply(
+    message: string,
+    made: number,
+    unfinished: boolean,
+    errors: ApplyReport['errors'],
+  ) {
+    const failed = errors.map((failure) => `${failure.media_title}: ${failure.message}`);
+    if (unfinished && made === 0) outcome.fail(message, failed);
+    else if (unfinished) outcome.warn(message, failed);
+    else outcome.succeed(message);
   }
 
   /** A destination is one folder on one instance; neither alone is unique. */
@@ -103,12 +120,30 @@
     if (!proceed) return;
 
     busy = 'apply';
-    error = null;
     try {
-      batchReport = await api.applyAllDecisions(result.simulation_id, moveFiles, ['batch']);
-      await run({ keepReport: true });
+      const batch = await api.applyAllDecisions(result.simulation_id, moveFiles, ['batch']);
+      // A run cut short by a failing slice is unfinished too: the slices after
+      // it were never tried.
+      reportApply(
+        batch.stopped_early
+          ? t('BatchApplyStopped', {
+              applied: batch.applied,
+              candidates: batch.candidates,
+              run: batch.batches_run,
+              planned: batch.batches_planned,
+            })
+          : t('BatchApplyReport', {
+              applied: batch.applied,
+              candidates: batch.candidates,
+              batches: batch.batches_run,
+            }),
+        batch.applied,
+        batch.stopped_early || batch.failed > 0,
+        batch.errors,
+      );
+      await run({ refresh: true });
     } catch (err) {
-      error = describeError(err);
+      outcome.fail(err);
     } finally {
       busy = null;
     }
@@ -127,11 +162,17 @@
     if (ids.length === 0) return;
 
     busy = 'apply';
-    error = null;
     try {
-      const outcome = await api.applyDecisions(ids, moveFiles, answered);
-      report = outcome;
-      await run({ keepReport: true });
+      const done = await api.applyDecisions(ids, moveFiles, answered);
+      reportApply(
+        t('ApplyReport', { applied: done.applied, requested: done.requested }) +
+          (done.skipped > 0 ? t('ApplyReportSkipped', { count: done.skipped }) : '') +
+          '.',
+        done.applied,
+        done.failed > 0,
+        done.errors,
+      );
+      await run({ refresh: true });
     } catch (err) {
       // The backend asks for a second, explicit pass past the configured
       // threshold; surface that as a confirmation instead of a raw error.
@@ -148,7 +189,7 @@
           return apply([...answered, asking]);
         }
       } else {
-        error = describeError(err);
+        outcome.fail(err);
       }
     } finally {
       busy = null;
@@ -183,42 +224,8 @@
     </button>
   </div>
 
-  <ErrorBanner message={error} onDismiss={() => (error = null)} />
-
-  {#if batchReport}
-    {#if batchReport.stopped_early}
-      <WarningBanner
-        message={t('BatchApplyStopped', {
-          applied: batchReport.applied,
-          candidates: batchReport.candidates,
-          run: batchReport.batches_run,
-          planned: batchReport.batches_planned,
-        })}
-      />
-    {:else}
-      <SuccessBanner
-        message={t('BatchApplyReport', {
-          applied: batchReport.applied,
-          candidates: batchReport.candidates,
-          batches: batchReport.batches_run,
-        })}
-      />
-    {/if}
-    {#each batchReport.errors as failure (failure.decision_id)}
-      <ErrorBanner message="{failure.media_title}: {failure.message}" />
-    {/each}
-  {/if}
-
-  {#if report}
-    <SuccessBanner
-      message={t('ApplyReport', { applied: report.applied, requested: report.requested }) +
-        (report.skipped > 0 ? t('ApplyReportSkipped', { count: report.skipped }) : '') +
-        '.'}
-    />
-    {#each report.errors as failure (failure.decision_id)}
-      <ErrorBanner message="{failure.media_title}: {failure.message}" />
-    {/each}
-  {/if}
+  <ErrorBanner message={loadError} onDismiss={() => (loadError = null)} />
+  <OutcomeBanner {outcome} />
 
   {#if !result && shown.length === 0}
     <div class="card"><EmptyState>{t('SimulationEmptyState')}</EmptyState></div>

@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { media, paginated } from '../test/fixtures';
-import { api } from '../api/client';
+import { ApiError, api } from '../api/client';
 import type { MediaListItem } from '../api/types';
 import MediaExplorer from './MediaExplorer.svelte';
 
@@ -165,5 +165,44 @@ describe('Media explorer', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  /** An explanation that cannot be read is not a load of the list to retry. */
+  it('reports an explanation it could not read without offering to reload the list', async () => {
+    show([media({ title: 'Perfect Blue' })]);
+    vi.spyOn(api, 'explainMedia').mockRejectedValue(
+      new ApiError('The rules could not be evaluated', 409, 'conflict'),
+    );
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Why? Perfect Blue' }));
+
+    expect(await screen.findByText('The rules could not be evaluated')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it('takes a failed explanation off screen once the next one is read', async () => {
+    show([media({ id: 'm7', title: 'Perfect Blue' })]);
+    vi.spyOn(api, 'explainMedia')
+      .mockRejectedValueOnce(new ApiError('The rules could not be evaluated', 409, 'conflict'))
+      .mockResolvedValueOnce({
+        media: { ...media({ id: 'm7' }), current_path: '/data/films/Perfect Blue', added_at: null },
+        metadata: null,
+        override_category: null,
+        target_category: 'anime',
+        target_root_folder: '/data/anime',
+        action: 'move',
+        confidence: 0.9,
+        winning_rule: 'Japanese',
+        rule_traces: [],
+      });
+    const why = await screen.findByRole('button', { name: 'Why? Perfect Blue' });
+    await fireEvent.click(why);
+    expect(await screen.findByText('The rules could not be evaluated')).toBeTruthy();
+
+    await fireEvent.click(why);
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(screen.queryByText('The rules could not be evaluated')).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

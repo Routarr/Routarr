@@ -1,8 +1,9 @@
 <script lang="ts">
   import { Archive, Download, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import type { Outcome } from '../lib/outcome.svelte';
   import { formatBytes, formatTimestamp } from '../api/format';
   import Loading from './Loading.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
@@ -15,8 +16,7 @@
    * files, not values to save — mixing them would make "Save" look as though it
    * applied to the list.
    */
-  let { onError, onNotice }: { onError: (m: string) => void; onNotice: (m: string) => void } =
-    $props();
+  let { outcome }: { outcome: Outcome } = $props();
 
   const backups = createAsync((signal) => api.listBackups(signal));
   let busy = $state(false);
@@ -27,7 +27,7 @@
       await action();
       await backups.reload();
     } catch (err) {
-      onError(describeError(err));
+      outcome.fail(err);
     } finally {
       busy = false;
     }
@@ -53,7 +53,11 @@
     type="button"
     class="btn btn-secondary"
     disabled={busy}
-    onclick={() => run(async () => void (await api.createBackup()))}
+    onclick={() =>
+      run(async () => {
+        await api.createBackup();
+        outcome.clear();
+      })}
   >
     <Archive size={16} />
     {t('BackupNow')}
@@ -87,7 +91,11 @@
             class="btn btn-secondary btn-sm"
             disabled={busy}
             aria-label="{t('DownloadBackup')} {file.name}"
-            onclick={() => run(() => download(file.name))}
+            onclick={() =>
+              run(async () => {
+                await download(file.name);
+                outcome.clear();
+              })}
           >
             <Download size={14} />
           </button>
@@ -106,17 +114,13 @@
                 )
                   return;
                 const result = await api.restoreBackup(file.name);
-                // The manifest is the only place that knows, and until now the
-                // answer was computed, sent, and dropped here. An archive taken
+                // The manifest is the only place that knows. An archive taken
                 // while ROUTARR_SECRET_KEY held the master key carries no key
                 // file, and restoring it leaves every sealed Arr credential
-                // unreadable — visible afterwards only as instances that
-                // stopped working.
-                onNotice(
-                  result.manifest.includes_master_key
-                    ? t('RestoreStaged')
-                    : t('RestoreStagedWithoutKey'),
-                );
+                // unreadable, visible afterwards only as instances that stopped
+                // working.
+                if (result.manifest.includes_master_key) outcome.succeed(t('RestoreStaged'));
+                else outcome.warn(t('RestoreStagedWithoutKey'));
               })}
           >
             {t('RestoreBackup')}
@@ -132,7 +136,10 @@
               // only copy of a snapshot.
               if (!(await askConfirmation(t('ConfirmDeleteBackup', { name: file.name }), 'Delete')))
                 return;
-              await run(() => api.deleteBackup(file.name).then(() => undefined));
+              await run(async () => {
+                await api.deleteBackup(file.name);
+                outcome.clear();
+              });
             }}
           >
             <Trash2 size={14} />

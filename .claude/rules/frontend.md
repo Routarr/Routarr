@@ -36,6 +36,9 @@ Components named without a path live in `frontend/src/components/`.
   `ErrorBanner`. A failed request is never swallowed into `console.error`, which ESLint allows.
   Pass `deps` as a getter, and hand the loader's `AbortSignal` to the `api` call so a superseded
   or abandoned load is cancelled.
+- What an action did goes through `createOutcome` (`frontend/src/lib/outcome.svelte.ts`) and one
+  `OutcomeBanner`, never into a load's `error`. Part done and part failed is `warn`, each failed
+  item a detail. `frontend/src/test/layout.test.ts` refuses a success drawn anywhere else.
 - A timer goes through `poll()` in `frontend/src/lib/poll.svelte.ts`, never a bare `setInterval`:
   it stops in a hidden tab and reloads on return.
 - `scripts/check-api-types.py` compares field names, not types, for each pair in its `PAIRS`

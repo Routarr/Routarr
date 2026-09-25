@@ -2,10 +2,12 @@
   import { Download, RefreshCw } from '../lib/icons';
   import { api, getApiKey } from '../api/client';
   import { formatTimestamp } from '../api/format';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -26,6 +28,8 @@
     (signal) => api.getLogs(filters, signal),
     () => [search, outcome, page],
   );
+  // How the last export went: `outcome` is the filter on the log itself.
+  const exported = createOutcome();
 
   const entries = $derived(logs.data?.data ?? []);
   const pagination = $derived(logs.data?.pagination);
@@ -41,8 +45,9 @@
       });
       if (!res.ok) throw new Error(t('ExportFailed', { status: res.status }));
       downloadBlob(await res.blob(), 'routarr-logs.csv');
+      exported.clear();
     } catch (err) {
-      logs.error = describeError(err);
+      exported.fail(err);
     }
   }
 </script>
@@ -70,6 +75,7 @@
     onDismiss={() => (logs.error = null)}
     onRetry={() => void logs.reload()}
   />
+  <OutcomeBanner outcome={exported} />
 
   <div class="toolbar">
     <SearchField

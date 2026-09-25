@@ -157,10 +157,14 @@ async fn a_restored_instance_arrives_disabled_and_says_why() {
         .unwrap();
     assert!(!enabled);
 
+    // Named apart from what failed: the instance is restored, and the
+    // interface shows `skipped` as the part of the import that did not work.
+    let name = bundle["instances"][0]["name"].as_str().unwrap().trim();
+    assert_eq!(report["needs_key"], serde_json::json!([name]));
     let skipped = report["skipped"].as_array().unwrap();
     assert!(
-        skipped.iter().any(|s| s.as_str().unwrap().contains("API key")),
-        "the restorer must be told what is missing, got {skipped:?}"
+        !skipped.iter().any(|s| s.as_str().unwrap().contains("API key")),
+        "a restored instance is not a refusal, got {skipped:?}"
     );
 }
 

@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
+
   import { Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
   import { api, getApiKey, setApiKey } from '../api/client';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { applyTheme, loadDictionary, t } from '../lib/i18n.svelte';
   import {
     FIELDS,
@@ -15,7 +18,7 @@
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import ProviderOrder from '../components/ProviderOrder.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -46,9 +49,8 @@
    * Save is pressed, and nothing on screen said what was written.
    */
   let saved = $state<SettingsMap>({});
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
   let saving = $state(false);
-  let skipped = $state<string[]>([]);
   let key = $state(getApiKey());
 
   /**
@@ -92,9 +94,10 @@
       // screen behind the gate.
       setApiKey(api_key);
       key = api_key;
+      outcome.clear();
       await auth.reload();
     } catch (cause) {
-      bundle.error = describeError(cause);
+      outcome.fail(cause);
     }
   }
 
@@ -105,10 +108,10 @@
       minted = null;
       setApiKey('');
       key = '';
-      notice = t('ApiKeyRemoved');
+      outcome.succeed(t('ApiKeyRemoved'));
       await auth.reload();
     } catch (cause) {
-      bundle.error = describeError(cause);
+      outcome.fail(cause);
     }
   }
 
@@ -138,16 +141,33 @@
     return () => window.removeEventListener('hashchange', sync);
   });
 
-  $effect(() => {
-    const data = bundle.data;
-    if (!data) return;
+  function seed(settings: SettingsMap) {
     // Backfill the keys the database has never been given a value for.
-    const filled: SettingsMap = { ...data.settings };
+    const filled: SettingsMap = { ...settings };
     for (const field of FIELDS) {
       if (!filled[field.key]) filled[field.key] = field.fallback;
     }
     draft = filled;
     saved = { ...filled };
+  }
+
+  // A reload takes what is stored and puts every pending change back over it:
+  // reseeded alone, a Retry would replace each unsaved change in every
+  // section, and kept alone, a draft begun before the settings loaded would
+  // save the fallbacks over the values it never read.
+  $effect(() => {
+    const data = bundle.data;
+    if (!data) return;
+    untrack(() => {
+      const pending = Object.fromEntries(
+        changed.map((field) => [field.key, draft[field.key] ?? field.fallback]),
+      );
+      seed(data.settings);
+      draft = { ...draft, ...pending };
+      // The screen wears the theme it has just read: an import replaces it
+      // without a save.
+      applyTheme(data.settings.ui_theme || 'dark');
+    });
   });
 
   const changed = $derived(
@@ -195,8 +215,6 @@
   async function save(event: SubmitEvent) {
     event.preventDefault();
     saving = true;
-    bundle.error = null;
-    notice = null;
     try {
       // A blank credential is left out rather than sent. The backend never
       // returns a sealed value, so the field is empty on every load; sending
@@ -213,12 +231,12 @@
       // The dictionary is served per language, so a language change needs a refetch.
       await loadDictionary();
       saved = payload;
-      notice = t('SettingsSaved');
+      outcome.succeed(t('SettingsSaved'));
       // A metadata key added or cleared, or a source enabled: the warnings
       // about sources are computed from exactly these.
       invalidateStatus();
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     } finally {
       saving = false;
     }
@@ -230,51 +248,68 @@
     if (!(await askConfirmation(t('ConfirmPurge'), 'PurgeNow'))) return;
     try {
       const report = await api.purge();
-      notice = t('PurgeResult', {
-        decisions: report.decisions_removed,
-        logs: report.logs_removed,
-        jobs: report.jobs_removed,
-      });
+      outcome.succeed(
+        t('PurgeResult', {
+          decisions: report.decisions_removed,
+          logs: report.logs_removed,
+          jobs: report.jobs_removed,
+        }),
+      );
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
   async function exportConfig() {
     try {
       downloadJson(await api.exportConfig(), 'routarr-config.json');
+      outcome.clear();
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
   async function importConfig(file: File) {
     try {
       const report = await api.importConfig(JSON.parse(await file.text()));
-      notice = t('ConfigImportResult', {
-        settings: report.settings,
-        categories: report.categories,
-        instances: report.instances,
-        folders: report.root_folders,
-        overrides: report.overrides,
-      });
+      // The import wrote every setting, so an edit begun before it goes now:
+      // carried over the values read back, whenever that read succeeds, Save
+      // would write it over the import.
+      draft = { ...saved };
+      // Before the summary, which is written in the language the import set.
+      await loadDictionary();
+      const restored =
+        report.settings +
+        report.categories +
+        report.instances +
+        report.root_folders +
+        report.overrides;
+      const waiting = report.needs_key.length
+        ? ` ${t('ConfigImportNeedsKey', { names: report.needs_key.join(t('ListSeparator')) })}`
+        : '';
+      const summary =
+        t('ConfigImportResult', {
+          settings: report.settings,
+          categories: report.categories,
+          instances: report.instances,
+          folders: report.root_folders,
+          overrides: report.overrides,
+        }) + waiting;
       // Never swallowed: a restore that quietly drops half a backup is worse
       // than one that fails.
-      if (report.skipped.length > 0) skipped = report.skipped;
-      await loadDictionary();
-      // An import writes instances, categories, mappings and settings — four of
-      // the seven things the warnings are computed from — so the shell's count
+      const partial = `${summary} ${t('ConfigImportSkipped', { count: report.skipped.length })}`;
+      if (report.skipped.length > 0 && restored === 0) outcome.fail(partial, report.skipped);
+      else if (report.skipped.length > 0) outcome.warn(partial, report.skipped);
+      else if (waiting) outcome.warn(summary);
+      else outcome.succeed(summary);
+      // An import writes instances, categories, mappings and settings, four of
+      // the seven things the warnings are computed from, so the shell's count
       // is stale the moment this returns.
       invalidateStatus();
-      // And the draft is stale too. It is only ever seeded from `bundle.data`,
-      // and the payload a save sends is built from *all* of FIELDS, so editing
-      // one field afterwards wrote every imported value back to what it was.
+      // The effect above reseeds the form from this read once it succeeds.
       await bundle.reload();
-      // The theme too: a save applies it, and an import is a save of every
-      // setting at once — left to the next reload, the screen kept the old one.
-      applyTheme(bundle.data?.settings.ui_theme ?? 'dark');
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
@@ -312,21 +347,13 @@
       </div>
     </div>
 
-    <ErrorBanner
-      message={bundle.error}
-      onDismiss={() => (bundle.error = null)}
-      onRetry={() => void bundle.reload()}
-    />
-    <SuccessBanner message={notice} />
+    <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
+         it one. -->
+    <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
+    <OutcomeBanner {outcome} />
 
     {#if draft.global_dry_run === 'false'}
       <WarningBanner message={t('LiveModeWarning')} />
-    {/if}
-
-    {#if skipped.length > 0}
-      <WarningBanner
-        message="{t('ConfigImportSkipped', { count: skipped.length })} {skipped.join(' · ')}"
-      />
     {/if}
 
     <!-- Only the combination writes unattended: either switch alone is inert. -->
@@ -397,7 +424,7 @@
                   class="btn btn-secondary"
                   onclick={() => {
                     setApiKey(key);
-                    notice = t(key ? 'ApiKeyStored' : 'ApiKeyCleared');
+                    outcome.succeed(t(key ? 'ApiKeyStored' : 'ApiKeyCleared'));
                   }}
                 >
                   {t('SaveKey')}
@@ -426,10 +453,7 @@
         {/if}
 
         {#if section === 'maintenance'}
-          <BackupCard
-            onError={(message) => (bundle.error = message)}
-            onNotice={(message) => (notice = message)}
-          />
+          <BackupCard {outcome} />
         {/if}
 
         <form novalidate onsubmit={save}>
@@ -615,10 +639,12 @@
                   >
                     {t('DiscardChanges')}
                   </button>
+                  <!-- Held while the settings could not be read: the draft
+                       then holds values the server may no longer store. -->
                   <button
                     type="submit"
                     class="btn btn-primary"
-                    disabled={saving || invalid.length > 0}
+                    disabled={saving || invalid.length > 0 || bundle.error !== null}
                   >
                     <Save size={16} />
                     {saving ? t('Saving') : t('Save')}

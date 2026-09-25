@@ -3,13 +3,14 @@
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition } from '../api/format';
   import type { Category, ConditionCatalog, Rule, RuleDraft, RuleMediaType } from '../api/types';
-  import { createAsync, describeError } from '../lib/async.svelte';
+  import { createAsync } from '../lib/async.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
-  import SuccessBanner from '../components/SuccessBanner.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import LibraryFacetsPanel from '../components/LibraryFacets.svelte';
   import TableRegion from '../components/TableRegion.svelte';
@@ -65,7 +66,7 @@
   );
 
   let editing = $state<{ draft: RuleDraft; id?: string } | null>(null);
-  let notice = $state<string | null>(null);
+  const outcome = createOutcome();
 
   const rules = $derived<Rule[]>(bundle.data?.rules ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
@@ -96,10 +97,10 @@
   async function act(fn: () => Promise<unknown>, message: string) {
     try {
       await fn();
-      notice = message;
+      outcome.succeed(message);
       await bundle.reload();
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
@@ -120,8 +121,9 @@
   async function exportBundle() {
     try {
       downloadJson(await api.exportRules(), 'routarr-rules.json');
+      outcome.clear();
     } catch (err) {
-      bundle.error = describeError(err);
+      outcome.fail(err);
     }
   }
 
@@ -137,12 +139,15 @@
       ]);
       if (answer === null) return;
       const result = await api.importRules(parsed, answer === 'replace');
-      notice =
+      const summary =
         t('ImportResult', { count: result.imported }) +
         (result.skipped.length ? t('ImportSkipped', { count: result.skipped.length }) : '');
+      if (result.skipped.length === 0) outcome.succeed(summary);
+      else if (result.imported === 0) outcome.fail(summary, result.skipped);
+      else outcome.warn(summary, result.skipped);
       await bundle.reload();
     } catch (err) {
-      bundle.error = err instanceof SyntaxError ? t('NotValidJson') : describeError(err);
+      outcome.fail(err instanceof SyntaxError ? t('NotValidJson') : err);
     }
   }
 </script>
@@ -184,7 +189,7 @@
     onDismiss={() => (bundle.error = null)}
     onRetry={() => void bundle.reload()}
   />
-  <SuccessBanner message={notice} />
+  <OutcomeBanner {outcome} />
 
   <!-- Before the rules, not after: it is what you consult in order to write
        one, and a rule written against a value the library does not carry
@@ -362,7 +367,7 @@
       onClose={() => (editing = null)}
       onSaved={async (message) => {
         editing = null;
-        notice = message;
+        outcome.succeed(message);
         await bundle.reload();
       }}
     />

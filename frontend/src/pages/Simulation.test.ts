@@ -31,6 +31,10 @@ const STRINGS = {
   ConfirmApplyAll: '{count} items will move.',
   ConfirmApplyWithFiles: ' Files move too.',
   SimulationEmptyState: 'Nothing to review',
+  ApplyReport: 'Applied: {applied} of {requested}',
+  BatchApplyReport: 'Applied in batches: {applied} of {candidates}',
+  BatchApplyStopped: 'Stopped at batch {run} of {planned}: {applied} of {candidates} applied',
+  Dismiss: 'Dismiss',
 };
 
 function simulation(decisions: Decision[]): SimulationResult {
@@ -200,5 +204,196 @@ describe('what the screen refuses to do', () => {
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
     expect(nthCall(apply)[2]).toEqual([]);
     expect(nthCall(apply, 1)[2]).toEqual(['threshold']);
+  });
+});
+
+/**
+ * One outcome of applying on screen, the latest. A report stays until something
+ * replaces it, and this is the screen that moves files: a report of moves that
+ * worked, left above the reason the next apply was refused, reads as the result
+ * of that apply.
+ */
+describe('what the screen says after applying', () => {
+  const ok = { requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] };
+
+  it('takes the previous report off screen when the next apply is refused', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyDecisions')
+      .mockResolvedValueOnce(ok)
+      .mockRejectedValueOnce(new ApiError('The Arr refused the move', 502, 'bad_gateway'));
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    expect(await screen.findByText('Applied: 1 of 1.')).toBeTruthy();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    expect(await screen.findByText('The Arr refused the move')).toBeTruthy();
+    expect(screen.queryByText('Applied: 1 of 1.')).toBeNull();
+  });
+
+  it('shows only the latest report when one apply follows another', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyAllDecisions').mockResolvedValue({
+      candidates: 1,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      batches_run: 1,
+      batches_planned: 1,
+      stopped_early: false,
+      errors: [],
+    });
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
+    await answerConfirmation();
+    expect(await screen.findByText('Applied in batches: 1 of 1')).toBeTruthy();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    expect(await screen.findByText('Applied: 1 of 1.')).toBeTruthy();
+    expect(screen.queryByText('Applied in batches: 1 of 1')).toBeNull();
+  });
+
+  /** An apply in which every decision failed is a failure, not a count of zero. */
+  it('reports an apply in which every decision failed as a failure', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 0,
+      failed: 1,
+      skipped: 0,
+      errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    const summary = await screen.findByText('Applied: 0 of 1.');
+    expect(summary.closest('[role]')?.getAttribute('role')).toBe('alert');
+    expect(screen.getByText('Akira: The Arr refused the move')).toBeTruthy();
+  });
+
+  /**
+   * The moves were made even when the refresh after them fails, so the
+   * refresh's failure is shown beside the report and never in its place.
+   */
+  it('keeps the report of an apply whose refresh failed', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation')
+      .mockResolvedValueOnce(simulation([decision({ media_title: 'Akira' })]))
+      .mockRejectedValueOnce(new ApiError('The library could not be read', 409, 'conflict'));
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    expect(await screen.findByText('The library could not be read')).toBeTruthy();
+    expect(screen.getByText('Applied: 1 of 1.')).toBeTruthy();
+  });
+
+  /**
+   * Part done and part failed is neither a success nor a failure. Red over
+   * forty-nine moves made would say nothing was done, green would hide the
+   * one that was not.
+   */
+  it('reports an Apply all stopped after some moves as a partial result', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyAllDecisions').mockResolvedValue({
+      candidates: 50,
+      applied: 49,
+      failed: 1,
+      skipped: 0,
+      batches_run: 1,
+      batches_planned: 1,
+      stopped_early: true,
+      errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
+    await answerConfirmation();
+
+    const summary = await screen.findByText('Stopped at batch 1 of 1: 49 of 50 applied');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+  });
+
+  it('reports an apply of selected moves that partly failed as a partial result', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([
+        decision({ id: 'd1', media_title: 'Akira' }),
+        decision({ id: 'd2', media_title: 'Heat' }),
+      ]),
+    );
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 2,
+      applied: 1,
+      failed: 1,
+      skipped: 0,
+      errors: [{ decision_id: 'd2', media_title: 'Heat', message: 'The Arr refused the move' }],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    const summary = await screen.findByText('Applied: 1 of 2.');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+  });
+
+  /** A new run starts a new review, and the report of the last apply belongs to the old one. */
+  it('takes the report of the last apply off screen when a new simulation runs', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    expect(await screen.findByText('Applied: 1 of 1.')).toBeTruthy();
+    const rerun = await screen.findByRole('button', { name: /run simulation/i });
+    await waitFor(() => expect((rerun as HTMLButtonElement).disabled).toBe(false));
+
+    await fireEvent.click(rerun);
+
+    await waitFor(() => expect(screen.queryByText('Applied: 1 of 1.')).toBeNull());
+  });
+
+  /** The moves that failed belong to the outcome they explain, and go with it. */
+  it('takes the failed moves off screen with the outcome they explain', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(
+      simulation([decision({ media_title: 'Akira' })]),
+    );
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 0,
+      failed: 1,
+      skipped: 0,
+      errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    await screen.findByText('Akira: The Arr refused the move');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    expect(screen.queryByText('Akira: The Arr refused the move')).toBeNull();
   });
 });
