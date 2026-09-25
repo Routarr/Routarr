@@ -447,7 +447,7 @@ fn to_alternative(m: &RuleMatch, localizer: &Localizer) -> AlternativeDecision {
     AlternativeDecision {
         rule_name: m.rule_name.clone(),
         category: m.category.clone(),
-        reason: localizer.describe_all(&m.evaluations, None).join("; "),
+        reason: localizer.describe_all(&m.evaluations, None).join(" · "),
         excluded_by: m
             .excluded_by
             .as_ref()

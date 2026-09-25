@@ -88,7 +88,8 @@ wait_for "http://127.0.0.1:$TMDB_PORT/3/configuration"
 
 echo "==> seeding"
 start_routarr
-ROUTARR_URL="http://127.0.0.1:$PORT" ROUTARR_API_KEY="$DEMO_API_KEY" node "$HERE/seed.mjs"
+ROUTARR_URL="http://127.0.0.1:$PORT" ROUTARR_API_KEY="$DEMO_API_KEY" \
+  RADARR_PORT="$RADARR_PORT" SONARR_PORT="$SONARR_PORT" node "$HERE/seed.mjs"
 
 # Restarting is what makes this deterministic: the scheduler sweeps five
 # seconds after start-up, and only then does it enrich and simulate. Seeding

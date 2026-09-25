@@ -24,10 +24,14 @@ async function api(path, init) {
   return response.status === 204 ? null : response.json();
 }
 
+// The ports run.sh started the fakes on, which stay clear of the e2e harness's.
 const INSTANCES = [
-  { name: 'Radarr', instance_type: 'radarr', port: 7979, folders: { 1: 'standard', 2: 'anime', 3: 'kids', 4: 'concerts' } },
-  { name: 'Sonarr', instance_type: 'sonarr', port: 7981, folders: { 1: 'standard', 2: 'anime', 3: 'documentaries' } },
+  { name: 'Radarr', instance_type: 'radarr', port: Number(process.env.RADARR_PORT), folders: { 1: 'standard', 2: 'anime', 3: 'kids', 4: 'concerts' } },
+  { name: 'Sonarr', instance_type: 'sonarr', port: Number(process.env.SONARR_PORT), folders: { 1: 'standard', 2: 'anime', 3: 'documentaries' } },
 ];
+if (!INSTANCES.every((instance) => instance.port > 0)) {
+  throw new Error('RADARR_PORT and SONARR_PORT name the fakes run.sh started');
+}
 
 const CATEGORIES = ['standard', 'anime', 'kids', 'concerts', 'documentaries'];
 

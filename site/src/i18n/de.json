@@ -207,7 +207,7 @@
   "rules.card.types": "Filme & Serien",
   "rules.h2": "28 Bedingungen, <em>Ihre Logik.</em>",
   "rules.p": "Bedingungen mit <strong>ALLEN</strong> oder <strong>EINER</strong> verknüpfen, ausdrückliche Ausnahmen ergänzen, nach Priorität ordnen. Genre, Sprache, Land, Freigabe, Alter und Größe, dazu die Signale, die nur Ihr Arr hat: <strong>Tags</strong>, Sonarrs <strong>Serientyp</strong> und Staffelzahl.",
-  "rules.p.3": "<strong>Ausschlüsse sind der Grund, warum das funktioniert.</strong> „Japanische Animation“ würde\n          <em>Mein Nachbar Totoro</em> verschlucken. Der bewusste Ausschluss jugendfreier Freigaben übergibt ihn\n          stattdessen an <code>kids</code>, und die Oberfläche sagt das auch.",
+  "rules.p.3": "<strong>Ausschlüsse sind der Grund, warum das funktioniert.</strong> \"Japanische Animation\" würde\n          <em>Mein Nachbar Totoro</em> verschlucken. Der bewusste Ausschluss jugendfreier Freigaben übergibt ihn\n          stattdessen an <code>kids</code>, und die Oberfläche sagt das auch.",
   "rules.span": "Die Regel-Engine",
   "safety.asks": "fragt",
   "safety.b": "Globaler Testlauf",

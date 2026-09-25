@@ -37,7 +37,7 @@ pub struct EnrichmentReport {
 pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<EnrichmentReport> {
     let sources = state.metadata_sources().await;
     if sources.is_empty() {
-        debug!("No fetched metadata source is enabled; skipping enrichment");
+        debug!("No fetched metadata source is enabled, skipping enrichment");
         return Ok(EnrichmentReport::default());
     }
 
@@ -179,7 +179,7 @@ async fn run_enrichment(
 
     if rate_limited {
         warn!(
-            "{} rate-limited part of this pass; the remainder is retried on the next run",
+            "{} rate-limited part of this pass. The remainder is retried on the next run",
             source.id()
         );
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -244,7 +244,7 @@ impl Breaker {
 async fn honour_retry_after<T>(limiter: &RateLimiter, outcome: &AppResult<T>) {
     if let Err(AppError::ExternalApi { retry_after: Some(seconds), service, .. }) = outcome {
         warn!(
-            "{service} asked for {seconds}s before the next request; pacing the rest of the pass"
+            "{service} asked for {seconds}s before the next request, pacing the rest of the pass"
         );
         limiter.penalise(Duration::from_secs(*seconds)).await;
     }

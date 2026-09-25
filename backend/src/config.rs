@@ -78,8 +78,8 @@ impl AuthMode {
             // reading release notes has to keep starting.
             "disabled" => {
                 tracing::warn!(
-                    "ROUTARR_AUTH=disabled is the old spelling of `none` and still works; \
-                     rename it, the alias will not be documented"
+                    "ROUTARR_AUTH=disabled is the old spelling of `none` and still works. \
+                     Rename it, the alias will not be documented"
                 );
                 Self::None
             }
@@ -92,7 +92,7 @@ impl AuthMode {
                 // The variable is named apart from its value: the sample-env
                 // check scans this file for a quoted `ROUTARR_*` and would read
                 // an interpolated message as a variable of its own.
-                tracing::warn!("Unknown authentication mode '{other}'; using the API key");
+                tracing::warn!("Unknown authentication mode '{other}', using the API key");
                 Self::ApiKey
             }
         }
@@ -134,7 +134,7 @@ fn validate_origin(origin: &str) -> AppResult<()> {
 
     if origin == "*" {
         return Err(bad(
-            "cannot be a wildcard — Routarr sends credentials with a cross-origin request, \
+            "cannot be a wildcard: Routarr sends credentials with a cross-origin request, \
              which a wildcard origin is not allowed to accompany. List the origins instead",
         ));
     }
@@ -150,7 +150,7 @@ fn validate_origin(origin: &str) -> AppResult<()> {
     // trim in `from_env` has already removed from the stored string. Anything
     // longer is a path, and a browser never sends one.
     if url.path() != "/" || url.query().is_some() || url.fragment().is_some() {
-        return Err(bad("must be an origin — scheme, host and port, with no path"));
+        return Err(bad("must be an origin (scheme, host and port, with no path)"));
     }
     Ok(())
 }
@@ -388,7 +388,7 @@ impl Config {
         if self.http_timeout.is_zero() {
             return Err(AppError::Config(
                 "ROUTARR_HTTP_TIMEOUT_SECS: 0 would make every call to an Arr or a source fail \
-                 at once; unset it for the default of 20 seconds"
+                 at once. Unset it for the default of 20 seconds"
                     .into(),
             ));
         }
@@ -420,7 +420,7 @@ impl Config {
         for (name, url) in [(ISSUER, issuer), (REDIRECT, redirect)] {
             if !reaches_over_tls(&url) {
                 return Err(AppError::Config(format!(
-                    "{name}: '{url}' must start with https:// — the sign-in trusts the channel \
+                    "{name}: '{url}' must start with https://, because the sign-in trusts the channel \
                      to the provider in place of a token signature. Plain http:// is accepted \
                      for localhost only"
                 )));
@@ -495,7 +495,7 @@ fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: 
         None => Ok(default),
         Some(value) => value.parse().map_err(|_| {
             AppError::Config(format!(
-                "{key}: '{value}' is not a value this setting can take; unset it for the default"
+                "{key}: '{value}' is not a value this setting can take. Unset it for the default"
             ))
         }),
     }

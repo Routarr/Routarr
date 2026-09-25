@@ -64,7 +64,7 @@ const STRINGS = {
   BackupNow: 'Back up now',
   SettingGlobalDryRun: 'Global dry-run',
   SettingAutoApplyEnabled: 'Apply automatically',
-  SecretConfiguredPlaceholder: 'A key is stored — type to replace it',
+  SecretConfiguredPlaceholder: 'A key is stored – type to replace it',
   ConfigImportResult: 'Restored: {settings} settings.',
   ConfigImportSkipped: 'Not restored: {count}',
   ConfigImportNeedsKey: 'Instances waiting for their API key: {names}',
@@ -286,7 +286,7 @@ describe('the metadata sources', () => {
     expect(field.getAttribute('id')).toBe('setting-tmdb_api_key');
     // The placeholder is what says which of the two situations the reader is
     // in, since the backend never sends a sealed value back.
-    expect(field.getAttribute('placeholder')).toBe('A key is stored — type to replace it');
+    expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
   });
 
   /**

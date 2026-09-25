@@ -207,7 +207,7 @@
                     <button
                       class="btn btn-danger btn-sm"
                       type="button"
-                      aria-label="{t('Remove')} — {folder.path}"
+                      aria-label="{t('Remove')} – {folder.path}"
                       onclick={() =>
                         act(
                           () => api.deleteRootFolder(folder.id),
@@ -292,7 +292,7 @@
                 <div class="flex gap-2">
                   <button
                     class="btn btn-secondary btn-sm"
-                    aria-label="{t('RenameCategory')} — {category.name}"
+                    aria-label="{t('RenameCategory')} – {category.name}"
                     title={t('RenameCategory')}
                     onclick={() => {
                       renaming = category;
@@ -304,7 +304,7 @@
                   {#if !category.is_default}
                     <button
                       class="btn btn-danger btn-sm"
-                      aria-label="{t('Delete')} — {category.name}"
+                      aria-label="{t('Delete')} – {category.name}"
                       title={t('Delete')}
                       onclick={() =>
                         act(() => api.deleteCategory(category.id), t('CategoryDeleted'))}

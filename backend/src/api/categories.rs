@@ -258,7 +258,7 @@ pub async fn remove(
 
     if rules + folders + overrides > 0 {
         return Err(AppError::Conflict(format!(
-            "Category '{name}' is still in use — rules: {rules}, root folder mappings: {folders}, overrides: {overrides}"
+            "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}"
         )));
     }
 

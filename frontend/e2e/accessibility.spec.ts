@@ -328,7 +328,7 @@ test('every screen nests its headings without skipping a level', async ({ page, 
     levels.forEach((heading, i) => {
       if (i > 0 && heading.level - levels[i - 1].level > 1) {
         jumps.push(
-          `${path}: h${levels[i - 1].level} “${levels[i - 1].text}” → h${heading.level} “${heading.text}”`,
+          `${path}: h${levels[i - 1].level} "${levels[i - 1].text}" → h${heading.level} "${heading.text}"`,
         );
       }
     });
@@ -453,7 +453,7 @@ const MODALS: {
     covers: 'pages/RootFolders.svelte',
     open: (p) =>
       p
-        .getByRole('button', { name: /^Rename category — / })
+        .getByRole('button', { name: /^Rename category – / })
         .first()
         .click(),
   },
@@ -475,7 +475,7 @@ const MODALS: {
     covers: 'components/ConfirmDialog.svelte',
     open: (p) =>
       p
-        .getByRole('button', { name: /^Delete — / })
+        .getByRole('button', { name: /^Delete – / })
         .first()
         .click(),
   },
@@ -499,7 +499,7 @@ const MODALS: {
     },
     open: (p) =>
       p
-        .getByRole('button', { name: /^Revert — / })
+        .getByRole('button', { name: /^Revert – / })
         .first()
         .click(),
   },

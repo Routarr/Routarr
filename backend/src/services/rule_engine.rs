@@ -419,7 +419,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 contains_any(&tags, values),
                 "ConditionTagIn",
                 &[("values", values.join(", "))],
-                if tags.is_empty() { "—".to_string() } else { tags.join(", ") },
+                if tags.is_empty() { "-".to_string() } else { tags.join(", ") },
             )
         }
 
@@ -430,7 +430,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 contains_all(&tags, values),
                 "ConditionTagInAll",
                 &[("values", values.join(", "))],
-                if tags.is_empty() { "—".to_string() } else { tags.join(", ") },
+                if tags.is_empty() { "-".to_string() } else { tags.join(", ") },
             )
         }
 
@@ -443,7 +443,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 !actual.is_empty() && values.iter().any(|v| v.trim().eq_ignore_ascii_case(&actual)),
                 "ConditionSeriesTypeIs",
                 &[("values", values.join(", "))],
-                if actual.is_empty() { "—".to_string() } else { actual },
+                if actual.is_empty() { "-".to_string() } else { actual },
             )
         }
 
@@ -457,7 +457,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
                 &[("value", threshold.to_string())],
                 match media.size_on_disk {
                     Some(_) => format!("{:.1} GB", bytes as f64 / GB as f64),
-                    None => "—".to_string(),
+                    None => "-".to_string(),
                 },
             )
         }
@@ -467,7 +467,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             media.season_count.is_some_and(|count| count > *threshold),
             "ConditionSeasonCountOver",
             &[("value", threshold.to_string())],
-            media.season_count.map_or_else(|| "—".to_string(), |c| c.to_string()),
+            media.season_count.map_or_else(|| "-".to_string(), |c| c.to_string()),
         ),
 
         Condition::TitleContains(values) => {

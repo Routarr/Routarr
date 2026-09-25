@@ -215,7 +215,7 @@ pub(crate) async fn tick(
     // disabling background syncs must not silently disable the purges too.
     let auto_sync = state.bool_setting("auto_sync_enabled", true).await;
     if !auto_sync {
-        debug!("Auto-sync is disabled in settings; skipping sync sweep");
+        debug!("Auto-sync is disabled in settings, skipping sync sweep");
     }
 
     let instances = if auto_sync { state.instances(true).await? } else { Vec::new() };
@@ -247,7 +247,7 @@ pub(crate) async fn tick(
         // synced is picked up by the next one.
         match chain {
             Some(running) if !running.is_finished() => {
-                debug!("The previous pass's enrichment is still running; not starting another");
+                debug!("The previous pass's enrichment is still running, not starting another");
             }
             _ => {
                 if let Some(finished) = chain.take() {

@@ -255,7 +255,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     let (removed, stale_folders) = if media.is_empty() || root_folders.is_empty() {
         tracing::warn!(
             instance = %instance.name,
-            "Arr returned an empty media or root-folder list — skipping orphan cleanup"
+            "Arr returned an empty media or root-folder list, skipping orphan cleanup"
         );
         (0, 0)
     } else {

@@ -73,7 +73,9 @@ A release is a `v*` tag pushed on a commit whose CI is green, as `CONTRIBUTING.m
   figure measured on a given day. That belongs in the commit message.
 - A comment that exists because the code is unclear is a naming problem: rename or extract,
   then delete it. Nothing describes what a line does.
-- No em dashes, no semicolons and no curly quotes in prose.
+- No em dashes, no semicolons and no curly quotes in prose, in every language (the Greek `;` is a
+  question mark). `scripts/check-typography.py` holds the dictionaries, the site, the README and
+  the strings the code writes to it.
 - Commits follow Conventional Commits: an imperative subject of 72 characters at most, a body
   wrapped at 72. One coherent lot per pull request, merged with a merge commit.
 - This file and each rule stay under 200 lines of at most 100 characters, and every rule opens

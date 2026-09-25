@@ -109,7 +109,7 @@
           <button
             type="button"
             class="chip-remove"
-            aria-label="{t('Remove')} — {shown(value)}"
+            aria-label="{t('Remove')} – {shown(value)}"
             onclick={() => onChange(removeValue(values, value))}
           >
             <X size={12} />

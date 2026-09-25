@@ -60,7 +60,7 @@ impl Event {
                 format!("Routarr can reach '{instance}' again.")
             }
             Event::AutoApplyFailed { failed, applied, first_error } => format!(
-                "Routarr failed to apply routing decisions automatically — failures: {failed} \
+                "Routarr failed to apply routing decisions automatically. Failures: {failed} \
                  ({applied} succeeded). First error: {first_error}"
             ),
         }

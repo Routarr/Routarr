@@ -322,7 +322,7 @@ pub async fn import(
 ) -> AppResult<Json<serde_json::Value>> {
     if req.bundle.version != 1 {
         return Err(AppError::BadRequest(format!(
-            "Unsupported bundle version {}; this Routarr understands version 1",
+            "Unsupported bundle version {}. This Routarr understands version 1",
             req.bundle.version
         )));
     }
@@ -396,7 +396,7 @@ pub async fn import(
             .map(|issue| issue.message)
             .collect();
         if !errors.is_empty() {
-            skipped.push(format!("'{}': {}", rule.name, errors.join("; ")));
+            skipped.push(format!("'{}': {}", rule.name, errors.join(" · ")));
             continue;
         }
 
@@ -503,7 +503,7 @@ fn reject_on_error(issues: &[ValidationIssue]) -> AppResult<()> {
         return Ok(());
     }
     Err(AppError::BadRequest(
-        errors.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join("; "),
+        errors.iter().map(|i| i.message.clone()).collect::<Vec<_>>().join(" · "),
     ))
 }
 

@@ -23,18 +23,18 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 
 ## Features
 
-- **Rules** — 28 conditions (genres, keywords, language, country, certification, tags, paths, size…),
+- **Rules**: 28 conditions (genres, keywords, language, country, certification, tags, paths, size…),
   ALL/ANY, exclusions, priorities, manual overrides, and an impact preview before saving.
-- **Explained decisions** — for every title, what each condition expected and what it found,
+- **Explained decisions**: for every title, what each condition expected and what it found,
   including the rules that matched and lost.
-- **Safe by default** — six gates in a fixed order, the first to object stopping the rest: global
+- **Safe by default**: six gates in a fixed order, the first to object stopping the rest (global
   dry-run, batch cap, reachability, capacity, a confirmation threshold you set, and a revalidation
-  at the moment of writing. Every applied move can be reverted.
-- **Metadata without API keys** — Radarr and Sonarr themselves, AniList and Jikan, with TMDb,
+  at the moment of writing). Every applied move can be reverted.
+- **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDb,
   OMDb and TheTVDB optional, in the order you choose.
-- **Real time** — Radarr/Sonarr webhooks, and optional routing of new titles before they download.
+- **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
 - **Several instances** of Radarr and Sonarr v3.
-- **Authentication on by default** — API key, a single account, or OpenID Connect.
+- **Authentication on by default**: API key, a single account, or OpenID Connect.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
   or Apprise.
 - **26 languages**.
@@ -72,12 +72,12 @@ beside it. Routarr also archives itself into `data/backups/`, every day unless y
 
 ## Getting started
 
-1. **Instances** — add Radarr or Sonarr, test the connection, sync.
-2. **Root Folders** — create categories, map the folders your Arrs report to them, and declare
+1. **Instances**: add Radarr or Sonarr, test the connection, sync.
+2. **Root Folders**: create categories, map the folders your Arrs report to them, and declare
    any destination they do not list.
-3. **Rules** — write rules and preview their impact.
-4. **Simulation** — run it, read the justifications, apply what you agree with.
-5. **Settings** — turn off the global dry-run once you trust the result.
+3. **Rules**: write rules and preview their impact.
+4. **Simulation**: run it, read the justifications, apply what you agree with.
+5. **Settings**: turn off the global dry-run once you trust the result.
 
 ## Configuration
 

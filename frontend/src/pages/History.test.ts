@@ -25,7 +25,7 @@ const STRINGS = {
   TriggerManual: 'manual',
   Revert: 'Revert',
   Cancel: 'Cancel',
-  ConfirmRevert: 'Send “{title}” back to {path}?',
+  ConfirmRevert: 'Send "{title}" back to {path}?',
   ConfirmRevertFiles: 'Move the files back too',
   RevertResult: '{count} reverted',
   RevertNothing: 'Nothing was reverted',
@@ -50,7 +50,7 @@ describe('History', () => {
     );
     show();
 
-    expect(await screen.findByRole('button', { name: /Revert — Akira/ })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: /Revert – Akira/ })).toBeTruthy();
   });
 
   /**
@@ -63,7 +63,7 @@ describe('History', () => {
     show();
 
     await screen.findByText('Akira');
-    expect(screen.queryByRole('button', { name: /Revert — Akira/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
   });
 
   it('offers no revert on a decision already reverted', async () => {
@@ -79,7 +79,7 @@ describe('History', () => {
     show();
 
     await screen.findByText('Akira');
-    expect(screen.queryByRole('button', { name: /Revert — Akira/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
   });
 
   it('asks once, naming the film and where it would go back to', async () => {
@@ -88,9 +88,9 @@ describe('History', () => {
     );
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
 
-    expect(await screen.findByText('Send “Akira” back to /films?')).toBeTruthy();
+    expect(await screen.findByText('Send "Akira" back to /films?')).toBeTruthy();
   });
 
   /** Cancel means stop, not "revert quietly". */
@@ -99,10 +99,10 @@ describe('History', () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
-    await waitFor(() => expect(screen.queryByText(/Send “Akira” back/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/Send "Akira" back/)).toBeNull());
     expect(revertDecisions).not.toHaveBeenCalled();
   });
 
@@ -116,7 +116,7 @@ describe('History', () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     if (moveFiles) await userEvent.click(await screen.findByLabelText('Move the files back too'));
     const dialog = await screen.findByRole('dialog');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
@@ -142,7 +142,7 @@ describe('History', () => {
     } as never);
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
     );
@@ -168,13 +168,13 @@ describe('History', () => {
       .mockRejectedValueOnce(new ApiError('The Arr refused the move', 502, 'bad_gateway'));
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
     );
     expect(await screen.findByText('1 reverted')).toBeTruthy();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Heat/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Heat/ }));
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
     );
@@ -260,7 +260,7 @@ describe('History', () => {
     });
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
     );
@@ -279,7 +279,7 @@ describe('History', () => {
     );
     show();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /Revert — Akira/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
     );

@@ -209,7 +209,7 @@
     {#if pagination && pagination.total_pages > 1}
       <div class="flex items-center justify-between mt-4">
         <span class="text-muted text-md">
-          {t('PageOf', { page: pagination.page, total: pagination.total_pages })} — {t(
+          {t('PageOf', { page: pagination.page, total: pagination.total_pages })} · {t(
             'ItemCount',
             { count: pagination.total },
           )}

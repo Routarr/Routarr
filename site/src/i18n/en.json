@@ -206,7 +206,7 @@
   "rules.card.routes": "routes to",
   "rules.card.types": "Films & series",
   "rules.h2": "28 conditions, <em>your logic.</em>",
-  "rules.p": "Combine conditions with <strong>ALL</strong> or <strong>ANY</strong>, add explicit exclusions, order rules by priority. Genre, language, country, certification, age and size, plus the signals only your Arr has: <strong>tags</strong>, Sonarr’s <strong>series type</strong> and season count.",
+  "rules.p": "Combine conditions with <strong>ALL</strong> or <strong>ANY</strong>, add explicit exclusions, order rules by priority. Genre, language, country, certification, age and size, plus the signals only your Arr has: <strong>tags</strong>, Sonarr's <strong>series type</strong> and season count.",
   "rules.p.3": "<strong>Exclusions are why this works.</strong> \"Japanese animation\" would swallow\n          <em>My Neighbor Totoro</em>. The deliberate exclusion of G-rated certifications hands it\n          to <code>kids</code> instead, and the interface says so.",
   "rules.span": "The rule engine",
   "safety.asks": "asks",

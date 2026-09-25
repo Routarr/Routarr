@@ -26,7 +26,7 @@ const STRINGS = {
   OutcomeFailure: 'Failed',
   StatusSuccess: 'succeeded',
   StatusFailed: 'failed',
-  None: '—',
+  None: '-',
   ExportFailed: 'Export failed with status {status}',
 };
 

@@ -207,7 +207,7 @@ mod tests {
         // The precondition: reqwest really does put the key in its own message.
         assert!(
             error.to_string().contains("SUPERSECRET123"),
-            "precondition changed — reqwest no longer echoes the URL: {error}"
+            "precondition changed, reqwest no longer echoes the URL: {error}"
         );
 
         let described = describe_transport_error(&error);

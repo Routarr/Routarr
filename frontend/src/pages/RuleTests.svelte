@@ -118,7 +118,7 @@
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
-                <td class="muted">{testCase.source_media_title ?? '—'}</td>
+                <td class="muted">{testCase.source_media_title ?? t('None')}</td>
                 <td><span class="badge badge-value">{testCase.expected_category}</span></td>
                 <td>
                   {#if !verdict}
@@ -135,14 +135,14 @@
                          the question a failure actually raises. -->
                     <span class="badge badge-danger">{t('Failed')}</span>
                     <span class="muted ms-2">
-                      {t('RuleTestNowGoesTo', { category: verdict.actual_category ?? '—' })}
+                      {t('RuleTestNowGoesTo', { category: verdict.actual_category ?? t('None') })}
                     </span>
                   {/if}
                 </td>
                 <td>
                   <button
                     class="btn btn-danger btn-sm"
-                    aria-label="{t('Delete')} — {testCase.name}"
+                    aria-label="{t('Delete')} – {testCase.name}"
                     title={t('Delete')}
                     onclick={() => void remove(testCase.id, testCase.name)}
                   >

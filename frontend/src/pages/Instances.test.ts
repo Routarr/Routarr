@@ -72,7 +72,7 @@ describe('Instances', () => {
     show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Sync all' }));
-    await fireEvent.click(await screen.findByRole('button', { name: /Actions — Radarr/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
 
     expect(await screen.findByRole('menuitem', { name: 'Copy the webhook URL' })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: 'RotateWebhookToken' })).toBeNull();
@@ -117,8 +117,8 @@ describe('Instances', () => {
     show([instance({ name: 'Radarr' }), instance({ id: 'i2', name: 'Sonarr' })]);
 
     expect(await screen.findByRole('button', { name: 'Sync now Radarr' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Edit — Sonarr' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Actions — Sonarr' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Edit – Sonarr' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Actions – Sonarr' })).toBeTruthy();
   });
 
   /**
@@ -130,7 +130,7 @@ describe('Instances', () => {
   it('opens the editor with the key field empty, so an edit keeps the stored one', async () => {
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
 
     const field = (await screen.findByLabelText('API key')) as HTMLInputElement;
     expect(field.value).toBe('');
@@ -140,7 +140,7 @@ describe('Instances', () => {
     const update = vi.spyOn(api, 'updateInstance').mockResolvedValue(undefined as never);
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const url = await screen.findByLabelText('Base URL');
     await fireEvent.input(url, { target: { value: 'http://nas:7878' } });
     await fireEvent.submit(url.closest('form') as HTMLFormElement);
@@ -160,7 +160,7 @@ describe('Instances', () => {
     );
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const url = await screen.findByLabelText('Base URL');
     await fireEvent.input(url, { target: { value: 'nas:7878' } });
     await fireEvent.submit(url.closest('form') as HTMLFormElement);
@@ -177,7 +177,7 @@ describe('Instances', () => {
   it('will not save an instance whose sync interval was emptied', async () => {
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const every = await screen.findByLabelText('Sync every (minutes)');
     const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
     expect(save.disabled).toBe(false);
@@ -215,7 +215,7 @@ describe('Instances', () => {
     );
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const url = await screen.findByLabelText('Base URL');
     await fireEvent.input(url, { target: { value: 'nas:7878' } });
     await fireEvent.submit(url.closest('form') as HTMLFormElement);
@@ -225,7 +225,7 @@ describe('Instances', () => {
     );
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr' }));
 
     expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull();
   });
@@ -281,7 +281,7 @@ describe('Instances', () => {
     );
     show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit — Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
     const url = await screen.findByLabelText('Base URL');
     await fireEvent.input(url, { target: { value: 'nas:7878' } });
     await fireEvent.submit(url.closest('form') as HTMLFormElement);
@@ -298,7 +298,7 @@ describe('Instances', () => {
 
   async function copyWebhookUrl() {
     show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
-    await fireEvent.click(await screen.findByRole('button', { name: /Actions — Radarr/ }));
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
     await fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy the webhook URL' }));
   }
 

@@ -24,7 +24,7 @@ const STRINGS = {
   SettingMetadataProviders: 'Metadata sources',
   ArrInstances: 'Arr instances',
   Never: 'never',
-  None: '—',
+  None: '-',
 };
 
 const show = () => renderWithI18n(HealthPage, { strings: STRINGS });

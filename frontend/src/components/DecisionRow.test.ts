@@ -12,15 +12,15 @@ import DecisionRowHarness from '../test/DecisionRowHarness.svelte';
  */
 
 const STRINGS = {
-  SelectMoveFor: 'Select the move for “{title}”',
+  SelectMoveFor: 'Select the move for "{title}"',
   Movies: 'Movies',
   Series: 'Series',
   ManualOverride: 'manual override',
   DefaultCategoryFallback: 'default category',
-  NoFolderForCategory: 'no folder for “{category}”',
+  NoFolderForCategory: 'no folder for "{category}"',
   AlsoMatched: '{rule} also matched, for {category}',
   ExcludedAlternative: '{rule} was vetoed by {reason}',
-  None: '—',
+  None: '-',
 };
 
 const show = (props: Record<string, unknown>) =>
@@ -63,7 +63,7 @@ describe('DecisionRow', () => {
       onToggle: vi.fn(),
     });
 
-    expect(screen.getByText(/no folder for “anime”/)).toBeTruthy();
+    expect(screen.getByText(/no folder for "anime"/)).toBeTruthy();
   });
 
   it('names the fallback when no rule matched', () => {
@@ -109,7 +109,7 @@ describe('DecisionRow', () => {
   });
 
   it('keeps the whole justification available on hover, clamped on screen', () => {
-    const reason = '✓ Original language in [ja] — found [ja]';
+    const reason = '✓ Original language in [ja] – found [ja]';
     show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
 
     const line = screen.getByText(reason);

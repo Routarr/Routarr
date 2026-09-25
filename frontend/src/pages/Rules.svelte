@@ -299,7 +299,7 @@
                       class="btn btn-secondary btn-sm"
                       disabled={index === 0}
                       title={t('RaisePriority')}
-                      aria-label="{t('RaisePriority')} — {rule.name}"
+                      aria-label="{t('RaisePriority')} – {rule.name}"
                       onclick={() => void move(index, -1)}
                     >
                       <MoveUp size={14} />
@@ -308,7 +308,7 @@
                       class="btn btn-secondary btn-sm"
                       disabled={index === rules.length - 1}
                       title={t('LowerPriority')}
-                      aria-label="{t('LowerPriority')} — {rule.name}"
+                      aria-label="{t('LowerPriority')} – {rule.name}"
                       onclick={() => void move(index, 1)}
                     >
                       <MoveDown size={14} />
@@ -316,7 +316,7 @@
                     <button
                       class="btn btn-secondary btn-sm"
                       title={t('Edit')}
-                      aria-label="{t('Edit')} — {rule.name}"
+                      aria-label="{t('Edit')} – {rule.name}"
                       onclick={() => openEdit(rule)}
                     >
                       <Pencil size={14} />
@@ -324,7 +324,7 @@
                     <button
                       class="btn btn-secondary btn-sm"
                       title={t('Duplicate')}
-                      aria-label="{t('Duplicate')} — {rule.name}"
+                      aria-label="{t('Duplicate')} – {rule.name}"
                       onclick={() =>
                         void act(() => api.duplicateRule(rule.id), t('RuleDuplicated'))}
                     >
@@ -333,7 +333,7 @@
                     <button
                       class="btn btn-danger btn-sm"
                       title={t('Delete')}
-                      aria-label="{t('Delete')} — {rule.name}"
+                      aria-label="{t('Delete')} – {rule.name}"
                       onclick={async () => {
                         if (
                           await askConfirmation(

@@ -24,7 +24,7 @@ const STRINGS = {
   TriggerScheduled: 'Scheduled',
   StatusRunning: 'Running',
   StatusSuccess: 'Succeeded',
-  None: '—',
+  None: '-',
 };
 
 const show = () => renderWithI18n(Jobs, { strings: STRINGS });

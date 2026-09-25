@@ -159,7 +159,7 @@
                 <td>
                   <button
                     class="btn btn-danger btn-sm"
-                    aria-label="{t('Delete')} — {override.media_title}"
+                    aria-label="{t('Delete')} – {override.media_title}"
                     title={t('Delete')}
                     onclick={() => void remove(override.id, override.media_title)}
                   >
@@ -216,7 +216,7 @@
                     <button
                       type="button"
                       class="row-pick"
-                      aria-label="{t('SelectItem')} — {media.title}"
+                      aria-label="{t('SelectItem')} – {media.title}"
                       aria-pressed={selected?.id === media.id}
                       onclick={() => (selected = media)}
                     >

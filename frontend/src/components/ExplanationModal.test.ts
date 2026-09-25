@@ -33,7 +33,7 @@ const STRINGS = {
   NoRootFolderMapped: 'no root folder',
   Unknown: 'unknown',
   Dismiss: 'Close',
-  None: '—',
+  None: '-',
 };
 
 function explanation(over: Partial<Explanation> = {}): Explanation {

@@ -112,8 +112,8 @@ describe('ConditionValue', () => {
       onChange,
     });
 
-    const from = screen.getByLabelText('Year between — from');
-    const to = screen.getByLabelText('Year between — to');
+    const from = screen.getByLabelText('Year between – from');
+    const to = screen.getByLabelText('Year between – to');
     expect(from).not.toBe(to);
 
     await fireEvent.input(from, { target: { value: '1990' } });
@@ -131,7 +131,7 @@ describe('ConditionValue', () => {
       onChange,
     });
 
-    await fireEvent.input(screen.getByLabelText('Year between — from'), { target: { value: '' } });
+    await fireEvent.input(screen.getByLabelText('Year between – from'), { target: { value: '' } });
 
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: null });
   });
@@ -143,7 +143,7 @@ describe('ConditionValue', () => {
 
     const ceiling = String(new Date().getFullYear() + 5);
     for (const bound of ['from', 'to']) {
-      const field = screen.getByLabelText(`Year between — ${bound}`);
+      const field = screen.getByLabelText(`Year between – ${bound}`);
       expect(field).toHaveAttribute('min', '1888');
       expect(field).toHaveAttribute('max', ceiling);
     }
