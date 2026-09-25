@@ -23,7 +23,7 @@ test('no page writes an error or a warning to the console @console', async ({
   });
   page.on('pageerror', (error) => noise.push(`[pageerror] ${error.message}`));
   page.on('requestfailed', (request) =>
-    noise.push(`[requestfailed] ${request.url()} — ${request.failure()?.errorText}`),
+    noise.push(`[requestfailed] ${request.url()} – ${request.failure()?.errorText}`),
   );
   page.on('response', (response) => {
     if (response.status() >= 400) {

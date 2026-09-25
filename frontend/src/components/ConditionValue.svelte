@@ -65,7 +65,7 @@
       <input
         // Two controls for one condition, so the caption alone would name them
         // identically: the bound is what tells them apart.
-        aria-label="{spec.label} — {t('PlaceholderYearFrom')}"
+        aria-label="{spec.label} – {t('PlaceholderYearFrom')}"
         type="number"
         class="form-input"
         min={MIN_YEAR}
@@ -76,7 +76,7 @@
         oninput={(event) => onChange({ ...range, min: parseYearBound(event.currentTarget.value) })}
       />
       <input
-        aria-label="{spec.label} — {t('PlaceholderYearTo')}"
+        aria-label="{spec.label} – {t('PlaceholderYearTo')}"
         type="number"
         class="form-input"
         min={MIN_YEAR}

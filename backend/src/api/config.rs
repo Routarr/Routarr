@@ -220,7 +220,7 @@ pub async fn import(
     let bundle = req.bundle;
     if bundle.version != BUNDLE_VERSION {
         return Err(AppError::BadRequest(format!(
-            "Unsupported bundle version {}; this Routarr understands version {BUNDLE_VERSION}",
+            "Unsupported bundle version {}. This Routarr understands version {BUNDLE_VERSION}",
             bundle.version
         )));
     }
@@ -263,7 +263,7 @@ pub async fn import(
         if crate::api::settings::is_secret(key) {
             report
                 .skipped
-                .push(format!("setting '{key}' is sealed by another installation — set it again"));
+                .push(format!("setting '{key}' is sealed by another installation. Set it again"));
             continue;
         }
 

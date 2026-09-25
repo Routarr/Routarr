@@ -32,7 +32,7 @@ describe('describeError', () => {
 
   it('appends the request id to a server-side failure', () => {
     const failure = new ApiError('An internal error occurred.', 500, 'database_error', 'req-8d1f');
-    expect(describeError(failure)).toBe('An internal error occurred. — request req-8d1f');
+    expect(describeError(failure)).toBe('An internal error occurred. (request req-8d1f)');
   });
 
   it('leaves a refusal alone even when it carries an id', () => {

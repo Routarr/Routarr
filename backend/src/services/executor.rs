@@ -754,7 +754,7 @@ async fn guard_reachable(
             kind: confirm::UNREACHABLE,
             message: localizer.translate(
                 "ErrorTargetUnreachable",
-                &[("path", &path), ("since", last_seen.as_deref().unwrap_or("—"))],
+                &[("path", &path), ("since", last_seen.as_deref().unwrap_or("-"))],
             ),
         });
     }

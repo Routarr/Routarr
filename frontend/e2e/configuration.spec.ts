@@ -123,7 +123,7 @@ test.describe('overrides', () => {
 
     await page.getByPlaceholder(/search the library/i).fill('Akira');
     await page.getByRole('button', { name: /^search$/i }).click();
-    await page.getByRole('button', { name: /select — akira/i }).click();
+    await page.getByRole('button', { name: /select – akira/i }).click();
 
     await page.locator('.modal-content select').selectOption('standard');
     await page.getByRole('button', { name: /create override/i }).click();

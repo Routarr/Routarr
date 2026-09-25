@@ -25,11 +25,11 @@ const STRINGS = {
   SelectItem: 'Select',
   SearchLibrary: 'Search the library by title',
   PinMediaTitle: 'Pin an item to a category',
-  ConfirmDeleteOverride: 'Remove the override on “{title}”?',
+  ConfirmDeleteOverride: 'Remove the override on "{title}"?',
   OverrideRemoved: 'Override removed',
   CreateOverride: 'Pin it',
-  ForceCategoryFor: 'Force category for “{title}”',
-  None: '—',
+  ForceCategoryFor: 'Force category for "{title}"',
+  None: '-',
 };
 
 const categories = [
@@ -96,19 +96,19 @@ describe('Overrides', () => {
   it('names each delete button after the item it would unpin', async () => {
     show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
 
-    expect(await screen.findByRole('button', { name: 'Delete — Akira' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Delete — Totoro' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Delete – Akira' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete – Totoro' })).toBeTruthy();
   });
 
   it('asks before removing, naming what would be removed', async () => {
     const remove = vi.spyOn(api, 'deleteOverride');
     show([override()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Akira' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
 
     // Cancelled, and the question named the subject: "are you sure?" over a
     // table of twelve rows tells the user nothing about which one.
-    expect(await answerConfirmation(null)).toBe('Remove the override on “Akira”?');
+    expect(await answerConfirmation(null)).toBe('Remove the override on "Akira"?');
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -123,11 +123,11 @@ describe('Overrides', () => {
       .mockRejectedValueOnce(new ApiError('The override is locked', 409, 'conflict'));
     show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Akira' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
     await answerConfirmation();
     expect(await screen.findByText('Override removed')).toBeTruthy();
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Totoro' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Totoro' }));
     await answerConfirmation();
 
     expect(await screen.findByText('The override is locked')).toBeTruthy();
@@ -138,7 +138,7 @@ describe('Overrides', () => {
     const remove = vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
     show([override()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Akira' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
     await answerConfirmation();
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith('o1'));
@@ -178,13 +178,13 @@ describe('Overrides', () => {
     await fireEvent.input(search, { target: { value: 'perfect' } });
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
-    const pick = await screen.findByRole('button', { name: 'Select — Perfect Blue' });
+    const pick = await screen.findByRole('button', { name: 'Select – Perfect Blue' });
     expect(pick).toHaveAttribute('aria-pressed', 'false');
     pick.focus();
     await user.keyboard('{Enter}');
 
     expect(pick).toHaveAttribute('aria-pressed', 'true');
-    expect(await screen.findByLabelText('Force category for “Perfect Blue”')).toBeTruthy();
+    expect(await screen.findByLabelText('Force category for "Perfect Blue"')).toBeTruthy();
   });
 
   it('shows a refused pin inside the dialog rather than behind it', async () => {

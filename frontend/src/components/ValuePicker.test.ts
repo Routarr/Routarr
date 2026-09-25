@@ -14,7 +14,7 @@ import ValuePicker from './ValuePicker.svelte';
  */
 
 const STRINGS = {
-  AddValue: 'Add “{value}”',
+  AddValue: 'Add "{value}"',
   Loading: 'Loading…',
   NoMatchingValue: 'No value matches',
   NoValueInLibrary: 'The library carries no value for this yet',
@@ -78,7 +78,7 @@ describe('ValuePicker', () => {
     const { onChange } = open(['Animation', 'Comédie']);
 
     expect(screen.getByLabelText('Selected values')).toBeInTheDocument();
-    await userEvent.click(screen.getByLabelText('Remove — Animation'));
+    await userEvent.click(screen.getByLabelText('Remove – Animation'));
 
     expect(onChange).toHaveBeenCalledWith(['Comédie']);
   });
@@ -95,7 +95,7 @@ describe('ValuePicker', () => {
     expect(screen.queryByRole('option', { name: 'Animation' })).not.toBeInTheDocument();
 
     await userEvent.type(field, 'animation');
-    expect(screen.queryByText('Add “animation”')).not.toBeInTheDocument();
+    expect(screen.queryByText('Add "animation"')).not.toBeInTheDocument();
   });
 
   it('accepts a value the library does not carry yet', async () => {
@@ -119,7 +119,7 @@ describe('ValuePicker', () => {
 
     // The typed value is still offerable, and the list says the library has
     // nothing like it rather than rendering an empty box.
-    expect(screen.getByText('Add “zzz”')).toBeInTheDocument();
+    expect(screen.getByText('Add "zzz"')).toBeInTheDocument();
   });
 
   it('says so when the library carries nothing at all', async () => {
@@ -175,7 +175,7 @@ describe('ValuePicker', () => {
     open(['ja'], { options: CODES });
 
     expect(screen.getByText('Japanese (ja)')).toBeInTheDocument();
-    expect(screen.getByLabelText('Remove — Japanese (ja)')).toBeInTheDocument();
+    expect(screen.getByLabelText('Remove – Japanese (ja)')).toBeInTheDocument();
   });
 
   /**

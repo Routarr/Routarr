@@ -27,7 +27,7 @@ const STRINGS = {
   PrioritiesUpdated: 'Priorities updated',
   RuleDuplicated: 'Rule duplicated',
   RuleDeleted: 'Rule deleted',
-  ConfirmDeleteRule: 'Delete the rule “{name}”?',
+  ConfirmDeleteRule: 'Delete the rule "{name}"?',
   LogicAll: 'ALL',
   LogicAny: 'ANY',
   Both: 'Movies and series',
@@ -115,7 +115,7 @@ describe('Rules', () => {
     show([rule({ name: 'Japanese animation' }), rule({ id: 'r2', name: 'Kids' })]);
 
     await screen.findByText('Japanese animation');
-    for (const name of ['Edit — Kids', 'Duplicate — Kids', 'Delete — Kids']) {
+    for (const name of ['Edit – Kids', 'Duplicate – Kids', 'Delete – Kids']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
   });
@@ -128,13 +128,13 @@ describe('Rules', () => {
     show([rule({ id: 'r1', name: 'First' }), rule({ id: 'r2', name: 'Last' })]);
 
     await screen.findByText('First');
-    const raiseFirst = screen.getByRole('button', { name: 'Raise priority — First' });
-    const lowerLast = screen.getByRole('button', { name: 'Lower priority — Last' });
+    const raiseFirst = screen.getByRole('button', { name: 'Raise priority – First' });
+    const lowerLast = screen.getByRole('button', { name: 'Lower priority – Last' });
 
     expect((raiseFirst as HTMLButtonElement).disabled).toBe(true);
     expect((lowerLast as HTMLButtonElement).disabled).toBe(true);
     expect(
-      (screen.getByRole('button', { name: 'Lower priority — First' }) as HTMLButtonElement)
+      (screen.getByRole('button', { name: 'Lower priority – First' }) as HTMLButtonElement)
         .disabled,
     ).toBe(false);
   });
@@ -148,7 +148,7 @@ describe('Rules', () => {
     const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
     show([rule({ id: 'r1', name: 'First' }), rule({ id: 'r2', name: 'Last' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Raise priority — Last' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Raise priority – Last' }));
 
     await waitFor(() => expect(reorder).toHaveBeenCalledTimes(1));
     expect(nthCall(reorder)[0]).toEqual(['r2', 'r1']);
@@ -159,10 +159,10 @@ describe('Rules', () => {
     show([rule({ name: 'Japanese animation' })]);
 
     await fireEvent.click(
-      await screen.findByRole('button', { name: 'Delete — Japanese animation' }),
+      await screen.findByRole('button', { name: 'Delete – Japanese animation' }),
     );
 
-    expect(await answerConfirmation(null)).toBe('Delete the rule “Japanese animation”?');
+    expect(await answerConfirmation(null)).toBe('Delete the rule "Japanese animation"?');
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -178,10 +178,10 @@ describe('Rules', () => {
     );
     show([rule({ id: 'r1', name: 'Anime' }), rule({ id: 'r2', name: 'Kids', priority: 20 })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate — Anime' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate – Anime' }));
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete — Kids' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Kids' }));
     await answerConfirmation();
 
     expect(await screen.findByText('The rule is pinned by a test case')).toBeTruthy();
@@ -197,7 +197,7 @@ describe('Rules', () => {
     const importRules = vi.spyOn(api, 'importRules');
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate — Anime' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate – Anime' }));
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -214,7 +214,7 @@ describe('Rules', () => {
     const remove = vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
     show([rule()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: /^Delete — / }));
+    await fireEvent.click(await screen.findByRole('button', { name: /^Delete – / }));
     await answerConfirmation();
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'));
@@ -263,7 +263,7 @@ describe('Rules', () => {
   async function importFile(result: { imported: number; skipped: string[] }) {
     vi.spyOn(api, 'importRules').mockResolvedValue(result);
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
-    await screen.findByRole('button', { name: 'Duplicate — Anime' });
+    await screen.findByRole('button', { name: 'Duplicate – Anime' });
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });

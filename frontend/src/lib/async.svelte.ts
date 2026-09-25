@@ -11,7 +11,7 @@ export function describeError(err: unknown): string {
     // A server-side failure is one the operator will look for in the log; the
     // id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
-      return `${err.message} — ${t('RequestId', { id: err.requestId })}`;
+      return `${err.message} (${t('RequestId', { id: err.requestId })})`;
     }
     return err.message;
   }

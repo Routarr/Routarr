@@ -31,7 +31,7 @@ const STRINGS = {
   MetadataMissing: 'missing',
   ManualOverride: 'manual override',
   WhyQuestion: 'Why?',
-  None: '—',
+  None: '-',
 };
 
 function show(items: MediaListItem[], pages = 1) {

@@ -53,9 +53,9 @@ pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
             .execute(&state.pool)
             .await?;
         if current < min {
-            warn!("Setting '{key}' was {current}, below the minimum of {min}; stored as {min}");
+            warn!("Setting '{key}' was {current}, below the minimum of {min}, stored as {min}");
         } else {
-            warn!("Setting '{key}' was {current}, above the maximum of {max}; stored as {max}");
+            warn!("Setting '{key}' was {current}, above the maximum of {max}, stored as {max}");
         }
         converged += 1;
     }
@@ -81,7 +81,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         let Ok(plaintext) = state.secrets.open(&stored) else {
             tracing::error!(
                 instance_id = %id,
-                "Cannot decrypt this instance's API key — set ROUTARR_PREVIOUS_SECRET_KEY or re-enter it"
+                "Cannot decrypt this instance's API key. Set ROUTARR_PREVIOUS_SECRET_KEY or enter it again"
             );
             continue;
         };
@@ -116,7 +116,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         let Ok(plaintext) = state.secrets.open(&stored) else {
             tracing::error!(
                 setting = %key,
-                "Cannot decrypt this metadata key — set ROUTARR_PREVIOUS_SECRET_KEY or re-enter it"
+                "Cannot decrypt this metadata key. Set ROUTARR_PREVIOUS_SECRET_KEY or enter it again"
             );
             continue;
         };

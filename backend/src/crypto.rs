@@ -85,7 +85,7 @@ impl SecretBox {
                             ))
                         })?;
                         info!(
-                            "Generated a new master key at {} — back it up alongside the database",
+                            "Generated a new master key at {}. Back it up alongside the database",
                             key_path.display()
                         );
                         bytes
@@ -153,7 +153,7 @@ impl SecretBox {
             })
             .map_err(|_| {
                 AppError::Config(
-                    "cannot decrypt a stored secret — ROUTARR_SECRET_KEY (or routarr.key) does not match this database. Set ROUTARR_PREVIOUS_SECRET_KEY to the old value to migrate.".into(),
+                    "cannot decrypt a stored secret: ROUTARR_SECRET_KEY (or routarr.key) does not match this database. Set ROUTARR_PREVIOUS_SECRET_KEY to the old value to migrate.".into(),
                 )
             })?;
 

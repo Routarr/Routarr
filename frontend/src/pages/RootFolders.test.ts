@@ -38,7 +38,7 @@ const STRINGS = {
   MappingUpdated: 'Mapping updated',
   Name: 'Name',
   Save: 'Save',
-  None: '—',
+  None: '-',
   Accessible: 'accessible',
   Inaccessible: 'unreachable',
   LastAnswered: 'Last answered {since}',
@@ -126,16 +126,16 @@ describe('Root folders', () => {
 
     await screen.findByText('standard');
     expect(screen.getByText('default')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Delete — standard' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Delete – standard' })).toBeNull();
     // Every other category is deletable.
-    expect(screen.getByRole('button', { name: 'Delete — anime' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
 
   it('names each row action after its category', async () => {
     show([], [category({ name: 'anime' })]);
 
-    expect(await screen.findByRole('button', { name: 'Rename category — anime' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Delete — anime' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Rename category – anime' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
 
   /**
@@ -152,7 +152,7 @@ describe('Root folders', () => {
     const reread = vi.spyOn(api, 'getCategories');
     show([], [category({ name: 'anime' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Rename category — anime' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Rename category – anime' }));
     const field = await screen.findByLabelText('Name');
     await fireEvent.input(field, { target: { value: 'animation' } });
     await fireEvent.submit(field.closest('form') as HTMLFormElement);
@@ -340,11 +340,11 @@ describe('Root folders', () => {
           severity: 'error',
           instance_name: 'Radarr',
           category: 'anime',
-          message: 'Two folders claim “anime”',
+          message: 'Two folders claim "anime"',
         },
       ],
     );
 
-    expect(await screen.findByText('Two folders claim “anime”')).toBeTruthy();
+    expect(await screen.findByText('Two folders claim "anime"')).toBeTruthy();
   });
 });

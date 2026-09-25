@@ -70,9 +70,9 @@ describe('formatBytes', () => {
   });
 
   it('says nothing rather than zero when the Arr reported no size', () => {
-    expect(formatBytes(null)).toBe('—');
-    expect(formatBytes(undefined)).toBe('—');
-    expect(formatBytes(-1)).toBe('—');
+    expect(formatBytes(null)).toBe('-');
+    expect(formatBytes(undefined)).toBe('-');
+    expect(formatBytes(-1)).toBe('-');
     expect(plain(formatBytes(0, 'fr'))).toBe('0 o');
     expect(plain(formatBytes(0))).toBe('0 B');
   });
@@ -140,7 +140,7 @@ describe('formatTimestamp', () => {
   });
 
   it('shows the fallback rather than an empty cell when there is no value', () => {
-    expect(formatTimestamp(null, 'en')).toBe('—');
+    expect(formatTimestamp(null, 'en')).toBe('-');
     expect(formatTimestamp(undefined, 'en', 'never')).toBe('never');
   });
 

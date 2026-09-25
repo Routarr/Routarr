@@ -306,7 +306,7 @@ test.describe('buttons are one size', () => {
       );
 
       for (const entry of found) {
-        (entry.small ? small : regular).set(entry.height, `${path} — ${entry.label}`);
+        (entry.small ? small : regular).set(entry.height, `${path} – ${entry.label}`);
       }
     }
 

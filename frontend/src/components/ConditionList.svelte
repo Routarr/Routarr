@@ -108,7 +108,7 @@
         {#if spec?.counterpart}
           <select
             class="form-select w-auto"
-            aria-label="{t('QuantifierLabel')} — {caption(spec)}"
+            aria-label="{t('QuantifierLabel')} – {caption(spec)}"
             value={spec.quantifier}
             onchange={(event) =>
               onRetype(index, event.currentTarget.value === 'all' ? spec.counterpart : spec.type)}
@@ -131,7 +131,7 @@
           type="button"
           class="btn btn-secondary btn-sm"
           onclick={() => onRemove(index)}
-          aria-label="{t('Delete')} — {spec?.label ?? condition.type}"
+          aria-label="{t('Delete')} – {spec?.label ?? condition.type}"
           title={t('Delete')}
         >
           <Trash2 size={14} />

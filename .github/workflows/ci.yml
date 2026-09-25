@@ -124,6 +124,9 @@ jobs:
       - name: Check the memory files stay short
         run: python3 scripts/check-claude-md.py
 
+      - name: Check the text a reader sees for plain punctuation
+        run: python3 scripts/check-typography.py
+
       - name: Install the pinned linters
         env:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8

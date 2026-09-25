@@ -83,7 +83,7 @@ pub async fn apply_simulation(
             trigger,
             candidates,
             cap,
-            "Auto-apply held back: too many moves for one unattended run — apply them from the \
+            "Auto-apply held back: too many moves for one unattended run. Apply them from the \
              Simulation screen"
         ),
         AutoApplyOutcome::Held(reason) => debug!(trigger, reason, "Auto-apply held back"),

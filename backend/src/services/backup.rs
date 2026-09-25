@@ -485,7 +485,7 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
     }
     staged.keep();
 
-    info!("Backup {name} staged; it is applied on the next start");
+    info!("Backup {name} staged. It is applied on the next start");
     Ok(manifest)
 }
 
@@ -532,7 +532,7 @@ fn extract_staged(
                 // carries the same answer to the caller, which is what the
                 // interface warns on.
                 warn!(
-                    "Backup {name} carries no '{entry}'; the restore leaves the current one in place"
+                    "Backup {name} carries no '{entry}', so the restore leaves the current one in place"
                 );
                 continue;
             }
@@ -715,7 +715,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         return Ok(false);
     }
 
-    info!("A restore is pending; applying it before opening the database");
+    info!("A restore is pending, applying it before opening the database");
 
     for target in targets.into_iter().rev() {
         let staged = pending_path(&target);

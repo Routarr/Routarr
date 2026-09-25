@@ -25,7 +25,7 @@ const STRINGS = {
   EvaluatingRules: 'Evaluating…',
   ApplySelected: 'Apply selected ({count})',
   ApplyAll: 'Apply all ({count})',
-  SelectMoveFor: 'Select the move for “{title}”',
+  SelectMoveFor: 'Select the move for "{title}"',
   SelectEveryMove: 'Select every move',
   ConfirmApply: '{count} items will move.',
   ConfirmApplyAll: '{count} items will move.',
@@ -139,7 +139,7 @@ describe('what the screen shows', () => {
     await show([decision({ media_title: 'Perfect Blue' })]);
 
     expect(
-      await screen.findByRole('checkbox', { name: 'Select the move for “Perfect Blue”' }),
+      await screen.findByRole('checkbox', { name: 'Select the move for "Perfect Blue"' }),
     ).toBeTruthy();
   });
 });

@@ -20,7 +20,7 @@ const STRINGS = {
   CommandPalette: 'Quick search',
   CommandPalettePlaceholder: 'A title, or a screen…',
   CommandPaletteGoTo: 'Go to',
-  CommandPaletteEmpty: 'Nothing for “{query}”.',
+  CommandPaletteEmpty: 'Nothing for "{query}".',
   CommandPaletteHint: 'The library is searched by title.',
   CommandPaletteResults: 'Results: {count}',
   MediaExplorer: 'Library',
@@ -116,7 +116,7 @@ describe('CommandPalette', () => {
     await screen.findAllByRole('option');
 
     await userEvent.type(screen.getByRole('combobox'), 'zzzz');
-    expect(await screen.findByText(/Nothing for/)).toHaveTextContent('Nothing for “zzzz”.');
+    expect(await screen.findByText(/Nothing for/)).toHaveTextContent('Nothing for "zzzz".');
   });
 
   /**

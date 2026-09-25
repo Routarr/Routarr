@@ -55,8 +55,8 @@ function byteSymbol(locale: string): string | undefined {
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 export function formatBytes(bytes: number | null | undefined, language = 'en'): string {
-  if (bytes === null || bytes === undefined) return '—';
-  if (bytes < 0) return '—';
+  if (bytes === null || bytes === undefined) return '-';
+  if (bytes < 0) return '-';
 
   const units = ['byte', 'kilobyte', 'megabyte', 'gigabyte', 'terabyte', 'petabyte'] as const;
   let value = bytes;
@@ -145,7 +145,7 @@ export function formatPercent(value: number | null | undefined, language: string
 export function formatTimestamp(
   value: string | null | undefined,
   language: string,
-  fallback = '—',
+  fallback = '-',
 ): string {
   if (!value) return fallback;
 
@@ -178,7 +178,7 @@ export function formatTimestamp(
 export function formatRelative(
   value: string | null | undefined,
   language: string,
-  fallback = '—',
+  fallback = '-',
 ): string {
   if (!value) return fallback;
   const parsed = new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`);

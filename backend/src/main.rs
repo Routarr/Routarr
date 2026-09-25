@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let (key, generated) = crypto::load_or_generate_api_key(&path)?;
                     if generated {
                         info!(
-                            "Generated an API key at {} — use it as X-Api-Key: {key}",
+                            "Generated an API key at {}. Use it as X-Api-Key: {key}",
                             path.display()
                         );
                     }
@@ -162,7 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // only the WAL truncation is lost.
     let _ = stop_scheduler.send(true);
     if tokio::time::timeout(std::time::Duration::from_secs(10), scheduler).await.is_err() {
-        warn!("The scheduler did not stop within 10s; closing the database anyway");
+        warn!("The scheduler did not stop within 10s, closing the database anyway");
     }
 
     db::checkpoint_and_close(&pool).await;
@@ -520,7 +520,7 @@ fn init_tracing(config: &Config) {
 fn warn_on_insecure_defaults(state: &AppState) {
     if state.config.auth_mode == AuthMode::External {
         warn!(
-            "ROUTARR_AUTH=external — Routarr asks for no credential and trusts the reverse \
+            "ROUTARR_AUTH=external: Routarr asks for no credential and trusts the reverse \
              proxy in front of it. Anything that reaches this port bypasses that proxy, so \
              bind it to the proxy's network and nowhere else."
         );
@@ -529,7 +529,7 @@ fn warn_on_insecure_defaults(state: &AppState) {
         // Only reachable by asking for it, so this states a decision back to
         // whoever made it rather than reporting an omission.
         warn!(
-            "ROUTARR_AUTH=none — the API is unauthenticated. Make sure Routarr is only \
+            "ROUTARR_AUTH=none: the API is unauthenticated. Make sure Routarr is only \
              reachable from a trusted network, or from a proxy that authenticates for it."
         );
     }
@@ -537,8 +537,8 @@ fn warn_on_insecure_defaults(state: &AppState) {
         // Not "metadata rules cannot match": Radarr and Sonarr are a source of
         // their own now, and they answer genre, language and certification.
         warn!(
-            "TMDB_API_KEY is not set — Radarr and Sonarr still supply genres, original language \
-             and certification; only keyword and origin-country rules cannot match."
+            "TMDB_API_KEY is not set. Radarr and Sonarr still supply genres, original language \
+             and certification, and only keyword and origin-country rules cannot match."
         );
     }
 }

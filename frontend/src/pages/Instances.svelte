@@ -293,13 +293,13 @@
                     </button>
                     <button
                       class="btn btn-secondary btn-sm"
-                      aria-label="{t('Edit')} — {instance.name}"
+                      aria-label="{t('Edit')} – {instance.name}"
                       onclick={() => startEdit(instance)}
                     >
                       {t('Edit')}
                     </button>
                     <ActionMenu
-                      label="{t('Actions')} — {instance.name}"
+                      label="{t('Actions')} – {instance.name}"
                       actions={[
                         {
                           label: t('TestConnection'),

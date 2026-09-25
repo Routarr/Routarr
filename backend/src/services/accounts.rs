@@ -201,7 +201,7 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
     })?;
 
     info!(
-        "Created the '{DEFAULT_USERNAME}' account at {} — sign in with: {password}",
+        "Created the '{DEFAULT_USERNAME}' account at {}. Sign in with: {password}",
         password_path.display()
     );
     Ok(())

@@ -100,7 +100,7 @@ Components named without a path live in `frontend/src/components/`.
   no `id` repeats, and labelled fields sit in `.form-row` rather than a bare flex row.
 - `frontend/e2e/accessibility.spec.ts` sweeps every screen: every control named, no heading level
   skipped, a `<caption>` on every table, axe at WCAG 2.1 A and AA. A row action's `aria-label` is
-  the action, a spaced em dash, then the subject (see `frontend/src/pages/Rules.svelte`), so no
+  the action, a spaced en dash, then the subject (see `frontend/src/pages/Rules.svelte`), so no
   two rows answer to one name.
 
 ## Tests and tooling

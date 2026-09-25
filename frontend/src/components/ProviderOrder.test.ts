@@ -22,7 +22,7 @@ const STRINGS = {
   MoveDown: 'Move down',
   ProviderKeyPlaceholder: 'API key',
   ProviderKeyOrEnv: 'API key or {variable}',
-  SecretConfiguredPlaceholder: 'A key is stored — type to replace it',
+  SecretConfiguredPlaceholder: 'A key is stored – type to replace it',
   ProviderNeedsKey: 'Needs a key',
   ProviderNoKeyNeeded: 'No key needed',
   ProviderInactive: 'inactive',
@@ -123,6 +123,6 @@ describe('a credential is edited in the row of the source it unlocks', () => {
     });
 
     const field = await screen.findByLabelText('TMDb');
-    expect(field.getAttribute('placeholder')).toBe('A key is stored — type to replace it');
+    expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
   });
 });
