@@ -230,6 +230,7 @@
   "GuideSkipStep": "단계 건너뛰기",
   "GuideStepNext": "다음 단계",
   "GuideTitle": "시작 가이드",
+  "GuideUnavailable": "시작 가이드를 읽을 수 없습니다: {error}",
   "ModeDryRunShort": "시험 실행",
   "Duplicate": "복제 (비활성 사본)",
   "Edit": "편집",

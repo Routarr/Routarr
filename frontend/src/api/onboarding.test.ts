@@ -1,9 +1,50 @@
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { guideProgress, nextAfter, requiredNumber, takeQueryFlag } from './onboarding';
-import { onboardingStatus } from '../test/fixtures';
+import {
+  guideProgress,
+  nextAfter,
+  outsideTheGuide,
+  requiredNumber,
+  takeQueryFlag,
+} from './onboarding';
+import { onboardingStatus, warning } from '../test/fixtures';
 
 afterEach(() => window.history.replaceState({}, '', '/'));
+
+describe('outsideTheGuide', () => {
+  const noInstance = warning('No enabled Arr instance', 'instance');
+  const unreachable = warning('Radarr is unreachable');
+
+  it('leaves a warning to the open step it restates while the guide runs', () => {
+    expect(outsideTheGuide([noInstance, unreachable], onboardingStatus())).toEqual([unreachable]);
+  });
+
+  it('keeps a warning whose step is done, since the step no longer says it', () => {
+    const second = warning('Sonarr has no root folder mapped', 'categories');
+
+    expect(outsideTheGuide([second], onboardingStatus(['instance', 'categories']))).toEqual([
+      second,
+    ]);
+  });
+
+  /** Finish is a click the reader may never make, and an optional step never ends. */
+  it('holds nothing back once every required step is done', () => {
+    const noKey = warning('TMDb has no API key', 'metadata');
+    const ready = onboardingStatus(['instance', 'categories', 'rule', 'simulation']);
+
+    expect(outsideTheGuide([noKey], ready)).toEqual([noKey]);
+  });
+
+  it('holds nothing back from a guide skipped, finished or not read', () => {
+    for (const status of [
+      onboardingStatus([], { state: 'dismissed' }),
+      onboardingStatus([], { state: 'done' }),
+      null,
+    ]) {
+      expect(outsideTheGuide([noInstance], status)).toEqual([noInstance]);
+    }
+  });
+});
 
 describe('guideProgress', () => {
   it('counts the required steps only, since optional ones never hold the guide back', () => {

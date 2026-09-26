@@ -230,6 +230,7 @@
   "GuideSkipStep": "Bu adımı atla",
   "GuideStepNext": "Sıradaki adım",
   "GuideTitle": "Başlarken",
+  "GuideUnavailable": "Başlangıç rehberi okunamadı: {error}",
   "ModeDryRunShort": "Deneme",
   "Duplicate": "Çoğalt (devre dışı kopya)",
   "Edit": "Düzenle",

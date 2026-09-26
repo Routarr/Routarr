@@ -6,7 +6,7 @@
 
 use axum::http::StatusCode;
 
-use super::TestApp;
+use super::{TestApp, warning_messages};
 
 async fn speak_french(app: &TestApp) {
     app.put("/api/v1/settings", serde_json::json!({ "settings": { "ui_language": "fr" } }))
@@ -164,13 +164,9 @@ async fn diagnostics_warnings_are_translated() {
     let app = TestApp::new().await;
     speak_french(&app).await;
 
-    let response = app.get("/api/v1/status").await;
-    let warnings = response.assert_ok()["warnings"].as_array().unwrap().clone();
+    let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
 
-    assert!(
-        warnings.iter().any(|w| w.as_str().unwrap().contains("n'est pas authentifiée")),
-        "{warnings:?}"
-    );
+    assert!(warnings.iter().any(|w| w.contains("n'est pas authentifiée")), "{warnings:?}");
 }
 
 /// Where the line falls between a translated refusal and an English one.

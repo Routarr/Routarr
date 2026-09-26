@@ -22,6 +22,7 @@ const STRINGS = {
   RaisePriority: 'Raise priority',
   LowerPriority: 'Lower priority',
   Edit: 'Edit',
+  SaveRule: 'Save rule',
   Duplicate: 'Duplicate',
   Delete: 'Delete',
   Disabled: 'disabled',
@@ -233,6 +234,20 @@ describe('Rules', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /^Delete – / }));
     await answerConfirmation();
 
+    await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
+  });
+
+  /** The guide's rule step hears of a saved rule only through the shell. */
+  it('tells the shell when a rule is saved from the editor', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const update = vi.spyOn(api, 'updateRule').mockResolvedValue(rule());
+    show([rule()]);
+    const before = statusRevision();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^Edit – / }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Save rule' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledWith('r1', expect.anything()));
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 

@@ -7,6 +7,8 @@
   import { formatTimestamp } from '../api/format';
   import { createOutcome } from '../lib/outcome.svelte';
   import { onboarding } from '../lib/onboarding.svelte';
+  import { invalidateStatus } from '../lib/status.svelte';
+  import { outsideTheGuide } from '../api/onboarding';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import GettingStarted from '../components/GettingStarted.svelte';
   import Loading from '../components/Loading.svelte';
@@ -28,10 +30,10 @@
 
   const health = $derived(probed.data ?? quick.data);
   const outcome = createOutcome();
-  // While the guide runs, each warning of an installation not set up yet is one
-  // of its unfinished steps: listing both says the same thing twice, the second
-  // time as an alarm. They stay on the diagnostics screen.
-  const guiding = $derived(onboarding.current?.state === 'pending');
+  // A warning an open step restates is left to the guide above it: listing
+  // both says the same thing twice, the second time as an alarm. It stays on
+  // the diagnostics screen.
+  const warnings = $derived(outsideTheGuide(health?.warnings ?? [], onboarding.current));
   const stats = $derived(health?.stats);
 
   async function refresh() {
@@ -66,6 +68,12 @@
     />
     <OutcomeBanner {outcome} />
 
+    <!-- The shell reads the guide, and this is where the guide lives: a read
+         that failed is said here, rather than the guide going missing. -->
+    <ErrorBanner
+      message={onboarding.failure ? t('GuideUnavailable', { error: onboarding.failure }) : null}
+      onRetry={invalidateStatus}
+    />
     {#if onboarding.current}
       <GettingStarted status={onboarding.current} {outcome} />
     {/if}
@@ -75,17 +83,17 @@
          and a fourth warning was invisible because the list was capped at
          three without saying so. The count leads, the list follows, and the
          one action sits once. -->
-    {#if health && health.warnings.length > 0 && !guiding}
+    {#if warnings.length > 0}
       <div class="banner banner-warning items-start">
         <AlertTriangle size={16} />
         <div class="flex-1">
           <div class="flex items-center justify-between gap-2">
-            <strong>{t('DiagnosticWarnings', { count: health.warnings.length })}</strong>
+            <strong>{t('DiagnosticWarnings', { count: warnings.length })}</strong>
             <a href={href('/health')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>
           </div>
           <ul class="banner-list">
-            {#each health.warnings.slice(0, 3) as warning, index (index)}
-              <li>{warning}</li>
+            {#each warnings.slice(0, 3) as warning, index (index)}
+              <li>{warning.message}</li>
             {/each}
           </ul>
         </div>

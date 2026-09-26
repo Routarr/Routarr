@@ -1,4 +1,4 @@
-import type { OnboardingStatus, OnboardingStep } from './types';
+import type { OnboardingStatus, OnboardingStep, Warning } from './types';
 
 /** What the guide shows for a step, and the screen that does it. */
 export interface StepGuide {
@@ -85,6 +85,21 @@ export function nextAfter(
   const index = status.steps.findIndex((step) => step.id === id);
   const later = status.steps.slice(index + 1).find((step) => !step.done);
   return later ?? status.steps.find((step) => !step.done && !step.optional) ?? null;
+}
+
+/**
+ * The warnings the guide does not say itself.
+ *
+ * While it runs, a warning that restates an open step is that step's, and its
+ * banner and the dashboard list say it already. Every other warning shows, as
+ * an Arr that stopped answering, which no step brings back. Once every
+ * required step is done nothing is held back: Finish is a click the reader may
+ * never make, and an optional step may stay open for good.
+ */
+export function outsideTheGuide(warnings: Warning[], status: OnboardingStatus | null): Warning[] {
+  if (!status || status.state !== 'pending' || status.complete) return warnings;
+  const open = status.steps.filter((step) => !step.done).map((step) => step.id);
+  return warnings.filter((warning) => !warning.guide_step || !open.includes(warning.guide_step));
 }
 
 /** The position of a required step among the required steps, from 1. */

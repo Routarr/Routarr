@@ -3,7 +3,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
-use super::TestApp;
+use super::{TestApp, warning_messages};
 use tower::ServiceExt;
 
 // ------------------------------------------------------------ authentication
@@ -1508,13 +1508,7 @@ async fn status_makes_no_outbound_calls() {
 
     assert_eq!(status["dry_run"], true);
     assert_eq!(status["running_jobs"], 0);
-    assert!(
-        status["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| { w.as_str().unwrap().contains("unauthenticated") })
-    );
+    assert!(warning_messages(status).iter().any(|w| w.contains("unauthenticated")));
 }
 
 #[tokio::test]
@@ -1536,9 +1530,8 @@ async fn status_warns_when_a_category_has_no_root_folder() {
         .await
         .assert_ok();
 
-    let response = app.get("/api/v1/status").await;
-    let warnings = response.assert_ok()["warnings"].as_array().unwrap().clone();
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("not mapped to any root folder")));
+    let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
+    assert!(warnings.iter().any(|w| w.contains("not mapped to any root folder")));
 }
 
 /// The badge counts `/status` and the page it links to renders `/health`. Two
@@ -1559,20 +1552,10 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
         .assert_ok();
 
     let status = app.get("/api/v1/status").await;
-    let from_badge: Vec<String> = status.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let from_badge = warning_messages(status.assert_ok());
 
     let health = app.get("/api/v1/health").await;
-    let on_the_page: Vec<String> = health.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let on_the_page = warning_messages(health.assert_ok());
 
     assert!(from_badge.len() > 1, "the fixture should produce several warnings");
 
@@ -1607,12 +1590,7 @@ async fn the_badge_reports_what_the_last_probe_found() {
     // switched off does.
     app.seed_instance_at("i-dead", "radarr", "http://127.0.0.1:1").await;
 
-    let before: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let before = warning_messages(app.get("/api/v1/status").await.assert_ok());
     // Matched on the finding itself: the fixture already warns about this
     // instance for an unrelated reason, so a name alone proves nothing.
     assert!(
@@ -1622,12 +1600,7 @@ async fn the_badge_reports_what_the_last_probe_found() {
 
     app.get("/api/v1/health").await.assert_ok();
 
-    let after: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let after = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         after.iter().any(|w| w.contains("Fake radarr") && w.contains("is unreachable")),
         "the badge still ignores what the probe found: {after:?}"
@@ -1643,12 +1616,7 @@ async fn a_subject_that_answers_again_stops_being_reported() {
     app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
 
     app.get("/api/v1/health").await.assert_ok();
-    let healthy: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let healthy = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         !healthy.iter().any(|w| w.contains("is unreachable")),
         "a reachable instance must leave no verdict behind: {healthy:?}"
@@ -1724,9 +1692,9 @@ async fn health_reports_actionable_warnings() {
     assert_eq!(providers[1]["id"], "tmdb");
     assert_eq!(providers[1]["configured"], false);
 
-    let warnings = health["warnings"].as_array().unwrap();
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("TMDb")));
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("unauthenticated")));
+    let warnings = warning_messages(health);
+    assert!(warnings.iter().any(|w| w.contains("TMDb")));
+    assert!(warnings.iter().any(|w| w.contains("unauthenticated")));
     assert_eq!(health["status"], "degraded");
 }
 

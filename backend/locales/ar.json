@@ -230,6 +230,7 @@
   "GuideSkipStep": "تخطي هذه الخطوة",
   "GuideStepNext": "الخطوة التالية",
   "GuideTitle": "دليل البدء",
+  "GuideUnavailable": "تعذّرت قراءة دليل البدء: {error}",
   "ModeDryRunShort": "محاكاة",
   "Duplicate": "تكرار (نسخة معطّلة)",
   "Edit": "تحرير",

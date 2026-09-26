@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 use sqlx::AssertSqlSafe;
 
+use super::onboarding::step;
 use crate::error::AppResult;
 use crate::localization::Localizer;
 use crate::models::Instance;
@@ -34,7 +35,27 @@ pub struct StatusResponse {
     pub pending_decisions: i64,
     pub failed_decisions: i64,
     /// Configuration problems detectable without touching the network.
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Warning>,
+}
+
+/// One warning, in the reader's language.
+#[derive(Debug, Serialize)]
+pub struct Warning {
+    pub message: String,
+    /// The getting-started step this warning restates, whose banner says the
+    /// same thing while the step is open. `None` for every warning no step
+    /// answers, which the guide never says.
+    pub guide_step: Option<&'static str>,
+}
+
+impl Warning {
+    fn new(message: String) -> Self {
+        Self { message, guide_step: None }
+    }
+
+    fn restating(step: &'static str, message: String) -> Self {
+        Self { message, guide_step: Some(step) }
+    }
 }
 
 /// Cheap status for the persistent chrome of the UI.
@@ -72,7 +93,7 @@ pub struct HealthResponse {
     pub instances: Vec<InstanceHealth>,
     pub metadata: MetadataHealth,
     pub stats: AppStats,
-    pub warnings: Vec<String>,
+    pub warnings: Vec<Warning>,
 }
 
 #[derive(Debug, Serialize)]
@@ -210,7 +231,7 @@ pub async fn health_check(
 /// looked at yet: the table holds verdicts, not a roster. An instance deleted
 /// since the probe leaves a row nothing can name, which is dropped rather than
 /// reported as an unnamed failure.
-async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResult<Vec<String>> {
+async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResult<Vec<Warning>> {
     let rows: Vec<(String, Option<String>)> = sqlx::query_as(
         "SELECT subject, detail FROM probe_results WHERE reachable = 0 ORDER BY subject",
     )
@@ -223,10 +244,10 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
             // Named from the catalogue rather than stored beside the verdict:
             // the display name belongs to the build, not to the observation.
             if let Some(info) = metadata::info(id) {
-                warnings.push(
+                warnings.push(Warning::new(
                     localizer
                         .translate("WarnProviderUnreachable", &[("provider", info.display_name)]),
-                );
+                ));
             }
         } else if let Some(id) = subject.strip_prefix("instance:") {
             let name: Option<String> =
@@ -235,10 +256,10 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
                     .fetch_optional(&state.pool)
                     .await?;
             if let Some(name) = name {
-                warnings.push(localizer.translate(
+                warnings.push(Warning::new(localizer.translate(
                     "WarnInstanceUnreachable",
                     &[("name", &name), ("status", detail.as_deref().unwrap_or(""))],
-                ));
+                )));
             }
         }
     }
@@ -355,7 +376,7 @@ async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,
     settings: &Settings,
-) -> AppResult<Vec<String>> {
+) -> AppResult<Vec<Warning>> {
     let mut warnings = Vec::new();
 
     // `external` is a decision, not an omission, so it is stated as its own
@@ -363,10 +384,10 @@ async fn offline_warnings(
     // unauthenticated is how a diagnostic gets ignored.
     match state.config.auth_mode {
         crate::config::AuthMode::None => {
-            warnings.push(localizer.translate("WarnApiUnauthenticated", &[]));
+            warnings.push(Warning::new(localizer.translate("WarnApiUnauthenticated", &[])));
         }
         crate::config::AuthMode::External => {
-            warnings.push(localizer.translate("WarnApiExternalAuth", &[]));
+            warnings.push(Warning::new(localizer.translate("WarnApiExternalAuth", &[])));
         }
         crate::config::AuthMode::ApiKey
         | crate::config::AuthMode::Forms
@@ -391,14 +412,21 @@ async fn offline_warnings(
     .await?;
 
     if row.0 > 0 {
-        warnings
-            .push(localizer.translate("WarnUnmappedCategories", &[("count", &row.0.to_string())]));
+        warnings.push(Warning::restating(
+            step::CATEGORIES,
+            localizer.translate("WarnUnmappedCategories", &[("count", &row.0.to_string())]),
+        ));
     }
     if row.1 == 0 {
-        warnings.push(localizer.translate("WarnNoEnabledInstance", &[]));
+        warnings.push(Warning::restating(
+            step::INSTANCE,
+            localizer.translate("WarnNoEnabledInstance", &[]),
+        ));
     }
     if row.2 > 0 {
-        warnings.push(localizer.translate("WarnMissingMetadata", &[("count", &row.2.to_string())]));
+        warnings.push(Warning::new(
+            localizer.translate("WarnMissingMetadata", &[("count", &row.2.to_string())]),
+        ));
     }
 
     // An unattended pass that panicked. The loop catches it and carries on —
@@ -415,9 +443,9 @@ async fn offline_warnings(
     .fetch_one(&state.pool)
     .await?;
     if panicked > 0 {
-        warnings.push(
+        warnings.push(Warning::new(
             localizer.translate("WarnSchedulerPanicked", &[("count", &panicked.to_string())]),
-        );
+        ));
     }
 
     // A retention count stored above its ceiling is honoured as it is:
@@ -427,10 +455,10 @@ async fn offline_warnings(
     for (key, max) in crate::api::settings::retention_counts() {
         let stored: i64 = settings.get(key, 0i64);
         if stored > max {
-            warnings.push(localizer.translate(
+            warnings.push(Warning::new(localizer.translate(
                 "WarnSettingAboveMaximum",
                 &[("key", key), ("value", &stored.to_string()), ("max", &max.to_string())],
-            ));
+            )));
         }
     }
 
@@ -449,7 +477,10 @@ async fn offline_warnings(
     .await?;
 
     for (name,) in unmapped {
-        warnings.push(localizer.translate("WarnInstanceNoMapping", &[("name", &name)]));
+        warnings.push(Warning::restating(
+            step::CATEGORIES,
+            localizer.translate("WarnInstanceNoMapping", &[("name", &name)]),
+        ));
     }
 
     Ok(warnings)
@@ -460,7 +491,7 @@ async fn offline_warnings(
 /// Deliberately not "no TMDb key": with the Arr enabled, genre, language and
 /// certification rules match perfectly well without one — only keywords and
 /// origin countries do not.
-fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<String> {
+fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<Warning> {
     let mut warnings = Vec::new();
     let order = AppState::metadata_order_from(settings);
     // A source counts as configured whether its key came from the interface
@@ -471,9 +502,10 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
     // is the one thing the user can act on.
     for provider in order {
         if provider.needs_key && !metadata::is_usable(provider, &keys) {
-            warnings.push(
+            warnings.push(Warning::restating(
+                step::METADATA,
                 localizer.translate("WarnProviderNeedsKey", &[("provider", provider.display_name)]),
-            );
+            ));
         }
     }
 

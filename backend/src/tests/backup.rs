@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::services::backup;
 use crate::state::AppState;
 
-use super::{TempDir, TestApp};
+use super::{TempDir, TestApp, warning_messages};
 
 /// A harness backed by a real database file in a throwaway directory.
 ///
@@ -139,12 +139,7 @@ async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_i
     assert_eq!(backup::prune(&app.state).await.unwrap(), 0, "archives went without a save");
 
     let status = app.get("/api/v1/status").await.assert_ok().clone();
-    let named = status["warnings"]
-        .as_array()
-        .map(|w| {
-            w.iter().any(|w| w.as_str().unwrap_or_default().contains("backup_retention_count"))
-        })
-        .unwrap_or(false);
+    let named = warning_messages(&status).iter().any(|w| w.contains("backup_retention_count"));
     assert!(named, "the warnings do not name the key: {status}");
 
     // Saved as it stands it is refused, and the warning is what explains why.

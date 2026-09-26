@@ -9,8 +9,10 @@ import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
 import { FIELDS, SOURCE_KEY_SETTING } from '../lib/settings';
 import Settings from './Settings.svelte';
-import { publishOnboarding } from '../lib/onboarding.svelte';
+import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
+import { interceptLinks } from '../lib/router.svelte';
 import { onboardingStatus } from '../test/fixtures';
+import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
 
 /**
@@ -33,6 +35,9 @@ const STRINGS = {
   GuideTitle: 'Getting started',
   GuideRestartText: 'Show the steps again.',
   GuideRestart: 'Show the guide',
+  GuideLiveAction: 'Open the routing settings',
+  GuideLiveTitle: 'Leave test mode',
+  GuideOptionalDoneNext: 'Optional step done. Next: {next}',
   SettingsTabMaintenance: 'Maintenance',
   UnsavedChanges: 'Unsaved changes: {count}',
   SavesEverySection: 'Every section is saved together',
@@ -143,7 +148,7 @@ async function save(): Promise<Record<string, string>> {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  window.location.hash = '';
+  withBase(null);
   publishOnboarding(null);
   window.history.replaceState({}, '', '/');
 });
@@ -418,8 +423,20 @@ describe('housekeeping', () => {
 });
 
 describe('the section strip', () => {
+  /** A bare fragment resolves against the `<base href>`, which is the mount point. */
+  it('keeps the page address when switching sections under a mount point', async () => {
+    withBase('/routarr/');
+    window.history.replaceState({}, '', '/routarr/settings');
+    mount({});
+
+    await openSection('Routing');
+
+    expect(window.location.pathname).toBe('/routarr/settings');
+    expect(window.location.hash).toBe('#routing');
+  });
+
   it('opens the section named in the URL', async () => {
-    window.location.hash = '#metadata';
+    window.history.replaceState({}, '', '/settings#metadata');
     mount({});
 
     const tab = await screen.findByRole('tab', { name: 'Metadata' });
@@ -808,13 +825,39 @@ describe('a refused save', () => {
 describe('the getting-started guide', () => {
   it('can be shown again once it was skipped', async () => {
     publishOnboarding(onboardingStatus([], { state: 'dismissed' }));
-    const set = vi.spyOn(api, 'setOnboarding').mockResolvedValue(onboardingStatus());
+    const resumed = onboardingStatus();
+    const set = vi.spyOn(api, 'setOnboarding').mockResolvedValue(resumed);
+    window.history.replaceState({}, '', '/settings');
     mount({});
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Show the guide' }));
 
     await waitFor(() => expect(set).toHaveBeenCalledWith('pending'));
     await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(onboarding.current).toEqual(resumed);
+  });
+
+  /** A link to another section of this page moves no route, only the fragment. */
+  it('follows the guide from the metadata section to the routing one', async () => {
+    const stop = interceptLinks();
+    try {
+      publishOnboarding(
+        onboardingStatus(['instance', 'categories', 'metadata', 'rule', 'simulation']),
+      );
+      window.history.replaceState({}, '', '/settings#metadata');
+      mount({});
+
+      await fireEvent.click(await screen.findByRole('link', { name: 'Open the routing settings' }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: 'Routing' })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        ),
+      );
+    } finally {
+      stop();
+    }
   });
 
   it('leads back to a guide that already shows, without writing anything', async () => {

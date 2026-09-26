@@ -230,6 +230,7 @@
   "GuideSkipStep": "Пропустить шаг",
   "GuideStepNext": "Следующий шаг",
   "GuideTitle": "Начало работы",
+  "GuideUnavailable": "Не удалось прочитать шаги начальной настройки: {error}",
   "ModeDryRunShort": "Пробный запуск",
   "Duplicate": "Дублировать (отключённая копия)",
   "Edit": "Изменить",

@@ -204,7 +204,7 @@ test.describe('on a phone', () => {
           running_jobs: 2,
           pending_decisions: 12,
           failed_decisions: 3,
-          warnings: ['a', 'b', 'c', 'd'],
+          warnings: ['a', 'b', 'c', 'd'].map((message) => ({ message, guide_step: null })),
         },
       });
     });

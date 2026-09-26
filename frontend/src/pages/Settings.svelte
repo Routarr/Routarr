@@ -132,13 +132,16 @@
   function openSection(id: SectionId) {
     section = id;
     // `replaceState`, not `pushState`: switching section is not navigation, and
-    // stacking twenty history entries would make the back button useless.
-    window.history.replaceState(null, '', `#${id}`);
+    // stacking twenty history entries would make the back button useless. The
+    // path is written out: a bare `#id` resolves against the `<base href>`,
+    // which is the mount point and not this page.
+    const { pathname, search } = window.location;
+    window.history.replaceState(null, '', `${pathname}${search}#${id}`);
   }
 
-  // A hash that changes without a remount — a link to `#metadata` followed from
-  // this very page — has to move the section too; read once at mount, the URL
-  // and the screen disagree.
+  // A hash that changes without a remount, as a link to `#routing` followed
+  // from this very page, has to move the section too. Read once at mount, the
+  // URL and the screen disagree.
   $effect(() => {
     const sync = () => {
       const next = window.location.hash.replace('#', '');

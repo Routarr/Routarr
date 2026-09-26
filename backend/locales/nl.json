@@ -230,6 +230,7 @@
   "GuideSkipStep": "Stap overslaan",
   "GuideStepNext": "Volgende stap",
   "GuideTitle": "Aan de slag",
+  "GuideUnavailable": "De stappen om aan de slag te gaan konden niet worden gelezen: {error}",
   "ModeDryRunShort": "Testmodus",
   "Duplicate": "Dupliceren (uitgeschakelde kopie)",
   "Edit": "Bewerken",

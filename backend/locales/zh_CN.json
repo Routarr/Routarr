@@ -230,6 +230,7 @@
   "GuideSkipStep": "跳过此步骤",
   "GuideStepNext": "下一步",
   "GuideTitle": "入门指南",
+  "GuideUnavailable": "无法读取入门指南：{error}",
   "ModeDryRunShort": "模拟运行",
   "Duplicate": "复制（禁用的副本）",
   "Edit": "编辑",

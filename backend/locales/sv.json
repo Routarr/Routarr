@@ -230,6 +230,7 @@
   "GuideSkipStep": "Hoppa över steget",
   "GuideStepNext": "Nästa steg",
   "GuideTitle": "Kom igång",
+  "GuideUnavailable": "Guiden för att komma igång kunde inte läsas: {error}",
   "ModeDryRunShort": "Testkörning",
   "Duplicate": "Duplicera (inaktiverad kopia)",
   "Edit": "Redigera",

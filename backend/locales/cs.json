@@ -230,6 +230,7 @@
   "GuideSkipStep": "Přeskočit krok",
   "GuideStepNext": "Další krok",
   "GuideTitle": "Začínáme",
+  "GuideUnavailable": "Průvodce úvodním nastavením se nepodařilo načíst: {error}",
   "ModeDryRunShort": "Zkušební režim",
   "Duplicate": "Duplikovat (vypnutá kopie)",
   "Edit": "Upravit",

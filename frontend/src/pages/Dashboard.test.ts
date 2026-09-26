@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { fireEvent, screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { health, healthInstance, onboardingStatus } from '../test/fixtures';
-import { publishOnboarding } from '../lib/onboarding.svelte';
+import { health, healthInstance, onboardingStatus, warning } from '../test/fixtures';
+import { publishOnboarding, publishOnboardingFailure } from '../lib/onboarding.svelte';
+import { statusRevision } from '../lib/status.svelte';
 import { api } from '../api/client';
 import { withBase } from '../test/base';
 import Dashboard from './Dashboard.svelte';
@@ -28,6 +29,8 @@ const STRINGS = {
   MetadataEnrichedCount: '{count} items enriched.',
   MetadataComplete: 'Nothing missing.',
   GuideTitle: 'Getting started',
+  GuideUnavailable: 'The getting-started guide could not be read: {error}',
+  Retry: 'Retry',
 };
 
 const show = () => renderWithI18n(Dashboard, { strings: STRINGS });
@@ -40,6 +43,7 @@ afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
   publishOnboarding(null);
+  publishOnboardingFailure(null);
 });
 
 describe('Dashboard', () => {
@@ -99,7 +103,7 @@ describe('Dashboard', () => {
    */
   it('shows at most three warnings, and links to the rest', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ warnings: ['one', 'two', 'three', 'four', 'five'] }),
+      health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
     );
     const { container } = show();
 
@@ -177,22 +181,33 @@ describe('Dashboard', () => {
     });
   });
 
-  /** Each warning of an installation not set up is one of the guide's steps. */
-  it('puts the guide first and the warnings aside while it runs', async () => {
+  /** A warning that restates an open step is the step's, and the guide says it. */
+  it('puts the guide first and leaves it the warnings of its open steps', async () => {
     publishOnboarding(onboardingStatus());
-    bothReturn(health({ warnings: ['No enabled Arr instance'] }));
+    bothReturn(
+      health({
+        warnings: [warning('No enabled Arr instance', 'instance'), warning('API unauthenticated')],
+      }),
+    );
     show();
 
     expect(await screen.findByRole('heading', { name: 'Getting started' })).toBeTruthy();
+    expect(await screen.findByText('API unauthenticated')).toBeTruthy();
     expect(screen.queryByText('No enabled Arr instance')).toBeNull();
   });
 
-  it('lists the warnings once the guide is done', async () => {
-    publishOnboarding(onboardingStatus([], { state: 'done' }));
-    bothReturn(health({ warnings: ['No enabled Arr instance'] }));
+  /** Where the guide lives, a guide that could not be read is said, with a way to try again. */
+  it('says the guide could not be read, and reads it again on request', async () => {
+    publishOnboardingFailure('database is locked');
+    bothReturn(health());
     show();
 
-    expect(await screen.findByText('No enabled Arr instance')).toBeTruthy();
-    expect(screen.queryByRole('heading', { name: 'Getting started' })).toBeNull();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'The getting-started guide could not be read: database is locked',
+    );
+    const before = statusRevision();
+    await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(statusRevision()).toBe(before + 1);
   });
 });

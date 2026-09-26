@@ -230,6 +230,7 @@
   "GuideSkipStep": "Omet aquest pas",
   "GuideStepNext": "Pas següent",
   "GuideTitle": "Primers passos",
+  "GuideUnavailable": "No s'ha pogut llegir la guia de primers passos: {error}",
   "ModeDryRunShort": "Simulació",
   "Duplicate": "Duplica (còpia desactivada)",
   "Edit": "Edita",

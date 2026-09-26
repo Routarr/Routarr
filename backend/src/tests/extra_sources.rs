@@ -11,8 +11,8 @@ use std::sync::Arc;
 use crate::services::{enrichment, metadata};
 use crate::state::AppState;
 
-use super::TestApp;
 use super::fake_sources::FakeSources;
+use super::{TestApp, warning_messages};
 
 /// A one-film library pointed at every fake source.
 ///
@@ -352,9 +352,7 @@ async fn a_source_without_its_key_is_reported_rather_than_probed() {
 
     assert_eq!(health["metadata"]["providers"][0]["configured"], false);
     assert_eq!(health["metadata"]["providers"][0]["connected"], serde_json::Value::Null);
-    assert!(
-        health["warnings"].as_array().unwrap().iter().any(|w| w.as_str().unwrap().contains("OMDb"))
-    );
+    assert!(warning_messages(health).iter().any(|w| w.contains("OMDb")));
 }
 
 // ------------------------------------------------------------------- units
@@ -502,12 +500,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         TestApp::around(AppState { config: std::sync::Arc::new(config), ..app.state.clone() });
 
     app.get("/api/v1/health").await.assert_ok();
-    let warned: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let warned = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         warned.iter().any(|w| w.contains("OMDb")),
         "the probe recorded nothing about a source that failed: {warned:?}"
@@ -519,12 +512,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         .await
         .unwrap();
     app.get("/api/v1/health").await.assert_ok();
-    let after: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let after = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         !after.iter().any(|w| w.contains("OMDb")),
         "a source nobody probes any more is still reported: {after:?}"

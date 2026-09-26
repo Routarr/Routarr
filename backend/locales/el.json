@@ -230,6 +230,7 @@
   "GuideSkipStep": "Παράλειψη βήματος",
   "GuideStepNext": "Επόμενο βήμα",
   "GuideTitle": "Πρώτα βήματα",
+  "GuideUnavailable": "Δεν ήταν δυνατή η ανάγνωση των πρώτων βημάτων: {error}",
   "ModeDryRunShort": "Δοκιμή",
   "Duplicate": "Διπλότυπο (ανενεργό αντίγραφο)",
   "Edit": "Επεξεργασία",

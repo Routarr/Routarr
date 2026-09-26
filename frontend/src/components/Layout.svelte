@@ -8,8 +8,12 @@
   import { applyTheme, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { statusRevision } from '../lib/status.svelte';
-  import { guideProgress } from '../api/onboarding';
-  import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
+  import { guideProgress, outsideTheGuide } from '../api/onboarding';
+  import {
+    onboarding,
+    publishOnboarding,
+    publishOnboardingFailure,
+  } from '../lib/onboarding.svelte';
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
@@ -42,16 +46,16 @@
   );
   $effect(() => {
     if (guide.data) publishOnboarding(guide.data);
+    publishOnboardingFailure(guide.error);
   });
   const guidePill = $derived.by(() => {
     const status = onboarding.current;
     if (!status || status.state !== 'pending') return null;
     return guideProgress(status);
   });
-  // While the guide runs, the warnings of an installation not set up yet are
-  // its unfinished steps, and the pill already points at them. A failed move
-  // is never one of them, so it still shows.
-  const warned = $derived(guidePill ? 0 : (status.data?.warnings.length ?? 0));
+  // A warning an open step restates is left to the guide, which the pill
+  // points at. A failed move is never a step, so it always shows.
+  const warned = $derived(outsideTheGuide(status.data?.warnings ?? [], onboarding.current).length);
 
   // Which gate to show, and whether to offer a way out. Public and cheap, and
   // asked once: a browser that has not signed in cannot be asked for a session

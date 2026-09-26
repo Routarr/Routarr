@@ -57,6 +57,7 @@ PAIRS: dict[str, str] = {
     "PreviewResponse": "RulePreview",
     "ProvidersResponse": "MetadataProviders",
     "StatusResponse": "Status",
+    "Warning": "Warning",
     "RestoreResponse": "RestoreResult",
     "BackupManifest": "BackupManifest",
     "TestConnectionResponse": "TestConnectionResponse",

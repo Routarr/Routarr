@@ -13,10 +13,7 @@ async function showGuide(): Promise<void> {
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
 }
 
-test('greets an installation not set up with its next steps, not with warnings', async ({
-  page,
-  instanceId,
-}) => {
+test('greets an installation not set up with its next steps', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
   await showGuide();
   await page.goto('/');

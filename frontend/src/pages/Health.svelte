@@ -45,7 +45,7 @@
         {#each health.warnings as warning, index (index)}
           <div class="banner banner-warning">
             <AlertTriangle size={16} />
-            <span>{warning}</span>
+            <span>{warning.message}</span>
           </div>
         {/each}
       {/if}

@@ -230,6 +230,7 @@
   "GuideSkipStep": "Lépés kihagyása",
   "GuideStepNext": "Következő lépés",
   "GuideTitle": "Első lépések",
+  "GuideUnavailable": "Az első lépések útmutatója nem olvasható be: {error}",
   "ModeDryRunShort": "Próbafuttatás",
   "Duplicate": "Másolat készítése (kikapcsolva)",
   "Edit": "Szerkesztés",

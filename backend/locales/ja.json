@@ -230,6 +230,7 @@
   "GuideSkipStep": "スキップ",
   "GuideStepNext": "次のステップ",
   "GuideTitle": "セットアップガイド",
+  "GuideUnavailable": "セットアップガイドを読み込めませんでした: {error}",
   "ModeDryRunShort": "ドライラン",
   "Duplicate": "複製 (無効なコピー)",
   "Edit": "編集",

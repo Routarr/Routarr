@@ -230,6 +230,7 @@
   "GuideSkipStep": "Spring trinnet over",
   "GuideStepNext": "Næste trin",
   "GuideTitle": "Kom i gang",
+  "GuideUnavailable": "Guiden til at komme i gang kunne ikke læses: {error}",
   "ModeDryRunShort": "Prøvekørsel",
   "Duplicate": "Duplikér (deaktiveret kopi)",
   "Edit": "Redigér",

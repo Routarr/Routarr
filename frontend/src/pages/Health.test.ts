@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { health, healthInstance } from '../test/fixtures';
+import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
 import HealthPage from './Health.svelte';
@@ -44,7 +44,7 @@ describe('Diagnostics', () => {
 
   it('lists every warning it was given, not a sample of them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ warnings: ['one', 'two', 'three', 'four', 'five'] }),
+      health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
     );
     const { container } = show();
 

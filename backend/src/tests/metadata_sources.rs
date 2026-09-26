@@ -9,8 +9,8 @@
 use crate::services::routing::{self, SimulationOptions};
 use crate::services::{maintenance, sync};
 
-use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 
 async fn synced(kind: &str, arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
@@ -394,12 +394,9 @@ async fn the_three_metadata_counters_agree_on_one_library() {
         "the diagnostics count and the library column disagree"
     );
 
-    let warning = health["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find_map(|w| w.as_str().filter(|w| w.contains("no metadata") || w.contains("Metadata")))
-        .map(str::to_string);
+    let warning = warning_messages(&health)
+        .into_iter()
+        .find(|w| w.contains("no metadata") || w.contains("Metadata"));
     if without > 0 {
         let warning = warning.expect("a library with undescribed items warns about them");
         assert!(
@@ -468,8 +465,7 @@ async fn stored_order(app: &TestApp) -> Option<String> {
 }
 
 async fn warnings(app: &TestApp) -> Vec<String> {
-    let response = app.get("/api/v1/health").await;
-    serde_json::from_value(response.assert_ok()["warnings"].clone()).unwrap()
+    warning_messages(app.get("/api/v1/health").await.assert_ok())
 }
 
 async fn with_tmdb_key_in_the_environment() -> TestApp {
@@ -528,51 +524,43 @@ async fn no_key_in_the_environment_leaves_the_order_unchosen() {
     assert_eq!(stored_order(&app).await, None);
 }
 
-/// The source list a database holds after its upgrade runs, from the list it
-/// held before.
-///
-/// Replayed here on purpose: every test database starts empty, so the file ran
-/// before any instance or key existed. `arr,tmdb` is what the initial schema
-/// seeds.
-async fn upgraded(app: &TestApp, order: &str) -> Option<String> {
-    set_order(app, order).await;
-    sqlx::raw_sql(include_str!("../../migrations/003_metadata_sources.sql"))
-        .execute(&app.state.pool)
+/// The source list a first-release database holds once a start upgraded it,
+/// after `seed` prepared it. The initial schema seeds `arr,tmdb`.
+async fn upgraded(seed: &[&'static str]) -> Option<String> {
+    let pool = database_through("001_initial_schema").await;
+    for statement in seed {
+        sqlx::query(*statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
+        .fetch_optional(&pool)
         .await
-        .unwrap();
-    stored_order(app).await
+        .unwrap()
 }
 
 #[tokio::test]
 async fn a_database_that_routes_nothing_yet_drops_the_seeded_tmdb() {
-    let app = TestApp::new().await;
-
-    assert_eq!(upgraded(&app, "arr,tmdb").await, None);
+    assert_eq!(upgraded(&[]).await, None);
 }
 
 /// Its rules may rely on what only TMDb answers.
 #[tokio::test]
 async fn an_installation_with_an_instance_keeps_tmdb_across_the_upgrade() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-
-    assert_eq!(upgraded(&app, "arr,tmdb").await.as_deref(), Some("arr,tmdb"));
+    assert_eq!(upgraded(&[AN_INSTANCE]).await.as_deref(), Some("arr,tmdb"));
 }
 
 #[tokio::test]
 async fn a_tmdb_key_stored_in_the_interface_keeps_tmdb_across_the_upgrade() {
-    let app = TestApp::new().await;
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'sealed')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    let key = "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'sealed')";
 
-    assert_eq!(upgraded(&app, "arr,tmdb").await.as_deref(), Some("arr,tmdb"));
+    assert_eq!(upgraded(&[key]).await.as_deref(), Some("arr,tmdb"));
 }
 
 #[tokio::test]
 async fn a_source_list_someone_chose_comes_through_the_upgrade_unchanged() {
-    let app = TestApp::new().await;
+    let chosen = "UPDATE settings SET value = 'arr,anilist' WHERE key = 'metadata_providers'";
 
-    assert_eq!(upgraded(&app, "arr,anilist").await.as_deref(), Some("arr,anilist"));
+    assert_eq!(upgraded(&[chosen]).await.as_deref(), Some("arr,anilist"));
 }

@@ -230,6 +230,7 @@
   "GuideSkipStep": "Sari peste acest pas",
   "GuideStepNext": "Pasul următor",
   "GuideTitle": "Primii pași",
+  "GuideUnavailable": "Ghidul primilor pași nu a putut fi citit: {error}",
   "ModeDryRunShort": "Simulare",
   "Duplicate": "Duplică (copie dezactivată)",
   "Edit": "Editează",

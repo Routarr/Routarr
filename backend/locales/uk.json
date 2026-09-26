@@ -230,6 +230,7 @@
   "GuideSkipStep": "Пропустити крок",
   "GuideStepNext": "Наступний крок",
   "GuideTitle": "Початок роботи",
+  "GuideUnavailable": "Не вдалося прочитати кроки початкового налаштування: {error}",
   "ModeDryRunShort": "Пробний запуск",
   "Duplicate": "Дублювати (вимкнена копія)",
   "Edit": "Змінити",

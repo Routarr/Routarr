@@ -293,3 +293,33 @@ impl TestResponse {
         self.json.get("message").and_then(|v| v.as_str()).unwrap_or_default().to_string()
     }
 }
+
+/// A database as the release that shipped migration `last` hands it to an
+/// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
+pub async fn database_through(last: &str) -> sqlx::SqlitePool {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA foreign_keys=ON").execute(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, last).await.unwrap();
+    pool
+}
+
+/// One enabled instance, written in the initial schema's terms, which every
+/// later schema reads.
+pub const AN_INSTANCE: &str = "INSERT INTO instances
+    (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+    VALUES ('inst-1', 'Radarr', 'radarr', 'http://radarr:7878', 'secret', 1, 'tok')";
+
+/// The warnings of a `/status` or `/health` answer, as the reader sees them.
+#[track_caller]
+pub fn warning_messages(body: &serde_json::Value) -> Vec<String> {
+    body["warnings"]
+        .as_array()
+        .expect("a list of warnings")
+        .iter()
+        .map(|warning| warning["message"].as_str().expect("a warning's message").to_string())
+        .collect()
+}

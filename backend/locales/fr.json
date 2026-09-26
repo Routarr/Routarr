@@ -230,6 +230,7 @@
   "GuideSkipStep": "Passer cette étape",
   "GuideStepNext": "Prochaine étape",
   "GuideTitle": "Premiers pas",
+  "GuideUnavailable": "Le guide des premiers pas n'a pas pu être lu : {error}",
   "ModeDryRunShort": "Simulation",
   "Duplicate": "Dupliquer (copie désactivée)",
   "Edit": "Modifier",

@@ -424,20 +424,27 @@ export interface LogEntry {
   executed_at: string;
 }
 
+/** One warning, in the reader's language. */
+export interface Warning {
+  message: string;
+  /** The getting-started step this warning restates, whose banner says it too. */
+  guide_step: OnboardingStep['id'] | null;
+}
+
 export interface Status {
   version: string;
   dry_run: boolean;
   running_jobs: number;
   pending_decisions: number;
   failed_decisions: number;
-  warnings: string[];
+  warnings: Warning[];
 }
 
 export interface Health {
   status: string;
   version: string;
   database: string;
-  warnings: string[];
+  warnings: Warning[];
   instances: {
     id: string;
     name: string;

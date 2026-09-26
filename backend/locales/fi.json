@@ -230,6 +230,7 @@
   "GuideSkipStep": "Ohita tämä vaihe",
   "GuideStepNext": "Seuraava vaihe",
   "GuideTitle": "Aloitusopas",
+  "GuideUnavailable": "Aloitusopasta ei voitu lukea: {error}",
   "ModeDryRunShort": "Testiajo",
   "Duplicate": "Monista (poissa käytöstä oleva kopio)",
   "Edit": "Muokkaa",

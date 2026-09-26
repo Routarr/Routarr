@@ -409,7 +409,12 @@ impl AppState {
     /// Test-only state backed by an in-memory database.
     #[cfg(test)]
     pub async fn for_tests() -> Self {
-        let pool = crate::db::test_pool().await;
+        Self::for_tests_on(crate::db::test_pool().await)
+    }
+
+    /// Test-only state around a database the test prepared itself.
+    #[cfg(test)]
+    pub fn for_tests_on(pool: SqlitePool) -> Self {
         let config = Config::for_tests();
         Self {
             http: crate::http::build_client(&config).expect("test http client"),

@@ -16,6 +16,17 @@ use crate::state::AppState;
 /// The values the `onboarding` setting may hold.
 pub const STATES: [&str; 3] = ["pending", "dismissed", "done"];
 
+/// Each step's id. A warning that restates a step names it by the same id
+/// (`health::Warning`).
+pub mod step {
+    pub const INSTANCE: &str = "instance";
+    pub const CATEGORIES: &str = "categories";
+    pub const METADATA: &str = "metadata";
+    pub const RULE: &str = "rule";
+    pub const SIMULATION: &str = "simulation";
+    pub const LIVE: &str = "live";
+}
+
 #[derive(Debug, Serialize)]
 pub struct OnboardingStatus {
     /// `pending` (the guide shows), `dismissed` (skipped, can be resumed) or
@@ -70,8 +81,10 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     // disabled instance routes nothing. The categories step is done once one
     // folder is mapped and no category reaches no folder, the same predicate as
     // the diagnostics warning, so the guide and the warning never disagree.
-    // A simulation counts once someone ran it: the scheduler runs its own after
-    // every sync, and the step asks for proposals read, not merely made.
+    // A simulation counts once someone ran one, read from the job the run
+    // records: the scheduler's own pass after each sync supersedes the
+    // proposals of a manual one, the purge then deletes them, and a library
+    // already in place gets none. The job row lasts `log_retention_days`.
     let (instance, mapped, unmapped, rule, simulation): (bool, bool, bool, bool, bool) =
         sqlx::query_as(
             "SELECT
@@ -81,8 +94,10 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
                 EXISTS(SELECT 1 FROM categories c WHERE NOT EXISTS
                        (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)),
                 EXISTS(SELECT 1 FROM rules WHERE enabled = 1),
-                EXISTS(SELECT 1 FROM decisions WHERE actor = ?)",
+                EXISTS(SELECT 1 FROM jobs
+                       WHERE kind = ? AND trigger = ? AND status = 'success')",
         )
+        .bind(crate::jobs::JobKind::Simulate.as_str())
         .bind(crate::jobs::TRIGGER_MANUAL)
         .fetch_one(&state.pool)
         .await?;
@@ -93,12 +108,12 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     let live = !state.bool_setting("global_dry_run", true).await;
 
     let steps = vec![
-        OnboardingStep { id: "instance", done: instance, optional: false },
-        OnboardingStep { id: "categories", done: mapped && !unmapped, optional: false },
-        OnboardingStep { id: "metadata", done: metadata, optional: true },
-        OnboardingStep { id: "rule", done: rule, optional: false },
-        OnboardingStep { id: "simulation", done: simulation, optional: false },
-        OnboardingStep { id: "live", done: live, optional: true },
+        OnboardingStep { id: step::INSTANCE, done: instance, optional: false },
+        OnboardingStep { id: step::CATEGORIES, done: mapped && !unmapped, optional: false },
+        OnboardingStep { id: step::METADATA, done: metadata, optional: true },
+        OnboardingStep { id: step::RULE, done: rule, optional: false },
+        OnboardingStep { id: step::SIMULATION, done: simulation, optional: false },
+        OnboardingStep { id: step::LIVE, done: live, optional: true },
     ];
     let complete = steps.iter().all(|step| step.done || step.optional);
 

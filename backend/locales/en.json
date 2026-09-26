@@ -230,6 +230,7 @@
   "GuideSkipStep": "Skip this step",
   "GuideStepNext": "Next step",
   "GuideTitle": "Getting started",
+  "GuideUnavailable": "The getting-started guide could not be read: {error}",
   "ModeDryRunShort": "Dry-run",
   "Duplicate": "Duplicate (disabled copy)",
   "Edit": "Edit",
