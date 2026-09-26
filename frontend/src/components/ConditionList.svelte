@@ -124,12 +124,19 @@
           <!-- No counterpart means the media side holds one value, so several
                values can only be alternatives: said in words where the
                selector would stand, or the search box after the first value
-               reads as an invitation to give a title a second language. -->
-          <span class="condition-quantifier">{t('QuantifierAny')}</span>
+               reads as an invitation to give a title a second language. The
+               field names it as its description, so it is heard as well. -->
+          <span class="condition-quantifier" id="rules-{list}-{index}-quantifier"
+            >{t('QuantifierAny')}</span
+          >
         {/if}
         <div class="flex-1">
           <ConditionValue
             {spec}
+            describedBy={!spec?.counterpart &&
+            (spec?.value_type === 'string_list' || spec?.value_type === 'number_list')
+              ? `rules-${list}-${index}-quantifier`
+              : undefined}
             value={condition.value}
             suggestions={facetOf(spec)}
             suggestionsLoading={facetsLoading}

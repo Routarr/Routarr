@@ -3078,6 +3078,7 @@ select.form-select {
   padding: 8px 12px;
   background: none;
   border: none;
+  border-inline-start: 2px solid transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -3085,9 +3086,15 @@ select.form-select {
   cursor: pointer;
 }
 
-.picker-option:hover,
-.picker-option:focus-visible {
+.picker-option:hover {
   background-color: var(--bg-card-hover);
+}
+
+/* What Enter adds, marked as the palette marks what Enter opens: the focus
+   stays in the field, so no focus ring can say it. */
+.picker-option[aria-selected='true'] {
+  background-color: var(--bg-card-hover);
+  border-inline-start-color: var(--accent-primary);
 }
 
 /* The figure is reference data, so it recedes rather than competing with the

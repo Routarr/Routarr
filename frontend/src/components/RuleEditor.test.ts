@@ -259,6 +259,31 @@ describe('RuleEditor', () => {
     expect(save).toBeDisabled();
   });
 
+  /** A value picked within the last debounce: Save reads the fresh verdict. */
+  it('asks again on Save, and saves a condition that has its value by then', async () => {
+    vi.spyOn(api, 'validateRule')
+      .mockResolvedValueOnce({
+        valid: false,
+        issues: [
+          {
+            severity: 'error',
+            field: 'conditions',
+            key: 'ValidationConditionEmpty',
+            message: 'Condition 1 (Genre contains) has no value',
+          },
+        ],
+      })
+      .mockResolvedValue({ valid: true, issues: [] });
+    const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
+    render();
+    await touch();
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalledTimes(1));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+  });
+
   /// Pressing Save on an untouched form is also asking: the answer appears
   /// there rather than through a round trip the server would only refuse.
   it('answers the first Save press instead of sending a draft it knows is refused', async () => {

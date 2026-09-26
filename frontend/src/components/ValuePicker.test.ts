@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -151,6 +151,64 @@ describe('ValuePicker', () => {
     await userEvent.type(field, 'anim{Enter}');
 
     expect(onChange).toHaveBeenCalledWith(['Animation']);
+  });
+
+  /**
+   * Inside the rule editor's dialog, an Escape nobody claims closes the dialog
+   * and throws the draft away. Folding the list is all it may do here.
+   */
+  it('folds the list on Escape and claims the key, then lets the next Escape through', async () => {
+    const { field } = open();
+    await userEvent.click(field);
+
+    expect(await fireEvent.keyDown(field, { key: 'Escape' })).toBe(false);
+    expect(field).toHaveAttribute('aria-expanded', 'false');
+    expect(await fireEvent.keyDown(field, { key: 'Escape' })).toBe(true);
+  });
+
+  /** Nothing typed and nothing chosen: Enter is the form's, which saves. */
+  it('adds nothing on Enter in an empty picker, and lets the form have it', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    expect(await fireEvent.keyDown(field, { key: 'Enter' })).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  /** The focus stays in the field and the arrows move through the list. */
+  it('adds the suggestion the arrows reach, and keeps the focus in the field', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    const reached = screen.getByRole('option', { name: 'Science Fiction' });
+    expect(reached).toHaveAttribute('aria-selected', 'true');
+    expect(field).toHaveAttribute('aria-activedescendant', reached.id);
+    await userEvent.keyboard('{Enter}');
+
+    expect(onChange).toHaveBeenCalledWith(['Science Fiction']);
+    expect(document.activeElement).toBe(field);
+  });
+
+  /** Fifty suggestions are not fifty tab stops before the next control. */
+  it('is one tab stop, whatever the list holds', async () => {
+    const { field } = open();
+    await userEvent.click(field);
+    expect(screen.getAllByRole('option').every((option) => option.tabIndex < 0)).toBe(true);
+
+    await userEvent.tab();
+
+    expect(document.activeElement?.getAttribute('role')).not.toBe('option');
+  });
+
+  it('keeps the focus in the field when a suggestion is clicked', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    await userEvent.click(screen.getByRole('option', { name: 'Animation' }));
+
+    expect(onChange).toHaveBeenCalledWith(['Animation']);
+    expect(document.activeElement).toBe(field);
   });
 
   it('says so when the filter matches nothing', async () => {

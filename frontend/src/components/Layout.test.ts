@@ -39,6 +39,7 @@ const STRINGS = {
   NavGroupSupervision: 'Monitoring',
   Diagnostics: 'Diagnostics',
   GuidePillLabel: 'Getting started, required steps done: {done} of {total}',
+  CommandPalette: 'Command palette',
 };
 
 function status(over: Partial<Status> = {}): Status {
@@ -339,6 +340,27 @@ describe('Layout', () => {
 
     await screen.findByLabelText('Dry-run: writes blocked');
     expect(screen.queryByRole('link', { name: /Getting started/ })).toBeNull();
+  });
+
+  /** A dialog holds a draft, which a destination chosen in the palette unmounts. */
+  it('opens the palette on Ctrl+K, but not over an open dialog', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+    await screen.findByLabelText('Dry-run: writes blocked');
+    const palette = () => screen.queryByRole('combobox', { name: 'Command palette' });
+
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('open', '');
+    document.body.append(dialog);
+    try {
+      await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+      expect(palette()).toBeNull();
+    } finally {
+      dialog.remove();
+    }
+
+    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    expect(palette()).toBeTruthy();
   });
 
   /**

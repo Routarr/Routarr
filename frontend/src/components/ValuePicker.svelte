@@ -18,6 +18,7 @@
     options,
     loading = false,
     error = null,
+    describedBy,
     onChange,
   }: {
     label: string;
@@ -27,6 +28,8 @@
     options: Facet[];
     loading?: boolean;
     error?: string | null;
+    /// The element that qualifies the field, as the fixed "any of" beside it.
+    describedBy?: string;
     onChange: (values: string[]) => void;
   } = $props();
 
@@ -38,6 +41,8 @@
   let query = $state('');
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
+  /// The suggestion the arrows reached, or none until an arrow is pressed.
+  let cursor = $state(-1);
 
   // Compared on the canonical key, so an option already chosen under another
   // spelling is not offered a second time.
@@ -58,16 +63,18 @@
   /**
    * The matches in runs of one meaning, in the order the server sends them: a
    * run with a group is drawn under its meaning, a run without is drawn bare.
+   * Each keeps its place in the list, which is what the arrows count.
    */
   const blocks = $derived.by(() => {
-    const runs: { group?: string; options: Facet[] }[] = [];
-    for (const option of matches) {
+    const runs: { group?: string; options: { option: Facet; index: number }[] }[] = [];
+    matches.forEach((option, index) => {
       const last = runs.at(-1);
-      if (last && last.group === option.group) last.options.push(option);
-      else runs.push({ group: option.group, options: [option] });
-    }
+      if (last && last.group === option.group) last.options.push({ option, index });
+      else runs.push({ group: option.group, options: [{ option, index }] });
+    });
     return runs;
   });
+  const optionId = (index: number) => `${listId}-${index}`;
   /// Whether the figures beside the values are counts worth a caption.
   const counted = $derived(matches.some((option) => option.count > 0));
 
@@ -85,37 +92,72 @@
       ? query.trim()
       : '',
   );
+  /// Every value the list offers, in its order: the matches, then the typed text.
+  const choices = $derived([...matches.map((option) => option.value), ...(custom ? [custom] : [])]);
 
   function add(value: string) {
     onChange(addValue(values, value));
     query = '';
+    cursor = -1;
   }
 
+  // The combobox pattern the command palette follows: the focus stays in the
+  // field, the arrows move through the list and `aria-activedescendant` says
+  // where they are, so the list is one tab stop however long it is.
   function onKey(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      open = false;
+      // Claimed only while the list is open. Inside the rule editor's dialog,
+      // an Escape nobody claims closes the dialog, which is the next one's.
+      if (open) {
+        event.preventDefault();
+        open = false;
+        cursor = -1;
+      }
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      open = true;
+      if (choices.length === 0) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      cursor =
+        cursor < 0 && step < 0
+          ? choices.length - 1
+          : (cursor + step + choices.length) % choices.length;
+      // Optional, as the palette's: jsdom ships the element, not the method.
+      document.getElementById(optionId(cursor))?.scrollIntoView?.({ block: 'nearest' });
       return;
     }
     // A comma is a separator everywhere else in this form, so it commits here
     // too rather than landing in a value nothing will ever match.
     if (event.key === 'Enter' || event.key === ',') {
+      const reached = cursor >= 0 ? choices[cursor] : undefined;
+      // Nothing typed and nothing reached: Enter is the form's, which saves.
+      if (!reached && !query.trim()) {
+        if (event.key === ',') event.preventDefault();
+        return;
+      }
       event.preventDefault();
       // The list wins over the text: typing part of a value and pressing Enter
       // has to store the value, not the fragment. The typed text is only taken
       // when the library offers nothing like it.
-      const first = matches[0];
-      if (first) add(first.value);
-      else if (custom) add(custom);
+      const value = reached ?? matches[0]?.value ?? custom;
+      if (value) add(value);
     }
   }
 </script>
 
-{#snippet row(option: Facet, grouped: boolean)}
-  <button
-    type="button"
+{#snippet row(option: Facet, index: number, grouped: boolean)}
+  <!-- An option carries the click itself rather than wrapping a button, which
+       would be a tab stop: the keyboard path is the field's own, as in the
+       command palette, so Svelte's rule cannot see the handler it asks for. -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    id={optionId(index)}
     class="picker-option"
     role="option"
-    aria-selected="false"
+    tabindex="-1"
+    aria-selected={index === cursor}
     aria-label={option.label ?? option.value}
     onclick={() => add(option.value)}
   >
@@ -126,7 +168,7 @@
          0 beside it would read as "absent from the library" where the point
          is that it can be chosen anyway. -->
     {#if option.count > 0}<span class="picker-count">{option.count}</span>{/if}
-  </button>
+  </div>
 {/snippet}
 
 <div
@@ -161,12 +203,15 @@
     aria-expanded={open}
     aria-autocomplete="list"
     aria-controls={listId}
+    aria-activedescendant={open && cursor >= 0 ? optionId(cursor) : undefined}
+    aria-describedby={describedBy}
     autocomplete="off"
     placeholder={t('PlaceholderPickValues')}
     value={query}
     oninput={(event) => {
       query = event.currentTarget.value;
       open = true;
+      cursor = -1;
     }}
     onfocus={() => (open = true)}
     onkeydown={onKey}
@@ -174,8 +219,15 @@
 
   {#if open}
     <!-- Unnamed on purpose: `aria-controls` already ties it to the combobox,
-         and repeating that name gives two elements one label. -->
-    <div class="picker-list" id={listId} role="listbox">
+         and repeating that name gives two elements one label. A press on it
+         keeps the focus in the field, where the keyboard path is. -->
+    <div
+      class="picker-list"
+      id={listId}
+      role="listbox"
+      tabindex="-1"
+      onmousedown={(event) => event.preventDefault()}
+    >
       {#if loading}
         <p class="picker-note">{t('Loading')}</p>
       {:else if error}
@@ -189,26 +241,28 @@
           {#if block.group}
             <div role="group" aria-label={block.group}>
               <p class="picker-group-title" aria-hidden="true">{block.group}</p>
-              {#each block.options as option (option.value)}
-                {@render row(option, true)}
+              {#each block.options as entry (entry.option.value)}
+                {@render row(entry.option, entry.index, true)}
               {/each}
             </div>
           {:else}
-            {#each block.options as option (option.value)}
-              {@render row(option, false)}
+            {#each block.options as entry (entry.option.value)}
+              {@render row(entry.option, entry.index, false)}
             {/each}
           {/if}
         {/each}
         {#if custom}
-          <button
-            type="button"
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            id={optionId(matches.length)}
             class="picker-option"
             role="option"
-            aria-selected="false"
+            tabindex="-1"
+            aria-selected={cursor === matches.length}
             onclick={() => add(custom)}
           >
             {t('AddValue', { value: custom })}
-          </button>
+          </div>
         {/if}
         {#if !matches.length && !custom}
           <p class="picker-note">{options.length ? t('NoMatchingValue') : t('NoValueInLibrary')}</p>

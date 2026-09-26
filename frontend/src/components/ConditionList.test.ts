@@ -150,6 +150,15 @@ describe('ConditionList', () => {
     expect(screen.getByText('any of')).toBeTruthy();
   });
 
+  /** Heard with the field, not only seen beside it. */
+  it('ties the fixed "any of" to the field it qualifies', () => {
+    render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
+
+    expect(screen.getByRole('combobox', { name: LANGUAGE.label })).toHaveAccessibleDescription(
+      'any of',
+    );
+  });
+
   it('says nothing about combining a value that is not a list', () => {
     render([{ type: 'season_count_over', value: 3 }], [SEASONS]);
 

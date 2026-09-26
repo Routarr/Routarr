@@ -132,6 +132,40 @@ test.describe('picking a condition value', () => {
   });
 
   /**
+   * The editor is a modal dialog, where an Escape nobody claims closes it and
+   * the draft with it. Folding the suggestions is what Escape does in a picker.
+   */
+  test('Escape in a picker folds its list and keeps the draft', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.goto('/rules');
+    await page.getByRole('button', { name: 'New Rule' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .locator('.form-group')
+      .filter({ hasText: 'Rule name' })
+      .first()
+      .locator('input')
+      .fill('Draft');
+    await dialog
+      .locator('.form-group')
+      .filter({ hasText: 'Conditions (all of)' })
+      .first()
+      .locator('select')
+      .selectOption('genre_contains');
+
+    const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
+    await picker.fill('anim');
+    await expect(page.getByRole('option', { name: 'Animation' })).toBeVisible();
+    await picker.press('Escape');
+
+    await expect(page.getByRole('option', { name: 'Animation' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.locator('.form-group').filter({ hasText: 'Rule name' }).first().locator('input'),
+    ).toHaveValue('Draft');
+  });
+
+  /**
    * OR and AND on one condition. It is the distinction the form could not make
    * before without asking for a second condition, and only a browser shows that
    * turning the selector keeps the values that were already chosen.

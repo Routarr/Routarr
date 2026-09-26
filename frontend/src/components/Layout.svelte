@@ -115,6 +115,11 @@
     if (event.altKey || event.shiftKey) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
+      // An open dialog holds the reader's work, a rule half written or an
+      // instance form, and a destination chosen in the palette unmounts the
+      // page under it, draft and all. The key stays claimed, so the browser's
+      // own search does not open in its place.
+      if (document.querySelector('dialog[open]')) return;
       palette = true;
     }
   }
