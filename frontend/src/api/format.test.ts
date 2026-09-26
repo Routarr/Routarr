@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { describeCondition, formatBytes, formatPercent, formatTimestamp } from './format';
+import {
+  describeCondition,
+  formatBytes,
+  formatPercent,
+  formatTimestamp,
+  localName,
+} from './format';
+
+describe('localName', () => {
+  /** The vocabulary the server sends is spelled in English, for every reader. */
+  it("names a language and a region in the reader's language, with the code", () => {
+    expect(localName('language', 'ja', 'fr')).toBe('japonais (ja)');
+    expect(localName('region', 'JP', 'fr')).toBe('Japon (JP)');
+    expect(localName('language', 'ja', 'en')).toBe('Japanese (ja)');
+  });
+
+  it('leaves a code the browser cannot name to the caller', () => {
+    expect(localName('language', 'qaa', 'fr')).toBeNull();
+  });
+});
 
 describe('formatBytes', () => {
   const plain = (value: string) => value.replace(/\u202f|\u00a0/g, ' ');

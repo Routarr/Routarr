@@ -499,10 +499,12 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     let app =
         TestApp::around(AppState { config: std::sync::Arc::new(config), ..app.state.clone() });
 
+    let unreachable =
+        app.state.localizer().await.translate("WarnProviderUnreachable", &[("provider", "OMDb")]);
     app.get("/api/v1/health").await.assert_ok();
     let warned = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
-        warned.iter().any(|w| w.contains("OMDb")),
+        warned.contains(&unreachable),
         "the probe recorded nothing about a source that failed: {warned:?}"
     );
 
@@ -514,7 +516,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     app.get("/api/v1/health").await.assert_ok();
     let after = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
-        !after.iter().any(|w| w.contains("OMDb")),
+        !after.contains(&unreachable),
         "a source nobody probes any more is still reported: {after:?}"
     );
 }

@@ -1002,6 +1002,23 @@ async fn valid_settings_are_stored() {
     assert_eq!(app.state.setting("batch_limit", 0usize).await, 5);
 }
 
+/// A client reading every setting and writing them all back, as a script
+/// backing them up does, is not refused on a fresh database.
+#[tokio::test]
+async fn every_setting_read_can_be_written_back_as_it_came() {
+    let app = TestApp::new().await;
+    let read = app.get("/api/v1/settings").await.assert_ok().clone();
+    let values: serde_json::Map<String, serde_json::Value> = read
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(_, value)| value.is_string())
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
+    app.put("/api/v1/settings", serde_json::json!({ "settings": values })).await.assert_ok();
+}
+
 // ------------------------------------------------------------ decisions
 
 #[tokio::test]

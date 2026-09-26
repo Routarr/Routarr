@@ -96,11 +96,11 @@ function rule(over: Partial<Rule> = {}): Rule {
   };
 }
 
-function show(rules: Rule[], served: ConditionCatalog = catalog) {
+function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en') {
   vi.spyOn(api, 'getRules').mockResolvedValue(rules);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getConditionCatalog').mockResolvedValue(served);
-  return renderWithI18n(Rules, { strings: STRINGS });
+  return renderWithI18n(Rules, { strings: STRINGS, language });
 }
 
 afterEach(() => {
@@ -331,6 +331,41 @@ describe('Rules', () => {
     expect(veto?.classList.contains('is-excluded')).toBe(true);
     expect(veto).toHaveTextContent('except');
     expect(screen.queryByText(/original_language|certification_in/)).toBeNull();
+  });
+
+  /** A language is named in the reader's language, not in the server's English. */
+  it('names a language value in the language of the interface', async () => {
+    const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
+    const served: ConditionCatalog = {
+      ...catalog,
+      conditions: [
+        ...catalog.conditions,
+        {
+          ...spec,
+          type: 'original_language',
+          label: 'Langue originale',
+          suggestions: 'original_languages',
+        },
+      ],
+    };
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
+      total_media: 12,
+      without_metadata: 0,
+      vocabularies: {
+        original_languages: [{ value: 'ja', label: 'Japanese (ja)', count: 0 }],
+        origin_countries: [],
+      },
+      genres: [],
+      original_languages: [],
+      origin_countries: [],
+      certifications: [],
+      tags: [],
+      series_types: [],
+      root_folders: [],
+    } as unknown as LibraryFacets);
+    show([rule({ conditions: [{ type: 'original_language', value: ['ja'] }] })], served, 'fr');
+
+    expect(await screen.findByText('Langue originale: japonais (ja)')).toBeTruthy();
   });
 
   /**

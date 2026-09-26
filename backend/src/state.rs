@@ -187,10 +187,16 @@ impl AppState {
                 }
             };
         }
+        self.environment_key(provider).cloned()
+    }
+
+    /// The key a source takes from the environment, as its `key_env` in the
+    /// catalogue names it.
+    pub fn environment_key(&self, provider: &str) -> Option<&String> {
         match provider {
-            metadata::TMDB => self.config.tmdb_api_key.clone(),
-            metadata::OMDB => self.config.omdb_api_key.clone(),
-            metadata::TVDB => self.config.tvdb_api_key.clone(),
+            metadata::TMDB => self.config.tmdb_api_key.as_ref(),
+            metadata::OMDB => self.config.omdb_api_key.as_ref(),
+            metadata::TVDB => self.config.tvdb_api_key.as_ref(),
             _ => None,
         }
     }

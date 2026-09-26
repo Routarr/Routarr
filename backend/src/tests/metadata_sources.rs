@@ -495,15 +495,46 @@ async fn listing_tmdb_without_a_key_still_warns() {
     assert!(warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
 }
 
-/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on.
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and a
+/// start is what reads it.
 #[tokio::test]
-async fn a_tmdb_key_from_the_environment_lists_tmdb_when_no_order_was_chosen() {
+async fn a_start_lists_tmdb_when_its_key_is_in_the_environment() {
     let app = with_tmdb_key_in_the_environment().await;
 
-    assert!(maintenance::converge_metadata_sources(&app.state).await.unwrap());
+    maintenance::converge(&app.state).await.unwrap();
 
     let catalogue = app.get("/api/v1/metadata/providers").await;
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr", "tmdb"]));
+}
+
+/// Any save stores the source list the screen holds, so a key set in the
+/// environment afterwards finds a list the start leaves alone. Said, rather
+/// than read and never used.
+#[tokio::test]
+async fn a_tmdb_key_that_arrives_after_a_save_is_reported() {
+    let app = with_tmdb_key_in_the_environment().await;
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "metadata_providers": "arr" } }))
+        .await
+        .assert_ok();
+
+    maintenance::converge(&app.state).await.unwrap();
+
+    let expected = app.state.localizer().await.translate(
+        "WarnProviderKeyUnlisted",
+        &[("provider", "TMDb"), ("variable", "TMDB_API_KEY")],
+    );
+    let warnings = warnings(&app).await;
+    assert!(warnings.contains(&expected), "{warnings:?}");
+}
+
+/// A key in the environment for a listed source is the ordinary case.
+#[tokio::test]
+async fn a_tmdb_key_for_a_listed_source_is_not_reported() {
+    let app = with_tmdb_key_in_the_environment().await;
+    app.list_tmdb().await;
+
+    let warnings = warnings(&app).await;
+    assert!(!warnings.iter().any(|w| w.contains("TMDB_API_KEY")), "{warnings:?}");
 }
 
 /// Taking TMDb out is a choice, and the environment must not undo it.

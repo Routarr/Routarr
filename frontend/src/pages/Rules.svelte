@@ -13,7 +13,7 @@
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition } from '../api/format';
-  import { canonicalKey } from '../api/conditions';
+  import { canonicalKey, localFacets } from '../api/conditions';
   import type {
     Category,
     Condition,
@@ -28,7 +28,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { takeQueryFlag } from '../api/onboarding';
-  import { t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
@@ -102,8 +102,10 @@
 
   // The table reads as the editor does: a condition by its caption, a value by
   // the name the library or its vocabulary gives it, `ja` as Japanese.
+  const facets = $derived(
+    bundle.data?.facets ? localFacets(bundle.data.facets, i18n.language) : null,
+  );
   function nameIn(axis: string | undefined, value: string): string {
-    const facets = bundle.data?.facets;
     if (!axis || !facets) return value;
     const key = canonicalKey(value);
     const known: Facet[] = [

@@ -59,8 +59,10 @@ function render(
   addable: ConditionSpec[],
   onRetype: (index: number, type: string) => void = () => {},
   facets?: unknown,
+  language = 'en',
 ) {
   renderWithI18n(ConditionList, {
+    language,
     props: {
       title: 'All of',
       list: 'conditions',
@@ -189,5 +191,26 @@ describe('ConditionList', () => {
     // The one the library holds keeps its count *and* gains its name.
     expect(screen.getByRole('option', { name: /English \(en\)/ })).toBeTruthy();
     expect(screen.getByRole('option', { name: /Afrikaans \(af\)/ })).toBeTruthy();
+  });
+
+  /** Chosen from names in the reader's language, stored as the code. */
+  it('offers a language by its name in the language of the interface', async () => {
+    render(
+      [{ type: 'original_language', value: [] } as unknown as Condition],
+      [],
+      () => {},
+      {
+        vocabularies: {
+          original_languages: [{ value: 'ja', label: 'Japanese (ja)', count: 0 }],
+          origin_countries: [],
+        },
+        original_languages: [],
+      },
+      'fr',
+    );
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Original language is' }));
+
+    expect(screen.getByRole('option', { name: 'japonais (ja)' })).toBeTruthy();
   });
 });

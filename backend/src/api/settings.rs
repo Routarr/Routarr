@@ -135,11 +135,10 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
         settings.insert(key, serde_json::Value::String(value));
     }
 
-    // Surface defaults for keys the database has not seen yet, so the Settings
-    // screen can render every knob without guessing.
-    for (key, _) in KNOWN {
-        settings.entry(key.to_string()).or_insert(serde_json::Value::String(String::new()));
-    }
+    // A key never stored is left out rather than answered as "": an empty
+    // value is refused for several keys, `onboarding` among them, so a client
+    // writing back what it read would be refused, and the screen, which fills
+    // what is missing with its own fallback, would take "" for a choice.
 
     Ok(Json(serde_json::Value::Object(settings)))
 }

@@ -500,11 +500,30 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
 
     // One line per source that could answer and cannot: which key is missing
     // is the one thing the user can act on.
-    for provider in order {
+    for provider in &order {
         if provider.needs_key && !metadata::is_usable(provider, &keys) {
             warnings.push(Warning::restating(
                 step::METADATA,
                 localizer.translate("WarnProviderNeedsKey", &[("provider", provider.display_name)]),
+            ));
+        }
+    }
+
+    // A key set in the environment for a source the list leaves out. The start
+    // lists TMDb for its key only while no list is stored, and any save of the
+    // Settings screen stores one, so the key would otherwise be read and never
+    // used, with nothing saying so.
+    for provider in metadata::PROVIDERS {
+        let listed = order.iter().any(|entry| entry.id == provider.id);
+        if let (false, Some(variable)) = (listed, provider.key_env)
+            && state.environment_key(provider.id).is_some()
+        {
+            warnings.push(Warning::restating(
+                step::METADATA,
+                localizer.translate(
+                    "WarnProviderKeyUnlisted",
+                    &[("provider", provider.display_name), ("variable", variable)],
+                ),
             ));
         }
     }

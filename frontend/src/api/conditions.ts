@@ -2,7 +2,8 @@
 // expects. Getting this wrong silently stores a rule that can never match, so
 // it lives here as pure functions rather than inline in the form.
 
-import type { ConditionSpec, Facet } from './types';
+import type { ConditionSpec, Facet, LibraryFacets } from './types';
+import { localName } from './format';
 
 /** Value a freshly added condition starts with. */
 export function defaultConditionValue(spec: ConditionSpec): unknown {
@@ -132,4 +133,28 @@ export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
     ...facet,
     label: facet.label ?? names.get(canonicalKey(facet.value)),
   }));
+}
+
+/**
+ * The library's facets with its languages and regions named in the reader's
+ * language (`localName`), in the counts and in the closed vocabularies alike.
+ * Every screen naming a value reads them through this, so a language never
+ * reads in English on one and in the reader's language on another.
+ */
+export function localFacets(facets: LibraryFacets, language: string): LibraryFacets {
+  const rename = (type: 'language' | 'region', list: Facet[] = []) =>
+    list.map((facet) => ({
+      ...facet,
+      label: localName(type, facet.value, language) ?? facet.label,
+    }));
+  return {
+    ...facets,
+    original_languages: rename('language', facets.original_languages),
+    origin_countries: rename('region', facets.origin_countries),
+    vocabularies: {
+      ...facets.vocabularies,
+      original_languages: rename('language', facets.vocabularies.original_languages),
+      origin_countries: rename('region', facets.vocabularies.origin_countries),
+    },
+  };
 }

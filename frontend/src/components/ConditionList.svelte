@@ -8,8 +8,8 @@
     LibraryFacets,
     Vocabularies,
   } from '../api/types';
-  import { t } from '../lib/i18n.svelte';
-  import { canonicalKey, nameFacets } from '../api/conditions';
+  import { i18n, t } from '../lib/i18n.svelte';
+  import { canonicalKey, localFacets, nameFacets } from '../api/conditions';
   import ConditionValue from './ConditionValue.svelte';
 
   let {
@@ -51,20 +51,21 @@
   // The catalogue names the axis; this reads it off the payload. Indexed rather
   // than switched on the condition kind, so a condition added in Rust needs no
   // change here.
+  const named = $derived(facets ? localFacets(facets, i18n.language) : null);
   function facetOf(spec?: ConditionSpec): Facet[] {
-    if (!spec?.suggestions || !facets) return [];
+    if (!spec?.suggestions || !named) return [];
     // Narrowed, not widened: the name arrives from the backend so this is an
     // assertion either way, but `Record<string, Facet[]>` erased every later
     // check as well. A test vouches for the name itself.
     const axis = spec.suggestions as FacetAxis;
-    const held = facets[axis] ?? [];
+    const held = named[axis] ?? [];
     // A closed vocabulary is offered whole, the library's own values first so
     // the common answer stays at the top. Without it a language rule offers the
     // five codes that happen to be synced, and the other forty-eight have to be
     // guessed — as codes, which nobody would.
     // Only two axes have a closed vocabulary, so this indexing is partial by
     // design and the key may legitimately miss.
-    const vocabulary = facets.vocabularies[axis as keyof Vocabularies] ?? [];
+    const vocabulary = named.vocabularies[axis as keyof Vocabularies] ?? [];
     if (!vocabulary.length) return held;
 
     const seen = new Set(held.map((facet) => canonicalKey(facet.value)));

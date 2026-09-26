@@ -219,3 +219,23 @@ export function formatRelative(
     return formatTimestamp(value, language, fallback);
   }
 }
+
+/**
+ * A language or a region named in the reader's language, the code kept in
+ * brackets as the server's vocabulary writes it. That vocabulary is spelled in
+ * English for every reader, and the browser knows the names in all of them.
+ * `null` when it has none for the code, so the caller keeps the server's.
+ */
+export function localName(
+  type: 'language' | 'region',
+  code: string,
+  language: string,
+): string | null {
+  try {
+    const names = new Intl.DisplayNames([language], { type, fallback: 'none' });
+    const name = names.of(type === 'region' ? code.toUpperCase() : code);
+    return name ? `${name} (${code})` : null;
+  } catch {
+    return null;
+  }
+}

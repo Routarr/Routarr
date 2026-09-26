@@ -783,11 +783,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         if let Some(field) = condition.metadata_field()
             && !covered_fields.contains(&field)
         {
-            issues.push(ValidationIssue::warning(
-                section,
-                "ValidationConditionNoSource",
-                &at(&[("field", field.as_str().to_string())]),
-            ));
+            issues.push(ValidationIssue::warning(section, "ValidationConditionNoSource", &at(&[])));
         }
     }
 

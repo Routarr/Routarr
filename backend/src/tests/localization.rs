@@ -121,6 +121,34 @@ async fn the_explanation_panel_is_translated() {
     assert_eq!(trace["conditions"][0]["key"], "ConditionOriginalLanguage");
 }
 
+/// The caption names what the condition reads, so the sentence carries no
+/// identifier of the engine, in any language.
+#[tokio::test]
+async fn the_no_source_warning_names_no_engine_identifier() {
+    let app = TestApp::new().await;
+    speak_french(&app).await;
+
+    let response = app
+        .post(
+            "/api/v1/rules/validate",
+            serde_json::json!({
+                "name": "X",
+                "media_type": "both",
+                "target_category": "anime",
+                "conditions": [{ "type": "origin_country", "value": ["JP"] }]
+            }),
+        )
+        .await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let unanswered = issues
+        .iter()
+        .find(|i| i["key"] == "ValidationConditionNoSource")
+        .expect("the Arr alone answers no origin country");
+    let message = unanswered["message"].as_str().unwrap();
+    assert!(!message.contains("origin_countries"), "{message}");
+}
+
 #[tokio::test]
 async fn validation_messages_are_translated() {
     let app = TestApp::new().await;

@@ -125,14 +125,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config: Arc::new(config),
     };
 
-    // Converge plaintext or previously-keyed secrets before anything reads them.
-    services::maintenance::reseal_secrets(&state).await?;
-    // Values stored before a bound existed would otherwise make every later
-    // save fail, on a field the operator never touched.
-    services::maintenance::converge_setting_bounds(&state).await?;
-    // Before anything reads the source list: the routing reads it straight
-    // from the database.
-    services::maintenance::converge_metadata_sources(&state).await?;
+    services::maintenance::converge(&state).await?;
 
     // The single account, generated on first start like the API key. Only in
     // the mode that reads it: creating one for an installation that

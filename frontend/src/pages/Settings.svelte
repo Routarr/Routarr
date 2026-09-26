@@ -36,8 +36,12 @@
     ]);
     // An unstored source list is the shipped default, which only the server
     // knows. Seeded from a copy kept here instead, the first save of any
-    // setting would store that copy, since a save sends every field.
-    const stored: SettingsMap = { metadata_providers: metadata.order.join(','), ...settings };
+    // setting would store that copy, since a save sends every field. Blank
+    // counts as unstored, as an older server answers a key it never stored.
+    const stored: SettingsMap = {
+      ...settings,
+      metadata_providers: settings.metadata_providers || metadata.order.join(','),
+    };
     return {
       settings: stored,
       categories,

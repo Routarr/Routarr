@@ -17,6 +17,19 @@ use crate::state::AppState;
 /// List TMDb when the environment hands in its key and nobody chose the
 /// sources yet.
 ///
+/// Everything a start brings in line before anything reads the database, in
+/// this order: secrets sealed with the current key before anything opens
+/// one, stored values inside the bounds this build enforces, since a value
+/// out of them makes every later save fail on a field the operator never
+/// touched, and the source list the environment asks for before routing
+/// reads it. `main` calls this, so a test runs what a start runs.
+pub async fn converge(state: &AppState) -> AppResult<()> {
+    reseal_secrets(state).await?;
+    converge_setting_bounds(state).await?;
+    converge_metadata_sources(state).await?;
+    Ok(())
+}
+
 /// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and the
 /// shipped order is the Arr alone: without this, the key would be read and
 /// never used. A list already stored is left as it is, TMDb in it or not,
