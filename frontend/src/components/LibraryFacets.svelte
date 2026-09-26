@@ -16,7 +16,16 @@
    * times and one seen once the same weight, and put the only number that
    * matters in the smallest element on screen.
    */
-  let { facets }: { facets: LibraryFacets } = $props();
+  let {
+    facets,
+    captionOf = () => undefined,
+  }: {
+    facets: LibraryFacets;
+    /// The caption of a condition, from the catalogue the rule editor reads:
+    /// a card names the condition that reads its axis in the reader's words,
+    /// never by the engine's identifier.
+    captionOf?: (type: string) => string | undefined;
+  } = $props();
 
   /**
    * Folded by default, and it remembers.
@@ -114,7 +123,9 @@
         <section class="facet-card">
           <header>
             <h3>{t(axis.label)}</h3>
-            <span class="mono">{axis.condition}</span>
+            {#if captionOf(axis.condition)}
+              <span class="text-muted text-sm">{captionOf(axis.condition)}</span>
+            {/if}
           </header>
           {#each axis.values as facet (facet.value)}
             <div class="facet-row">

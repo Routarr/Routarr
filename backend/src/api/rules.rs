@@ -484,12 +484,38 @@ fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<ValidationIssue> {
     )
     .into_iter()
     .map(|mut issue| {
-        let params: Vec<(&str, &str)> =
-            issue.params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        issue.message = env.localizer.translate(&issue.key, &params);
+        issue.message = describe_issue(&env.localizer, &issue.key, &issue.params);
         issue
     })
     .collect()
+}
+
+/// An issue in the reader's words: a condition is named by its caption, and by
+/// its section and place when it has one, never by the engine's identifier.
+fn describe_issue(
+    localizer: &crate::localization::Localizer,
+    key: &str,
+    raw: &std::collections::BTreeMap<String, String>,
+) -> String {
+    let caption = |kind: &str| super::conditions::caption(localizer, kind);
+    let mut params: Vec<(String, String)> = raw
+        .iter()
+        .map(|(name, value)| match name.as_str() {
+            "kind" | "first" | "second" => (name.clone(), caption(value)),
+            _ => (name.clone(), value.clone()),
+        })
+        .collect();
+    if let (Some(index), Some(kind)) = (raw.get("index"), raw.get("kind")) {
+        let reference = match raw.get("section").map(String::as_str) {
+            Some("exclusions") => "ExclusionReference",
+            _ => "ConditionReference",
+        };
+        let named = localizer.translate(reference, &[("index", index), ("label", &caption(kind))]);
+        params.push(("condition".to_string(), named));
+    }
+    let params: Vec<(&str, &str)> =
+        params.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
+    localizer.translate(key, &params)
 }
 
 /// Run the shared validator against the live categories and mappings.

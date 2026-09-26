@@ -718,28 +718,36 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         ));
     }
 
-    for (idx, condition) in conditions.iter().chain(exclusions.iter()).enumerate() {
+    // Each issue about one condition carries its section, its place in that
+    // section and its kind: the reader finds it by where the editor shows it,
+    // and the handler turns the three into a caption the reader knows.
+    let placed =
+        conditions.iter().enumerate().map(|(idx, condition)| ("conditions", idx, condition)).chain(
+            exclusions.iter().enumerate().map(|(idx, condition)| ("exclusions", idx, condition)),
+        );
+    for (section, idx, condition) in placed {
+        let at = |extra: &[(&'static str, String)]| {
+            let mut params = vec![
+                ("section", section.to_string()),
+                ("index", (idx + 1).to_string()),
+                ("kind", condition.kind().to_string()),
+            ];
+            params.extend_from_slice(extra);
+            params
+        };
         // An error, not a warning: a condition with no operand never matches,
         // so the rule would be stored dead and read on screen exactly like a
         // rule that correctly matches nothing.
         if condition.is_empty() {
-            issues.push(ValidationIssue::error(
-                "conditions",
-                "ValidationConditionEmpty",
-                &[("index", (idx + 1).to_string()), ("kind", condition.kind().to_string())],
-            ));
+            issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
         }
         if let Condition::YearRange { min: Some(min), max: Some(max) } = condition
             && min > max
         {
             issues.push(ValidationIssue::error(
-                "conditions",
+                section,
                 "ValidationYearRangeInverted",
-                &[
-                    ("index", (idx + 1).to_string()),
-                    ("min", min.to_string()),
-                    ("max", max.to_string()),
-                ],
+                &at(&[("min", min.to_string()), ("max", max.to_string())]),
             ));
         }
         // A year outside these bounds is a typing mistake, and stored it makes a
@@ -750,14 +758,13 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
             for year in [min, max].into_iter().flatten() {
                 if *year < MIN_YEAR || *year > ceiling {
                     issues.push(ValidationIssue::error(
-                        "conditions",
+                        section,
                         "ValidationYearImplausible",
-                        &[
-                            ("index", (idx + 1).to_string()),
+                        &at(&[
                             ("year", year.to_string()),
                             ("min", MIN_YEAR.to_string()),
                             ("max", ceiling.to_string()),
-                        ],
+                        ]),
                     ));
                 }
             }
@@ -768,22 +775,18 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
             && *days < 0
         {
             issues.push(ValidationIssue::error(
-                "conditions",
+                section,
                 "ValidationDaysNegative",
-                &[("index", (idx + 1).to_string()), ("value", days.to_string())],
+                &at(&[("value", days.to_string())]),
             ));
         }
         if let Some(field) = condition.metadata_field()
             && !covered_fields.contains(&field)
         {
             issues.push(ValidationIssue::warning(
-                "conditions",
+                section,
                 "ValidationConditionNoSource",
-                &[
-                    ("index", (idx + 1).to_string()),
-                    ("kind", condition.kind().to_string()),
-                    ("field", field.as_str().to_string()),
-                ],
+                &at(&[("field", field.as_str().to_string())]),
             ));
         }
     }

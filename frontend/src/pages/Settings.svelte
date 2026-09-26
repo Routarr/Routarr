@@ -19,9 +19,12 @@
   import Loading from '../components/Loading.svelte';
   import ProviderOrder from '../components/ProviderOrder.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
+  import { navigate } from '../lib/router.svelte';
   import { downloadJson } from '../lib/download';
 
   const bundle = createAsync(async (signal) => {
@@ -31,8 +34,12 @@
       api.getLanguages(signal),
       api.getMetadataProviders(signal),
     ]);
+    // An unstored source list is the shipped default, which only the server
+    // knows. Seeded from a copy kept here instead, the first save of any
+    // setting would store that copy, since a save sends every field.
+    const stored: SettingsMap = { metadata_providers: metadata.order.join(','), ...settings };
     return {
-      settings,
+      settings: stored,
       categories,
       languages: languages.languages,
       providers: metadata.providers,
@@ -260,6 +267,19 @@
     }
   }
 
+  // Offered in every state, so the one place the guide is said to live never
+  // turns up empty. A guide already showing needs only the way back to it.
+  async function restartGuide() {
+    try {
+      if (onboarding.current?.state !== 'pending') {
+        publishOnboarding(await api.setOnboarding('pending'));
+      }
+      navigate('/');
+    } catch (err) {
+      outcome.fail(err);
+    }
+  }
+
   async function exportConfig() {
     try {
       downloadJson(await api.exportConfig(), 'routarr-config.json');
@@ -351,6 +371,12 @@
          it one. -->
     <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
     <OutcomeBanner {outcome} />
+    <!-- The guide's two optional steps are done here, each on its own tab. -->
+    {#if section === 'metadata'}
+      <GuideStepBanner step="metadata" />
+    {:else if section === 'routing'}
+      <GuideStepBanner step="live" />
+    {/if}
 
     {#if draft.global_dry_run === 'false'}
       <WarningBanner message={t('LiveModeWarning')} />
@@ -449,6 +475,20 @@
                 {/if}
               </div>
             {/if}
+          </div>
+        {/if}
+
+        {#if section === 'general'}
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">{t('GuideTitle')}</h2>
+                <p class="card-note">{t('GuideRestartText')}</p>
+              </div>
+              <button type="button" class="btn btn-secondary" onclick={() => void restartGuide()}>
+                {t('GuideRestart')}
+              </button>
+            </div>
           </div>
         {/if}
 

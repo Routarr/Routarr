@@ -5,8 +5,12 @@
   import { href } from '../lib/router.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp } from '../api/format';
+  import { createOutcome } from '../lib/outcome.svelte';
+  import { onboarding } from '../lib/onboarding.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import GettingStarted from '../components/GettingStarted.svelte';
   import Loading from '../components/Loading.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -23,6 +27,11 @@
   const probed = createAsync((signal) => api.getHealth(undefined, signal));
 
   const health = $derived(probed.data ?? quick.data);
+  const outcome = createOutcome();
+  // While the guide runs, each warning of an installation not set up yet is one
+  // of its unfinished steps: listing both says the same thing twice, the second
+  // time as an alarm. They stay on the diagnostics screen.
+  const guiding = $derived(onboarding.current?.state === 'pending');
   const stats = $derived(health?.stats);
 
   async function refresh() {
@@ -55,13 +64,18 @@
       message={quick.error ?? probed.error}
       onDismiss={() => ((quick.error = null), (probed.error = null))}
     />
+    <OutcomeBanner {outcome} />
+
+    {#if onboarding.current}
+      <GettingStarted status={onboarding.current} {outcome} />
+    {/if}
 
     <!-- One block, not one banner per warning. Three stacked tinted bars said
          the same thing three times, each with its own copy of the same button,
          and a fourth warning was invisible because the list was capped at
          three without saying so. The count leads, the list follows, and the
          one action sits once. -->
-    {#if health && health.warnings.length > 0}
+    {#if health && health.warnings.length > 0 && !guiding}
       <div class="banner banner-warning items-start">
         <AlertTriangle size={16} />
         <div class="flex-1">

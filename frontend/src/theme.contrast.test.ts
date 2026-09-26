@@ -104,6 +104,10 @@ const PAIRS: [string, string][] = [
   // making if both ends of it stay legible.
   ['--text-nav', '--bg-surface'],
   ['--text-muted', '--bg-surface'],
+  // Success as a line of text: the guide's finish on a card, and a connection
+  // try inside a dialog, drawn on the surface.
+  ['--status-success', '--bg-card'],
+  ['--status-success', '--bg-surface'],
 ];
 
 /** Badge text on its own translucent background, itself over a card. */

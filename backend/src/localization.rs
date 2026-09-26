@@ -518,10 +518,13 @@ mod tests {
 
             for (key, source) in english {
                 let Some(target) = translated.get(key) else { continue };
-                let mut expected = placeholders(source);
-                let mut actual = placeholders(target);
-                expected.sort();
-                actual.sort();
+                // Compared as sets, as `check-locales.py` and `add-locale.py`
+                // do: a language may name a value once where English repeats
+                // it and use a pronoun after, which drops nothing.
+                let expected: std::collections::BTreeSet<_> =
+                    placeholders(source).into_iter().collect();
+                let actual: std::collections::BTreeSet<_> =
+                    placeholders(target).into_iter().collect();
                 assert_eq!(
                     expected, actual,
                     "{}: placeholders differ for key '{key}'",

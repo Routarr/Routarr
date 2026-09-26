@@ -7,7 +7,7 @@
 //! still filling in what the winner had nothing to say about.
 
 use crate::services::routing::{self, SimulationOptions};
-use crate::services::sync;
+use crate::services::{maintenance, sync};
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -456,4 +456,123 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
         "the engine and the list disagree: {}",
         explained.json
     );
+}
+
+// ------------------------------------------------------------ shipped order
+
+async fn stored_order(app: &TestApp) -> Option<String> {
+    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
+        .fetch_optional(&app.state.pool)
+        .await
+        .unwrap()
+}
+
+async fn warnings(app: &TestApp) -> Vec<String> {
+    let response = app.get("/api/v1/health").await;
+    serde_json::from_value(response.assert_ok()["warnings"].clone()).unwrap()
+}
+
+async fn with_tmdb_key_in_the_environment() -> TestApp {
+    let mut config = crate::config::Config::for_tests();
+    config.tmdb_api_key = Some("from-the-environment".into());
+    TestApp::around(crate::state::AppState::for_tests().await.with_config(config))
+}
+
+/// Listed without a key, TMDb answers nothing and the diagnostics say so, which
+/// an installation nobody has configured yet reads as a fault of its own.
+#[tokio::test]
+async fn a_fresh_install_lists_the_arr_alone_and_warns_about_no_key() {
+    let app = TestApp::new().await;
+
+    let catalogue = app.get("/api/v1/metadata/providers").await;
+    assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
+    let warnings = warnings(&app).await;
+    assert!(!warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
+}
+
+#[tokio::test]
+async fn listing_tmdb_without_a_key_still_warns() {
+    let app = TestApp::new().await;
+    set_order(&app, "arr,tmdb").await;
+
+    let warnings = warnings(&app).await;
+    assert!(warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
+}
+
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on.
+#[tokio::test]
+async fn a_tmdb_key_from_the_environment_lists_tmdb_when_no_order_was_chosen() {
+    let app = with_tmdb_key_in_the_environment().await;
+
+    assert!(maintenance::converge_metadata_sources(&app.state).await.unwrap());
+
+    let catalogue = app.get("/api/v1/metadata/providers").await;
+    assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr", "tmdb"]));
+}
+
+/// Taking TMDb out is a choice, and the environment must not undo it.
+#[tokio::test]
+async fn a_chosen_order_is_never_changed_by_the_environment() {
+    let app = with_tmdb_key_in_the_environment().await;
+    set_order(&app, "arr").await;
+
+    assert!(!maintenance::converge_metadata_sources(&app.state).await.unwrap());
+    assert_eq!(stored_order(&app).await.as_deref(), Some("arr"));
+}
+
+#[tokio::test]
+async fn no_key_in_the_environment_leaves_the_order_unchosen() {
+    let app = TestApp::new().await;
+
+    assert!(!maintenance::converge_metadata_sources(&app.state).await.unwrap());
+    assert_eq!(stored_order(&app).await, None);
+}
+
+/// The source list a database holds after its upgrade runs, from the list it
+/// held before.
+///
+/// Replayed here on purpose: every test database starts empty, so the file ran
+/// before any instance or key existed. `arr,tmdb` is what the initial schema
+/// seeds.
+async fn upgraded(app: &TestApp, order: &str) -> Option<String> {
+    set_order(app, order).await;
+    sqlx::raw_sql(include_str!("../../migrations/003_metadata_sources.sql"))
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    stored_order(app).await
+}
+
+#[tokio::test]
+async fn a_database_that_routes_nothing_yet_drops_the_seeded_tmdb() {
+    let app = TestApp::new().await;
+
+    assert_eq!(upgraded(&app, "arr,tmdb").await, None);
+}
+
+/// Its rules may rely on what only TMDb answers.
+#[tokio::test]
+async fn an_installation_with_an_instance_keeps_tmdb_across_the_upgrade() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    assert_eq!(upgraded(&app, "arr,tmdb").await.as_deref(), Some("arr,tmdb"));
+}
+
+#[tokio::test]
+async fn a_tmdb_key_stored_in_the_interface_keeps_tmdb_across_the_upgrade() {
+    let app = TestApp::new().await;
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'sealed')")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(upgraded(&app, "arr,tmdb").await.as_deref(), Some("arr,tmdb"));
+}
+
+#[tokio::test]
+async fn a_source_list_someone_chose_comes_through_the_upgrade_unchanged() {
+    let app = TestApp::new().await;
+
+    assert_eq!(upgraded(&app, "arr,anilist").await.as_deref(), Some("arr,anilist"));
 }

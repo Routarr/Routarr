@@ -94,20 +94,32 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 }
 
 /** One-line summary of a condition, for the rules table. */
-export function describeCondition(condition: Condition): string {
+/** The words a condition is described with, all of them the reader's language. */
+export interface ConditionWords {
+  /** The condition's caption from the catalogue; its type where it has none. */
+  label?: string;
+  /** Joins list values, as `t('ListSeparator')` writes it. */
+  separator: string;
+  /** Said of a list with no value, which can never match. */
+  empty: string;
+  /** The name a stored value is shown under, where it has one. */
+  name?: (value: string) => string;
+}
+
+export function describeCondition(condition: Condition, words: ConditionWords): string {
+  const caption = words.label ?? condition.type;
   const value = condition.value;
 
   if (Array.isArray(value)) {
-    return value.length > 0
-      ? `${condition.type}: ${value.join(', ')}`
-      : `${condition.type}: (empty)`;
+    const named = value.map((each) => (words.name ? words.name(String(each)) : String(each)));
+    return `${caption}: ${named.length > 0 ? named.join(words.separator) : words.empty}`;
   }
   if (value && typeof value === 'object') {
     const range = value as { min?: number | null; max?: number | null };
-    return `${condition.type}: ${range.min ?? '*'} → ${range.max ?? '*'}`;
+    return `${caption}: ${range.min ?? '*'} → ${range.max ?? '*'}`;
   }
-  if (value === undefined || value === null) return condition.type;
-  return `${condition.type}: ${String(value)}`;
+  if (value === undefined || value === null) return caption;
+  return `${caption}: ${String(value)}`;
 }
 
 /**

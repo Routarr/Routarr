@@ -130,6 +130,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Values stored before a bound existed would otherwise make every later
     // save fail, on a field the operator never touched.
     services::maintenance::converge_setting_bounds(&state).await?;
+    // Before anything reads the source list: the routing reads it straight
+    // from the database.
+    services::maintenance::converge_metadata_sources(&state).await?;
 
     // The single account, generated on first start like the API key. Only in
     // the mode that reads it: creating one for an installation that
@@ -240,6 +243,7 @@ fn build_router(state: AppState) -> Router {
             get(api::instances::get_one).put(api::instances::update).delete(api::instances::remove),
         )
         .route("/instances/sync", post(api::instances::sync_all))
+        .route("/instances/test", post(api::instances::probe))
         .route("/instances/{id}/test", post(api::instances::test))
         .route("/instances/{id}/sync", post(api::instances::sync_now))
         .route("/instances/{id}/webhook-token", post(api::instances::rotate_webhook_token))
@@ -297,6 +301,7 @@ fn build_router(state: AppState) -> Router {
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
         .route("/settings", get(api::settings::get_all).put(api::settings::update))
+        .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/metadata/providers", get(api::metadata::list))
         .route("/config/export", get(api::config::export))
         .route("/config/import", post(api::config::import))
@@ -531,14 +536,6 @@ fn warn_on_insecure_defaults(state: &AppState) {
         warn!(
             "ROUTARR_AUTH=none: the API is unauthenticated. Make sure Routarr is only \
              reachable from a trusted network, or from a proxy that authenticates for it."
-        );
-    }
-    if state.config.tmdb_api_key.is_none() {
-        // Not "metadata rules cannot match": Radarr and Sonarr are a source of
-        // their own now, and they answer genre, language and certification.
-        warn!(
-            "TMDB_API_KEY is not set. Radarr and Sonarr still supply genres, original language \
-             and certification, and only keyword and origin-country rules cannot match."
         );
     }
 }

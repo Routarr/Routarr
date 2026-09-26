@@ -55,6 +55,8 @@ async function resetLibrary(): Promise<string> {
         ui_language: 'en',
         batch_limit: '50',
         confirmation_threshold: '10',
+        // Every journey but the guide's tests an installation already set up.
+        onboarding: 'done',
       },
     }),
   });

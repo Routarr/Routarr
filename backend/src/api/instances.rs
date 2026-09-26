@@ -5,10 +5,12 @@ use axum::extract::{Path, State};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::adapter::ArrAdapter;
+use crate::localization::Localizer;
 use crate::models::*;
-use crate::services::sync;
+use crate::services::{connection, sync};
 use crate::state::AppState;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<InstanceResponse>>> {
     let instances = state.instances(false).await?;
@@ -32,7 +34,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
-    let base_url = validate(&req)?;
+    let base_url = validate(&req, &state.localizer().await)?;
 
     let id = Uuid::new_v4().to_string();
     let webhook_token = Uuid::new_v4().to_string();
@@ -62,7 +64,7 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
-    let base_url = validate(&req)?;
+    let base_url = validate(&req, &state.localizer().await)?;
     let existing = state.instance(&id).await?;
 
     // An empty api_key means "keep the current one" — the UI only ever shows a
@@ -122,16 +124,60 @@ pub async fn test(
 ) -> AppResult<Json<TestConnectionResponse>> {
     let instance = state.instance(&id).await?;
     let adapter = state.adapter(&instance)?;
-    let status = adapter.test_connection().await?;
-    let root_folders = adapter.get_root_folders().await?;
+    let localizer = state.localizer().await;
+    Ok(Json(check(&adapter, &instance.instance_type, &instance.base_url, &localizer).await?))
+}
 
-    Ok(Json(TestConnectionResponse {
+/// Values typed in the instance form, tried before anything is saved.
+#[derive(Debug, Deserialize)]
+pub struct ProbeRequest {
+    pub instance_type: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: String,
+    /// The instance being edited, whose stored key a blank one stands for:
+    /// the form never shows a stored key back.
+    #[serde(default)]
+    pub id: Option<String>,
+}
+
+pub async fn probe(
+    State(state): State<AppState>,
+    Json(req): Json<ProbeRequest>,
+) -> AppResult<Json<TestConnectionResponse>> {
+    let kind = req.instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?.to_string();
+    let localizer = state.localizer().await;
+    let base_url = normalize_base_url(&req.base_url, &localizer)?;
+    let api_key = match (req.api_key.trim(), &req.id) {
+        ("", Some(id)) => state.secrets.open(&state.instance(id).await?.api_key)?,
+        (typed, _) => typed.to_string(),
+    };
+    let adapter = ArrAdapter::new(state.http.clone(), &kind, &base_url, &api_key)?;
+    Ok(Json(check(&adapter, &kind, &base_url, &localizer).await?))
+}
+
+/// Reach the Arr as a sync would, and say what to change when it does not answer
+/// as the type declared.
+async fn check(
+    adapter: &ArrAdapter,
+    kind: &str,
+    base_url: &str,
+    localizer: &Localizer,
+) -> AppResult<TestConnectionResponse> {
+    let explain = |error| connection::explained(error, kind, base_url, localizer);
+    let status = adapter.test_connection().await.map_err(explain)?;
+    if let Some(cause) = connection::wrong_app(kind, status.app_name.as_deref()) {
+        return Err(AppError::BadRequest(connection::explain(&cause, kind, base_url, localizer)));
+    }
+    let root_folders = adapter.get_root_folders().await.map_err(explain)?;
+
+    Ok(TestConnectionResponse {
         success: true,
         version: status.version,
         app_name: status.app_name,
         root_folders: root_folders.len(),
         inaccessible_root_folders: root_folders.iter().filter(|rf| !rf.accessible).count(),
-    }))
+    })
 }
 
 /// Sync every enabled instance.
@@ -143,7 +189,27 @@ pub async fn sync_now(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<sync::SyncReport>> {
-    Ok(Json(sync::sync_instance(&state, &id, "manual").await?))
+    let error = match sync::sync_instance(&state, &id, "manual").await {
+        Ok(report) => return Ok(Json(report)),
+        Err(error) => error,
+    };
+    let Some(cause) = connection::cause_of(&error) else {
+        return Err(error);
+    };
+    // Explained by what answers at the address: a probe tells a wrong type from
+    // a wrong port, which the sync's own failure, a 404 on the library, cannot.
+    // This is the first failure most people read, since a new instance syncs as
+    // its form closes.
+    let instance = state.instance(&id).await?;
+    let localizer = state.localizer().await;
+    let adapter = state.adapter(&instance)?;
+    check(&adapter, &instance.instance_type, &instance.base_url, &localizer).await?;
+    Err(AppError::BadRequest(connection::explain(
+        &cause,
+        &instance.instance_type,
+        &instance.base_url,
+        &localizer,
+    )))
 }
 
 /// Issue a fresh webhook token, invalidating the previous URL.
@@ -165,17 +231,23 @@ pub async fn rotate_webhook_token(
 }
 
 /// Shared validation for create and update.
-fn validate(req: &CreateInstanceRequest) -> AppResult<String> {
+///
+/// The type comes from a list the interface offers, so its refusal stays in
+/// English. The name and the address are typed, and read under their field.
+fn validate(req: &CreateInstanceRequest, localizer: &Localizer) -> AppResult<String> {
     req.instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
 
     if req.name.trim().is_empty() {
-        return Err(AppError::BadRequest("Instance name cannot be empty".into()));
+        return Err(AppError::BadRequest(localizer.translate("InstanceNameRequired", &[])));
     }
 
-    let base_url = req.base_url.trim().trim_end_matches('/').to_string();
+    normalize_base_url(&req.base_url, localizer)
+}
+
+fn normalize_base_url(raw: &str, localizer: &Localizer) -> AppResult<String> {
+    let base_url = raw.trim().trim_end_matches('/').to_string();
     if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-        return Err(AppError::BadRequest("base_url must start with http:// or https://".into()));
+        return Err(AppError::BadRequest(localizer.translate("InstanceUrlScheme", &[])));
     }
-
     Ok(base_url)
 }

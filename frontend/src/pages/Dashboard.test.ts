@@ -2,7 +2,8 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { health, healthInstance } from '../test/fixtures';
+import { health, healthInstance, onboardingStatus } from '../test/fixtures';
+import { publishOnboarding } from '../lib/onboarding.svelte';
 import { api } from '../api/client';
 import { withBase } from '../test/base';
 import Dashboard from './Dashboard.svelte';
@@ -26,6 +27,7 @@ const STRINGS = {
   Checking: 'checking…',
   MetadataEnrichedCount: '{count} items enriched.',
   MetadataComplete: 'Nothing missing.',
+  GuideTitle: 'Getting started',
 };
 
 const show = () => renderWithI18n(Dashboard, { strings: STRINGS });
@@ -37,6 +39,7 @@ const bothReturn = (value: ReturnType<typeof health>) =>
 afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
+  publishOnboarding(null);
 });
 
 describe('Dashboard', () => {
@@ -172,5 +175,24 @@ describe('Dashboard', () => {
       expect(await screen.findByText('connected')).toBeTruthy();
       expect(screen.queryByText('checking…')).toBeNull();
     });
+  });
+
+  /** Each warning of an installation not set up is one of the guide's steps. */
+  it('puts the guide first and the warnings aside while it runs', async () => {
+    publishOnboarding(onboardingStatus());
+    bothReturn(health({ warnings: ['No enabled Arr instance'] }));
+    show();
+
+    expect(await screen.findByRole('heading', { name: 'Getting started' })).toBeTruthy();
+    expect(screen.queryByText('No enabled Arr instance')).toBeNull();
+  });
+
+  it('lists the warnings once the guide is done', async () => {
+    publishOnboarding(onboardingStatus([], { state: 'done' }));
+    bothReturn(health({ warnings: ['No enabled Arr instance'] }));
+    show();
+
+    expect(await screen.findByText('No enabled Arr instance')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Getting started' })).toBeNull();
   });
 });

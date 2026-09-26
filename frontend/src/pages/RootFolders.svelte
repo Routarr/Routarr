@@ -11,6 +11,7 @@
   import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -114,6 +115,7 @@
     onRetry={() => void bundle.reload()}
   />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="categories" />
 
   {#each conflicts as conflict, index (index)}
     <div class="banner {conflict.severity === 'error' ? 'banner-danger' : 'banner-warning'}">
@@ -236,7 +238,9 @@
           {/each}
         </select>
       </div>
-      <div class="form-group flex-1">
+      <!-- A base width, so on a phone the path takes a line of its own rather
+           than folding its caption beside the instance picker. -->
+      <div class="form-group flex-fill-240">
         <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
         <input
           id="declare-path"
@@ -365,7 +369,7 @@
             {t('RenameCategoryHint')}
           </p>
         </div>
-        <div class="flex justify-between mt-4">
+        <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (renaming = null)}>
             {t('Cancel')}
           </button>
@@ -413,7 +417,7 @@
           </label>
           <input id="rootfolders-description" class="form-input" bind:value={description} />
         </div>
-        <div class="flex justify-between mt-4">
+        <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (creating = false)}>
             {t('Cancel')}
           </button>

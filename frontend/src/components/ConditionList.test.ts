@@ -137,6 +137,24 @@ describe('ConditionList', () => {
 
     expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
   });
+
+  /**
+   * A title has one original language, so several values on this condition can
+   * only be alternatives. Unsaid, the search box after the first one reads as
+   * an invitation to give a title a second language.
+   */
+  it('says in words that the values of a single-valued axis are alternatives', () => {
+    render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
+
+    expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
+    expect(screen.getByText('any of')).toBeTruthy();
+  });
+
+  it('says nothing about combining a value that is not a list', () => {
+    render([{ type: 'season_count_over', value: 3 }], [SEASONS]);
+
+    expect(screen.queryByText('any of')).toBeNull();
+  });
   /**
    * The library counts values, the closed vocabulary names them, and a value in
    * both needs both.

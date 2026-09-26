@@ -237,6 +237,48 @@ async fn validation_reports_warnings_without_blocking() {
     assert!(!result["issues"].as_array().unwrap().is_empty());
 }
 
+/// A condition is named as the editor shows it: by its section, its place in
+/// that section and its caption, never by the engine's identifier.
+#[tokio::test]
+async fn a_condition_is_named_by_its_section_place_and_caption() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut body = anime_rule_body();
+    body["conditions"] = serde_json::json!([{ "type": "genre_contains", "value": ["Animation"] }]);
+    body["exclusions"] = serde_json::json!([{ "type": "certification_in", "value": [] }]);
+
+    let response = app.post("/api/v1/rules/validate", body).await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let empty = issues.iter().find(|i| i["key"] == "ValidationConditionEmpty").unwrap();
+    let message = empty["message"].as_str().unwrap();
+    let localizer = app.state.localizer().await;
+    let caption = localizer.translate("ConditionLabelCertificationIn", &[]);
+    let named = localizer.translate("ExclusionReference", &[("index", "1"), ("label", &caption)]);
+    assert!(message.starts_with(&named), "{message}");
+    assert!(!message.contains("certification_in"), "{message}");
+    assert_eq!(empty["field"], "exclusions");
+}
+
+#[tokio::test]
+async fn a_condition_both_required_and_excluded_is_named_by_its_caption() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut body = anime_rule_body();
+    let genre = serde_json::json!({ "type": "genre_contains", "value": ["Animation"] });
+    body["conditions"] = serde_json::json!([genre.clone()]);
+    body["exclusions"] = serde_json::json!([genre]);
+
+    let response = app.post("/api/v1/rules/validate", body).await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let conflict = issues.iter().find(|i| i["key"] == "ValidationExclusionConflict").unwrap();
+    let message = conflict["message"].as_str().unwrap();
+    let caption = app.state.localizer().await.translate("ConditionLabelGenreContains", &[]);
+    assert!(message.contains(&caption), "{message}");
+    assert!(!message.contains("genre_contains"), "{message}");
+}
+
 /// Stored, each of these would be a rule that never matches and reads on
 /// screen exactly like a rule that correctly matches nothing.
 #[tokio::test]
@@ -1306,6 +1348,7 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
 
     // A second item that also needs a move; the webhook must leave it alone.
     sqlx::query(
@@ -1662,13 +1705,19 @@ async fn health_probes_by_default() {
 #[tokio::test]
 async fn health_reports_actionable_warnings() {
     let app = TestApp::new().await;
+    app.put(
+        "/api/v1/settings",
+        serde_json::json!({ "settings": { "metadata_providers": "arr,tmdb" } }),
+    )
+    .await
+    .assert_ok();
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
 
     assert_eq!(health["database"], "connected");
 
-    // The Arr answers without a key, TMDb does not: the source list says so
-    // rather than the page claiming metadata is simply unavailable.
+    // Listed, the Arr answers without a key and TMDb does not: the source list
+    // says so rather than the page claiming metadata is simply unavailable.
     let providers = health["metadata"]["providers"].as_array().unwrap();
     assert_eq!(providers[0]["id"], "arr");
     assert_eq!(providers[0]["configured"], true);
@@ -1932,6 +1981,7 @@ async fn seed_akira_needing_a_move(app: &TestApp) {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
          current_root_folder, monitored, has_files)

@@ -98,6 +98,10 @@
        match mode above combines the conditions themselves. -->
   {#if list === 'conditions'}
     <p class="text-muted text-sm mt-1">{t('ConditionValuesHelp')}</p>
+  {:else}
+    <!-- What an exclusion does, under a short caption like the conditions'
+         own, rather than in a caption long enough to fold on a phone. -->
+    <p class="text-muted text-sm mt-1">{t('ExclusionsHelp')}</p>
   {/if}
 
   <div class="flex flex-col gap-2 mt-2">
@@ -116,6 +120,12 @@
             <option value="any">{t('QuantifierAny')}</option>
             <option value="all">{t('QuantifierAll')}</option>
           </select>
+        {:else if spec?.value_type === 'string_list' || spec?.value_type === 'number_list'}
+          <!-- No counterpart means the media side holds one value, so several
+               values can only be alternatives: said in words where the
+               selector would stand, or the search box after the first value
+               reads as an invitation to give a title a second language. -->
+          <span class="condition-quantifier">{t('QuantifierAny')}</span>
         {/if}
         <div class="flex-1">
           <ConditionValue

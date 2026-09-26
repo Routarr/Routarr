@@ -262,22 +262,23 @@ test.describe('on a phone', () => {
   });
 });
 
-test.describe('buttons are one size', () => {
-  const PAGES = [
-    '/',
-    '/instances',
-    '/root-folders',
-    '/rules',
-    '/media',
-    '/simulation',
-    '/history',
-    '/overrides',
-    '/jobs',
-    '/logs',
-    '/health',
-    '/settings',
-  ];
+/** Every screen with a page title, which is how a sweep knows it has loaded. */
+const PAGES = [
+  '/',
+  '/instances',
+  '/root-folders',
+  '/rules',
+  '/media',
+  '/simulation',
+  '/history',
+  '/overrides',
+  '/jobs',
+  '/logs',
+  '/health',
+  '/settings',
+];
 
+test.describe('buttons are one size', () => {
   /**
    * Without a fixed height the same `btn btn-primary` renders at three sizes:
    * a flex row stretches buttons to their tallest sibling, `<label class="btn">`
@@ -323,6 +324,45 @@ test.describe('buttons are one size', () => {
     // everything the same size by accident.
     expect([...regular.keys()][0]).toBeGreaterThan([...small.keys()][0]);
   });
+});
+
+/**
+ * `select.form-select` draws its arrow over its end padding. A rule that sets
+ * the padding in one shorthand, as a compact row does, draws the arrow over
+ * the text, and "all of" reads as a glyph sitting on its last letter.
+ */
+test('every select keeps the room its arrow is drawn in', async ({ page, instanceId }) => {
+  expect(instanceId).toBeTruthy();
+  const cramped: string[] = [];
+  const measure = async (where: string) => {
+    const found = await page.locator('select.form-select').evaluateAll((selects) =>
+      selects
+        .filter((el) => el.getBoundingClientRect().width > 0)
+        .filter((el) => parseFloat(getComputedStyle(el).paddingInlineEnd) < 28)
+        .map((el) => el.getAttribute('aria-label') ?? el.id),
+    );
+    cramped.push(...found.map((name) => `${where}: ${name}`));
+  };
+
+  for (const path of PAGES) {
+    await page.goto(path);
+    await expect(page.locator('.page-title')).toBeVisible();
+    await measure(path);
+  }
+
+  // The compact selects live in the rule editor, one per condition that has a
+  // quantifier to choose.
+  await page.goto('/rules?new=1');
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .locator('select')
+    .filter({ hasText: 'Add a condition' })
+    .first()
+    .selectOption('genre_contains');
+  await expect(dialog.getByRole('combobox', { name: /^How these values combine/ })).toBeVisible();
+  await measure('rule editor');
+
+  expect(cramped).toEqual([]);
 });
 
 test.describe('the chrome draws one line', () => {

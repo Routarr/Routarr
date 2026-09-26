@@ -36,6 +36,8 @@ services:
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
       # Only while rotating ROUTARR_SECRET_KEY; remove afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
+      # Optional. Set before the metadata sources are first saved, it lists TMDb
+      # after Radarr and Sonarr. Afterwards, TMDb is turned on in the interface.
       - TMDB_API_KEY=${TMDB_API_KEY:-}
     restart: unless-stopped
     # Routarr opens a socket, reads and writes /data, and makes outbound HTTPS

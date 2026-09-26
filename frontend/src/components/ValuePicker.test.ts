@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -21,6 +21,7 @@ const STRINGS = {
   PlaceholderPickValues: 'Search or type a value…',
   Remove: 'Remove',
   SelectedValues: 'Selected values',
+  PickerCountCaption: 'Titles in your library',
 };
 
 const OPTIONS = [
@@ -46,6 +47,45 @@ function open(values: string[] = [], over: Record<string, unknown> = {}) {
 }
 
 describe('ValuePicker', () => {
+  /**
+   * Certification codes of several countries mean the same thing, and a rule
+   * wants every one of them: listed under what they mean, "TP" and "U" read
+   * as the same choice instead of two unexplained entries.
+   */
+  it('gathers the values that mean the same thing under that meaning', async () => {
+    const { field } = open([], {
+      options: [
+        { value: 'TP', label: 'TP (all ages)', group: 'all ages', count: 24 },
+        { value: 'U', label: 'U (all ages)', group: 'all ages', count: 1 },
+        { value: '12', label: '12 (12 and over)', group: '12 and over', count: 11 },
+        { value: 'M', count: 1 },
+      ],
+    });
+
+    await userEvent.click(field);
+
+    const allAges = screen.getByRole('group', { name: 'all ages' });
+    expect(
+      within(allAges)
+        .getAllByRole('option')
+        .map((o) => o.getAttribute('aria-label')),
+    ).toEqual(['TP (all ages)', 'U (all ages)']);
+    // Under its meaning a code needs no repeat of it.
+    expect(within(allAges).getByText('TP')).toBeTruthy();
+    expect(
+      within(screen.getByRole('group', { name: '12 and over' })).getAllByRole('option'),
+    ).toHaveLength(1);
+    expect(screen.getByRole('option', { name: 'M' }).closest('[role="group"]')).toBeNull();
+  });
+
+  it('says what the figures beside the values count', async () => {
+    const { field } = open();
+
+    await userEvent.click(field);
+
+    expect(screen.getByText('Titles in your library')).toBeTruthy();
+  });
+
   it('offers what the library holds, with how many items carry it', async () => {
     const { field } = open();
     await userEvent.click(field);

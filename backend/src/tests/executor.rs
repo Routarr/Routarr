@@ -422,6 +422,7 @@ async fn ready(arr: &FakeArr) -> (TestApp, String) {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
     sqlx::query("UPDATE settings SET value = 'false' WHERE key = 'global_dry_run'")
         .execute(&app.state.pool)
         .await

@@ -24,6 +24,7 @@
     onClose,
     maxWidth,
     maxHeight,
+    closeOnBackdrop = false,
     children,
   }: {
     /** Names the dialog for assistive technology; usually the visible title. */
@@ -32,6 +33,12 @@
     /** Matches the width each screen already used for its own content box. */
     maxWidth?: number;
     maxHeight?: string;
+    /**
+     * Whether a click beside the content closes it. Off by default: beside a
+     * form, a stray click would throw away what was typed. For a dialog that
+     * holds nothing to lose, like the quick search.
+     */
+    closeOnBackdrop?: boolean;
     children: Snippet;
   } = $props();
 
@@ -75,6 +82,8 @@
   );
 </script>
 
+<!-- The click is the pointer's way out and Escape the keyboard's, through
+     `oncancel` below, so no key handler belongs on this element. -->
 <dialog
   bind:this={dialog}
   class="modal-overlay"
@@ -82,6 +91,10 @@
   oncancel={(event) => {
     event.preventDefault();
     onClose();
+  }}
+  onclick={(event) => {
+    // The overlay itself, never a click that started inside the content.
+    if (closeOnBackdrop && event.target === event.currentTarget) onClose();
   }}
 >
   <div class="modal-content" {style}>

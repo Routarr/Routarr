@@ -1,20 +1,45 @@
 <script lang="ts">
-  import { Copy, Download, MoveDown, MoveUp, Pencil, Plus, Trash2, Upload } from '../lib/icons';
+  import {
+    CircleMinus,
+    CirclePlus,
+    Copy,
+    Download,
+    MoveDown,
+    MoveUp,
+    Pencil,
+    Plus,
+    Trash2,
+    Upload,
+  } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition } from '../api/format';
-  import type { Category, ConditionCatalog, Rule, RuleDraft, RuleMediaType } from '../api/types';
+  import { canonicalKey } from '../api/conditions';
+  import type {
+    Category,
+    Condition,
+    ConditionCatalog,
+    Facet,
+    FacetAxis,
+    Rule,
+    RuleDraft,
+    RuleMediaType,
+    Vocabularies,
+  } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { takeQueryFlag } from '../api/onboarding';
   import { t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import LibraryFacetsPanel from '../components/LibraryFacets.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { downloadJson } from '../lib/download';
+  import { invalidateStatus } from '../lib/status.svelte';
 
   // Keyed on the union rather than on `string`: a media type added to
   // `RuleMediaType` without a label here then fails the type check instead
@@ -71,10 +96,46 @@
   const rules = $derived<Rule[]>(bundle.data?.rules ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
   const catalog = $derived<ConditionCatalog | undefined>(bundle.data?.catalog);
+  const specByType = $derived(
+    new Map((catalog?.conditions ?? []).map((spec) => [spec.type, spec])),
+  );
+
+  // The table reads as the editor does: a condition by its caption, a value by
+  // the name the library or its vocabulary gives it, `ja` as Japanese.
+  function nameIn(axis: string | undefined, value: string): string {
+    const facets = bundle.data?.facets;
+    if (!axis || !facets) return value;
+    const key = canonicalKey(value);
+    const known: Facet[] = [
+      ...(facets[axis as FacetAxis] ?? []),
+      ...(facets.vocabularies[axis as keyof Vocabularies] ?? []),
+    ];
+    return known.find((facet) => canonicalKey(facet.value) === key)?.label ?? value;
+  }
+
+  function describe(condition: Condition): string {
+    const spec = specByType.get(condition.type);
+    return describeCondition(condition, {
+      label: spec?.label,
+      separator: t('ListSeparator'),
+      empty: t('None'),
+      name: (value) => nameIn(spec?.suggestions, value),
+    });
+  }
 
   function openCreate() {
     editing = { draft: emptyDraft(categories[0]?.name ?? 'standard') };
   }
+
+  // The guide's "Create a rule" lands here. The editor waits for the bundle, as
+  // the button does: it is built from the catalogue and the categories.
+  let createRequested = takeQueryFlag('new');
+  $effect(() => {
+    if (createRequested && bundle.data) {
+      createRequested = false;
+      openCreate();
+    }
+  });
 
   function openEdit(rule: Rule) {
     editing = {
@@ -94,11 +155,18 @@
     };
   }
 
+  // The guide the shell draws reads its rule step from the rules. Without the
+  // revision, the step shows open until the next navigation.
+  async function reloadAfterWrite() {
+    invalidateStatus();
+    await bundle.reload();
+  }
+
   async function act(fn: () => Promise<unknown>, message: string) {
     try {
       await fn();
       outcome.succeed(message);
-      await bundle.reload();
+      await reloadAfterWrite();
     } catch (err) {
       outcome.fail(err);
     }
@@ -145,7 +213,7 @@
       if (result.skipped.length === 0) outcome.succeed(summary);
       else if (result.imported === 0) outcome.fail(summary, result.skipped);
       else outcome.warn(summary, result.skipped);
-      await bundle.reload();
+      await reloadAfterWrite();
     } catch (err) {
       outcome.fail(err instanceof SyntaxError ? t('NotValidJson') : err);
     }
@@ -190,12 +258,16 @@
     onRetry={() => void bundle.reload()}
   />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="rule" />
 
   <!-- Before the rules, not after: it is what you consult in order to write
        one, and a rule written against a value the library does not carry
        matches nothing while looking exactly like a rule that should. -->
   {#if bundle.data?.facets}
-    <LibraryFacetsPanel facets={bundle.data.facets} />
+    <LibraryFacetsPanel
+      facets={bundle.data.facets}
+      captionOf={(type) => specByType.get(type)?.label}
+    />
   {/if}
 
   <div class="card">
@@ -279,19 +351,24 @@
                   </span>
                 </td>
                 <td>
-                  <div class="flex flex-col gap-1">
+                  <!-- A plus to match and a minus to veto: one shape at one size,
+                       so the two read as a pair, and a word beside the minus so
+                       its colour is never the only thing that says "except". -->
+                  <ul class="rule-conditions">
                     {#each rule.conditions as condition, i (i)}
-                      <span class="mono text-sm">
-                        • {describeCondition(condition)}
-                      </span>
+                      <li class="rule-condition">
+                        <CirclePlus size={14} class="rule-condition-mark" aria-hidden="true" />
+                        <span>{describe(condition)}</span>
+                      </li>
                     {/each}
                     {#each rule.exclusions ?? [] as condition, i (i)}
-                      <span class="mono text-danger text-sm">
-                        ⛔ {t('ExceptPrefix')}
-                        {describeCondition(condition)}
-                      </span>
+                      <li class="rule-condition is-excluded">
+                        <CircleMinus size={14} class="rule-condition-mark" aria-hidden="true" />
+                        <span class="rule-condition-except">{t('ExceptPrefix')}</span>
+                        <span>{describe(condition)}</span>
+                      </li>
                     {/each}
-                  </div>
+                  </ul>
                 </td>
                 <td>
                   <div class="flex gap-2">
@@ -368,7 +445,7 @@
       onSaved={async (message) => {
         editing = null;
         outcome.succeed(message);
-        await bundle.reload();
+        await reloadAfterWrite();
       }}
     />
   {/if}

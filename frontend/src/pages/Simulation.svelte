@@ -11,10 +11,12 @@
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Stat from '../components/Stat.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { SvelteSet } from 'svelte/reactivity';
+  import { invalidateStatus } from '../lib/status.svelte';
 
   let result = $state<SimulationResult | null>(null);
   const selected = new SvelteSet<string>();
@@ -69,6 +71,10 @@
     try {
       const data = await api.runSimulation({ persist: true });
       result = data;
+      // The shell counts the pending decisions, and the guide it draws reads
+      // its simulation step from them. Without the revision, the count waits
+      // for the next poll and the step for the next navigation.
+      invalidateStatus();
       // Pre-select the actionable proposals only.
       select(
         data.decisions
@@ -226,6 +232,7 @@
 
   <ErrorBanner message={loadError} onDismiss={() => (loadError = null)} />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="simulation" />
 
   {#if !result && shown.length === 0}
     <div class="card"><EmptyState>{t('SimulationEmptyState')}</EmptyState></div>

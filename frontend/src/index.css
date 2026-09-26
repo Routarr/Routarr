@@ -743,6 +743,183 @@ a {
   background-color: var(--bg-card-hover);
 }
 
+/* The getting-started guide's place in the bar: a glyph and a figure, the same
+   width in every language, drawn in the accent because it is the next thing to
+   do rather than something wrong. */
+.guide-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+  height: 28px;
+  padding: 0 9px;
+  flex: none;
+  border: 1px solid var(--accent-strong);
+  border-radius: var(--radius-sm);
+  color: var(--accent-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+.guide-pill:hover {
+  background-color: var(--bg-card-hover);
+}
+
+/* The getting-started list. One row per step: its mark, what it is, and the
+   link that does it, which drops under the text on a phone. */
+.guide-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.guide-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* One bar in three places: the guide's progress, a decision's confidence and a
+   task's progress, so the three read as the same instrument. A thin accent edge
+   marks where the bar ends, since the unfilled part is the input colour on a
+   card, too close to it to see. The edge is the accent as a border,
+   `--accent-strong`, readable on both grounds. Six pixels edge included, and
+   barely rounded ends. */
+.guide-bar,
+.confidence-track,
+.progress-track {
+  box-sizing: border-box;
+  height: 6px;
+  border: 1px solid var(--accent-strong);
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-input);
+  overflow: hidden;
+}
+.guide-bar {
+  appearance: none;
+  width: 160px;
+}
+.guide-bar::-webkit-progress-bar {
+  background-color: var(--bg-input);
+}
+.guide-bar::-webkit-progress-value {
+  background-color: var(--accent-primary);
+}
+.guide-bar::-moz-progress-bar {
+  background-color: var(--accent-primary);
+}
+.guide-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.guide-step {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.guide-step.is-current {
+  border-color: var(--accent-strong);
+}
+.guide-step-mark {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.guide-step.is-current .guide-step-mark {
+  color: var(--accent-strong);
+}
+.guide-step.is-done .guide-step-mark {
+  color: var(--status-success);
+}
+/* The ring of the icons beside it, drawn to their size: a 20px box with the
+   circle inset by its stroke, so a number and a tick sit on one line. */
+.guide-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 1px;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.guide-step-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.guide-step.is-done .guide-step-title {
+  color: var(--text-secondary);
+}
+.guide-step-text {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+.guide-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.guide-complete {
+  flex: 1;
+  margin: 0;
+  color: var(--status-success);
+}
+.guide-paused {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.guide-paused > p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+/* The sentence first, the buttons after it: where both do not fit, on a
+   phone or in a long language, the buttons move under the sentence rather
+   than past the edge of the banner. */
+.banner-guide {
+  flex-wrap: wrap;
+  border-inline-start-color: var(--accent-strong);
+}
+.banner-guide > .flex-1 {
+  flex: 1 1 16rem;
+}
+.banner-guide > svg {
+  color: var(--accent-strong);
+}
+@media (max-width: 560px) {
+  .guide-step {
+    grid-template-columns: auto 1fr;
+  }
+  .guide-step-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .guide-progress {
+    align-items: flex-start;
+  }
+}
+
 /* ─────────────────────────────────────────────────── the command palette
  *
  * "Why did Routarr put this film there?" is the question this product exists
@@ -879,6 +1056,23 @@ a {
   white-space: nowrap;
 }
 
+/* A destination reads as its name, then what it is for. The names hold one
+   column, so every description starts at the same edge, in the quieter colour
+   of the search results' own details. Cut rather than wrapped: a row is one
+   line in every language. */
+.palette-row.is-destination .palette-name {
+  flex: 0 0 36%;
+}
+.palette-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* Above the results rather than in their place: only the library needs the
    network, so a failure there must not remove the destinations too. */
 .palette-error {
@@ -911,9 +1105,12 @@ a {
 }
 
 /* Badges */
+/* One line in every language: Chinese, Japanese and Korean break between any
+   two characters, so a narrow cell would stack a badge letter by letter. */
 .badge {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 6px;
   padding: 3px 8px;
   border-radius: var(--radius-xs);
@@ -1407,6 +1604,76 @@ td * {
 }
 
 /* ------------------------------------------------------------ feedback */
+/* A rule's conditions in the rules table: a plus to match, a minus to veto, in
+   the text's own face rather than the code's. The marks carry the colour, the
+   words stay in the text colour. */
+.rule-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.rule-condition {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.rule-condition-mark {
+  flex: none;
+  margin-top: 2px;
+  color: var(--status-success);
+}
+.rule-condition.is-excluded .rule-condition-mark {
+  color: var(--status-danger);
+}
+.rule-condition-except {
+  color: var(--text-muted);
+}
+
+/* What a try of the typed values answered, inside the dialog that typed them.
+   A line, not a banner: the screen's outcome is the banner, behind the dialog. */
+.probe-ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  font-size: 13px;
+  color: var(--status-success);
+}
+
+/* An address that opens the Arr's own interface. Underlined in the border
+   colour so a column of addresses stays quiet until one is pointed at. */
+.instance-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.instance-link:hover {
+  color: var(--accent-strong);
+  text-decoration-color: currentColor;
+}
+
+/* A dialog's buttons: the way out at the start, the actions at the end, and
+   both free to wrap, so a phone-wide dialog in a long language keeps every
+   button inside it. */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.dialog-actions > div {
+  flex-wrap: wrap;
+}
+
 /* The editor's live validation: one banner per issue, no bullets. */
 .validation-issues {
   list-style: none;
@@ -1526,30 +1793,23 @@ td * {
   color: var(--status-danger);
 }
 
-/* One ramp, two shapes. `--mix` is set per element by the component, which is
-   what makes the formula shareable at all: an unregistered custom property
-   inside a colour function is invalid at computed-value time, so the
-   arithmetic cannot live in the `calc()` here. */
-.confidence-dot,
-.confidence-fill {
-  --confidence-ramp: color-mix(in oklab, var(--status-success) var(--mix), var(--text-muted));
-}
-
 /* The mark a table column has room for.
  *
  * The meter below is for the explanation panel, where it has 150px. A column
  * gives it 28px after the figure, which measures nothing and reads as a smudge.
- * The dot carries the same ramp at a size the column cannot take away.
- *
- * Muted to success, not warning to success: starting at the warning colour made
- * an ordinary two-condition rule look like a problem, which is the claim the
- * three bands used to make in another form. */
+ * The dot says the same thing in intensity, muted to the accent of the meter,
+ * at a size the column cannot take away. A ramp claims no category:
+ * `confidence_for` scales differently per match mode, an `all` rule with one
+ * condition is 60% and an `any` rule with two is 53%, so no threshold can
+ * order them. `--mix` is set per element by the component: an unregistered
+ * custom property inside a colour function is invalid at computed-value time,
+ * so the arithmetic cannot live in a `calc()` here. */
 .confidence-dot {
   width: 7px;
   height: 7px;
   flex: none;
   border-radius: var(--radius-full);
-  background-color: var(--confidence-ramp);
+  background-color: color-mix(in oklab, var(--accent-primary) var(--mix), var(--text-muted));
 }
 
 /* Nothing agreed: the one value that asks for something. */
@@ -1557,30 +1817,19 @@ td * {
   background-color: var(--status-danger);
 }
 
+/* The same bar as the guide's progress: its length is the value, and one
+   colour for every value claims no good or bad of its own. */
 .confidence-track {
   flex: 1;
   min-width: 28px;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background-color: var(--facet-bar);
-  overflow: hidden;
 }
 
-/* A ramp, not three bands.
- *
- * `confidence_for` scales differently per match mode — an `all` rule with one
- * condition is 60%, an `any` rule with two is 53% — so no percentage threshold
- * can order them, and the old bands painted an ordinary two-condition rule as
- * a warning. Mixed in oklab from the tokens, so both themes follow and the
- * fill is never one of the four saturated status hues at full strength.
- */
 .confidence-fill {
   /* Stated: the element is a `<span>`, and an inline box ignores both width
-     and height — the fill computed its colour correctly and drew nothing. */
+     and height, so the fill would draw nothing. */
   display: block;
   height: 100%;
-  border-radius: var(--radius-xs);
-  background-color: var(--confidence-ramp);
+  background-color: var(--accent-primary);
   transition: width 0.2s ease;
 }
 
@@ -1599,8 +1848,26 @@ td * {
 }
 .condition-row .form-input,
 .condition-row .form-select {
-  padding: 7px 10px;
+  padding-block: 7px;
+  padding-inline-start: 10px;
   font-size: 13px;
+}
+/* Where a pair's selector stands, the fixed answer for a single-valued axis:
+   the same height and inset as the selector, so the values line up either way. */
+.condition-quantifier {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* The end side is set apart: a select keeps the room `select.form-select`
+   reserves for its arrow, and a padding shorthand here would draw the arrow
+   over the text, "all of" included. */
+.condition-row .form-input {
+  padding-inline-end: 10px;
 }
 
 .explain-row {
@@ -1666,10 +1933,6 @@ td * {
   min-width: 0;
 }
 .progress-track {
-  height: 6px;
-  background-color: var(--bg-input);
-  border-radius: var(--radius-full);
-  overflow: hidden;
   min-width: 90px;
 }
 .progress-fill {
@@ -2227,8 +2490,14 @@ td * {
 .flex-fixed-120 {
   flex: 0 0 120px;
 }
-.flex-fixed-160 {
-  flex: 0 0 160px;
+/* As wide as its caption, never narrower than 160px: a fixed width folded
+   the caption in every language longer than English. */
+.flex-fit {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+.flex-fit > .form-label {
+  white-space: nowrap;
 }
 /* Status and source colours on an icon or a word, where the badge shape would
    be too much. */
@@ -2834,4 +3103,25 @@ select.form-select {
   padding: 8px 12px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* The caption over the figures, aligned with them at the end of the row. */
+.picker-head {
+  margin: 0;
+  padding: 6px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: end;
+}
+
+/* A meaning over the codes that share it, set like the navigation's group
+   headings so it reads as a heading and not as a choice. */
+.picker-group-title {
+  margin: 0;
+  padding: 8px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

@@ -27,7 +27,7 @@
   let { onClose }: { onClose: () => void } = $props();
 
   type Row =
-    | { kind: 'nav'; id: string; to: string; label: string }
+    | { kind: 'nav'; id: string; to: string; label: string; hint: string }
     | { kind: 'media'; id: string; media: MediaListItem };
 
   let query = $state('');
@@ -50,6 +50,7 @@
       id: `pal-nav-${item.to}`,
       to: item.to,
       label,
+      hint: t(item.hint),
     })),
     ...media.map((entry) => ({
       kind: 'media' as const,
@@ -134,7 +135,9 @@
        deep, Escape becomes ambiguous and the palette behind is unreadable. -->
   <ExplanationModal data={explaining} {onClose} />
 {:else}
-  <Modal label={t('CommandPalette')} {onClose} maxWidth={520}>
+  <!-- A click beside it closes it: it holds nothing that a stray click could
+       lose, and opening it is not a promise to go somewhere. -->
+  <Modal label={t('CommandPalette')} {onClose} maxWidth={520} closeOnBackdrop>
     <div class="palette">
       <div class="palette-field">
         <svg
@@ -168,6 +171,17 @@
           aria-label={t('CommandPalette')}
           placeholder={t('CommandPalettePlaceholder')}
         />
+        <!-- The way out a pointer sees, as every other dialog has one;
+             Escape is the keyboard's. -->
+        <button
+          type="button"
+          class="btn btn-secondary btn-sm"
+          onclick={onClose}
+          aria-label={t('Dismiss')}
+          title={t('Dismiss')}
+        >
+          ✕
+        </button>
       </div>
 
       <!-- Announced, because a screen reader hears the field and nothing else:
@@ -216,13 +230,16 @@
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <li
               id={row.id}
-              class="palette-row{index === cursor ? ' is-current' : ''}"
+              class="palette-row{row.kind === 'nav' ? ' is-destination' : ''}{index === cursor
+                ? ' is-current'
+                : ''}"
               role="option"
               aria-selected={index === cursor}
               onclick={() => void open(row)}
             >
               {#if row.kind === 'nav'}
                 <span class="palette-name">{row.label}</span>
+                <span class="palette-hint" title={row.hint}>{row.hint}</span>
               {:else}
                 <span class="palette-name">{row.media.title}</span>
                 <span class="palette-meta">

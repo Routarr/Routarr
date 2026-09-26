@@ -270,7 +270,7 @@
         </label>
       {/if}
 
-      <div class="flex justify-between mt-4">
+      <div class="dialog-actions">
         <button class="btn btn-secondary" onclick={() => (creating = false)}>{t('Cancel')}</button>
         <button class="btn btn-primary" onclick={save} disabled={!selected}>
           {t('CreateOverride')}

@@ -15,6 +15,25 @@ import ModalHarness from '../test/ModalHarness.svelte';
 afterEach(() => vi.restoreAllMocks());
 
 describe('Modal', () => {
+  /**
+   * Beside a form, a stray click would throw away what was typed, so a click
+   * outside does nothing unless the caller holds nothing to lose.
+   */
+  it('closes on a click beside its content only when the caller allows it', async () => {
+    const guarded = vi.fn();
+    const { unmount } = render(ModalHarness, { label: 'Rename category', onClose: guarded });
+    await fireEvent.click(screen.getByRole('dialog'));
+    expect(guarded).not.toHaveBeenCalled();
+    unmount();
+
+    const onClose = vi.fn();
+    render(ModalHarness, { label: 'Quick search', onClose, closeOnBackdrop: true });
+    await fireEvent.click(screen.getByText('body'));
+    expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('dialog'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('is announced as a dialog, with a name', () => {
     render(ModalHarness, { label: 'Rename category', onClose: vi.fn() });
 

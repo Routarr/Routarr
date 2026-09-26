@@ -55,6 +55,22 @@
       .slice(0, 50),
   );
 
+  /**
+   * The matches in runs of one meaning, in the order the server sends them: a
+   * run with a group is drawn under its meaning, a run without is drawn bare.
+   */
+  const blocks = $derived.by(() => {
+    const runs: { group?: string; options: Facet[] }[] = [];
+    for (const option of matches) {
+      const last = runs.at(-1);
+      if (last && last.group === option.group) last.options.push(option);
+      else runs.push({ group: option.group, options: [option] });
+    }
+    return runs;
+  });
+  /// Whether the figures beside the values are counts worth a caption.
+  const counted = $derived(matches.some((option) => option.count > 0));
+
   /// What a stored value is called, so a chip reads "Japanese (ja)" and not `ja`.
   const shown = (value: string) =>
     options.find((option) => canonicalKey(option.value) === canonicalKey(value))?.label ?? value;
@@ -93,6 +109,25 @@
     }
   }
 </script>
+
+{#snippet row(option: Facet, grouped: boolean)}
+  <button
+    type="button"
+    class="picker-option"
+    role="option"
+    aria-selected="false"
+    aria-label={option.label ?? option.value}
+    onclick={() => add(option.value)}
+  >
+    <!-- Under its meaning a code needs no repeat of it; the name stays on the
+         chip once chosen, where no heading stands above it. -->
+    <span>{grouped ? option.value : (option.label ?? option.value)}</span>
+    <!-- A vocabulary entry is not an observation, so it carries no figure: a
+         0 beside it would read as "absent from the library" where the point
+         is that it can be chosen anyway. -->
+    {#if option.count > 0}<span class="picker-count">{option.count}</span>{/if}
+  </button>
+{/snippet}
 
 <div
   class="value-picker"
@@ -146,21 +181,23 @@
       {:else if error}
         <p class="picker-note">{error}</p>
       {:else}
-        {#each matches as option (option.value)}
-          <button
-            type="button"
-            class="picker-option"
-            role="option"
-            aria-selected="false"
-            aria-label={option.label ?? option.value}
-            onclick={() => add(option.value)}
-          >
-            <span>{option.label ?? option.value}</span>
-            <!-- A vocabulary entry is not an observation, so it carries no
-                 figure: a 0 beside it would read as "absent from the library"
-                 where the point is that it can be chosen anyway. -->
-            {#if option.count > 0}<span class="picker-count">{option.count}</span>{/if}
-          </button>
+        {#if counted}
+          <!-- What the figures count, said once above them. -->
+          <p class="picker-head" aria-hidden="true">{t('PickerCountCaption')}</p>
+        {/if}
+        {#each blocks as block, index (index)}
+          {#if block.group}
+            <div role="group" aria-label={block.group}>
+              <p class="picker-group-title" aria-hidden="true">{block.group}</p>
+              {#each block.options as option (option.value)}
+                {@render row(option, true)}
+              {/each}
+            </div>
+          {:else}
+            {#each block.options as option (option.value)}
+              {@render row(option, false)}
+            {/each}
+          {/if}
         {/each}
         {#if custom}
           <button

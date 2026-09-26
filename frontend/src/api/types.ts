@@ -211,6 +211,9 @@ export interface ConditionCatalog {
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   field: string;
+  /// The dictionary key the message was written from, which says what kind
+  /// of issue it is without reading the message.
+  key: string;
   message: string;
 }
 
@@ -474,6 +477,15 @@ export interface Health {
 }
 
 /** What a connection probe reports. `app_name` is null for an Arr that does not say. */
+/** Values typed in the instance form, tried before anything is saved. */
+export interface InstanceProbe {
+  instance_type: 'radarr' | 'sonarr';
+  base_url: string;
+  api_key: string;
+  /** The instance being edited, whose stored key a blank `api_key` stands for. */
+  id: string | undefined;
+}
+
 export interface TestConnectionResponse {
   success: boolean;
   version: string;
@@ -493,6 +505,25 @@ export interface SyncReport {
 }
 
 export type Settings = Record<string, string>;
+
+/** Whether the getting-started guide is still wanted. */
+export type OnboardingState = 'pending' | 'dismissed' | 'done';
+
+/** One step of the getting-started guide, read from the installation's data. */
+export interface OnboardingStep {
+  id: 'instance' | 'categories' | 'metadata' | 'rule' | 'simulation' | 'live';
+  done: boolean;
+  /** An optional step never holds the guide back from completing. */
+  optional: boolean;
+}
+
+/** Where a new installation stands, and whether the guide still shows. */
+export interface OnboardingStatus {
+  state: OnboardingState;
+  /** Every step that is not optional is done. */
+  complete: boolean;
+  steps: OnboardingStep[];
+}
 
 /** What a configuration restore managed, and what it could not. */
 export interface ConfigImportReport {
@@ -582,6 +613,9 @@ export interface Facet {
   /// which is its own label.
   label?: string;
   count: number;
+  /// What the value means, where several values mean the same thing, as
+  /// certification codes of several countries do.
+  group?: string;
 }
 
 /// Values a condition may hold that the library does not define. A genre means

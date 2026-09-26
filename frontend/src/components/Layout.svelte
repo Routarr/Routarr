@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { AlertTriangle, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, ListChecks, Menu, Search } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -8,6 +8,8 @@
   import { applyTheme, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { statusRevision } from '../lib/status.svelte';
+  import { guideProgress } from '../api/onboarding';
+  import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
@@ -30,6 +32,26 @@
     (signal) => api.getStatus(signal),
     () => statusRevision(),
   );
+
+  // Read again on every navigation and after every write the warnings follow:
+  // a step is done by the screen the reader just left, and the pill, the
+  // dashboard list and the step banners all read this one answer.
+  const guide = createAsync(
+    (signal) => api.getOnboarding(signal),
+    () => [statusRevision(), router.path],
+  );
+  $effect(() => {
+    if (guide.data) publishOnboarding(guide.data);
+  });
+  const guidePill = $derived.by(() => {
+    const status = onboarding.current;
+    if (!status || status.state !== 'pending') return null;
+    return guideProgress(status);
+  });
+  // While the guide runs, the warnings of an installation not set up yet are
+  // its unfinished steps, and the pill already points at them. A failed move
+  // is never one of them, so it still shows.
+  const warned = $derived(guidePill ? 0 : (status.data?.warnings.length ?? 0));
 
   // Which gate to show, and whether to offer a way out. Public and cheap, and
   // asked once: a browser that has not signed in cannot be asked for a session
@@ -105,7 +127,6 @@
     const data = status.data;
     if (!data) return null;
     const failed = data.failed_decisions;
-    const warned = data.warnings.length;
     if (failed === 0 && warned === 0) return null;
     const parts: string[] = [];
     if (failed > 0) parts.push(t('FailedMoves', { count: failed }));
@@ -186,7 +207,7 @@
         jobs: status.data?.running_jobs ?? 0,
         decisions: status.data?.pending_decisions ?? 0,
         failed: status.data?.failed_decisions ?? 0,
-        warnings: status.data?.warnings.length ?? 0,
+        warnings: warned,
       }}
     />
 
@@ -254,6 +275,19 @@
             <kbd class="palette-trigger-key">{shortcut}</kbd>
           </button>
 
+          {#if guidePill}
+            <!-- A figure and a glyph, the same width in every language, like
+                 the chips beside it. The sentence is the accessible name. -->
+            <a
+              href={href('/')}
+              class="guide-pill"
+              aria-label={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
+              title={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
+            >
+              <ListChecks size={14} aria-hidden="true" />
+              {guidePill.done}/{guidePill.total}
+            </a>
+          {/if}
           {#if attention}
             <!-- Failures first: they are what `is-critical` is painted for,
                  and they are listed on the log screen, not on diagnostics.

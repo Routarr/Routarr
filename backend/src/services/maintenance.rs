@@ -11,7 +11,38 @@ use tracing::{info, warn};
 
 use crate::error::AppResult;
 use crate::jobs::JobKind;
+use crate::services::metadata;
 use crate::state::AppState;
+
+/// List TMDb when the environment hands in its key and nobody chose the
+/// sources yet.
+///
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and the
+/// shipped order is the Arr alone: without this, the key would be read and
+/// never used. A list already stored is left as it is, TMDb in it or not,
+/// since taking a source out is a choice the environment must not undo.
+///
+/// Converged at startup rather than resolved on each read, because routing
+/// reads the stored list straight from the database and never sees the
+/// environment.
+pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
+    if state.config.tmdb_api_key.is_none() {
+        return Ok(false);
+    }
+    let listed = sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('metadata_providers', ?)
+         ON CONFLICT(key) DO NOTHING",
+    )
+    .bind(format!("{},{}", metadata::ARR, metadata::TMDB))
+    .execute(&state.pool)
+    .await?
+    .rows_affected()
+        > 0;
+    if listed {
+        info!("TMDB_API_KEY is set, so TMDb joins the metadata sources after Radarr and Sonarr");
+    }
+    Ok(listed)
+}
 
 /// Bring stored `Bounded` settings inside the ranges this build enforces.
 ///

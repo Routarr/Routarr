@@ -36,6 +36,8 @@ const STRINGS = {
   Instances: 'Instances',
   RootFolders: 'Root folders',
   Settings: 'Settings',
+  HintRules: 'What goes where',
+  Dismiss: 'Dismiss',
 };
 
 function media(over: Record<string, unknown> = {}) {
@@ -74,6 +76,28 @@ describe('CommandPalette', () => {
     // rather than an empty box.
     expect(options).toHaveLength(13);
     expect(options[0]).toHaveTextContent('Dashboard');
+  });
+
+  /** A few words beside each name, so a list of thirteen reads as what each is for. */
+  it('describes each destination beside its name', async () => {
+    show();
+
+    const rules = (await screen.findAllByRole('option')).find((option) =>
+      option.textContent?.includes('Rules'),
+    );
+    expect(rules).toHaveTextContent('What goes where');
+  });
+
+  /** Opening it is not a promise to go somewhere. */
+  it('closes without a choice, from its own button or a click beside it', async () => {
+    const onClose = vi.fn();
+    show(onClose);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await fireEvent.click(screen.getByRole('dialog'));
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   it('narrows the destinations on what is typed', async () => {

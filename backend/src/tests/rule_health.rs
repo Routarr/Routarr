@@ -456,6 +456,54 @@ async fn a_certification_is_shown_with_what_it_means() {
     assert!(bare.get("label").is_none(), "a guessed name reached the screen: {bare}");
 }
 
+/// Codes of several countries mean the same thing, and a rule wants every one
+/// of them: the list gathers the codes by what they mean, the youngest audience
+/// first, and leaves the codes nobody can name at the end, ungrouped.
+#[tokio::test]
+async fn certifications_are_grouped_by_meaning_youngest_first() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    sqlx::query("UPDATE media SET certification = 'U' WHERE id = 'm-1'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    for (id, certification) in [("m-2", "12"), ("m-3", "TP"), ("m-4", "TP"), ("m-5", "M")] {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+             monitored, has_files, certification)
+             VALUES (?, 'inst-1', ?, 'movie', ?, '/movies/standard', 1, 1, ?)",
+        )
+        .bind(id)
+        .bind(id.trim_start_matches("m-").parse::<i64>().unwrap() + 100)
+        .bind(format!("Title {id}"))
+        .bind(certification)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+
+    let response = app.get("/api/v1/media/facets").await;
+    let listed: Vec<(String, Option<String>)> = response.assert_ok()["certifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| (f["value"].as_str().unwrap().to_string(), f["group"].as_str().map(String::from)))
+        .collect();
+
+    let localizer = app.state.localizer().await;
+    let all_ages = Some(localizer.translate("CertAllAges", &[]));
+    let twelve = Some(localizer.translate("CertFromAge", &[("age", "12")]));
+    let groups: Vec<Option<String>> = listed.iter().map(|(_, group)| group.clone()).collect();
+    // `U` from the Arr, `G` from TMDb for the same film, and `TP` twice.
+    assert_eq!(
+        groups,
+        vec![all_ages.clone(), all_ages.clone(), all_ages, twelve, None],
+        "{listed:?}"
+    );
+    assert_eq!(listed[0].0, "TP", "the most frequent code leads its group: {listed:?}");
+    assert_eq!(listed[4].0, "M");
+}
+
 /// `/media/facets` is a literal segment sitting beside `/media/{id}`; if the
 /// dynamic route swallowed it the endpoint would answer "media facets not
 /// found" and look like a missing item rather than a routing mistake.

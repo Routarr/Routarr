@@ -4,9 +4,10 @@ import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { api, ApiError } from '../api/client';
-import type { Category, ConditionCatalog, Rule } from '../api/types';
+import type { Category, ConditionCatalog, LibraryFacets, Rule } from '../api/types';
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { statusRevision } from '../lib/status.svelte';
 
 /**
  * First match by ascending priority wins, so the order of this table *is* the
@@ -34,6 +35,8 @@ const STRINGS = {
   MoviesOnly: 'Movies only',
   SeriesOnly: 'Series only',
   ExceptPrefix: 'except',
+  ListSeparator: ', ',
+  None: 'none',
   AddCondition: 'Add a condition',
   ImportResult: 'Rules imported: {count}',
   ImportSkipped: ', skipped: {count}',
@@ -92,16 +95,17 @@ function rule(over: Partial<Rule> = {}): Rule {
   };
 }
 
-function show(rules: Rule[]) {
+function show(rules: Rule[], served: ConditionCatalog = catalog) {
   vi.spyOn(api, 'getRules').mockResolvedValue(rules);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
-  vi.spyOn(api, 'getConditionCatalog').mockResolvedValue(catalog);
+  vi.spyOn(api, 'getConditionCatalog').mockResolvedValue(served);
   return renderWithI18n(Rules, { strings: STRINGS });
 }
 
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  window.history.replaceState({}, '', '/');
 });
 
 describe('Rules', () => {
@@ -220,6 +224,18 @@ describe('Rules', () => {
     await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'));
   });
 
+  /** The shell draws the guide, whose rule step hears of a rule only through this. */
+  it('tells the shell when the rules change', async () => {
+    vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
+    show([rule()]);
+    const before = statusRevision();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^Delete – / }));
+    await answerConfirmation();
+
+    await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
+  });
+
   /**
    * A disabled rule is dimmed and marked, not hidden. Hiding it makes a routing
    * that "should" match and does not look like a bug in the engine.
@@ -243,6 +259,63 @@ describe('Rules', () => {
     // An exclusion vetoes a rule that otherwise matched; reading it as a third
     // condition inverts what the rule does.
     expect(screen.getByText(/except/)).toBeTruthy();
+  });
+
+  /** The table reads as the editor does, never in the engine's own identifiers. */
+  it('describes each condition by its caption and each value by its name', async () => {
+    const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
+    const served: ConditionCatalog = {
+      ...catalog,
+      conditions: [
+        ...catalog.conditions,
+        {
+          ...spec,
+          type: 'original_language',
+          label: 'Original language is',
+          suggestions: 'original_languages',
+        },
+        {
+          ...spec,
+          type: 'certification_in',
+          label: 'Certification is',
+          suggestions: 'certifications',
+        },
+      ],
+    };
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
+      total_media: 12,
+      without_metadata: 0,
+      vocabularies: {
+        original_languages: [{ value: 'ja', label: 'Japanese (ja)', count: 0 }],
+        origin_countries: [],
+      },
+      genres: [],
+      original_languages: [],
+      origin_countries: [],
+      certifications: [{ value: '12', label: '12 (12 and over)', count: 11 }],
+      tags: [],
+      series_types: [],
+      root_folders: [],
+    } as unknown as LibraryFacets);
+    show(
+      [
+        rule({
+          conditions: [
+            { type: 'genre_contains', value: ['Animation', 'Family'] },
+            { type: 'original_language', value: ['ja'] },
+          ],
+          exclusions: [{ type: 'certification_in', value: ['12'] }],
+        }),
+      ],
+      served,
+    );
+
+    expect(await screen.findByText('Original language is: Japanese (ja)')).toBeTruthy();
+    expect(screen.getByText('Genre contains: Animation, Family')).toBeTruthy();
+    const veto = screen.getByText('Certification is: 12 (12 and over)').closest('li');
+    expect(veto?.classList.contains('is-excluded')).toBe(true);
+    expect(veto).toHaveTextContent('except');
+    expect(screen.queryByText(/original_language|certification_in/)).toBeNull();
   });
 
   /**
@@ -287,5 +360,14 @@ describe('Rules', () => {
     const summary = await screen.findByText('Rules imported: 1, skipped: 1');
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.getByText("'Kids': no target")).toBeTruthy();
+  });
+
+  /** The editor is built from the catalogue, so the guide's link waits for it as the button does. */
+  it('opens the rule editor when the guide sends the reader here', async () => {
+    window.history.replaceState({}, '', '/rules?new=1');
+    show([]);
+
+    expect(await screen.findByRole('dialog')).toBeTruthy();
+    expect(window.location.search).toBe('');
   });
 });

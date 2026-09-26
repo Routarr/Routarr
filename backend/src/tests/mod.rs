@@ -9,6 +9,7 @@ mod base_path;
 mod batch_apply;
 mod categories;
 mod config_bundle;
+mod connection;
 mod crypto_format;
 mod enrichment;
 mod executor;
@@ -22,6 +23,7 @@ mod localization;
 mod metadata_sources;
 mod metrics;
 mod notify;
+mod onboarding;
 mod outbound_http;
 mod provider_keys;
 mod routing;
@@ -197,6 +199,22 @@ impl TestApp {
              original_language, origin_countries, certification, expires_at)
              VALUES ('tmdb', '8392', 'movie', '[\"Animation\",\"Family\"]', '[\"anime\"]', 'ja',
                      '[\"JP\"]', 'G', '2099-01-01')",
+        )
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+
+        self.list_tmdb().await;
+    }
+
+    /// List TMDb after the Arr, for a library TMDb describes.
+    ///
+    /// Under the shipped order, the Arr alone, a TMDb answer in the cache counts
+    /// for nothing. An order a test set first is its own.
+    pub async fn list_tmdb(&self) {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb')
+             ON CONFLICT(key) DO NOTHING",
         )
         .execute(&self.state.pool)
         .await

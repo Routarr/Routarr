@@ -21,6 +21,8 @@ async fn library(tmdb: &FakeTmdb, items: &[(i64, &str, i64)]) -> TestApp {
     config.tmdb_base_url = format!("{}/3", tmdb.base_url);
     let state = AppState { config: Arc::new(config), ..app.state.clone() };
     let app = TestApp { state, ..app };
+    // What startup does with a key from the environment: list TMDb.
+    crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
 
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)

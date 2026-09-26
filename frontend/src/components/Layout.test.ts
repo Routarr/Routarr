@@ -4,9 +4,11 @@ import { fireEvent, screen } from '@testing-library/svelte';
 import { renderWithI18n } from '../test/render';
 import { invalidateStatus } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
-import type { Status } from '../api/types';
+import type { OnboardingStatus, Status } from '../api/types';
 import LayoutHarness from '../test/LayoutHarness.svelte';
 import { withBase } from '../test/base';
+import { onboardingStatus } from '../test/fixtures';
+import { publishOnboarding } from '../lib/onboarding.svelte';
 
 /**
  * The chrome. It answers one question above all others — will the next click
@@ -35,6 +37,7 @@ const STRINGS = {
   MainNavigation: 'Main navigation',
   NavGroupSupervision: 'Monitoring',
   Diagnostics: 'Diagnostics',
+  GuidePillLabel: 'Getting started, required steps done: {done} of {total}',
 };
 
 function status(over: Partial<Status> = {}): Status {
@@ -49,16 +52,18 @@ function status(over: Partial<Status> = {}): Status {
   };
 }
 
-function show() {
+function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' })) {
   // The theme is a server setting, fetched on mount. Unmocked it reaches for a
   // dev server that is not running and fills the output with connection errors.
   vi.spyOn(api, 'getSettings').mockResolvedValue({ ui_theme: 'dark' });
+  vi.spyOn(api, 'getOnboarding').mockResolvedValue(guide);
   return renderWithI18n(LayoutHarness, { strings: STRINGS });
 }
 
 afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
+  publishOnboarding(null);
 });
 
 describe('Layout', () => {
@@ -268,5 +273,34 @@ describe('Layout', () => {
 
     await vi.waitFor(() => expect(screen.queryByLabelText(/Needs attention/)).toBeNull());
     expect(screen.queryByLabelText(/warnings/)).toBeNull();
+  });
+
+  /** A fresh install is a list of steps, not a list of alarms. */
+  it('shows the guide progress in the chrome while it runs, instead of the warnings', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status({ warnings: ['No enabled Arr instance'] }));
+    show(onboardingStatus(['instance']));
+
+    const pill = await screen.findByRole('link', {
+      name: 'Getting started, required steps done: 1 of 4',
+    });
+    expect(pill.textContent).toContain('1/4');
+    expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
+    expect(screen.queryByText('1 warnings')).toBeNull();
+  });
+
+  it('still flags a failed move while the guide runs', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status({ failed_decisions: 1 }));
+    show(onboardingStatus());
+
+    expect(await screen.findByRole('link', { name: /Needs attention/ })).toBeTruthy();
+  });
+
+  it('shows the warnings again once the guide is done', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status({ warnings: ['No enabled Arr instance'] }));
+    show();
+
+    expect(await screen.findByRole('link', { name: /Needs attention/ })).toBeTruthy();
+    expect(screen.getByText('1 warnings')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Getting started/ })).toBeNull();
   });
 });

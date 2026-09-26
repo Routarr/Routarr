@@ -25,6 +25,8 @@ export interface Route {
   to: string;
   /** Dictionary key for the label, the title and the accessible name. */
   key: string;
+  /** Dictionary key for the few words the quick search shows beside the label. */
+  hint: string;
   /** Set where a nested route would otherwise light its parent too. */
   exact?: boolean;
   /** Which of the shell's counts this entry answers, if any. */
@@ -46,40 +48,40 @@ export interface Route {
 export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
   {
     key: null,
-    items: [{ to: '/', key: 'Dashboard', exact: true }],
+    items: [{ to: '/', key: 'Dashboard', hint: 'HintDashboard', exact: true }],
   },
   {
     key: 'NavGroupDaily',
     items: [
       // Exact: `/rules/tests` is its own destination, and without this both
       // would light up at once.
-      { to: '/rules', key: 'RulesEngine', exact: true },
-      { to: '/rules/tests', key: 'RuleTests' },
-      { to: '/simulation', key: 'Simulation' },
+      { to: '/rules', key: 'RulesEngine', hint: 'HintRules', exact: true },
+      { to: '/rules/tests', key: 'RuleTests', hint: 'HintRuleTests' },
+      { to: '/simulation', key: 'Simulation', hint: 'HintSimulation' },
     ],
   },
   {
     key: 'NavGroupReview',
     items: [
-      { to: '/media', key: 'MediaExplorer' },
-      { to: '/history', key: 'AuditHistory', badge: 'decisions' },
-      { to: '/overrides', key: 'Overrides' },
+      { to: '/media', key: 'MediaExplorer', hint: 'HintLibrary' },
+      { to: '/history', key: 'AuditHistory', hint: 'HintHistory', badge: 'decisions' },
+      { to: '/overrides', key: 'Overrides', hint: 'HintOverrides' },
     ],
   },
   {
     key: 'NavGroupSupervision',
     items: [
-      { to: '/jobs', key: 'Tasks', badge: 'jobs' },
-      { to: '/logs', key: 'Logs', badge: 'failed' },
-      { to: '/health', key: 'Diagnostics', badge: 'warnings' },
+      { to: '/jobs', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
+      { to: '/logs', key: 'Logs', hint: 'HintLogs', badge: 'failed' },
+      { to: '/health', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],
   },
   {
     key: 'NavGroupConfiguration',
     items: [
-      { to: '/instances', key: 'Instances' },
-      { to: '/root-folders', key: 'RootFolders' },
-      { to: '/settings', key: 'Settings' },
+      { to: '/instances', key: 'Instances', hint: 'HintInstances' },
+      { to: '/root-folders', key: 'RootFolders', hint: 'HintRootFolders' },
+      { to: '/settings', key: 'Settings', hint: 'HintSettings' },
     ],
   },
 ];

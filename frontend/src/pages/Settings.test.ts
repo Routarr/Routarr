@@ -9,6 +9,8 @@ import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
 import { FIELDS, SOURCE_KEY_SETTING } from '../lib/settings';
 import Settings from './Settings.svelte';
+import { publishOnboarding } from '../lib/onboarding.svelte';
+import { onboardingStatus } from '../test/fixtures';
 import { answerConfirmation } from '../test/confirm';
 
 /**
@@ -28,6 +30,9 @@ const STRINGS = {
   SettingsTabAutomation: 'Automation',
   Metadata: 'Metadata',
   SettingsTabGeneral: 'General',
+  GuideTitle: 'Getting started',
+  GuideRestartText: 'Show the steps again.',
+  GuideRestart: 'Show the guide',
   SettingsTabMaintenance: 'Maintenance',
   UnsavedChanges: 'Unsaved changes: {count}',
   SavesEverySection: 'Every section is saved together',
@@ -139,6 +144,8 @@ async function save(): Promise<Record<string, string>> {
 afterEach(() => {
   vi.restoreAllMocks();
   window.location.hash = '';
+  publishOnboarding(null);
+  window.history.replaceState({}, '', '/');
 });
 
 describe('the unattended-writing warning', () => {
@@ -340,6 +347,19 @@ describe('the metadata sources', () => {
     const payload = await save();
     expect(payload).toHaveProperty('metadata_providers');
     expect(payload.metadata_providers).toBe('');
+  });
+
+  /**
+   * The shipped order is the backend's to state. A copy kept here drifts from
+   * it, and since a save sends every field, the first save of anything at all
+   * would store the copy.
+   */
+  it('shows and saves the order the server resolved when none is stored', async () => {
+    mount({ global_dry_run: 'true' }, APIKEY_MODE, { configured: true, order: ['tmdb', 'arr'] });
+    await openSection('Routing');
+
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
   it('separates what is active from what is switched off', async () => {
@@ -782,5 +802,30 @@ describe('a refused save', () => {
     const payload = await save();
     expect(payload.global_dry_run).toBe('false');
     expect(payload.batch_limit).toBe('25');
+  });
+});
+
+describe('the getting-started guide', () => {
+  it('can be shown again once it was skipped', async () => {
+    publishOnboarding(onboardingStatus([], { state: 'dismissed' }));
+    const set = vi.spyOn(api, 'setOnboarding').mockResolvedValue(onboardingStatus());
+    mount({});
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show the guide' }));
+
+    await waitFor(() => expect(set).toHaveBeenCalledWith('pending'));
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+  });
+
+  it('leads back to a guide that already shows, without writing anything', async () => {
+    publishOnboarding(onboardingStatus());
+    const set = vi.spyOn(api, 'setOnboarding');
+    window.history.replaceState({}, '', '/settings');
+    mount({});
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show the guide' }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(set).not.toHaveBeenCalled();
   });
 });

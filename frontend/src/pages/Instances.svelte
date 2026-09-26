@@ -1,10 +1,20 @@
 <script lang="ts">
-  import { KeyRound, Link2, Plus, RefreshCw, Trash2, Wifi } from '../lib/icons';
+  import {
+    CheckCircle2,
+    ExternalLink,
+    KeyRound,
+    Link2,
+    Plus,
+    RefreshCw,
+    Trash2,
+    Wifi,
+  } from '../lib/icons';
   import { api } from '../api/client';
   import { formatRelative, formatTimestamp } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -12,6 +22,7 @@
   import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -25,10 +36,16 @@
     sync_interval_minutes: number;
   }
 
+  // Empty rather than a guess: a guessed address left in the field is saved by
+  // whoever does not notice it, and `localhost` is Routarr's own container in
+  // Docker. The example shows the shape instead, as a placeholder.
+  const EXAMPLE_URL = { radarr: 'http://radarr:7878', sonarr: 'http://sonarr:8989' } as const;
+  const SERVICE = { radarr: 'Radarr', sonarr: 'Sonarr' } as const;
+
   const blankForm = (): FormState => ({
     name: '',
     instance_type: 'radarr',
-    base_url: 'http://localhost:7878',
+    base_url: '',
     api_key: '',
     enabled: true,
     sync_interval_minutes: 15,
@@ -64,21 +81,104 @@
   // on the URL looked like a Save button that did nothing.
   let formError = $state<string | null>(null);
 
+  // What the typed values answered, kept with the values it answered for: once
+  // one of them changes, the result would vouch for values nobody tried.
+  let probe = $state<{ tried: string; text: string } | null>(null);
+  let probing = $state(false);
+  const typed = $derived(
+    editing
+      ? [editing.form.instance_type, editing.form.base_url, editing.form.api_key].join('\n')
+      : '',
+  );
+  const probed = $derived(probe && probe.tried === typed ? probe.text : null);
+
+  async function tryConnection() {
+    if (!editing) return;
+    const { form, id } = editing;
+    const tried = typed;
+    probing = true;
+    probe = null;
+    formError = null;
+    try {
+      const answer = await api.probeInstance({
+        instance_type: form.instance_type,
+        base_url: form.base_url,
+        api_key: form.api_key,
+        id,
+      });
+      probe = {
+        tried,
+        text: t('ConnectionOk', {
+          name: answer.app_name ?? SERVICE[form.instance_type],
+          version: answer.version,
+          folders: answer.root_folders,
+        }),
+      };
+    } catch (err) {
+      formError = describeError(err);
+    } finally {
+      probing = false;
+    }
+  }
+
+  // Copied from a browser bar or typed from memory, an address often lacks its
+  // scheme, which the backend refuses.
+  function completeScheme(form: FormState) {
+    const address = form.base_url.trim();
+    form.base_url = address && !/^https?:\/\//i.test(address) ? `http://${address}` : address;
+  }
+
+  /** Only an address the browser can open is a link: nothing else runs from a click. */
+  const opensInBrowser = (address: string) => /^https?:\/\//i.test(address);
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!editing) return;
     formError = null;
+    let saved: Instance;
+    const wasEdit = Boolean(editing.id);
     try {
-      if (editing.id) await api.updateInstance(editing.id, editing.form);
-      else await api.createInstance(editing.form);
-      const wasEdit = Boolean(editing.id);
-      editing = null;
-      outcome.succeed(t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded'));
-      invalidateStatus();
-      await list.reload();
+      saved = editing.id
+        ? await api.updateInstance(editing.id, editing.form)
+        : await api.createInstance(editing.form);
     } catch (err) {
       formError = describeError(err);
+      return;
     }
+    editing = null;
+    const firstSync = saved.enabled && !saved.last_sync_at;
+    outcome.succeed(
+      firstSync
+        ? t('InstanceFirstSync', { name: saved.name })
+        : t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded'),
+    );
+    invalidateStatus();
+    await list.reload();
+    if (firstSync) await syncFirstTime(saved);
+  }
+
+  // Left to the scheduler, an instance never synced waits up to a whole pass
+  // with no library and no root folders, and the guide's first step waits with
+  // it. Synced on save, a wrong address or key also shows while the form is
+  // fresh in mind. Saved and not synced is a partial result, not a failure.
+  async function syncFirstTime(saved: Instance) {
+    busyId = saved.id;
+    try {
+      const report = await api.syncInstance(saved.id);
+      outcome.succeed(
+        t('InstanceFirstSyncDone', {
+          name: saved.name,
+          media: report.media,
+          folders: report.root_folders,
+        }),
+      );
+    } catch (err) {
+      outcome.warn(t('InstanceFirstSyncFailed', { name: saved.name }), [describeError(err)]);
+    } finally {
+      busyId = null;
+    }
+    invalidateStatus();
+    await list.reload();
   }
 
   const syncNow = (instance: Instance) =>
@@ -136,11 +236,15 @@
   // A dialog opens on its own form, never on the refusal of the one before.
   function startAdd() {
     formError = null;
+    probe = null;
     editing = { form: blankForm() };
   }
+  // The guide's "Add an instance" lands here with the dialog open.
+  if (takeQueryFlag('add')) startAdd();
 
   function startEdit(instance: Instance) {
     formError = null;
+    probe = null;
     editing = {
       id: instance.id,
       form: {
@@ -189,6 +293,7 @@
     onRetry={() => void list.reload()}
   />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="instance" />
 
   <div class="card">
     <TableRegion label={t('ArrInstances')}>
@@ -225,7 +330,23 @@
                     {instance.instance_type}
                   </span>
                 </td>
-                <td class="mono text-sm">{instance.base_url}</td>
+                <td class="mono text-sm">
+                  {#if opensInBrowser(instance.base_url)}
+                    <!-- The Arr's own interface, one click from its row. -->
+                    <a
+                      class="instance-link"
+                      href={instance.base_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {instance.base_url}
+                      <ExternalLink size={12} aria-hidden="true" />
+                      <span class="visually-hidden">({t('OpensInNewTab')})</span>
+                    </a>
+                  {:else}
+                    {instance.base_url}
+                  {/if}
+                </td>
                 <td>
                   <!-- Encrypted is a property of the stored value, not an
                        outcome — the last green that meant something other than
@@ -396,17 +517,14 @@
               class="form-select"
               value={form.instance_type}
               onchange={(event) => {
-                const kind = event.currentTarget.value as 'radarr' | 'sonarr';
-                form.instance_type = kind;
-                form.base_url =
-                  kind === 'radarr' ? 'http://localhost:7878' : 'http://localhost:8989';
+                form.instance_type = event.currentTarget.value as 'radarr' | 'sonarr';
               }}
             >
               <option value="radarr">Radarr ({t('Movies')})</option>
               <option value="sonarr">Sonarr ({t('Series')})</option>
             </select>
           </div>
-          <div class="form-group flex-fixed-160">
+          <div class="form-group flex-fit">
             <label class="form-label" for="instances-sync-every-minutes">
               {t('SyncEveryMinutes')}
             </label>
@@ -425,10 +543,15 @@
           <input
             id="instances-base-url"
             class="form-input"
-            placeholder="http://radarr:7878"
+            placeholder={EXAMPLE_URL[form.instance_type]}
+            aria-describedby="instances-base-url-help"
             bind:value={form.base_url}
+            onblur={() => completeScheme(form)}
             required
           />
+          <p id="instances-base-url-help" class="text-muted text-sm mt-1">
+            {t('InstanceUrlHelp', { service: SERVICE[form.instance_type] })}
+          </p>
         </div>
         <div class="form-group">
           <label class="form-label" for="instances-api-key">{t('ApiKey')}</label>
@@ -436,28 +559,49 @@
             id="instances-api-key"
             type="password"
             class="form-input"
-            placeholder={t(isEdit ? 'ApiKeyKeepHint' : 'ApiKeyWhereHint')}
+            placeholder={isEdit ? t('ApiKeyKeepHint') : undefined}
+            aria-describedby="instances-api-key-help"
             bind:value={form.api_key}
             required={!isEdit}
           />
+          <p id="instances-api-key-help" class="text-muted text-sm mt-1">
+            {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
+          </p>
         </div>
         <label class="flex items-center gap-2 text-base">
           <input type="checkbox" bind:checked={form.enabled} />
           {t('EnabledSyncedRouted')}
         </label>
-        <div class="flex justify-between mt-4">
+        {#if probed}
+          <p class="probe-ok" role="status">
+            <CheckCircle2 size={16} aria-hidden="true" />
+            {probed}
+          </p>
+        {/if}
+        <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (editing = null)}>
             {t('Cancel')}
           </button>
-          <button
-            type="submit"
-            class="btn btn-primary"
-            disabled={!form.name.trim() ||
-              !form.base_url.trim() ||
-              !Number.isInteger(form.sync_interval_minutes) ||
-              form.sync_interval_minutes < 1 ||
-              (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
-          >
+          <div class="flex flex-wrap gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary"
+              disabled={probing || !form.base_url.trim() || (!isEdit && !form.api_key.trim())}
+              onclick={() => void tryConnection()}
+            >
+              <Wifi size={16} class={probing ? 'spin' : ''} aria-hidden="true" />
+              {t('TestConnection')}
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              disabled={!form.name.trim() ||
+                !form.base_url.trim() ||
+                !Number.isInteger(form.sync_interval_minutes) ||
+                form.sync_interval_minutes < 1 ||
+                (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
+            >
+          </div>
         </div>
       </form>
     </Modal>

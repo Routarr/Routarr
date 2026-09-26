@@ -13,6 +13,7 @@ import type {
   Explanation,
   Health,
   Instance,
+  InstanceProbe,
   Job,
   LogEntry,
   MaintenanceReport,
@@ -22,6 +23,8 @@ import type {
   Localization,
   MediaListItem,
   MetadataProviders,
+  OnboardingState,
+  OnboardingStatus,
   OverrideEntry,
   Paginated,
   RootFolder,
@@ -238,6 +241,8 @@ export const api = {
   deleteInstance: (id: string) => request<unknown>(`/instances/${id}`, { method: 'DELETE' }),
   testInstance: (id: string) =>
     request<TestConnectionResponse>(`/instances/${id}/test`, { method: 'POST' }),
+  probeInstance: (data: InstanceProbe) =>
+    request<TestConnectionResponse>('/instances/test', { method: 'POST', body: body(data) }),
   syncInstance: (id: string) => request<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }),
   syncAll: () => request<SyncReport[]>('/instances/sync', { method: 'POST' }),
   rotateWebhookToken: (id: string) =>
@@ -403,6 +408,9 @@ export const api = {
   },
   updateSettings: (settings: Settings) =>
     request<unknown>('/settings', { method: 'PUT', body: body({ settings }) }),
+  getOnboarding: (signal?: AbortSignal) => request<OnboardingStatus>('/onboarding', { signal }),
+  setOnboarding: (state: OnboardingState) =>
+    request<OnboardingStatus>('/onboarding', { method: 'PUT', body: body({ state }) }),
 };
 
 export interface RuleBundle {

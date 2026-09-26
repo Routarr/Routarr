@@ -8,6 +8,7 @@ import { ApiError, api } from '../api/client';
 import type { Decision, SimulationResult } from '../api/types';
 import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { statusRevision } from '../lib/status.svelte';
 
 /**
  * The screen that writes.
@@ -101,6 +102,17 @@ describe('what the screen shows', () => {
 
     await waitFor(() => expect(screen.getByText('Totoro')).toBeTruthy());
     expect(screen.queryByText('Akira')).toBeNull();
+  });
+
+  /** The shell draws the guide, whose simulation step hears of a run only through this. */
+  it('tells the shell a simulation ran', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    const before = statusRevision();
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 
   /**

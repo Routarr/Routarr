@@ -10,8 +10,11 @@ use crate::crypto;
 /// Migrations embedded in the binary, applied in order, exactly once.
 ///
 /// Adding a `.sql` file to `migrations/` is not enough — it must be listed here.
-const MIGRATIONS: &[(&str, &str)] =
-    &[("001_initial_schema", include_str!("../migrations/001_initial_schema.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("001_initial_schema", include_str!("../migrations/001_initial_schema.sql")),
+    ("002_onboarding", include_str!("../migrations/002_onboarding.sql")),
+    ("003_metadata_sources", include_str!("../migrations/003_metadata_sources.sql")),
+];
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {

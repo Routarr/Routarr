@@ -53,6 +53,9 @@ const KNOWN: &[(&str, Kind)] = &[
     ("notification_webhook_url", Kind::WebhookUrl),
     ("ui_language", Kind::Language),
     ("ui_theme", Kind::Theme),
+    // Whether the getting-started guide is still wanted. Written by
+    // `PUT /onboarding`, listed here so a configuration bundle carries it.
+    ("onboarding", Kind::Onboarding),
     // The metadata credentials. Sealed on the way in and never returned, the
     // same posture as an Arr's key — which is the *more* dangerous of the two,
     // since it writes to the library while these only read.
@@ -89,6 +92,7 @@ enum Kind {
     Language,
     Theme,
     ProviderList,
+    Onboarding,
 }
 
 impl Kind {
@@ -310,6 +314,14 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
         Kind::Theme => {
             if !matches!(value, "dark" | "light" | "auto") {
                 return Err(bad(format!("'{key}' must be 'dark', 'light' or 'auto'")));
+            }
+        }
+        Kind::Onboarding => {
+            if !crate::api::onboarding::STATES.contains(&value) {
+                return Err(bad(format!(
+                    "'{key}' must be one of {}",
+                    crate::api::onboarding::STATES.join(", ")
+                )));
             }
         }
         Kind::ProviderList => {

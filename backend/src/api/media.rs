@@ -371,6 +371,10 @@ pub struct Facet {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     pub count: i64,
+    /// What the value means, where several values mean the same thing: codes
+    /// of several countries rate a film alike, and a rule wants every one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// What the library actually contains, per axis a condition can read.
@@ -421,6 +425,7 @@ fn vocabulary(table: &[(&str, &[&str])]) -> Vec<Facet> {
                 value: (*code).to_string(),
                 label: Some(format!("{} ({code})", capitalise(name))),
                 count: 0,
+                group: None,
             })
         })
         .collect();
@@ -450,7 +455,7 @@ async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<F
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|(value, count)| Facet { value, label: None, count })
+        .map(|(value, count)| Facet { value, label: None, count, group: None })
         .collect())
 }
 
@@ -466,7 +471,7 @@ async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Fac
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|(value, count)| Facet { value, label: None, count })
+        .map(|(value, count)| Facet { value, label: None, count, group: None })
         .collect())
 }
 
@@ -491,10 +496,19 @@ async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Fac
 /// in `label` beside it rather than replacing it.
 fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
     use crate::integrations::certification::{Meaning, meaning};
-    facets
+    let mut named: Vec<(u16, Facet)> = facets
         .into_iter()
         .map(|facet| {
-            let name = meaning(&facet.value).map(|m| match m {
+            let meant = meaning(&facet.value);
+            // The youngest audience first, a code nobody can name last.
+            let rank = match meant {
+                Some(Meaning::AllAges) => 0,
+                Some(Meaning::Guidance) => 1,
+                Some(Meaning::From(age)) => 2 + u16::from(age),
+                Some(Meaning::NotRated) => 900,
+                None => 1000,
+            };
+            let name = meant.map(|m| match m {
                 Meaning::AllAges => localizer.translate("CertAllAges", &[]),
                 Meaning::Guidance => localizer.translate("CertGuidance", &[]),
                 Meaning::From(age) => {
@@ -504,9 +518,15 @@ fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> 
             });
             // The code first and the meaning after it: the reader is looking
             // for the value their rule will carry.
-            Facet { label: name.map(|name| format!("{} ({name})", facet.value)), ..facet }
+            let label = name.as_ref().map(|name| format!("{} ({name})", facet.value));
+            (rank, Facet { label, group: name, ..facet })
         })
-        .collect()
+        .collect();
+    // Stable, so the most frequent code still leads its group: codes of
+    // several countries mean the same thing, and gathered they read as the
+    // choice they are.
+    named.sort_by_key(|(rank, _)| *rank);
+    named.into_iter().map(|(_, facet)| facet).collect()
 }
 
 /// `media_column` is where the sync puts the Arr's own answer, and `None` for
@@ -587,7 +607,7 @@ async fn metadata_facets(
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|(value, count)| Facet { value, label: None, count })
+        .map(|(value, count)| Facet { value, label: None, count, group: None })
         .collect())
 }
 

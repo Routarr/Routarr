@@ -13,6 +13,37 @@ use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
 
+/// The transport failures an `ExternalApi` message states, each written by
+/// this module and read back by [`transport_failure`] through the same
+/// constant, so a rewording moves both sides at once.
+const TIMED_OUT: &str = "request timed out";
+const UNREACHABLE: &str = "connection refused or host unreachable";
+const REDIRECTED: &str = "the server redirected somewhere Routarr will not follow";
+const UNREADABLE: &str = "unreadable ";
+
+/// What stopped a request before a usable answer came back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Transport {
+    /// Nothing listens at the address, or its host does not resolve.
+    Unreachable,
+    TimedOut,
+    /// A redirect towards another origin, which the credential never follows.
+    Redirected,
+    /// Something answered 2xx with a body that is not what the API returns.
+    Unreadable,
+}
+
+/// The transport failure a status-0 `ExternalApi` message states, if any.
+pub(crate) fn transport_failure(message: &str) -> Option<Transport> {
+    match message {
+        TIMED_OUT => Some(Transport::TimedOut),
+        UNREACHABLE => Some(Transport::Unreachable),
+        REDIRECTED => Some(Transport::Redirected),
+        other if other.starts_with(UNREADABLE) => Some(Transport::Unreadable),
+        _ => None,
+    }
+}
+
 /// Send a request and decode its JSON body, turning any non-2xx into a typed
 /// `ExternalApi` error carrying the upstream status.
 ///
@@ -26,7 +57,7 @@ pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     response.json::<T>().await.map_err(|e| AppError::ExternalApi {
         service: service.to_string(),
         status: 0,
-        message: format!("unreadable {service} response: {e}"),
+        message: format!("{UNREADABLE}{service} response: {e}"),
         retry_after: None,
     })
 }
@@ -98,13 +129,13 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 /// error", "connection reset") and never the URL, so report that instead.
 fn describe_transport_error(e: &reqwest::Error) -> String {
     if e.is_timeout() {
-        return "request timed out".to_string();
+        return TIMED_OUT.to_string();
     }
     if e.is_connect() {
-        return "connection refused or host unreachable".to_string();
+        return UNREACHABLE.to_string();
     }
     if e.is_redirect() {
-        return "the server redirected somewhere Routarr will not follow".to_string();
+        return REDIRECTED.to_string();
     }
 
     // Deepest cause: the most specific description that is still URL-free.

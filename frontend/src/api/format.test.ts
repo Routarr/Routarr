@@ -79,34 +79,53 @@ describe('formatBytes', () => {
 });
 
 describe('describeCondition', () => {
+  const words = { separator: ', ', empty: 'none' };
+
   it('joins list values', () => {
-    expect(describeCondition({ type: 'genre_contains', value: ['Animation', 'Family'] })).toBe(
-      'genre_contains: Animation, Family',
-    );
+    expect(
+      describeCondition({ type: 'genre_contains', value: ['Animation', 'Family'] }, words),
+    ).toBe('genre_contains: Animation, Family');
   });
 
   it('marks an empty list, which can never match', () => {
-    expect(describeCondition({ type: 'genre_contains', value: [] })).toBe(
-      'genre_contains: (empty)',
+    expect(describeCondition({ type: 'genre_contains', value: [] }, words)).toBe(
+      'genre_contains: none',
     );
   });
 
   it('renders open-ended year ranges', () => {
-    expect(describeCondition({ type: 'year_range', value: { min: 1980, max: null } })).toBe(
+    expect(describeCondition({ type: 'year_range', value: { min: 1980, max: null } }, words)).toBe(
       'year_range: 1980 → *',
     );
-    expect(describeCondition({ type: 'year_range', value: { min: null, max: null } })).toBe(
+    expect(describeCondition({ type: 'year_range', value: { min: null, max: null } }, words)).toBe(
       'year_range: * → *',
     );
   });
 
   it('renders scalars', () => {
-    expect(describeCondition({ type: 'has_files', value: true })).toBe('has_files: true');
-    expect(describeCondition({ type: 'added_within_days', value: 7 })).toBe('added_within_days: 7');
+    expect(describeCondition({ type: 'has_files', value: true }, words)).toBe('has_files: true');
+    expect(describeCondition({ type: 'added_within_days', value: 7 }, words)).toBe(
+      'added_within_days: 7',
+    );
   });
 
   it('tolerates a missing value', () => {
-    expect(describeCondition({ type: 'has_files' })).toBe('has_files');
+    expect(describeCondition({ type: 'has_files' }, words)).toBe('has_files');
+  });
+
+  /** The engine's identifiers never reach the reader when a caption exists. */
+  it('reads with the caption, the separator and the names it is given', () => {
+    const named = describeCondition(
+      { type: 'original_language', value: ['ja', 'ko'] },
+      {
+        label: 'Original language is',
+        separator: '، ',
+        empty: 'none',
+        name: (value) => (value === 'ja' ? 'Japanese (ja)' : value),
+      },
+    );
+
+    expect(named).toBe('Original language is: Japanese (ja)، ko');
   });
 });
 

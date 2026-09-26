@@ -23,8 +23,9 @@ Components named without a path live in `frontend/src/components/`.
   source, a full connect timeout per unreachable host. `/health?probe=false` answers from the
   database.
 - After a write that can add or remove a warning (an instance, a category mapping, a metadata
-  source or key, a settings save or import), call `invalidateStatus()` from
-  `frontend/src/lib/status.svelte.ts`. Otherwise the shell corrects itself at its next idle poll.
+  source or key, a settings save or import) or move a step of the guide (a rule, a simulation),
+  call `invalidateStatus()` from `frontend/src/lib/status.svelte.ts`. Otherwise the shell corrects
+  itself at its next idle poll, and the guide at the next navigation.
 - App-wide state is a module-level rune in a `.svelte.ts` file, as `i18n`, `confirm` and `status`
   are. No store library, no context.
 
@@ -79,9 +80,10 @@ Components named without a path live in `frontend/src/components/`.
   the test fails when the two blocks declare different tokens.
 - The accent as text or border is `--accent-strong`, as a fill `--accent-primary`. A control's
   boundary is `--border-strong`, a passive separation `--border-subtle`.
-- Radii: `--radius-xs` for badges, `--radius-sm` for controls, `--radius-md` for surfaces.
-  `--radius-full` is for the kind dot, the progress bar, the navigation count and the scrollbar
-  thumb only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
+- Radii: `--radius-xs` for badges and the three bars (guide, confidence, task), which share one
+  rule, `--radius-sm` for controls, `--radius-md` for surfaces. `--radius-full` is for the kind
+  and confidence dots, the guide's step numbers, the navigation count and the scrollbar thumb
+  only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
 
 ## Components and markup
 
