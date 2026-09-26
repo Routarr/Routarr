@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { untrack, type Snippet } from 'svelte';
 
   /**
    * A modal dialog, built on the native `<dialog>` element.
@@ -25,6 +25,8 @@
     maxWidth,
     maxHeight,
     closeOnBackdrop = false,
+    initialFocus,
+    returnFocus,
     children,
   }: {
     /** Names the dialog for assistive technology; usually the visible title. */
@@ -39,6 +41,20 @@
      * holds nothing to lose, like the quick search.
      */
     closeOnBackdrop?: boolean;
+    /**
+     * The id of the element that takes the focus on opening, a form's first
+     * field. Left to the browser, the focus lands on the first focusable
+     * element, the close button in a form's header, where a reflex Enter
+     * throws the form away.
+     */
+    initialFocus?: string;
+    /**
+     * The id of the control that takes the focus back when no control opened
+     * the dialog, as when a screen opens it on arrival from the guide, or
+     * when the one that did is gone. The focus would otherwise fall to the
+     * page, where a screen reader loses its place.
+     */
+    returnFocus?: string;
     children: Snippet;
   } = $props();
 
@@ -49,8 +65,12 @@
     if (!element) return;
 
     // Read before `showModal` moves it: this is the control that opened the
-    // dialog, and where the focus has to go back to.
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    // dialog, and where the focus has to go back to. `<body>` opened nothing.
+    const active = document.activeElement;
+    const opener = active instanceof HTMLElement && active !== document.body ? active : null;
+    // Read once: a change re-running this effect would close the dialog and
+    // open it again.
+    const [first, fallback] = untrack(() => [initialFocus, returnFocus]);
 
     // `showModal` is what puts the element in the top layer and makes the rest
     // of the document inert; the fallback is for test DOMs that stop short of
@@ -60,6 +80,7 @@
     } else {
       element.setAttribute('open', '');
     }
+    if (first) document.getElementById(first)?.focus();
 
     return () => {
       if (element.open && typeof element.close === 'function') element.close();
@@ -67,7 +88,8 @@
       // detached element and the browser's own restoration never happens: a
       // keyboard user landed on `<body>` and started over from the top of the
       // page. Done by hand, for every way of closing — Escape, Cancel, a save.
-      if (opener?.isConnected && !element.contains(opener)) opener.focus();
+      const back = opener?.isConnected ? opener : fallback && document.getElementById(fallback);
+      if (back && !element.contains(back)) back.focus();
     };
   });
 

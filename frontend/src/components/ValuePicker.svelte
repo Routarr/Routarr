@@ -3,6 +3,7 @@
   import type { Facet } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import { canonicalKey, addValue, removeValue } from '../api/conditions';
+  import { handFocus } from '../lib/focus';
 
   /**
    * Several values for one condition, picked from what the library holds.
@@ -41,6 +42,7 @@
   let query = $state('');
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
+  let field: HTMLInputElement | undefined = $state();
   /// The suggestion the arrows reached, or none until an arrow is pressed.
   let cursor = $state(-1);
 
@@ -99,6 +101,18 @@
     onChange(addValue(values, value));
     query = '';
     cursor = -1;
+  }
+
+  const removeId = (index: number) => `${listId}-remove-${index}`;
+
+  /**
+   * A chip's button goes with its chip. The focus moves to the chip that takes
+   * its place, else to the one before, else to the field, so removing several
+   * values is one key pressed several times.
+   */
+  function remove(value: string, index: number) {
+    onChange(removeValue(values, value));
+    void handFocus(removeId(index), removeId(index - 1), field);
   }
 
   // The combobox pattern the command palette follows: the focus stays in the
@@ -180,14 +194,15 @@
 >
   {#if values.length}
     <ul class="chips" aria-label={t('SelectedValues')}>
-      {#each values as value (value)}
+      {#each values as value, index (value)}
         <li class="chip">
           <span>{shown(value)}</span>
           <button
+            id={removeId(index)}
             type="button"
             class="chip-remove"
             aria-label="{t('Remove')} – {shown(value)}"
-            onclick={() => onChange(removeValue(values, value))}
+            onclick={() => remove(value, index)}
           >
             <X size={12} />
           </button>
@@ -197,6 +212,7 @@
   {/if}
 
   <input
+    bind:this={field}
     aria-label={label}
     class="form-input"
     role="combobox"

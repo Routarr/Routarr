@@ -125,4 +125,59 @@ describe('Modal', () => {
     expect(document.activeElement).toBe(opener);
     opener.remove();
   });
+
+  /**
+   * The browser opens a dialog on its first focusable element, the close
+   * button in a form's header, where a reflex Enter throws the form away.
+   */
+  it('opens on the element it is told to', () => {
+    render(ModalHarness, {
+      label: 'Add instance',
+      onClose: vi.fn(),
+      initialFocus: 'harness-field',
+    });
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'field' }));
+  });
+
+  /**
+   * A dialog a screen opens on arrival has no opener but the page. Without a
+   * fallback, closing it leaves the focus on `<body>`.
+   */
+  it('gives the focus to its fallback when the page itself opened it', () => {
+    const fallback = document.createElement('button');
+    fallback.id = 'add-instance';
+    document.body.append(fallback);
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    const { unmount } = render(ModalHarness, {
+      label: 'Add instance',
+      onClose: vi.fn(),
+      returnFocus: 'add-instance',
+    });
+    unmount();
+
+    expect(document.activeElement).toBe(fallback);
+    fallback.remove();
+  });
+
+  it('prefers the control that opened it over its fallback', () => {
+    const opener = document.createElement('button');
+    const fallback = document.createElement('button');
+    fallback.id = 'add-instance';
+    document.body.append(opener, fallback);
+    opener.focus();
+
+    const { unmount } = render(ModalHarness, {
+      label: 'Edit instance',
+      onClose: vi.fn(),
+      returnFocus: 'add-instance',
+    });
+    unmount();
+
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+    fallback.remove();
+  });
 });

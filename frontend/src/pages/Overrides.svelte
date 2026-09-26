@@ -177,7 +177,12 @@
   </div>
 
   {#if creating}
-    <Modal label={t('PinMediaTitle')} onClose={() => (creating = false)} maxWidth={640}>
+    <Modal
+      label={t('PinMediaTitle')}
+      onClose={() => (creating = false)}
+      maxWidth={640}
+      initialFocus="overrides-search"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t('PinMediaTitle')}</h2>
         <button
@@ -193,6 +198,7 @@
 
       <form novalidate class="flex gap-2" onsubmit={find}>
         <SearchField
+          id="overrides-search"
           bind:value={search}
           placeholder={t('SearchLibrary')}
           label={t('SearchLibrary')}

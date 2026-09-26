@@ -3,6 +3,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
@@ -52,13 +53,18 @@
     }
   }
 
-  async function remove(id: string, name: string) {
+  const deleteId = (index: number) => `rule-tests-delete-${index}`;
+
+  // The deleted case takes its row and the pressed Delete with it: the case
+  // now in its place takes the focus, else the one before, else the table.
+  async function remove(id: string, name: string, index: number) {
     if (!(await askConfirmation(t('ConfirmDeleteRuleTest', { name }), 'Delete'))) return;
     try {
       await api.deleteRuleTest(id);
       run = null;
       outcome.succeed(t('RuleTestDeleted'));
       await cases.reload();
+      void handFocus(deleteId(index), deleteId(index - 1), 'rule-tests-table');
     } catch (err) {
       outcome.fail(err);
     }
@@ -95,7 +101,7 @@
   <OutcomeBanner {outcome} />
 
   <div class="card">
-    <TableRegion label={t('RuleTests')}>
+    <TableRegion id="rule-tests-table" label={t('RuleTests')}>
       <table>
         <caption class="visually-hidden">{t('RuleTests')}</caption>
         <thead>
@@ -108,7 +114,9 @@
           </tr>
         </thead>
         <tbody>
-          {#if cases.loading}
+          <!-- The first load only: a reload that swapped the rows for a skeleton
+               would take the focus with them. -->
+          {#if cases.loading && cases.data === null}
             <TableSkeleton columns={5} />
           {:else if (cases.data?.length ?? 0) === 0}
             <tr>
@@ -117,7 +125,7 @@
               </td>
             </tr>
           {:else}
-            {#each cases.data ?? [] as testCase (testCase.id)}
+            {#each cases.data ?? [] as testCase, index (testCase.id)}
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
@@ -144,10 +152,11 @@
                 </td>
                 <td>
                   <button
+                    id={deleteId(index)}
                     class="btn btn-danger btn-sm"
                     aria-label="{t('Delete')} – {testCase.name}"
                     title={t('Delete')}
-                    onclick={() => void remove(testCase.id, testCase.name)}
+                    onclick={() => void remove(testCase.id, testCase.name, index)}
                   >
                     <Trash2 size={14} />
                   </button>

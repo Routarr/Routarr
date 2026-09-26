@@ -1,11 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
+  import { AlertTriangle, Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
   import { api, getApiKey, setApiKey } from '../api/client';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { handFocus } from '../lib/focus';
   import { applyTheme, loadDictionary, t } from '../lib/i18n.svelte';
   import {
     FIELDS,
@@ -198,6 +199,18 @@
     return !Number.isInteger(value) || value < low || (high !== null && value > high);
   }
   const invalid = $derived(FIELDS.filter(outOfRange));
+  // From another tab, the field that holds Save is out of sight.
+  const flagged = $derived(
+    SECTIONS.filter((entry) =>
+      invalid.some((field) => (entry.keys as readonly string[]).includes(field.key)),
+    ).map((entry) => entry.id),
+  );
+
+  function bounds([low, high]: readonly [number, number | null]): string {
+    return high === null
+      ? t('RangeAtLeast', { min: low })
+      : t('RangeBetween', { min: low, max: high });
+  }
 
   // `SECTIONS[0]` is `| undefined` to the compiler even though the array is a
   // `const` with five entries, so the fallback is named rather than indexed.
@@ -226,8 +239,20 @@
   const providers = $derived<MetadataProvider[]>(bundle.data?.providers ?? []);
   const languages = $derived(bundle.data?.languages ?? []);
 
+  // Save and Discard live in the save bar, which goes once nothing is pending,
+  // and the focus with it: the open section's panel takes it back.
+  const keepFocus = () => void handFocus(`panel-${section}`);
+
+  function discard() {
+    draft = { ...saved };
+    keepFocus();
+  }
+
+  // Never disabled while it runs: a focused button that turns disabled drops
+  // the focus to the page, so a second press is ignored instead.
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    if (saving) return;
     saving = true;
     try {
       // A blank credential is left out rather than sent. The backend never
@@ -249,6 +274,7 @@
       // A metadata key added or cleared, or a source enabled: the warnings
       // about sources are computed from exactly these.
       invalidateStatus();
+      keepFocus();
     } catch (err) {
       outcome.fail(err);
     } finally {
@@ -411,16 +437,22 @@
             class="tab {entry.id === section ? 'active' : ''}"
             aria-selected={entry.id === section}
             aria-controls="panel-{entry.id}"
+            aria-label={flagged.includes(entry.id)
+              ? t('SectionHasInvalid', { section: t(entry.labelKey) })
+              : undefined}
             tabindex={entry.id === section ? 0 : -1}
             onclick={() => openSection(entry.id)}
             onkeydown={onTabKey}
           >
             {t(entry.labelKey)}
+            {#if flagged.includes(entry.id)}
+              <AlertTriangle size={14} class="tab-flag" aria-hidden="true" />
+            {/if}
           </button>
         {/each}
       </div>
 
-      <div id="panel-{section}" role="tabpanel" aria-labelledby="tab-{section}">
+      <div id="panel-{section}" role="tabpanel" aria-labelledby="tab-{section}" tabindex="-1">
         {#if section === 'general' && keyCard}
           <div class="card">
             <div class="card-header">
@@ -605,17 +637,23 @@
                     {/each}
                   </select>
                 {:else}
+                  {@const outside = outOfRange(field)}
                   <input
                     id="setting-{field.key}"
-                    aria-describedby="setting-{field.key}-help"
+                    aria-describedby="setting-{field.key}-help{outside
+                      ? ` setting-${field.key}-range`
+                      : ''}"
                     type={field.kind === 'number' ? 'number' : 'text'}
                     min={field.range?.[0]}
                     max={field.range?.[1] ?? undefined}
-                    aria-invalid={outOfRange(field) ? 'true' : undefined}
+                    aria-invalid={outside ? 'true' : undefined}
                     class="form-input"
                     value={draft[field.key] ?? field.fallback}
                     oninput={(event) => (draft[field.key] = event.currentTarget.value)}
                   />
+                  {#if outside && field.range}
+                    <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
+                  {/if}
                 {/if}
 
                 <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
@@ -677,13 +715,12 @@
                 <div>
                   <strong>{t('UnsavedChanges', { count: changed.length })}</strong>
                   <div class="save-bar-scope">{t('SavesEverySection')}</div>
+                  {#if invalid.length > 0}
+                    <div class="field-error" id="settings-save-held">{t('SaveHeldInvalid')}</div>
+                  {/if}
                 </div>
                 <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    onclick={() => (draft = { ...saved })}
-                  >
+                  <button type="button" class="btn btn-secondary" onclick={discard}>
                     {t('DiscardChanges')}
                   </button>
                   <!-- Held while the settings could not be read: the draft
@@ -691,7 +728,8 @@
                   <button
                     type="submit"
                     class="btn btn-primary"
-                    disabled={saving || invalid.length > 0 || bundle.error !== null}
+                    aria-describedby={invalid.length > 0 ? 'settings-save-held' : undefined}
+                    disabled={invalid.length > 0 || bundle.error !== null}
                   >
                     <Save size={16} />
                     {saving ? t('Saving') : t('Save')}

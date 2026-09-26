@@ -148,7 +148,7 @@ describe('History', () => {
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The file is no longer there');
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   /**

@@ -66,6 +66,14 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('RuleEditor', () => {
+  /** Opened on its close button, a form is one reflex Enter from thrown away. */
+  it('opens on the rule name', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+
+    expect(document.activeElement).toBe(await screen.findByLabelText('Rule name'));
+  });
+
   it('names a dead condition before the rule is saved, and holds Save until it is fixed', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,

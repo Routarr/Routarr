@@ -10,6 +10,7 @@
   } from '../api/types';
   import { i18n, t } from '../lib/i18n.svelte';
   import { canonicalKey, localFacets, nameFacets } from '../api/conditions';
+  import { handFocus } from '../lib/focus';
   import ConditionValue from './ConditionValue.svelte';
 
   let {
@@ -87,6 +88,16 @@
   // Only one half of each pair is offered: the other is a turn of the selector,
   // and listing both would put two entries that read alike in one picker.
   const offerable = $derived(addable.filter((spec) => spec.quantifier !== 'all'));
+
+  /**
+   * Delete takes its own row away, and can take the focus with it. The
+   * condition that moved up into its place takes it, else the picker that adds
+   * one, rather than the page behind the dialog.
+   */
+  function remove(index: number) {
+    onRemove(index);
+    void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
+  }
 </script>
 
 <!-- A caption over a *list* of controls is a group heading, not a label: a
@@ -146,9 +157,10 @@
           />
         </div>
         <button
+          id="rules-{list}-{index}-delete"
           type="button"
           class="btn btn-secondary btn-sm"
-          onclick={() => onRemove(index)}
+          onclick={() => remove(index)}
           aria-label="{t('Delete')} – {spec?.label ?? condition.type}"
           title={t('Delete')}
         >
@@ -159,6 +171,7 @@
   </div>
 
   <select
+    id="rules-{list}-add"
     class="form-select mt-2"
     aria-label={title}
     value=""

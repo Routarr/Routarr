@@ -651,4 +651,33 @@ test.describe('every screen draws a shared thing the same way', () => {
     const gap = footerBox!.x + footerBox!.width - (addBox!.x + addBox!.width);
     expect(Math.abs(gap), `the action ends ${gap}px before the footer`).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * A value Save waits on is marked on its field, in words under it and on its
+   * tab, since from another tab the field is out of sight. The border and the
+   * mark are what only a stylesheet draws.
+   */
+  test('marks a value outside its bounds on its field and on its tab', async ({ page }) => {
+    await page.goto('/settings#routing');
+    const field = page.getByLabel('Batch limit', { exact: true });
+    await field.fill('0');
+
+    await expect(page.getByText('Enter a whole number from 1 to 1000.')).toBeVisible();
+    const danger = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--status-danger)';
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).color;
+      probe.remove();
+      return colour;
+    });
+    // Polled: the border fades to its colour.
+    await expect
+      .poll(() => field.evaluate((node) => getComputedStyle(node).borderTopColor))
+      .toBe(danger);
+
+    await page.getByRole('tab', { name: 'General' }).click();
+    const tab = page.getByRole('tab', { name: 'Routing: a value is outside its bounds' });
+    await expect(tab.locator('svg')).toBeVisible();
+  });
 });

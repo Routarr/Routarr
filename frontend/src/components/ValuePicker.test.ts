@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -289,5 +289,57 @@ describe('ValuePicker', () => {
     expect(korean).toBeInTheDocument();
     expect(korean.textContent).not.toContain('0');
     expect(screen.getByRole('option', { name: 'Japanese (ja)' }).textContent).toContain('3');
+  });
+});
+
+/**
+ * A chip's button goes with its chip, and the focus with it, inside the rule
+ * editor's dialog. It moves to the chip that takes its place,
+ * else to the one before, else to the field, so removing several values is
+ * one key pressed several times.
+ */
+describe('removing a chosen value', () => {
+  function openLive(values: string[]) {
+    const view = renderWithI18n(ValuePicker, {
+      props: {
+        label: 'Genre contains',
+        values,
+        options: OPTIONS,
+        onChange: (next: string[]) => void view.rerender({ values: next }),
+      },
+      strings: STRINGS,
+    });
+  }
+
+  it('hands the focus to the chip that took its place', async () => {
+    openLive(['Animation', 'Comédie']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Animation' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove – Comédie' })),
+    );
+  });
+
+  it('hands the focus to the chip before a last one removed', async () => {
+    openLive(['Animation', 'Comédie']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Comédie' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Remove – Animation' }),
+      ),
+    );
+  });
+
+  it('hands the focus to the field once no value is left', async () => {
+    openLive(['Animation']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Animation' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Genre contains' })),
+    );
   });
 });

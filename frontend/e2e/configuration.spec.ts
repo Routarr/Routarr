@@ -256,7 +256,7 @@ test.describe('metadata sources', () => {
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources.getByText('Radarr / Sonarr')).toBeVisible();
 
-    await sources.getByLabel('Move up TMDb').click();
+    await sources.getByLabel('Move up – TMDb').click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.banner-success')).toBeVisible();
 
@@ -352,7 +352,7 @@ test.describe('backups', () => {
 
     // Removable, and the list reflects it without a reload.
     const name = (await entry.first().textContent())!.trim();
-    await page.getByLabel(`Delete ${name}`).click();
+    await page.getByLabel(`Delete – ${name}`).click();
     // Deleting is the one irreversible half of the pair: a restore is staged
     // and undone by not restarting, a deleted archive is the only copy.
     await page.locator('dialog[open]').getByRole('button', { name: 'Delete', exact: true }).click();
@@ -503,6 +503,6 @@ test.describe('the instance form', () => {
     await address.fill('http://127.0.0.1:1');
     await test.click();
     await expect(dialog.getByRole('alert')).toContainText('Nothing answers at http://127.0.0.1:1');
-    await expect(dialog.getByRole('status')).toHaveCount(0);
+    await expect(dialog.getByRole('status')).toBeEmpty();
   });
 });

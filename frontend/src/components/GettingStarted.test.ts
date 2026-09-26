@@ -8,6 +8,7 @@ import type { OnboardingStatus } from '../api/types';
 import { createOutcome } from '../lib/outcome.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import GettingStarted from './GettingStarted.svelte';
+import GettingStartedHarness from '../test/GettingStartedHarness.svelte';
 
 const STRINGS = {
   GuideTitle: 'Getting started',
@@ -40,6 +41,14 @@ function show(status: OnboardingStatus) {
   renderWithI18n(GettingStarted, { props: { status, outcome }, strings: STRINGS });
   return outcome;
 }
+
+/** The guide drawn from the published state, as the dashboard draws it. */
+function showLive(status: OnboardingStatus) {
+  publishOnboarding(status);
+  renderWithI18n(GettingStartedHarness, { props: { outcome: createOutcome() }, strings: STRINGS });
+}
+
+const REQUIRED_DONE = ['instance', 'categories', 'rule', 'simulation'] as const;
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -149,5 +158,48 @@ describe('GettingStarted', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Skip the guide' }));
 
     await waitFor(() => expect(outcome.error).toBe('The settings could not be written'));
+  });
+
+  /**
+   * Each choice replaces the block that holds the pressed button, and the
+   * focus with it. The focus goes to what takes the block's place, and Resume
+   * carries the sentence it answers.
+   */
+  it('puts the focus on Resume once the guide is skipped', async () => {
+    vi.spyOn(api, 'setOnboarding').mockResolvedValue(
+      onboardingStatus(['instance'], { state: 'dismissed' }),
+    );
+    showLive(onboardingStatus(['instance']));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Skip the guide' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Resume the guide' })),
+    );
+    expect(document.activeElement).toHaveAccessibleDescription(
+      'The setup is not finished. Required steps done: 1 of 4',
+    );
+  });
+
+  it('puts the focus on the guide heading once it is resumed', async () => {
+    vi.spyOn(api, 'setOnboarding').mockResolvedValue(onboardingStatus(['instance']));
+    showLive(onboardingStatus(['instance'], { state: 'dismissed' }));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Resume the guide' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Getting started' })),
+    );
+  });
+
+  it('puts the focus on the page content once the guide is finished', async () => {
+    vi.spyOn(api, 'setOnboarding').mockResolvedValue(
+      onboardingStatus([...REQUIRED_DONE], { state: 'done' }),
+    );
+    showLive(onboardingStatus([...REQUIRED_DONE]));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Finish' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('main')));
   });
 });

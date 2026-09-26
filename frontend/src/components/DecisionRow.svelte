@@ -35,12 +35,17 @@
   </td>
   <td class="mono text-sm">{decision.current_root_folder ?? t('None')}</td>
   <td>
+    <!-- The shape and the colour for the eye, the word for a screen reader,
+         which reads an unnamed icon as nothing. -->
     {#if decision.action === 'move'}
-      <ArrowRight size={16} class="text-warning" />
+      <ArrowRight size={16} class="text-warning" aria-hidden="true" />
+      <span class="visually-hidden">{t('ActionMove')}</span>
     {:else if decision.action === 'skip'}
-      <Ban size={16} class="text-danger" />
+      <Ban size={16} class="text-danger" aria-hidden="true" />
+      <span class="visually-hidden">{t('ActionSkip')}</span>
     {:else}
-      <Check size={16} class="text-success" />
+      <Check size={16} class="text-success" aria-hidden="true" />
+      <span class="visually-hidden">{t('ActionNone')}</span>
     {/if}
   </td>
   <td class="mono text-sm">

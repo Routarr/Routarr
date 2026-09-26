@@ -59,7 +59,7 @@ describe('restoring a backup', () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(true));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore routarr-backup/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
     await answerConfirmation();
 
     await waitFor(() => expect(outcome.notice).toBe('Restore staged.'));
@@ -72,7 +72,7 @@ describe('restoring a backup', () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(false));
     const outcome = mount();
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore routarr-backup/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
     await answerConfirmation();
 
     await waitFor(() =>
@@ -88,7 +88,7 @@ describe('restoring a backup', () => {
     const outcome = mount();
     outcome.succeed('Settings saved.');
 
-    await userEvent.click(await screen.findByRole('button', { name: /Restore routarr-backup/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
     await answerConfirmation(null);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -117,5 +117,62 @@ describe('taking a backup', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Back up now' }));
 
     await waitFor(() => expect(outcome.error).toBe('No space left on the backup volume'));
+  });
+});
+
+/**
+ * A deleted archive takes its row away. Swapped for a spinner while the list
+ * reloads, the other rows would take the focus with them, so the list stays,
+ * and what takes the deleted row's place takes the focus.
+ */
+describe('deleting a backup', () => {
+  const OLDER = { ...FILE, name: 'routarr-backup-20260903-101500.zip' };
+
+  function mountTwo(after: Promise<{ backups: (typeof FILE)[]; retention_count: number }>) {
+    const list = vi
+      .spyOn(api, 'listBackups')
+      .mockResolvedValueOnce({ backups: [FILE, OLDER], retention_count: 7 })
+      .mockReturnValueOnce(after);
+    vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+    return list;
+  }
+
+  it('keeps the list on screen while it reloads', async () => {
+    const list = mountTwo(new Promise(() => {}));
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await answerConfirmation();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    expect(screen.getByRole('button', { name: `Delete – ${OLDER.name}` })).toBeTruthy();
+  });
+
+  it('hands the focus to the archive that took the place of the deleted one', async () => {
+    mountTwo(Promise.resolve({ backups: [OLDER], retention_count: 7 }));
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: `Delete – ${OLDER.name}` }),
+      ),
+    );
+  });
+
+  it('hands the focus to Back up now once no archive is left', async () => {
+    vi.spyOn(api, 'listBackups')
+      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 })
+      .mockResolvedValueOnce({ backups: [], retention_count: 7 });
+    vi.spyOn(api, 'deleteBackup').mockResolvedValue(undefined as never);
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Back up now' })),
+    );
   });
 });

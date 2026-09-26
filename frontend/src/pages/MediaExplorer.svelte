@@ -193,7 +193,7 @@
                   <button
                     class="btn btn-secondary btn-sm"
                     onclick={() => void explain(media)}
-                    aria-label="{t('WhyQuestion')} {media.title}"
+                    aria-label="{t('WhyQuestion')} – {media.title}"
                     title={t('WhyQuestion')}
                   >
                     <HelpCircle size={15} aria-hidden="true" />

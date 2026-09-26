@@ -60,6 +60,16 @@
   ]);
 
   const current = $derived(rows[Math.min(cursor, rows.length - 1)]);
+  /** The rows in runs of one kind, each with its place in the whole list, which the arrows count. */
+  const runs = $derived.by(() => {
+    const found: { kind: Row['kind']; rows: { row: Row; index: number }[] }[] = [];
+    rows.forEach((row, index) => {
+      const last = found.at(-1);
+      if (last && last.kind === row.kind) last.rows.push({ row, index });
+      else found.push({ kind: row.kind, rows: [{ row, index }] });
+    });
+    return found;
+  });
 
   // The library is asked once the typing stops, never on the keystroke: this
   // runs against somebody's Radarr host over their own network.
@@ -204,53 +214,62 @@
           <span>{t('CommandPaletteHint')}</span>
         </p>
       {:else}
-        <ul
+        <div
           class="palette-list"
           id="palette-results"
           role="listbox"
           aria-label={t('CommandPalette')}
         >
-          {#each rows as row, index (row.id)}
-            {@const group = index === 0 || rows[index - 1]?.kind !== row.kind}
-            {#if group}
-              <li class="palette-group" role="presentation">
-                {t(row.kind === 'nav' ? 'CommandPaletteGoTo' : 'MediaExplorer')}
-              </li>
-            {/if}
-            <!-- The option carries the click itself rather than wrapping a
-                 button: an `option` must not contain interactive content, and
-                 a nested button would also be a tab stop — which the combobox
-                 pattern cannot have, since the focus stays in the field and
-                 `aria-activedescendant` is what says where the arrows are. -->
-            <!-- The keyboard path is the field's own: arrows move the cursor
-                 and Enter opens what it points at, which is the combobox
-                 pattern. Svelte's rule looks for a handler on this element and
-                 cannot see one three lines up, so a handler added here to
-                 satisfy it would be a second, unreachable path. -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <li
-              id={row.id}
-              class="palette-row{row.kind === 'nav' ? ' is-destination' : ''}{index === cursor
-                ? ' is-current'
-                : ''}"
-              role="option"
-              aria-selected={index === cursor}
-              onclick={() => void open(row)}
-            >
-              {#if row.kind === 'nav'}
-                <span class="palette-name">{row.label}</span>
-                <span class="palette-hint" title={row.hint}>{row.hint}</span>
-              {:else}
-                <span class="palette-name">{row.media.title}</span>
-                <span class="palette-meta">
-                  {[row.media.year ?? null, row.media.instance_name, row.media.computed_category]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </span>
-              {/if}
-            </li>
+          <!-- One group per run, named by its heading: "History" the screen and
+               "History" the film are otherwise the same option to a screen
+               reader. -->
+          {#each runs as run (run.kind)}
+            <div role="group" aria-labelledby="palette-group-{run.kind}">
+              <div class="palette-group" id="palette-group-{run.kind}" role="presentation">
+                {t(run.kind === 'nav' ? 'CommandPaletteGoTo' : 'MediaExplorer')}
+              </div>
+              {#each run.rows as { row, index } (row.id)}
+                <!-- The option carries the click itself rather than wrapping a
+                     button: an `option` must not contain interactive content, and
+                     a nested button would also be a tab stop, which the combobox
+                     pattern cannot have: the focus stays in the field and
+                     `aria-activedescendant` is what says where the arrows are. -->
+                <!-- The keyboard path is the field's own: arrows move the cursor
+                     and Enter opens what it points at, which is the combobox
+                     pattern. Svelte's rule looks for a handler on this element and
+                     cannot see one three lines up, so a handler added here to
+                     satisfy it would be a second, unreachable path. -->
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <div
+                  id={row.id}
+                  class="palette-row{row.kind === 'nav' ? ' is-destination' : ''}{index === cursor
+                    ? ' is-current'
+                    : ''}"
+                  role="option"
+                  tabindex="-1"
+                  aria-selected={index === cursor}
+                  onclick={() => void open(row)}
+                >
+                  {#if row.kind === 'nav'}
+                    <span class="palette-name">{row.label}</span>
+                    <span class="palette-hint" title={row.hint}>{row.hint}</span>
+                  {:else}
+                    <span class="palette-name">{row.media.title}</span>
+                    <span class="palette-meta">
+                      {[
+                        row.media.year ?? null,
+                        row.media.instance_name,
+                        row.media.computed_category,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
           {/each}
-        </ul>
+        </div>
       {/if}
     </div>
   </Modal>

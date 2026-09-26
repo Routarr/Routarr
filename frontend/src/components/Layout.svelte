@@ -290,11 +290,15 @@
             <a
               href={href('/')}
               class="guide-pill"
-              aria-label={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
               title={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
             >
               <ListChecks size={14} aria-hidden="true" />
               {guidePill.done}/{guidePill.total}
+              <!-- After the figure, so the name starts with what the eye reads:
+                   a speech input user says what they see. -->
+              <span class="visually-hidden">
+                {t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
+              </span>
             </a>
           {/if}
           {#if attention}
@@ -305,11 +309,11 @@
             <a
               href={href(attention.critical ? '/logs' : '/health')}
               class="attention {attention.critical ? 'is-critical' : ''}"
-              aria-label={attention.label}
               title={attention.label}
             >
               <AlertTriangle size={14} aria-hidden="true" />
               {attention.total}
+              <span class="visually-hidden">{attention.label}</span>
             </a>
           {/if}
           <!-- Only where signing in was possible: a key or a proxy has no

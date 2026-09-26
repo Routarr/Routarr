@@ -27,6 +27,7 @@
     onClose,
     onSaved,
     knownFacets = null,
+    returnFocus,
   }: {
     draft: RuleDraft;
     ruleId?: string;
@@ -36,6 +37,8 @@
     onSaved: (message: string) => Promise<void>;
     /** The library's facets, when the parent already holds them. */
     knownFacets?: LibraryFacets | null;
+    /** Where the focus goes on closing when no control opened the editor. */
+    returnFocus?: string;
   } = $props();
 
   // What the library holds, so each condition can offer its values rather than
@@ -213,7 +216,14 @@
   }
 </script>
 
-<Modal label={t(ruleId ? 'EditRule' : 'CreateRule')} {onClose} maxWidth={860} maxHeight="88vh">
+<Modal
+  label={t(ruleId ? 'EditRule' : 'CreateRule')}
+  {onClose}
+  maxWidth={860}
+  maxHeight="88vh"
+  initialFocus="rules-rule-name"
+  {returnFocus}
+>
   <div class="modal-header">
     <h2 class="modal-title">{t(ruleId ? 'EditRule' : 'CreateRule')}</h2>
     <button

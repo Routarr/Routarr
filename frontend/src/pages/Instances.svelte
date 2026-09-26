@@ -43,6 +43,12 @@
   const EXAMPLE_URL = { radarr: 'http://radarr:7878', sonarr: 'http://sonarr:8989' } as const;
   const SERVICE = { radarr: 'Radarr', sonarr: 'Sonarr' } as const;
 
+  // The backend clamps an interval outside these bounds, which would store a
+  // figure nobody typed: Save waits for one inside them instead.
+  const MAX_INTERVAL_MINUTES = 1440;
+  const intervalFits = (minutes: number) =>
+    Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_INTERVAL_MINUTES;
+
   const blankForm = (): FormState => ({
     name: '',
     instance_type: 'radarr',
@@ -354,7 +360,7 @@
         <RefreshCw size={16} class={busyId === 'all' ? 'spin' : ''} />
         {t('SyncAll')}
       </button>
-      <button class="btn btn-primary" onclick={startAdd}>
+      <button id="instances-add" class="btn btn-primary" onclick={startAdd}>
         <Plus size={16} />
         {t('AddInstance')}
       </button>
@@ -481,7 +487,7 @@
                       class="btn btn-secondary btn-sm"
                       disabled={busyId !== null}
                       title={t('SyncNow')}
-                      aria-label="{t('SyncNow')} {instance.name}"
+                      aria-label="{t('SyncNow')} – {instance.name}"
                       onclick={() => void syncNow(instance)}
                     >
                       <RefreshCw size={14} class={busyId === instance.id ? 'spin' : ''} />
@@ -554,7 +560,13 @@
   {#if editing}
     {@const form = editing.form}
     {@const isEdit = Boolean(editing.id)}
-    <Modal label={t(isEdit ? 'EditInstance' : 'AddInstance')} onClose={close}>
+    {@const intervalOk = intervalFits(form.sync_interval_minutes)}
+    <Modal
+      label={t(isEdit ? 'EditInstance' : 'AddInstance')}
+      onClose={close}
+      initialFocus="instances-name"
+      returnFocus="instances-add"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t(isEdit ? 'EditInstance' : 'AddInstance')}</h2>
         <button
@@ -606,12 +618,21 @@
               id="instances-sync-every-minutes"
               type="number"
               min="1"
-              max="1440"
+              max={MAX_INTERVAL_MINUTES}
               class="form-input"
+              aria-invalid={intervalOk ? undefined : 'true'}
+              aria-describedby={intervalOk ? undefined : 'instances-sync-every-minutes-range'}
               bind:value={form.sync_interval_minutes}
             />
           </div>
         </div>
+        <!-- Under the row rather than in the interval's column: the two fields
+             share a bottom edge, which a line under one of them would break. -->
+        {#if !intervalOk}
+          <p id="instances-sync-every-minutes-range" class="field-error">
+            {t('RangeBetween', { min: 1, max: MAX_INTERVAL_MINUTES })}
+          </p>
+        {/if}
         <div class="form-group">
           <label class="form-label" for="instances-base-url">{t('BaseUrl')}</label>
           <input
@@ -648,21 +669,28 @@
           <input type="checkbox" bind:checked={form.enabled} />
           {t('EnabledSyncedRouted')}
         </label>
-        {#if probed?.ok}
-          <p class="probe-ok" role="status">
-            <CheckCircle2 size={16} aria-hidden="true" />
-            {probed.text}
-          </p>
-        {/if}
+        <!-- Mounted before the answer, so filling it is a change a screen
+             reader reports. -->
+        <div role="status">
+          {#if probed?.ok}
+            <p class="probe-ok">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {probed.text}
+            </p>
+          {/if}
+        </div>
         <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={close}>
             {t('Cancel')}
           </button>
           <div class="flex flex-wrap gap-2">
+            <!-- Never held while a try runs: a focused button that turns
+                 disabled drops the focus to the page, and a second press
+                 starts the try over. -->
             <button
               type="button"
               class="btn btn-secondary"
-              disabled={probing || !form.base_url.trim() || (!isEdit && !form.api_key.trim())}
+              disabled={!form.base_url.trim() || (!isEdit && !form.api_key.trim())}
               onclick={() => void tryConnection()}
             >
               <Wifi size={16} class={probing ? 'spin' : ''} aria-hidden="true" />
@@ -673,8 +701,7 @@
               class="btn btn-primary"
               disabled={!form.name.trim() ||
                 !form.base_url.trim() ||
-                !Number.isInteger(form.sync_interval_minutes) ||
-                form.sync_interval_minutes < 1 ||
+                !intervalOk ||
                 (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
             >
           </div>

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { screen } from '@testing-library/svelte';
+import { flushSync } from 'svelte';
 
 import { renderWithI18n } from '../test/render';
 import { onboardingStatus } from '../test/fixtures';
@@ -20,6 +21,7 @@ const STRINGS = {
   GuideLiveTitle: 'Leave test mode',
   GuideLiveAction: 'Open the routing settings',
   GuideBack: 'Back to the guide',
+  GuideInstanceTitle: 'Connect Radarr or Sonarr',
   GuideCategoriesTitle: 'Map root folders to categories',
   GuideCategoriesAction: 'Open root folders',
   GuideRuleTitle: 'Write a first rule',
@@ -120,5 +122,23 @@ describe('GuideStepBanner', () => {
     renderWithI18n(GuideStepBanner, { props: { step: 'categories' }, strings: STRINGS });
 
     expect(screen.queryByRole('link', { name: 'Back to the guide' })).toBeNull();
+  });
+
+  /**
+   * The sentence saying a step is done is the one that tells the reader to
+   * move on, so it is said in a region that exists before it changes: one
+   * that arrives with its text announces nothing.
+   */
+  it('says a step turning done in the region its banner already held', () => {
+    publishOnboarding(onboardingStatus());
+    renderWithI18n(GuideStepBanner, { props: { step: 'instance' }, strings: STRINGS });
+    const region = screen.getByRole('status');
+    expect(region).toHaveTextContent('Getting started, step 1 of 4: Connect Radarr or Sonarr');
+
+    publishOnboarding(onboardingStatus(['instance']));
+    flushSync();
+
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('Step 1 of 4 is done. Next: Map root folders to categories');
   });
 });

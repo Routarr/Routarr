@@ -13,10 +13,15 @@
 </script>
 
 <ErrorBanner message={outcome.error} onDismiss={() => outcome.clear()} />
-{#if outcome.warning}
-  <WarningBanner message={outcome.warning} />
-{/if}
-<SuccessBanner message={outcome.notice} />
+<!-- Mounted before anything is said in it: a live region that arrives with its
+     text announces nothing, and a success is not an alert. -->
+<div role="status">
+  {#if outcome.warning}
+    <WarningBanner message={outcome.warning} />
+  {:else if outcome.notice}
+    <SuccessBanner message={outcome.notice} />
+  {/if}
+</div>
 {#each outcome.details as detail, index (index)}
   <ErrorBanner message={detail} />
 {/each}

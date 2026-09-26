@@ -223,4 +223,15 @@ describe('Overrides', () => {
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
     expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'anime' });
   });
+
+  /** Opened on its close button, a search is one reflex Enter from thrown away. */
+  it('opens the pin dialog on its search field', async () => {
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+
+    expect(document.activeElement).toBe(
+      await screen.findByRole('searchbox', { name: 'Search the library by title' }),
+    );
+  });
 });

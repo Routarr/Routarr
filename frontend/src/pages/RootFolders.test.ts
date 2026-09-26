@@ -373,4 +373,16 @@ describe('Root folders', () => {
 
     expect(await screen.findByText('Two folders claim "anime"')).toBeTruthy();
   });
+
+  /** Opened on its close button, a form is one reflex Enter from thrown away. */
+  it('opens each category dialog on its name field', async () => {
+    show([], [category({ name: 'anime' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Rename category – anime' }));
+    expect(document.activeElement).toBe(await screen.findByLabelText('Name'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New category' }));
+    expect(document.activeElement).toBe(await screen.findByLabelText('Name'));
+  });
 });

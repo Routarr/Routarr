@@ -24,7 +24,7 @@ test('greets an installation not set up with its next steps', async ({ page, ins
   // The fixture's instance is synced, so the first step ticked itself.
   await expect(guide.getByRole('listitem').first()).toContainText('Done');
   await expect(
-    page.getByRole('link', { name: /^Getting started, required steps done: \d of 4$/ }),
+    page.getByRole('link', { name: /^\d\/4 Getting started, required steps done: \d of 4$/ }),
   ).toBeVisible();
 });
 
@@ -39,7 +39,7 @@ test('can be skipped, and offers itself back until the setup is done', async ({
   await page.getByRole('button', { name: 'Skip the guide' }).click();
   await expect(page.getByRole('region', { name: 'Getting started' })).toHaveCount(0);
   await expect(
-    page.getByRole('link', { name: /^Getting started, required steps done/ }),
+    page.getByRole('link', { name: /Getting started, required steps done/ }),
   ).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Resume the guide' }).click();

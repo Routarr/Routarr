@@ -731,4 +731,21 @@ describe('every screen names and dates things one way', () => {
     );
     expect(off).toEqual([]);
   });
+
+  /**
+   * A row action is named by the action, a spaced en dash, then its subject.
+   * A bare space runs the two together into one phrase: "Sync now Radarr",
+   * "Why? Akira".
+   */
+  it('names a row action with a spaced en dash between the action and its subject', () => {
+    const NAME = /\b(?:aria-label|label)="\{t\('\w+'\)\}( – | )\{/g;
+    const names = pages().flatMap((file) =>
+      [...read(file).matchAll(NAME)].map((m) => ({
+        at: `${file}:${read(file).slice(0, m.index).split('\n').length}`,
+        dashed: m[1] === ' – ',
+      })),
+    );
+    expect(names.filter((name) => name.dashed).length).toBeGreaterThan(10);
+    expect(names.filter((name) => !name.dashed).map((name) => name.at)).toEqual([]);
+  });
 });

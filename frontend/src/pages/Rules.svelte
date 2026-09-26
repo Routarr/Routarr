@@ -247,7 +247,7 @@
         <Download size={16} />
         {t('Export')}
       </button>
-      <button class="btn btn-primary" onclick={openCreate}>
+      <button id="rules-new" class="btn btn-primary" onclick={openCreate}>
         <Plus size={16} />
         {t('NewRule')}
       </button>
@@ -444,6 +444,7 @@
       {categories}
       {catalog}
       onClose={() => (editing = null)}
+      returnFocus="rules-new"
       onSaved={async (message) => {
         editing = null;
         outcome.succeed(message);

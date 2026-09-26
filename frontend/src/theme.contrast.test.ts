@@ -108,6 +108,10 @@ const PAIRS: [string, string][] = [
   // try inside a dialog, drawn on the surface.
   ['--status-success', '--bg-card'],
   ['--status-success', '--bg-surface'],
+  // A refused value in words: under a settings field and in the save bar, both
+  // on a card, and under a field of a dialog, drawn on the surface.
+  ['--status-danger', '--bg-card'],
+  ['--status-danger', '--bg-surface'],
   // Text on a filled button. White on the dark theme's light red read 2.85:1.
   ['--text-on-accent', '--accent-primary'],
   ['--text-on-danger', '--status-danger'],

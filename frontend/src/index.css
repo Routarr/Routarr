@@ -1444,6 +1444,20 @@ tr:hover td {
   border-color: var(--accent-strong);
 }
 
+/* After the focus rule, so a refused value stays marked while it is typed. */
+.form-input[aria-invalid='true'],
+.form-select[aria-invalid='true'] {
+  border-color: var(--status-danger);
+}
+
+/* What a field refuses, in words under it: the border alone is a colour, and a
+   screen reader reads this through the field's `aria-describedby`. */
+.field-error {
+  margin-top: var(--space-1);
+  font-size: 12px;
+  color: var(--status-danger);
+}
+
 /* The checkbox was the one control still drawn entirely by the browser: a 13px
    pale box that no palette reaches, beside 14px text. `accent-color` alone only
    reaches the *checked* fill, so the box itself is drawn here.
@@ -2068,6 +2082,14 @@ td * {
   border-bottom-color: var(--accent-strong);
 }
 
+/* A tab holding a value Save waits on: from another tab, the field is out of
+   sight. The tab's name says it in words. */
+.tab-flag {
+  margin-inline-start: 6px;
+  vertical-align: -2px;
+  color: var(--status-danger);
+}
+
 /* The strip carries a roving tab order, so the focus ring is the only thing
    telling a keyboard user where they are. */
 .tab:focus-visible {
@@ -2436,9 +2458,10 @@ td * {
   top: 12px;
 }
 
-/* The target takes focus programmatically; the ring belongs on controls, not on
-   the whole page. */
-.main-content:focus {
+/* Out of the tab order, so only a script focuses it: the page after the skip
+   link, a settings panel after a save, the guide's heading. The ring belongs on
+   controls, not on a whole region. */
+[tabindex='-1']:focus {
   outline: none;
 }
 

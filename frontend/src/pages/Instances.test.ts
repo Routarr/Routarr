@@ -17,6 +17,7 @@ import Instances from './Instances.svelte';
 
 const STRINGS = {
   ArrInstances: 'Instances',
+  RangeBetween: 'Enter a whole number from {min} to {max}.',
   AddInstance: 'Add instance',
   NoInstanceConfigured: 'No instance configured',
   SyncAll: 'Sync all',
@@ -127,7 +128,7 @@ describe('Instances', () => {
   it('names each row action after its instance', async () => {
     show([instance({ name: 'Radarr' }), instance({ id: 'i2', name: 'Sonarr' })]);
 
-    expect(await screen.findByRole('button', { name: 'Sync now Radarr' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Sync now – Radarr' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Edit – Sonarr' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Actions – Sonarr' })).toBeTruthy();
   });
@@ -199,8 +200,25 @@ describe('Instances', () => {
     expect(save.disabled).toBe(true);
     await fireEvent.input(every, { target: { value: '0' } });
     expect(save.disabled).toBe(true);
+    await fireEvent.input(every, { target: { value: '1441' } });
+    expect(save.disabled).toBe(true);
     await fireEvent.input(every, { target: { value: '30' } });
     expect(save.disabled).toBe(false);
+  });
+
+  /** A grey Save says nothing about the field that holds it. */
+  it('says why an interval outside its bounds holds Save', async () => {
+    show([instance()]);
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    const every = await screen.findByLabelText('Sync every (minutes)');
+
+    await fireEvent.input(every, { target: { value: '' } });
+
+    expect(every).toHaveAttribute('aria-invalid', 'true');
+    expect(every).toHaveAccessibleDescription('Enter a whole number from 1 to 1440.');
+    await fireEvent.input(every, { target: { value: '30' } });
+    expect(every).not.toHaveAttribute('aria-invalid');
+    expect(screen.queryByText('Enter a whole number from 1 to 1440.')).toBeNull();
   });
 
   it('syncs the instance whose button was pressed', async () => {
@@ -209,7 +227,7 @@ describe('Instances', () => {
       .mockResolvedValue({ media: 3, root_folders: 2 } as never);
     show([instance({ id: 'i1', name: 'Radarr' }), instance({ id: 'i2', name: 'Sonarr' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Sync now Sonarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Sync now – Sonarr' }));
 
     await waitFor(() => expect(sync).toHaveBeenCalledWith('i2'));
   });
@@ -262,7 +280,7 @@ describe('Instances', () => {
     const summary = await screen.findByText('Instances synced: 0');
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
     expect(screen.getByText('Radarr: connection refused')).toBeTruthy();
-    expect(screen.queryByRole('status')).toBeNull();
+    expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 
   /** Some instances synced and some not is a partial result, each failure named. */
@@ -328,7 +346,7 @@ describe('Instances', () => {
 
     settle();
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Webhook URL copied');
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Webhook URL copied'));
   });
 
   /** The clipboard exists on secure origins only, and a homelab often serves plain http. */
@@ -470,6 +488,7 @@ describe('Instances', () => {
     root_folders: 2,
     inaccessible_root_folders: 0,
   };
+  const CONNECTED = 'Radarr: connected (v5.2.6, 2 root folders)';
 
   async function openAdd(): Promise<HTMLElement> {
     await fireEvent.click(await screen.findByRole('button', { name: 'Add instance' }));
@@ -584,10 +603,36 @@ describe('Instances', () => {
         expect.any(AbortSignal),
       ),
     );
-    expect(await within(dialog).findByRole('status')).toHaveTextContent(
-      'Radarr: connected (v5.2.6, 2 root folders)',
-    );
     expect(create).not.toHaveBeenCalled();
+  });
+
+  /**
+   * A focused button that turns disabled drops the focus to the page. A second
+   * press starts the try over, so nothing needs holding it while it runs.
+   */
+  it('leaves Test connection pressable while a try runs', async () => {
+    vi.spyOn(api, 'probeInstance').mockReturnValue(new Promise(() => {}));
+    show([]);
+    const dialog = await openAdd();
+    await typeAddressAndKey('http://radarr:7878', 'secret');
+    const test = within(dialog).getByRole('button', { name: 'Test connection' });
+
+    await fireEvent.click(test);
+
+    expect(test).toBeEnabled();
+  });
+
+  /** Filled rather than added: a region that arrives with its text says nothing. */
+  it('holds the region a try answers in before the try is pressed', async () => {
+    vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
+    show([]);
+    const dialog = await openAdd();
+    const region = within(dialog).getByRole('status');
+    await typeAddressAndKey('http://radarr:7878', 'secret');
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+
+    await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
   });
 
   /** Read where the values were typed, and about those values only. */
@@ -634,22 +679,23 @@ describe('Instances', () => {
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
-    await within(dialog).findByRole('status');
+    const result = within(dialog).getByRole('status');
+    await waitFor(() => expect(result).toHaveTextContent(CONNECTED));
     const url = screen.getByLabelText('Base URL');
     const key = screen.getByLabelText('API key');
 
     await fireEvent.input(url, { target: { value: 'http://radarr:7879' } });
-    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(result).toBeEmptyDOMElement();
     await fireEvent.input(url, { target: { value: 'http://radarr:7878' } });
-    expect(within(dialog).getByRole('status')).toBeTruthy();
+    expect(result).toHaveTextContent(CONNECTED);
 
     await fireEvent.input(key, { target: { value: 'another' } });
-    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(result).toBeEmptyDOMElement();
     await fireEvent.input(key, { target: { value: 'secret' } });
-    expect(within(dialog).getByRole('status')).toBeTruthy();
+    expect(result).toHaveTextContent(CONNECTED);
 
     await userEvent.selectOptions(screen.getByLabelText('Type'), 'sonarr');
-    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(result).toBeEmptyDOMElement();
   });
 
   /** A refused save is what happened last: the try before it no longer speaks. */
@@ -662,13 +708,14 @@ describe('Instances', () => {
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
-    await within(dialog).findByRole('status');
+    const result = within(dialog).getByRole('status');
+    await waitFor(() => expect(result).toHaveTextContent(CONNECTED));
 
     const form = screen.getByLabelText('Base URL').closest('form') as HTMLFormElement;
     await fireEvent.submit(form);
 
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('Give the instance a name.');
-    expect(within(dialog).queryByRole('status')).toBeNull();
+    expect(result).toBeEmptyDOMElement();
   });
 
   /** Given up on, a try that answers later belongs to no dialog. */
@@ -694,7 +741,6 @@ describe('Instances', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(within(dialog).queryByRole('alert')).toBeNull();
-    expect(within(dialog).getByRole('button', { name: 'Test connection' })).toBeEnabled();
   });
 
   /** The Arr's own interface is one click away, in a tab of its own. */
@@ -738,5 +784,29 @@ describe('Instances', () => {
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(window.location.search).toBe('');
+  });
+
+  /**
+   * Opened on arrival, the dialog has no opener but the page, and closing it
+   * would leave the focus on `<body>`, several stops away from the guide's
+   * next link.
+   */
+  it('hands the focus to Add instance when the dialog the guide opened closes', async () => {
+    window.history.replaceState({}, '', '/instances?add=1');
+    show([]);
+    const dialog = await screen.findByRole('dialog');
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add instance' }));
+  });
+
+  /** Opened on its close button, a form is one reflex Enter from thrown away. */
+  it('opens the form on its first field', async () => {
+    show([]);
+    await openAdd();
+
+    expect(document.activeElement).toBe(screen.getByLabelText('Name'));
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { nthCall } from '../test/spy';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { api, ApiError } from '../api/client';
@@ -18,6 +18,7 @@ import { statusRevision } from '../lib/status.svelte';
 const STRINGS = {
   RulesEngine: 'Rules',
   NewRule: 'New rule',
+  Dismiss: 'Dismiss',
   NoRulesYet: 'No rule yet',
   RaisePriority: 'Raise priority',
   LowerPriority: 'Lower priority',
@@ -419,5 +420,16 @@ describe('Rules', () => {
 
     expect(await screen.findByRole('dialog')).toBeTruthy();
     expect(window.location.search).toBe('');
+  });
+
+  it('hands the focus to New rule when the editor the guide opened closes', async () => {
+    window.history.replaceState({}, '', '/rules?new=1');
+    show([]);
+    const dialog = await screen.findByRole('dialog');
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New rule' }));
   });
 });

@@ -91,7 +91,7 @@ describe('what the screen shows', () => {
     vi.spyOn(api, 'getDecisions').mockReturnValue(new Promise(() => {}));
     renderWithI18n(Simulation, { strings: { ...STRINGS, Loading: 'Loading' } });
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Loading');
+    expect(await screen.findByText('Loading')).toHaveAttribute('role', 'status');
     expect(screen.getByRole('table', { name: 'Simulation' })).toBeTruthy();
     expect(screen.queryByText('Nothing to review')).toBeNull();
   });

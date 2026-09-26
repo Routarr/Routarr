@@ -207,7 +207,7 @@ describe('Layout', () => {
     // Work in progress is not attention: a running task and a pending decision
     // are counted on their entries and nowhere else.
     const attention = await screen.findByRole('link', {
-      name: 'Needs attention: 2 failed, 2 warnings',
+      name: /Needs attention: 2 failed, 2 warnings$/,
     });
     expect(attention).toHaveTextContent('4');
     // A failed move is what the danger colour is for, and failures are listed
@@ -222,7 +222,7 @@ describe('Layout', () => {
     );
     show();
 
-    const attention = await screen.findByRole('link', { name: 'Needs attention: 2 warnings' });
+    const attention = await screen.findByRole('link', { name: /Needs attention: 2 warnings$/ });
     expect(attention.getAttribute('href')).toBe('/health');
   });
 
@@ -234,7 +234,7 @@ describe('Layout', () => {
     expect(screen.queryByLabelText(/running/)).toBeNull();
     expect(screen.queryByLabelText(/awaiting review/)).toBeNull();
     expect(screen.queryByLabelText(/failed/)).toBeNull();
-    expect(screen.queryByLabelText(/Needs attention/)).toBeNull();
+    expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
   });
 
   it('opens and closes the navigation drawer, and says which it is', async () => {
@@ -270,12 +270,16 @@ describe('Layout', () => {
 
     // Both read the same answer: the bar's attention control and the entry in
     // the menu.
-    expect(await screen.findByLabelText('Needs attention: 2 warnings')).toHaveTextContent('2');
+    expect(
+      await screen.findByRole('link', { name: /Needs attention: 2 warnings$/ }),
+    ).toHaveTextContent('2');
     expect(await screen.findByText('2 warnings')).toBeInTheDocument();
 
     invalidateStatus();
 
-    expect(await screen.findByLabelText('Needs attention: 1 warnings')).toHaveTextContent('1');
+    expect(
+      await screen.findByRole('link', { name: /Needs attention: 1 warnings$/ }),
+    ).toHaveTextContent('1');
     expect(await screen.findByText('1 warnings')).toBeInTheDocument();
     // Once more, not a burst: the shell owns one request and this re-runs it.
     expect(getStatus).toHaveBeenCalledTimes(2);
@@ -292,7 +296,9 @@ describe('Layout', () => {
 
     invalidateStatus();
 
-    await vi.waitFor(() => expect(screen.queryByLabelText(/Needs attention/)).toBeNull());
+    await vi.waitFor(() =>
+      expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull(),
+    );
     expect(screen.queryByLabelText(/warnings/)).toBeNull();
   });
 
@@ -304,7 +310,7 @@ describe('Layout', () => {
     show(onboardingStatus());
 
     const pill = await screen.findByRole('link', {
-      name: 'Getting started, required steps done: 0 of 4',
+      name: /Getting started, required steps done: 0 of 4$/,
     });
     expect(pill.textContent).toContain('0/4');
     expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
@@ -323,7 +329,7 @@ describe('Layout', () => {
     );
     show(onboardingStatus(['instance']));
 
-    expect(await screen.findByRole('link', { name: 'Needs attention: 1 warnings' })).toBeTruthy();
+    expect(await screen.findByRole('link', { name: /Needs attention: 1 warnings$/ })).toBeTruthy();
     expect(screen.getByRole('link', { name: /Getting started/ })).toBeTruthy();
   });
 
@@ -332,6 +338,23 @@ describe('Layout', () => {
     show(onboardingStatus());
 
     expect(await screen.findByRole('link', { name: /Needs attention/ })).toBeTruthy();
+  });
+
+  /** A speech input user says what they see: the name starts with it. */
+  it('names the pill and the attention link with the text they show', async () => {
+    // Three in all, two failed and one warning: the figure the link shows is in
+    // none of the parts its sentence names.
+    vi.spyOn(api, 'getStatus').mockResolvedValue(
+      status({ failed_decisions: 2, warnings: [warning('Radarr down')] }),
+    );
+    show(onboardingStatus(['instance', 'categories']));
+
+    const pill = await screen.findByRole('link', { name: /Getting started/ });
+    const attention = await screen.findByRole('link', { name: /Needs attention/ });
+    for (const link of [pill, attention]) {
+      const shown = (link.textContent ?? '').replace(/\s+/g, ' ').trim().split(' ')[0]!;
+      expect(link).toHaveAccessibleName(expect.stringContaining(shown));
+    }
   });
 
   it('takes the pill away once the guide is done', async () => {
@@ -376,7 +399,9 @@ describe('Layout', () => {
       .mockResolvedValue(onboardingStatus(['instance', 'categories', 'rule']));
     renderWithI18n(LayoutHarness, { strings: STRINGS });
     const pill = (done: number) =>
-      screen.findByRole('link', { name: `Getting started, required steps done: ${done} of 4` });
+      screen.findByRole('link', {
+        name: new RegExp(`Getting started, required steps done: ${done} of 4$`),
+      });
 
     expect(await pill(1)).toBeTruthy();
     invalidateStatus();

@@ -68,6 +68,14 @@ const show = (onClose = () => {}) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('CommandPalette', () => {
+  /** "History" the screen and "History" the film are told apart by their group. */
+  it('names each run of results by its heading', async () => {
+    show();
+
+    const destinations = await screen.findByRole('group', { name: 'Go to' });
+    expect(destinations.querySelectorAll('[role="option"]').length).toBe(13);
+  });
+
   it('offers every destination before anything is typed', async () => {
     show();
 

@@ -336,7 +336,11 @@
 
   {#if renaming}
     {@const target = renaming}
-    <Modal label={t('RenameCategory')} onClose={() => (renaming = null)}>
+    <Modal
+      label={t('RenameCategory')}
+      onClose={() => (renaming = null)}
+      initialFocus="rootfolders-rename"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t('RenameCategory')}</h2>
         <button
@@ -391,7 +395,11 @@
   {/if}
 
   {#if creating}
-    <Modal label={t('NewCategory')} onClose={() => (creating = false)}>
+    <Modal
+      label={t('NewCategory')}
+      onClose={() => (creating = false)}
+      initialFocus="rootfolders-name"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t('NewCategory')}</h2>
         <button

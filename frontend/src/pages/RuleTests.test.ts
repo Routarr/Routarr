@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
 import type { RuleTest, RuleTestRun } from '../api/types';
 import RuleTests from './RuleTests.svelte';
+import { answerConfirmation } from '../test/confirm';
 
 const STRINGS = {
   RuleTests: 'Rule tests',
@@ -104,5 +106,60 @@ describe('RuleTests', () => {
     expect(empty.closest('.card')).not.toBeNull();
     expect(screen.getByRole('table', { name: 'Rule tests' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Run the tests' })).toBeDisabled();
+  });
+});
+
+/**
+ * A deleted case takes its row away. Swapped for a skeleton while the list
+ * reloads, the other rows would take the focus with them, so the list stays,
+ * and what takes the deleted row's place takes the focus.
+ */
+describe('deleting a case', () => {
+  const OTHER: RuleTest = { ...CASE, id: 't2', name: 'Perfect Blue stays anime' };
+
+  async function deleteFirst(after: Promise<RuleTest[]>) {
+    const list = vi
+      .spyOn(api, 'getRuleTests')
+      .mockResolvedValueOnce([CASE, OTHER])
+      .mockReturnValueOnce(after);
+    vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
+    renderWithI18n(RuleTests, { strings: STRINGS });
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
+    );
+    await answerConfirmation();
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  }
+
+  it('keeps the list on screen while it reloads', async () => {
+    await deleteFirst(new Promise(() => {}));
+
+    expect(screen.getByRole('button', { name: 'Delete – Perfect Blue stays anime' })).toBeTruthy();
+  });
+
+  it('hands the focus to the case that took the place of the deleted one', async () => {
+    await deleteFirst(Promise.resolve([OTHER]));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Delete – Perfect Blue stays anime' }),
+      ),
+    );
+  });
+
+  it('hands the focus to the table once no case is left', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValueOnce([CASE]).mockResolvedValueOnce([]);
+    vi.spyOn(api, 'deleteRuleTest').mockResolvedValue(undefined as never);
+    renderWithI18n(RuleTests, { strings: STRINGS });
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Delete – Akira stays anime' }),
+    );
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('region', { name: 'Rule tests' })),
+    );
   });
 });

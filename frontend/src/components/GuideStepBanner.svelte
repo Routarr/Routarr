@@ -83,7 +83,10 @@
     {:else}
       <ListChecks size={16} aria-hidden="true" />
     {/if}
-    <span class="flex-1">{shown.text}</span>
+    <!-- A live region for as long as the banner shows: the sentence turning to
+         "done, next" is what tells the reader to move on, and a region that
+         arrives with its text announces nothing. -->
+    <span class="flex-1" role="status">{shown.text}</span>
     {#if shown.kind === 'done'}
       <!-- Secondary, as every banner's action is: the screen keeps its one
            primary button, and the guide's own card is where its step leads. -->

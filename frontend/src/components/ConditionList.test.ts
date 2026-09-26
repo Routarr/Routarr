@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -212,5 +212,56 @@ describe('ConditionList', () => {
     await userEvent.click(screen.getByRole('combobox', { name: 'Original language is' }));
 
     expect(screen.getByRole('option', { name: 'japonais (ja)' })).toBeTruthy();
+  });
+});
+
+/**
+ * Delete takes its own row away, and the focus with it, inside the rule
+ * editor's dialog. Rows are kept by position, so the condition
+ * after it moves up under the focus. The last row takes its button with it,
+ * and the picker below is what is left.
+ */
+describe('deleting a condition', () => {
+  function renderLive(conditions: Condition[]) {
+    const view = renderWithI18n(ConditionList, {
+      props: {
+        title: 'All of',
+        list: 'conditions',
+        conditions,
+        specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
+        addable: [GENRE],
+        onAdd: () => {},
+        onRetype: () => {},
+        onUpdate: () => {},
+        onRemove: (index: number) =>
+          void view.rerender({ conditions: conditions.filter((_, at) => at !== index) }),
+      },
+      strings: STRINGS,
+    });
+  }
+
+  it('leaves the focus on the Delete of the condition that took its place', async () => {
+    renderLive([
+      { type: 'genre_contains', value: ['Anime'] },
+      { type: 'season_count_over', value: 3 },
+    ]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – Genre contains' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Delete – Season count over' }),
+      ),
+    );
+  });
+
+  it('hands the focus to the picker once the last condition is deleted', async () => {
+    renderLive([{ type: 'genre_contains', value: ['Anime'] }]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – Genre contains' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'All of' })),
+    );
   });
 });

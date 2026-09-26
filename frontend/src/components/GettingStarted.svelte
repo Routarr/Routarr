@@ -3,6 +3,7 @@
   import { api } from '../api/client';
   import type { OnboardingState, OnboardingStatus } from '../api/types';
   import { STEP_GUIDES, guideProgress, requiredNumber } from '../api/onboarding';
+  import { handFocus } from '../lib/focus';
   import type { Outcome } from '../lib/outcome.svelte';
   import { publishOnboarding } from '../lib/onboarding.svelte';
   import { href } from '../lib/router.svelte';
@@ -19,18 +20,35 @@
   let { status, outcome }: { status: OnboardingStatus; outcome: Outcome } = $props();
 
   const progress = $derived(guideProgress(status));
-  let busy = $state(false);
+  let busy = false;
+
+  /**
+   * Each choice replaces the block that holds the pressed button, and the
+   * focus with it, to the page, where a screen reader loses its place. It goes
+   * to what takes the block's place: Resume, the guide's heading, or the
+   * page's content once the guide is gone. No button is disabled while the
+   * choice is sent, since a focused button that turns disabled drops the focus
+   * as well: a second press is ignored instead.
+   */
+  const LANDING: Record<OnboardingState, string> = {
+    dismissed: 'guide-resume',
+    pending: 'guide-title',
+    done: 'main',
+  };
 
   async function choose(next: OnboardingState) {
+    if (busy) return;
     busy = true;
     try {
       publishOnboarding(await api.setOnboarding(next));
       outcome.clear();
     } catch (err) {
       outcome.fail(err);
+      return;
     } finally {
       busy = false;
     }
+    await handFocus(LANDING[next]);
   }
 </script>
 
@@ -38,7 +56,7 @@
   <section class="card" aria-labelledby="guide-title">
     <div class="card-header">
       <div>
-        <h2 class="card-title flex items-center gap-2" id="guide-title">
+        <h2 class="card-title flex items-center gap-2" id="guide-title" tabindex="-1">
           <ListChecks size={18} aria-hidden="true" />
           {t('GuideTitle')}
         </h2>
@@ -98,11 +116,11 @@
     <div class="guide-footer">
       {#if status.complete}
         <p class="guide-complete">{t('GuideComplete')}</p>
-        <button class="btn btn-primary" disabled={busy} onclick={() => void choose('done')}>
+        <button class="btn btn-primary" onclick={() => void choose('done')}>
           {t('GuideFinish')}
         </button>
       {:else}
-        <button class="btn btn-ghost" disabled={busy} onclick={() => void choose('dismissed')}>
+        <button class="btn btn-ghost" onclick={() => void choose('dismissed')}>
           {t('GuideSkip')}
         </button>
       {/if}
@@ -111,8 +129,15 @@
 {:else if status.state === 'dismissed' && !status.complete}
   <div class="card guide-paused">
     <ListChecks size={16} aria-hidden="true" />
-    <p class="flex-1">{t('GuidePaused', { done: progress.done, total: progress.total })}</p>
-    <button class="btn btn-secondary btn-sm" disabled={busy} onclick={() => void choose('pending')}>
+    <p class="flex-1" id="guide-paused">
+      {t('GuidePaused', { done: progress.done, total: progress.total })}
+    </p>
+    <button
+      id="guide-resume"
+      class="btn btn-secondary btn-sm"
+      aria-describedby="guide-paused"
+      onclick={() => void choose('pending')}
+    >
       {t('GuideResume')}
     </button>
   </div>
