@@ -441,7 +441,7 @@ const MODALS: {
   {
     path: '/overrides',
     covers: 'pages/Overrides.svelte',
-    open: (p) => p.getByRole('button', { name: 'New override' }).click(),
+    open: (p) => p.getByRole('button', { name: 'New exception' }).click(),
   },
   {
     path: '/root-folders',

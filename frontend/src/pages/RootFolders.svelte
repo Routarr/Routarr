@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, Pencil, Plus, Trash2 } from '../lib/icons';
+  import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
   import { formatBytes, formatRelative } from '../api/format';
@@ -8,10 +8,11 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
+  import BannerList from '../components/BannerList.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -36,6 +37,8 @@
   const folders = $derived<RootFolder[]>(bundle.data?.folders ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
   const conflicts = $derived<MappingConflict[]>(bundle.data?.conflicts ?? []);
+  const errors = $derived(conflicts.filter((conflict) => conflict.severity === 'error'));
+  const warnings = $derived(conflicts.filter((conflict) => conflict.severity !== 'error'));
   const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
 
   /**
@@ -103,10 +106,12 @@
       <h1 class="page-title">{t('RootFolders')}</h1>
       <p class="page-subtitle">{t('RootFoldersSubtitle')}</p>
     </div>
-    <button class="btn btn-primary" onclick={() => (creating = true)}>
-      <Plus size={16} />
-      {t('NewCategory')}
-    </button>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" onclick={() => (creating = true)}>
+        <Plus size={16} />
+        {t('NewCategory')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -117,15 +122,16 @@
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="categories" />
 
-  {#each conflicts as conflict, index (index)}
-    <div class="banner {conflict.severity === 'error' ? 'banner-danger' : 'banner-warning'}">
-      <AlertTriangle size={16} />
-      <span>
-        {#if conflict.instance_name}<strong>{conflict.instance_name}: </strong>{/if}
-        {conflict.message}
-      </span>
-    </div>
-  {/each}
+  <BannerList
+    tone="danger"
+    title={t('DiagnosticErrors', { count: errors.length })}
+    items={errors.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+  />
+  <BannerList
+    tone="warning"
+    title={t('DiagnosticWarnings', { count: warnings.length })}
+    items={warnings.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+  />
 
   <div class="card">
     <div class="card-header">
@@ -147,7 +153,7 @@
         </thead>
         <tbody>
           {#if bundle.loading && folders.length === 0}
-            <tr><td colspan="7"><Loading /></td></tr>
+            <TableSkeleton columns={7} />
           {:else if folders.length === 0}
             <tr><td colspan="7"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
           {:else}
@@ -273,6 +279,9 @@
           </tr>
         </thead>
         <tbody>
+          {#if bundle.loading && categories.length === 0}
+            <TableSkeleton columns={5} />
+          {/if}
           {#each categories as category (category.id)}
             <tr>
               <td>

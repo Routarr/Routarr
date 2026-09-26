@@ -24,11 +24,15 @@
       <h1 class="page-title">{t('NotFoundTitle')}</h1>
       <p class="page-subtitle">{t('NotFoundSubtitle', { path: router.path })}</p>
     </div>
+    <div class="flex gap-2">
+      <a class="btn btn-primary" href={href('/')}>{t('BackToDashboard')}</a>
+    </div>
   </div>
 
-  <div class="empty-state">
-    <Compass size={32} />
-    <p>{t('NotFoundHelp')}</p>
-    <a class="btn btn-primary" href={href('/')}>{t('BackToDashboard')}</a>
+  <div class="card">
+    <div class="empty-state">
+      <Compass size={32} />
+      <p>{t('NotFoundHelp')}</p>
+    </div>
   </div>
 </div>

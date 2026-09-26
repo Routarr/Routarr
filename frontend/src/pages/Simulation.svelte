@@ -15,6 +15,7 @@
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import { SvelteSet } from 'svelte/reactivity';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -214,6 +215,8 @@
   // This run if there was one, otherwise what was already waiting. A fresh run
   // replaces them, and supersedes them server-side too.
   const shown = $derived<Decision[]>(result?.decisions ?? pending ?? []);
+  // The pending list has not answered yet, and no run has replaced it.
+  const loading = $derived(pending === null && !result && !loadError);
   const movable = $derived(shown.filter((d) => d.action === 'move'));
   const allSelected = $derived(movable.length > 0 && movable.every((d) => selected.has(d.id)));
 </script>
@@ -221,191 +224,208 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('SimulationTitle')}</h1>
+      <h1 class="page-title">{t('Simulation')}</h1>
       <p class="page-subtitle">{t('SimulationSubtitle')}</p>
     </div>
-    <button class="btn btn-primary" onclick={() => void run()} disabled={busy !== null}>
-      <Play size={16} />
-      {busy === 'run' ? t('EvaluatingRules') : t('RunSimulation')}
-    </button>
+    <div class="flex gap-2">
+      <!-- The screen's one primary action is its next step: applying, once
+           there are moves to apply, else running. -->
+      <button
+        class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
+        onclick={() => void run()}
+        disabled={busy !== null}
+      >
+        <Play size={16} />
+        {busy === 'run' ? t('EvaluatingRules') : t('RunSimulation')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner message={loadError} onDismiss={() => (loadError = null)} />
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="simulation" />
 
-  {#if !result && shown.length === 0}
-    <div class="card"><EmptyState>{t('SimulationEmptyState')}</EmptyState></div>
-  {:else}
-    <!-- The counters describe a run. Without one there is nothing to count —
-         but the decisions themselves are still worth showing. -->
-    {#if !result && shown.length > 0}
-      <WarningBanner message={t('DecisionsAwaitingReview', { count: shown.length })} />
+  <!-- The counters describe a run. Without one there is nothing to count, but
+       the decisions themselves are still worth showing. -->
+  {#if !result && shown.length > 0}
+    <WarningBanner message={t('DecisionsAwaitingReview', { count: shown.length })} />
+  {/if}
+
+  {#if result}
+    <div class="metrics">
+      <Stat label={t('Evaluated')} value={result.total_media} />
+      <Stat label={t('MovesRequired')} value={result.moves_required} tone="warning" />
+      <Stat label={t('AlreadyCorrect')} value={result.already_correct} tone="success" />
+      <Stat label={t('NoRuleMatched')} value={result.no_category_match} />
+      <Stat label={t('UnmappedCategory')} value={result.skipped_unmapped} tone="danger" />
+      <Stat label={t('OverridesLabel')} value={result.overrides_applied} />
+    </div>
+
+    {#if result.skipped_unmapped > 0}
+      <WarningBanner message={t('SkippedUnmappedWarning', { count: result.skipped_unmapped })} />
     {/if}
 
-    {#if result}
-      <div class="metrics">
-        <Stat label={t('Evaluated')} value={result.total_media} />
-        <Stat label={t('MovesRequired')} value={result.moves_required} tone="warning" />
-        <Stat label={t('AlreadyCorrect')} value={result.already_correct} tone="success" />
-        <Stat label={t('NoRuleMatched')} value={result.no_category_match} />
-        <Stat label={t('UnmappedCategory')} value={result.skipped_unmapped} tone="danger" />
-        <Stat label={t('OverridesLabel')} value={result.overrides_applied} />
-      </div>
-
-      {#if result.skipped_unmapped > 0}
-        <WarningBanner message={t('SkippedUnmappedWarning', { count: result.skipped_unmapped })} />
-      {/if}
-
-      <!-- What the plan weighs, before anything is written. `free_space` is
+    <!-- What the plan weighs, before anything is written. `free_space` is
            synced on every pass and `size_on_disk` sits on every row, and until
            now nothing compared them: a batch that overruns its destination
            fails partway at the Arr and leaves the library half-moved. -->
-      {#if result.capacity.length > 0}
-        {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
-          <WarningBanner
-            message={t('CapacityShortWarning', {
-              path: short.path,
-              needed: formatBytes(short.incoming_bytes, i18n.language),
-              free: formatBytes(short.free_bytes, i18n.language),
-            })}
-          />
-        {/each}
+    {#if result.capacity.length > 0}
+      {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
+        <WarningBanner
+          message={t('CapacityShortWarning', {
+            path: short.path,
+            needed: formatBytes(short.incoming_bytes, i18n.language),
+            free: formatBytes(short.free_bytes, i18n.language),
+          })}
+        />
+      {/each}
 
-        <div class="card">
-          <div class="card-header"><h2 class="card-title">{t('CapacityTitle')}</h2></div>
-          <TableRegion label={t('CapacityTitle')}>
-            <table>
-              <caption class="visually-hidden">{t('CapacityTitle')}</caption>
-              <thead>
+      <div class="card">
+        <div class="card-header"><h2 class="card-title">{t('CapacityTitle')}</h2></div>
+        <TableRegion label={t('CapacityTitle')}>
+          <table>
+            <caption class="visually-hidden">{t('CapacityTitle')}</caption>
+            <thead>
+              <tr>
+                <th>{t('Destination')}</th>
+                <th>{t('Items')}</th>
+                <th>{t('CapacityIncoming')}</th>
+                <th>{t('CapacityFree')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each result.capacity as folder (c_key(folder))}
                 <tr>
-                  <th>{t('Destination')}</th>
-                  <th>{t('Items')}</th>
-                  <th>{t('CapacityIncoming')}</th>
-                  <th>{t('CapacityFree')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {#each result.capacity as folder (c_key(folder))}
-                  <tr>
-                    <td>
-                      <span class="mono">{folder.path}</span>
-                      {#if folder.instance_name}
-                        <span class="muted ms-2">{folder.instance_name}</span>
-                      {/if}
-                    </td>
-                    <td>{folder.items}</td>
-                    <td>
-                      {formatBytes(folder.incoming_bytes, i18n.language)}
-                      <!-- Shown rather than dropped: a move between folders on
+                  <td>
+                    <span class="mono">{folder.path}</span>
+                    {#if folder.instance_name}
+                      <span class="muted ms-2">{folder.instance_name}</span>
+                    {/if}
+                  </td>
+                  <td>{folder.items}</td>
+                  <td>
+                    {formatBytes(folder.incoming_bytes, i18n.language)}
+                    <!-- Shown rather than dropped: a move between folders on
                            one volume is a rename and costs nothing, and a
                            figure the user cannot see is one they cannot check. -->
-                      {#if folder.same_filesystem_bytes > 0}
-                        <span class="muted ms-2">
-                          {t('CapacitySameVolume', {
-                            size: formatBytes(folder.same_filesystem_bytes, i18n.language),
-                          })}
-                        </span>
-                      {/if}
-                    </td>
-                    <td class={folder.fits ? '' : 'text-danger'}>
-                      {formatBytes(folder.free_bytes, i18n.language)}
-                    </td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </TableRegion>
-        </div>
-      {/if}
-
-      {#if result.returned < result.total_media}
-        <WarningBanner
-          message={t('TruncatedWarning', { shown: result.returned, total: result.total_media })}
-        />
-      {/if}
-    {/if}
-
-    {#if !result && pending && pending.length >= PENDING_PAGE}
-      <WarningBanner message={t('PendingCapped', { count: PENDING_PAGE })} />
-    {/if}
-
-    {#if movable.length > 0}
-      <div class="card flex items-center justify-between">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input type="checkbox" bind:checked={moveFiles} />
-          <span>{t('MoveFilesLabel')}</span>
-        </label>
-
-        <div class="flex gap-2">
-          <button
-            class="btn btn-primary"
-            onclick={() => void apply()}
-            disabled={selected.size === 0 || busy !== null}
-          >
-            <ShieldCheck size={16} />
-            {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
-          </button>
-
-          <!-- Reaches past the on-screen list: on a large library the table is
-               capped, so selecting every visible row is not everything. It
-               targets one identified simulation, so it only exists once a run
-               has produced one. -->
-          {#if result}
-            <button
-              class="btn btn-secondary"
-              onclick={() => void applyAll()}
-              disabled={result.moves_required === 0 || busy !== null}
-              title={t('ApplyAllHint')}
-            >
-              <Layers size={16} />
-              {t('ApplyAll', { count: result.moves_required })}
-            </button>
-          {/if}
-        </div>
+                    {#if folder.same_filesystem_bytes > 0}
+                      <span class="muted ms-2">
+                        {t('CapacitySameVolume', {
+                          size: formatBytes(folder.same_filesystem_bytes, i18n.language),
+                        })}
+                      </span>
+                    {/if}
+                  </td>
+                  <td class={folder.fits ? '' : 'text-danger'}>
+                    {formatBytes(folder.free_bytes, i18n.language)}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </TableRegion>
       </div>
     {/if}
 
-    <div class="card">
-      <TableRegion label={t('SimulationTitle')}>
-        <table>
-          <caption class="visually-hidden">{t('SimulationTitle')}</caption>
-          <thead>
-            <tr>
-              <th class="w-40">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  disabled={movable.length === 0}
-                  onchange={() => select(allSelected ? [] : movable.map((d) => d.id))}
-                  title={t('SelectEveryMove')}
-                  aria-label={t('SelectEveryMove')}
-                />
-              </th>
-              <th>{t('Media')}</th>
-              <th>{t('Current')}</th>
-              <th><span class="visually-hidden">{t('Action')}</span></th>
-              <th>{t('Target')}</th>
-              <th>{t('Rule')}</th>
-              <th class="w-90">{t('Confidence')}</th>
-              <th>{t('Why')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#if shown.length === 0}
-              <tr><td colspan="8"><EmptyState>{t('NoDecisionGenerated')}</EmptyState></td></tr>
-            {:else}
-              {#each shown as decision (decision.id)}
-                <DecisionRow
-                  {decision}
-                  selected={selected.has(decision.id)}
-                  onToggle={() => toggle(decision.id)}
-                />
-              {/each}
-            {/if}
-          </tbody>
-        </table>
-      </TableRegion>
+    {#if result.returned < result.total_media}
+      <WarningBanner
+        message={t('TruncatedWarning', { shown: result.returned, total: result.total_media })}
+      />
+    {/if}
+  {/if}
+
+  {#if !result && pending && pending.length >= PENDING_PAGE}
+    <WarningBanner message={t('PendingCapped', { count: PENDING_PAGE })} />
+  {/if}
+
+  {#if movable.length > 0}
+    <div class="card flex items-center justify-between">
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" bind:checked={moveFiles} />
+        <span>{t('MoveFilesLabel')}</span>
+      </label>
+
+      <div class="flex gap-2">
+        <button
+          class="btn btn-primary"
+          onclick={() => void apply()}
+          disabled={selected.size === 0 || busy !== null}
+        >
+          <ShieldCheck size={16} />
+          {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
+        </button>
+
+        <!-- Reaches past the on-screen list: on a large library the table is
+               capped, so selecting every visible row is not everything. It
+               targets one identified simulation, so it only exists once a run
+               has produced one. -->
+        {#if result}
+          <button
+            class="btn btn-secondary"
+            onclick={() => void applyAll()}
+            disabled={result.moves_required === 0 || busy !== null}
+            title={t('ApplyAllHint')}
+          >
+            <Layers size={16} />
+            {t('ApplyAll', { count: result.moves_required })}
+          </button>
+        {/if}
+      </div>
     </div>
   {/if}
+
+  <div class="card">
+    <TableRegion label={t('SimulationTitle')}>
+      <table>
+        <caption class="visually-hidden">{t('SimulationTitle')}</caption>
+        <thead>
+          <tr>
+            <th class="w-40">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                disabled={movable.length === 0}
+                onchange={() => select(allSelected ? [] : movable.map((d) => d.id))}
+                title={t('SelectEveryMove')}
+                aria-label={t('SelectEveryMove')}
+              />
+            </th>
+            <th>{t('Media')}</th>
+            <th>{t('Current')}</th>
+            <th><span class="visually-hidden">{t('Action')}</span></th>
+            <th>{t('Target')}</th>
+            <th>{t('Rule')}</th>
+            <th class="w-90">{t('Confidence')}</th>
+            <th>{t('Why')}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#if loading}
+            <TableSkeleton columns={8} />
+          {:else if shown.length === 0}
+            <!-- Nothing pending and nothing run says to run, a run that
+                   proposed nothing says so. A list that failed to load says
+                   neither: its banner above does. -->
+            {#if !loadError}
+              <tr>
+                <td colspan="8">
+                  <EmptyState>
+                    {t(result ? 'NoDecisionGenerated' : 'SimulationEmptyState')}
+                  </EmptyState>
+                </td>
+              </tr>
+            {/if}
+          {:else}
+            {#each shown as decision (decision.id)}
+              <DecisionRow
+                {decision}
+                selected={selected.has(decision.id)}
+                onToggle={() => toggle(decision.id)}
+              />
+            {/each}
+          {/if}
+        </tbody>
+      </table>
+    </TableRegion>
+  </div>
 </div>

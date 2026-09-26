@@ -8,10 +8,10 @@
   import { formatTimestamp } from '../api/format';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
 
@@ -105,10 +105,12 @@
       <h1 class="page-title">{t('Overrides')}</h1>
       <p class="page-subtitle">{t('OverridesSubtitle')}</p>
     </div>
-    <button class="btn btn-primary" onclick={openCreate}>
-      <Plus size={16} />
-      {t('NewOverride')}
-    </button>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" onclick={openCreate}>
+        <Plus size={16} />
+        {t('NewOverride')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -134,7 +136,7 @@
         </thead>
         <tbody>
           {#if bundle.loading && overrides.length === 0}
-            <tr><td colspan="6"><Loading /></td></tr>
+            <TableSkeleton columns={6} />
           {:else if overrides.length === 0}
             <tr><td colspan="6"><EmptyState>{t('NoOverrides')}</EmptyState></td></tr>
           {:else}
@@ -153,7 +155,7 @@
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>
                 <td class="text-muted">{override.reason ?? t('None')}</td>
-                <td class="text-muted mono text-sm">
+                <td class="cell-timestamp">
                   {formatTimestamp(override.created_at, i18n.language)}
                 </td>
                 <td>

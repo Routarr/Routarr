@@ -112,6 +112,18 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  /* The edge a table casts where it scrolls under its region. */
+  --scroll-shadow: rgba(0, 0, 0, 0.35);
+  --row-hover: rgba(255, 255, 255, 0.02);
+
+  /* Text on a filled button: the orange fill keeps dark text in both themes,
+     the red one takes dark text on the light red of the dark theme. */
+  --text-on-accent: #111111;
+  --text-on-danger: #111111;
+
+  /* The two kinds, in hues no status takes. */
+  --kind-radarr: #7aa8f7;
+  --kind-sonarr: #a78bfa;
 
   /* System stacks, never web fonts: fetching a face from a third party tells
      it the address of every installation that opens the interface, and leaves
@@ -168,6 +180,13 @@
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
   --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+  --scroll-shadow: rgba(15, 23, 42, 0.12);
+  --row-hover: rgba(15, 23, 42, 0.03);
+
+  --text-on-danger: #ffffff;
+
+  --kind-radarr: #1e5bb8;
+  --kind-sonarr: #6d3fd6;
 }
 
 /* The light palette again, for the setting that stamps nothing.
@@ -214,6 +233,13 @@
     --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
     --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
     --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+    --scroll-shadow: rgba(15, 23, 42, 0.12);
+    --row-hover: rgba(15, 23, 42, 0.03);
+
+    --text-on-danger: #ffffff;
+
+    --kind-radarr: #1e5bb8;
+    --kind-sonarr: #6d3fd6;
   }
 }
 
@@ -394,7 +420,7 @@ a {
    a tree, where the pill said "this is a tag". */
 .nav-item.active {
   background-color: var(--bg-card-hover);
-  border-inline-start-color: var(--accent-primary);
+  border-inline-start-color: var(--accent-strong);
   color: var(--accent-strong);
   font-weight: 600;
 }
@@ -504,6 +530,12 @@ a {
   margin-bottom: 20px;
 }
 
+/* A header that is the whole card, as a title, a note and a button are, keeps
+   no space under it for a body that is not there. */
+.card-header:last-child {
+  margin-bottom: 0;
+}
+
 .card-title {
   font-size: 17px;
   font-weight: 600;
@@ -564,7 +596,7 @@ a {
 
 .btn-primary {
   background-color: var(--accent-primary);
-  color: #111;
+  color: var(--text-on-accent);
   font-weight: 600;
 }
 
@@ -601,7 +633,7 @@ a {
 
 .modal-content .btn-danger {
   background-color: var(--status-danger);
-  color: #fff;
+  color: var(--text-on-danger);
   font-weight: 600;
 }
 
@@ -894,19 +926,6 @@ a {
   margin: 0;
   color: var(--text-secondary);
 }
-/* The sentence first, the buttons after it: where both do not fit, on a
-   phone or in a long language, the buttons move under the sentence rather
-   than past the edge of the banner. */
-.banner-guide {
-  flex-wrap: wrap;
-  border-inline-start-color: var(--accent-strong);
-}
-.banner-guide > .flex-1 {
-  flex: 1 1 16rem;
-}
-.banner-guide > svg {
-  color: var(--accent-strong);
-}
 @media (max-width: 560px) {
   .guide-step {
     grid-template-columns: auto 1fr;
@@ -1038,7 +1057,7 @@ a {
    Enter opens" — one shape, one meaning. */
 .palette-row.is-current {
   background-color: var(--bg-card-hover);
-  border-inline-start-color: var(--accent-primary);
+  border-inline-start-color: var(--accent-strong);
 }
 
 .palette-name {
@@ -1149,14 +1168,14 @@ a {
   transform: translateY(1px);
 }
 .kind-radarr {
-  color: #7aa8f7;
+  color: var(--kind-radarr);
 }
 /* Violet rather than Sonarr's green: the identity dot sat two shades from the
    `connected` badge beside it, which is the confusion this whole vocabulary
    exists to end. None of the four status hues is free, so the kind takes one
    that is. */
 .kind-sonarr {
-  color: #a78bfa;
+  color: var(--kind-sonarr);
 }
 
 /* A value the user chose — a category, a scope, a match mode. Vocabulary, not
@@ -1297,9 +1316,11 @@ a {
    status badge) belong on one line: stacked, they make every row in the table
    twice as tall for no added meaning. `nowrap` keeps a long locale format from
    folding — the column is scrollable via .table-container if it ever has to be. */
+/* One look for a date on every screen: muted, proportional, one line. */
 .cell-timestamp {
   white-space: nowrap;
   font-size: 12px;
+  color: var(--text-muted);
 }
 
 .cell-timestamp > * + * {
@@ -1355,7 +1376,7 @@ tr:last-child td {
 }
 
 tr:hover td {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--row-hover);
 }
 
 /* Form inputs */
@@ -1460,7 +1481,7 @@ input[type='checkbox'] {
 
 input[type='checkbox']:checked {
   background-color: var(--accent-primary);
-  border-color: var(--accent-primary);
+  border-color: var(--accent-strong);
 }
 
 /* Drawn rather than a glyph: a character would inherit the font, and the tick
@@ -1670,8 +1691,11 @@ td * {
   gap: var(--space-2);
   margin-top: var(--space-4);
 }
+/* At the end of whichever line it lands on: wrapped under Cancel on a phone,
+   the actions otherwise sit at the start, where Cancel is. */
 .dialog-actions > div {
   flex-wrap: wrap;
+  margin-inline-start: auto;
 }
 
 /* The editor's live validation: one banner per issue, no bullets. */
@@ -1720,6 +1744,20 @@ td * {
 }
 .banner-success > svg {
   color: var(--status-success);
+}
+/* The sentence first, the buttons after it: where both do not fit, on a
+   phone or in a long language, the buttons move under the sentence rather
+   than past the edge of the banner. After `.banner`, whose stripe it
+   recolours with the same specificity. */
+.banner-guide {
+  flex-wrap: wrap;
+  border-inline-start-color: var(--accent-strong);
+}
+.banner-guide > .flex-1 {
+  flex: 1 1 16rem;
+}
+.banner-guide > svg {
+  color: var(--accent-strong);
 }
 
 /* The warnings a block enumerates. Plain text rather than one banner each: the
@@ -2315,7 +2353,8 @@ td * {
      the credential field beside them measured 51px — narrower than the word
      it holds — while "Disable" was clipped 50px outside its own row. The
      document never scrolled, so nothing but a measurement showed it. */
-  .source-list .source-row,
+  /* Rows with a rank only: a row without one, as Diagnostics draws them, put
+     its name in the 24px lane and wrapped it over three lines. */
   .source-list .source-row:has(.source-rank) {
     grid-template-columns: 24px 1fr;
   }
@@ -2387,7 +2426,7 @@ td * {
   z-index: var(--z-modal);
   padding: 8px 14px;
   background-color: var(--accent-primary);
-  color: #111;
+  color: var(--text-on-accent);
   border-radius: var(--radius-md);
   font-weight: 600;
   text-decoration: none;
@@ -2604,7 +2643,7 @@ td * {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
 }
@@ -2677,8 +2716,8 @@ td * {
   background-image:
     linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
     linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
-    linear-gradient(to right, rgba(0, 0, 0, 0.35), transparent 14px),
-    linear-gradient(to left, rgba(0, 0, 0, 0.35), transparent 14px);
+    linear-gradient(to right, var(--scroll-shadow), transparent 14px),
+    linear-gradient(to left, var(--scroll-shadow), transparent 14px);
   background-position:
     0 0,
     100% 0,
@@ -2765,7 +2804,7 @@ td * {
   margin-bottom: var(--space-4);
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-inline-start: 3px solid var(--accent-primary);
+  border-inline-start: 3px solid var(--accent-strong);
   border-radius: var(--radius-md);
 }
 .headline-value {
@@ -2839,9 +2878,9 @@ td * {
   margin-top: var(--space-5);
   padding: var(--space-3) var(--space-4);
   background-color: var(--bg-card);
-  border: 1px solid var(--accent-primary);
+  border: 1px solid var(--accent-strong);
   border-radius: var(--radius-md);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 .save-bar-scope {
   color: var(--text-muted);
@@ -3066,7 +3105,7 @@ select.form-select {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 35%));
+  box-shadow: var(--shadow-lg);
 }
 
 .picker-option {
@@ -3094,7 +3133,7 @@ select.form-select {
    stays in the field, so no focus ring can say it. */
 .picker-option[aria-selected='true'] {
   background-color: var(--bg-card-hover);
-  border-inline-start-color: var(--accent-primary);
+  border-inline-start-color: var(--accent-strong);
 }
 
 /* The figure is reference data, so it recedes rather than competing with the

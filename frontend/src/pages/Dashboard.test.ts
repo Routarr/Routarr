@@ -21,7 +21,7 @@ const STRINGS = {
   PendingDecisions: 'Awaiting review',
   MoviesManaged: 'Movies',
   FailedMovesLabel: 'Failed',
-  NoInstanceYet: 'No instance yet',
+  NoInstanceConfigured: 'No instance configured',
   Diagnostics: 'Diagnostics',
   Connected: 'connected',
   Never: 'never',
@@ -52,7 +52,7 @@ describe('Dashboard', () => {
     bothReturn(health());
     show();
 
-    await screen.findByText('No instance yet');
+    await screen.findByText('No instance configured');
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
@@ -129,7 +129,7 @@ describe('Dashboard', () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
 
-    expect(await screen.findByText('No instance yet')).toBeTruthy();
+    expect(await screen.findByText('No instance configured')).toBeTruthy();
   });
 
   /**

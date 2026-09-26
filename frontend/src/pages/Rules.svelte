@@ -31,12 +31,12 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import LibraryFacetsPanel from '../components/LibraryFacets.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { downloadJson } from '../lib/download';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -284,12 +284,12 @@
             <th>{t('Scope')}</th>
             <th>{t('Logic')}</th>
             <th>{t('Conditions')}</th>
-            <th class="w-190">{t('Actions')}</th>
+            <th class="w-190"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if bundle.loading}
-            <tr><td colspan="7"><Loading /></td></tr>
+            <TableSkeleton columns={7} />
           {:else if rules.length === 0}
             <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
           {:else}

@@ -8,8 +8,8 @@
   import type { RuleTestResult, RuleTestRun } from '../api/types';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -75,14 +75,16 @@
       <h1 class="page-title">{t('RuleTests')}</h1>
       <p class="page-subtitle">{t('RuleTestsSubtitle')}</p>
     </div>
-    <button
-      class="btn btn-primary"
-      disabled={busy || (cases.data?.length ?? 0) === 0}
-      onclick={() => void runAll()}
-    >
-      <Play size={16} class={busy ? 'spin' : ''} />
-      {t('RunRuleTests')}
-    </button>
+    <div class="flex gap-2">
+      <button
+        class="btn btn-primary"
+        disabled={busy || (cases.data?.length ?? 0) === 0}
+        onclick={() => void runAll()}
+      >
+        <Play size={16} class={busy ? 'spin' : ''} />
+        {t('RunRuleTests')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -107,14 +109,11 @@
         </thead>
         <tbody>
           {#if cases.loading}
-            <tr><td colspan="5"><Loading /></td></tr>
+            <TableSkeleton columns={5} />
           {:else if (cases.data?.length ?? 0) === 0}
             <tr>
               <td colspan="5">
-                <EmptyState>
-                  <p><strong>{t('NoRuleTests')}</strong></p>
-                  <p class="muted">{t('NoRuleTestsHint')}</p>
-                </EmptyState>
+                <EmptyState>{t('NoRuleTests')}</EmptyState>
               </td>
             </tr>
           {:else}

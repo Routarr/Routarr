@@ -42,12 +42,14 @@
 
 <div class="card">
   <div class="card-header">
-    <h2 class="card-title">
-      <Archive size={16} />
-      {t('Backups')}
-    </h2>
+    <div>
+      <h2 class="card-title flex items-center gap-2">
+        <Archive size={18} aria-hidden="true" />
+        {t('Backups')}
+      </h2>
+      <p class="card-note">{t('BackupsHelp')}</p>
+    </div>
   </div>
-  <p class="text-muted text-md mb-3">{t('BackupsHelp')}</p>
 
   <button
     type="button"

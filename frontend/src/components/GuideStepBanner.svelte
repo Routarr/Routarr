@@ -85,7 +85,9 @@
     {/if}
     <span class="flex-1">{shown.text}</span>
     {#if shown.kind === 'done'}
-      <a href={href(shown.next.to)} class="btn btn-primary btn-sm">{t(shown.next.actionKey)}</a>
+      <!-- Secondary, as every banner's action is: the screen keeps its one
+           primary button, and the guide's own card is where its step leads. -->
+      <a href={href(shown.next.to)} class="btn btn-secondary btn-sm">{t(shown.next.actionKey)}</a>
       {#if shown.skip}
         <a href={href(shown.skip)} class="btn btn-secondary btn-sm">{t('GuideSkipStep')}</a>
       {/if}

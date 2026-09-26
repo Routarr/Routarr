@@ -56,7 +56,8 @@ describe('GuideStepBanner', () => {
     ).toBeTruthy();
     const next = screen.getByRole('link', { name: 'Open root folders' });
     expect(next.getAttribute('href')).toBe('/root-folders');
-    expect(next.classList.contains('btn-primary')).toBe(true);
+    // A banner's action, secondary: the screen keeps its one primary button.
+    expect(next.classList.contains('btn-secondary')).toBe(true);
     expect(screen.getByRole('link', { name: 'Back to the guide' })).toBeTruthy();
   });
 

@@ -8,7 +8,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
-  import Loading from '../components/Loading.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
   import { downloadBlob } from '../lib/download';
@@ -55,7 +55,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('LogsTitle')}</h1>
+      <h1 class="page-title">{t('Logs')}</h1>
       <p class="page-subtitle">{t('LogsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -126,7 +126,7 @@
         </thead>
         <tbody>
           {#if logs.loading && entries.length === 0}
-            <tr><td colspan="5"><Loading /></td></tr>
+            <TableSkeleton columns={5} />
           {:else if entries.length === 0}
             <tr><td colspan="5"><EmptyState>{t('NoWritesYet')}</EmptyState></td></tr>
           {:else}

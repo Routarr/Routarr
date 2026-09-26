@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 
 import { test, expect, api } from './fixtures';
+import { SCREENS as ROUTES } from './screens';
 
 /**
  * Layout facts that only a real browser can establish. happy-dom computes no
@@ -569,4 +570,85 @@ test('a table with nothing to scroll has no shadow down its edges', async ({
     }
     expect(varied, `${side} edge is not flat: ${varied.join(' | ')}`).toEqual([]);
   }
+});
+
+/**
+ * One look for one thing, measured where only a browser can: while a screen
+ * loads, on a phone, and across every screen of the route table.
+ */
+test.describe('every screen draws a shared thing the same way', () => {
+  /** A screen whose title waits for its data reads as a broken page. */
+  test('every screen keeps its title while its data loads', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    // Held rather than failed, so each screen stays in its loading state. The
+    // dictionary and the sign-in mode are what any screen needs to draw at all.
+    await page.route('**/api/v1/**', async (route) => {
+      if (/\/api\/v1\/(localization|auth\/mode)/.test(route.request().url())) {
+        await route.continue();
+        return;
+      }
+      await new Promise(() => {});
+    });
+    for (const path of ROUTES) {
+      await page.goto(path);
+      await expect(page.locator('.page-title'), path).toBeVisible();
+    }
+  });
+
+  /** The primary colour says what the screen is for, which is one thing. */
+  test('every screen offers at most one primary action', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    const { state } = (await api('/onboarding')) as { state: string };
+    try {
+      for (const shown of ['done', 'pending']) {
+        await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: shown }) });
+        for (const path of ROUTES) {
+          await page.goto(path);
+          await expect(page.locator('.page-title')).toBeVisible();
+          const primary = await page.locator('.btn-primary:visible').count();
+          expect(primary, `${path} with the guide ${shown}`).toBeLessThanOrEqual(1);
+        }
+      }
+    } finally {
+      await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state }) });
+    }
+  });
+
+  /** A row without a rank keeps its name in the wide lane. */
+  test('a source name on Diagnostics holds one line on a phone', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/health');
+    const names = page.locator('.source-row .source-name');
+    await expect(names.first()).toBeVisible();
+
+    const wrapped = await names.evaluateAll((nodes) =>
+      nodes
+        .filter((node) => {
+          const element = node as HTMLElement;
+          const before = element.getBoundingClientRect().height;
+          element.style.whiteSpace = 'nowrap';
+          const after = element.getBoundingClientRect().height;
+          element.style.whiteSpace = '';
+          return before > after + 1;
+        })
+        .map((node) => node.textContent),
+    );
+    expect(wrapped).toEqual([]);
+  });
+
+  /** Wrapped under Cancel, the actions still end where the footer ends. */
+  test('a wrapped dialog footer keeps its actions at the end', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/instances?add=1');
+    const dialog = page.getByRole('dialog');
+    const footer = dialog.locator('.dialog-actions');
+    const add = footer.getByRole('button', { name: 'Add instance' });
+    await expect(add).toBeVisible();
+
+    const [footerBox, addBox] = [await footer.boundingBox(), await add.boundingBox()];
+    const gap = footerBox!.x + footerBox!.width - (addBox!.x + addBox!.width);
+    expect(Math.abs(gap), `the action ends ${gap}px before the footer`).toBeLessThanOrEqual(1);
+  });
 });

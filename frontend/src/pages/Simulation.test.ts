@@ -86,6 +86,24 @@ describe('what the screen shows', () => {
    * state telling the user to run a simulation — for twelve decisions that are
    * already persisted.
    */
+  /** "Nothing to review" before the list has answered is a claim nobody checked. */
+  it('holds the table open while the pending list loads', async () => {
+    vi.spyOn(api, 'getDecisions').mockReturnValue(new Promise(() => {}));
+    renderWithI18n(Simulation, { strings: { ...STRINGS, Loading: 'Loading' } });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Loading');
+    expect(screen.getByRole('table', { name: 'Simulation' })).toBeTruthy();
+    expect(screen.queryByText('Nothing to review')).toBeNull();
+  });
+
+  /** An empty list is said inside the table, as every screen says it. */
+  it('says there is nothing to review inside the table', async () => {
+    await show([]);
+
+    const empty = await screen.findByText('Nothing to review');
+    expect(empty.closest('tbody')).not.toBeNull();
+  });
+
   it('shows the decisions a previous pass left pending, before any run', async () => {
     await show([decision({ media_title: 'Akira' })]);
 

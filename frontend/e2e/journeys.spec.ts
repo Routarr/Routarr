@@ -75,8 +75,8 @@ test.describe('navigation', () => {
     await expect(page.locator('.sidebar-nav .active')).toHaveCount(0);
 
     // Scoped: the sidebar has a link to the same place, and the way out being
-    // offered here is the one on the page.
-    await page.locator('.empty-state').getByRole('link').click();
+    // offered here is the one in the page's header, where every action is.
+    await page.locator('.page-header').getByRole('link').click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     expect(new URL(page.url()).pathname).toMatch(/\/$/);
   });

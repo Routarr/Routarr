@@ -19,11 +19,11 @@
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { poll } from '../lib/poll.svelte';
@@ -342,7 +342,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('ArrInstances')}</h1>
+      <h1 class="page-title">{t('Instances')}</h1>
       <p class="page-subtitle">{t('InstancesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -380,14 +380,14 @@
             <th>{t('BaseUrl')}</th>
             <th>{t('ApiKey')}</th>
             <th>{t('LastSync')}</th>
-            <th class="w-230">{t('Actions')}</th>
+            <th class="w-230"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if list.loading && instances.length === 0}
-            <tr><td colspan="6"><Loading /></td></tr>
+            <TableSkeleton columns={6} />
           {:else if instances.length === 0}
-            <tr><td colspan="7"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
+            <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance (instance.id)}
               <tr class:row-muted={!instance.enabled}>

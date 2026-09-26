@@ -363,17 +363,17 @@
   }
 </script>
 
-{#if bundle.loading}
-  <Loading />
-{:else}
-  <div>
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">{t('Settings')}</h1>
-        <p class="page-subtitle">{t('SettingsSubtitle')}</p>
-      </div>
+<div>
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{t('Settings')}</h1>
+      <p class="page-subtitle">{t('SettingsSubtitle')}</p>
     </div>
+  </div>
 
+  {#if bundle.loading}
+    <div class="card"><Loading /></div>
+  {:else}
     <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
          it one. -->
     <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
@@ -424,14 +424,14 @@
         {#if section === 'general' && keyCard}
           <div class="card">
             <div class="card-header">
-              <h2 class="card-title">
-                <KeyRound size={16} />
-                {t('RoutarrApiKey')}
-              </h2>
+              <div>
+                <h2 class="card-title flex items-center gap-2">
+                  <KeyRound size={18} aria-hidden="true" />
+                  {t('RoutarrApiKey')}
+                </h2>
+                <p class="card-note">{t(keyCard.help)}</p>
+              </div>
             </div>
-            <p class="text-muted text-md mb-3">
-              {t(keyCard.help)}
-            </p>
 
             {#if minted}
               <!-- The one moment this value is readable. `mono` carries the
@@ -703,5 +703,5 @@
         </form>
       </div>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>

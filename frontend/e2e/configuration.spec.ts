@@ -99,7 +99,7 @@ test.describe('root folders', () => {
   });
 });
 
-test.describe('overrides', () => {
+test.describe('exceptions', () => {
   test('pinning a film outranks the rules and can be undone', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
     // A rule that would send Akira to anime, so the override has something to
@@ -119,14 +119,14 @@ test.describe('overrides', () => {
     });
 
     await page.goto('/overrides');
-    await page.getByRole('button', { name: /new override/i }).click();
+    await page.getByRole('button', { name: /new exception/i }).click();
 
     await page.getByPlaceholder(/search the library/i).fill('Akira');
     await page.getByRole('button', { name: /^search$/i }).click();
     await page.getByRole('button', { name: /select – akira/i }).click();
 
     await page.locator('.modal-content select').selectOption('standard');
-    await page.getByRole('button', { name: /create override/i }).click();
+    await page.getByRole('button', { name: /create exception/i }).click();
 
     await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(1);
 

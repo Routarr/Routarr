@@ -20,16 +20,18 @@
        and a separate title would say less than the sentence already does. -->
   <Modal label={message} onClose={() => settle(null)} maxWidth={520}>
     <p class="pre-line">{message}</p>
-    <div class="flex gap-2 mt-4">
+    <div class="dialog-actions">
       <button class="btn btn-secondary" onclick={() => settle(null)}>{t('Cancel')}</button>
-      {#each choices as choice (choice.value)}
-        <button
-          class="btn {choice.danger ? 'btn-danger' : 'btn-primary'}"
-          onclick={() => settle(choice.value)}
-        >
-          {t(choice.label)}
-        </button>
-      {/each}
+      <div class="flex flex-wrap gap-2">
+        {#each choices as choice (choice.value)}
+          <button
+            class="btn {choice.danger ? 'btn-danger' : 'btn-primary'}"
+            onclick={() => settle(choice.value)}
+          >
+            {t(choice.label)}
+          </button>
+        {/each}
+      </div>
     </div>
   </Modal>
 {/if}
