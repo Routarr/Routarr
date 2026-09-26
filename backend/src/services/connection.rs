@@ -14,19 +14,53 @@ use crate::localization::Localizer;
 /// Why an address did not answer as the Arr it was declared to be.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Cause {
-    /// Nothing listens at the address, or its host does not resolve.
+    /// The host name does not resolve.
+    NameUnresolved,
+    /// Nothing listens at the address, or the network does not reach it.
     Unreachable,
     /// The connection was taken and nothing came back in time.
     TimedOut,
-    /// The address sends the request to another origin, where the key never goes.
+    /// The TLS handshake failed: a certificate not trusted, or `https` on a
+    /// port that serves plain HTTP.
+    HandshakeFailed,
+    /// What answered is not HTTP, as TLS on a port given with `http`.
+    NotHttp,
+    /// The address redirects to another port or scheme of the same host,
+    /// where the key never goes.
     Redirected,
-    /// Something answers, but not the Arr's API: a web page, a proxy, another port.
+    /// The address redirects to another host, a sign-in portal as often as
+    /// the Arr.
+    RedirectedElsewhere(String),
+    /// Redirects that never leave the address.
+    RedirectLoop,
+    /// Something answers, but not the Arr's API: a web page, another port.
     NotTheApi,
     KeyRefused,
+    /// Something in front of the Arr asks for its own sign-in.
+    SignInInFront,
+    /// The request was refused before it reached the Arr (HTTP 403).
+    RefusedInFront,
+    /// A proxy in front answers, and cannot reach the Arr, with this status.
+    UnreachableBehind(u16),
     /// The Arr failed on its own side, with this HTTP status.
     ServerError(u16),
     /// Another application answers, named as it names itself.
     WrongApp(String),
+}
+
+impl Cause {
+    /// Whether the Arr is down or failing, which a retry may get past, rather
+    /// than something the operator typed, which a retry never changes.
+    pub fn is_outage(&self) -> bool {
+        matches!(
+            self,
+            Cause::NameUnresolved
+                | Cause::Unreachable
+                | Cause::TimedOut
+                | Cause::UnreachableBehind(_)
+                | Cause::ServerError(_)
+        )
+    }
 }
 
 /// The cause of a failed call to an Arr, when the address or the key explains it.
@@ -39,14 +73,25 @@ pub fn cause_of(error: &AppError) -> Option<Cause> {
     };
     match *status {
         0 => match integrations::transport_failure(message)? {
+            Transport::NameUnresolved => Some(Cause::NameUnresolved),
             Transport::Unreachable => Some(Cause::Unreachable),
             Transport::TimedOut => Some(Cause::TimedOut),
-            Transport::Redirected => Some(Cause::Redirected),
+            Transport::HandshakeFailed => Some(Cause::HandshakeFailed),
+            Transport::NotHttp => Some(Cause::NotHttp),
+            Transport::RedirectLoop => Some(Cause::RedirectLoop),
             Transport::Unreadable => Some(Cause::NotTheApi),
         },
-        300..=399 => Some(Cause::Redirected),
-        401 | 403 => Some(Cause::KeyRefused),
+        300..=399 => Some(match integrations::redirected_to(message) {
+            Some(host) => Cause::RedirectedElsewhere(host.to_string()),
+            None => Cause::Redirected,
+        }),
+        401 if integrations::signs_in_in_front(message) => Some(Cause::SignInInFront),
+        401 => Some(Cause::KeyRefused),
+        // Radarr and Sonarr answer a wrong key with 401. A 403 comes from a
+        // firewall, an allow list or a sign-in policy in front of them.
+        403 => Some(Cause::RefusedInFront),
         404 | 405 => Some(Cause::NotTheApi),
+        502..=504 => Some(Cause::UnreachableBehind(*status)),
         500..=599 => Some(Cause::ServerError(*status)),
         _ => None,
     }
@@ -76,25 +121,50 @@ pub fn is_loopback(base_url: &str) -> bool {
         || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback() || ip.is_unspecified())
 }
 
+/// The name an Arr goes by, from its declared type, `radarr` or `sonarr`.
+pub fn service_name(kind: &str) -> &'static str {
+    if kind.eq_ignore_ascii_case("sonarr") { "Sonarr" } else { "Radarr" }
+}
+
 /// The sentence the operator reads, naming what to change.
 ///
 /// `kind` is the declared type, `radarr` or `sonarr`.
 pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer) -> String {
-    let service = if kind.eq_ignore_ascii_case("sonarr") { "Sonarr" } else { "Radarr" };
+    let service = service_name(kind);
     let url_base = format!("/{}", service.to_ascii_lowercase());
     let status;
     let (key, params): (&str, Vec<(&str, &str)>) = match cause {
+        Cause::NameUnresolved => {
+            ("ArrNameUnresolved", vec![("service", service), ("address", base_url)])
+        }
         Cause::Unreachable if is_loopback(base_url) => {
             ("ArrUnreachableLoopback", vec![("service", service), ("address", base_url)])
         }
         Cause::Unreachable => ("ArrUnreachable", vec![("service", service), ("address", base_url)]),
         Cause::TimedOut => ("ArrTimedOut", vec![("service", service), ("address", base_url)]),
+        Cause::HandshakeFailed => {
+            ("ArrHandshakeFailed", vec![("service", service), ("address", base_url)])
+        }
+        Cause::NotHttp => ("ArrNotHttp", vec![("service", service), ("address", base_url)]),
         Cause::Redirected => ("ArrRedirected", vec![("address", base_url)]),
+        Cause::RedirectedElsewhere(host) => (
+            "ArrRedirectedElsewhere",
+            vec![("service", service), ("address", base_url), ("host", host.as_str())],
+        ),
+        Cause::RedirectLoop => {
+            ("ArrRedirectLoop", vec![("service", service), ("address", base_url)])
+        }
         Cause::NotTheApi => (
             "ArrNotTheApi",
             vec![("service", service), ("address", base_url), ("base", url_base.as_str())],
         ),
         Cause::KeyRefused => ("ArrKeyRefused", vec![("service", service)]),
+        Cause::SignInInFront => ("ArrProxySignIn", vec![("service", service)]),
+        Cause::RefusedInFront => ("ArrProxyRefused", vec![("service", service)]),
+        Cause::UnreachableBehind(code) => {
+            status = code.to_string();
+            ("ArrProxyUnreachable", vec![("service", service), ("status", status.as_str())])
+        }
         Cause::ServerError(code) => {
             status = code.to_string();
             ("ArrServerError", vec![("service", service), ("status", status.as_str())])
@@ -107,11 +177,25 @@ pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer)
     localizer.translate(key, &params)
 }
 
+/// The error the caller receives for `cause`, told in `sentence`: a 502 for
+/// an Arr down or failing, which a script may retry, a 400 for what the
+/// operator typed.
+pub fn refusal(cause: &Cause, sentence: String) -> AppError {
+    if cause.is_outage() {
+        AppError::UpstreamDown(sentence)
+    } else {
+        AppError::BadRequest(sentence)
+    }
+}
+
 /// An error the operator can act on: the explanation when the cause is known,
 /// the error as it came otherwise.
 pub fn explained(error: AppError, kind: &str, base_url: &str, localizer: &Localizer) -> AppError {
     match cause_of(&error) {
-        Some(cause) => AppError::BadRequest(explain(&cause, kind, base_url, localizer)),
+        Some(cause) => {
+            let sentence = explain(&cause, kind, base_url, localizer);
+            refusal(&cause, sentence)
+        }
         None => error,
     }
 }
@@ -158,10 +242,15 @@ mod tests {
     #[test]
     fn a_status_names_its_cause() {
         assert_eq!(cause_of(&upstream(401, "")), Some(Cause::KeyRefused));
-        assert_eq!(cause_of(&upstream(403, "")), Some(Cause::KeyRefused));
+        assert_eq!(cause_of(&upstream(403, "")), Some(Cause::RefusedInFront));
         assert_eq!(cause_of(&upstream(404, "")), Some(Cause::NotTheApi));
+        assert_eq!(cause_of(&upstream(405, "")), Some(Cause::NotTheApi));
         assert_eq!(cause_of(&upstream(302, "")), Some(Cause::Redirected));
-        assert_eq!(cause_of(&upstream(503, "")), Some(Cause::ServerError(503)));
+        assert_eq!(cause_of(&upstream(500, "")), Some(Cause::ServerError(500)));
+        assert_eq!(cause_of(&upstream(501, "")), Some(Cause::ServerError(501)));
+        for status in [502, 503, 504] {
+            assert_eq!(cause_of(&upstream(status, "")), Some(Cause::UnreachableBehind(status)));
+        }
         assert_eq!(cause_of(&upstream(429, "")), None);
     }
 

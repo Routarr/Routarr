@@ -241,8 +241,12 @@ export const api = {
   deleteInstance: (id: string) => request<unknown>(`/instances/${id}`, { method: 'DELETE' }),
   testInstance: (id: string) =>
     request<TestConnectionResponse>(`/instances/${id}/test`, { method: 'POST' }),
-  probeInstance: (data: InstanceProbe) =>
-    request<TestConnectionResponse>('/instances/test', { method: 'POST', body: body(data) }),
+  probeInstance: (data: InstanceProbe, signal?: AbortSignal) =>
+    request<TestConnectionResponse>('/instances/test', {
+      method: 'POST',
+      body: body(data),
+      signal,
+    }),
   syncInstance: (id: string) => request<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }),
   syncAll: () => request<SyncReport[]>('/instances/sync', { method: 'POST' }),
   rotateWebhookToken: (id: string) =>

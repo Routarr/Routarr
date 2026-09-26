@@ -8,7 +8,8 @@ use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::localization::Localizer;
 use crate::models::*;
-use crate::services::{connection, sync};
+use crate::services::connection::{self, Cause};
+use crate::services::sync;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 
@@ -64,12 +65,16 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
-    let base_url = validate(&req, &state.localizer().await)?;
+    let localizer = state.localizer().await;
+    let base_url = validate(&req, &localizer)?;
     let existing = state.instance(&id).await?;
 
-    // An empty api_key means "keep the current one" — the UI only ever shows a
-    // masked value, so re-submitting the form must not wipe the secret.
+    // An empty api_key means "keep the current one": the UI only ever shows a
+    // masked value, so re-submitting the form must not wipe the secret. Kept
+    // for the address it was saved with only, or the next sync carries it to
+    // whatever address was typed.
     let api_key = if req.api_key.trim().is_empty() {
+        stored_key_may_reach(&existing.base_url, &base_url, &localizer)?;
         existing.api_key.clone()
     } else {
         state.secrets.seal(req.api_key.trim())?
@@ -149,7 +154,11 @@ pub async fn probe(
     let localizer = state.localizer().await;
     let base_url = normalize_base_url(&req.base_url, &localizer)?;
     let api_key = match (req.api_key.trim(), &req.id) {
-        ("", Some(id)) => state.secrets.open(&state.instance(id).await?.api_key)?,
+        ("", Some(id)) => {
+            let saved = state.instance(id).await?;
+            stored_key_may_reach(&saved.base_url, &base_url, &localizer)?;
+            state.secrets.open(&saved.api_key)?
+        }
         (typed, _) => typed.to_string(),
     };
     let adapter = ArrAdapter::new(state.http.clone(), &kind, &base_url, &api_key)?;
@@ -167,7 +176,8 @@ async fn check(
     let explain = |error| connection::explained(error, kind, base_url, localizer);
     let status = adapter.test_connection().await.map_err(explain)?;
     if let Some(cause) = connection::wrong_app(kind, status.app_name.as_deref()) {
-        return Err(AppError::BadRequest(connection::explain(&cause, kind, base_url, localizer)));
+        let sentence = connection::explain(&cause, kind, base_url, localizer);
+        return Err(connection::refusal(&cause, sentence));
     }
     let root_folders = adapter.get_root_folders().await.map_err(explain)?;
 
@@ -203,13 +213,41 @@ pub async fn sync_now(
     let instance = state.instance(&id).await?;
     let localizer = state.localizer().await;
     let adapter = state.adapter(&instance)?;
-    check(&adapter, &instance.instance_type, &instance.base_url, &localizer).await?;
-    Err(AppError::BadRequest(connection::explain(
-        &cause,
-        &instance.instance_type,
-        &instance.base_url,
-        &localizer,
-    )))
+    let kind = instance.instance_type.as_str();
+    check(&adapter, kind, &instance.base_url, &localizer).await?;
+    // The probe passed, so the address answers as the Arr, and blaming it
+    // sends the operator to edit an address that is right. What failed is the
+    // library listing, the one call large enough to outlast the timeout.
+    let service = [("service", connection::service_name(kind))];
+    Err(match cause {
+        Cause::TimedOut => {
+            AppError::UpstreamDown(localizer.translate("InstanceSyncTimedOut", &service))
+        }
+        Cause::NotTheApi => {
+            AppError::UpstreamDown(localizer.translate("InstanceSyncUnreadable", &service))
+        }
+        other => {
+            let sentence = connection::explain(&other, kind, &instance.base_url, &localizer);
+            connection::refusal(&other, sentence)
+        }
+    })
+}
+
+/// Refuse to send a stored key anywhere but the origin it was saved with.
+///
+/// The key is the Arr's write credential, and the form never shows it back:
+/// left blank on another address, it would leave for that address unseen.
+fn stored_key_may_reach(saved: &str, typed: &str, localizer: &Localizer) -> AppResult<()> {
+    let same = match (reqwest::Url::parse(saved), reqwest::Url::parse(typed)) {
+        (Ok(saved), Ok(typed)) => crate::http::stays_on_origin(&saved, &typed),
+        _ => false,
+    };
+    if same {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(
+        localizer.translate("InstanceKeyForNewAddress", &[("address", typed)]),
+    ))
 }
 
 /// Issue a fresh webhook token, invalidating the previous URL.

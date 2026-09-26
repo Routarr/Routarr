@@ -1561,6 +1561,7 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "http-body-util",
+ "hyper",
  "reqwest",
  "serde",
  "serde_json",

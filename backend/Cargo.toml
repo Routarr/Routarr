@@ -27,6 +27,9 @@ serde_json = "1"
 # release, so `Dockerfile` installing `ca-certificates` is load-bearing — an
 # image without it fails every metadata call, not just the private ones.
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
+# Already built for axum and reqwest. Named here for one question reqwest does
+# not answer: whether what came back was HTTP at all (`hyper::Error::is_parse`).
+hyper = "1"
 tower = { version = "0.5", features = ["util"] }
 tokio-util = { version = "0.7", features = ["io"] }
 tower-http = { version = "0.7", features = [

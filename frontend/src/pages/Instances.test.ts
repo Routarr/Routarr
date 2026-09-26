@@ -38,6 +38,7 @@ const STRINGS = {
   InstanceFirstSync: '{name} is saved. Reading its library for the first time.',
   InstanceFirstSyncDone: '{name} is synced. Titles: {media}, root folders: {folders}',
   InstanceFirstSyncFailed: '{name} is saved, but its first sync failed.',
+  InstanceFirstSyncFinished: '{name} is synced.',
   InstanceUrlHelp: "With the port. In Docker, use {service}'s container name.",
   InstanceKeyHelp: 'In {service}: Settings → General → Security → API Key.',
   ConnectionOk: '{name}: connected (v{version}, {folders} root folders)',
@@ -399,6 +400,43 @@ describe('Instances', () => {
     expect(screen.getByText('Radarr answered 401 Unauthorized')).toBeTruthy();
   });
 
+  /**
+   * The server finishes a sync the browser stopped waiting for, and a large
+   * library outlasts the request. Called failed, it would send the reader to
+   * doubt a key that is right.
+   */
+  it('follows a first sync that outlasts the request instead of calling it failed', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      vi.spyOn(api, 'createInstance').mockResolvedValue(instance({ id: 'i9', name: 'Films' }));
+      vi.spyOn(api, 'syncInstance').mockRejectedValue(new ApiError('', 0, 'timeout'));
+      show([]);
+
+      await addInstance('Films');
+
+      expect(
+        await screen.findByText('Films is saved. Reading its library for the first time.'),
+      ).toBeTruthy();
+      expect(screen.queryByText('Films is saved, but its first sync failed.')).toBeNull();
+      const before = statusRevision();
+      vi.mocked(api.getInstances).mockResolvedValue([
+        instance({
+          id: 'i9',
+          name: 'Films',
+          last_sync_at: '2026-08-27 10:05:00',
+          last_sync_attempt_at: '2026-08-27 10:05:00',
+          last_sync_status: 'success',
+        }),
+      ]);
+      await vi.advanceTimersByTimeAsync(5000);
+
+      expect(await screen.findByText('Films is synced.')).toBeTruthy();
+      expect(statusRevision()).toBeGreaterThan(before);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves an instance that synced before to its schedule', async () => {
     vi.spyOn(api, 'updateInstance').mockResolvedValue(
       instance({ last_sync_at: '2026-08-27 10:05:00' }),
@@ -484,6 +522,34 @@ describe('Instances', () => {
     expect(url.value).toBe('https://radarr.example.org');
   });
 
+  /** Enter submits with no blur, and a phone capitalises the first letter. */
+  it('sends an address with its scheme, however it was typed and saved', async () => {
+    const create = vi.spyOn(api, 'createInstance').mockResolvedValue(instance({ enabled: false }));
+    const probe = vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
+    show([]);
+    const dialog = await openAdd();
+    const url = await screen.findByLabelText('Base URL');
+    expect(url.getAttribute('autocapitalize')).toBe('off');
+
+    await typeAddressAndKey('radarr:7878', 'secret');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await waitFor(() =>
+      expect(probe).toHaveBeenCalledWith(
+        expect.objectContaining({ base_url: 'http://radarr:7878' }),
+        expect.anything(),
+      ),
+    );
+
+    await fireEvent.input(await screen.findByLabelText('Name'), { target: { value: 'Films' } });
+    await fireEvent.input(url, { target: { value: 'Http://radarr:7878' } });
+    await fireEvent.submit(url.closest('form') as HTMLFormElement);
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        expect.objectContaining({ base_url: 'http://radarr:7878' }),
+      ),
+    );
+  });
+
   it('cannot try a new instance before its address and key are typed', async () => {
     show([]);
     const dialog = await openAdd();
@@ -508,12 +574,15 @@ describe('Instances', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() =>
-      expect(probe).toHaveBeenCalledWith({
-        instance_type: 'radarr',
-        base_url: 'http://radarr:7878',
-        api_key: 'secret',
-        id: undefined,
-      }),
+      expect(probe).toHaveBeenCalledWith(
+        {
+          instance_type: 'radarr',
+          base_url: 'http://radarr:7878',
+          api_key: 'secret',
+          id: undefined,
+        },
+        expect.any(AbortSignal),
+      ),
     );
     expect(await within(dialog).findByRole('status')).toHaveTextContent(
       'Radarr: connected (v5.2.6, 2 root folders)',
@@ -521,10 +590,10 @@ describe('Instances', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  /** Read where the values were typed, not behind the dialog. */
-  it('shows why a try failed inside the dialog', async () => {
+  /** Read where the values were typed, and about those values only. */
+  it('shows why a try failed inside the dialog, until a value it tried changes', async () => {
     vi.spyOn(api, 'probeInstance').mockRejectedValue(
-      new ApiError('Nothing answers at http://localhost:7878.', 400, 'bad_request'),
+      new ApiError('Nothing answers at http://localhost:7878.', 502, 'external_api_error'),
     );
     show([]);
     const dialog = await openAdd();
@@ -535,6 +604,10 @@ describe('Instances', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       'Nothing answers at http://localhost:7878.',
     );
+    await fireEvent.input(screen.getByLabelText('Base URL'), {
+      target: { value: 'http://radarr:7878' },
+    });
+    expect(within(dialog).queryByRole('alert')).toBeNull();
   });
 
   /** The edit form never shows the stored key: blank stands for it. */
@@ -547,24 +620,81 @@ describe('Instances', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() =>
-      expect(probe).toHaveBeenCalledWith(expect.objectContaining({ id: 'i1', api_key: '' })),
+      expect(probe).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'i1', api_key: '' }),
+        expect.any(AbortSignal),
+      ),
     );
   });
 
-  /** A result about other values would vouch for these. */
-  it('forgets a try once a value it tried changes', async () => {
+  /** A result about other values would vouch for these, a success as a failure. */
+  it('holds a try to the address, the key and the type it tried', async () => {
     vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
     show([]);
     const dialog = await openAdd();
     await typeAddressAndKey('http://radarr:7878', 'secret');
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
     await within(dialog).findByRole('status');
+    const url = screen.getByLabelText('Base URL');
+    const key = screen.getByLabelText('API key');
 
-    await fireEvent.input(screen.getByLabelText('Base URL'), {
-      target: { value: 'http://radarr:7879' },
-    });
-
+    await fireEvent.input(url, { target: { value: 'http://radarr:7879' } });
     expect(within(dialog).queryByRole('status')).toBeNull();
+    await fireEvent.input(url, { target: { value: 'http://radarr:7878' } });
+    expect(within(dialog).getByRole('status')).toBeTruthy();
+
+    await fireEvent.input(key, { target: { value: 'another' } });
+    expect(within(dialog).queryByRole('status')).toBeNull();
+    await fireEvent.input(key, { target: { value: 'secret' } });
+    expect(within(dialog).getByRole('status')).toBeTruthy();
+
+    await userEvent.selectOptions(screen.getByLabelText('Type'), 'sonarr');
+    expect(within(dialog).queryByRole('status')).toBeNull();
+  });
+
+  /** A refused save is what happened last: the try before it no longer speaks. */
+  it('shows one outcome at a time in the dialog', async () => {
+    vi.spyOn(api, 'probeInstance').mockResolvedValue(PROBED);
+    vi.spyOn(api, 'createInstance').mockRejectedValue(
+      new ApiError('Give the instance a name.', 400, 'bad_request'),
+    );
+    show([]);
+    const dialog = await openAdd();
+    await typeAddressAndKey('http://radarr:7878', 'secret');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await within(dialog).findByRole('status');
+
+    const form = screen.getByLabelText('Base URL').closest('form') as HTMLFormElement;
+    await fireEvent.submit(form);
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('Give the instance a name.');
+    expect(within(dialog).queryByRole('status')).toBeNull();
+  });
+
+  /** Given up on, a try that answers later belongs to no dialog. */
+  it('says nothing in the next dialog about a try still running in the last one', async () => {
+    let fail!: (reason: unknown) => void;
+    vi.spyOn(api, 'probeInstance').mockReturnValueOnce(
+      new Promise((_, reject) => {
+        fail = reject;
+      }),
+    );
+    show([
+      instance({ id: 'i1', name: 'Radarr' }),
+      instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    let dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Sonarr' }));
+    dialog = await screen.findByRole('dialog');
+    fail(new ApiError('Nothing answers at http://localhost:7878.', 502, 'external_api_error'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(within(dialog).queryByRole('alert')).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Test connection' })).toBeEnabled();
   });
 
   /** The Arr's own interface is one click away, in a tab of its own. */
@@ -576,6 +706,21 @@ describe('Instances', () => {
     expect(link.getAttribute('target')).toBe('_blank');
     expect(link.getAttribute('rel')).toContain('noopener');
     expect(link).toHaveAccessibleName(/opens in a new tab/);
+  });
+
+  /**
+   * The container name the form recommends in Docker resolves inside
+   * Routarr's network only, so the reader's browser cannot open it.
+   */
+  it('offers no link for a container name, and one for any other host', async () => {
+    show([
+      instance({ id: 'i1', base_url: 'http://radarr:7878' }),
+      instance({ id: 'i2', name: 'Sonarr', base_url: 'http://[fd00::10]:8989' }),
+    ]);
+
+    expect(await screen.findByText('http://radarr:7878')).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /radarr:7878/ })).toBeNull();
+    expect(screen.getByRole('link', { name: /fd00::10/ })).toBeTruthy();
   });
 
   /** The backend refuses any other scheme; the table does not rely on it. */

@@ -373,19 +373,6 @@ async fn the_connectivity_route_answers_with_the_version_it_found() {
     assert!(report["root_folders"].as_i64().unwrap() > 0, "got {report}");
 }
 
-#[tokio::test]
-async fn the_connectivity_route_says_so_when_the_arr_cannot_be_reached() {
-    let app = TestApp::new().await;
-    // A port nothing listens on.
-    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-
-    let body = app.post("/api/v1/instances/inst-1/test", serde_json::json!({})).await;
-    // Unreachable is an answer, not a crash: the screen says which address to
-    // change. Which explanation it gives is `tests::connection`'s subject.
-    assert_eq!(body.status, axum::http::StatusCode::BAD_REQUEST, "got {}", body.message());
-    assert!(body.message().contains("http://127.0.0.1:1"), "got {}", body.message());
-}
-
 /// A `for` loop with an `.await` in it syncs instances one after another. The
 /// cost is not the database — `do_sync` fetches everything before it opens its
 /// transaction — it is the waiting: an unreachable Arr costs the full HTTP

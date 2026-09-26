@@ -9,7 +9,7 @@
     Trash2,
     Wifi,
   } from '../lib/icons';
-  import { api } from '../api/client';
+  import { ApiError, api } from '../api/client';
   import { formatRelative, formatTimestamp } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -26,6 +26,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { poll } from '../lib/poll.svelte';
 
   interface FormState {
     name: string;
@@ -81,33 +82,49 @@
   // on the URL looked like a Save button that did nothing.
   let formError = $state<string | null>(null);
 
-  // What the typed values answered, kept with the values it answered for: once
-  // one of them changes, the result would vouch for values nobody tried.
-  let probe = $state<{ tried: string; text: string } | null>(null);
+  // What the typed values answered, a success or a failure, kept with the
+  // values it answered for: once one of them changes, the result would vouch
+  // for values nobody tried.
+  let probe = $state<{ tried: string; ok: boolean; text: string } | null>(null);
   let probing = $state(false);
   const typed = $derived(
     editing
       ? [editing.form.instance_type, editing.form.base_url, editing.form.api_key].join('\n')
       : '',
   );
-  const probed = $derived(probe && probe.tried === typed ? probe.text : null);
+  const probed = $derived(probe && probe.tried === typed ? probe : null);
+  // One refusal at a time, the try's or the save's, whichever came last.
+  const refused = $derived(formError ?? (probed && !probed.ok ? probed.text : null));
+
+  // A try waits a full connect timeout on an address that does not answer,
+  // and outlives nothing: the dialog it was for may be gone by then.
+  let trying: AbortController | null = null;
+  function stopTrying() {
+    trying?.abort();
+    trying = null;
+    probing = false;
+  }
 
   async function tryConnection() {
     if (!editing) return;
     const { form, id } = editing;
+    completeScheme(form);
     const tried = typed;
+    stopTrying();
+    const attempt = new AbortController();
+    trying = attempt;
     probing = true;
     probe = null;
     formError = null;
     try {
-      const answer = await api.probeInstance({
-        instance_type: form.instance_type,
-        base_url: form.base_url,
-        api_key: form.api_key,
-        id,
-      });
+      const answer = await api.probeInstance(
+        { instance_type: form.instance_type, base_url: form.base_url, api_key: form.api_key, id },
+        attempt.signal,
+      );
+      if (attempt.signal.aborted) return;
       probe = {
         tried,
+        ok: true,
         text: t('ConnectionOk', {
           name: answer.app_name ?? SERVICE[form.instance_type],
           version: answer.version,
@@ -115,25 +132,41 @@
         }),
       };
     } catch (err) {
-      formError = describeError(err);
+      if (attempt.signal.aborted) return;
+      probe = { tried, ok: false, text: describeError(err) };
     } finally {
-      probing = false;
+      if (trying === attempt) {
+        trying = null;
+        probing = false;
+      }
     }
   }
 
   // Copied from a browser bar or typed from memory, an address often lacks its
-  // scheme, which the backend refuses.
+  // scheme, which the backend refuses, and a phone keyboard capitalises it.
   function completeScheme(form: FormState) {
     const address = form.base_url.trim();
-    form.base_url = address && !/^https?:\/\//i.test(address) ? `http://${address}` : address;
+    const scheme = /^(https?):\/\//i.exec(address);
+    if (!address) form.base_url = address;
+    else if (scheme)
+      form.base_url = `${scheme[1]!.toLowerCase()}://${address.slice(scheme[0].length)}`;
+    else form.base_url = `http://${address}`;
   }
 
-  /** Only an address the browser can open is a link: nothing else runs from a click. */
-  const opensInBrowser = (address: string) => /^https?:\/\//i.test(address);
+  /**
+   * Only an address the reader's browser can open is a link. A single-label
+   * host, as the container name the form recommends in Docker, resolves
+   * inside Routarr's network alone, and nothing but http runs from a click.
+   */
+  const opensInBrowser = (address: string) => {
+    const host = /^https?:\/\/(\[[^\]]+\]|[^/:?#]+)/i.exec(address)?.[1] ?? '';
+    return host.startsWith('[') || host.includes('.');
+  };
 
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!editing) return;
+    completeScheme(editing.form);
     formError = null;
     let saved: Instance;
     const wasEdit = Boolean(editing.id);
@@ -142,6 +175,7 @@
         ? await api.updateInstance(editing.id, editing.form)
         : await api.createInstance(editing.form);
     } catch (err) {
+      probe = null;
       formError = describeError(err);
       return;
     }
@@ -173,6 +207,13 @@
         }),
       );
     } catch (err) {
+      // The server finishes a sync the browser stopped waiting for, and a
+      // large library outlasts a request. The banner saying the library is
+      // being read stays true, and the list is followed until it is.
+      if (err instanceof ApiError && err.kind === 'timeout') {
+        following = saved;
+        return;
+      }
       outcome.warn(t('InstanceFirstSyncFailed', { name: saved.name }), [describeError(err)]);
     } finally {
       busyId = null;
@@ -180,6 +221,31 @@
     invalidateStatus();
     await list.reload();
   }
+
+  // The first sync the browser stopped waiting for, until its attempt is
+  // recorded on the instance, which happens once it ends.
+  let following = $state<Instance | null>(null);
+  async function followFirstSync() {
+    const awaited = following;
+    if (!awaited) return;
+    await list.reload();
+    const now = list.data?.find((each) => each.id === awaited.id);
+    if (!now?.last_sync_attempt_at || following !== awaited) return;
+    following = null;
+    if (now.last_sync_status === 'success') {
+      outcome.succeed(t('InstanceFirstSyncFinished', { name: awaited.name }));
+    } else {
+      outcome.warn(t('InstanceFirstSyncFailed', { name: awaited.name }), [
+        now.last_sync_status ?? '',
+      ]);
+    }
+    invalidateStatus();
+  }
+  poll(
+    () => void followFirstSync(),
+    () => 3000,
+    () => following !== null,
+  );
 
   const syncNow = (instance: Instance) =>
     act(
@@ -233,16 +299,24 @@
     }
   }
 
-  // A dialog opens on its own form, never on the refusal of the one before.
+  // A dialog opens on its own form, never on the refusal or the try of the one
+  // before.
   function startAdd() {
+    stopTrying();
     formError = null;
     probe = null;
     editing = { form: blankForm() };
+  }
+  function close() {
+    stopTrying();
+    editing = null;
+    formError = null;
   }
   // The guide's "Add an instance" lands here with the dialog open.
   if (takeQueryFlag('add')) startAdd();
 
   function startEdit(instance: Instance) {
+    stopTrying();
     formError = null;
     probe = null;
     editing = {
@@ -480,25 +554,25 @@
   {#if editing}
     {@const form = editing.form}
     {@const isEdit = Boolean(editing.id)}
-    <Modal
-      label={t(isEdit ? 'EditInstance' : 'AddInstance')}
-      onClose={() => {
-        editing = null;
-        formError = null;
-      }}
-    >
+    <Modal label={t(isEdit ? 'EditInstance' : 'AddInstance')} onClose={close}>
       <div class="modal-header">
         <h2 class="modal-title">{t(isEdit ? 'EditInstance' : 'AddInstance')}</h2>
         <button
           class="btn btn-secondary btn-sm"
-          onclick={() => (editing = null)}
+          onclick={close}
           aria-label={t('Dismiss')}
           title={t('Dismiss')}
         >
           ✕
         </button>
       </div>
-      <ErrorBanner message={formError} onDismiss={() => (formError = null)} />
+      <ErrorBanner
+        message={refused}
+        onDismiss={() => {
+          formError = null;
+          probe = null;
+        }}
+      />
       <!-- `novalidate`: the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
        handler. Nothing is traded away for it — Save is held until the required
@@ -547,6 +621,8 @@
             aria-describedby="instances-base-url-help"
             bind:value={form.base_url}
             onblur={() => completeScheme(form)}
+            autocapitalize="off"
+            spellcheck="false"
             required
           />
           <p id="instances-base-url-help" class="text-muted text-sm mt-1">
@@ -572,14 +648,14 @@
           <input type="checkbox" bind:checked={form.enabled} />
           {t('EnabledSyncedRouted')}
         </label>
-        {#if probed}
+        {#if probed?.ok}
           <p class="probe-ok" role="status">
             <CheckCircle2 size={16} aria-hidden="true" />
-            {probed}
+            {probed.text}
           </p>
         {/if}
         <div class="dialog-actions">
-          <button type="button" class="btn btn-secondary" onclick={() => (editing = null)}>
+          <button type="button" class="btn btn-secondary" onclick={close}>
             {t('Cancel')}
           </button>
           <div class="flex flex-wrap gap-2">

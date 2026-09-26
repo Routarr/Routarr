@@ -17,18 +17,34 @@ use crate::error::{AppError, AppResult};
 /// this module and read back by [`transport_failure`] through the same
 /// constant, so a rewording moves both sides at once.
 const TIMED_OUT: &str = "request timed out";
+const NAME_UNRESOLVED: &str = "the host name does not resolve";
 const UNREACHABLE: &str = "connection refused or host unreachable";
-const REDIRECTED: &str = "the server redirected somewhere Routarr will not follow";
+const HANDSHAKE_FAILED: &str = "the TLS handshake failed";
+const NOT_HTTP: &str = "the server did not answer in HTTP";
+const REDIRECT_LOOP: &str = "the server redirects in a loop";
 const UNREADABLE: &str = "unreadable ";
+
+/// What a refusal with a status says beyond it, written and read back here
+/// like the transport failures: the host a stopped redirect leads to, and a
+/// sign-in asked for by something in front of the service.
+const REDIRECTED_TO: &str = "redirected to ";
+const SIGN_IN_IN_FRONT: &str = "a sign-in is asked for in front of the service";
 
 /// What stopped a request before a usable answer came back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Transport {
-    /// Nothing listens at the address, or its host does not resolve.
+    NameUnresolved,
+    /// Nothing listens at the address, or the network does not reach it.
     Unreachable,
     TimedOut,
-    /// A redirect towards another origin, which the credential never follows.
-    Redirected,
+    /// The TLS handshake failed: a certificate not trusted, or `https` on a
+    /// port that serves plain HTTP.
+    HandshakeFailed,
+    /// What answered is not HTTP, as TLS on a port given with `http`.
+    NotHttp,
+    /// Redirects that never leave the origin. One towards another origin is
+    /// stopped by the client's policy and arrives as its 3xx status.
+    RedirectLoop,
     /// Something answered 2xx with a body that is not what the API returns.
     Unreadable,
 }
@@ -37,11 +53,26 @@ pub(crate) enum Transport {
 pub(crate) fn transport_failure(message: &str) -> Option<Transport> {
     match message {
         TIMED_OUT => Some(Transport::TimedOut),
+        NAME_UNRESOLVED => Some(Transport::NameUnresolved),
         UNREACHABLE => Some(Transport::Unreachable),
-        REDIRECTED => Some(Transport::Redirected),
+        HANDSHAKE_FAILED => Some(Transport::HandshakeFailed),
+        NOT_HTTP => Some(Transport::NotHttp),
+        REDIRECT_LOOP => Some(Transport::RedirectLoop),
         other if other.starts_with(UNREADABLE) => Some(Transport::Unreadable),
         _ => None,
     }
+}
+
+/// The host a 3xx leads to, when the client stopped it there for being
+/// another host rather than another port or scheme of the same one.
+pub(crate) fn redirected_to(message: &str) -> Option<&str> {
+    message.strip_prefix(REDIRECTED_TO)
+}
+
+/// Whether a 401 came from something in front of the service, which asked
+/// for its own sign-in, rather than from the service refusing its key.
+pub(crate) fn signs_in_in_front(message: &str) -> bool {
+    message == SIGN_IN_IN_FRONT
 }
 
 /// Send a request and decode its JSON body, turning any non-2xx into a typed
@@ -57,7 +88,14 @@ pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     response.json::<T>().await.map_err(|e| AppError::ExternalApi {
         service: service.to_string(),
         status: 0,
-        message: format!("{UNREADABLE}{service} response: {e}"),
+        // Only a body that arrived whole and did not decode is unreadable. A
+        // body that stopped coming, timed out or cut, is a transport failure,
+        // although reqwest files both under `is_decode`.
+        message: if in_chain(&e, &|error| error.is::<serde_json::Error>()) {
+            format!("{UNREADABLE}{service} response: {}", deepest_cause(&e))
+        } else {
+            describe_transport_error(&e)
+        },
         retry_after: None,
     })
 }
@@ -89,6 +127,11 @@ async fn check_status(
     // Read before the body is consumed: the header is the only place a source
     // states how long it wants to be left alone.
     let retry_after = parse_retry_after(response.headers());
+    let said_beyond_the_status =
+        redirect_host(&response).map(|host| format!("{REDIRECTED_TO}{host}")).or_else(|| {
+            (status == 401 && challenged_in_front(&response, service))
+                .then(|| SIGN_IN_IN_FRONT.to_string())
+        });
     let body = response.text().await.unwrap_or_default();
     Err(AppError::ExternalApi {
         service: service.to_string(),
@@ -96,8 +139,39 @@ async fn check_status(
         retry_after,
         // Upstream bodies can be huge HTML error pages; keep the log and the API
         // response readable and avoid echoing an unbounded payload back.
-        message: truncate(&body, 500),
+        message: said_beyond_the_status.unwrap_or_else(|| truncate(&body, 500)),
     })
+}
+
+/// The host a redirect the client stopped leads to, when it is not the host
+/// that answered. The client follows a redirect within the origin, so a 3xx
+/// arriving here leaves it, and on the same host only the port or the scheme
+/// changed.
+fn redirect_host(response: &reqwest::Response) -> Option<String> {
+    if !response.status().is_redirection() {
+        return None;
+    }
+    let location = response.headers().get(reqwest::header::LOCATION)?.to_str().ok()?;
+    let target = response.url().join(location).ok()?;
+    let host = target.host_str()?;
+    let here = response.url().host_str()?;
+    (!host.eq_ignore_ascii_case(here)).then(|| host.to_string())
+}
+
+/// Whether a 401 carries a challenge from something in front of `service`.
+///
+/// Radarr and Sonarr answer a wrong key with a bare 401, or with a Basic
+/// challenge whose realm is their own name. A proxy's basic auth or a
+/// sign-in portal names another realm, or asks for another scheme.
+fn challenged_in_front(response: &reqwest::Response, service: &str) -> bool {
+    let Some(challenge) = response
+        .headers()
+        .get(reqwest::header::WWW_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return false;
+    };
+    !challenge.to_ascii_lowercase().contains(&format!("realm=\"{}\"", service.to_ascii_lowercase()))
 }
 
 /// `Retry-After` as seconds.
@@ -131,14 +205,32 @@ fn describe_transport_error(e: &reqwest::Error) -> String {
     if e.is_timeout() {
         return TIMED_OUT.to_string();
     }
+    // The connector resolves the name, opens the socket and runs the TLS
+    // handshake, and all three fail as one kind of error.
+    if e.is_dns() {
+        return NAME_UNRESOLVED.to_string();
+    }
     if e.is_connect() {
-        return UNREACHABLE.to_string();
+        let tls = in_chain(e, &|error| {
+            error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io| io.kind() == std::io::ErrorKind::InvalidData)
+        });
+        return if tls { HANDSHAKE_FAILED } else { UNREACHABLE }.to_string();
     }
     if e.is_redirect() {
-        return REDIRECTED.to_string();
+        return REDIRECT_LOOP.to_string();
     }
+    if in_chain(e, &|error| {
+        error.downcast_ref::<hyper::Error>().is_some_and(hyper::Error::is_parse)
+    }) {
+        return NOT_HTTP.to_string();
+    }
+    deepest_cause(e)
+}
 
-    // Deepest cause: the most specific description that is still URL-free.
+/// The deepest cause, the most specific description that is still URL-free.
+fn deepest_cause(e: &reqwest::Error) -> String {
     let mut cause: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(e);
     let mut described = None;
     while let Some(current) = cause {
@@ -146,6 +238,25 @@ fn describe_transport_error(e: &reqwest::Error) -> String {
         cause = std::error::Error::source(current);
     }
     described.unwrap_or_else(|| "the request failed".to_string())
+}
+
+/// Whether any cause of `e` answers `test`, the error an `io::Error` wraps
+/// included: its `source()` skips it, and the TLS failure is carried there.
+fn in_chain(e: &reqwest::Error, test: &dyn Fn(&(dyn std::error::Error + 'static)) -> bool) -> bool {
+    fn visit(
+        error: &(dyn std::error::Error + 'static),
+        test: &dyn Fn(&(dyn std::error::Error + 'static)) -> bool,
+    ) -> bool {
+        if test(error) {
+            return true;
+        }
+        let wrapped = error
+            .downcast_ref::<std::io::Error>()
+            .and_then(std::io::Error::get_ref)
+            .is_some_and(|inner| visit(inner, test));
+        wrapped || error.source().is_some_and(|source| visit(source, test))
+    }
+    std::error::Error::source(e).is_some_and(|source| visit(source, test))
 }
 
 /// Deserialize a byte count that is only ever displayed.
