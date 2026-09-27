@@ -10,11 +10,11 @@
   // ---------------------------------------------------------------- theme
   var root = document.documentElement;
 
-  // Nothing stamped means dark, because that is the page's own default. Read
-  // from the system instead, the first click on a light machine would ask for
-  // the theme already on screen and do nothing visible.
+  // Nothing stamped means light, the stylesheet's default. Read from the
+  // system instead, the first click on a dark machine would ask for the theme
+  // already on screen and do nothing visible.
   function current() {
-    return root.dataset.theme === 'light' ? 'light' : 'dark';
+    return root.dataset.theme === 'dark' ? 'dark' : 'light';
   }
 
   // Which cell is lit is CSS's, off `data-theme`, so it is right on the first

@@ -744,6 +744,14 @@ if (Object.keys(explicit).length < 10) {
   fail(`the dark palette reads ${Object.keys(explicit).length} token(s), so this check is reading nothing`);
 }
 
+// -------------------------------------------------------------- tokens that exist
+// A `var()` naming a token defined nowhere makes its declaration invalid, which
+// the browser drops without a word: a hover that changes nothing.
+const definedTokens = new Set([...css.matchAll(/(--[a-z0-9-]+)\s*:/g)].map((m) => m[1]));
+const undefinedTokens = [...new Set([...css.matchAll(/var\(\s*(--[a-z0-9-]+)/g)].map((m) => m[1]))]
+  .filter((token) => !definedTokens.has(token));
+if (undefinedTokens.length) fail(`site.css reads tokens it never defines: ${undefinedTokens.join(', ')}`);
+
 // -------------------------------------------------------------- contrast
 // WCAG 2.1 AA for normal text is 4.5:1. Measured rather than eyeballed: an
 // accent at 4.06 looks perfectly fine.
@@ -756,7 +764,8 @@ function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
-const dark = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
+// The bare `:root` block is the light default, `explicit` the stamped dark one.
+const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // `--accent` is decorative only (borders, glows) and is exempt; the tokens that
 // carry text are `--accent-text` (amber as text) and `--accent-ink` over both
 // button fills. Both, since the primary button was flattened: its rest and
@@ -766,7 +775,7 @@ const dark = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // and WCAG 1.4.11 asks 3:1 of it against everything it can land on.
 const TEXT_PAIRS = [['--text', '--bg'], ['--text-soft', '--bg'], ['--text-muted', '--bg'], ['--text-muted', '--bg-card'], ['--accent-text', '--bg'], ['--accent-text', '--bg-card'], ['--accent-ink', '--accent-fill'], ['--accent-ink', '--accent-fill-hi']];
 const STATE_PAIRS = [['--focus', '--bg', 3], ['--focus', '--bg-card', 3]];
-for (const [label, palette] of [['dark', dark], ['light', explicit]]) {
+for (const [label, palette] of [['light', light], ['dark', explicit]]) {
   for (const [fg, bg, floor = 4.5] of [...TEXT_PAIRS, ...STATE_PAIRS]) {
     const a = palette[fg];
     const b = palette[bg];

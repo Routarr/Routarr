@@ -272,6 +272,21 @@ const anchors = await page.evaluate(() =>
 check(anchors.length === 0, `in-page links pointing nowhere: ${anchors.join(', ')}`);
 
 // ------------------------------------------------------------ theme
+// Before anyone touches it, the switch says the theme on screen: a screen
+// reader reads its state, not its colour. Nothing stamped is the light default.
+const announced = await page.evaluate(() =>
+  [...document.querySelectorAll('[data-theme-set]')]
+    .filter((button) => button.getAttribute('aria-pressed') === 'true')
+    .map((button) => button.getAttribute('data-theme-set')),
+);
+const onScreen = await page.evaluate(() =>
+  document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+);
+check(
+  announced.length > 0 && announced.every((theme) => theme === onScreen),
+  `the theme switch announces ${announced.join(', ') || 'nothing'} on a ${onScreen} page`,
+);
+
 // Both states are named, so the test asks for the one the page is not in:
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -297,6 +312,23 @@ const chosen = await page.evaluate(() => document.documentElement.dataset.theme)
 await page.reload({ waitUntil: 'networkidle' });
 const persisted = await page.evaluate(() => document.documentElement.dataset.theme);
 check(persisted === chosen, `the theme choice did not survive a reload (${chosen} became ${persisted})`);
+
+// ------------------------------------------------------------ index panel
+// On a phone the destinations stack in one column: two columns of 136px fold
+// every title and every description.
+{
+  const tab = await context.newPage();
+  await tab.setViewportSize({ width: 375, height: 800 });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const columns = await tab.evaluate(() => {
+    const index = document.querySelector('.index');
+    if (index) index.open = true;
+    const nav = document.querySelector('.index-panel .index-nav');
+    return nav ? getComputedStyle(nav).gridTemplateColumns.split(' ').length : 0;
+  });
+  check(columns === 1, `the Index panel keeps ${columns} columns on a phone`);
+  await tab.close();
+}
 
 // ------------------------------------------------------------ accessibility
 const unnamed = await page.evaluate(() =>

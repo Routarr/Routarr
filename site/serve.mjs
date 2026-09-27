@@ -108,8 +108,9 @@ createServer(async (request, response) => {
     return;
   }
   const resolved = await resolve(path);
+  // 307, as Cloudflare answers a directory named without its slash.
   if (resolved && typeof resolved === 'object') {
-    response.writeHead(301, { Location: resolved.redirect });
+    response.writeHead(307, { Location: resolved.redirect });
     response.end();
     return;
   }

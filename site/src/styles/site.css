@@ -254,7 +254,7 @@ img { max-width: 100%; height: auto; }
   cursor: pointer;
 }
 .seg > :first-child { border-inline-start: 0; }
-.seg > :hover { background: var(--bg-elev); opacity: 1; }
+.seg > :hover { background: var(--bg-raised); opacity: 1; }
 /* Body text colour in every cell, lit or not: a lit cell is marked by the wash
    and the rule under it, never by the colour of its letters. Two bold
    characters at 0.72rem are small text, where the accent sits under 4.5:1. */
@@ -377,7 +377,7 @@ img { max-width: 100%; height: auto; }
 .index-settings .lang-nav { margin-inline-start: 0; }
 
 @media (max-width: 640px) {
-  .index-panel nav { grid-template-columns: minmax(0, 1fr); }
+  .index-panel .index-nav { grid-template-columns: minmax(0, 1fr); }
   .index-panel .index-nav > a:nth-last-child(-n + 2) { border-bottom: 1px solid var(--border); }
   .index-panel .index-nav > a:last-child { border-bottom: 0; }
 }

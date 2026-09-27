@@ -3,15 +3,19 @@
  * Pages. No `main`: there is no Worker code, only the files Astro builds.
  *
  * `dist/_headers` is what carries the CSP, the security headers and the
- * caching rules; Astro copies it there from `public/`. Cloudflare applies it
- * from the assets directory, exactly as Pages did, which is the one property
- * worth checking after the first deployment: without it the site still renders
- * but ships none of its headers.
+ * caching rules, and Astro copies it there from `public/`. Cloudflare applies it
+ * from the assets directory, which is the one property worth checking after a
+ * deployment: without it the site still renders but ships none of its headers.
+ *
+ * `not_found_handling` serves `404.html` for a path nothing resolves. Without
+ * it the Worker answers an empty 404, and `serve.mjs`, which serves that page
+ * on a miss, would hide the difference from `verify.mjs`.
  */
 {
   "name": "routarr",
   "compatibility_date": "2026-09-20",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "not_found_handling": "404-page"
   }
 }
