@@ -81,7 +81,7 @@ describe('Dashboard', () => {
     const { container } = show();
 
     await screen.findByText('Failed');
-    const alerting = [...container.querySelectorAll('.metric.is-alert')];
+    const alerting = [...container.querySelectorAll('.metric.is-danger')];
     expect(alerting).toHaveLength(1);
     // Read after the length assertion, and still checked: `toHaveLength` tells
     // the reader, not the compiler.
@@ -93,7 +93,7 @@ describe('Dashboard', () => {
     const { container } = show();
 
     await screen.findByText('Failed');
-    expect(container.querySelectorAll('.metric.is-alert')).toHaveLength(0);
+    expect(container.querySelectorAll('.metric.is-danger')).toHaveLength(0);
   });
 
   /**

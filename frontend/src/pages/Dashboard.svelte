@@ -16,6 +16,7 @@
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import Loading from '../components/Loading.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import Stat from '../components/Stat.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -116,28 +117,13 @@
       <!-- Everything else is context, so it reads as one line of facts rather
            than as six competing cards. -->
       <div class="metrics">
-        <div class="metric">
-          <span class="metric-value">{stats.total_movies}</span>
-          <span class="metric-label">{t('MoviesManaged')}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-value">{stats.total_series}</span>
-          <span class="metric-label">{t('SeriesManaged')}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-value">{stats.enabled_rules}</span>
-          <span class="metric-label">{t('ActiveRules')}</span>
-        </div>
-        <div class="metric">
-          <span class="metric-value">{stats.applied_decisions}</span>
-          <span class="metric-label">{t('MovesApplied')}</span>
-        </div>
+        <Stat label={t('MoviesManaged')} value={stats.total_movies} />
+        <Stat label={t('SeriesManaged')} value={stats.total_series} />
+        <Stat label={t('ActiveRules')} value={stats.enabled_rules} />
+        <Stat label={t('MovesApplied')} value={stats.applied_decisions} />
         <!-- The one number that changes colour, because a failure is the only
              one of these that asks for something. -->
-        <div class="metric{stats.failed_decisions > 0 ? ' is-alert' : ''}">
-          <span class="metric-value">{stats.failed_decisions}</span>
-          <span class="metric-label">{t('FailedMovesLabel')}</span>
-        </div>
+        <Stat label={t('FailedMovesLabel')} value={stats.failed_decisions} tone="danger" />
       </div>
 
       <!-- A sentence does not need a card and a heading: that spends 100px of

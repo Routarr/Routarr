@@ -117,7 +117,7 @@
   {/if}
 
   {#if cards.length === 0}
-    <p class="muted">{t('FacetsEmpty')}</p>
+    <p class="text-muted">{t('FacetsEmpty')}</p>
   {:else}
     <div class="facet-grid">
       {#each cards as axis (axis.key)}

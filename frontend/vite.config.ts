@@ -76,7 +76,6 @@ export default defineConfig({
         'src/**/*.test.{ts,svelte.ts}',
         'src/test/**',
         'src/main.ts',
-        'src/vite-env.d.ts',
         // Type declarations, mirroring the backend payloads. There is nothing
         // to execute and counting them would flatter the total.
         'src/api/types.ts',
@@ -86,11 +85,10 @@ export default defineConfig({
       // screen added with no test at all; it is not meant to be negotiated with
       // on every refactor. Raise it when the real figure moves up, never lower
       // it to make a build pass.
-      // Two points below what the suite actually measures — 82.3, 70.7,
-      // 78.5 and 81.8 — which is the headroom the backend gate keeps at
-      // 90 against 92.2. Enough that ordinary work does not trip it, not
-      // so much that it stops guarding.
-      thresholds: { statements: 80, branches: 68, functions: 76, lines: 80 },
+      // About two points below what the suite measures, the headroom the
+      // backend gate keeps too. Enough that ordinary work does not trip it,
+      // not so much that it stops guarding.
+      thresholds: { statements: 88, branches: 78, functions: 86, lines: 88 },
     },
   },
 });

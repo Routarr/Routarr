@@ -21,7 +21,6 @@
      This one measures 3.22:1; see theme.contrast.test.ts. Passive separations
      (card edges, table rules) keep the subtle one, which identifies nothing. */
   --border-strong: #616a79;
-  --border-focus: #ffa500;
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4d5566;
 
@@ -49,8 +48,6 @@
      the light theme darkens it, because #ffa500 on white is about 1.9:1 and
      unreadable. */
   --accent-strong: #ffa500;
-  --accent-radarr: #3b82f6;
-  --accent-sonarr: #10b981;
 
   --status-success: #10b981;
   --status-success-bg: rgba(16, 185, 129, 0.15);
@@ -109,8 +106,6 @@
   --z-menu: 20;
   --z-modal: 100;
 
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
   /* The edge a table casts where it scrolls under its region. */
   --scroll-shadow: rgba(0, 0, 0, 0.35);
@@ -154,7 +149,6 @@
 
   --border-subtle: #d7dbe2;
   --border-strong: #8b93a1;
-  --border-focus: #b45309;
   --scrollbar-thumb: #c2c8d2;
   --scrollbar-thumb-hover: #a4acb9;
 
@@ -177,8 +171,6 @@
   --status-info: #1d4ed8;
   --status-info-bg: rgba(29, 78, 216, 0.1);
 
-  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
-  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
   --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
   --scroll-shadow: rgba(15, 23, 42, 0.12);
   --row-hover: rgba(15, 23, 42, 0.03);
@@ -210,7 +202,6 @@
 
     --border-subtle: #d7dbe2;
     --border-strong: #8b93a1;
-    --border-focus: #b45309;
     --scrollbar-thumb: #c2c8d2;
     --scrollbar-thumb-hover: #a4acb9;
 
@@ -230,8 +221,6 @@
     --status-info: #1d4ed8;
     --status-info-bg: rgba(29, 78, 216, 0.1);
 
-    --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
-    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
     --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
     --scroll-shadow: rgba(15, 23, 42, 0.12);
     --row-hover: rgba(15, 23, 42, 0.03);
@@ -551,7 +540,7 @@ a {
      label produced a taller line box than a 16px icon, so buttons with words
      stood a pixel above buttons with only a glyph. A fixed height with the
      content centred inside it is the only version that cannot drift — and
-     `white-space: nowrap` above guarantees a single line to centre. */
+     `white-space: nowrap` below guarantees a single line to centre. */
   height: 36px;
   /* Stated, not inherited. A <button> gets a normalised line-height from the
      user agent and a <label class="btn"> does not, so the import label stood 5px
@@ -578,13 +567,10 @@ a {
   transition: all 0.15s ease;
 }
 
-/* A disabled button had no styling at all: full opacity, a pointer cursor, and
-   the primary fill still on it. Thirty controls across the application looked
-   clickable while doing nothing — "run the tests" with nothing to run, "apply"
-   under a dry run, "sync" while a sync is going. Every test asserted the
-   `disabled` attribute was set; none asserted anybody could tell. */
-.btn:disabled,
-.btn[aria-disabled='true'] {
+/* A disabled button has to look it. At full opacity with a pointer cursor and
+   its fill, it reads as clickable while doing nothing: "run the tests" with
+   nothing to run, "apply" under a dry run, "sync" while a sync is going. */
+.btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
   /* Otherwise the hover fill still lights up under a cursor that cannot act. */
@@ -1001,7 +987,10 @@ a {
   padding-block-start: 12svh;
 }
 
-/* Borderless: the dialog is the frame, and a box inside a box reads as two. */
+/* The one place a focus ring is not wanted: the dialog is modal, this field
+   has the focus from the moment it opens and never gives it up, so the ring
+   draws a box inside the box rather than telling anyone anything. Every other
+   control in the application keeps its own. */
 .palette-input:focus-visible {
   outline: none;
 }
@@ -1011,11 +1000,6 @@ a {
   min-width: 0;
   border: 0;
   background: none;
-  /* The one place a focus ring is not wanted: the dialog is modal, this field
-     has the focus from the moment it opens and never gives it up, so the ring
-     draws a box inside the box rather than telling anyone anything. Every
-     other control in the application keeps its own. */
-  outline: none;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 15px;
@@ -1144,13 +1128,13 @@ a {
  *   .badge-kind                         outlined + dot     — WHAT a thing is
  *   .badge-value / .num                 neutral            — a value you typed
  *
- * The brand hues survive in the dot, so Radarr and Sonarr stay recognisable
- * without competing with an outcome. */
+ * The label and the dot take the kind's own hue (`.kind-radarr`,
+ * `.kind-sonarr`), so Radarr and Sonarr stay recognisable without the fill of
+ * an outcome. */
 
 .badge-kind {
   border: 1px solid var(--border-subtle);
   background-color: transparent;
-  color: var(--text-secondary);
   padding: 3px 10px;
 }
 .badge-kind::before {
@@ -1385,6 +1369,8 @@ tr:hover td {
   display: block;
   font-size: 13px;
   font-weight: 600;
+  /* A wrapped label must not collide with the control below it. */
+  line-height: 1.35;
   color: var(--text-secondary);
   margin-bottom: 8px;
 }
@@ -1402,11 +1388,6 @@ tr:hover td {
 
 .form-row > .form-group {
   min-width: 0;
-}
-
-.form-label {
-  /* A wrapped label must not collide with the control below it. */
-  line-height: 1.35;
 }
 
 /* The frame every field shares. This body was lost when a rule believed dead
@@ -1521,8 +1502,8 @@ input[type='checkbox']:disabled {
 
 /* Modals */
 /* The <dialog> element itself, so the user-agent's border, padding, centring
-   margins and size caps all have to be undone; the dim is painted here rather
-   than on ::backdrop so the blur applies to the same layer as before. */
+   margins and size caps all have to be undone. The dim is painted here rather
+   than on ::backdrop. */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -1783,8 +1764,7 @@ td * {
 }
 .empty-state {
   display: flex;
-  /* Stacked, because an empty state now carries the action that fills it and a
-     sentence beside a button reads as a caption for it. */
+  /* Stacked: the icon above the sentence. */
   flex-direction: column;
   align-items: center;
   justify-content: center;
@@ -2003,8 +1983,8 @@ td * {
   margin-top: 16px;
 }
 
-/* The API-key gate: the whole viewport, because nothing else can be shown until
-   the key is in. */
+/* The sign-in and API-key gates: the whole viewport, because nothing else can
+   be shown until the caller is known. */
 .gate {
   min-height: 100vh;
   display: flex;
@@ -2103,10 +2083,10 @@ td * {
 
 /* ===================================================== interaction and motion
  *
- * The stylesheet carried five transitions and a single `:focus-visible` rule,
- * so the interface barely acknowledged a pointer and almost never a keyboard.
- * A focus ring is an accessibility requirement before it is a style: without
- * one, tabbing through the application is navigating blind.
+ * Every control acknowledges a pointer and a keyboard. A focus ring is an
+ * accessibility requirement before it is a style: without one, tabbing through
+ * the application is navigating blind. Zero specificity, so a component that
+ * declares its own transition (`.btn`, `.nav-item`) keeps it.
  */
 :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
   outline: 2px solid var(--accent-strong);
@@ -2114,7 +2094,7 @@ td * {
   border-radius: var(--radius-sm);
 }
 
-:where(a, button, .btn, .badge, .card, tr, .source-row) {
+:where(a, button, .badge, .card, tr, .source-row) {
   transition:
     background-color var(--transition),
     border-color var(--transition),
@@ -2180,8 +2160,8 @@ td * {
 /* ============================================================ sticky headings
  *
  * A long table scrolled without this leaves a grid of values with nothing to
- * say what they are. The offset is the chrome height, so headings stop exactly
- * under the top bar.
+ * say what they are. The top bar sticks to the page, and a table's heading to
+ * the top of its own container.
  */
 .topbar {
   position: sticky;
@@ -2190,9 +2170,9 @@ td * {
 }
 
 /* Sticky headings need a scrolling ancestor, and `.table-container` already is
-   one — `overflow-x: auto` makes it the reference for `position: sticky`, so an
-   offset of the chrome height pushed the heading down *inside* the card and
-   left a band of nothing above it.
+   one: `overflow-x: auto` makes it the reference for `position: sticky`, so an
+   offset of the chrome height would push the heading down *inside* the card
+   and leave a band of nothing above it.
  *
  * So the container scrolls vertically too, capped, and the heading sticks to
  * its own top. Only above the drawer breakpoint: a scroll region inside a
@@ -2431,8 +2411,6 @@ td * {
   overflow: hidden;
 }
 
-/* Announced but not drawn: the skeleton rows are decoration, the status line is
-   the part a screen reader needs. */
 /* Off-screen until it has focus, then the first thing on the page. */
 .skip-link {
   position: absolute;
@@ -2532,9 +2510,6 @@ td * {
 .text-base {
   font-size: 14px;
 }
-.text-center {
-  text-align: center;
-}
 .items-start {
   align-items: flex-start;
 }
@@ -2563,10 +2538,10 @@ td * {
   color: var(--status-warning);
 }
 .text-radarr {
-  color: var(--accent-radarr);
+  color: var(--kind-radarr);
 }
 .text-sonarr {
-  color: var(--accent-sonarr);
+  color: var(--kind-sonarr);
 }
 .mt-1 {
   margin-top: 4px;
@@ -2857,10 +2832,8 @@ td * {
   color: var(--text-muted);
   font-size: 13px;
 }
-/* Colour is spent on a figure that asks for something, and on no other.
-   `is-alert` is the dashboard's own name for the danger case; the three status
-   names are what `Stat` passes through from the screens that summarise a run. */
-.metric.is-alert .metric-value,
+/* Colour is spent on a figure that asks for something, and on no other. The
+   three status names are what `Stat` passes through. */
 .metric.is-danger .metric-value {
   color: var(--status-danger);
 }
@@ -2940,11 +2913,6 @@ select.form-select {
  * The bar carries the proportion, the figure carries the value, and the figure
  * is what a screen reader gets — the bar is decorative and says so.
  */
-/* Flowed columns rather than a grid. These cards differ wildly in height — one
-   axis holds eleven values and another holds one — and a grid row waits for its
-   tallest member, which left a hole the size of a card under every short one.
-   Multi-column packs them and balances the columns on its own; the DOM order is
-   untouched, so what a screen reader hears does not change. */
 /* The disclosure that holds the library's facets.
  *
  * The marker is drawn rather than inherited: the browsers' own triangles differ
@@ -2980,6 +2948,11 @@ select.form-select {
   border-color: var(--text-secondary);
 }
 
+/* Flowed columns rather than a grid. These cards differ widely in height, one
+   axis holding eleven values and another one, and a grid row waits for its
+   tallest member, which leaves a hole the size of a card under every short one.
+   Multi-column packs them and balances the columns on its own. The DOM order is
+   untouched, so what a screen reader hears does not change. */
 .facet-grid {
   columns: 260px;
   column-gap: var(--space-4, 16px);
@@ -3006,13 +2979,6 @@ select.form-select {
   font-weight: 600;
   color: var(--text-secondary);
   margin: 0;
-}
-
-/* The condition that reads this axis, under the name rather than beside it:
-   on one line the two competed and the caption stopped being readable. */
-.facet-card header .mono {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .facet-row {

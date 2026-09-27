@@ -129,23 +129,23 @@
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
-                <td class="muted">{testCase.source_media_title ?? t('None')}</td>
+                <td class="text-muted">{testCase.source_media_title ?? t('None')}</td>
                 <td><span class="badge badge-value">{testCase.expected_category}</span></td>
                 <td>
                   {#if !verdict}
-                    <span class="muted">{t('NotRunYet')}</span>
+                    <span class="text-muted">{t('NotRunYet')}</span>
                   {:else if verdict.error}
                     <span class="badge badge-danger">{verdict.error}</span>
                   {:else if verdict.passed}
                     <span class="badge badge-success">{t('Passed')}</span>
                     {#if verdict.matched_rule}
-                      <span class="muted ms-2">{verdict.matched_rule}</span>
+                      <span class="text-muted ms-2">{verdict.matched_rule}</span>
                     {/if}
                   {:else}
                     <!-- Where it lands instead, not just that it moved: that is
                          the question a failure actually raises. -->
                     <span class="badge badge-danger">{t('Failed')}</span>
-                    <span class="muted ms-2">
+                    <span class="text-muted ms-2">
                       {t('RuleTestNowGoesTo', { category: verdict.actual_category ?? t('None') })}
                     </span>
                   {/if}

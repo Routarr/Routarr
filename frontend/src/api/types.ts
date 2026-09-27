@@ -161,12 +161,10 @@ export interface AuthMode {
   api_key_pinned: boolean;
 }
 
-/** What a restore answers with — staged, not applied until the next start. */
+/** What a restore answers with: staged, not applied until the next start. */
 export interface RestoreResult {
   /** What the archive said about itself: the version and schema it was taken
-   *  from, and when. The interface shows only `restart_required` today; the
-   *  manifest is declared because the response really does carry it, and
-   *  because it is what a "restored from a newer Routarr" message would read. */
+   *  from, and when. The backup card reads its `includes_master_key`. */
   manifest: BackupManifest;
   restart_required: boolean;
 }
@@ -489,7 +487,6 @@ export interface Health {
   };
 }
 
-/** What a connection probe reports. `app_name` is null for an Arr that does not say. */
 /** Values typed in the instance form, tried before anything is saved. */
 export interface InstanceProbe {
   instance_type: 'radarr' | 'sonarr';
@@ -499,6 +496,7 @@ export interface InstanceProbe {
   id: string | undefined;
 }
 
+/** What a connection probe reports. `app_name` is null for an Arr that does not say. */
 export interface TestConnectionResponse {
   success: boolean;
   version: string;

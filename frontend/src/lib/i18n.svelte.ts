@@ -16,7 +16,6 @@ const state = $state({
   strings: {} as Dictionary,
   language: 'en',
   direction: 'ltr' as 'ltr' | 'rtl',
-  ready: false,
 });
 
 function substitute(template: string, params?: Params): string {
@@ -55,13 +54,11 @@ export async function loadDictionary(): Promise<void> {
     document.documentElement.lang = response.language;
     // The backend owns the script list, so adding an RTL language there turns
     // the interface around with nothing to change here.
-    state.direction = response.direction ?? 'ltr';
+    state.direction = response.direction;
     document.documentElement.dir = state.direction;
   } catch {
     // An unreachable backend must not blank the interface: keys render as
     // themselves, which is ugly but navigable.
-  } finally {
-    state.ready = true;
   }
 }
 
@@ -69,7 +66,6 @@ export async function loadDictionary(): Promise<void> {
 export function seedDictionary(strings: Dictionary, language = 'en'): void {
   state.strings = strings;
   state.language = language;
-  state.ready = true;
 }
 
 /**

@@ -216,15 +216,15 @@ async function exchange<T>(
  */
 const download = (path: string) => request<Blob>(path, {}, (response) => response.blob());
 
+type QueryParams = Record<string, string | number | boolean | undefined>;
+
 const body = (data: unknown) => JSON.stringify(data ?? {});
-const query = (params?: Record<string, string | number | boolean | undefined>) => {
+const query = (params?: QueryParams) => {
   if (!params) return '';
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== '');
   if (entries.length === 0) return '';
   return '?' + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
 };
-
-export type QueryParams = Record<string, string | number | boolean | undefined>;
 
 export const api = {
   // ---------------------------------------------------------- health & jobs

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatTimestamp, capitalize } from '../api/format';
+  import { formatTimestamp, capitalize, statusKey, triggerKey } from '../api/format';
   import type { Job } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { poll } from '../lib/poll.svelte';
@@ -13,8 +13,6 @@
 
   /** Backend enum values are lower-case; the dictionary keys are PascalCase. */
   const jobKindKey = (kind: string) => `Job${capitalize(kind)}`;
-  const triggerKey = (trigger: string) => `Trigger${capitalize(trigger)}`;
-  const statusKey = (status: string) => `Status${capitalize(status)}`;
 
   const STATUS_BADGE: Record<Job['status'], string> = {
     running: 'badge-info',

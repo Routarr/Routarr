@@ -149,8 +149,8 @@
         enabled: rule.enabled,
         media_type: rule.media_type,
         conditions: rule.conditions,
-        exclusions: rule.exclusions ?? [],
-        match_mode: rule.match_mode ?? 'all',
+        exclusions: rule.exclusions,
+        match_mode: rule.match_mode,
         target_category: rule.target_category,
         instance_ids: rule.instance_ids,
       },
@@ -363,7 +363,7 @@
                         <span>{describe(condition)}</span>
                       </li>
                     {/each}
-                    {#each rule.exclusions ?? [] as condition, i (i)}
+                    {#each rule.exclusions as condition, i (i)}
                       <li class="rule-condition is-excluded">
                         <CircleMinus size={14} class="rule-condition-mark" aria-hidden="true" />
                         <span class="rule-condition-except">{t('ExceptPrefix')}</span>

@@ -337,49 +337,64 @@ describe('the navigation covers the route table', () => {
  *
  * jsdom applies no stylesheet, so nothing rendered can see this; only the
  * source can. Composed names (`is-{tone}`, `{active ? ' waiting' : ''}`) sit
- * inside an expression and are skipped — the fragments they build are static
- * strings in the same file, and a scoped `<style>` block counts as a
+ * inside an expression and are skipped, since the fragments they build are
+ * static strings in the same file, and a scoped `<style>` block counts as a
  * definition.
+ *
+ * A class defined only chained to another (`.badge-value.muted`) styles
+ * nothing on an element without that other class, so it counts only where
+ * the same attribute carries every class of the compound.
  */
 describe('every class in the markup is a class that exists', () => {
   const CLASS = /\.(-?[_a-zA-Z][\w-]*)/g;
 
   /**
-   * The classes a stylesheet defines, read from selector position alone.
+   * The compound selectors a stylesheet defines, each as its set of classes,
+   * read from selector position alone.
    *
    * Not from the whole text: `.source-name` is named in a comment in the
-   * component that uses it, and a set built by scanning everything counted that
-   * mention as a definition — deleting the rule from `index.css` then left this
+   * component that uses it, and a scan of everything would count that mention
+   * as a definition, so deleting the rule from `index.css` would leave this
    * check green, which is the one thing it exists to refuse.
    */
-  function selectors(stylesheet: string): Set<string> {
+  function compounds(stylesheet: string): string[][] {
     const withoutComments = stylesheet.replace(/\/\*[\s\S]*?\*\//g, '');
-    const names = [...withoutComments.matchAll(/([^{}]*)\{/g)].flatMap((rule) =>
-      [...(rule[1] ?? '').matchAll(CLASS)].map((m) => m[1] ?? ''),
-    );
-    return new Set(names);
+    return [...withoutComments.matchAll(/([^{}]*)\{/g)]
+      .flatMap((rule) => (rule[1] ?? '').split(/[\s,>+~()]+/))
+      .map((part) => [...part.matchAll(CLASS)].map((m) => m[1] ?? ''))
+      .filter((classes) => classes.length > 0);
   }
 
+  /** Whether some compound styles `token` on an element carrying `present`. */
+  const styles = (defined: string[][], token: string, present: string[]) =>
+    defined.some((classes) => classes.includes(token) && classes.every((c) => present.includes(c)));
+
   it('names no class that neither index.css nor the component defines', () => {
-    const defined = selectors(read('index.css'));
-    expect(defined.size).toBeGreaterThan(100);
+    const defined = compounds(read('index.css'));
+    expect(defined.length).toBeGreaterThan(100);
     // The rules every check below leans on are really in there.
-    expect(defined.has('source-name')).toBe(true);
-    expect(defined.has('btn')).toBe(true);
+    expect(styles(defined, 'source-name', ['source-name'])).toBe(true);
+    expect(styles(defined, 'btn', ['btn'])).toBe(true);
+    // And a chained class counts only beside its partner.
+    expect(styles(defined, 'muted', ['badge-value', 'muted'])).toBe(true);
+    expect(styles(defined, 'muted', ['muted'])).toBe(false);
 
     const orphans: string[] = [];
     for (const file of pages()) {
       const source = read(file);
-      // Every style lives in `index.css` today, so this is empty — it is here
-      // so a component that grows a `<style>` block is not reported wholesale.
-      const scoped = selectors(
+      // Every style lives in `index.css`, so this is empty. It is here so a
+      // component that grows a `<style>` block is not reported wholesale.
+      const scoped = compounds(
         [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1] ?? '').join('\n'),
       );
       // Only the quoted literals: an attribute holding `{` is composed at
       // runtime and its parts are matched as literals elsewhere.
       for (const attribute of source.matchAll(/class="([^"{}]*)"/g)) {
-        for (const token of (attribute[1] ?? '').split(/\s+/).filter(Boolean)) {
-          if (!defined.has(token) && !scoped.has(token)) orphans.push(`${token} (${file})`);
+        const present = (attribute[1] ?? '').split(/\s+/).filter(Boolean);
+        for (const token of present) {
+          if (!styles(defined, token, present) && !styles(scoped, token, present)) {
+            orphans.push(`${token} (${file})`);
+          }
         }
       }
     }

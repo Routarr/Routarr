@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatTimestamp, capitalize } from '../api/format';
+  import { formatTimestamp, statusKey, triggerKey } from '../api/format';
   import type { Decision } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -14,13 +14,6 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
-
-  const STATUS_KEY: Record<string, string> = {
-    applied: 'StatusApplied',
-    pending: 'StatusPending',
-    failed: 'StatusFailed',
-    skipped: 'StatusSkipped',
-  };
 
   const STATUS_TONE: Record<string, string> = {
     applied: 'badge-success',
@@ -76,12 +69,6 @@
       outcome.fail(err);
     }
   }
-  /**
-   * `manual` reads as `TriggerManual`, the key the Tasks screen already
-   * uses. Written here rather than inline because `noUncheckedIndexedAccess`
-   * makes a first character an Option and a template literal a liability.
-   */
-  const triggerKey = (actor: string) => `Trigger${capitalize(actor)}`;
 </script>
 
 <div>
@@ -201,7 +188,7 @@
                 <td><Confidence value={decision.confidence} /></td>
                 <td>
                   <span class="badge {STATUS_TONE[decision.status] ?? 'badge-info'}">
-                    {t(STATUS_KEY[decision.status] ?? 'Status')}
+                    {t(statusKey(decision.status))}
                   </span>
                   {#if decision.superseded}
                     <div class="text-muted text-xs">{t('Superseded')}</div>
