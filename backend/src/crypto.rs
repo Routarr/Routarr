@@ -358,10 +358,8 @@ mod tests {
     /// move files: starting open with a warning is not the posture to ship.
     #[test]
     fn an_api_key_is_generated_on_first_run_and_reused_afterwards() {
-        let dir = std::env::temp_dir().join(format!("routarr-key-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key");
         let path = dir.join("routarr.api_key");
-        let _ = std::fs::remove_file(&path);
 
         let (first, generated) = load_or_generate_api_key(&path).unwrap();
         assert!(generated, "the first run must create a key");
@@ -380,8 +378,7 @@ mod tests {
     /// Two installations must not share a key.
     #[test]
     fn each_generated_key_is_unique() {
-        let dir = std::env::temp_dir().join(format!("routarr-key-uniq-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key-uniq");
 
         let a = dir.join("a.key");
         let b = dir.join("b.key");
@@ -404,10 +401,8 @@ mod tests {
     fn a_private_file_is_created_with_its_mode_and_truncated_on_rewrite() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("routarr-private-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("private");
         let path = dir.join("secret");
-        let _ = std::fs::remove_file(&path);
 
         write_private(&path, b"a much longer first value").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
@@ -417,7 +412,6 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"short", "the old value was left behind");
 
         assert!(create_private(&path, true).is_err(), "an existing file must not be reopened");
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The key file is as readable as the database, and no more.
@@ -426,10 +420,8 @@ mod tests {
     fn the_generated_key_file_is_not_world_readable() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("routarr-key-perm-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key-perm");
         let path = dir.join("routarr.api_key");
-        let _ = std::fs::remove_file(&path);
 
         load_or_generate_api_key(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();

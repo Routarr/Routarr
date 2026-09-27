@@ -263,17 +263,10 @@ mod tests {
         let raw = response.data.unwrap();
 
         assert_eq!(raw.genres.len(), 2);
-        // Three-letter codes in, the two-letter forms a rule is written against
-        // out.
-        assert_eq!(
-            super::language::from_iso_639_3(raw.original_language.as_deref().unwrap()).as_deref(),
-            Some("ja")
-        );
-        assert_eq!(
-            super::language::country_from_alpha3(raw.original_country.as_deref().unwrap())
-                .as_deref(),
-            Some("JP")
-        );
+        // Three-letter codes, which `language` shortens (tested there and end to
+        // end).
+        assert_eq!(raw.original_language.as_deref(), Some("jpn"));
+        assert_eq!(raw.original_country.as_deref(), Some("jpn"));
         assert_eq!(raw.status.and_then(|s| s.name).as_deref(), Some("Ended"));
         assert_eq!(pick_rating(&raw.content_ratings, &["FR".into()]).as_deref(), Some("-12"));
     }

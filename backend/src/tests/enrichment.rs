@@ -20,7 +20,7 @@ async fn library(tmdb: &FakeTmdb, items: &[(i64, &str, i64)]) -> TestApp {
     config.tmdb_api_key = Some("tmdb-key".into());
     config.tmdb_base_url = format!("{}/3", tmdb.base_url);
     let state = AppState { config: Arc::new(config), ..app.state.clone() };
-    let app = TestApp { state, ..app };
+    let app = TestApp::around(state);
     // What startup does with a key from the environment: list TMDb.
     crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
 

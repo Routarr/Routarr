@@ -452,7 +452,7 @@ mod poison_tests {
         .join()
         .expect_err("the thread is expected to panic");
 
-        assert!(registry.locks.is_poisoned(), "précondition du test");
+        assert!(registry.locks.is_poisoned(), "the precondition of this test");
         assert!(
             registry.try_lock("sync:all").is_some(),
             "the registry must keep working after a task panicked"

@@ -505,8 +505,9 @@ mod tests {
         assert_eq!(remaining, vec!["keep-fresh"]);
     }
 
+    /// History outlives both its age and its media: `m1` is never seeded.
     #[tokio::test]
-    async fn applied_decisions_survive_the_pending_purge() {
+    async fn an_applied_decision_outlives_its_retention_and_its_media() {
         let state = AppState::for_tests().await;
         sqlx::query(
             "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
@@ -702,28 +703,5 @@ mod tests {
         let report = purge(&state).await.unwrap();
 
         assert_eq!(report.decisions_removed, 2);
-    }
-
-    /// The other half of the same rule: history survives its media.
-    #[tokio::test]
-    async fn an_applied_move_survives_the_media_it_moved() {
-        let state = AppState::for_tests().await;
-        sqlx::query(
-            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-             instance_name, target_category, action, status, decided_at)
-             VALUES ('d-applied', 'gone', 'Akira', 'movie', 'gone', 'Radarr', 'anime', 'move',
-                     'applied', datetime('now'))",
-        )
-        .execute(&state.pool)
-        .await
-        .unwrap();
-
-        purge(&state).await.unwrap();
-
-        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
-        assert_eq!(left, 1, "an applied decision is the audit trail");
     }
 }

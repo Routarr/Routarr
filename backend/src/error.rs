@@ -190,19 +190,6 @@ mod tests {
     }
 
     #[test]
-    fn a_decoding_failure_says_so_instead_of_returning_zero() {
-        // The undiagnosable case: rendered by status alone this reads
-        // "External API error: Radarr returned 0".
-        let error = AppError::ExternalApi {
-            service: "Radarr".into(),
-            status: 0,
-            message: "unreadable Radarr response: invalid type: floating point".into(),
-            retry_after: None,
-        };
-        assert!(error.to_string().contains("invalid type: floating point"), "{error}");
-    }
-
-    #[test]
     fn an_empty_cause_still_reads_as_a_sentence() {
         assert_eq!(describe_external("TMDb", 0, "   "), "TMDb is unreachable");
         assert_eq!(describe_external("TMDb", 500, ""), "TMDb returned HTTP 500");

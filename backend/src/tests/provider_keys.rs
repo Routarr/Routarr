@@ -126,56 +126,19 @@ async fn the_resealing_pass_covers_the_metadata_keys_too() {
     assert_eq!(app.state.provider_key("omdb").await.as_deref(), Some("bare"));
 }
 
-/// A secret no key can open is left exactly as it was.
+/// A settings secret no key can open is left exactly as it was.
 ///
-/// `reseal_secrets` runs at startup, on nobody's request, and it is the only
-/// code in Routarr that can destroy something outright: an Arr credential has
-/// no second copy here. `maintenance.rs` says so — "overwriting it would
-/// destroy the only copy" — and the `let … else { continue }` that keeps that
-/// promise was guarded by nothing. The one test this function had seeds a
-/// *plaintext* value and checks it comes back sealed, which exercises the
-/// other branch entirely.
-///
-/// An inverted condition, or an `unwrap_or_default()` where the `else` is,
-/// writes an empty key over the real one and leaves every other test green.
+/// `reseal_secrets` runs at startup, on nobody's request, and a metadata key
+/// has no second copy here. The instance half of the same pass is pinned in
+/// `services::maintenance`. An inverted condition, or an `unwrap_or_default()`
+/// where the `else` is, writes an empty key over the real one.
 #[tokio::test]
-async fn a_secret_no_key_can_open_is_left_exactly_as_it_was() {
+async fn a_settings_secret_no_key_can_open_is_left_exactly_as_it_was() {
     let app = TestApp::new().await;
 
     // Sealed under a master key this installation has never held, which is what
     // a database restored beside the wrong `routarr.key` looks like.
     let foreign = crate::crypto::SecretBox::load(
-        Some("a-master-key-this-installation-never-had"),
-        None,
-        std::path::Path::new("/nonexistent"),
-    )
-    .unwrap()
-    .seal("the-only-copy")
-    .unwrap();
-
-    sqlx::query(
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('i-foreign', 'Radarr', 'radarr', 'http://127.0.0.1:1', ?, 1)",
-    )
-    .bind(&foreign)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-
-    // It cannot be opened — the precondition, asserted rather than assumed.
-    assert!(app.state.secrets.open(&foreign).is_err(), "the fixture key is readable after all");
-
-    crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
-
-    let stored: String = sqlx::query_scalar("SELECT api_key FROM instances WHERE id = 'i-foreign'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(stored, foreign, "the only copy of the credential was overwritten");
-
-    // And a settings secret in the same position, since the pass covers both
-    // tables and only one of them had a test at all.
-    let foreign_setting = crate::crypto::SecretBox::load(
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
@@ -187,10 +150,11 @@ async fn a_secret_no_key_can_open_is_left_exactly_as_it_was() {
         "INSERT INTO settings (key, value, updated_at) VALUES ('tmdb_api_key', ?, datetime('now'))
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
-    .bind(&foreign_setting)
+    .bind(&foreign)
     .execute(&app.state.pool)
     .await
     .unwrap();
+    assert!(app.state.secrets.open(&foreign).is_err(), "the fixture key is readable after all");
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
 
@@ -199,5 +163,5 @@ async fn a_secret_no_key_can_open_is_left_exactly_as_it_was() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(stored, foreign_setting, "the only copy of the metadata key was overwritten");
+    assert_eq!(stored, foreign, "the only copy of the metadata key was overwritten");
 }

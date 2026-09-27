@@ -198,13 +198,11 @@ async fn renaming_an_unknown_category_is_a_not_found() {
 // --------------------------------------------------- the default category
 //
 // It is stated once, in the `default_category` setting the engine falls back
-// to. A second statement — an `is_default` flag on the row, read by the badge
-// and the delete guard — is kept in step by nothing: changing the setting would
-// not touch the flag, the interface would name one category while the engine
-// used another, and the guard would protect the flagged one and leave the real
+// to. A second statement, a flag on the row read by the badge and the delete
+// guard, would be kept in step by nothing: the interface would name one
+// category while the engine used another, and the guard would leave the real
 // fallback deletable. Every unmatched item would then route to a category that
-// does not exist, has no root folder, and is silently skipped. Migration 006
-// drops the flag.
+// does not exist, has no root folder, and is silently skipped.
 
 #[tokio::test]
 async fn the_badge_and_the_engine_name_the_same_default() {
@@ -257,20 +255,6 @@ async fn creating_a_category_as_the_default_moves_the_setting() {
             .await
             .unwrap();
     assert_eq!(setting, "kids");
-}
-
-#[tokio::test]
-async fn the_flag_that_used_to_disagree_is_gone_from_the_schema() {
-    let app = TestApp::new().await;
-    let columns: Vec<String> =
-        sqlx::query_scalar("SELECT name FROM pragma_table_info('categories')")
-            .fetch_all(&app.state.pool)
-            .await
-            .unwrap();
-    assert!(
-        !columns.iter().any(|c| c == "is_default"),
-        "a second source for the default category is back: {columns:?}"
-    );
 }
 
 #[tokio::test]

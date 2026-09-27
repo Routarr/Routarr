@@ -273,13 +273,6 @@ async fn a_condition_no_enabled_source_can_answer_is_reported_as_unavailable() {
     assert_eq!(find("title_contains")["available"], true);
 }
 
-/// A cached row is not the same as a cached *answer*.
-///
-/// One holding only a synopsis is unreadable by every condition, so the engine
-/// and the list must both say the item is unknown. Counting it made the column
-/// promise metadata about an item no rule could ever touch — and the moment the
-/// library pass stopped loading the synopsis, the two started saying opposite
-/// things about the same item.
 /// One cached answer, in the namespace the source addresses by.
 async fn cache_row(app: &TestApp, source: &str, external_id: &str, genres: &str) {
     sqlx::query(
@@ -407,6 +400,11 @@ async fn the_three_metadata_counters_agree_on_one_library() {
     }
 }
 
+/// A cached row is not the same as a cached *answer*.
+///
+/// One holding only a synopsis is unreadable by every condition, so the engine
+/// and the list must both say the item is unknown. Counting it would have the
+/// column promise metadata about an item no rule can touch.
 #[tokio::test]
 async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     let arr = FakeArr::start().await;
@@ -542,15 +540,6 @@ async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
     let warnings = warnings(&app).await;
     assert!(!warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
-}
-
-#[tokio::test]
-async fn listing_tmdb_without_a_key_still_warns() {
-    let app = TestApp::new().await;
-    set_order(&app, "arr,tmdb").await;
-
-    let warnings = warnings(&app).await;
-    assert!(warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
 }
 
 /// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and a

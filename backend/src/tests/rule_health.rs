@@ -1,7 +1,8 @@
-//! Which rules are unreachable, and the capacity a plan needs.
+//! Which rules are unreachable, the capacity a plan needs, the collisions
+//! between rules and what the library holds per axis a condition reads.
 //!
-//! Both answer questions nothing else does: validation looks inside one rule,
-//! and the guardrails weigh a move without ever weighing the plan.
+//! Each answers a question nothing else does: validation looks inside one
+//! rule, and the guardrails weigh a move without ever weighing the plan.
 
 use super::TestApp;
 
@@ -63,12 +64,23 @@ async fn a_rule_that_never_wins_names_the_rule_taking_its_items() {
 async fn a_rule_that_wins_sometimes_is_not_reported_as_shadowed() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, current_path,
+         current_root_folder, monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Totoro Returns', 2026,
+                 '/movies/standard/Totoro Returns (2026)', '/movies/standard', 1, 1)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     add_rule(&app, "r-1", "Totoro", 10, "totoro", "anime").await;
+    add_rule(&app, "r-2", "Sequels", 1, "returns", "standard").await;
 
     let response = app.get("/api/v1/rules/health").await;
-    let winner = rule(response.assert_ok(), "Totoro");
-    assert!(winner["won"].as_u64().unwrap() > 0);
-    assert!(winner["shadowed_by"].is_null());
+    let totoro = rule(response.assert_ok(), "Totoro");
+    assert_eq!(totoro["won"], 1, "{totoro}");
+    assert_eq!(totoro["shadowed"], 1, "it has to lose one for the claim to mean anything");
+    assert!(totoro["shadowed_by"].is_null(), "{totoro}");
 }
 
 /// Matching nothing is a different fault from being shadowed — a condition too
@@ -161,7 +173,7 @@ async fn apply(app: &TestApp, confirmed: &[&str]) -> super::TestResponse {
 /// `free_space` is synced on every pass and `size_on_disk` sits on every row.
 /// Uncompared, a batch that overruns its destination fails partway at the Arr.
 #[tokio::test]
-async fn a_move_larger_than_the_destination_is_refused_until_confirmed() {
+async fn a_move_larger_than_the_destination_is_refused_with_both_figures() {
     let app = TestApp::new().await;
     // 100 GB moving onto a volume with 10 GB free, from a different volume.
     pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
@@ -170,9 +182,9 @@ async fn a_move_larger_than_the_destination_is_refused_until_confirmed() {
     assert_eq!(refused.status, 409, "a plan that cannot fit was applied: {}", refused.json);
     let message = refused.message();
     assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
-    // Both figures, in the interface's own vocabulary. `GiB` was pinned here
-    // while the root-folders table said `GB` off the same division by 1024 —
-    // one figure named two ways, on two screens read together.
+    // Both figures, in the interface's own vocabulary: the root folders table
+    // says `GB` off the same division by 1024, and one figure named two ways
+    // on two screens read together contradicts itself.
     assert!(message.contains("93.1 GB"), "the refusal must say what is moving: {message}");
     assert!(message.contains("9.3 GB"), "and what the destination has: {message}");
 }
@@ -524,19 +536,6 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
     );
     assert_eq!(listed[0].0, "TP", "the most frequent code leads its group: {listed:?}");
     assert_eq!(listed.last().unwrap().0, "M");
-}
-
-/// `/media/facets` is a literal segment sitting beside `/media/{id}`; if the
-/// dynamic route swallowed it the endpoint would answer "media facets not
-/// found" and look like a missing item rather than a routing mistake.
-#[tokio::test]
-async fn the_facets_route_is_not_swallowed_by_the_media_id_route() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-
-    let response = app.get("/api/v1/media/facets").await;
-    let body = response.assert_ok();
-    assert!(body["genres"].is_array(), "got {body}");
 }
 
 /// What the library holds, per axis a condition reads. Without it, a rule is

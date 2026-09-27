@@ -268,11 +268,11 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// 018 rebuilt `root_folders` through a copy, and a copied table carries
-    /// none of the indexes the original had: the two declared by 001 and 002
-    /// were gone on every upgraded and every fresh database alike.
+    /// A table rebuilt through a copy carries none of the original's indexes,
+    /// so the lookups the sync and the enrichment make on these two tables
+    /// are pinned by name.
     #[tokio::test]
-    async fn the_indexes_a_rebuilt_table_lost_are_declared_again() {
+    async fn the_root_folder_and_identifier_indexes_exist() {
         let pool = test_pool().await;
         let indexes: Vec<(String,)> = sqlx::query_as(
             "SELECT name FROM sqlite_master
@@ -311,8 +311,7 @@ mod tests {
     /// the in-memory pool the rest of the suite uses.
     #[tokio::test]
     async fn a_closed_database_needs_no_sidecar_files_to_be_complete() {
-        let dir = std::env::temp_dir().join(format!("routarr-wal-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("wal");
         let path = dir.join("r.db");
         let url = format!("sqlite://{}?mode=rwc", path.display());
 
@@ -354,7 +353,6 @@ mod tests {
         assert_eq!(name, "survives");
 
         restored.close().await;
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

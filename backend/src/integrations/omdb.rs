@@ -167,12 +167,9 @@ mod tests {
         let raw: RawResponse = serde_json::from_str(json).unwrap();
         assert!(is_found(&raw));
         assert_eq!(split_list(raw.genre.as_deref()), vec!["Animation", "Family", "Fantasy"]);
-        // Prose in, ISO codes out — the whole reason this client normalises.
-        assert_eq!(
-            super::language::first_language(raw.language.as_deref().unwrap()).as_deref(),
-            Some("ja")
-        );
-        assert_eq!(super::language::country_codes(raw.country.as_deref().unwrap()), vec!["JP"]);
+        // Prose, which `language` turns into codes (tested there and end to end).
+        assert_eq!(raw.language.as_deref(), Some("Japanese, English"));
+        assert_eq!(raw.country.as_deref(), Some("Japan"));
         assert_eq!(raw.rated.as_deref(), Some("G"));
     }
 

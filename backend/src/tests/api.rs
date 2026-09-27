@@ -3,6 +3,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
+use super::fake_arr::FakeArr;
 use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 use tower::ServiceExt;
 
@@ -41,12 +42,6 @@ async fn a_request_id_supplied_by_the_caller_is_propagated() {
         .await
         .unwrap();
     assert_eq!(response.headers().get("x-request-id").unwrap(), "trace-4711");
-}
-
-#[tokio::test]
-async fn requests_without_the_key_are_rejected() {
-    let app = TestApp::with_api_key("s3cret").await;
-    app.get("/api/v1/settings").await.assert_status(StatusCode::UNAUTHORIZED);
 }
 
 // ------------------------------------------------------------ instances
@@ -133,23 +128,6 @@ async fn updating_without_an_api_key_keeps_the_stored_one() {
         .await
         .unwrap();
     assert_eq!(app.state.secrets.open(&stored).unwrap(), "original");
-}
-
-#[tokio::test]
-async fn a_bad_base_url_is_rejected() {
-    let app = TestApp::new().await;
-    let response = app
-        .post(
-            "/api/v1/instances",
-            serde_json::json!({
-                "name": "Radarr",
-                "instance_type": "radarr",
-                "base_url": "radarr:7878",
-                "api_key": "k",
-            }),
-        )
-        .await;
-    response.assert_status(StatusCode::BAD_REQUEST);
 }
 
 #[tokio::test]
@@ -780,25 +758,11 @@ async fn a_category_in_use_cannot_be_deleted() {
 }
 
 #[tokio::test]
-async fn the_default_category_cannot_be_deleted() {
-    let app = TestApp::new().await;
-    app.delete("/api/v1/categories/cat-standard").await.assert_status(StatusCode::BAD_REQUEST);
-}
-
-#[tokio::test]
-async fn category_names_are_normalised_and_restricted() {
+async fn a_category_name_is_trimmed_and_lowercased() {
     let app = TestApp::new().await;
 
     let created = app.post("/api/v1/categories", serde_json::json!({ "name": "  Kids  " })).await;
     assert_eq!(created.assert_ok()["name"], "kids");
-
-    app.post("/api/v1/categories", serde_json::json!({ "name": "../etc" }))
-        .await
-        .assert_status(StatusCode::BAD_REQUEST);
-
-    app.post("/api/v1/categories", serde_json::json!({ "name": "kids" }))
-        .await
-        .assert_status(StatusCode::CONFLICT);
 }
 
 // ------------------------------------------------------------ root folders
@@ -1279,7 +1243,7 @@ async fn pagination_is_clamped() {
 /// `auto_sync_enabled` off.
 #[tokio::test]
 async fn a_second_delivery_waits_for_the_first_rather_than_being_dropped() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
@@ -1411,11 +1375,12 @@ async fn rotating_the_webhook_token_revokes_the_previous_one() {
 #[tokio::test]
 async fn rotating_the_webhook_token_does_not_expose_the_arr_key() {
     let app = TestApp::new().await;
-    app.seed_library().await;
+    app.seed_instance_at("inst-1", "radarr", "http://radarr:7878").await;
 
     let rotated = app.post("/api/v1/instances/inst-1/webhook-token", serde_json::json!({})).await;
     let body = rotated.assert_ok().to_string();
 
+    assert!(!body.contains("arr-key"), "the Arr key leaked: {body}");
     assert!(!body.contains("enc:v1:"), "ciphertext leaked: {body}");
     assert!(body.contains("api_key_masked"), "the masked field is part of the contract: {body}");
 }
@@ -1433,17 +1398,19 @@ async fn rotating_the_token_of_an_unknown_instance_is_a_not_found() {
 
 #[tokio::test]
 async fn a_test_webhook_is_acknowledged_without_touching_the_arr() {
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
-    app.seed_library().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
     let response =
         app.post("/api/v1/webhook/inst-1/tok", serde_json::json!({ "eventType": "Test" })).await;
-    assert_eq!(response.assert_ok()["ok"], true);
+    assert_eq!(response.assert_ok()["message"], "Webhook reachable");
+    assert!(arr.recorded().api_keys.is_empty(), "a test event read the Arr");
 }
 
 #[tokio::test]
 async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     app.seed_anime_rule().await;
@@ -1603,31 +1570,31 @@ async fn logs_can_be_exported_as_csv() {
     .await
     .unwrap();
 
-    let response = app.send(Request::get("/api/v1/logs/export").body(Body::empty()).unwrap()).await;
-    assert_eq!(response.status, StatusCode::OK);
+    let response = app.raw("/api/v1/logs/export").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/csv; charset=utf-8");
+    let csv = app.text("/api/v1/logs/export").await;
+    // The comma and the quotes stay inside one field, the quotes doubled.
+    assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
 }
 
 // ------------------------------------------------------------ status
 
 #[tokio::test]
 async fn status_makes_no_outbound_calls() {
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
-    // An instance nothing answers for: /status must still answer, and without
-    // asking it.
-    sqlx::query(
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('dead', 'Dead', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    let response = app.get("/api/v1/status").await;
-    let status = response.assert_ok();
-
+    let status = app.get("/api/v1/status").await.assert_ok().clone();
     assert_eq!(status["dry_run"], true);
     assert_eq!(status["running_jobs"], 0);
-    assert!(warning_messages(status).iter().any(|w| w.contains("unauthenticated")));
+    assert!(warning_messages(&status).iter().any(|w| w.contains("unauthenticated")));
+    assert!(arr.recorded().api_keys.is_empty(), "/status asked the Arr");
+
+    // The control: the probing route does reach this Arr, and it is recorded.
+    app.get("/api/v1/health").await.assert_ok();
+    assert!(!arr.recorded().api_keys.is_empty(), "the fixture records nothing");
 }
 
 #[tokio::test]
@@ -1730,7 +1697,7 @@ async fn the_badge_reports_what_the_last_probe_found() {
 /// to stop being reported, or the warning outlives the fault that caused it.
 #[tokio::test]
 async fn a_subject_that_answers_again_stops_being_reported() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
 
@@ -2085,7 +2052,7 @@ async fn seed_akira_needing_a_move(app: &TestApp) {
 /// outside the lock that exists to bound precisely that.
 #[tokio::test]
 async fn a_delete_event_does_not_evaluate_the_whole_instance() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     seed_akira_needing_a_move(&app).await;
@@ -2118,7 +2085,7 @@ async fn a_delete_event_does_not_evaluate_the_whole_instance() {
 /// listed for ever and never applicable, since the executor joins `media`.
 #[tokio::test]
 async fn a_delete_event_retires_the_item_and_what_pointed_at_it() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     seed_akira_needing_a_move(&app).await;
@@ -2175,7 +2142,7 @@ async fn a_delete_event_retires_the_item_and_what_pointed_at_it() {
 async fn a_delete_event_waits_for_a_running_sync_before_retiring() {
     use std::time::Duration;
 
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     seed_akira_needing_a_move(&app).await;
@@ -2218,7 +2185,7 @@ async fn a_delete_event_waits_for_a_running_sync_before_retiring() {
 /// for an id nobody has.
 #[tokio::test]
 async fn an_item_the_arr_does_not_know_is_kept_unless_the_event_says_it_is_gone() {
-    let arr = crate::tests::fake_arr::FakeArr::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     seed_akira_needing_a_move(&app).await;

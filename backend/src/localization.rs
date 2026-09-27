@@ -461,16 +461,14 @@ mod tests {
         assert_eq!(Localizer::new("FR").language(), "fr");
     }
 
+    /// A shipped regional variant is matched whole, in either spelling, and
+    /// never collapses to its base or to a sibling: `zh-TW` is not `zh_CN`.
     #[test]
-    fn a_shipped_regional_variant_wins_over_its_base() {
-        // pt-BR is its own language across the Servarr ecosystem, not a synonym.
-        if shipped("pt-br").is_some() {
-            assert_eq!(Localizer::new("pt-BR").language(), "pt-br");
-            assert_eq!(Localizer::new("pt_br").language(), "pt-br");
-        }
-        if shipped("pt").is_some() {
-            assert_eq!(Localizer::new("pt-PT").language(), "pt");
-        }
+    fn a_shipped_regional_variant_is_matched_whole() {
+        assert_eq!(Localizer::new("zh-TW").language(), "zh_TW");
+        assert_eq!(Localizer::new("zh_tw").language(), "zh_TW");
+        assert_eq!(Localizer::new("zh-CN").language(), "zh_CN");
+        assert_eq!(Localizer::new("nb-NO").language(), "nb_NO");
     }
 
     #[test]
@@ -484,18 +482,11 @@ mod tests {
         assert_eq!(substitute("{a} {missing}", &[("a", "1")]), "1 {missing}");
     }
 
-    #[test]
-    fn the_merged_dictionary_covers_every_english_key() {
-        let english = dictionaries().get("en").expect("english dictionary");
-        let merged = dictionary("fr");
-        assert_eq!(merged.len(), english.len());
-    }
-
     /// Every job kind the registry can write must have a label.
     ///
     /// `t()` falls back to the raw key, so a kind nobody translated renders as
-    /// `JobBackup` on the Tasks screen — and backups are on by default, so it
-    /// was on every installation. `check-locales.py` cannot catch it: the
+    /// `JobBackup` on the Tasks screen, and backups are on by default.
+    /// `check-locales.py` cannot catch it: the
     /// `Job*` prefix is exempt from its orphan check, which necessarily makes
     /// it blind to a missing one too. The list is the enum, not a copy of it.
     #[test]

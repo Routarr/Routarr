@@ -46,13 +46,14 @@ struct FakeState {
     /// between `MovieAdded` and the first import — the window auto-apply exists
     /// for.
     movie_has_file: bool,
-    /// How long the library listing is held open before answering.
+    /// How long the library listing, a one-movie read and a movie edit are
+    /// held open before answering.
     ///
     /// Zero for every ordinary test. A non-zero hold is what makes overlap
     /// *observable*: sequential callers can never raise `max_in_flight` above
     /// one however long the hold is, because the second request is not issued
-    /// until the first has returned. So this is not a race the test might lose
-    /// — it only has to outlast the microseconds between issuing two requests.
+    /// until the first has returned. So this is not a race the test might
+    /// lose: it only has to outlast the microseconds between two requests.
     hold: std::time::Duration,
     in_flight: Arc<AtomicUsize>,
     max_in_flight: Arc<AtomicUsize>,
@@ -96,14 +97,14 @@ impl FakeArr {
         Self::with(None, "/tv/standard/Cowboy Bebop (1998)", false).await
     }
 
-    /// Start a fake that holds each library listing open long enough for
-    /// overlapping callers to be counted. See [`FakeArr::max_concurrent`].
+    /// Start a fake that holds each request open long enough for overlapping
+    /// callers to be counted. See [`FakeArr::max_concurrent`].
     pub async fn observing_concurrency() -> Self {
-        Self::build(None, "/tv/standard/Cowboy Bebop (1998)", true, HOLD).await
+        Self::holding_edits(HOLD).await
     }
 
     /// Start a fake that takes `hold` to perform each edit, so a caller can be
-    /// observed — or dropped — while the Arr is still at work.
+    /// observed, or dropped, while the Arr is still at work.
     pub async fn holding_edits(hold: std::time::Duration) -> Self {
         Self::build(None, "/tv/standard/Cowboy Bebop (1998)", true, hold).await
     }

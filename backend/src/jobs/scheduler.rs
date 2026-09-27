@@ -351,6 +351,9 @@ mod tests {
 
         // 0 and negative intervals collapse to the 1-minute floor instead of
         // hammering the Arr on every tick.
+        let thirty_seconds_ago = now - Duration::from_secs(30);
+        assert!(!is_due(0, Some(thirty_seconds_ago), now));
+        assert!(!is_due(-5, Some(thirty_seconds_ago), now));
         assert!(is_due(0, Some(ninety_seconds_ago), now));
         assert!(is_due(-5, Some(ninety_seconds_ago), now));
         // An absurdly large interval is capped at 24 h, so the instance still

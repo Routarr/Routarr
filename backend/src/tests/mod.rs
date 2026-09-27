@@ -43,11 +43,22 @@ use tower::ServiceExt;
 
 use crate::state::AppState;
 
-/// A test harness holding the app state and a router built the same way `main`
-/// builds it, so middleware and routing are exercised, not bypassed.
 /// Removed when dropped, so a test that fails halfway leaves nothing behind in
 /// a temporary directory that, in the dev container, is a tmpfs.
 pub(crate) struct TempDir(pub std::path::PathBuf);
+
+impl TempDir {
+    /// A fresh, empty directory. The label must be unique to the test, since
+    /// the tests of one run share a process id and run in parallel, and a
+    /// directory a killed run left behind is cleared first.
+    pub fn new(label: &str) -> Self {
+        let dir =
+            Self(std::env::temp_dir().join(format!("routarr-{label}-{}", std::process::id())));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+}
 
 impl std::ops::Deref for TempDir {
     type Target = std::path::Path;
@@ -68,6 +79,8 @@ impl Drop for TempDir {
     }
 }
 
+/// A test harness holding the app state and a router built the same way `main`
+/// builds it, so middleware and routing are exercised, not bypassed.
 pub struct TestApp {
     pub state: AppState,
     router: Router,
@@ -83,7 +96,7 @@ impl TestApp {
     ///
     /// The router captures the state it was built with, so replacing `state`
     /// on an existing harness leaves every HTTP route talking to the old
-    /// configuration — a test would then drive one set of credentials and
+    /// configuration, and a test would then drive one set of credentials and
     /// assert on another.
     pub fn around(state: AppState) -> Self {
         Self { router: crate::build_router(state.clone()), state }
@@ -94,12 +107,10 @@ impl TestApp {
         let mut config = crate::config::Config::for_tests();
         config.api_key = Some(key.to_string());
         // `for_tests` leaves the mode at `None` so the unauthenticated cases
-        // stay testable; a test that sets a key means to have it demanded.
+        // stay testable, and a test that sets a key means to have it demanded.
         config.auth_mode = crate::config::AuthMode::ApiKey;
 
-        let state = AppState::for_tests().await.with_config(config);
-
-        Self { router: crate::build_router(state.clone()), state }
+        Self::around(AppState::for_tests().await.with_config(config))
     }
 
     pub async fn get(&self, path: &str) -> TestResponse {

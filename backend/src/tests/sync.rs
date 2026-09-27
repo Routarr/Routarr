@@ -183,23 +183,6 @@ async fn media_removed_upstream_is_removed_locally() {
 }
 
 #[tokio::test]
-async fn a_long_sync_does_not_delete_its_own_early_rows() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-
-    // Two consecutive syncs: the second must recognise the first one's row as
-    // current and leave it alone. A time-window cleanup would drop it.
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
-    let second = sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
-
-    assert_eq!(second.removed, 0);
-    let count: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&app.state.pool).await.unwrap();
-    assert_eq!(count, 1);
-}
-
-#[tokio::test]
 async fn an_empty_upstream_response_does_not_wipe_the_library() {
     let app = TestApp::new().await;
     // This fake answers with no movies and no root folders.

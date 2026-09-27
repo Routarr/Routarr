@@ -448,11 +448,11 @@ mod settings_tests {
         Settings(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
     }
 
-    /// The snapshot answers exactly as the single-key readers do: trimmed,
-    /// the default on anything unparseable or absent, `true` or `1` for a
-    /// switch.
+    /// The snapshot trims, answers the default on anything unparseable or
+    /// absent, and reads `true` or `1` as a switch, the rules `AppState::setting`
+    /// and `bool_setting` apply to one key.
     #[test]
-    fn a_snapshot_parses_the_way_the_single_key_readers_do() {
+    fn a_snapshot_trims_defaults_and_reads_switches() {
         let settings = stored(&[
             ("batch_limit", " 12 "),
             ("confirmation_threshold", "many"),
@@ -471,7 +471,7 @@ mod settings_tests {
     }
 
     /// The usable sources are the snapshot's order filtered by the snapshot's
-    /// keys — one read, so a source cannot be enabled by one read and keyless
+    /// keys: one read, so a source cannot be enabled by one read and keyless
     /// by another.
     #[tokio::test]
     async fn usable_providers_come_from_one_snapshot() {

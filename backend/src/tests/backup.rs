@@ -19,11 +19,7 @@ use super::{TempDir, TestApp, warning_messages};
 /// the server — does nothing at all against `:memory:`. Testing it there would
 /// prove something that cannot happen in production.
 async fn app_with_files(label: &str) -> (TestApp, TempDir) {
-    let dir = TempDir(
-        std::env::temp_dir().join(format!("routarr-backup-{label}-{}", std::process::id())),
-    );
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = TempDir::new(&format!("backup-{label}"));
 
     let mut config = crate::config::Config::for_tests();
     config.set_db_path(dir.join("routarr.db"));
@@ -77,8 +73,6 @@ async fn a_backup_carries_everything_a_restore_needs() {
     let manifest = backup::read_manifest(&archive).unwrap();
     assert!(manifest.includes_master_key);
     assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -105,8 +99,6 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
     assert_eq!(media, 1, "the live library was not captured");
     pool.close().await;
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A retention count stored above the ceiling this build enforces is honoured
@@ -158,8 +150,6 @@ async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_i
     .await
     .assert_ok();
     assert_eq!(backup::list(&app.state).len(), 2);
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -187,8 +177,6 @@ async fn only_the_retained_count_survives_a_prune() {
     // The oldest goes first.
     assert!(left.contains(&"routarr-backup-20260103-000000.zip".to_string()));
     assert!(!left.contains(&"routarr-backup-20260101-000000.zip".to_string()));
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -231,8 +219,6 @@ async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     // than no check at all.
     let staged = dir.join("routarr.db.restore-pending");
     assert!(!staged.exists(), "a refused restore left files behind");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -266,15 +252,12 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
     assert_eq!(restored, 1, "the staged database was not applied");
     pool.close().await;
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
 async fn nothing_is_applied_when_no_restore_is_pending() {
-    let (app, dir) = app_with_files("nopending").await;
+    let (app, _dir) = app_with_files("nopending").await;
     assert!(!backup::apply_pending_restore(&app.state.config).await.unwrap());
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// Every file a restore leaves beside its targets, staged, pending or set aside.
@@ -374,8 +357,6 @@ async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() 
     app.state.pool.close().await;
     assert!(!backup::apply_pending_restore(&config).await.unwrap(), "something was applied");
     assert_eq!(media_count(&config).await, 1, "the live database did not survive");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -399,8 +380,6 @@ async fn an_archive_whose_database_is_not_one_is_refused_before_anything_is_stag
 
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
     assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -431,8 +410,6 @@ async fn a_pending_restore_that_cannot_be_read_is_not_applied_at_the_next_start(
         Vec::<String>::new(),
         "the rejected restore is still pending"
     );
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -449,8 +426,6 @@ async fn keys_pending_without_their_database_are_not_applied() {
     assert!(!backup::apply_pending_restore(&config).await.unwrap(), "keys were applied alone");
     assert_eq!(std::fs::read_to_string(config.secret_key_path()).unwrap(), "a-master-key");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "the keys are still pending");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -480,8 +455,6 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
         !dir.join("routarr.api_key.restore-pending").exists(),
         "the first archive's API key would be restored beside the second archive's database"
     );
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// `integrity_check` is what finds damage inside a database whose first pages
@@ -520,8 +493,6 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
 
     assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A key entry the archive holds and cannot read is a damaged archive, not an
@@ -550,8 +521,6 @@ async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
 
     assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// The manifest says whether the master key travelled. An archive that says
@@ -575,8 +544,6 @@ async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
 
     assert!(matches!(refused, crate::error::AppError::BadRequest(_)), "{refused}");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A restore that is refused replaces nothing. Discarded before the second
@@ -610,8 +577,6 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
         ],
         "the restore staged first did not survive a refused one"
     );
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// Two stagings write the same files. A request dropped by a proxy leaves its
@@ -619,7 +584,7 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
 /// first one remove, or overwrite, what the second has just checked.
 #[tokio::test]
 async fn a_restore_is_staged_one_at_a_time() {
-    let (app, dir) = app_with_files("one-at-a-time").await;
+    let (app, _dir) = app_with_files("one-at-a-time").await;
     let file = backup::create(&app.state, "manual").await.unwrap();
 
     let held = app.state.jobs.try_lock("restore").expect("the restore lock");
@@ -630,8 +595,6 @@ async fn a_restore_is_staged_one_at_a_time() {
     drop(held);
 
     backup::stage_restore(&app.state, &file.name).await.unwrap();
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A newer binary may stage a restore and an older one make the next start.
@@ -658,8 +621,6 @@ async fn a_pending_database_from_a_newer_schema_is_not_applied() {
 
     assert!(!backup::apply_pending_restore(&config).await.unwrap(), "a newer schema was applied");
     assert_eq!(media_count(&config).await, 1, "the live database did not survive");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A process killed mid-backup or mid-staging leaves files no later pass takes
@@ -695,15 +656,13 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     left.sort();
     assert_eq!(left, [".keep".to_string(), file.name], "a leftover survived, or more went");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a staged file survived");
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 // ------------------------------------------------------------------- API
 
 #[tokio::test]
 async fn the_api_takes_lists_and_deletes_a_backup() {
-    let (app, dir) = app_with_files("api").await;
+    let (app, _dir) = app_with_files("api").await;
 
     let created = app.post("/api/v1/backups", serde_json::json!({})).await;
     let name = created.assert_ok()["name"].as_str().unwrap().to_string();
@@ -731,13 +690,11 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     let deleted = app.delete(&format!("/api/v1/backups/{name}")).await;
     deleted.assert_ok();
     assert!(backup::list(&app.state).is_empty());
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
 async fn a_download_cannot_walk_out_of_the_backup_directory() {
-    let (app, dir) = app_with_files("traversal").await;
+    let (app, _dir) = app_with_files("traversal").await;
 
     // The archives sit in the same directory as the master key, so this is the
     // one place a caller picks a path on the server's filesystem.
@@ -750,8 +707,6 @@ async fn a_download_cannot_walk_out_of_the_backup_directory() {
         let response = app.get(&format!("/api/v1/backups/{hostile}")).await;
         assert_eq!(response.status, axum::http::StatusCode::NOT_FOUND, "{hostile} was not refused");
     }
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 // ------------------------------------------------- what bounds the list
@@ -762,7 +717,7 @@ async fn a_download_cannot_walk_out_of_the_backup_directory() {
 /// protect it.
 #[tokio::test]
 async fn the_retention_count_is_bounded_on_both_sides() {
-    let (app, dir) = app_with_files("retention-bounds").await;
+    let (app, _dir) = app_with_files("retention-bounds").await;
 
     for value in ["1", "7", "50"] {
         let response = app
@@ -787,8 +742,6 @@ async fn the_retention_count_is_bounded_on_both_sides() {
             "a retention of {value} should be refused"
         );
     }
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// Pruning only after a backup is taken would leave every archive above the new
@@ -821,8 +774,6 @@ async fn lowering_the_retention_takes_effect_immediately() {
     // Newest kept, oldest gone.
     assert!(left.contains(&"routarr-backup-20260104-000000.zip".to_string()));
     assert!(!left.contains(&"routarr-backup-20260101-000000.zip".to_string()));
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
@@ -872,8 +823,6 @@ async fn an_archive_without_the_master_key_says_so() {
     // it: this is what the interface warns on.
     let staged = backup::stage_restore(&app.state, &file.name).await.unwrap();
     assert!(!staged.includes_master_key);
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// A backup that fails is retried on its own cadence, not on every tick.

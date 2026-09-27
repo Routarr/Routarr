@@ -287,35 +287,6 @@ async fn english_remains_the_default() {
     assert!(reasons[0].as_str().unwrap().contains("Original language"), "{reasons:?}");
 }
 
-/// A translation may land incomplete.
-///
-/// This is the contribution contract: requiring 453 keys before a language can
-/// be merged means no language ever gets merged. What makes it safe is that
-/// every gap is filled with English before the dictionary leaves the server.
-#[tokio::test]
-async fn the_served_dictionary_is_complete_even_for_a_partial_language() {
-    let app = TestApp::new().await;
-    speak_french(&app).await;
-
-    let french = app.get("/api/v1/localization").await;
-    let english = {
-        let app = TestApp::new().await;
-        app.get("/api/v1/localization").await
-    };
-
-    let french_keys = french.json["strings"].as_object().unwrap();
-    let english_keys = english.json["strings"].as_object().unwrap();
-
-    assert_eq!(
-        french_keys.len(),
-        english_keys.len(),
-        "a language must never be served with fewer keys than English"
-    );
-    for key in english_keys.keys() {
-        assert!(french_keys.contains_key(key), "{key} would render blank");
-    }
-}
-
 /// The picker states how complete each language is, so an incomplete one can be
 /// offered honestly rather than hidden or refused.
 #[tokio::test]

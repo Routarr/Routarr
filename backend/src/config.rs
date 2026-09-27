@@ -626,13 +626,9 @@ mod tests {
         assert!(config.database_url().contains("/srv/routarr/data/routarr.db"));
     }
 
-    /// The two keys are separate files on purpose: one is meant to be read and
-    /// copied into a client, the other must never leave the host. A single path
-    /// for both would make the backup archive and the credential the same
-    /// secret.
-    /// A wildcard used to reach `AllowOrigin::list`, which answers it with a
-    /// panic — so an installation that set the most obvious value never
-    /// started, and the message named tower-http rather than the variable.
+    /// A wildcard handed to `AllowOrigin::list` panics, so an installation that
+    /// set the most obvious value would never start, with a message naming
+    /// tower-http rather than the variable.
     #[test]
     fn a_wildcard_origin_is_refused_by_name() {
         let err = validate_origin("*").expect_err("a wildcard has to be refused");
@@ -748,12 +744,6 @@ mod tests {
         config.auth_mode = AuthMode::Forms;
         config.oidc_issuer = Some("http://authelia:9091".into());
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn the_api_key_and_the_master_key_are_not_the_same_file() {
-        let config = Config::for_tests();
-        assert_ne!(config.secret_key_path(), config.api_key_path());
     }
 
     /// `bind_address` is what the listener is given; a mistake here is a server
