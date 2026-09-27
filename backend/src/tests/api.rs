@@ -3,7 +3,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
-use super::{TestApp, warning_messages};
+use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 use tower::ServiceExt;
 
 // ------------------------------------------------------------ authentication
@@ -1108,6 +1108,73 @@ async fn superseded_decisions_are_hidden_by_default() {
 
     let all = app.get("/api/v1/decisions?include_superseded=true").await.assert_ok().clone();
     assert_eq!(all["pagination"]["total"], 2);
+}
+
+/// Deleting an instance takes its proposals with it: they would move titles
+/// that no longer exist, and the dashboard would go on counting them. What was
+/// applied stays, since the history is the record of a write that happened.
+#[tokio::test]
+async fn deleting_an_instance_retires_its_proposals_and_keeps_its_history() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         target_category, action, status)
+         VALUES ('d-applied', 'm-1', 'My Neighbor Totoro', 'movie', 'inst-1', 'anime', 'move',
+                 'applied')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 1, "the fixture must propose a move");
+
+    app.delete("/api/v1/instances/inst-1").await.assert_ok();
+
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 0, "{pending}");
+    let status = app.get("/api/v1/status").await.assert_ok().clone();
+    assert_eq!(status["pending_decisions"], 0);
+    let applied = app.get("/api/v1/decisions?status=applied").await.assert_ok().clone();
+    assert_eq!(applied["pagination"]["total"], 1, "the history is kept: {applied}");
+}
+
+/// An instance deleted before deletion retired its proposals left them
+/// pending: the upgrade retires those, and leaves alone the proposals of an
+/// instance that exists and whatever was applied.
+#[tokio::test]
+async fn an_upgrade_retires_the_proposals_of_an_instance_already_deleted() {
+    let pool = database_through("003_metadata_sources").await;
+    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
+    for (id, instance, status) in [
+        ("d-applied", "inst-gone", "applied"),
+        ("d-kept", "inst-1", "pending"),
+        ("d-orphan", "inst-gone", "pending"),
+    ] {
+        sqlx::query(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+             target_category, action, status)
+             VALUES (?, 'm-1', 'My Neighbor Totoro', 'movie', ?, 'anime', 'move', ?)",
+        )
+        .bind(id)
+        .bind(instance)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let retired: Vec<(String, bool)> =
+        sqlx::query_as("SELECT id, superseded FROM decisions ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let expected = [("d-applied", false), ("d-kept", false), ("d-orphan", true)];
+    assert_eq!(retired, expected.map(|(id, flag)| (id.to_string(), flag)));
 }
 
 // ------------------------------------------------------------ media

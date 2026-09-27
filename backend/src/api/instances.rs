@@ -102,12 +102,16 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // One transaction: the proposals go with the instance or not at all.
+    let mut tx = state.pool.begin().await?;
+    crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
     let result =
-        sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&state.pool).await?;
+        sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&mut *tx).await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Instance {id} not found")));
     }
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
