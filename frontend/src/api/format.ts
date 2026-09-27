@@ -51,6 +51,13 @@ function byteSymbol(locale: string): string | undefined {
   return symbol.length > 0 && symbol.length <= 2 ? symbol : undefined;
 }
 
+/**
+ * The language setting as `Intl` reads it. The dictionaries are named
+ * `nb_NO` or `zh_TW`, and `Intl` refuses the underscore: each formatter would
+ * throw, and fall back to the server's English.
+ */
+const bcp47 = (language: string) => language.replace('_', '-');
+
 /** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
@@ -68,7 +75,7 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 
   const digits = unit === 0 ? 0 : 1;
   try {
-    const locale = language.replace('_', '-');
+    const locale = bcp47(language);
     const options = {
       style: 'unit',
       unit: units[unit],
@@ -132,7 +139,7 @@ export function describeCondition(condition: Condition, words: ConditionWords): 
 export function formatPercent(value: number | null | undefined, language: string): string {
   const ratio = Math.min(1, Math.max(0, value ?? 0));
   try {
-    return new Intl.NumberFormat(language.replace('_', '-'), {
+    return new Intl.NumberFormat(bcp47(language), {
       style: 'percent',
       maximumFractionDigits: 0,
     }).format(ratio);
@@ -167,7 +174,7 @@ export function formatTimestamp(
   if (Number.isNaN(parsed.getTime())) return value;
 
   try {
-    return new Intl.DateTimeFormat(language.replace('_', '-'), {
+    return new Intl.DateTimeFormat(bcp47(language), {
       dateStyle: 'short',
       timeStyle: 'short',
     }).format(parsed);
@@ -207,7 +214,7 @@ export function formatRelative(
     ['day', 7 * 86400],
   ];
   try {
-    const format = new Intl.RelativeTimeFormat(language.replace('_', '-'), { numeric: 'auto' });
+    const format = new Intl.RelativeTimeFormat(bcp47(language), { numeric: 'auto' });
     let previous = 1;
     for (const [unit, limit] of steps) {
       if (magnitude < limit) return format.format(Math.round(seconds / previous), unit);
@@ -232,7 +239,7 @@ export function localName(
   language: string,
 ): string | null {
   try {
-    const names = new Intl.DisplayNames([language], { type, fallback: 'none' });
+    const names = new Intl.DisplayNames([bcp47(language)], { type, fallback: 'none' });
     const name = names.of(type === 'region' ? code.toUpperCase() : code);
     return name ? `${name} (${code})` : null;
   } catch {

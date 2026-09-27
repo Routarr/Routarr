@@ -1602,6 +1602,40 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
     }
 }
 
+/// A Discord or Slack webhook URL carries its secret in the path: whoever reads
+/// it can post to the channel. A notification that fails is logged, and the
+/// line says why without the address.
+#[tokio::test]
+async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let app = TestApp::new().await;
+    let secret = "hook-secret-8d2e";
+    // Nothing listens on port 1, so the send fails in the transport.
+    let url = format!("http://127.0.0.1:1/api/webhooks/123/{secret}");
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('notification_webhook_url', ?)")
+        .bind(&url)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
+    crate::services::notify::send(&app.state, event)
+        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .await;
+
+    let log = capture.contents();
+    assert!(
+        log.contains("instance_recovered"),
+        "positive control: the failed notification was logged at all:\n{log}"
+    );
+    assert!(!log.contains(secret), "the webhook secret is in the log:\n{log}");
+}
+
 /// The token is the only credential of the only unauthenticated route, and the
 /// request span is on every line logged while a delivery is served — the error
 /// line an operator pastes into a ticket included. With it, anyone reading the

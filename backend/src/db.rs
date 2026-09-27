@@ -19,8 +19,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
-    if let Some(parent) = config.db_path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
+    if let Err(e) = std::fs::create_dir_all(&config.data_dir)
         && e.kind() != std::io::ErrorKind::AlreadyExists
     {
         // Said here, because the error SQLite gives afterwards is "unable to
@@ -28,7 +27,7 @@ pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
         // The shape this catches is the ordinary first run: Docker creates a
         // missing bind-mount directory owned by root, and the container is
         // uid 1000.
-        tracing::error!("Cannot create the data directory {}: {e}", parent.display());
+        tracing::error!("Cannot create the data directory {}: {e}", config.data_dir.display());
     }
 
     // PRAGMAs belong on the connect options: setting them with a one-off query

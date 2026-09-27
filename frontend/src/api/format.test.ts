@@ -18,6 +18,12 @@ describe('localName', () => {
   it('leaves a code the browser cannot name to the caller', () => {
     expect(localName('language', 'qaa', 'fr')).toBeNull();
   });
+
+  /** A shipped language code with a region is written with `_`, which Intl refuses. */
+  it('names in a language whose code carries a region', () => {
+    expect(localName('language', 'fr', 'nb_NO')).toBe('fransk (fr)');
+    expect(localName('region', 'JP', 'zh_TW')).toBe('日本 (JP)');
+  });
 });
 
 describe('formatBytes', () => {

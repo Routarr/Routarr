@@ -14,6 +14,7 @@
 use serde_json::json;
 use tracing::{debug, warn};
 
+use crate::integrations::send_ok;
 use crate::state::AppState;
 
 /// Something worth interrupting someone for.
@@ -95,15 +96,10 @@ pub async fn send(state: &AppState, event: Event) {
         "body": message,
     });
 
-    match state.http.post(url).json(&payload).send().await {
-        Ok(response) if response.status().is_success() => {
-            debug!(event = event.kind(), "Notification delivered")
-        }
-        Ok(response) => warn!(
-            event = event.kind(),
-            status = %response.status(),
-            "Notification webhook rejected the message"
-        ),
-        Err(e) => warn!(event = event.kind(), "Notification webhook unreachable: {e}"),
+    // Through `send_ok`, which says why a send failed without the address: a
+    // Discord or Slack webhook URL carries its secret in the path.
+    match send_ok("Notification webhook", state.http.post(url).json(&payload)).await {
+        Ok(()) => debug!(event = event.kind(), "Notification delivered"),
+        Err(e) => warn!(event = event.kind(), "Notification not delivered: {e}"),
     }
 }

@@ -305,6 +305,17 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
     let fallback = crate::state::AppState::default_category(&app.state.pool).await;
     assert_eq!(fallback, crate::state::DEFAULT_CATEGORY);
 
+    // The categories screen marks it as the default, as the engine uses it.
+    let listed = app.get("/api/v1/categories").await.assert_ok().clone();
+    let marked: Vec<&str> = listed
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|category| category["is_default"] == true)
+        .filter_map(|category| category["name"].as_str())
+        .collect();
+    assert_eq!(marked, [fallback.as_str()], "{listed}");
+
     // And the guard still protects it: deleting the category the engine falls
     // back to has to be refused, setting row or not. `standard` is seeded by
     // the schema, so it is already there to be deleted.
