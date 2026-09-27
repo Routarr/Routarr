@@ -6,16 +6,9 @@ const t = useTranslations(Astro.props.locale);
 
 /**
  * The context, in two halves: the gap stated in prose, then the four steps
- * that close it. They were two sections of the same weight side by side, which
- * put 4.1 phone screens of argument between the demonstration above and the
- * specifics below.
- *
- * The gap used to be drawn as a ledger of five films all landing in one
- * folder. That was the setup for a second ledger showing the same five routed,
- * and the contrast was the argument; with `explain` now opening the page the
- * second one only repeated it, and the first alone spent five rows saying
- * `/movies` five times. The heading and its sentence say it, and `explain`
- * shows it.
+ * that close it, in one section so the argument stays short between the
+ * demonstration above and the specifics below. The heading and its sentence
+ * state the gap, and the explanation section that follows shows it.
  *
  * The steps keep `id="how"` so the index's own entry still resolves. A
  * heading is not an anchor, and an index that points at a section the page no
@@ -33,7 +26,7 @@ const reading = (value: Key | string) => (value.includes(' ') && !value.startsWi
 
 <section id="why">
   <div class="wrap">
-    <div class="section-head section-head-tight">
+    <div class="section-head">
       <span class="eyebrow">{t('why.span')}</span>
       <h2 set:html={t('why.h2')} />
       {/* The gap, then the answer to it, in that order and as two paragraphs.

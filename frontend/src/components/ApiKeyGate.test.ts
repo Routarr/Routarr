@@ -24,7 +24,6 @@ const STRINGS = {
 const reload = vi.fn();
 
 beforeEach(() => {
-  localStorage.clear();
   // `location.reload` would navigate for real; the assertion is that it is
   // called, not what it does.
   Object.defineProperty(window, 'location', {

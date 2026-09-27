@@ -120,18 +120,27 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 
     // Two enrichment passes and a health probe: three separate occasions on
     // which the client is rebuilt. The token lives on the state, not the
-    // client, so exactly one login is spent on all three — TheTVDB counts them.
+    // client, so exactly one login is spent on all three, and TheTVDB counts
+    // them.
     enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
     let _ = app.get("/api/v1/health").await;
     enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
-    let logins = sources.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
+    let recorded = sources.recorded();
+    let logins = recorded.paths.iter().filter(|path| *path == "/tvdb/login").count();
     assert_eq!(logins, 1, "the token was re-fetched instead of reused");
+    // The PIN travels alongside the key: a user-supported key needs both.
+    assert!(
+        recorded
+            .credentials
+            .iter()
+            .any(|(source, value)| *source == "tvdb" && value == "tvdb-key/1234")
+    );
 }
 
-/// TheTVDB documents a month's validity, and the token was cached for the
-/// life of the process: after a month every read answered 401 — one per
-/// pending title per pass, `failed` climbing, and nothing naming the cause.
+/// TheTVDB documents a month's validity. A token kept past it answers 401 on
+/// every read, one per pending title per pass, `failed` climbing, and nothing
+/// naming the cause.
 #[tokio::test]
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
@@ -158,28 +167,6 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
             .await
             .unwrap();
     assert_eq!(cached, 2, "the read behind the expired token was not retried");
-}
-
-#[tokio::test]
-async fn thetvdb_logs_in_once_and_reads_with_the_token() {
-    let sources = FakeSources::start().await;
-    let app = library(&sources, "tvdb").await;
-
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-    // A second pass has nothing to fetch, but must not log in again either.
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-
-    let recorded = sources.recorded();
-    let logins = recorded.paths.iter().filter(|path| *path == "/tvdb/login").count();
-    assert_eq!(logins, 1, "the token is kept, not re-fetched per item");
-
-    // The PIN travels alongside the key: a user-supported key needs both.
-    assert!(
-        recorded
-            .credentials
-            .iter()
-            .any(|(source, value)| *source == "tvdb" && value == "tvdb-key/1234")
-    );
 }
 
 #[tokio::test]

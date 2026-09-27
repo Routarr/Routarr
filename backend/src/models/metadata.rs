@@ -23,9 +23,9 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    /// Every field a condition can read. Iterated rather than spelled out
-    /// again, so a variant added above cannot be forgotten by the two places
-    /// that decide whether an item is *known*.
+    /// Every field a condition can read, iterated by `merge` and by
+    /// `api::media::metadata_predicate`, so a variant added above cannot be
+    /// forgotten by either.
     pub const ALL: [MetadataField; 5] = [
         Self::Genres,
         Self::Keywords,
@@ -158,12 +158,11 @@ impl MediaMetadata {
         }
 
         // Known means *matchable*. A source that supplied only a synopsis, a
-        // status or a poster is still listed — it did answer, and the panel
-        // says so — but none of the three can be read by any condition, so an
-        // item holding nothing else is exactly as blind to the engine as one
-        // holding nothing at all. Counting them made the library list say
-        // "metadata" about an item no rule could ever touch, and made the two
-        // disagree the moment the pass stopped loading them.
+        // status or a poster is still listed, since it did answer and the
+        // panel says so, but no condition reads any of the three. An item
+        // holding nothing else is as blind to the engine as one holding
+        // nothing at all, and counting it would have the library list say
+        // "metadata" about an item no rule can touch.
         let matchable = MetadataField::ALL
             .iter()
             .any(|field| merged.field_sources.contains_key(field.as_str()));

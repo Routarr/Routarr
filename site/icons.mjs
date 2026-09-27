@@ -20,8 +20,8 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
-// Same resolution as verify.mjs: the site has no package.json of its own, and
-// is not going to grow one for a browser the frontend already depends on.
+// Same resolution as verify.mjs: Playwright is the frontend's dependency, and
+// the site does not repeat it.
 const require = createRequire(`${process.env.FRONTEND_DIR ?? `${ROOT}../frontend`}/package.json`);
 const { chromium } = require('@playwright/test');
 const svg = readFileSync(join(ROOT, 'public/assets/favicon.svg'), 'utf-8');

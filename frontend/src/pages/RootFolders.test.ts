@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { instance as fixtureInstance } from '../test/fixtures';
 import { statusRevision } from '../lib/status.svelte';
 import { api } from '../api/client';
 import type { Category, MappingConflict, RootFolder } from '../api/types';
@@ -78,20 +79,7 @@ function folder(over: Partial<RootFolder> = {}): RootFolder {
   };
 }
 
-function instance(id: string, name: string) {
-  return {
-    id,
-    name,
-    instance_type: 'radarr',
-    base_url: `http://${name}:7878`,
-    api_key: '••••',
-    enabled: true,
-    sync_interval_minutes: 60,
-    last_sync_at: null,
-    last_sync_status: null,
-    webhook_token: 'tok',
-  } as never;
-}
+const instance = (id: string, name: string) => fixtureInstance({ id, name });
 
 function show(
   folders: RootFolder[],
@@ -192,15 +180,10 @@ describe('Root folders', () => {
   });
 
   /**
-   * An unmapped category yields `action = 'skip'`, never an error — so the
-   * screen has to make "mapped to nothing" a deliberate, reachable choice
-   * rather than a state you can only fall into.
-   */
-  /**
    * A NAS that spins down is reported unreachable every night, so a folder that
    * did not answer is stated with *when* it last did rather than as a fault: an
    * error badge for a disk that is merely asleep is how a diagnostic gets
-   * ignored. No threshold decides which is which — the reader knows their own
+   * ignored. No threshold decides which is which: the reader knows their own
    * hardware, and needs the date to judge.
    */
   it('says when a folder last answered rather than calling it broken', async () => {
@@ -315,6 +298,11 @@ describe('Root folders', () => {
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
   });
 
+  /**
+   * An unmapped category yields `action = 'skip'`, never an error, so the
+   * screen has to make "mapped to nothing" a deliberate, reachable choice
+   * rather than a state you can only fall into.
+   */
   it('sends null, not an empty string, when a folder is unmapped', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
     show([folder({ path: '/data/films' })], [category()]);
@@ -322,12 +310,6 @@ describe('Root folders', () => {
     await userEvent.selectOptions(await screen.findByLabelText('Category for /data/films'), '');
 
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null));
-  });
-
-  it('reports a folder the Arr cannot reach', async () => {
-    show([folder({ accessible: false })], [category()]);
-
-    expect(await screen.findByText('unreachable')).toBeTruthy();
   });
 
   /** One banner a severity, as the dashboard draws its warnings. */

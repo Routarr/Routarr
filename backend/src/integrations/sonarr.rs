@@ -127,8 +127,8 @@ impl SonarrClient {
     }
 
     /// One series by id. A 404 surfaces as `ExternalApi { status: 404 }`.
-    pub async fn get_series_one(&self, id: i64) -> AppResult<Option<SonarrSeries>> {
-        send_json(SERVICE, self.get(&format!("/api/v3/series/{id}"))).await.map(Some)
+    pub async fn get_series_one(&self, id: i64) -> AppResult<SonarrSeries> {
+        send_json(SERVICE, self.get(&format!("/api/v3/series/{id}"))).await
     }
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<SonarrRootFolder>> {

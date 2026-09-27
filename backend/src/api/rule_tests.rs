@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::services::enrichment;
 use crate::services::routing;
+use crate::services::rule_engine::EvalContext;
 use crate::services::rule_tests::{self, NewRuleTest, RuleTest, RuleTestRun};
 use crate::state::AppState;
 
@@ -39,7 +40,8 @@ pub async fn create(
     // The instant is pinned with the fixture: `now` is an input — it is what
     // `added_within_days` compares against — so a case borrowing the wall clock
     // would answer a different question every day and eventually fail alone.
-    let evaluated_at = routing::format_timestamp(chrono::Utc::now());
+    let now = chrono::Utc::now();
+    let evaluated_at = routing::format_timestamp(now);
 
     // Default to what the engine decides today, which is what makes pinning a
     // decision one click from the explanation panel.
@@ -47,15 +49,9 @@ pub async fn create(
         Some(category) if !category.trim().is_empty() => category,
         _ => {
             let rules = routing::load_rules(&state.pool).await?;
-            let ctx = crate::services::rule_engine::EvalContext {
-                media: &media,
-                metadata: metadata.as_ref(),
-                now: chrono::Utc::now(),
-            };
-            crate::services::rule_engine::evaluate_rules(ctx, &rules, None)
-                .winner
-                .map(|w| w.category)
-                .unwrap_or(AppState::default_category(&state.pool).await)
+            let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
+            let default_category = AppState::default_category(&state.pool).await;
+            rule_tests::decided_by_rules(ctx, &rules, &default_category).0
         }
     };
 

@@ -23,7 +23,7 @@ use crate::error::{AppError, AppResult};
 /// The name the generated account carries. One account, so it needs no other.
 pub const DEFAULT_USERNAME: &str = "admin";
 
-/// How long a session lasts without use, renewed on every request that uses it.
+/// How long a session lasts without use, extended by the requests that use it.
 ///
 /// Seven days, the value Radarr's cookie carries, and sliding for the same
 /// reason: a tab left open over a weekend should not ask again on Monday.
@@ -490,8 +490,7 @@ mod tests {
     #[tokio::test]
     async fn the_account_is_created_once_and_keeps_its_password() {
         let pool = crate::db::test_pool().await;
-        let dir = std::env::temp_dir().join(format!("routarr-accounts-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("accounts");
         let path = dir.join("routarr.password");
 
         ensure_account(&pool, &path).await.unwrap();
@@ -504,8 +503,6 @@ mod tests {
         ensure_account(&pool, &path).await.unwrap();
         let (_, again) = account(&pool).await.unwrap().unwrap();
         assert_eq!(hash, again);
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]
@@ -525,8 +522,7 @@ mod tests {
     #[tokio::test]
     async fn changing_the_password_ends_the_sessions_it_opened() {
         let pool = crate::db::test_pool().await;
-        let dir = std::env::temp_dir().join(format!("routarr-accounts-pw-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("accounts-pw");
         ensure_account(&pool, &dir.join("routarr.password")).await.unwrap();
 
         let id = open_session(&pool, "admin", "forms").await.unwrap();
@@ -535,8 +531,6 @@ mod tests {
         assert!(session_subject(&pool, &id, "forms").await.unwrap().is_none());
         let (_, hash) = account(&pool).await.unwrap().unwrap();
         assert!(verify_password("a new one", &hash));
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[tokio::test]

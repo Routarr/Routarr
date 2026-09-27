@@ -21,9 +21,9 @@ export interface Instance {
   api_key_encrypted: boolean;
   enabled: boolean;
   sync_interval_minutes: number;
-  /// When a sync last *succeeded*. Null while none ever has.
+  /** When a sync last *succeeded*. Null while none ever has. */
   last_sync_at: string | null;
-  /// When one was last attempted, successful or not.
+  /** When one was last attempted, successful or not. */
   last_sync_attempt_at: string | null;
   last_sync_status: string | null;
   webhook_url: string | null;
@@ -108,28 +108,36 @@ export interface ConditionSpec {
   label: string;
   value_type: 'string' | 'string_list' | 'number' | 'number_list' | 'boolean' | 'year_range';
   needs_metadata: boolean;
-  /// The metadata field it reads, if any.
+  /** The metadata field it reads, if any. */
   metadata_field: string | null;
-  /// Whether an enabled source provides that field. A condition can be listed
-  /// and unanswerable, and the builder says which.
+  /**
+   * Whether an enabled source provides that field. A condition can be listed
+   * and unanswerable, and the builder says which.
+   */
   available: boolean;
-  /// The media types this condition can ever match on. Radarr reports no
-  /// `tvdbId`, no `seriesType` and no seasons, so three conditions are
-  /// series-only and would never fire on a film.
+  /**
+   * The media types this condition can ever match on. Radarr reports no
+   * `tvdbId`, no `seriesType` and no seasons, so three conditions are
+   * series-only and would never fire on a film.
+   */
   media_types: string[];
-  /// The `LibraryFacets` axis its values are drawn from, empty when the library
-  /// cannot enumerate them — a keyword or a title fragment is not a closed set.
+  /**
+   * The `LibraryFacets` axis its values are drawn from, empty when the library
+   * cannot enumerate them — a keyword or a title fragment is not a closed set.
+   */
   suggestions: string;
-  /// How this condition's values combine — `any` or `all` — and the kind asking
-  /// the same question the other way. Both empty where the media side is a
-  /// single value, which cannot be asked for "all of".
+  /**
+   * How this condition's values combine — `any` or `all` — and the kind asking
+   * the same question the other way. Both empty where the media side is a
+   * single value, which cannot be asked for "all of".
+   */
   quantifier: string;
   counterpart: string;
 }
 
 export interface Localization {
   language: string;
-  /// `ltr` or `rtl` for `language`, decided by the backend.
+  /** `ltr` or `rtl` for `language`, decided by the backend. */
   direction: 'ltr' | 'rtl';
   strings: Record<string, string>;
 }
@@ -161,12 +169,10 @@ export interface AuthMode {
   api_key_pinned: boolean;
 }
 
-/** What a restore answers with — staged, not applied until the next start. */
+/** What a restore answers with: staged, not applied until the next start. */
 export interface RestoreResult {
   /** What the archive said about itself: the version and schema it was taken
-   *  from, and when. The interface shows only `restart_required` today; the
-   *  manifest is declared because the response really does carry it, and
-   *  because it is what a "restored from a newer Routarr" message would read. */
+   *  from, and when. The backup card reads its `includes_master_key`. */
   manifest: BackupManifest;
   restart_required: boolean;
 }
@@ -181,18 +187,20 @@ export interface BackupManifest {
 
 export interface BackupList {
   backups: BackupFile[];
-  /// How many are kept before the oldest is pruned.
+  /** How many are kept before the oldest is pruned. */
   retention_count: number;
 }
 
 export interface MetadataProvider {
   id: string;
   display_name: string;
-  /// False for a source whose data arrives with the library sync.
+  /** False for a source whose data arrives with the library sync. */
   fetched: boolean;
   needs_key: boolean;
-  /// The environment variable its credential comes from, so the interface can
-  /// name it instead of saying "a key is missing".
+  /**
+   * The environment variable its credential comes from, so the interface can
+   * name it instead of saying "a key is missing".
+   */
   key_env: string | null;
   configured: boolean;
   fields: string[];
@@ -200,7 +208,7 @@ export interface MetadataProvider {
 
 export interface MetadataProviders {
   providers: MetadataProvider[];
-  /// Enabled sources, highest priority first; anything absent is off.
+  /** Enabled sources, highest priority first; anything absent is off. */
   order: string[];
 }
 
@@ -212,10 +220,12 @@ export interface ConditionCatalog {
 export interface ValidationIssue {
   severity: 'error' | 'warning';
   field: string;
-  /// The dictionary key the message was written from, which says what kind
-  /// of issue it is without reading the message.
+  /**
+   * The dictionary key the message was written from, which says what kind
+   * of issue it is without reading the message.
+   */
   key: string;
-  /// The values the message was written with, by placeholder.
+  /** The values the message was written with, by placeholder. */
   params: Record<string, string>;
   message: string;
 }
@@ -291,7 +301,7 @@ export interface Decision {
 }
 
 export interface SimulationResult extends SimulationSummary {
-  /// One entry per destination this plan feeds, worst first.
+  /** One entry per destination this plan feeds, worst first. */
   capacity: CapacityForecast[];
   simulation_id: string;
   returned: number;
@@ -340,7 +350,7 @@ export interface MediaListItem {
   has_metadata: boolean;
 }
 
-/// Every enabled source collapsed in priority order, not one provider's answer.
+/** Every enabled source collapsed in priority order, not one provider's answer. */
 export interface MediaMetadata {
   genres: string[];
   keywords: string[];
@@ -350,21 +360,21 @@ export interface MediaMetadata {
   status: string | null;
   overview: string | null;
   poster_path: string | null;
-  /// Field name -> the source that supplied it.
+  /** Field name -> the source that supplied it. */
   field_sources: Record<string, string>;
-  /// Sources that supplied at least one field, highest priority first.
+  /** Sources that supplied at least one field, highest priority first. */
   sources: string[];
 }
 
 export interface ConditionOutcome {
   kind: string;
   matched: boolean;
-  /// The dictionary key and values `expected` was written from.
+  /** The dictionary key and values `expected` was written from. */
   key: string;
   params: Record<string, string>;
   expected: string;
   observed: string;
-  /// Which metadata source the observed value came from, when it reads one.
+  /** Which metadata source the observed value came from, when it reads one. */
   source?: string | null;
 }
 
@@ -406,7 +416,7 @@ export interface OverrideEntry {
 export interface Job {
   id: string;
   kind: string;
-  status: 'queued' | 'running' | 'success' | 'failed';
+  status: 'running' | 'success' | 'failed';
   trigger: string;
   instance_id: string | null;
   detail: string | null;
@@ -489,7 +499,6 @@ export interface Health {
   };
 }
 
-/** What a connection probe reports. `app_name` is null for an Arr that does not say. */
 /** Values typed in the instance form, tried before anything is saved. */
 export interface InstanceProbe {
   instance_type: 'radarr' | 'sonarr';
@@ -499,6 +508,7 @@ export interface InstanceProbe {
   id: string | undefined;
 }
 
+/** What a connection probe reports. `app_name` is null for an Arr that does not say. */
 export interface TestConnectionResponse {
   success: boolean;
   version: string;
@@ -566,7 +576,7 @@ export interface RuleTestResult {
   id: string;
   name: string;
   expected_category: string;
-  /// Where the engine puts it today. Null only when the snapshot stopped parsing.
+  /** Where the engine puts it today. Null only when the snapshot stopped parsing. */
   actual_category: string | null;
   passed: boolean;
   matched_rule: string | null;
@@ -585,9 +595,9 @@ export interface CapacityForecast {
   instance_id: string;
   instance_name: string | null;
   path: string;
-  /// Bytes crossing from another filesystem — the only traffic that consumes space.
+  /** Bytes crossing from another filesystem — the only traffic that consumes space. */
   incoming_bytes: number;
-  /// Bytes moving within one filesystem, where a move is a rename and costs nothing.
+  /** Bytes moving within one filesystem, where a move is a rename and costs nothing. */
   same_filesystem_bytes: number;
   free_bytes: number;
   items: number;
@@ -603,12 +613,12 @@ export interface RuleHealth {
   won: number;
   shadowed: number;
   vetoed: number;
-  /// Set only when the rule never wins: the rule taking most of what it matched.
+  /** Set only when the rule never wins: the rule taking most of what it matched. */
   shadowed_by: string | null;
   matched_nothing: boolean;
-  /// Another rule with the same name *and* priority: the tie falls to the id.
+  /** Another rule with the same name *and* priority: the tie falls to the id. */
   ambiguous_with: string | null;
-  /// Another rule with identical conditions and target.
+  /** Another rule with identical conditions and target. */
   duplicate_of: string | null;
 }
 
@@ -619,21 +629,29 @@ export interface RuleHealthReport {
 
 /** One value present in the library, and how many items carry it. */
 export interface Facet {
-  /// What a rule stores and the engine compares — never the displayed text: a
-  /// language is matched on `ja`, however it is shown.
+  /**
+   * What a rule stores and the engine compares — never the displayed text: a
+   * language is matched on `ja`, however it is shown.
+   */
   value: string;
-  /// What to show instead of `value`, where the two differ. Absent for a genre,
-  /// which is its own label.
+  /**
+   * What to show instead of `value`, where the two differ. Absent for a genre,
+   * which is its own label.
+   */
   label?: string;
   count: number;
-  /// What the value means, where several values mean the same thing, as
-  /// certification codes of several countries do.
+  /**
+   * What the value means, where several values mean the same thing, as
+   * certification codes of several countries do.
+   */
   group?: string;
 }
 
-/// Values a condition may hold that the library does not define. A genre means
-/// what the library says it means; a language is an ISO code from a fixed table,
-/// and offering only the ones already synced would hide the rest.
+/**
+ * Values a condition may hold that the library does not define. A genre means
+ * what the library says it means; a language is an ISO code from a fixed table,
+ * and offering only the ones already synced would hide the rest.
+ */
 export interface Vocabularies {
   original_languages: Facet[];
   origin_countries: Facet[];
@@ -643,8 +661,10 @@ export interface Vocabularies {
 export interface LibraryFacets {
   total_media: number;
   vocabularies: Vocabularies;
-  /// Carrying neither a genre nor an original language — invisible to every
-  /// condition that reads metadata.
+  /**
+   * Carrying neither a genre nor an original language — invisible to every
+   * condition that reads metadata.
+   */
   without_metadata: number;
   genres: Facet[];
   original_languages: Facet[];

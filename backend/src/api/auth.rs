@@ -236,7 +236,7 @@ fn extract_key(headers: &HeaderMap) -> Option<String> {
 }
 
 /// Compare without leaking the position of the first differing byte.
-fn constant_time_eq(a: &str, b: &str) -> bool {
+pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     a.len() == b.len() && a.ct_eq(b).into()
 }
@@ -549,13 +549,7 @@ pub async fn change_password(
     let current_matches: bool =
         state.sign_in.verify(&change.current, &hash).await.unwrap_or_default();
     if !current_matches {
-        return (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(
-                serde_json::json!({ "error": "unauthorized", "message": "Wrong username or password." }),
-            ),
-        )
-            .into_response();
+        return unauthorized();
     }
     if change.new_password.chars().count() < MIN_PASSWORD_LENGTH {
         return (
@@ -598,7 +592,7 @@ fn session_cookie(state: &AppState, headers: &HeaderMap, id: &str, days: i64) ->
 }
 
 /// Every cookie this application sets, with the same scope and the same
-/// guards; `max_age` 0 clears it.
+/// guards. A `max_age` of 0 clears it.
 fn cookie_header(
     state: &AppState,
     headers: &HeaderMap,
@@ -606,11 +600,7 @@ fn cookie_header(
     value: &str,
     max_age: i64,
 ) -> String {
-    let path = if state.config.base_path.is_empty() {
-        "/".to_string()
-    } else {
-        format!("{}/", state.config.base_path)
-    };
+    let path = home(state);
     let secure = if came_over_tls(state, headers) { "; Secure" } else { "" };
     format!("{name}={value}; Path={path}; HttpOnly; SameSite=Lax; Max-Age={max_age}{secure}")
 }

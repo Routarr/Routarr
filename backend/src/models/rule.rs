@@ -66,8 +66,10 @@ impl std::str::FromStr for MatchMode {
 
 /// A single condition that can be evaluated against media metadata.
 ///
-/// Serialized as `{"type": "genre_contains", "value": [...]}`. Adding a variant
-/// means updating `evaluate_single_condition` and the rule builder UI too.
+/// Serialized as `{"type": "genre_contains", "value": [...]}`. A new variant
+/// needs `kind`, `is_empty`, `metadata_field`, an arm in
+/// `evaluate_single_condition`, a `CONDITIONS` entry in `api::conditions` and
+/// a `ConditionLabel` key. The rule builder reads the catalogue.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "value")]
 pub enum Condition {
@@ -186,7 +188,7 @@ pub enum Condition {
     #[serde(rename = "monitored")]
     Monitored(bool),
 
-    /// Whether external metadata could be resolved at all.
+    /// Whether any source, the Arr included, supplied a field a condition reads.
     #[serde(rename = "has_metadata")]
     HasMetadata(bool),
 }

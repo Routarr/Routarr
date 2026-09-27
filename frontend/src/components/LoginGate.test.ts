@@ -46,8 +46,10 @@ describe('LoginGate', () => {
     expect(login).toHaveBeenCalledWith('admin', 'deadbeef');
   });
 
-  /// A refusal has to reach the screen: swallowed, a wrong password looks like
-  /// a button that does nothing.
+  /**
+   * A refusal has to reach the screen: swallowed, a wrong password looks like
+   * a button that does nothing.
+   */
   it('shows the refusal rather than swallowing it', async () => {
     vi.spyOn(api, 'login').mockRejectedValue(
       new ApiError('Wrong username or password.', 401, 'unauthorized'),
@@ -60,8 +62,10 @@ describe('LoginGate', () => {
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
   });
 
-  /// Nothing to type: the provider decides, and the browser has to leave this
-  /// origin, so the control is a link and not a button calling fetch.
+  /**
+   * Nothing to type: the provider decides, and the browser has to leave this
+   * origin, so the control is a link and not a button calling fetch.
+   */
   it('offers the provider instead of a password field in oidc mode', () => {
     renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });
 
@@ -70,8 +74,10 @@ describe('LoginGate', () => {
     expect(screen.queryByLabelText('Password')).toBeNull();
   });
 
-  /// The gate renders inside `App`, whose router listens to every click on the
-  /// page. The link is only a way out if that listener lets it go.
+  /**
+   * The gate renders inside `App`, whose router listens to every click on the
+   * page. The link is only a way out if that listener lets it go.
+   */
   it('lets the provider link leave the page with the router listening', async () => {
     const stop = interceptLinks();
     renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });

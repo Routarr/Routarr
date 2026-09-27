@@ -1,9 +1,10 @@
-//! The only code that writes to Radarr/Sonarr.
+//! The only code that writes to Radarr or Sonarr.
 //!
-//! Guardrails, in order: global dry-run, batch limit, explicit confirmation past
-//! a threshold, and per-decision revalidation right before the call. Moves are
-//! grouped so a batch of 200 films landing in the same folder is one Radarr call
-//! rather than 200.
+//! Guardrails, in order: global dry-run, batch limit, the destinations'
+//! reachability and free space, explicit confirmation past a threshold, and
+//! per-decision revalidation right before the call. Moves are grouped so a
+//! batch of 200 films landing in the same folder is one Radarr call rather
+//! than 200.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
@@ -49,6 +50,14 @@ struct PendingMove {
     to: String,
     /// Full on-disk path as Routarr last saw it, used to rebuild it after a move.
     current_path: Option<String>,
+}
+
+impl From<MoveRow> for PendingMove {
+    fn from(
+        (decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path): MoveRow,
+    ) -> Self {
+        Self { decision_id, media_id, media_title, instance_id, arr_id, from, to, current_path }
+    }
 }
 
 /// The names a guardrail asks under.
@@ -116,11 +125,11 @@ pub async fn apply_decisions(
 ) -> AppResult<ApplyReport> {
     guard_dry_run(state).await?;
     // The limit first: it is a count, so it costs no query, and it keeps a
-    // list longer than one statement can bind from ever reaching one — the
-    // capacity guard spells the ids out. Then capacity before the threshold,
-    // because a destination that cannot hold the plan is a graver thing to be
-    // told than a count. Answering one no longer answers the other: each asks
-    // under its own name and reads only that name back.
+    // list longer than one statement can bind from ever reaching one, since
+    // the capacity guard spells the ids out. Then capacity before the
+    // threshold, because a destination that cannot hold the plan is a graver
+    // thing to be told than a count. Each asks under its own name and reads
+    // only that name back, so answering one never answers the other.
     guard_batch_limit(state, decision_ids.len()).await?;
     // Reachability before capacity: a destination that is not answering at all
     // is a graver thing to be told than one that may be short of room, and the
@@ -173,17 +182,15 @@ pub async fn apply_simulation_in_batches(
     }
 
     if !confirmed.has(confirm::BATCH) {
-        // This path always asks, so a second gate on capacity would be waved
-        // through by the same flag. The shortfall is carried *into* the one
-        // question instead — a confirmation that omits the graver fact is worse
-        // than no confirmation, because it looks like the fact was considered.
+        // This path always asks, so a separate gate on reachability or
+        // capacity would be waved through by the same flag. Both graver facts
+        // are carried *into* the one question instead: a confirmation that
+        // omits one is worse than none, because it looks like it was
+        // considered.
         let mut message = localizer.translate(
             "ErrorConfirmationRequired",
             &[("count", &ids.len().to_string()), ("threshold", "0")],
         );
-        // Both graver facts are carried *into* the one question rather than
-        // left for a second round trip: a confirmation that omits one looks
-        // like it was considered.
         for check in [
             guard_reachable(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
                 .await,
@@ -381,8 +388,6 @@ async fn run_apply(
 }
 
 /// Roll applied decisions back to the root folder they came from.
-///
-/// Spec: "possibilité d'annuler ou de rejouer certaines opérations".
 pub async fn revert_decisions(
     state: &AppState,
     decision_ids: &[String],
@@ -522,8 +527,7 @@ async fn execute_moves(
             }
         }
 
-        // Spec: "rafraîchissement ou rescan si nécessaire". Best effort — a
-        // failed rescan does not invalidate a successful move.
+        // Best effort: a failed rescan does not invalidate a successful move.
         if refresh_after_move
             && !succeeded_ids.is_empty()
             && let Err(e) = adapter.refresh(&succeeded_ids).await
@@ -583,7 +587,6 @@ async fn record_success(
     log_execution(
         pool,
         by,
-        &mv.decision_id,
         match direction {
             MoveDirection::Forward => "move",
             MoveDirection::Revert => "revert",
@@ -599,7 +602,7 @@ async fn record_success(
 /// The two rows a successful move changes, written together.
 ///
 /// `moved_at` is what stops a synchronisation that read the Arr *before* this
-/// move from putting the old path back — see migration 007.
+/// move from putting the old path back (`upsert_media` in `services/sync.rs`).
 async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,
@@ -643,8 +646,7 @@ async fn record_failure(state: &AppState, mv: &PendingMove, message: &str, by: &
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
-    log_execution(&state.pool, by, &mv.decision_id, "move", "failed", false, Some(message), mv)
-        .await;
+    log_execution(&state.pool, by, "move", "failed", false, Some(message), mv).await;
 }
 
 /// Refuse everything while the global dry-run switch is on.
@@ -953,21 +955,7 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
         }
     }
 
-    Ok(current
-        .into_iter()
-        .map(|(decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path)| {
-            PendingMove {
-                decision_id,
-                media_id,
-                media_title,
-                instance_id,
-                arr_id,
-                from,
-                to,
-                current_path,
-            }
-        })
-        .collect())
+    Ok(current.into_iter().map(PendingMove::from).collect())
 }
 
 async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {
@@ -999,23 +987,7 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
         query = query.bind(id);
     }
 
-    Ok(query
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|(decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path)| {
-            PendingMove {
-                decision_id,
-                media_id,
-                media_title,
-                instance_id,
-                arr_id,
-                from,
-                to,
-                current_path,
-            }
-        })
-        .collect())
+    Ok(query.fetch_all(pool).await?.into_iter().map(PendingMove::from).collect())
 }
 
 /// Re-root a media path under a new root folder, keeping its own folder name.
@@ -1032,11 +1004,9 @@ fn relocate(current_path: &str, new_root: &str) -> String {
     if name.is_empty() { root.to_string() } else { format!("{root}{separator}{name}") }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn log_execution(
     pool: &SqlitePool,
     by: &Attribution,
-    decision_id: &str,
     action: &str,
     details: &str,
     success: bool,
@@ -1049,7 +1019,7 @@ async fn log_execution(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
-    .bind(decision_id)
+    .bind(&mv.decision_id)
     .bind(action)
     .bind(details)
     .bind(success)
@@ -1062,7 +1032,7 @@ async fn log_execution(
     .execute(pool)
     .await;
     if let Err(e) = written {
-        error!(decision = %decision_id, "The execution log entry could not be written: {e}");
+        error!(decision = %mv.decision_id, "The execution log entry could not be written: {e}");
     }
 }
 

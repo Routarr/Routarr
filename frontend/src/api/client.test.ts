@@ -51,7 +51,6 @@ function fetchCall(spy: ReturnType<typeof mockFetch>, index = 0) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  localStorage.clear();
 });
 
 describe('api key storage', () => {
@@ -215,19 +214,19 @@ describe('request bodies', () => {
 /**
  * The whole surface, swept.
  *
- * `client.ts` is ninety one-line methods that interpolate their arguments into
- * a path. The failure mode is not a type error — it is an argument landing in
- * the wrong hole, which produces `/instances/[object Object]` and a 404 the
- * caller reports as "not found". Nothing in the type system objects, and no
- * hand-written test covers ninety methods.
+ * `client.ts` is a long list of one-line methods that interpolate their
+ * arguments into a path. The failure mode is not a type error but an argument
+ * landing in the wrong hole, which produces `/instances/[object Object]` and a
+ * 404 the caller reports as "not found". Nothing in the type system objects,
+ * and no hand-written test covers every method.
  *
  * So every one of them is called with a placeholder and the request it made is
  * inspected: one call, to this API, with nothing unserialised in the path.
  */
 describe('every endpoint', () => {
   /** Methods that build a URL for the browser rather than fetching one. */
-  // The backup is fetched as a blob (`downloadBackup`), not linked: no URL builder for it.
-  const URL_BUILDERS = ['logsExportUrl', 'oidcStartUrl'];
+  // Files are fetched as blobs (`downloadBackup`, `exportLogs`), not linked.
+  const URL_BUILDERS = ['oidcStartUrl'];
 
   const methods = Object.entries(api).filter(
     ([name, value]) => typeof value === 'function' && !URL_BUILDERS.includes(name),
@@ -253,16 +252,15 @@ describe('every endpoint', () => {
     expect(url, `${name} interpolated an absent argument`).not.toContain('undefined');
   });
 
-  it('builds an export URL without fetching it', () => {
-    // A plain link cannot carry the key header, so these hand a URL to code
-    // that fetches it itself. They must still point at this API.
+  it('builds the sign-in link without fetching it', () => {
+    // A link the browser follows itself, off this origin and back. It must
+    // still start at this API.
     for (const name of URL_BUILDERS) {
-      const build = (api as unknown as Record<string, (...a: unknown[]) => string>)[name];
+      const build = (api as unknown as Record<string, () => string>)[name];
       // Named here and absent from the client, the loop skipped it silently.
       expect(typeof build, `${name} is not a URL builder on the client`).toBe('function');
-      const url = (build as (...a: unknown[]) => string)({ search: 'akira' });
+      const url = (build as () => string)();
       expect(url, name).toContain('/api/v1/');
-      expect(url, name).not.toContain('[object');
     }
   });
 });
@@ -430,8 +428,10 @@ describe('a server that never answers', () => {
     }
   });
 
-  /// Any other network failure keeps its own identity: a refused connection is
-  /// not a timeout, and saying so would send the user looking in the wrong place.
+  /**
+   * Any other network failure keeps its own identity: a refused connection is
+   * not a timeout, and saying so would send the user looking in the wrong place.
+   */
   it('leaves other failures untouched', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
@@ -443,8 +443,10 @@ describe('a server that never answers', () => {
 describe('a failing response', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  /// The id is what an operator greps the log for; it has to survive the trip
-  /// from the header to the error the screen shows.
+  /**
+   * The id is what an operator greps the log for; it has to survive the trip
+   * from the header to the error the screen shows.
+   */
   it('carries the request id the server answered with', async () => {
     mockFetch({
       ok: false,

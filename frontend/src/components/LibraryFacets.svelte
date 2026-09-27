@@ -21,9 +21,11 @@
     captionOf = () => undefined,
   }: {
     facets: LibraryFacets;
-    /// The caption of a condition, from the catalogue the rule editor reads:
-    /// a card names the condition that reads its axis in the reader's words,
-    /// never by the engine's identifier.
+    /**
+     * The caption of a condition, from the catalogue the rule editor reads:
+     * a card names the condition that reads its axis in the reader's words,
+     * never by the engine's identifier.
+     */
     captionOf?: (type: string) => string | undefined;
   } = $props();
 
@@ -117,7 +119,7 @@
   {/if}
 
   {#if cards.length === 0}
-    <p class="muted">{t('FacetsEmpty')}</p>
+    <p class="text-muted">{t('FacetsEmpty')}</p>
   {:else}
     <div class="facet-grid">
       {#each cards as axis (axis.key)}

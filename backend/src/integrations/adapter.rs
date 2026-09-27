@@ -159,19 +159,16 @@ impl ArrAdapter {
     /// download per episode of a season.
     pub async fn get_media_one(&self, arr_id: i64) -> AppResult<Option<ArrMedia>> {
         let found = match self {
-            Self::Radarr(c) => c.get_movie(arr_id).await.map(|m| m.map(movie_to_media)),
-            Self::Sonarr(c) => c.get_series_one(arr_id).await.map(|s| s.map(series_to_media)),
+            Self::Radarr(c) => c.get_movie(arr_id).await.map(movie_to_media),
+            Self::Sonarr(c) => c.get_series_one(arr_id).await.map(series_to_media),
         };
         match found {
             Err(AppError::ExternalApi { status: 404, .. }) => Ok(None),
-            other => other,
+            other => other.map(Some),
         }
     }
 
     /// Get the instance's tag catalogue, so ids can be resolved to labels.
-    ///
-    /// An Arr that predates tags, or one whose endpoint fails, yields an empty
-    /// catalogue rather than failing the sync: tags are one signal among many.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTag>> {
         let tags = match self {
             Self::Radarr(c) => c.get_tags().await?,
@@ -223,9 +220,9 @@ impl ArrAdapter {
     }
 }
 
-/// `AppError` is not `Clone` (it wraps `sqlx`/`reqwest` errors); rebuild the
-/// variants the Arr clients can actually produce so a bulk failure can be
-/// reported per item.
+/// `AppError` is not `Clone`, since it wraps `sqlx` and `serde_json` errors.
+/// This rebuilds the variants the Arr clients can actually produce, so a bulk
+/// failure can be reported per item.
 fn clone_error(e: &AppError) -> AppError {
     match e {
         AppError::ExternalApi { service, status, message, retry_after } => AppError::ExternalApi {

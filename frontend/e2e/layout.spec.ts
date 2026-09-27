@@ -4,9 +4,9 @@ import { test, expect, api } from './fixtures';
 import { SCREENS as ROUTES } from './screens';
 
 /**
- * Layout facts that only a real browser can establish. happy-dom computes no
+ * Layout facts that only a real browser can establish. jsdom computes no
  * geometry, so the component suite can assert that markup exists but never that
- * it fits — which is exactly where the defects were.
+ * it fits.
  */
 
 /**
@@ -68,24 +68,6 @@ test.describe('table cells stay on one line', () => {
   });
 });
 
-test.describe('the page never scrolls sideways', () => {
-  for (const path of ['/', '/instances', '/rules', '/media', '/simulation', '/history', '/jobs']) {
-    test(`${path} fits its viewport`, async ({ page, instanceId }) => {
-      expect(instanceId).toBeTruthy();
-      await page.setViewportSize({ width: 1280, height: 800 });
-      await page.goto(path);
-      await expect(page.locator('.page-title')).toBeVisible();
-
-      // A wide table is fine — it scrolls inside .table-container. The body
-      // scrolling is what looks broken.
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow, `${path} scrolls horizontally by ${overflow}px`).toBeLessThanOrEqual(1);
-    });
-  }
-});
-
 /**
  * A phone. Below the drawer breakpoint the navigation leaves the flow, and a
  * table has to scroll inside its own region rather than drag the page with it.
@@ -93,23 +75,7 @@ test.describe('the page never scrolls sideways', () => {
  * seen at all.
  */
 test.describe('on a phone', () => {
-  const SCREENS = [
-    '/',
-    '/instances',
-    '/root-folders',
-    '/rules',
-    '/rules/tests',
-    '/media',
-    '/simulation',
-    '/history',
-    '/overrides',
-    '/jobs',
-    '/logs',
-    '/health',
-    '/settings',
-  ];
-
-  for (const path of SCREENS) {
+  for (const path of ROUTES) {
     test(`${path} fits a 375px screen and its tables scroll inside their region`, async ({
       page,
       instanceId,
@@ -211,7 +177,7 @@ test.describe('on a phone', () => {
     });
     await page.setViewportSize({ width: 360, height: 780 });
 
-    for (const path of SCREENS) {
+    for (const path of ROUTES) {
       await page.goto(path);
       await expect(page.locator('h1').first()).toBeVisible();
 
@@ -264,21 +230,6 @@ test.describe('on a phone', () => {
 });
 
 /** Every screen with a page title, which is how a sweep knows it has loaded. */
-const PAGES = [
-  '/',
-  '/instances',
-  '/root-folders',
-  '/rules',
-  '/media',
-  '/simulation',
-  '/history',
-  '/overrides',
-  '/jobs',
-  '/logs',
-  '/health',
-  '/settings',
-];
-
 test.describe('buttons are one size', () => {
   /**
    * Without a fixed height the same `btn btn-primary` renders at three sizes:
@@ -292,7 +243,7 @@ test.describe('buttons are one size', () => {
     const regular = new Map<number, string>();
     const small = new Map<number, string>();
 
-    for (const path of PAGES) {
+    for (const path of ROUTES) {
       await page.goto(path);
       await expect(page.locator('.page-title')).toBeVisible();
 
@@ -323,7 +274,9 @@ test.describe('buttons are one size', () => {
 
     // And the two sizes are actually distinct, so this cannot pass by making
     // everything the same size by accident.
-    expect([...regular.keys()][0]).toBeGreaterThan([...small.keys()][0]);
+    const [regularHeight = 0] = regular.keys();
+    const [smallHeight = Infinity] = small.keys();
+    expect(regularHeight).toBeGreaterThan(smallHeight);
   });
 });
 
@@ -345,7 +298,7 @@ test('every select keeps the room its arrow is drawn in', async ({ page, instanc
     cramped.push(...found.map((name) => `${where}: ${name}`));
   };
 
-  for (const path of PAGES) {
+  for (const path of ROUTES) {
     await page.goto(path);
     await expect(page.locator('.page-title')).toBeVisible();
     await measure(path);
@@ -394,19 +347,13 @@ test.describe('the chrome draws one line', () => {
 });
 
 test.describe('right-to-left', () => {
-  const PAGES = ['/instances', '/media', '/history'];
-
   /**
-   * Arabic ships, so the mirroring is exercised for real in `rtl.spec.ts`,
-   * which drives the language setting end to end. These stay because they
-   * measure something that one does not: they flip `dir` on the English page,
-   * so a `margin-left` added later breaks them on the screens the Arabic
-   * journey does not visit. The shell is built from
-   * logical properties (`inset-inline-start`, `margin-inline-start`,
-   * `text-align: start`) so it mirrors on its own.
-   *
-   * The direction is forced here rather than chosen through a language: the
-   * risk lives in the CSS, and this exercises exactly that.
+   * Arabic ships, so the mirroring is exercised for real in `rtl.spec.ts`, and
+   * `languages.spec.ts` checks every screen in Arabic for sideways scroll.
+   * This one flips `dir` on the English page instead: the risk lives in the
+   * CSS, and this exercises exactly that. The shell is built from logical
+   * properties (`inset-inline-start`, `margin-inline-start`, `text-align:
+   * start`) so it mirrors on its own.
    */
   test('the shell mirrors instead of overlapping', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
@@ -432,51 +379,17 @@ test.describe('right-to-left', () => {
     expect(rtl.sidebarLeft, 'the sidebar did not move to the right').toBeGreaterThan(500);
     expect(rtl.contentLeft, 'the content is still offset for a left sidebar').toBe(0);
   });
-
-  for (const path of PAGES) {
-    test(`${path} does not scroll sideways in rtl`, async ({ page, instanceId }) => {
-      expect(instanceId).toBeTruthy();
-      await page.setViewportSize({ width: 1280, height: 800 });
-      await page.goto(path);
-      await expect(page.locator('.page-title')).toBeVisible();
-      await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
-
-      // A hard-coded left offset shows up here first: the shell ends up one
-      // sidebar wider than the window.
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-      );
-      expect(overflow, `${path} overflows by ${overflow}px in rtl`).toBeLessThanOrEqual(1);
-    });
-  }
 });
 
-/**
- * A table that does not scroll shows no scroll shadow.
- *
- * The shadows are painted as four background layers on the scroll container:
- * two "covers" pinned to the content (`background-attachment: local`) and two
- * shadows pinned to the frame (`scroll`), so each shadow is hidden until there
- * is something in that direction. It only works if the cover is *opaque* across
- * the width of the shadow it hides — and it was a gradient fading from the very
- * first pixel, so the shadow showed through at roughly half strength for its
- * whole 14px. Every table with nothing to scroll, which is most of them at a
- * desktop width, carried a permanent dark band down both edges.
- *
- * Measured rather than eyeballed: nothing about this is visible to a DOM query,
- * and it survived a full UI review because it reads as a design choice until
- * you sample the pixels.
- */
 /**
  * Ticking a box may not move the page under the pointer.
  *
  * The checkbox is an `inline-grid`, and its tick only exists when it is
  * checked: with no in-flow child the box synthesises its baseline from the
- * bottom of its margin box, so the two states made line boxes of different
- * heights. The table head measured 39px unchecked and 35px checked, and
- * selecting all lifted every row below it by 4px — under the very pointer that
- * had just clicked. Only a head shows it, a body row being as tall as its text,
- * and no DOM query can see it at all.
+ * bottom of its margin box, so the two states would make line boxes of
+ * different heights, and selecting all would lift every row below the head
+ * under the very pointer that had just clicked. Only a head shows it, a body
+ * row being as tall as its text, and no DOM query can see it at all.
  */
 test('selecting rows does not move the rows', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
@@ -527,6 +440,20 @@ test('selecting rows does not move the rows', async ({ page, instanceId }) => {
   expect(after.row, `the first row moved from ${before.row} to ${after.row}`).toBe(before.row);
 });
 
+/**
+ * A table that does not scroll shows no scroll shadow.
+ *
+ * The shadows are painted as four background layers on the scroll container:
+ * two "covers" pinned to the content (`background-attachment: local`) and two
+ * shadows pinned to the frame (`scroll`), so each shadow is hidden until there
+ * is something in that direction. It only works if the cover is *opaque* across
+ * the width of the shadow it hides: a cover fading from its first pixel lets
+ * the shadow through, and every table with nothing to scroll carries a dark
+ * band down both edges.
+ *
+ * Measured rather than eyeballed: nothing about this is visible to a DOM
+ * query, and it reads as a design choice until you sample the pixels.
+ */
 test('a table with nothing to scroll has no shadow down its edges', async ({
   page,
   instanceId,
@@ -541,6 +468,9 @@ test('a table with nothing to scroll has no shadow down its edges', async ({
 
   const overflows = await container.evaluate((el) => el.scrollWidth > el.clientWidth);
   expect(overflows, 'the viewport is too narrow for this test to mean anything').toBe(false);
+  // A pointer left over a row by an earlier test paints that row's hover fill
+  // into the sampled strip, whatever the cover does.
+  await page.mouse.move(0, 0);
 
   // A row, not the header: `th` paints its own opaque background and would hide
   // the container's regardless.

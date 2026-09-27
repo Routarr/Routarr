@@ -176,7 +176,6 @@ async fn anilist(
             "countryOfOrigin": "JP",
             "status": "FINISHED",
             "description": "Two sisters meet a forest spirit.",
-            "isAdult": false,
             "tags": [
                 { "name": "Iyashikei", "rank": 90 },
                 { "name": "Rural", "rank": 75 },

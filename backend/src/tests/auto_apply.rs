@@ -1,7 +1,7 @@
 //! The guardrails around writing to an Arr with nobody watching.
 //!
 //! Every test here is a claim about something auto-apply must *refuse* to do,
-//! except the two that prove it does the one thing it exists for.
+//! except the ones that prove it does the one thing it exists for.
 
 use crate::services::auto_apply::{self, AutoApplyOutcome};
 use crate::services::routing::{self, SimulationOptions};
@@ -215,14 +215,28 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
     assert_eq!(trigger, "webhook");
 
     // The decision carries the origin folder, which is what revert needs.
-    let (status, from): (String, Option<String>) =
-        sqlx::query_as("SELECT status, current_root_folder FROM decisions WHERE simulation_id = ?")
-            .bind(&simulation)
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
+    let (decision_id, status, from): (String, String, Option<String>) = sqlx::query_as(
+        "SELECT id, status, current_root_folder FROM decisions WHERE simulation_id = ?",
+    )
+    .bind(&simulation)
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
     assert_eq!(status, "applied");
     assert_eq!(from.as_deref(), Some("/movies/standard"));
+
+    let reverted = crate::services::executor::revert_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &crate::jobs::Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    assert_eq!((reverted.applied, reverted.failed), (1, 0));
+    let last_write =
+        arr.recorded().writes.iter().rev().find(|w| w["rootFolderPath"].is_string()).cloned();
+    assert_eq!(last_write.unwrap()["rootFolderPath"], "/movies/standard", "not moved back");
 }
 
 #[tokio::test]

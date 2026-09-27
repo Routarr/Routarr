@@ -51,7 +51,6 @@ const show = () => renderWithI18n(Logs, { strings: STRINGS });
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  localStorage.clear();
 });
 
 describe('Activity log', () => {
@@ -142,7 +141,10 @@ describe('Activity log', () => {
   /** A failed export is not a load to retry: the list is fine, the file is not. */
   it('reports a failed export without offering to reload the list', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => '' }),
+    );
 
     show();
     await fireEvent.click(await screen.findByRole('button', { name: /export csv/i }));
@@ -157,7 +159,7 @@ describe('Activity log', () => {
       'fetch',
       vi
         .fn()
-        .mockResolvedValueOnce({ ok: false, status: 503 })
+        .mockResolvedValueOnce({ ok: false, status: 503, text: async () => '' })
         .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['a,b']) }),
     );
     const createObjectURL = vi.fn(() => 'blob:x');

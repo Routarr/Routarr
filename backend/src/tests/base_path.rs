@@ -12,8 +12,6 @@ use tower::ServiceExt;
 use crate::config::{Config, normalise_base_path};
 use crate::state::AppState;
 
-use super::TestApp;
-
 /// A router mounted under `base`.
 async fn mounted_at(base: &str) -> (axum::Router, AppState) {
     let mut config = Config::for_tests();
@@ -147,7 +145,7 @@ async fn a_webhook_url_is_advertised_relative_to_the_mount_point() {
 /// only there.
 #[tokio::test]
 async fn the_index_pins_asset_resolution_to_the_mount_point() {
-    let dir = tempdir();
+    let dir = super::TempDir::new("base-href");
     std::fs::write(
         dir.join("index.html"),
         "<!DOCTYPE html>\n<html>\n  <head>\n    <title>x</title>\n  </head>\n  <body></body>\n</html>",
@@ -157,27 +155,25 @@ async fn the_index_pins_asset_resolution_to_the_mount_point() {
     for (base, expected) in [("/routarr", "<base href=\"/routarr/\">"), ("", "<base href=\"/\">")] {
         let mut config = Config::for_tests();
         config.base_path = normalise_base_path(base);
-        config.frontend_dir = dir.clone();
+        config.frontend_dir = dir.to_path_buf();
 
         let html = crate::index_html(&config);
         assert!(html.contains(expected), "for base {base:?}, got:\n{html}");
         // Injected inside the head, not before the doctype.
         assert!(html.find("<head>").unwrap() < html.find("<base").unwrap());
     }
-
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[tokio::test]
 async fn a_deep_link_and_the_root_both_serve_the_application() {
-    let dir = tempdir();
+    let dir = super::TempDir::new("deep-link");
     std::fs::write(dir.join("index.html"), "<html><head></head><body>app</body></html>").unwrap();
     std::fs::create_dir_all(dir.join("assets")).unwrap();
     std::fs::write(dir.join("assets/app.js"), "console.log(1)").unwrap();
 
     let mut config = Config::for_tests();
     config.base_path = normalise_base_path("/routarr");
-    config.frontend_dir = dir.clone();
+    config.frontend_dir = dir.to_path_buf();
 
     let mut state = AppState::for_tests().await;
     state.config = std::sync::Arc::new(config);
@@ -189,21 +185,4 @@ async fn a_deep_link_and_the_root_both_serve_the_application() {
     assert_eq!(status_of(&router, "/routarr/assets/app.js").await, StatusCode::OK);
     // And nothing outside.
     assert_eq!(status_of(&router, "/rules").await, StatusCode::NOT_FOUND);
-
-    std::fs::remove_dir_all(&dir).ok();
-}
-
-/// A scratch directory. `tempfile` is not a dependency and one test does not
-/// justify adding it.
-fn tempdir() -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!("routarr-test-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
-}
-
-#[tokio::test]
-async fn the_default_test_harness_still_has_no_prefix() {
-    // Guards the other 300-odd tests: they all address `/api/v1/...`.
-    let app = TestApp::new().await;
-    assert!(app.state.config.base_path.is_empty());
 }

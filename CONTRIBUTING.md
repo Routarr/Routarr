@@ -5,8 +5,9 @@ change, because some of them are unusual.
 
 ## Start with the architecture
 
-[`CLAUDE.md`](CLAUDE.md) covers the architecture, the conventions, and the
-reasons behind the ones that look odd. It is the right starting point for
+[`CLAUDE.md`](CLAUDE.md) covers the architecture and the conventions, each area's
+rules live in [`.claude/rules/`](.claude/rules/), and the reason behind a line that
+looks odd is in the comment beside it. It is the right starting point for
 almost any change, and it will save you from undoing something on purpose.
 
 A few features have been considered and deliberately left out, because they
@@ -64,15 +65,18 @@ cargo audit
 python3 ../scripts/check-locales.py
 python3 ../scripts/check-api-types.py   # the response structs against types.ts
 python3 ../scripts/check-versions.py    # every place a version is written
+python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
+python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
 
 # frontend/
 npm run format:check
-npm run check          # svelte-check
+npm run check          # svelte-check, then the types of the e2e specs
 npm run lint           # ESLint, type-aware
 npm run coverage       # vitest, with floors
 npm audit --audit-level=high
+npm run build && node ../scripts/check-bundle-size.mjs   # the two bundles' ceilings
 npm run test:e2e       # builds the release binary; a few minutes
-npm run test:e2e:base  # the same journeys under ROUTARR_BASE_PATH=/routarr
+npm run test:e2e:base  # the specs tagged @subpath, under ROUTARR_BASE_PATH=/routarr
 
 # site/
 npm run build && node check.mjs && node verify.mjs
@@ -82,9 +86,9 @@ npx astro check        # types over the components and the catalogue
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 ```
 
-Coverage has floors on both sides — 90 % of backend lines, and 80 / 68 / 76 /
-80 for frontend statements, branches, functions and lines. **Raise one when the real figure moves up; never lower one to make a
-build pass.**
+Coverage has floors on both sides: 90 % of backend lines, and 88 / 78 / 86 / 88 for frontend
+statements, branches, functions and lines. **Raise one when the real figure moves up, never
+lower one to make a build pass.**
 
 ## What a good change looks like
 

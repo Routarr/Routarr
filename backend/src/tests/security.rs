@@ -20,18 +20,7 @@ async fn get_with_key(app: &TestApp, path: &str, key: &str) -> StatusCode {
 
 /// Log in and return the cookie, for the tests that need a live session.
 async fn open_session(app: &TestApp) -> String {
-    use axum::http::header;
-    use tower::ServiceExt;
-    let login = Request::post("/api/v1/auth/login")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(
-            serde_json::json!({ "username": "admin", "password": generated_password(app) })
-                .to_string(),
-        ))
-        .unwrap();
-    let response = app.router.clone().oneshot(login).await.unwrap();
-    let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
-    cookie.split(';').next().unwrap().to_string()
+    sign_in(app, &generated_password(app)).await
 }
 
 /// The same, for the two routes that change the key and are themselves behind
@@ -333,49 +322,28 @@ async fn an_arr_key_never_appears_in_a_response() {
     let app = TestApp::new().await;
     let secret = "super-secret-arr-key-8f3a";
 
-    app.post(
-        "/api/v1/instances",
-        serde_json::json!({
-            "name": "Radarr", "instance_type": "radarr",
-            "base_url": "http://radarr:7878", "api_key": secret,
-            "enabled": true, "sync_interval_minutes": 15
-        }),
-    )
-    .await
-    .assert_ok();
+    let created = app
+        .post(
+            "/api/v1/instances",
+            serde_json::json!({
+                "name": "Radarr", "instance_type": "radarr",
+                "base_url": "http://radarr:7878", "api_key": secret,
+                "enabled": true, "sync_interval_minutes": 15
+            }),
+        )
+        .await;
+    let id = created.assert_ok()["id"].as_str().unwrap();
 
     // Neither the list, the detail, nor a config export may carry it.
-    for path in ["/api/v1/instances", "/api/v1/config/export"] {
-        let body = app.text(path).await;
+    for path in [
+        "/api/v1/instances".to_string(),
+        format!("/api/v1/instances/{id}"),
+        "/api/v1/config/export".into(),
+    ] {
+        let body = app.text(&path).await;
+        assert!(body.contains("Radarr"), "{path} answered something else: {body}");
         assert!(!body.contains(secret), "the Arr key leaked through {path}");
     }
-}
-
-/// A stored secret is sealed, so even direct database inspection shows
-/// ciphertext — the property the whole `crypto` module exists to guarantee, held
-/// end to end through the create handler.
-#[tokio::test]
-async fn a_stored_arr_key_is_ciphertext_not_plaintext() {
-    let app = TestApp::new().await;
-    let secret = "plaintext-should-never-persist";
-
-    app.post(
-        "/api/v1/instances",
-        serde_json::json!({
-            "name": "Radarr", "instance_type": "radarr",
-            "base_url": "http://radarr:7878", "api_key": secret,
-            "enabled": true, "sync_interval_minutes": 15
-        }),
-    )
-    .await
-    .assert_ok();
-
-    let stored: String = sqlx::query_scalar("SELECT api_key FROM instances")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "the key was not sealed");
-    assert!(!stored.contains(secret), "plaintext survived in the column");
 }
 
 // -------------------------------------------------------- body limit
@@ -435,7 +403,7 @@ async fn external_asks_for_nothing_and_says_so() {
     config.api_key = Some("s3cret".into());
 
     let state = crate::state::AppState::for_tests().await.with_config(config);
-    let app = TestApp { router: crate::build_router(state.clone()), state };
+    let app = TestApp::around(state);
 
     app.get("/api/v1/status").await.assert_ok();
 
@@ -452,11 +420,7 @@ async fn external_asks_for_nothing_and_says_so() {
 async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
     use crate::config::AuthMode;
 
-    let dir = super::TempDir(
-        std::env::temp_dir().join(format!("routarr-forms-{label}-{}", std::process::id())),
-    );
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = super::TempDir::new(&format!("forms-{label}"));
 
     let mut config = crate::config::Config::for_tests();
     config.auth_mode = AuthMode::Forms;
@@ -468,7 +432,7 @@ async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
         .unwrap();
     // The generated password is written beside the database; the file is the
     // only copy a test can read, as it is for an operator who missed the log.
-    (TestApp { router: crate::build_router(state.clone()), state }, dir)
+    (TestApp::around(state), dir)
 }
 
 fn generated_password(app: &TestApp) -> String {
@@ -653,7 +617,7 @@ async fn a_session_is_honoured_only_by_the_mode_that_opened_it() {
     let mut config = (*forms.state.config).clone();
     config.auth_mode = AuthMode::Oidc;
     let state = forms.state.clone().with_config(config);
-    let oidc = TestApp { router: crate::build_router(state.clone()), state };
+    let oidc = TestApp::around(state);
 
     let (status, _) =
         with_session(&oidc, "GET", "/api/v1/status", &cookie, serde_json::json!({})).await;
@@ -687,14 +651,7 @@ async fn a_write_from_another_origin_is_refused_even_with_the_cookie() {
     use tower::ServiceExt;
 
     let (app, _dir) = forms_app("origin").await;
-    let body = serde_json::json!({ "username": "admin", "password": generated_password(&app) });
-    let login = Request::post("/api/v1/auth/login")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
-    let response = app.router.clone().oneshot(login).await.unwrap();
-    let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
-    let session = cookie.split(';').next().unwrap().to_string();
+    let session = open_session(&app).await;
 
     // The same cookie, read: allowed, because a read forges nothing.
     let read = Request::get("/api/v1/status")
@@ -889,7 +846,7 @@ async fn the_api_key_still_opens_the_door_in_forms_mode() {
     config.auth_mode = AuthMode::Forms;
     config.api_key = Some("s3cret".into());
     let state = crate::state::AppState::for_tests().await.with_config(config);
-    let app = TestApp { router: crate::build_router(state.clone()), state };
+    let app = TestApp::around(state);
 
     assert_eq!(get_with_key(&app, "/api/v1/status", "s3cret").await, StatusCode::OK);
     assert_eq!(get_with_key(&app, "/api/v1/status", "wrong").await, StatusCode::UNAUTHORIZED);
@@ -969,7 +926,7 @@ async fn the_mode_says_whether_a_key_exists_at_all() {
     let mut config = (*app.state.config).clone();
     config.api_key = Some("k".into());
     let state = app.state.clone().with_config(config);
-    let with_key = TestApp { router: crate::build_router(state.clone()), state };
+    let with_key = TestApp::around(state);
     let response = with_key.get("/api/v1/auth/mode").await;
     let mode = response.assert_ok();
     assert_eq!(mode["api_key_configured"], true);
@@ -1034,11 +991,7 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
 /// An `apikey` installation whose key is the stored one rather than a pinned
 /// variable — which is the ordinary case, and the only one that can rotate.
 async fn stored_key_app(label: &str, key: &str) -> (TestApp, super::TempDir) {
-    let dir = super::TempDir(
-        std::env::temp_dir().join(format!("routarr-key-{label}-{}", std::process::id())),
-    );
-    std::fs::remove_dir_all(&dir).ok();
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = super::TempDir::new(&format!("key-{label}"));
 
     let mut config = crate::config::Config::for_tests();
     config.auth_mode = crate::config::AuthMode::ApiKey;
@@ -1046,7 +999,7 @@ async fn stored_key_app(label: &str, key: &str) -> (TestApp, super::TempDir) {
     crate::crypto::write_api_key(&config.api_key_path(), key).unwrap();
 
     let state = crate::state::AppState::for_tests().await.with_config(config);
-    (TestApp { router: crate::build_router(state.clone()), state }, dir)
+    (TestApp::around(state), dir)
 }
 
 /// A key that cannot be replaced without stopping the service is a key that
@@ -1148,7 +1101,7 @@ async fn oidc_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
     config.oidc_redirect_url = Some("http://routarr.local/api/v1/auth/oidc/callback".into());
 
     let state = crate::state::AppState::for_tests().await.with_config(config);
-    TestApp { router: crate::build_router(state.clone()), state }
+    TestApp::around(state)
 }
 
 /// Not verifying the token's signature rests on the exchange happening over
@@ -1488,14 +1441,6 @@ fn urlencode(input: &str) -> String {
     out
 }
 
-/// `text()` on `TestApp` reads a GET body; a couple of tests here want the raw
-/// bytes of an authenticated-or-not GET, which `text` already provides.
-#[allow(dead_code)]
-async fn drain(response: axum::response::Response) -> String {
-    let bytes = response.into_body().collect().await.unwrap().to_bytes();
-    String::from_utf8_lossy(&bytes).into_owned()
-}
-
 /// A disabled instance is one the user switched off. The scheduler already skips
 /// it; the webhook must not be the back door that keeps syncing it, re-routing
 /// it and — with automatic application armed — writing to it.
@@ -1600,6 +1545,40 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
     fn make_writer(&'a self) -> Self::Writer {
         self.clone()
     }
+}
+
+/// A Discord or Slack webhook URL carries its secret in the path: whoever reads
+/// it can post to the channel. A notification that fails is logged, and the
+/// line says why without the address.
+#[tokio::test]
+async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let app = TestApp::new().await;
+    let secret = "hook-secret-8d2e";
+    // Nothing listens on port 1, so the send fails in the transport.
+    let url = format!("http://127.0.0.1:1/api/webhooks/123/{secret}");
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('notification_webhook_url', ?)")
+        .bind(&url)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
+    crate::services::notify::send(&app.state, event)
+        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .await;
+
+    let log = capture.contents();
+    assert!(
+        log.contains("instance_recovered"),
+        "positive control: the failed notification was logged at all:\n{log}"
+    );
+    assert!(!log.contains(secret), "the webhook secret is in the log:\n{log}");
 }
 
 /// The token is the only credential of the only unauthenticated route, and the

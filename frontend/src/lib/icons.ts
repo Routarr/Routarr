@@ -65,5 +65,4 @@ export {
   RotateCcwClock as History,
   LoaderCircle as Loader2,
   Ellipsis as MoreHorizontal,
-  CircleX as XCircle,
 } from '@lucide/svelte';

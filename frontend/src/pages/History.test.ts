@@ -202,9 +202,11 @@ describe('History', () => {
     );
   });
 
-  /// The screen could not say whether the nightly sweep proposed a move or a
-  /// person did; the row now carries it, and says nothing when the row predates
-  /// the column rather than guessing.
+  /**
+   * The screen could not say whether the nightly sweep proposed a move or a
+   * person did; the row now carries it, and says nothing when the row predates
+   * the column rather than guessing.
+   */
   it('names what caused a decision, and stays silent when nothing recorded it', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
@@ -221,9 +223,11 @@ describe('History', () => {
     expect(within(older).queryByTitle('Triggered by')).toBeNull();
   });
 
-  /// "Manually" is not an answer once several people can sign in, and a key can
-  /// be a script rather than any of them. The name sits beside the trigger,
-  /// since the scheduler has one and no name.
+  /**
+   * "Manually" is not an answer once several people can sign in, and a key can
+   * be a script rather than any of them. The name sits beside the trigger,
+   * since the scheduler has one and no name.
+   */
   it('names who asked, beside what caused it, and only when a mode named one', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([

@@ -18,8 +18,8 @@ use crate::error::AppResult;
 const SERVICE: &str = "AniList";
 pub const DEFAULT_BASE_URL: &str = "https://graphql.anilist.co";
 
-/// One query for the search, one for the details. Both ask for the same shape,
-/// so a search can answer without a second round trip when it matches.
+/// The search asks only what picks a candidate (titles and year), the details
+/// only what a rule reads, so a search that finds nothing costs one small call.
 const SEARCH_QUERY: &str = "query ($search: String, $format: MediaFormat) {
   Page(perPage: 5) {
     media(search: $search, type: ANIME, format: $format, sort: SEARCH_MATCH) {
@@ -37,7 +37,6 @@ const DETAILS_QUERY: &str = "query ($id: Int) {
     countryOfOrigin
     status
     description(asHtml: false)
-    isAdult
     tags { name rank }
   }
 }";
@@ -191,27 +190,27 @@ impl AniListClient {
         let response: GraphQlResponse<DetailsData> =
             send_json(SERVICE, self.post(DETAILS_QUERY, serde_json::json!({ "id": id }))).await?;
 
-        let Some(raw) = response.data.and_then(|d| d.media) else {
-            return Ok(AniListDetails::default());
-        };
+        Ok(response.data.and_then(|d| d.media).map(details_of).unwrap_or_default())
+    }
+}
 
-        let mut keywords: Vec<String> = raw
-            .tags
-            .into_iter()
-            .filter(|tag| tag.rank.unwrap_or(0) >= TAG_RANK_FLOOR)
-            .map(|tag| tag.name)
-            .collect();
-        keywords.sort();
-        keywords.dedup();
+fn details_of(raw: RawDetails) -> AniListDetails {
+    let mut keywords: Vec<String> = raw
+        .tags
+        .into_iter()
+        .filter(|tag| tag.rank.unwrap_or(0) >= TAG_RANK_FLOOR)
+        .map(|tag| tag.name)
+        .collect();
+    keywords.sort();
+    keywords.dedup();
 
-        Ok(AniListDetails {
-            genres: raw.genres,
-            keywords,
-            // Already ISO 3166-1 alpha-2, unlike OMDb's country names.
-            origin_countries: raw.country_of_origin.into_iter().collect(),
-            status: raw.status,
-            overview: raw.description,
-        })
+    AniListDetails {
+        genres: raw.genres,
+        keywords,
+        // Already ISO 3166-1 alpha-2, unlike OMDb's country names.
+        origin_countries: raw.country_of_origin.into_iter().collect(),
+        status: raw.status,
+        overview: raw.description,
     }
 }
 
@@ -293,7 +292,6 @@ mod tests {
             "countryOfOrigin": "JP",
             "status": "FINISHED",
             "description": "Two young girls move to the countryside.",
-            "isAdult": false,
             "tags": [
               { "name": "Rural", "rank": 88 },
               { "name": "Iyashikei", "rank": 71 },
@@ -303,19 +301,11 @@ mod tests {
         }"#;
 
         let response: GraphQlResponse<DetailsData> = serde_json::from_str(json).unwrap();
-        let raw = response.data.unwrap().media.unwrap();
+        let details = details_of(response.data.unwrap().media.unwrap());
 
-        let mut keywords: Vec<String> = raw
-            .tags
-            .into_iter()
-            .filter(|t| t.rank.unwrap_or(0) >= TAG_RANK_FLOOR)
-            .map(|t| t.name)
-            .collect();
-        keywords.sort();
-
-        assert_eq!(raw.genres, vec!["Adventure", "Comedy", "Supernatural"]);
-        assert_eq!(raw.country_of_origin.as_deref(), Some("JP"));
+        assert_eq!(details.genres, vec!["Adventure", "Comedy", "Supernatural"]);
+        assert_eq!(details.origin_countries, vec!["JP"]);
         // Only the tags above the agreement floor become keywords.
-        assert_eq!(keywords, vec!["Iyashikei", "Rural"]);
+        assert_eq!(details.keywords, vec!["Iyashikei", "Rural"]);
     }
 }

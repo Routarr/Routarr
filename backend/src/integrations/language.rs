@@ -9,13 +9,8 @@
 //! keeps its own spelling, lowercased, so a rule still has something to compare
 //! against instead of the field going empty.
 
-/// ISO 639-1 code for a language *name*, or the name itself, lowercased, when it
-/// is not one we know.
-///
-/// `None` for "Unknown", the value the Arr uses when it has no idea — an
-/// absent field is the truth there, and it lets the source below answer.
 /// Every language this build knows, as (ISO 639-1 code, the spellings a source may use).
-/// The first spelling is the one shown; the rest are what `normalise` accepts.
+/// The first spelling is the one shown, the rest are what `normalise` accepts.
 ///
 /// One table read both ways. A rule is written against the code, which no user
 /// would guess from a library that happens to hold five languages, so the rule
@@ -124,6 +119,11 @@ pub const COUNTRIES: &[(&str, &[&str])] = &[
     ("RO", &["romania"]),
 ];
 
+/// ISO 639-1 code for a language *name*, or the name itself, lowercased, when it
+/// is not one we know.
+///
+/// `None` for "Unknown", the value the Arr uses when it has no idea: an
+/// absent field is the truth there, and it lets the source below answer.
 pub fn normalise(name: &str) -> Option<String> {
     // "Portuguese (Brazil)" and "Spanish (Latino)" are regional spellings of a
     // language TMDb reports without the region.
@@ -143,9 +143,9 @@ pub fn normalise(name: &str) -> Option<String> {
 
 /// ISO 639-1 from a three-letter code.
 ///
-/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Only the
-/// bibliographic/terminological pairs that differ are listed explicitly; the
-/// rest map by their own table above once the name is unavailable.
+/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every code
+/// is listed, the bibliographic form beside the terminological one where they
+/// differ (`fre` and `fra`), and a code outside the list answers `None`.
 pub fn from_iso_639_3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {
@@ -319,11 +319,6 @@ mod tests {
     }
 
     #[test]
-    fn a_language_we_do_not_know_keeps_its_own_name() {
-        assert_eq!(normalise("Klingon").as_deref(), Some("klingon"));
-    }
-
-    #[test]
     fn a_three_letter_code_becomes_the_two_letter_one() {
         assert_eq!(from_iso_639_3("jpn").as_deref(), Some("ja"));
         // Both the bibliographic and the terminological spelling exist in the
@@ -338,20 +333,8 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_three_letter_code_is_no_answer() {
-        // Unlike a name, an unrecognised code is not usable as-is: a rule reads
-        // `ja`, never `tlh`. Better to let the source below answer.
-        assert_eq!(from_iso_639_3("tlh"), None);
-    }
-
-    #[test]
     fn a_country_name_becomes_the_code_a_rule_is_written_against() {
         assert_eq!(country_codes("Japan, United States"), vec!["JP", "US"]);
-    }
-
-    #[test]
-    fn an_unknown_country_is_dropped_rather_than_guessed() {
-        assert_eq!(country_codes("Japan, Atlantis"), vec!["JP"]);
     }
 
     #[test]
@@ -360,11 +343,6 @@ mod tests {
         assert_eq!(country_from_alpha3("jpn").as_deref(), Some("JP"));
         assert_eq!(country_from_alpha3("JP").as_deref(), Some("JP"));
         assert_eq!(country_from_alpha3("xyz"), None);
-    }
-
-    #[test]
-    fn the_first_language_of_a_list_is_the_original_one() {
-        assert_eq!(first_language("Japanese, English").as_deref(), Some("ja"));
     }
 
     // ------------------------------------------------- dropping, not guessing

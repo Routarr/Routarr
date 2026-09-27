@@ -46,7 +46,7 @@ Frontend, from `frontend/`:
 ```bash
 npm run dev                  # Vite on :3000, proxies /api to :9876
 npm run build                # svelte-check, then vite build into frontend/dist
-npm run check                # svelte-check alone
+npm run check                # svelte-check, then the types of the e2e specs
 npm run lint                 # type-aware ESLint
 npm run format:check         # Prettier
 npm run coverage             # Vitest with its floors, over the whole tree
@@ -74,8 +74,8 @@ A release is a `v*` tag pushed on a commit whose CI is green, as `CONTRIBUTING.m
 - A comment that exists because the code is unclear is a naming problem: rename or extract,
   then delete it. Nothing describes what a line does.
 - No em dashes, no semicolons and no curly quotes in prose, in every language (the Greek `;` is a
-  question mark). `scripts/check-typography.py` holds the dictionaries, the site, the README and
-  the strings the code writes to it.
+  question mark). `scripts/check-typography.py` holds the dictionaries, the site's catalogues,
+  the README and the strings the code writes to it.
 - Commits follow Conventional Commits: an imperative subject of 72 characters at most, a body
   wrapped at 72. One coherent lot per pull request, merged with a merge commit.
 - This file and each rule stay under 200 lines of at most 100 characters, and every rule opens
@@ -119,6 +119,6 @@ Invariants a change must keep:
 - The backend suite is offline, and no test depends on a third party answering.
 - A test is named as a claim about behaviour: `a_trailing_slash_does_not_create_a_phantom_move`.
 - A regression test is seen to fail before its fix, or with the check it guards removed.
-- Coverage floors: 90% of backend lines, and 80% of frontend statements with the other Vitest
+- Coverage floors: 90% of backend lines, and 88% of frontend statements with the other Vitest
   floors in `frontend/vite.config.ts`. Raise a floor when the figure rises, never lower one to
   pass a build.

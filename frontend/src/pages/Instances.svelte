@@ -445,10 +445,9 @@
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
                   <!-- Date and outcome read as one fact, so they share a line
                        rather than stacking the cell two rows tall.
-                       The date is the last *success*. Both branches used to
-                       stamp one column, so a failed attempt refreshed it like a
-                       successful one and the cell read "2 minutes ago" beside an
-                       error badge, describing data that was two days old. -->
+                       The date is the last *success*: a failed attempt stamping
+                       it would have the cell read "2 minutes ago" beside an
+                       error badge, describing data two days old. -->
                   <span
                     class="text-muted"
                     title={formatTimestamp(instance.last_sync_at, i18n.language, '')}

@@ -171,7 +171,7 @@ def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
     """Splice each `#[serde(flatten)]` field into its own struct's field set.
 
     The three composite responses are exactly the ones a reader is most likely
-    to get wrong — `CLAUDE.md` warns to consume them as flat objects — and they
+    to get wrong (`.claude/rules/frontend.md` warns that one arrives flat), and they
     were the three the check gave up on, while its summary still counted them
     as agreeing. A flattened field is not unresolvable: the struct it names is
     in this same map.

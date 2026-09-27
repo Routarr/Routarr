@@ -30,8 +30,10 @@ const OPTIONS = [
   { value: 'Comédie', count: 4 },
 ];
 
-/// A closed vocabulary: the value a rule stores is a code, and the label is the
-/// only part a reader recognises.
+/**
+ * A closed vocabulary: the value a rule stores is a code, and the label is the
+ * only part a reader recognises.
+ */
 const CODES = [
   { value: 'ja', label: 'Japanese (ja)', count: 3 },
   { value: 'ko', label: 'Korean (ko)', count: 0 },
@@ -211,13 +213,13 @@ describe('ValuePicker', () => {
     expect(document.activeElement).toBe(field);
   });
 
-  it('says so when the filter matches nothing', async () => {
-    const { field } = open();
+  /** Typed again, a value already chosen offers nothing to add either. */
+  it('says so when the filter matches nothing it could still add', async () => {
+    const { field } = open(['zzz']);
     await userEvent.type(field, 'zzz');
 
-    // The typed value is still offerable, and the list says the library has
-    // nothing like it rather than rendering an empty box.
-    expect(screen.getByText('Add "zzz"')).toBeInTheDocument();
+    expect(screen.getByText('No value matches')).toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: /zzz/ })).toBeNull();
   });
 
   it('says so when the library carries nothing at all', async () => {
@@ -242,7 +244,7 @@ describe('ValuePicker', () => {
     expect(screen.getByText('Library unreachable')).toBeInTheDocument();
   });
 
-  /// A combobox announces itself, its state and the list it drives.
+  /** A combobox announces itself, its state and the list it drives. */
   it('is announced as a combobox tied to its own list', async () => {
     const { field } = open();
 

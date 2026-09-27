@@ -8,6 +8,7 @@
 
 use crate::services::routing::{self, SimulationOptions};
 use crate::services::{maintenance, sync};
+use sqlx::AssertSqlSafe;
 
 use super::fake_arr::FakeArr;
 use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
@@ -272,13 +273,6 @@ async fn a_condition_no_enabled_source_can_answer_is_reported_as_unavailable() {
     assert_eq!(find("title_contains")["available"], true);
 }
 
-/// A cached row is not the same as a cached *answer*.
-///
-/// One holding only a synopsis is unreadable by every condition, so the engine
-/// and the list must both say the item is unknown. Counting it made the column
-/// promise metadata about an item no rule could ever touch — and the moment the
-/// library pass stopped loading the synopsis, the two started saying opposite
-/// things about the same item.
 /// One cached answer, in the namespace the source addresses by.
 async fn cache_row(app: &TestApp, source: &str, external_id: &str, genres: &str) {
     sqlx::query(
@@ -406,6 +400,11 @@ async fn the_three_metadata_counters_agree_on_one_library() {
     }
 }
 
+/// A cached row is not the same as a cached *answer*.
+///
+/// One holding only a synopsis is unreadable by every condition, so the engine
+/// and the list must both say the item is unknown. Counting it would have the
+/// column promise metadata about an item no rule can touch.
 #[tokio::test]
 async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     let arr = FakeArr::start().await;
@@ -455,6 +454,63 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     );
 }
 
+/// One described field is enough, whichever it is and whoever supplied it:
+/// the engine reads every field `MetadataField` names, so the list, the
+/// diagnostics and the rule builder's count must too, or each calls "missing"
+/// an item a rule matches.
+#[tokio::test]
+async fn any_field_a_rule_reads_describes_the_item_to_every_counter() {
+    let cases = [
+        ("an Arr genre", "genres = '[\"Drama\"]'", None),
+        ("an Arr language", "original_language = 'ja'", None),
+        ("an Arr certification", "certification = 'PG'", None),
+        ("cached keywords", "genres = '[]'", Some("'[\"kaiju\"]'")),
+    ];
+    for (case, arr_field, cached_keywords) in cases {
+        let arr = FakeArr::start().await;
+        let app = synced("radarr", &arr).await;
+        let pool = &app.state.pool;
+        sqlx::query("DELETE FROM media WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)")
+            .execute(pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+        sqlx::query(AssertSqlSafe(format!("UPDATE media SET {arr_field}")))
+            .execute(pool)
+            .await
+            .unwrap();
+        if let Some(keywords) = cached_keywords {
+            sqlx::query(AssertSqlSafe(format!(
+                "INSERT INTO metadata_cache
+                    (source, external_id, media_type, genres, keywords, original_language,
+                     origin_countries, certification, cached_at, expires_at)
+                 SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie', '[]', {keywords}, NULL, '[]',
+                        NULL, datetime('now'), datetime('now', '+7 days')
+                   FROM media"
+            )))
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        set_order(&app, "arr,tmdb").await;
+
+        let listed = app.get("/api/v1/media").await.assert_ok()["data"][0].clone();
+        let explained =
+            app.get(&format!("/api/v1/media/{}/explain", listed["id"].as_str().unwrap())).await;
+        assert!(!explained.assert_ok()["metadata"].is_null(), "{case}: the engine should read it");
+        assert_eq!(listed["has_metadata"], true, "{case}: the library column");
+        let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
+        assert_eq!(health["metadata"]["media_missing_metadata"], 0, "{case}: the diagnostics");
+        let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
+        assert_eq!(facets["without_metadata"], 0, "{case}: the rule builder's count");
+    }
+}
+
 // ------------------------------------------------------------ shipped order
 
 async fn stored_order(app: &TestApp) -> Option<String> {
@@ -484,15 +540,6 @@ async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
     let warnings = warnings(&app).await;
     assert!(!warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
-}
-
-#[tokio::test]
-async fn listing_tmdb_without_a_key_still_warns() {
-    let app = TestApp::new().await;
-    set_order(&app, "arr,tmdb").await;
-
-    let warnings = warnings(&app).await;
-    assert!(warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
 }
 
 /// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and a

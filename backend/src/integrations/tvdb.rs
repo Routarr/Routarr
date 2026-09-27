@@ -3,10 +3,10 @@
 //! The source Sonarr itself is built on, and the only one in the set that
 //! authenticates with a **login** rather than a query parameter: `POST /login`
 //! returns a bearer token valid for about a month. The token is fetched on first
-//! use and kept in the client, so a full enrichment pass costs one login, not
-//! one per item.
+//! use and kept in `AppState`, so one login serves every enrichment pass until
+//! it expires, not one per item.
 //!
-//! Its key is free; a *user-supported* key additionally needs the subscriber PIN
+//! Its key is free. A *user-supported* key additionally needs the subscriber PIN
 //! its owner was given, which is why the PIN is a separate optional setting
 //! rather than being folded into the key.
 
@@ -83,6 +83,7 @@ struct ContentRating {
 }
 
 impl TvdbClient {
+    /// `regions` as `AppState::certification_regions_from` reads them.
     pub fn new(
         client: Client,
         api_key: &str,
@@ -97,11 +98,7 @@ impl TvdbClient {
             pin: pin.map(str::to_string),
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
-            regions: if regions.is_empty() {
-                vec!["US".to_string()]
-            } else {
-                regions.iter().map(|r| r.trim().to_uppercase()).collect()
-            },
+            regions: regions.to_vec(),
         }
     }
 
@@ -266,17 +263,10 @@ mod tests {
         let raw = response.data.unwrap();
 
         assert_eq!(raw.genres.len(), 2);
-        // Three-letter codes in, the two-letter forms a rule is written against
-        // out.
-        assert_eq!(
-            super::language::from_iso_639_3(raw.original_language.as_deref().unwrap()).as_deref(),
-            Some("ja")
-        );
-        assert_eq!(
-            super::language::country_from_alpha3(raw.original_country.as_deref().unwrap())
-                .as_deref(),
-            Some("JP")
-        );
+        // Three-letter codes, which `language` shortens (tested there and end to
+        // end).
+        assert_eq!(raw.original_language.as_deref(), Some("jpn"));
+        assert_eq!(raw.original_country.as_deref(), Some("jpn"));
         assert_eq!(raw.status.and_then(|s| s.name).as_deref(), Some("Ended"));
         assert_eq!(pick_rating(&raw.content_ratings, &["FR".into()]).as_deref(), Some("-12"));
     }

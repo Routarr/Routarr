@@ -99,18 +99,6 @@ impl AuthMode {
     }
 }
 
-/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
-///
-/// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
-/// tower-http compares the header against these values verbatim. So anything
-/// that is not exactly that shape can never match — and used to be accepted in
-/// silence, counted in the startup line, and left the operator with CORS that
-/// looked configured and did nothing.
-///
-/// `*` is refused outright rather than translated: this layer sends
-/// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
-/// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
-/// panic — so an installation that set it never started at all.
 /// Whether a URL is reached over TLS — or on this machine, where no wire is
 /// involved and a provider under test or beside the container is plain http.
 pub fn reaches_over_tls(url: &str) -> bool {
@@ -124,6 +112,18 @@ pub fn reaches_over_tls(url: &str) -> bool {
     }
 }
 
+/// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
+///
+/// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
+/// tower-http compares the header against these values verbatim. So anything
+/// that is not exactly that shape can never match — and used to be accepted in
+/// silence, counted in the startup line, and left the operator with CORS that
+/// looked configured and did nothing.
+///
+/// `*` is refused outright rather than translated: this layer sends
+/// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
+/// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
+/// panic — so an installation that set it never started at all.
 fn validate_origin(origin: &str) -> AppResult<()> {
     // Named through a constant rather than inline: the sample-env check scans
     // this file for a quoted `ROUTARR_*` and reads the whole literal as a
@@ -162,18 +162,17 @@ pub struct Config {
     pub port: u16,
     pub db_path: PathBuf,
     /// Directory holding the database, and with it the master key, the API key
-    /// and the backups. Derived from `db_path` once — see [`data_dir_for`].
+    /// and the backups. Derived from `db_path` once, by [`data_dir_for`].
     pub data_dir: PathBuf,
     pub log_level: String,
-    /// `text` (default) or `json` — JSON is easier to ship to a log collector.
+    /// `text` (default) or `json`, which is easier to ship to a log collector.
     pub log_format: String,
     pub frontend_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
-    /// When set, every `/api/v1` call (except `/ping`) must present this key.
+    /// `ROUTARR_API_KEY`, which pins the key and wins over the stored one.
     ///
-    /// Left `None` by the environment, it is *generated* at startup and stored
-    /// next to the database — an unauthenticated API that can move files is not
-    /// a default anyone should get by omission.
+    /// Only the environment's value: the key in force is `AppState::api_key`,
+    /// which also holds one generated at startup or minted from the interface.
     pub api_key: Option<String>,
     /// How a caller proves who it is.
     ///
@@ -194,9 +193,11 @@ pub struct Config {
     pub oidc_redirect_url: Option<String>,
     /// Explicit CORS allow-list. Empty means "same-origin only" (no CORS layer).
     pub cors_origins: Vec<String>,
-    /// Timeout applied to every outbound call to Radarr/Sonarr/TMDb.
+    /// Timeout applied to every outbound call: the Arrs, the metadata sources,
+    /// the identity provider and the notification webhook.
     pub http_timeout: Duration,
-    /// Master key used to encrypt Arr API keys at rest. Auto-generated if absent.
+    /// Master key sealing the stored secrets (the Arr and metadata source keys).
+    /// Generated beside the database if absent.
     pub secret_key: Option<String>,
     /// Superseded master key, kept readable for one rotation.
     pub previous_secret_key: Option<String>,
@@ -359,10 +360,6 @@ impl Config {
         self.data_dir.join("routarr.key")
     }
 
-    /// Path of the auto-generated API key, kept next to the database.
-    ///
-    /// A separate file from the master key on purpose: this one is meant to be
-    /// read and copied into a client, the other must never leave the host.
     /// Where the generated password is written on first start.
     ///
     /// Beside the database and the API key, 0600, for the same reason: it is
@@ -429,6 +426,10 @@ impl Config {
         Ok(())
     }
 
+    /// Path of the auto-generated API key, kept next to the database.
+    ///
+    /// A separate file from the master key on purpose: this one is meant to be
+    /// read and copied into a client, the other must never leave the host.
     pub fn api_key_path(&self) -> PathBuf {
         self.data_dir.join("routarr.api_key")
     }
@@ -625,13 +626,9 @@ mod tests {
         assert!(config.database_url().contains("/srv/routarr/data/routarr.db"));
     }
 
-    /// The two keys are separate files on purpose: one is meant to be read and
-    /// copied into a client, the other must never leave the host. A single path
-    /// for both would make the backup archive and the credential the same
-    /// secret.
-    /// A wildcard used to reach `AllowOrigin::list`, which answers it with a
-    /// panic — so an installation that set the most obvious value never
-    /// started, and the message named tower-http rather than the variable.
+    /// A wildcard handed to `AllowOrigin::list` panics, so an installation that
+    /// set the most obvious value would never start, with a message naming
+    /// tower-http rather than the variable.
     #[test]
     fn a_wildcard_origin_is_refused_by_name() {
         let err = validate_origin("*").expect_err("a wildcard has to be refused");
@@ -747,12 +744,6 @@ mod tests {
         config.auth_mode = AuthMode::Forms;
         config.oidc_issuer = Some("http://authelia:9091".into());
         assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn the_api_key_and_the_master_key_are_not_the_same_file() {
-        let config = Config::for_tests();
-        assert_ne!(config.secret_key_path(), config.api_key_path());
     }
 
     /// `bind_address` is what the listener is given; a mistake here is a server

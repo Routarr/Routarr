@@ -93,7 +93,6 @@
   // Read once, like the draft itself.
   // svelte-ignore state_referenced_locally
   let edited = $state(Boolean(ruleId));
-  const speaking = $derived(edited);
   const VALIDATE_DELAY_MS = 400;
   $effect(() => {
     const snapshot = JSON.stringify(draft);
@@ -117,7 +116,7 @@
   const EMPTY_CONDITION = 'ValidationConditionEmpty';
   let submitted = $state(false);
   const shown = $derived(
-    speaking ? issues.filter((issue) => submitted || issue.key !== EMPTY_CONDITION) : [],
+    edited ? issues.filter((issue) => submitted || issue.key !== EMPTY_CONDITION) : [],
   );
   // Gated on the same flag as the list: a button disabled by a reason nobody is
   // shown is a dead control, which is worse than the premature complaint.
@@ -189,7 +188,7 @@
     // An empty condition held back until now is asked about again: the value
     // may have been picked within the last debounce.
     submitted = true;
-    if (!speaking || issues.some((issue) => issue.key === EMPTY_CONDITION)) {
+    if (!edited || issues.some((issue) => issue.key === EMPTY_CONDITION)) {
       edited = true;
       const verdict = await api.validateRule(draft).catch(() => null);
       if (verdict) issues = verdict.issues;

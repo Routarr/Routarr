@@ -1215,18 +1215,6 @@ mod tests {
     }
 
     #[test]
-    fn a_genre_repeated_in_the_rule_changes_nothing() {
-        assert!(genre_rule(
-            vec![Condition::GenreContains(vec![
-                "Animation".into(),
-                "animation".into(),
-                " Animation ".into(),
-            ])],
-            MatchMode::All,
-        ));
-    }
-
-    #[test]
     fn spelling_does_not_have_to_match_the_source() {
         // Case, surrounding space and the separator inside the word are all
         // folded; the accent is folded too, so a value typed without one still
@@ -1238,17 +1226,6 @@ mod tests {
         // And it normalises rather than guessing: an abbreviation is its own
         // value, not a synonym of the words it stands for.
         assert_ne!(normalise_value("Sci-Fi"), normalise_value("Science Fiction"));
-    }
-
-    #[test]
-    fn a_rule_stored_before_the_picker_still_matches() {
-        // The shape every rule already on disk has: one value, spelled exactly
-        // as the source spells it. It is the same shape a one-value selection
-        // produces today, which is why nothing had to be migrated.
-        let stored = r#"{"type":"genre_contains","value":["Animation"]}"#;
-        let condition: Condition = serde_json::from_str(stored).unwrap();
-        assert_eq!(condition, Condition::GenreContains(vec!["Animation".into()]));
-        assert!(genre_rule(vec![condition], MatchMode::All));
     }
 
     #[test]
@@ -1513,7 +1490,9 @@ mod tests {
     #[test]
     fn added_within_days_uses_the_injected_clock() {
         assert!(matches(Condition::AddedWithinDays(7)));
-        assert!(!matches(Condition::AddedWithinDays(0)) || matches(Condition::AddedWithinDays(1)));
+        // Added 26 hours before the clock: one whole day, not zero.
+        assert!(matches(Condition::AddedWithinDays(1)));
+        assert!(!matches(Condition::AddedWithinDays(0)));
 
         let mut old = media();
         old.added_at = Some("2020-01-01 00:00:00".into());

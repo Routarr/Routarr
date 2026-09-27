@@ -2,12 +2,10 @@
   /**
    * One figure and its name, on a line of figures.
    *
-   * Eight small integers were eight bordered cards on a grid: 318px of a
-   * 1024px screen for Diagnostics, three rows deep with a hole in the last
-   * one, and the number set at 26px so it read as the point of the page when
-   * it is the preamble to it. The dashboard already stated the same figures as
-   * one dense strip; this is that strip, so the two screens stop disagreeing
-   * about what a count looks like.
+   * Small integers read as the preamble to a page, not its point, so they sit
+   * on one dense strip rather than on bordered cards. The dashboard and the
+   * screens that summarise a run draw it here, so no two disagree about what a
+   * count looks like.
    */
   let { label, value, tone }: { label: string; value: number | string; tone?: string } = $props();
 

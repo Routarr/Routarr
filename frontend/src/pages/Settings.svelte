@@ -128,7 +128,7 @@
   }
 
   // In the URL, so a section can be linked to and survives a reload. The hash
-  // rather than a route: these are one page's sections, not twelve pages.
+  // rather than a route: these are one page's sections, not pages of their own.
   const wanted = window.location.hash.replace('#', '');
   let section = $state<SectionId>(
     SECTIONS.some((entry) => entry.id === wanted) ? (wanted as SectionId) : 'general',
@@ -662,46 +662,31 @@
               </div>
             {/each}
 
-            <!-- Housekeeping on the left, the commit on the right —
-               `justify-between` across four buttons would scatter them evenly
-               and hide which one actually saves. -->
-            <div class="flex justify-between items-center mt-4 gap-4">
-              <div class="flex flex-wrap gap-2">
-                {#if section === 'maintenance'}
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    /* The one thing an export cannot carry, said where the export
-                     happens rather than only in the README. */
-                    title={t('BackupTogetherHint')}
-                    onclick={() => void exportConfig()}
-                  >
-                    <Download size={16} />
-                    {t('ExportConfig')}
-                  </button>
-                  <label class="btn btn-secondary cursor-pointer">
-                    <Upload size={16} />
-                    {t('ImportConfig')}
-                    <input
-                      type="file"
-                      accept="application/json"
-                      hidden
-                      onchange={(event) => {
-                        const file = event.currentTarget.files?.[0];
-                        if (file) void importConfig(file);
-                        event.currentTarget.value = '';
-                      }}
-                    />
-                  </label>
-                  <button type="button" class="btn btn-secondary" onclick={purge}>
-                    <Trash2 size={16} />
-                    {t('PurgeNow')}
-                  </button>
-                {/if}
-              </div>
-            </div>
-
             {#if section === 'maintenance'}
+              <div class="flex flex-wrap gap-2 mt-4">
+                <button type="button" class="btn btn-secondary" onclick={() => void exportConfig()}>
+                  <Download size={16} />
+                  {t('ExportConfig')}
+                </button>
+                <label class="btn btn-secondary cursor-pointer">
+                  <Upload size={16} />
+                  {t('ImportConfig')}
+                  <input
+                    type="file"
+                    accept="application/json"
+                    hidden
+                    onchange={(event) => {
+                      const file = event.currentTarget.files?.[0];
+                      if (file) void importConfig(file);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                </label>
+                <button type="button" class="btn btn-secondary" onclick={purge}>
+                  <Trash2 size={16} />
+                  {t('PurgeNow')}
+                </button>
+              </div>
               <p class="text-muted text-sm mt-3">
                 {t('BackupTogetherHint')}
               </p>

@@ -1,35 +1,6 @@
 import type { Condition } from './types';
 
 /**
- * Human-readable size in the reader's language, or an em dash when the Arr
- * did not report one.
- *
- * `B`, `KB`, `GB` were written out in English on every screen that shows a
- * size, whatever `ui_language` said — French writes `o`, `Ko`, `Go`, and so on
- * down the shipped set. `Intl` knows every one of them, so this costs no
- * translation and stays right for a language added later.
- *
- * The scale stays binary, as it was: the figure is compared against what a
- * file manager reports and against the backend's own `human_bytes`, and
- * changing the arithmetic to match the decimal names would move every number
- * on screen. It is the same convention every desktop uses — a mebibyte called
- * a megabyte — and it is the label, not the value, that was wrong here.
- *
- * Two forms are combined, and each contributes what it gets right: `short`
- * spaces the unit the way the language does — French puts one before it,
- * Korean does not — while `narrow` holds the abbreviation. Short alone writes
- * the byte unit as `byte` in English and `Byte` in German; narrow alone drops
- * the French space. Neither token is hard-coded, so a language added later is
- * right without a translation of its own.
- *
- * The byte symbol is the exception, and it is derived rather than asked for:
- * `narrow` answers with a *word* in Dutch, Greek, Turkish, Korean and
- * Traditional Chinese, so every size under 1 KiB read `512 byte` in five of
- * the languages shipped. `byteSymbol` takes it off the kilobyte's instead —
- * the same symbol with an SI prefix in front — which agrees with `Intl`
- * everywhere it does abbreviate.
- */
-/**
  * The byte symbol for a locale, off the kilobyte's.
  *
  * `ko` → `o`, `\u043a\u0411` → `\u0411`, `kt` → `t`, and Arabic's `\u0643.\u0628` → `\u0628`: an SI
@@ -51,9 +22,46 @@ function byteSymbol(locale: string): string | undefined {
   return symbol.length > 0 && symbol.length <= 2 ? symbol : undefined;
 }
 
+/**
+ * The language setting as `Intl` reads it. The dictionaries are named
+ * `nb_NO` or `zh_TW`, and `Intl` refuses the underscore: each formatter would
+ * throw, and fall back to the server's English.
+ */
+const bcp47 = (language: string) => language.replace('_', '-');
+
 /** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
+/** The dictionary key naming what set a job or a decision off. */
+export const triggerKey = (trigger: string): string => `Trigger${capitalize(trigger)}`;
+
+/** The dictionary key naming the status of a job or a decision. */
+export const statusKey = (status: string): string => `Status${capitalize(status)}`;
+
+/**
+ * Human-readable size in the reader's language, or a hyphen when the Arr did
+ * not report one.
+ *
+ * The unit names come from `Intl`, which knows each language's own (French
+ * writes `o`, `Ko`, `Go`), so this costs no translation and stays right for a
+ * language added later.
+ *
+ * The scale is binary: the figure is compared against what a file manager
+ * reports and against the backend's own `human_bytes`. It is the convention
+ * every desktop uses, a mebibyte called a megabyte.
+ *
+ * Two forms are combined, and each contributes what it gets right: `short`
+ * spaces the unit the way the language does (French puts one before it,
+ * Korean does not), while `narrow` holds the abbreviation. Short alone writes
+ * the byte unit as `byte` in English and `Byte` in German, and narrow alone
+ * drops the French space.
+ *
+ * The byte symbol is the exception, and it is derived rather than asked for:
+ * `narrow` answers with a *word* in Dutch, Greek, Turkish, Korean and
+ * Traditional Chinese. `byteSymbol` takes it off the kilobyte's instead, the
+ * same symbol with an SI prefix in front, which agrees with `Intl` everywhere
+ * it does abbreviate.
+ */
 export function formatBytes(bytes: number | null | undefined, language = 'en'): string {
   if (bytes === null || bytes === undefined) return '-';
   if (bytes < 0) return '-';
@@ -68,7 +76,7 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 
   const digits = unit === 0 ? 0 : 1;
   try {
-    const locale = language.replace('_', '-');
+    const locale = bcp47(language);
     const options = {
       style: 'unit',
       unit: units[unit],
@@ -93,7 +101,6 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
   }
 }
 
-/** One-line summary of a condition, for the rules table. */
 /** The words a condition is described with, all of them the reader's language. */
 export interface ConditionWords {
   /** The condition's caption from the catalogue; its type where it has none. */
@@ -106,6 +113,7 @@ export interface ConditionWords {
   name?: (value: string) => string;
 }
 
+/** One-line summary of a condition, for the rules table. */
 export function describeCondition(condition: Condition, words: ConditionWords): string {
   const caption = words.label ?? condition.type;
   const value = condition.value;
@@ -132,7 +140,7 @@ export function describeCondition(condition: Condition, words: ConditionWords): 
 export function formatPercent(value: number | null | undefined, language: string): string {
   const ratio = Math.min(1, Math.max(0, value ?? 0));
   try {
-    return new Intl.NumberFormat(language.replace('_', '-'), {
+    return new Intl.NumberFormat(bcp47(language), {
       style: 'percent',
       maximumFractionDigits: 0,
     }).format(ratio);
@@ -167,7 +175,7 @@ export function formatTimestamp(
   if (Number.isNaN(parsed.getTime())) return value;
 
   try {
-    return new Intl.DateTimeFormat(language.replace('_', '-'), {
+    return new Intl.DateTimeFormat(bcp47(language), {
       dateStyle: 'short',
       timeStyle: 'short',
     }).format(parsed);
@@ -207,7 +215,7 @@ export function formatRelative(
     ['day', 7 * 86400],
   ];
   try {
-    const format = new Intl.RelativeTimeFormat(language.replace('_', '-'), { numeric: 'auto' });
+    const format = new Intl.RelativeTimeFormat(bcp47(language), { numeric: 'auto' });
     let previous = 1;
     for (const [unit, limit] of steps) {
       if (magnitude < limit) return format.format(Math.round(seconds / previous), unit);
@@ -232,7 +240,7 @@ export function localName(
   language: string,
 ): string | null {
   try {
-    const names = new Intl.DisplayNames([language], { type, fallback: 'none' });
+    const names = new Intl.DisplayNames([bcp47(language)], { type, fallback: 'none' });
     const name = names.of(type === 'region' ? code.toUpperCase() : code);
     return name ? `${name} (${code})` : null;
   } catch {

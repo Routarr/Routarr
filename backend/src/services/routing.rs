@@ -560,17 +560,11 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
             .into_iter()
             .collect();
 
-    // An absent row means "never configured", which is the default order; a row
-    // set to the empty string means the user turned every source off, which is
-    // a legitimate choice for a library routed on paths and titles alone.
     let providers_setting: Option<String> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
             .fetch_optional(pool)
             .await?;
-    let providers = match providers_setting {
-        Some(raw) => metadata::parse_order(&raw),
-        None => metadata::parse_order(&metadata::DEFAULT_ORDER.join(",")),
-    };
+    let providers = metadata::configured_order(providers_setting.as_deref());
 
     let metadata = metadata::load_cache(pool).await?;
     let identifiers = metadata::load_identifiers(pool).await?;
@@ -690,8 +684,9 @@ pub fn rule_from_row(r: RuleRow) -> Rule {
 }
 
 /// Load media, filtering in SQL rather than in memory.
-/// `instance_ids` is a plain list because an empty one is every instance, the
-/// way `Rule::covers_instance` reads the same shape — there is no second
+///
+/// `instance_filter` is a plain list because an empty one is every instance,
+/// the way `Rule::covers_instance` reads the same shape, so there is no second
 /// spelling of "all" for a caller to get wrong. `media_ids` is not: an empty
 /// list there is these zero items, which a webhook whose item has just been
 /// deleted needs to say.
@@ -766,8 +761,9 @@ pub const BIND_CHUNK: usize = 400;
 
 /// Retire every pending proposal for these media, in place.
 ///
-/// A run supersedes what it re-evaluated, and a row that leaves the library,
-/// a full sync or a delete event, takes its proposals with it.
+/// A run supersedes what it re-evaluated, a row that leaves the library, a
+/// full sync or a delete event, takes its proposals with it, and an override
+/// set or removed makes them wrong.
 pub async fn supersede_pending(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     media_ids: &[&str],

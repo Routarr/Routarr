@@ -118,10 +118,6 @@ FRONTEND_DIR="$ROOT/frontend" ROUTARR_URL="http://127.0.0.1:$PORT" \
 # image into another lossy format compounds both sets of artefacts, and these
 # are screenshots of text, where that shows first.
 #
-# AVIF is offered above WebP in the markup and every browser that cannot read it
-# simply takes the next <source>. It is worth the second file here because the
-# page is mostly screenshots — roughly a third off the only heavy thing on it.
-#
 # `avifenc` rather than ImageMagick for the AVIF: an ImageMagick without the
 # delegate does not fail, it writes a PNG under the .avif name — a file the
 # browser refuses and nothing downstream notices, since the name is right and

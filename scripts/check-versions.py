@@ -3,12 +3,11 @@
 
 Two of them, in fact: the toolchain versions and Routarr's own.
 
-`CLAUDE.md` says the compiler version lives in `rust-toolchain.toml` and nowhere
-else. That is the intent, not the fact: rustup reads the file, but the two
-Dockerfiles have to name a base image tag, and `Cargo.toml` states the MSRV. The
-version is written four times for Rust and five for Node, and nothing joined
-them — a bump that updates three of four leaves an environment behind, and the
-gap only shows as a build that fails in one place and passes everywhere else.
+rustup reads `rust-toolchain.toml`, but the two Dockerfiles have to name a base
+image tag, and `Cargo.toml` states the MSRV. Each version is written in several
+files, and nothing else joins them: a bump that misses one leaves an environment
+behind, and the gap only shows as a build that fails in one place and passes
+everywhere else.
 
 That gap became a certainty the day Dependabot started watching the `docker`
 ecosystem: it moves the `FROM` line and *only* the `FROM` line. This turns the
@@ -141,8 +140,7 @@ def main() -> int:
 
     # --- Node ---------------------------------------------------------------
     # Major only, everywhere: nothing here pins a minor, and CI resolves the
-    # latest of the line. Five sightings, and the CI workflow holds three of
-    # them on its own.
+    # latest of the line. The CI workflow holds several sightings on its own.
     ci = read(".github/workflows/ci.yml")
     ci_versions = sorted(set(re.findall(r"^\s*node-version:\s*(\d+)", ci, re.M)))
     node = [

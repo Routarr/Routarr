@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Download, RefreshCw } from '../lib/icons';
-  import { api, getApiKey } from '../api/client';
+  import { ApiError, api } from '../api/client';
   import { formatTimestamp } from '../api/format';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -34,20 +34,16 @@
   const entries = $derived(logs.data?.data ?? []);
   const pagination = $derived(logs.data?.pagination);
 
-  /**
-   * Fetch rather than link: the export needs the API key header, which a plain
-   * `<a href>` cannot carry.
-   */
   async function download() {
     try {
-      const res = await fetch(api.logsExportUrl(filters), {
-        headers: getApiKey() ? { 'X-Api-Key': getApiKey() } : {},
-      });
-      if (!res.ok) throw new Error(t('ExportFailed', { status: res.status }));
-      downloadBlob(await res.blob(), 'routarr-logs.csv');
+      downloadBlob(await api.exportLogs(filters), 'routarr-logs.csv');
       exported.clear();
     } catch (err) {
-      exported.fail(err);
+      // Said as the export's failure, with its status, rather than as whatever
+      // the server's body holds: the list itself is fine.
+      exported.fail(
+        err instanceof ApiError && err.status > 0 ? t('ExportFailed', { status: err.status }) : err,
+      );
     }
   }
 </script>

@@ -26,11 +26,11 @@ const KNOWN: &[(&str, Kind)] = &[
     ("auto_apply_enabled", Kind::Bool),
     ("refresh_after_move", Kind::Bool),
     ("move_files_default", Kind::Bool),
-    // Every count is bounded on both sides. `RetentionCount` was the only one
-    // that was, and its reason — a number that decides how long a list gets and
-    // how much disk it costs — is not special to backups. Unbounded, each of
-    // these has a value that reads as "off" while the interface reports it as
-    // set: an interval of a million hours is a backup that never runs.
+    // Every count is bounded on both sides: a number that decides how long a
+    // list gets and how much disk it costs is not special to backups.
+    // Unbounded, each of these has a value that reads as "off" while the
+    // interface reports it as set: an interval of a million hours is a backup
+    // that never runs.
     ("batch_limit", Kind::Bounded(1, 1_000)),
     ("confirmation_threshold", Kind::Bounded(1, 10_000)),
     // Ten years. Past that the intent is "never expire", which should be said
@@ -122,11 +122,10 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
     let mut settings = serde_json::Map::new();
     for (key, value) in rows {
         // A sealed value never leaves the process. The screen needs to know
-        // whether one is set, not what it is — so it gets a boolean under a
+        // whether one is set, not what it is, so it gets a boolean under a
         // separate key and the value itself reads empty, which is also what
         // makes the field safe to leave untouched on the next save.
-        let secret = KNOWN.iter().any(|(k, kind)| *k == key && *kind == Kind::Secret);
-        if secret {
+        if is_secret(&key) {
             let configured = !value.trim().is_empty();
             settings.insert(format!("{key}_configured"), serde_json::Value::Bool(configured));
             settings.insert(key, serde_json::Value::String(String::new()));

@@ -21,12 +21,12 @@ use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::models::Instance;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
 
-/// The same resolution `main` performs: the environment, else what is stored.
+/// The API key: the environment's, else the stored one.
 ///
-/// Written once and used by both, so a harness cannot drift into testing a
-/// precedence the application does not have.
-#[cfg(test)]
-fn resolve_api_key(config: &Config) -> Option<String> {
+/// Read by `main` and by the test harness alike, so a harness cannot drift into
+/// testing a precedence the application does not have. `main` generates a key
+/// first when `apikey` mode finds neither.
+pub(crate) fn resolve_api_key(config: &Config) -> Option<String> {
     config.api_key.clone().or_else(|| crate::crypto::read_api_key(&config.api_key_path()))
 }
 
@@ -88,8 +88,13 @@ impl Settings {
 
     /// `true` or `1`, as `AppState::bool_setting` answers.
     pub fn bool(&self, key: &str, default: bool) -> bool {
-        self.raw(key).map_or(default, |v| v.eq_ignore_ascii_case("true") || v == "1")
+        self.raw(key).map_or(default, is_true)
     }
+}
+
+/// How a boolean setting is stored: `true` in any case, or `1`.
+fn is_true(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true") || value == "1"
 }
 
 impl AppState {
@@ -201,7 +206,8 @@ impl AppState {
         }
     }
 
-    /// `provider_keys`, answered from a snapshot already read.
+    /// Every metadata source's key, stored or from the environment, read from a
+    /// settings snapshot.
     pub fn provider_keys_from(
         &self,
         settings: &Settings,
@@ -215,28 +221,21 @@ impl AppState {
         keys
     }
 
-    /// `tmdb`, built from a snapshot already read.
+    /// A TMDb client, when a key is stored or set, read from a settings snapshot.
     pub fn tmdb_from(&self, settings: &Settings) -> Option<TmdbClient> {
         let key = self.provider_key_from(settings, metadata::TMDB)?;
         let regions = Self::certification_regions_from(settings);
         Some(TmdbClient::new(self.http.clone(), &key, &self.config.tmdb_base_url, &regions))
     }
 
-    /// Metadata sources as the user ordered them, highest priority first.
-    ///
-    /// An absent setting is the shipped default; a setting set to the empty
-    /// string means the user disabled every source, which is a legitimate
-    /// choice for a library routed on paths and titles alone.
+    /// Metadata sources as the user ordered them (`metadata::configured_order`).
     pub async fn metadata_order(&self) -> Vec<&'static ProviderInfo> {
         Self::metadata_order_from(&self.settings().await)
     }
 
     /// `metadata_order`, answered from a snapshot already read.
     pub fn metadata_order_from(settings: &Settings) -> Vec<&'static ProviderInfo> {
-        match settings.raw("metadata_providers") {
-            Some(value) => metadata::parse_order(value),
-            None => metadata::parse_order(&metadata::DEFAULT_ORDER.join(",")),
-        }
+        metadata::configured_order(settings.raw("metadata_providers"))
     }
 
     /// The same list minus the sources that cannot answer today — one that
@@ -333,7 +332,8 @@ impl AppState {
         Localizer::new(&self.language().await)
     }
 
-    /// `certification_regions`, answered from a snapshot already read.
+    /// The regions whose certifications count, upper-case, `US` when none is
+    /// set, read from a settings snapshot.
     pub fn certification_regions_from(settings: &Settings) -> Vec<String> {
         let raw = settings.raw("certification_regions");
 
@@ -378,7 +378,7 @@ impl AppState {
             .unwrap_or_else(|| DEFAULT_CATEGORY.to_string())
     }
 
-    /// Read a boolean setting stored as `"true"`/`"false"`.
+    /// Read a boolean setting stored as `"true"` or `"false"`.
     pub async fn bool_setting(&self, key: &str, default: bool) -> bool {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -386,8 +386,7 @@ impl AppState {
             .await
             .ok()
             .flatten()
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(default)
+            .map_or(default, |v| is_true(&v))
     }
 
     /// Load an instance by id, or 404.
@@ -449,11 +448,11 @@ mod settings_tests {
         Settings(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
     }
 
-    /// The snapshot answers exactly as the single-key readers do: trimmed,
-    /// the default on anything unparseable or absent, `true` or `1` for a
-    /// switch.
+    /// The snapshot trims, answers the default on anything unparseable or
+    /// absent, and reads `true` or `1` as a switch, the rules `AppState::setting`
+    /// and `bool_setting` apply to one key.
     #[test]
-    fn a_snapshot_parses_the_way_the_single_key_readers_do() {
+    fn a_snapshot_trims_defaults_and_reads_switches() {
         let settings = stored(&[
             ("batch_limit", " 12 "),
             ("confirmation_threshold", "many"),
@@ -472,7 +471,7 @@ mod settings_tests {
     }
 
     /// The usable sources are the snapshot's order filtered by the snapshot's
-    /// keys — one read, so a source cannot be enabled by one read and keyless
+    /// keys: one read, so a source cannot be enabled by one read and keyless
     /// by another.
     #[tokio::test]
     async fn usable_providers_come_from_one_snapshot() {

@@ -8,31 +8,22 @@ use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
 
+/// `is_default` is computed from `AppState::default_category`, the one answer
+/// `services::routing` reads: a flag stored on the row, or the setting read
+/// here without its fallback, would be a second answer that disagrees with the
+/// engine once the setting row is gone.
 type CategoryRow = (String, String, Option<String>, bool, i64, String, i64, i64);
 
-/// The category an unmatched media item falls back to.
-///
-/// One source, and it is the setting, because the setting is what
-/// `services::routing` reads. An `is_default` flag on the row as well would be
-/// a second answer nothing keeps in step, and the guard below would end up
-/// protecting the flagged category rather than the one actually in use.
-async fn default_category(pool: &sqlx::SqlitePool) -> Result<String, sqlx::Error> {
-    // Delegates rather than repeating the query: a second spelling here that
-    // fell back to the empty string where the engine falls back to `standard`
-    // would leave the guard below unable to fire with no setting row, and the
-    // category routing actually lands in would be deletable.
-    Ok(AppState::default_category(pool).await)
-}
-
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryWithUsage>>> {
+    let fallback = AppState::default_category(&state.pool).await;
     let rows: Vec<CategoryRow> = sqlx::query_as(
-        "SELECT c.id, c.name, c.description,
-                c.name = (SELECT value FROM settings WHERE key = 'default_category'),
+        "SELECT c.id, c.name, c.description, c.name = ?,
                 c.display_order, c.created_at,
                 (SELECT COUNT(*) FROM rules r WHERE r.target_category = c.name),
                 (SELECT COUNT(*) FROM root_folders rf WHERE rf.category = c.name)
          FROM categories c ORDER BY c.display_order, c.name",
     )
+    .bind(&fallback)
     .fetch_all(&state.pool)
     .await?;
 
@@ -144,8 +135,8 @@ pub async fn create(
 
 /// Rename a category, and carry every reference to it along.
 ///
-/// The name is the join key — there is no foreign key to cascade — so it lives
-/// in six places: this row, the four columns that name a category, and the
+/// The name is the join key, with no foreign key to cascade, so it lives in
+/// this row, in every column that names a category, and in the
 /// `default_category` setting. Missing that last one leaves an installation
 /// holding a setting its own validator rejects the next time anything is saved.
 ///
@@ -161,12 +152,12 @@ pub async fn rename(
 ) -> AppResult<Json<Category>> {
     let name = normalise(&req.name)?;
 
+    let fallback = AppState::default_category(&state.pool).await;
     let row: Option<CategoryRow> = sqlx::query_as(
-        "SELECT id, name, description,
-                name = (SELECT value FROM settings WHERE key = 'default_category'),
-                display_order, created_at, 0, 0
+        "SELECT id, name, description, name = ?, display_order, created_at, 0, 0
          FROM categories WHERE id = ?",
     )
+    .bind(&fallback)
     .bind(&id)
     .fetch_optional(&state.pool)
     .await?;
@@ -195,7 +186,7 @@ pub async fn rename(
         "UPDATE overrides SET target_category = ? WHERE target_category = ?",
         "UPDATE decisions SET target_category = ? WHERE target_category = ?",
         // Pinned expectations too. A case left pointing at the old name fails
-        // for a reason that has nothing to do with the rules — and it is the
+        // for a reason that has nothing to do with the rules, and it is the
         // one place a stale name is *silent*, since the case simply starts
         // reporting a mismatch nobody caused.
         "UPDATE rule_tests SET expected_category = ? WHERE expected_category = ?",
@@ -235,7 +226,7 @@ pub async fn remove(
     };
     // Read from the setting, not from a flag on the row: the guard has to
     // protect the category the engine actually falls back to.
-    if name == default_category(&state.pool).await? {
+    if name == AppState::default_category(&state.pool).await {
         return Err(AppError::BadRequest("Cannot delete the default category".into()));
     }
 

@@ -1,9 +1,9 @@
-//! Encryption of secrets at rest (Arr API keys).
+//! Encryption of secrets at rest (the Arr and metadata source API keys).
 //!
 //! Values are stored as `enc:v1:<base64(nonce || ciphertext)>`. Anything that
 //! does not carry that prefix is treated as legacy plaintext and returned as-is,
-//! so upgrading an existing database never loses access to the instances; the
-//! values are re-encrypted the next time they are written.
+//! so upgrading an existing database never loses access to the instances, and
+//! `maintenance::reseal_secrets` seals them at the next start.
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -187,14 +187,6 @@ impl SecretBox {
     }
 }
 
-/// Load the API key from `path`, generating one on first run.
-///
-/// An API that can move files on disk must not be open by omission, and the
-/// Arrs set the same default. Generating one keeps the zero-configuration first
-/// run: the key appears in the startup log and in a file beside the database.
-///
-/// Returns the key and whether it had to be created, so the caller can make the
-/// first run loud and later ones quiet.
 /// 32 bytes of OS randomness, hex-encoded.
 ///
 /// URL-safe, shell-safe, and easy to copy out of a log without the ambiguity
@@ -210,6 +202,14 @@ pub fn generate_secret() -> AppResult<String> {
     }))
 }
 
+/// Load the API key from `path`, generating one on first run.
+///
+/// An API that can move files on disk must not be open by omission, and the
+/// Arrs set the same default. Generating one keeps the zero-configuration first
+/// run: the key appears in the startup log and in a file beside the database.
+///
+/// Returns the key and whether it had to be created, so the caller can make the
+/// first run loud and later ones quiet.
 pub fn load_or_generate_api_key(path: &Path) -> AppResult<(String, bool)> {
     if let Some(existing) = read_api_key(path) {
         return Ok((existing, false));
@@ -320,13 +320,12 @@ fn derive_key(input: &str) -> [u8; 32] {
     out
 }
 
-/// Best-effort `chmod 600`; ignored on platforms without Unix permissions.
 /// Lock down a database file *and* its write-ahead sidecars.
 ///
 /// `routarr.db-wal` holds every commit not yet checkpointed and `-shm` its
 /// index: between checkpoints they contain exactly what the database contains,
-/// including the sealed Arr credentials. Restricting only the `.db` left the
-/// most recent data readable to anyone on the host.
+/// including the sealed Arr credentials. Restricting only the `.db` would
+/// leave the most recent data readable to anyone on the host.
 pub fn restrict_database_permissions(path: &Path) {
     restrict_permissions(path);
     for suffix in ["-wal", "-shm"] {
@@ -340,6 +339,7 @@ pub fn restrict_database_permissions(path: &Path) {
     }
 }
 
+/// Best-effort `chmod 600`, ignored on platforms without Unix permissions.
 pub fn restrict_permissions(path: &Path) {
     #[cfg(unix)]
     {
@@ -358,10 +358,8 @@ mod tests {
     /// move files: starting open with a warning is not the posture to ship.
     #[test]
     fn an_api_key_is_generated_on_first_run_and_reused_afterwards() {
-        let dir = std::env::temp_dir().join(format!("routarr-key-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key");
         let path = dir.join("routarr.api_key");
-        let _ = std::fs::remove_file(&path);
 
         let (first, generated) = load_or_generate_api_key(&path).unwrap();
         assert!(generated, "the first run must create a key");
@@ -380,8 +378,7 @@ mod tests {
     /// Two installations must not share a key.
     #[test]
     fn each_generated_key_is_unique() {
-        let dir = std::env::temp_dir().join(format!("routarr-key-uniq-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key-uniq");
 
         let a = dir.join("a.key");
         let b = dir.join("b.key");
@@ -404,10 +401,8 @@ mod tests {
     fn a_private_file_is_created_with_its_mode_and_truncated_on_rewrite() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("routarr-private-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("private");
         let path = dir.join("secret");
-        let _ = std::fs::remove_file(&path);
 
         write_private(&path, b"a much longer first value").unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
@@ -417,7 +412,6 @@ mod tests {
         assert_eq!(std::fs::read(&path).unwrap(), b"short", "the old value was left behind");
 
         assert!(create_private(&path, true).is_err(), "an existing file must not be reopened");
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     /// The key file is as readable as the database, and no more.
@@ -426,10 +420,8 @@ mod tests {
     fn the_generated_key_file_is_not_world_readable() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!("routarr-key-perm-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("key-perm");
         let path = dir.join("routarr.api_key");
-        let _ = std::fs::remove_file(&path);
 
         load_or_generate_api_key(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();

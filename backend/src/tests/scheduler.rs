@@ -67,7 +67,7 @@ async fn ready(arr: &FakeArr) -> TestApp {
 // ------------------------------------------------------------ the sweep
 
 #[tokio::test]
-async fn a_tick_syncs_then_enriches_then_simulates() {
+async fn a_tick_syncs_the_library_and_runs_the_housekeeping() {
     let arr = FakeArr::start().await;
     let app = ready(&arr).await;
 
@@ -75,7 +75,7 @@ async fn a_tick_syncs_then_enriches_then_simulates() {
 
     let kinds = scheduled_jobs(&app).await;
     assert!(kinds.contains(&"sync".to_string()), "nothing synced: {kinds:?}");
-    // Maintenance is unconditional; the rest follows from having synced.
+    // Maintenance is unconditional, the rest follows from having synced.
     assert!(kinds.contains(&"maintenance".to_string()), "housekeeping was skipped: {kinds:?}");
 
     let media: i64 =

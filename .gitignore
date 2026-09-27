@@ -1,7 +1,7 @@
 # Rust
 /backend/target
 
-# Data (database, generated master key). Two of them: `backend/data` is what
+# Data (database, generated keys and password). Two of them: `backend/data` is what
 # `cargo run` creates beside the crate, `/data` is the volume
 # docker-compose mounts at /data in the container.
 /backend/data
@@ -11,6 +11,8 @@ backups/
 *.db-wal
 *.db-shm
 routarr.key
+routarr.api_key
+routarr.password
 
 # Environment
 .env

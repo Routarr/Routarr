@@ -195,9 +195,11 @@ describe('RuleEditor', () => {
     await waitFor(() => expect(screen.getByText('A rule needs a name')).toBeInTheDocument());
   });
 
-  /// An existing rule was saved once, so an issue on it is news about something
-  /// that changed underneath — a category deleted since, say — and it is said
-  /// on open.
+  /**
+   * An existing rule was saved once, so an issue on it is news about something
+   * that changed underneath — a category deleted since, say — and it is said
+   * on open.
+   */
   it('speaks immediately about a rule that already exists', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
@@ -217,23 +219,16 @@ describe('RuleEditor', () => {
   });
 
   /**
-   * The editor's own verdict is the one that speaks.
-   *
-   * The browser's native bubble renders in the *browser's* language whatever
-   * `ui_language` says, and fires before the submit handler — so it speaks over
-   * the translated list below. jsdom runs no constraint validation at all, so
-   * nothing but this assertion can see the decision.
+   * The form is `novalidate` (every form is, `layout.test.ts` holds it), so
+   * the browser's bubble never speaks over the translated verdict. `required`
+   * stays: it is what says the field is mandatory to anything reading the form.
    */
-  it('keeps the browser out of the conversation', async () => {
+  it('keeps the name marked required', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     // Through the helper, which is the only place `getLibraryFacets` is
-    // stubbed: rendering directly sent a real request from jsdom.
+    // stubbed: rendering directly sends a real request from jsdom.
     render();
 
-    const form = document.querySelector('form');
-    expect(form?.hasAttribute('novalidate')).toBe(true);
-    // `required` stays: it is what says the field is mandatory to anything
-    // reading the form, and only the bubble was in the way.
     expect(document.querySelector('#rules-rule-name')?.hasAttribute('required')).toBe(true);
   });
 
@@ -299,8 +294,10 @@ describe('RuleEditor', () => {
     await waitFor(() => expect(create).toHaveBeenCalled());
   });
 
-  /// Pressing Save on an untouched form is also asking: the answer appears
-  /// there rather than through a round trip the server would only refuse.
+  /**
+   * Pressing Save on an untouched form is also asking: the answer appears
+   * there rather than through a round trip the server would only refuse.
+   */
   it('answers the first Save press instead of sending a draft it knows is refused', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,

@@ -727,9 +727,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         // place next to a restored file, SQLite would try to replay them over
         // it and refuse to open, or worse, succeed.
         for suffix in ["-wal", "-shm"] {
-            let mut sidecar = target.as_os_str().to_os_string();
-            sidecar.push(suffix);
-            std::fs::remove_file(PathBuf::from(sidecar)).ok();
+            std::fs::remove_file(with_suffix(&target, suffix)).ok();
         }
 
         std::fs::rename(&staged, &target)
@@ -772,9 +770,7 @@ mod tests {
 
     #[test]
     fn an_archive_is_never_written_over_one_that_exists() {
-        let dir = std::env::temp_dir().join(format!("routarr-zip-exists-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("zip-exists");
         let archive = dir.join("routarr-backup-20260101-000000.zip");
         std::fs::write(&archive, b"an earlier archive").unwrap();
         let snapshot = dir.join(".20260101-000000.db");
@@ -790,15 +786,11 @@ mod tests {
         assert!(outcome.is_err(), "an archive was written over another");
         assert_eq!(std::fs::read(&archive).unwrap(), b"an earlier archive");
         assert!(!partial_path(&archive).exists(), "the refused archive was left behind");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
     fn an_archive_that_fails_midway_is_not_left_under_a_backup_name() {
-        let dir = std::env::temp_dir().join(format!("routarr-zip-fails-{}", std::process::id()));
-        std::fs::remove_dir_all(&dir).ok();
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("zip-fails");
 
         // The snapshot is gone by the time the database entry is copied, so
         // the archive fails after it was opened.
@@ -818,8 +810,6 @@ mod tests {
         // A file under a backup name is listed, counted by the retention,
         // and restorable: an empty database the next start would move in.
         assert_eq!(left, Vec::<String>::new(), "a failed archive was left behind");
-
-        std::fs::remove_dir_all(&dir).ok();
     }
 }
 

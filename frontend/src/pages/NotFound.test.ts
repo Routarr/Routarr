@@ -18,10 +18,7 @@ const STRINGS = {
   BackToDashboard: 'Back to the dashboard',
 };
 
-afterEach(() => {
-  withBase(null);
-  navigate('/');
-});
+afterEach(() => withBase(null));
 
 describe('NotFound', () => {
   it('names the address that reached nothing', () => {
@@ -34,8 +31,10 @@ describe('NotFound', () => {
     expect(screen.getByText('Routarr serves nothing at /typo.')).toBeInTheDocument();
   });
 
-  /// A real anchor, so middle-click and the status bar work and the delegated
-  /// listener in the router intercepts it like every other internal link.
+  /**
+   * A real anchor, so middle-click and the status bar work and the delegated
+   * listener in the router intercepts it like every other internal link.
+   */
   it('offers a way out that is a link', () => {
     renderWithI18n(NotFound, { strings: STRINGS });
 

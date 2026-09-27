@@ -3,6 +3,8 @@ import { fireEvent, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { media as film } from '../test/fixtures';
+import type { MediaListItem } from '../api/types';
 import { api } from '../api/client';
 import { router } from '../lib/router.svelte';
 import CommandPalette from './CommandPalette.svelte';
@@ -40,27 +42,8 @@ const STRINGS = {
   Dismiss: 'Dismiss',
 };
 
-function media(over: Record<string, unknown> = {}) {
-  return {
-    id: 'm-1',
-    instance_id: 'i-1',
-    instance_name: 'Radarr',
-    arr_id: 10,
-    media_type: 'movie',
-    title: 'Spirited Away',
-    year: 2001,
-    tmdb_id: 129,
-    current_root_folder: '/movies/standard',
-    monitored: true,
-    has_files: true,
-    status: 'released',
-    last_synced_at: null,
-    computed_category: 'anime',
-    override_category: null,
-    has_metadata: true,
-    ...over,
-  };
-}
+const media = (over: Partial<MediaListItem> = {}) =>
+  film({ id: 'm-1', title: 'Spirited Away', year: 2001, ...over });
 
 const show = (onClose = () => {}) =>
   renderWithI18n(CommandPalette, { props: { onClose }, strings: STRINGS });
@@ -70,10 +53,17 @@ afterEach(() => vi.restoreAllMocks());
 describe('CommandPalette', () => {
   /** "History" the screen and "History" the film are told apart by their group. */
   it('names each run of results by its heading', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue({
+      data: [media({ title: 'History' })],
+      pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
+    });
     show();
 
-    const destinations = await screen.findByRole('group', { name: 'Go to' });
-    expect(destinations.querySelectorAll('[role="option"]').length).toBe(13);
+    await userEvent.type(screen.getByRole('combobox'), 'history');
+
+    const library = await screen.findByRole('group', { name: 'Library' });
+    expect(library).toHaveTextContent('History');
+    expect(screen.getByRole('group', { name: 'Go to' })).toHaveTextContent('History');
   });
 
   it('offers every destination before anything is typed', async () => {

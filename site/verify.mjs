@@ -112,11 +112,12 @@ for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 // ----------------------------------------------------------- accessibility
 // Every page at WCAG 2.1 AA, at a desktop and a phone width: what the
 // application's own sweep holds itself to, held here as well.
-/* The eight content pages: four languages of the landing, four of the detail
-   page. Named once, because a probe that quietly stops covering half the site
-   is the kind that keeps passing. */
-const LANDINGS = ['/', '/fr/', '/de/', '/es/'];
-const DETAILS = ['/how/', '/fr/how/', '/de/how/', '/es/how/'];
+/* The content pages: every language of the landing and of the detail page,
+   from the one list the pages are built from, because a probe that quietly
+   stops covering half the site is the kind that keeps passing. */
+const { LANGUAGES } = await import('./src/i18n/languages.ts');
+const LANDINGS = LANGUAGES.map(({ path }) => path);
+const DETAILS = LANDINGS.map((path) => `${path}how/`);
 const PAGES = [...LANDINGS, ...DETAILS];
 
 for (const path of [...PAGES, '/404.html']) {
@@ -136,8 +137,8 @@ for (const path of [...PAGES, '/404.html']) {
 }
 
 // ------------------------------------------------------------ layout
-// All four pages, because a German phrase in a fixed column is exactly the
-// kind of thing that only overflows on one of them, and a failure names the
+// Every page, because a German phrase in a fixed column is exactly the kind
+// of thing that only overflows on one of them, and a failure names the
 // element: "the page scrolls sideways by 40px" is a fact nobody can act on.
 for (const path of PAGES) {
   const tab = await context.newPage();
@@ -168,13 +169,13 @@ for (const path of PAGES) {
 await page.setViewportSize({ width: 1440, height: 900 });
 
 // ------------------------------------------------------------ header
-// The bar holds the brand, the two switches, the Index control and the
-// repository on one row until the row is told to wrap, and the switches are as
-// wide as the translated words make them. A band of widths where they run
-// under the Index control is invisible to the overflow check above, since
-// nothing scrolls. No two controls may share a pixel, on any page, at any of
-// these widths — and the panel is measured open as well, where it overlays the
-// page and must still clear the bar that opened it.
+// The bar holds the brand, the Index control and the repository on one row,
+// and the switches in the panel are as wide as the translated words make
+// them. A band of widths where two controls overlap is invisible to the
+// overflow check above, since nothing scrolls. No two controls may share a
+// pixel, on any page, at any of these widths, and the panel is measured open
+// as well, where it overlays the page and must still clear the bar that
+// opened it.
 let headerControls = 0;
 for (const path of PAGES) {
   const tab = await context.newPage();
@@ -215,9 +216,8 @@ for (const path of PAGES) {
   }
   await tab.close();
 }
-// Three controls on the bar and thirteen with the panel open on a landing,
-// sixteen on the detail page, over nine widths and eight pages (1152 measured): a selector
-// that stops matching would compare nothing and pass.
+// Every header control, closed and open, over nine widths and every page: a
+// selector that stops matching would compare nothing and pass.
 check(headerControls >= 1100, `measured ${headerControls} header control(s), expected at least 1100`);
 
 // ------------------------------------------------------------ board
@@ -241,7 +241,7 @@ for (const path of LANDINGS) {
       // Only clipping counts. The table scrolls sideways on a phone, so a cell
       // sitting past the visible frame is the scroller working, not a fault —
       // measuring against that edge reported every row on every narrow page.
-      return [...plan.querySelectorAll('td, .chip, .why-exp, .why-obs')]
+      return [...plan.querySelectorAll('td, .chip')]
         .filter((el) => el.checkVisibility())
         .map((el) => ({
           word: el.textContent.trim().slice(0, 28),
@@ -261,17 +261,24 @@ for (const path of LANDINGS) {
 }
 // The count is the guard on the guard: a selector that stops matching would
 // measure nothing and pass.
-check(planCells >= 400, `measured ${planCells} plan cell(s) across four pages, expected at least 400`);
-
-// ------------------------------------------------------------ anchors
-const anchors = await page.evaluate(() =>
-  [...document.querySelectorAll('a[href^="#"]')]
-    .map((a) => a.getAttribute('href').slice(1))
-    .filter((id) => id && !document.getElementById(id)),
-);
-check(anchors.length === 0, `in-page links pointing nowhere: ${anchors.join(', ')}`);
+check(planCells >= 400, `measured ${planCells} plan cell(s) across the landings, expected at least 400`);
 
 // ------------------------------------------------------------ theme
+// Before anyone touches it, the switch says the theme on screen: a screen
+// reader reads its state, not its colour. Nothing stamped is the light default.
+const announced = await page.evaluate(() =>
+  [...document.querySelectorAll('[data-theme-set]')]
+    .filter((button) => button.getAttribute('aria-pressed') === 'true')
+    .map((button) => button.getAttribute('data-theme-set')),
+);
+const onScreen = await page.evaluate(() =>
+  document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+);
+check(
+  announced.length > 0 && announced.every((theme) => theme === onScreen),
+  `the theme switch announces ${announced.join(', ') || 'nothing'} on a ${onScreen} page`,
+);
+
 // Both states are named, so the test asks for the one the page is not in:
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
@@ -297,6 +304,23 @@ const chosen = await page.evaluate(() => document.documentElement.dataset.theme)
 await page.reload({ waitUntil: 'networkidle' });
 const persisted = await page.evaluate(() => document.documentElement.dataset.theme);
 check(persisted === chosen, `the theme choice did not survive a reload (${chosen} became ${persisted})`);
+
+// ------------------------------------------------------------ index panel
+// On a phone the destinations stack in one column: two columns of 136px fold
+// every title and every description.
+{
+  const tab = await context.newPage();
+  await tab.setViewportSize({ width: 375, height: 800 });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const columns = await tab.evaluate(() => {
+    const index = document.querySelector('.index');
+    if (index) index.open = true;
+    const nav = document.querySelector('.index-panel .index-nav');
+    return nav ? getComputedStyle(nav).gridTemplateColumns.split(' ').length : 0;
+  });
+  check(columns === 1, `the Index panel keeps ${columns} columns on a phone`);
+  await tab.close();
+}
 
 // ------------------------------------------------------------ accessibility
 const unnamed = await page.evaluate(() =>

@@ -37,8 +37,10 @@ describe('defaultConditionValue', () => {
 });
 
 describe('canonicalKey', () => {
-  /// The same folding the rule engine applies, so the interface never treats as
-  /// distinct two values a rule would match alike.
+  /**
+   * The same folding the rule engine applies, so the interface never treats as
+   * distinct two values a rule would match alike.
+   */
   it('folds case, accents and separators', () => {
     expect(canonicalKey('  Science-Fiction ')).toBe('science fiction');
     expect(canonicalKey('Science Fiction')).toBe('science fiction');
@@ -70,8 +72,10 @@ describe('parseStringList', () => {
     expect(parseStringList('Animation ,  Family')).toEqual(['Animation', 'Family']);
   });
 
-  /// A comma separates alternatives and never means "and": the free-text path
-  /// has to produce exactly what the picker would.
+  /**
+   * A comma separates alternatives and never means "and": the free-text path
+   * has to produce exactly what the picker would.
+   */
   it('drops a value repeated under another spelling', () => {
     expect(parseStringList('Animation, animation , Family')).toEqual(['Animation', 'Family']);
   });
@@ -117,8 +121,10 @@ describe('parseYearBound', () => {
     expect(parseYearBound('nineteen')).toBeNull();
   });
 
-  /// `Number` calls both of these finite, and either one stored is a rule that
-  /// matches nothing.
+  /**
+   * `Number` calls both of these finite, and either one stored is a rule that
+   * matches nothing.
+   */
   it('takes a whole number or nothing', () => {
     expect(parseYearBound('2e5')).toBeNull();
     expect(parseYearBound('1988.5')).toBeNull();

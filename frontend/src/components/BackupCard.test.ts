@@ -65,9 +65,11 @@ describe('restoring a backup', () => {
     await waitFor(() => expect(outcome.notice).toBe('Restore staged.'));
   });
 
-  /// An installation whose master key lives in ROUTARR_SECRET_KEY has no key
-  /// file, so its archives carry none, and restoring one leaves every sealed
-  /// Arr credential unreadable. The manifest is the only thing that knows.
+  /**
+   * An installation whose master key lives in ROUTARR_SECRET_KEY has no key
+   * file, so its archives carry none, and restoring one leaves every sealed
+   * Arr credential unreadable. The manifest is the only thing that knows.
+   */
   it('warns when it does not, since every stored Arr credential is lost', async () => {
     vi.spyOn(api, 'restoreBackup').mockResolvedValue(result(false));
     const outcome = mount();

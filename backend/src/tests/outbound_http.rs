@@ -144,10 +144,12 @@ async fn a_redirect_within_the_same_service_is_still_followed() {
     let _ = tx.send(());
 }
 
-/// A blocked redirect must surface as a failure, not as an empty success: the
-/// caller would otherwise parse a `302` body as JSON and report "no media".
+/// A blocked redirect comes back as the redirect itself, a status that is not
+/// a success, so `check_status` in the Arr clients reports it rather than
+/// parsing a `302` body as an empty library. The adapter's own wording is
+/// pinned in `tests::connection`.
 #[tokio::test]
-async fn a_blocked_redirect_is_reported_rather_than_read_as_an_empty_library() {
+async fn a_blocked_redirect_comes_back_as_the_redirect_itself() {
     let (elsewhere, _seen, _stop_a) = recorder().await;
     let (arr, _stop_b) = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
@@ -156,8 +158,6 @@ async fn a_blocked_redirect_is_reported_rather_than_read_as_an_empty_library() {
     let response =
         client.get(format!("{arr}/api/v3/movie")).header("X-Api-Key", "s3cret").send().await;
 
-    // reqwest hands back the redirect itself; the status is not a success, so
-    // `error_for_status`-style handling in the adapters treats it as a failure.
     let status = response.expect("the request itself completes").status();
     assert!(status.is_redirection(), "expected the 302 to surface, got {status}");
 }

@@ -355,8 +355,6 @@ fn pascal_case(kind: &str) -> String {
         .collect()
 }
 
-// ---------------------------------------------------------------- helpers
-
 #[cfg(test)]
 mod tests {
     use crate::models::Condition;
@@ -489,36 +487,26 @@ mod tests {
 
     /// Every entry names a condition the engine can actually be given.
     ///
+    /// Every catalogue entry is a condition, and the catalogue and the engine
+    /// agree on which metadata field it reads.
+    ///
     /// The builder emits `{"type": kind, "value": …}` straight from this table,
     /// so a misspelt `kind` or a `value_type` that does not match the variant's
-    /// shape produces a rule the backend refuses — with the interface offering
+    /// shape produces a rule the backend refuses, with the interface offering
     /// it as if it worked.
-    #[test]
-    fn every_catalogue_entry_deserialises_into_a_condition() {
-        let entries = catalogue();
-        assert!(entries.len() >= 25, "the catalogue parser read {} entries", entries.len());
-
-        for (kind, value_type, _) in &entries {
-            let body = serde_json::json!({ "type": kind, "value": sample(value_type) });
-            serde_json::from_value::<Condition>(body.clone()).unwrap_or_else(|e| {
-                panic!("catalogue entry {kind} is not a condition: {e} ({body})")
-            });
-        }
-    }
-
-    /// The catalogue and the engine agree on which metadata field a condition
-    /// reads.
     ///
-    /// It is stated twice — `Spec.field` here, `Condition::metadata_field`
-    /// there — and the two answer different readers: the builder warns that no
-    /// enabled source can supply the field, the engine decides whether a
-    /// condition could ever match. Disagreeing, the interface offers a
+    /// The field is stated twice, `Spec.field` here and
+    /// `Condition::metadata_field` there, and the two answer different readers:
+    /// the builder warns that no enabled source can supply the field, the
+    /// engine decides whether a condition could ever match. Disagreeing, the interface offers a
     /// condition it says is fine and the evaluation reports it unanswerable.
     #[test]
     fn the_catalogue_names_the_field_the_engine_reads() {
         for (kind, value_type, declared) in catalogue() {
             let body = serde_json::json!({ "type": kind, "value": sample(&value_type) });
-            let condition: Condition = serde_json::from_value(body).expect("a condition");
+            let condition: Condition = serde_json::from_value(body.clone()).unwrap_or_else(|e| {
+                panic!("catalogue entry {kind} is not a condition: {e} ({body})")
+            });
             let engine = condition.metadata_field().map(|f| format!("{f:?}"));
             assert_eq!(
                 engine, declared,

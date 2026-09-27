@@ -109,8 +109,8 @@ impl RadarrClient {
     }
 
     /// One movie by id. A 404 surfaces as `ExternalApi { status: 404 }`.
-    pub async fn get_movie(&self, id: i64) -> AppResult<Option<RadarrMovie>> {
-        send_json(SERVICE, self.get(&format!("/api/v3/movie/{id}"))).await.map(Some)
+    pub async fn get_movie(&self, id: i64) -> AppResult<RadarrMovie> {
+        send_json(SERVICE, self.get(&format!("/api/v3/movie/{id}"))).await
     }
 
     /// Get the tag catalogue: a media row only carries numeric ids.

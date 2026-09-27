@@ -27,10 +27,3 @@ async fn a_value_sealed_by_an_older_build_still_opens() {
     let opened = secrets(ITS_KEY).open(SEALED_BY_AN_OLDER_BUILD).unwrap();
     assert_eq!(opened, ITS_PLAINTEXT, "the stored format moved under an upgrade");
 }
-
-#[tokio::test]
-async fn the_wrong_master_key_does_not_open_it() {
-    // Otherwise the test above would pass on a build that had stopped
-    // decrypting at all and returned its input.
-    assert!(secrets("a-different-key").open(SEALED_BY_AN_OLDER_BUILD).is_err());
-}

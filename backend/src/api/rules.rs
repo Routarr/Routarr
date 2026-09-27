@@ -38,7 +38,7 @@ pub async fn create(
     reject_on_error(&issues)?;
 
     let id = Uuid::new_v4().to_string();
-    insert_rule(&state, &id, &req).await?;
+    insert_rule(&mut *state.pool.acquire().await?, &id, &req).await?;
     fetch_rule(&state, &id).await.map(Json)
 }
 
@@ -103,19 +103,12 @@ pub async fn duplicate(
 
     let copy = CreateRuleRequest {
         name: format!("{} (copy)", source.name),
-        description: source.description.clone(),
-        priority: source.priority,
         // A duplicate that fires immediately would double-classify the library.
         enabled: false,
-        media_type: source.media_type.clone(),
-        conditions: source.conditions.clone(),
-        exclusions: source.exclusions.clone(),
-        match_mode: source.match_mode,
-        target_category: source.target_category.clone(),
-        instance_ids: source.instance_ids.clone(),
+        ..to_request(source)
     };
 
-    insert_rule(&state, &new_id, &copy).await?;
+    insert_rule(&mut *state.pool.acquire().await?, &new_id, &copy).await?;
     fetch_rule(&state, &new_id).await.map(Json)
 }
 
@@ -224,7 +217,6 @@ pub async fn preview(
     let mut candidate_rules: Vec<Rule> =
         baseline_rules.iter().filter(|r| Some(&r.id) != req.rule_id.as_ref()).cloned().collect();
     candidate_rules.push(candidate);
-    candidate_rules.sort_by_key(|r| r.priority);
 
     let base_options = SimulationOptions {
         instance_ids: req.instance_ids.clone().unwrap_or_default(),
@@ -310,7 +302,10 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<RuleBundle>
         exported_at: Some(routing::format_timestamp(chrono::Utc::now())),
         // Instance ids are host-specific; a bundle imported elsewhere would
         // silently scope its rules to instances that do not exist there.
-        rules: rules.into_iter().map(|r| to_request(r, false)).collect(),
+        rules: rules
+            .into_iter()
+            .map(|r| CreateRuleRequest { instance_ids: None, ..to_request(r) })
+            .collect(),
         categories,
     }))
 }
@@ -400,24 +395,7 @@ pub async fn import(
             continue;
         }
 
-        sqlx::query(
-            "INSERT INTO rules (id, name, description, priority, enabled, media_type, conditions,
-             exclusions, match_mode, target_category, instance_ids)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(rule.name.trim())
-        .bind(&rule.description)
-        .bind(rule.priority)
-        .bind(rule.enabled)
-        .bind(rule.media_type.to_lowercase())
-        .bind(serde_json::to_string(&rule.conditions)?)
-        .bind(serde_json::to_string(&rule.exclusions)?)
-        .bind(rule.match_mode.to_string())
-        .bind(rule.target_category.trim().to_lowercase())
-        .bind(encode_instance_ids(&rule.instance_ids)?)
-        .execute(&mut *tx)
-        .await?;
+        insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
 
         imported += 1;
     }
@@ -533,7 +511,11 @@ fn reject_on_error(issues: &[ValidationIssue]) -> AppResult<()> {
     ))
 }
 
-async fn insert_rule(state: &AppState, id: &str, req: &CreateRuleRequest) -> AppResult<()> {
+async fn insert_rule(
+    connection: &mut sqlx::SqliteConnection,
+    id: &str,
+    req: &CreateRuleRequest,
+) -> AppResult<()> {
     sqlx::query(
         "INSERT INTO rules (id, name, description, priority, enabled, media_type, conditions,
          exclusions, match_mode, target_category, instance_ids)
@@ -550,7 +532,7 @@ async fn insert_rule(state: &AppState, id: &str, req: &CreateRuleRequest) -> App
     .bind(req.match_mode.to_string())
     .bind(req.target_category.trim().to_lowercase())
     .bind(encode_instance_ids(&req.instance_ids)?)
-    .execute(&state.pool)
+    .execute(connection)
     .await?;
 
     Ok(())
@@ -592,7 +574,7 @@ fn to_rule(id: String, req: &CreateRuleRequest) -> Rule {
     }
 }
 
-fn to_request(rule: Rule, keep_instance_ids: bool) -> CreateRuleRequest {
+fn to_request(rule: Rule) -> CreateRuleRequest {
     CreateRuleRequest {
         name: rule.name,
         description: rule.description,
@@ -603,7 +585,7 @@ fn to_request(rule: Rule, keep_instance_ids: bool) -> CreateRuleRequest {
         exclusions: rule.exclusions,
         match_mode: rule.match_mode,
         target_category: rule.target_category,
-        instance_ids: if keep_instance_ids { rule.instance_ids } else { None },
+        instance_ids: rule.instance_ids,
     }
 }
 

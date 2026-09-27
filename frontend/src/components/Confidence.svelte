@@ -20,7 +20,7 @@
   let { value, meter = false }: { value: number; meter?: boolean } = $props();
 
   const pct = $derived(Math.round((value ?? 0) * 100));
-  /// Zero is the one case worth flagging, and an empty bar cannot show it.
+  /** Zero is the one case worth flagging, and an empty bar cannot show it. */
   const none = $derived(pct === 0);
   /**
    * Where this value sits on the dot's ramp, as the percentage `color-mix` wants.

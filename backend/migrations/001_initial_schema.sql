@@ -173,10 +173,11 @@ CREATE TABLE arr_tags (
 CREATE INDEX idx_media_series_type ON media(series_type);
 
 CREATE TABLE metadata_cache (
-    -- `tmdb`, and tomorrow `anilist` or `omdb`. Not an enum: a provider is
-    -- added in code, and a CHECK would turn that into a migration.
+    -- A source id from `PROVIDERS` (`tmdb`, `anilist`, `omdb`...). Not an
+    -- enum: a source is added in code, and a CHECK would turn that into a
+    -- migration.
     source TEXT NOT NULL,
-    -- The id in that provider's namespace, as text — TMDb numbers them, OMDb
+    -- The id in that source's namespace, as text: TMDb numbers them, OMDb
     -- keys on `tt…`.
     external_id TEXT NOT NULL,
     media_type TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
@@ -245,7 +246,7 @@ CREATE TABLE users (
 
 CREATE TABLE sessions (
     id TEXT PRIMARY KEY,
-    -- Who the session belongs to: a username today, an OIDC subject later.
+    -- Who the session belongs to: a username, or an OIDC subject.
     subject TEXT NOT NULL,
     -- Which mode opened it, so a mode change does not leave live sessions it
     -- would never have granted.

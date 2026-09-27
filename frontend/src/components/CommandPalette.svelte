@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../api/client';
+  import { Search } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import { DESTINATIONS } from '../lib/navigation';
@@ -150,19 +151,7 @@
   <Modal label={t('CommandPalette')} {onClose} maxWidth={520} closeOnBackdrop>
     <div class="palette">
       <div class="palette-field">
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          aria-hidden="true"
-        >
-          <circle cx="11" cy="11" r="7" />
-          <path d="m20 20-3.5-3.5" />
-        </svg>
+        <Search size={16} aria-hidden="true" />
         <!-- The focus never leaves the field, so typing continues while the
              arrows walk the list; `aria-activedescendant` is what tells a
              screen reader which row that is. -->

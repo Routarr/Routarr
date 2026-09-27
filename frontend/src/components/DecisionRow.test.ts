@@ -32,10 +32,17 @@ const show = (props: Record<string, unknown>) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('DecisionRow', () => {
+  /** Named after its film, so a screen reader tells one row's box from the next. */
   it('offers a checkbox only for a decision that would move something', () => {
-    show({ decision: decision({ action: 'move' }), selected: false, onToggle: vi.fn() });
+    show({
+      decision: decision({ action: 'move', media_title: 'Perfect Blue' }),
+      selected: false,
+      onToggle: vi.fn(),
+    });
 
-    expect(screen.getByRole('checkbox', { name: /Select the move for/ })).toBeTruthy();
+    expect(
+      screen.getByRole('checkbox', { name: 'Select the move for "Perfect Blue"' }),
+    ).toBeTruthy();
   });
 
   it('offers none for a decision that is already correct', () => {

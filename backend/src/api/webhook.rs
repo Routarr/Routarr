@@ -9,7 +9,6 @@ use super::Json;
 use axum::extract::{Path, State};
 use serde::Deserialize;
 use std::time::Duration;
-use subtle::ConstantTimeEq;
 use tracing::{info, warn};
 
 use crate::error::{AppError, AppResult};
@@ -66,7 +65,7 @@ pub async fn receive(
         .map_err(|_| AppError::NotFound("Unknown webhook".into()))?;
 
     let expected = instance.webhook_token.as_deref().unwrap_or_default();
-    if expected.is_empty() || !constant_time_eq(&token, expected) {
+    if expected.is_empty() || !super::auth::constant_time_eq(&token, expected) {
         warn!(instance = %instance.name, "Rejected a webhook with an invalid token");
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
@@ -277,9 +276,4 @@ pub async fn receive(
         "moves_required": result.moves_required,
         "auto_applied": auto_applied,
     })))
-}
-
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    a.len() == b.len() && a.ct_eq(b).into()
 }

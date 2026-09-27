@@ -3,7 +3,7 @@
   import type { Snippet } from 'svelte';
   import { t } from '../lib/i18n.svelte';
 
-  export interface Action {
+  interface Action {
     label: string;
     icon?: Snippet;
     danger?: boolean;

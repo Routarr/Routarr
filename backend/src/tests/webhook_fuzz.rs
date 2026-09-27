@@ -14,14 +14,15 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
 use super::TestApp;
-use super::fake_arr::FakeArr;
 
 /// The statuses the endpoint is allowed to answer with.
 ///
 /// A `502` is in the set on purpose: the test instance points at an unreachable
 /// Arr, so a payload that deserialises *and* carries a media id proceeds to a
 /// real outbound sync, which then fails with a mapped `Bad Gateway`. That is an
-/// honest upstream error, not the failure this module hunts. What must never
+/// honest upstream error, not the failure this module hunts. The webhook tests
+/// of `tests::api` hold the counterpart: pointed at an Arr that answers, a
+/// legitimate event runs the whole handler to a 200. What must never
 /// appear is a `500` — `Database`, `Serialization` or `Internal`, all of which
 /// mean an input reached code that could not cope with it and leaked a Rust
 /// error string in the process.
@@ -148,8 +149,8 @@ async fn the_wrong_content_type_is_rejected_not_crashed() {
 
 // -------------------------------------------------------- generative
 
-/// A tiny reproducible RNG. `rand` is a dependency, but a self-contained
-/// generator keeps the seed visible in the failure message with no ceremony.
+/// A tiny reproducible RNG. Self-contained, so the seed is visible in the
+/// failure message with no ceremony and no dependency.
 struct XorShift(u64);
 impl XorShift {
     fn next(&mut self) -> u64 {
@@ -221,32 +222,4 @@ async fn thousands_of_random_payloads_stay_controlled() {
             "iteration {i} produced an uncontrolled {status} for: {value}"
         );
     }
-}
-
-#[tokio::test]
-async fn a_valid_event_on_an_unknown_instance_is_a_404_not_a_500() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-
-    // An instance id that does not exist must fail closed, and must not reveal
-    // whether the token would have been valid.
-    let body = br#"{"eventType":"Download","movie":{"id":1}}"#.to_vec();
-    let status =
-        post_raw(&app, "/api/v1/webhook/does-not-exist/tok", body, "application/json").await;
-    assert_eq!(status, StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn a_real_event_against_a_reachable_arr_completes() {
-    // The counterpart to accepting 502 above: pointed at an Arr that answers,
-    // a legitimate event runs the whole handler to a 200. If this ever fails,
-    // the 502s the fuzzer tolerates would be masking a genuine handler fault.
-    let arr = FakeArr::start().await;
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-
-    let body =
-        br#"{"eventType":"Download","movie":{"id":10,"tmdbId":8392,"title":"Totoro"}}"#.to_vec();
-    let status = post_raw(&app, "/api/v1/webhook/inst-1/tok", body, "application/json").await;
-    assert_eq!(status, StatusCode::OK);
 }

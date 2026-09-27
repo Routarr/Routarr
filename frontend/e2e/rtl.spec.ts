@@ -12,7 +12,7 @@ import { test, expect, api } from './fixtures';
  * amount of translation fixes it.
  *
  * Geometry is the only way to catch that: the text content is identical either
- * way, so a DOM assertion sees nothing. happy-dom computes no layout, which is
+ * way, so a DOM assertion sees nothing. jsdom computes no layout, which is
  * why this lives here rather than in the component suite.
  *
  * The language is a global setting and the suite runs serial on one server, so

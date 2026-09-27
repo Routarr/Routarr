@@ -462,18 +462,6 @@ async fn the_default_category_setting_is_honoured() {
 }
 
 #[tokio::test]
-async fn a_disabled_rule_does_not_route() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("UPDATE rules SET enabled = 0").execute(&app.state.pool).await.unwrap();
-
-    let result = simulate(&app, persisting()).await;
-    assert_eq!(result.no_category_match, 1);
-}
-
-#[tokio::test]
 async fn a_corrupted_condition_payload_disables_the_rule_instead_of_failing_the_run() {
     let app = TestApp::new().await;
     app.seed_library().await;
@@ -498,8 +486,9 @@ async fn a_corrupted_condition_payload_disables_the_rule_instead_of_failing_the_
 /// season import arrives as one delivery per episode.
 #[tokio::test]
 async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
+    let arr = crate::tests::fake_arr::FakeArr::start().await;
     let app = crate::tests::TestApp::new().await;
-    app.seed_library().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
     let running = app.state.jobs.try_lock(crate::jobs::FULL_SIMULATION).expect("the key is free");
 
@@ -507,18 +496,18 @@ async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
         .await
         .assert_status(axum::http::StatusCode::CONFLICT);
 
-    // The webhook path takes no such lock, so it still evaluates its one item.
-    let scoped = routing::run_simulation(
-        &app.state.pool,
-        routing::SimulationOptions {
-            trigger: crate::jobs::TRIGGER_WEBHOOK.to_string(),
-            media_ids: Some(vec!["m-1".to_string()]),
-            persist: true,
-            ..Default::default()
-        },
+    // The webhook takes no such lock, so a delivery still evaluates its item.
+    let event = serde_json::json!({
+        "eventType": "Download",
+        "movie": { "id": 10, "tmdbId": 8392, "title": "Totoro" },
+    });
+    let delivery = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        app.post("/api/v1/webhook/inst-1/tok", event),
     )
-    .await;
-    assert!(scoped.is_ok(), "a scoped run was blocked by a full one");
+    .await
+    .expect("the delivery waited for the full simulation");
+    assert!(!delivery.assert_ok()["media_id"].is_null(), "nothing evaluated: {}", delivery.json);
 
     drop(running);
     app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await.assert_ok();

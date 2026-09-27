@@ -19,12 +19,15 @@ pub struct Decision {
     pub alternatives: Vec<AlternativeDecision>,
     /// `move`, `none` or `skip`.
     pub action: String,
-    /// `pending`, `applied`, `failed` or `skipped` — a reverted move is `skipped` with `reverted_at` set.
+    /// `pending`, `applied`, `failed` or `skipped`. A reverted move is
+    /// `skipped` with `reverted_at` set.
     pub status: String,
-    /// 0.0–1.0, how many independent signals backed the winning rule.
+    /// 0.0 to 1.0, how many independent signals backed the winning rule.
     #[serde(default)]
     pub confidence: f32,
-    /// True once a newer simulation replaced this proposal.
+    /// True once this proposal was retired: by a newer simulation, an override
+    /// set or removed, a revalidation that found it stale, or the removal of
+    /// its media or its instance.
     #[serde(default)]
     pub superseded: bool,
     /// Groups every decision produced by the same simulation run.
@@ -170,7 +173,7 @@ pub struct DecisionQuery {
     pub action: Option<String>,
     pub simulation_id: Option<String>,
     pub search: Option<String>,
-    /// Hide proposals replaced by a newer simulation. Defaults to true.
+    /// Include the superseded proposals. Defaults to false.
     pub include_superseded: Option<bool>,
     pub page: Option<u32>,
     pub per_page: Option<u32>,

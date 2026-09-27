@@ -95,7 +95,7 @@ jobs:
           # Written from `main` only. The cache is 10 GB for the repository and
           # evicted oldest-first; every pull request writing its own layers
           # pushed the arm64 layers `release.yml` needs out, and a tag then
-          # built under QEMU from nothing.
+          # built cold.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
 
       # A build that succeeds says the Dockerfile compiles, not that the image

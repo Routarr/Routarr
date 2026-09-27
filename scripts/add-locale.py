@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write a locale file from a mapping supplied on stdin, validating as it goes.
 
-    python3 scripts/add-locale.py de "Deutsch" < translations.json
+    python3 scripts/add-locale.py de < translations.json
 
 Refuses to write when a translation drops or invents a `{placeholder}`, carries a
 key English does not have, or is empty — the three ways a locale silently
@@ -29,7 +29,7 @@ def placeholders(text: str) -> set[str]:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("usage: add-locale.py <code> [name] < translations.json", file=sys.stderr)
+        print("usage: add-locale.py <code> < translations.json", file=sys.stderr)
         return 2
 
     code = sys.argv[1]

@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { fireEvent, screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
@@ -60,14 +60,6 @@ async function disclose(container: HTMLElement) {
   await fireEvent.click(container.querySelector('summary')!);
   await fireEvent(details, new Event('toggle'));
 }
-
-afterEach(() => {
-  try {
-    localStorage.removeItem('routarr.facetsOpen');
-  } catch {
-    // jsdom always has it; a browser told to block site data would not.
-  }
-});
 
 describe('LibraryFacets', () => {
   it('is folded on arrival, and says what it is holding', () => {

@@ -188,12 +188,12 @@
   <LoginGate mode={sessionMode} />
 {:else if unauthorized}
   <!-- The server wants a key this browser has not got. Since one is generated at
-       first start, that is the ordinary first visit — so ask for it, rather than
-       rendering twelve pages that will each fail their own way. -->
+       first start, that is the ordinary first visit, so ask for it rather than
+       render every page failing its own way. -->
   <ApiKeyGate />
 {:else}
-  <!-- First in the tab order, so a keyboard user is not walked through twelve
-       navigation links on every page before reaching the content. Focus is moved
+  <!-- First in the tab order, so a keyboard user is not walked through every
+       navigation link on every page before reaching the content. Focus is moved
        by hand: the backend injects a `<base href>`, against which a bare `#main`
        resolves to the mount point and reloads the page instead of jumping. -->
   <a

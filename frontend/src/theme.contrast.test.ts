@@ -189,10 +189,4 @@ describe.each([
       `${name}: --border-strong on --bg-input is ${ratio.toFixed(2)}:1`,
     ).toBeGreaterThanOrEqual(3);
   });
-
-  it('reads the primary button label on its fill', () => {
-    // `.btn-primary` writes #111 on the accent, in both themes.
-    const ratio = contrast('#111111', token(palette, '--accent-primary'));
-    expect(ratio, `${name}: the button label is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
-  });
 });

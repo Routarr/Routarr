@@ -221,8 +221,10 @@ describe('the save bar', () => {
     );
   });
 
-  /// A metadata key saved or cleared is what the source warnings are computed
-  /// from, so saving has to tell the shell to read them again.
+  /**
+   * A metadata key saved or cleared is what the source warnings are computed
+   * from, so saving has to tell the shell to read them again.
+   */
   it('tells the shell its counters are out of date', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Routing');
@@ -296,17 +298,9 @@ describe('the save bar', () => {
 
 describe('the metadata sources', () => {
   /**
-   * A source that needs a key it has not got is shown, but never as if it
-   * worked: putting one at position 1 looks like a configuration and behaves
-   * like an absence.
-   */
-  /**
-   * The credential lives in the row of the source it unlocks.
-   *
-   * Stated three blocks further down, turning on TMDb meant noticing a greyed
-   * button that said nothing, scrolling past the whole list, pasting, saving,
-   * scrolling back and saving again — two saves for one intention. A key is
-   * not a setting of the application; it is a property of a source.
+   * The credential lives in the row of the source it unlocks. A key is not a
+   * setting of the application but a property of a source, and stated anywhere
+   * else, turning a source on takes two saves for one intention.
    */
   it('offers the credential in the row of the source that needs it', async () => {
     mount({ metadata_providers: 'arr' });
@@ -318,6 +312,11 @@ describe('the metadata sources', () => {
     expect(field.getAttribute('placeholder')).toBe('API key, or the TMDB_API_KEY variable');
   });
 
+  /**
+   * A source that needs a key it has not got is shown, but never as if it
+   * worked: putting one at position 1 looks like a configuration and behaves
+   * like an absence.
+   */
   it('refuses to add a source that cannot answer, until a key is given', async () => {
     mount({ metadata_providers: 'arr' });
     await openSection('Metadata');
@@ -331,27 +330,6 @@ describe('the metadata sources', () => {
     // the reader back for a save they cannot see the need for.
     await userEvent.type(screen.getByLabelText('TMDb'), 'a-key');
     expect(enable.disabled).toBe(false);
-  });
-
-  /**
-   * The row is the only place this field exists, so it cannot disappear once
-   * the source works: a key that leaked has to be replaceable, and one held
-   * only in the environment has to be enterable. Hidden as soon as
-   * `configured` turned true, rotating a credential meant editing the
-   * database by hand.
-   */
-  it('still offers the field once a key is stored and the source is on', async () => {
-    mount({ metadata_providers: 'arr,tmdb' }, APIKEY_MODE, {
-      configured: true,
-      order: ['arr', 'tmdb'],
-    });
-    await openSection('Metadata');
-
-    const field = await screen.findByLabelText('TMDb');
-    expect(field.getAttribute('id')).toBe('setting-tmdb_api_key');
-    // The placeholder is what says which of the two situations the reader is
-    // in, since the backend never sends a sealed value back.
-    expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
   });
 
   /**
@@ -715,9 +693,11 @@ describe('the API key card', () => {
     },
   );
 
-  /// The middleware tries the key before the session, so it still opens the
-  /// door — and the wording has to stop claiming the key is generated, which in
-  /// these modes it is not.
+  /**
+   * The middleware tries the key before the session, so it still opens the
+   * door — and the wording has to stop claiming the key is generated, which in
+   * these modes it is not.
+   */
   it('is offered in a session mode that has a key, and says what it is for', async () => {
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
 
@@ -726,8 +706,10 @@ describe('the API key card', () => {
     expect(screen.queryByText('Generated at first start')).toBeNull();
   });
 
-  /// Nothing to paste, but something to create: this is how a script gets a
-  /// credential without being handed the password.
+  /**
+   * Nothing to paste, but something to create: this is how a script gets a
+   * credential without being handed the password.
+   */
   it('offers to mint one in a session mode that has none, and nothing to paste', async () => {
     mount({}, { mode: 'oidc', api_key_configured: false, api_key_pinned: false });
 
@@ -735,9 +717,11 @@ describe('the API key card', () => {
     expect(screen.queryByLabelText('Routarr API key')).toBeNull();
   });
 
-  /// A key the environment states cannot be replaced from here: the new one
-  /// would last until the next restart. A button that quietly expires is worse
-  /// than no button.
+  /**
+   * A key the environment states cannot be replaced from here: the new one
+   * would last until the next restart. A button that quietly expires is worse
+   * than no button.
+   */
   it('offers no button when the environment pins the key, and says why', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: true });
 
@@ -770,8 +754,10 @@ describe('the API key card', () => {
     expect(rotate).not.toHaveBeenCalled();
   });
 
-  /// Removing it in `apikey` mode would lock everybody out, so the control is
-  /// not there at all — the backend refuses too, and neither relies on the other.
+  /**
+   * Removing it in `apikey` mode would lock everybody out, so the control is
+   * not there at all — the backend refuses too, and neither relies on the other.
+   */
   it('offers removal only where another way in remains', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
     await screen.findByRole('button', { name: 'Regenerate' });

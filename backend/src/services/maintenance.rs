@@ -14,9 +14,6 @@ use crate::jobs::JobKind;
 use crate::services::metadata;
 use crate::state::AppState;
 
-/// List TMDb when the environment hands in its key and nobody chose the
-/// sources yet.
-///
 /// Everything a start brings in line before anything reads the database, in
 /// this order: secrets sealed with the current key before anything opens
 /// one, stored values inside the bounds this build enforces, since a value
@@ -30,6 +27,9 @@ pub async fn converge(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
+/// List TMDb when the environment hands in its key and nobody chose the
+/// sources yet.
+///
 /// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and the
 /// shipped order is the Arr alone: without this, the key would be read and
 /// never used. A list already stored is left as it is, TMDb in it or not,
@@ -273,11 +273,10 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
 
     // `decisions` deliberately carries no foreign key on `media_id`: an applied
     // decision must outlive the media it moved, or the audit trail would erase
-    // itself. The cost is orphans — delete an instance, or let a sync drop media
-    // that vanished upstream, and its *unresolved* proposals stay behind. They
-    // can never be applied (the executor joins `media`) and no simulation will
-    // ever supersede them, so they sit in the pending count for ever, inflating
-    // the one number the dashboard asks the user to act on.
+    // itself. The cost is orphans: a proposal or a skip whose media is gone can
+    // never be applied, since the executor joins `media`. Removing the media
+    // retires its proposals, which takes them out of the pending count at
+    // once, and this is what deletes the rows.
     //
     // Applied and failed decisions are left alone here: those are the history.
     report.decisions_removed += sqlx::query(
@@ -341,10 +340,6 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     Ok(report)
 }
 
-/// `&'static str` rather than `&str`, which is the whole guarantee: a caller
-/// cannot reach this with a string it assembled at run time, so no audit is
-/// needed here and none can be forgotten. The cut-off is bound, never
-/// interpolated.
 /// What `metadata::local_key_of` reads off a media row.
 #[derive(sqlx::FromRow)]
 struct LibraryIdentity {
@@ -397,6 +392,10 @@ async fn prune_resolutions(pool: &SqlitePool) -> AppResult<u64> {
     Ok(removed)
 }
 
+/// `&'static str` rather than `&str`, which is the whole guarantee: a caller
+/// cannot reach this with a string it assembled at run time, so no audit is
+/// needed here and none can be forgotten. The cut-off is bound, never
+/// interpolated.
 async fn delete_older_than(pool: &SqlitePool, sql: &'static str, days: i64) -> AppResult<u64> {
     Ok(sqlx::query(sql).bind(format!("-{days} days")).execute(pool).await?.rows_affected())
 }
@@ -506,8 +505,9 @@ mod tests {
         assert_eq!(remaining, vec!["keep-fresh"]);
     }
 
+    /// History outlives both its age and its media: `m1` is never seeded.
     #[tokio::test]
-    async fn applied_decisions_survive_the_pending_purge() {
+    async fn an_applied_decision_outlives_its_retention_and_its_media() {
         let state = AppState::for_tests().await;
         sqlx::query(
             "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
@@ -703,28 +703,5 @@ mod tests {
         let report = purge(&state).await.unwrap();
 
         assert_eq!(report.decisions_removed, 2);
-    }
-
-    /// The other half of the same rule: history survives its media.
-    #[tokio::test]
-    async fn an_applied_move_survives_the_media_it_moved() {
-        let state = AppState::for_tests().await;
-        sqlx::query(
-            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-             instance_name, target_category, action, status, decided_at)
-             VALUES ('d-applied', 'gone', 'Akira', 'movie', 'gone', 'Radarr', 'anime', 'move',
-                     'applied', datetime('now'))",
-        )
-        .execute(&state.pool)
-        .await
-        .unwrap();
-
-        purge(&state).await.unwrap();
-
-        let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
-        assert_eq!(left, 1, "an applied decision is the audit trail");
     }
 }

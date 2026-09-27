@@ -6,8 +6,8 @@
   import ErrorBanner from './ErrorBanner.svelte';
 
   /**
-   * Shown instead of the application when the server runs in `forms` mode and
-   * this browser has no live session.
+   * Shown instead of the application when the server runs in `forms` or `oidc`
+   * mode and this browser has no live session.
    *
    * The sibling of `ApiKeyGate`, and for the same reason: mounting the pages
    * behind a refusal produces a failed request each and reads as a broken

@@ -19,8 +19,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
-    if let Some(parent) = config.db_path.parent()
-        && let Err(e) = std::fs::create_dir_all(parent)
+    if let Err(e) = std::fs::create_dir_all(&config.data_dir)
         && e.kind() != std::io::ErrorKind::AlreadyExists
     {
         // Said here, because the error SQLite gives afterwards is "unable to
@@ -28,7 +27,7 @@ pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
         // The shape this catches is the ordinary first run: Docker creates a
         // missing bind-mount directory owned by root, and the container is
         // uid 1000.
-        tracing::error!("Cannot create the data directory {}: {e}", parent.display());
+        tracing::error!("Cannot create the data directory {}: {e}", config.data_dir.display());
     }
 
     // PRAGMAs belong on the connect options: setting them with a one-off query
@@ -238,7 +237,6 @@ pub fn placeholders(n: usize) -> String {
     vec!["?"; n].join(", ")
 }
 
-/// In-memory pool with the full schema applied, for tests.
 /// Escape `%`, `_` and `\` in user input destined for a `LIKE ? ESCAPE '\'`
 /// pattern. Without it, searching for "100%" matches every title starting with
 /// "100", and a stray backslash changes the meaning of whatever follows it.
@@ -253,6 +251,7 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
+/// In-memory pool with the full schema applied, for tests.
 #[cfg(test)]
 pub async fn test_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -269,11 +268,11 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// 018 rebuilt `root_folders` through a copy, and a copied table carries
-    /// none of the indexes the original had: the two declared by 001 and 002
-    /// were gone on every upgraded and every fresh database alike.
+    /// A table rebuilt through a copy carries none of the original's indexes,
+    /// so the lookups the sync and the enrichment make on these two tables
+    /// are pinned by name.
     #[tokio::test]
-    async fn the_indexes_a_rebuilt_table_lost_are_declared_again() {
+    async fn the_root_folder_and_identifier_indexes_exist() {
         let pool = test_pool().await;
         let indexes: Vec<(String,)> = sqlx::query_as(
             "SELECT name FROM sqlite_master
@@ -312,8 +311,7 @@ mod tests {
     /// the in-memory pool the rest of the suite uses.
     #[tokio::test]
     async fn a_closed_database_needs_no_sidecar_files_to_be_complete() {
-        let dir = std::env::temp_dir().join(format!("routarr-wal-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = crate::tests::TempDir::new("wal");
         let path = dir.join("r.db");
         let url = format!("sqlite://{}?mode=rwc", path.display());
 
@@ -355,7 +353,6 @@ mod tests {
         assert_eq!(name, "survives");
 
         restored.close().await;
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -136,8 +136,10 @@ describe('ConditionValue', () => {
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: null });
   });
 
-  /// The engine refuses anything outside these; the field says so before the
-  /// server has to, and the browser's own stepper stops at them.
+  /**
+   * The engine refuses anything outside these; the field says so before the
+   * server has to, and the browser's own stepper stops at them.
+   */
   it('bounds both year fields to what the engine accepts', () => {
     show({ spec: spec({ value_type: 'year_range', label: 'Year between' }), value: {} });
 

@@ -55,11 +55,6 @@ pub struct Provider {
     pub token_endpoint: String,
 }
 
-/// Read the provider's own description of itself.
-///
-/// Discovery rather than four configured endpoints: a provider states its own
-/// addresses, and copying them by hand is four more values to keep in step with
-/// somebody else's deployment.
 /// How long the provider's description is trusted without asking again.
 ///
 /// A static document by specification, and the endpoint that reads it is
@@ -69,6 +64,11 @@ pub struct Provider {
 /// a provider moving an endpoint is picked up within a deploy window.
 const DISCOVERY_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// Read the provider's own description of itself.
+///
+/// Discovery rather than four configured endpoints: a provider states its own
+/// addresses, and copying them by hand is four more values to keep in step with
+/// somebody else's deployment.
 pub async fn discover(state: &AppState) -> AppResult<Provider> {
     let issuer = state
         .config
@@ -349,39 +349,23 @@ mod tests {
         assert_eq!(claims.sub, "abc-123");
     }
 
+    /// Only the expired flow goes. A replayed code is refused through the real
+    /// callback in `tests::security`.
     #[tokio::test]
-    async fn a_flow_is_taken_once_and_expires() {
+    async fn the_purge_removes_the_expired_flows_only() {
         let pool = crate::db::test_pool().await;
         sqlx::query(
             "INSERT INTO oidc_flows (state, nonce, verifier, expires_at)
-             VALUES ('s1', 'n', 'v', datetime('now', '+10 minutes')),
+             VALUES ('live', 'n', 'v', datetime('now', '+10 minutes')),
                     ('stale', 'n', 'v', datetime('now', '-1 minute'))",
         )
         .execute(&pool)
         .await
         .unwrap();
 
-        let taken: Option<(String, String)> = sqlx::query_as(
-            "DELETE FROM oidc_flows WHERE state = ? AND expires_at > datetime('now')
-             RETURNING nonce, verifier",
-        )
-        .bind("s1")
-        .fetch_optional(&pool)
-        .await
-        .unwrap();
-        assert!(taken.is_some(), "a live flow must be taken");
-
-        // The same state a second time finds nothing: a code cannot be replayed.
-        let again: Option<(String, String)> = sqlx::query_as(
-            "DELETE FROM oidc_flows WHERE state = ? AND expires_at > datetime('now')
-             RETURNING nonce, verifier",
-        )
-        .bind("s1")
-        .fetch_optional(&pool)
-        .await
-        .unwrap();
-        assert!(again.is_none(), "a flow survived its own use");
-
         assert_eq!(purge_expired_flows(&pool).await.unwrap(), 1);
+        let left: Vec<String> =
+            sqlx::query_scalar("SELECT state FROM oidc_flows").fetch_all(&pool).await.unwrap();
+        assert_eq!(left, ["live"]);
     }
 }

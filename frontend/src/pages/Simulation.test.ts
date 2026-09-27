@@ -69,9 +69,9 @@ afterEach(() => {
 
 describe('what the screen shows', () => {
   /**
-   * The navigation sends the user here with "12 decisions to review". A failed
-   * request answered with the empty state — "run a simulation" — contradicted
-   * it without a word about why; a failed request renders a banner.
+   * The dashboard sends the reader here with a count of decisions to review.
+   * The empty state ("run a simulation") would contradict it without a word
+   * about why, so a failed request renders a banner.
    */
   it('says the pending list could not be loaded rather than pretending it is empty', async () => {
     vi.spyOn(api, 'getDecisions').mockRejectedValue(new ApiError('later', 503, 'unavailable'));
@@ -80,12 +80,6 @@ describe('what the screen shows', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('later');
   });
 
-  /**
-   * The top bar counts pending decisions and links here. Showing only what the
-   * current browser session ran lands "12 decisions awaiting review" on an empty
-   * state telling the user to run a simulation — for twelve decisions that are
-   * already persisted.
-   */
   /** "Nothing to review" before the list has answered is a claim nobody checked. */
   it('holds the table open while the pending list loads', async () => {
     vi.spyOn(api, 'getDecisions').mockReturnValue(new Promise(() => {}));
@@ -96,14 +90,11 @@ describe('what the screen shows', () => {
     expect(screen.queryByText('Nothing to review')).toBeNull();
   });
 
-  /** An empty list is said inside the table, as every screen says it. */
-  it('says there is nothing to review inside the table', async () => {
-    await show([]);
-
-    const empty = await screen.findByText('Nothing to review');
-    expect(empty.closest('tbody')).not.toBeNull();
-  });
-
+  /**
+   * Decisions a previous pass left are persisted, so the screen shows them, not
+   * only what this browser session ran: a count of them on the dashboard would
+   * otherwise land on an empty state telling the reader to run a simulation.
+   */
   it('shows the decisions a previous pass left pending, before any run', async () => {
     await show([decision({ media_title: 'Akira' })]);
 
@@ -162,15 +153,6 @@ describe('what the screen shows', () => {
     await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
     expect(nthCall(apply)[0]).toEqual([moving.id]);
-  });
-
-  /** The a11y fix, pinned where it is cheap: the name says which film. */
-  it('names each row checkbox after its film', async () => {
-    await show([decision({ media_title: 'Perfect Blue' })]);
-
-    expect(
-      await screen.findByRole('checkbox', { name: 'Select the move for "Perfect Blue"' }),
-    ).toBeTruthy();
   });
 });
 

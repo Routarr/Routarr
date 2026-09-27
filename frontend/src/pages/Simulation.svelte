@@ -299,7 +299,7 @@
                   <td>
                     <span class="mono">{folder.path}</span>
                     {#if folder.instance_name}
-                      <span class="muted ms-2">{folder.instance_name}</span>
+                      <span class="text-muted ms-2">{folder.instance_name}</span>
                     {/if}
                   </td>
                   <td>{folder.items}</td>
@@ -309,7 +309,7 @@
                            one volume is a rename and costs nothing, and a
                            figure the user cannot see is one they cannot check. -->
                     {#if folder.same_filesystem_bytes > 0}
-                      <span class="muted ms-2">
+                      <span class="text-muted ms-2">
                         {t('CapacitySameVolume', {
                           size: formatBytes(folder.same_filesystem_bytes, i18n.language),
                         })}

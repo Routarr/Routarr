@@ -19,9 +19,9 @@ Components named without a path live in `frontend/src/components/`.
   `frontend/src/lib/router.svelte.ts` and not a library. Link with `<a href={href('/rules')}>`: a
   bare root-absolute `href` drops the mount point on middle-click and ctrl-click, and a bare
   `#fragment` resolves against the base and reloads the page. Never a `role="link"` element.
-- Anything polled or drawn in the chrome reads `/status`. `/health` probes every Arr and metadata
-  source, a full connect timeout per unreachable host. `/health?probe=false` answers from the
-  database.
+- What the chrome polls reads `/status`, and the guide `/onboarding`. `/health` probes every Arr
+  and metadata source, a full connect timeout per unreachable host. `/health?probe=false` answers
+  from the database.
 - After a write that can add or remove a warning (an instance, a category mapping, a metadata
   source or key, a settings save or import) or move a step of the guide (a rule, a simulation),
   call `invalidateStatus()` from `frontend/src/lib/status.svelte.ts`. Otherwise the shell corrects
@@ -81,9 +81,9 @@ Components named without a path live in `frontend/src/components/`.
 - The accent as text or border is `--accent-strong`, as a fill `--accent-primary`. A control's
   boundary is `--border-strong`, a passive separation `--border-subtle`.
 - Radii: `--radius-xs` for badges and the three bars (guide, confidence, task), which share one
-  rule, `--radius-sm` for controls, `--radius-md` for surfaces. `--radius-full` is for the kind
-  and confidence dots, the guide's step numbers, the navigation count and the scrollbar thumb
-  only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
+  rule, `--radius-sm` for controls, `--radius-md` for surfaces. `--radius-full` is for the kind,
+  mode and confidence dots, the guide's step numbers, the navigation count and the scrollbar
+  thumb only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
 
 ## Components and markup
 
@@ -116,8 +116,9 @@ Components named without a path live in `frontend/src/components/`.
   `bind:value`, and the test passes against a request never made.
 - Answer a confirmation with `answerConfirmation` (`frontend/src/test/confirm.ts`). In e2e, click
   the dialog's real button, never `page.on('dialog')`.
-- Coverage counts every source file under `frontend/src/` (`coverage.include` in
-  `frontend/vite.config.ts`), so a new file without a test lowers the figure the floors guard.
+- Coverage counts every source file under `frontend/src/` but the tests, their helpers, `main.ts`
+  and `api/types.ts` (`coverage` in `frontend/vite.config.ts`), so a new file without a test
+  lowers the figure the floors guard.
 - `npm run test:e2e` builds the release binary and the frontend, then drives Chromium against a
   fake Radarr. Specs are chosen by tag, never by file: one that needs a sub-path mount carries
   `@subpath` in its title and runs under `npm run test:e2e:base`, every other spec by default.
