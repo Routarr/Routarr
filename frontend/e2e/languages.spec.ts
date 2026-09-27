@@ -117,6 +117,24 @@ async function read(page: Page): Promise<Reading> {
   );
 }
 
+/**
+ * The guide comes from the shell's own request, apart from the screen's: read
+ * before it lands, a guide that wraps passes unseen in one language and is
+ * blamed on another in the next. The pill is drawn from it, found by its class
+ * since a dialog open on arrival leaves it inert, and on the dashboard the
+ * guide itself is waited for.
+ */
+async function guideShown(page: Page, path: string): Promise<void> {
+  await expect(page.locator('.guide-pill')).toBeVisible();
+  if (path === '/') await expect(page.locator('#guide-title')).toBeVisible();
+}
+
+/** A layout that follows the width has run once the next frame is drawn. */
+async function resize(page: Page, width: number): Promise<void> {
+  await page.setViewportSize({ width, height: 900 });
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+}
+
 async function speak(code: string): Promise<void> {
   await api('/settings', {
     method: 'PUT',
@@ -141,13 +159,14 @@ test('every language holds on one line what English does, and nothing spills', a
     for (const code of codes) {
       await speak(code);
       for (const path of SCREENS) {
-        await page.setViewportSize({ width: WIDTHS[0]!, height: 900 });
+        await resize(page, WIDTHS[0]!);
         await page.goto(path);
         await expect(page.locator('.page-title')).toBeVisible();
+        await guideShown(page, path);
         if (path.includes('=1')) await expect(page.getByRole('dialog')).toBeVisible();
 
         for (const width of WIDTHS) {
-          await page.setViewportSize({ width, height: 900 });
+          await resize(page, width);
           const { wrapped, spilled } = await read(page);
           const where = `${path} at ${width}px`;
           for (const [key, text] of Object.entries(wrapped)) {

@@ -111,7 +111,7 @@
   "footer.p": "Routarr, GPLv3-Lizenz. Nicht mit dem Servarr-Projekt verbunden.",
   "head.description": "Routarr leitet jeden Film und jede Serie in den richtigen Stammordner in Radarr und Sonarr, nach Ihren eigenen Regeln. Erst Probelauf, jede Entscheidung erklärt.",
   "head.description.how": "Die Lücke, die Routarr füllt, die vier Schritte, wie eine Entscheidung erklärt wird, deklarierte Stammordner, das Datenblatt und die Einwände.",
-  "head.og-description": "Entscheidet, in welchen Stammordner jeder Film und jede Serie gehört, nach Ihren Regeln und TMDb. Erst Probelauf, jede Entscheidung erklärt.",
+  "head.og-description": "Entscheidet, in welchen Stammordner jeder Film und jede Serie gehört, nach Ihren Regeln. Erst Probelauf, jede Entscheidung erklärt.",
   "head.title": "Routarr, automatische Stammordner für Radarr und Sonarr",
   "head.title.how": "Wie Routarr entscheidet, in welchen Stammordner ein Titel gehört",
   "header.desc": "Vier Schritte, und nach dem dritten dürfen Sie aufhören",

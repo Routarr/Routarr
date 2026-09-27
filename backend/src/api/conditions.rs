@@ -337,12 +337,12 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<serde_json
     Json(serde_json::json!({ "match_modes": ["all", "any"], "conditions": conditions }))
 }
 
-/// `genre_contains` -> `GenreContains`.
 /// A condition's caption in the reader's language, as the builder shows it.
 pub fn caption(localizer: &crate::localization::Localizer, kind: &str) -> String {
     localizer.translate(&format!("ConditionLabel{}", pascal_case(kind)), &[])
 }
 
+/// `genre_contains` -> `GenreContains`.
 fn pascal_case(kind: &str) -> String {
     kind.split('_')
         .map(|word| {

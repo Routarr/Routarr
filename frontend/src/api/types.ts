@@ -146,6 +146,7 @@ export interface MaintenanceReport {
   logs_removed: number;
   jobs_removed: number;
   metadata_cache_removed: number;
+  source_identifiers_removed: number;
   sessions_removed: number;
 }
 
@@ -214,6 +215,8 @@ export interface ValidationIssue {
   /// The dictionary key the message was written from, which says what kind
   /// of issue it is without reading the message.
   key: string;
+  /// The values the message was written with, by placeholder.
+  params: Record<string, string>;
   message: string;
 }
 
@@ -356,6 +359,9 @@ export interface MediaMetadata {
 export interface ConditionOutcome {
   kind: string;
   matched: boolean;
+  /// The dictionary key and values `expected` was written from.
+  key: string;
+  params: Record<string, string>;
   expected: string;
   observed: string;
   /// Which metadata source the observed value came from, when it reads one.

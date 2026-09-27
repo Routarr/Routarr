@@ -244,20 +244,30 @@ async fn a_condition_is_named_by_its_section_place_and_caption() {
     let app = TestApp::new().await;
     app.seed_library().await;
     let mut body = anime_rule_body();
-    body["conditions"] = serde_json::json!([{ "type": "genre_contains", "value": ["Animation"] }]);
-    body["exclusions"] = serde_json::json!([{ "type": "certification_in", "value": [] }]);
+    let empty = serde_json::json!({ "type": "certification_in", "value": [] });
+    body["conditions"] = serde_json::json!([
+        { "type": "genre_contains", "value": ["Animation"] },
+        empty.clone(),
+    ]);
+    body["exclusions"] = serde_json::json!([empty]);
 
     let response = app.post("/api/v1/rules/validate", body).await;
     let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
 
-    let empty = issues.iter().find(|i| i["key"] == "ValidationConditionEmpty").unwrap();
-    let message = empty["message"].as_str().unwrap();
     let localizer = app.state.localizer().await;
     let caption = localizer.translate("ConditionLabelCertificationIn", &[]);
-    let named = localizer.translate("ExclusionReference", &[("index", "1"), ("label", &caption)]);
-    assert!(message.starts_with(&named), "{message}");
-    assert!(!message.contains("certification_in"), "{message}");
-    assert_eq!(empty["field"], "exclusions");
+    for (section, reference, index) in
+        [("conditions", "ConditionReference", "2"), ("exclusions", "ExclusionReference", "1")]
+    {
+        let issue = issues
+            .iter()
+            .find(|i| i["key"] == "ValidationConditionEmpty" && i["field"] == section)
+            .unwrap_or_else(|| panic!("no empty condition reported under {section}: {issues:?}"));
+        let message = issue["message"].as_str().unwrap();
+        let named = localizer.translate(reference, &[("index", index), ("label", &caption)]);
+        assert!(message.starts_with(&named), "{section}: {message}");
+        assert!(!message.contains("certification_in"), "{message}");
+    }
 }
 
 #[tokio::test]

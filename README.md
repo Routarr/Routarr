@@ -72,12 +72,17 @@ beside it. Routarr also archives itself into `data/backups/`, every day unless y
 
 ## Getting started
 
-1. **Instances**: add Radarr or Sonarr, test the connection, sync.
+On a fresh install the dashboard walks through these steps and ticks each one once it is done.
+
+1. **Instances**: add Radarr or Sonarr. The form tries the address and the key, and saving reads
+   the library at once.
 2. **Root Folders**: create categories, map the folders your Arrs report to them, and declare
    any destination they do not list.
-3. **Rules**: write rules and preview their impact.
-4. **Simulation**: run it, read the justifications, apply what you agree with.
-5. **Settings**: turn off the global dry-run once you trust the result.
+3. **Metadata sources** (optional): Radarr and Sonarr already supply genres, language and
+   certification. Enable TMDb or another source in **Settings** for keywords and origin country.
+4. **Rules**: write rules and preview their impact.
+5. **Simulation**: run it, read the justifications, apply what you agree with.
+6. **Settings** (optional): turn off the global dry-run once you trust the result.
 
 ## Configuration
 

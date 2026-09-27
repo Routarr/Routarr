@@ -467,7 +467,17 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    for (id, certification) in [("m-2", "12"), ("m-3", "TP"), ("m-4", "TP"), ("m-5", "M")] {
+    // The ages out of order, so only their rank can put them in it.
+    for (id, certification) in [
+        ("m-2", "12"),
+        ("m-3", "TP"),
+        ("m-4", "TP"),
+        ("m-5", "M"),
+        ("m-6", "18"),
+        ("m-7", "PG"),
+        ("m-8", "NR"),
+        ("m-9", "16"),
+    ] {
         sqlx::query(
             "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
              monitored, has_files, certification)
@@ -491,17 +501,29 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
         .collect();
 
     let localizer = app.state.localizer().await;
-    let all_ages = Some(localizer.translate("CertAllAges", &[]));
-    let twelve = Some(localizer.translate("CertFromAge", &[("age", "12")]));
+    let named = |key: &str| Some(localizer.translate(key, &[]));
+    let from = |age: &str| Some(localizer.translate("CertFromAge", &[("age", age)]));
+    let all_ages = named("CertAllAges");
     let groups: Vec<Option<String>> = listed.iter().map(|(_, group)| group.clone()).collect();
-    // `U` from the Arr, `G` from TMDb for the same film, and `TP` twice.
+    // `U` from the Arr, `G` from TMDb for the same film, and `TP` twice. Then a
+    // parent's guidance, each age upwards, the unrated, and what nobody can name.
     assert_eq!(
         groups,
-        vec![all_ages.clone(), all_ages.clone(), all_ages, twelve, None],
+        vec![
+            all_ages.clone(),
+            all_ages.clone(),
+            all_ages,
+            named("CertGuidance"),
+            from("12"),
+            from("16"),
+            from("18"),
+            named("CertNotRated"),
+            None,
+        ],
         "{listed:?}"
     );
     assert_eq!(listed[0].0, "TP", "the most frequent code leads its group: {listed:?}");
-    assert_eq!(listed[4].0, "M");
+    assert_eq!(listed.last().unwrap().0, "M");
 }
 
 /// `/media/facets` is a literal segment sitting beside `/media/{id}`; if the

@@ -152,6 +152,8 @@ describe('ExplanationModal', () => {
             conditions: [
               {
                 kind: 'original_language_in',
+                key: 'ConditionOriginalLanguage',
+                params: { values: 'ja' },
                 expected: 'Original language in [ja]',
                 observed: 'en',
                 matched: false,
@@ -210,6 +212,8 @@ describe('ExplanationModal', () => {
             conditions: [
               {
                 kind: 'genre_contains',
+                key: 'ConditionGenreContains',
+                params: { values: 'Animation' },
                 expected: 'Genre contains [Animation]',
                 observed: '',
                 matched: false,

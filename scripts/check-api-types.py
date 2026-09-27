@@ -61,6 +61,29 @@ PAIRS: dict[str, str] = {
     "RestoreResponse": "RestoreResult",
     "BackupManifest": "BackupManifest",
     "TestConnectionResponse": "TestConnectionResponse",
+    # One name on both sides: each is the payload, or a part of one.
+    "AlternativeDecision": "AlternativeDecision",
+    "ApplyReport": "ApplyReport",
+    "BatchApplyReport": "BatchApplyReport",
+    "CapacityForecast": "CapacityForecast",
+    "ConditionOutcome": "ConditionOutcome",
+    "Decision": "Decision",
+    "Explanation": "Explanation",
+    "Facet": "Facet",
+    "LibraryFacets": "LibraryFacets",
+    "MaintenanceReport": "MaintenanceReport",
+    "MediaMetadata": "MediaMetadata",
+    "PreviewChange": "PreviewChange",
+    "Rule": "Rule",
+    "RuleHealth": "RuleHealth",
+    "RuleHealthReport": "RuleHealthReport",
+    "RuleTestResult": "RuleTestResult",
+    "RuleTestRun": "RuleTestRun",
+    "RuleTrace": "RuleTrace",
+    "SimulationResult": "SimulationResult",
+    "SyncReport": "SyncReport",
+    "ValidationIssue": "ValidationIssue",
+    "Vocabularies": "Vocabularies",
 }
 
 
@@ -185,8 +208,11 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
     """
     source = strip_comments(path.read_text())
     found: dict[str, set[str]] = {}
-    for match in re.finditer(r"export interface (\w+)[^{]*\{(.*?)\n\}", source, re.S):
-        name, body = match.groups()
+    bases: dict[str, list[str]] = {}
+    for match in re.finditer(
+        r"export interface (\w+)(?:\s+extends\s+([\w\s,]+?))?\s*\{(.*?)\n\}", source, re.S
+    ):
+        name, extends, body = match.groups()
         fields = set()
         depth = 0
         for line in body.splitlines():
@@ -196,6 +222,19 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
                     fields.add(field.group(1))
             depth += line.count("{") - line.count("}")
         found[name] = fields
+        bases[name] = [base.strip() for base in (extends or "").split(",") if base.strip()]
+    # What an interface extends is part of it, as a flattened struct is on the
+    # Rust side: read alone, `SimulationResult` lacks every counter it carries.
+    for _ in range(len(found) + 1):
+        moved = False
+        for name, parents in bases.items():
+            for parent in parents:
+                inherited = found.get(parent, set()) - found[name]
+                if inherited:
+                    found[name] |= inherited
+                    moved = True
+        if not moved:
+            break
     return found
 
 

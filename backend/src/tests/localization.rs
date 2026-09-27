@@ -184,7 +184,7 @@ async fn guardrail_refusals_are_translated() {
         app.post("/api/v1/decisions/apply", serde_json::json!({ "decision_ids": ["x"] })).await;
 
     response.assert_status(StatusCode::BAD_REQUEST);
-    assert!(response.message().contains("simulation globale"), "{}", response.message());
+    assert!(response.message().contains("essai à blanc global"), "{}", response.message());
 }
 
 #[tokio::test]

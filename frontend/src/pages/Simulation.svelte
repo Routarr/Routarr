@@ -375,9 +375,9 @@
   {/if}
 
   <div class="card">
-    <TableRegion label={t('SimulationTitle')}>
+    <TableRegion label={t('Simulation')}>
       <table>
-        <caption class="visually-hidden">{t('SimulationTitle')}</caption>
+        <caption class="visually-hidden">{t('Simulation')}</caption>
         <thead>
           <tr>
             <th class="w-40">

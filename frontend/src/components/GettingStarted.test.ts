@@ -27,7 +27,7 @@ const STRINGS = {
   GuideRuleAction: 'Create a rule',
   GuideSimulationTitle: 'Run a simulation',
   GuideSimulationAction: 'Open the simulation',
-  GuideLiveTitle: 'Leave test mode',
+  GuideLiveTitle: 'Turn off the global dry-run',
   GuideLiveAction: 'Open the routing settings',
   GuideComplete: 'Routarr is set up.',
   GuideFinish: 'Finish',

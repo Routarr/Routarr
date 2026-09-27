@@ -21,7 +21,7 @@ import { statusRevision } from '../lib/status.svelte';
  */
 
 const STRINGS = {
-  SimulationTitle: 'Simulation',
+  Simulation: 'Simulation',
   RunSimulation: 'Run simulation',
   EvaluatingRules: 'Evaluating…',
   ApplySelected: 'Apply selected ({count})',

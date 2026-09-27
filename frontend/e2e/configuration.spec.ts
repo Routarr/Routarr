@@ -276,7 +276,7 @@ test.describe('metadata sources without a key', () => {
    * should call it a fault: TMDb waits in the inactive group for a key, and
    * the diagnostics say nothing about it.
    */
-  test('a fresh stack lists the Arr alone and warns about no key', async ({ page }) => {
+  test('a fresh stack lists the Arr alone and raises no key warning', async ({ page }) => {
     await page.goto('/settings#metadata');
     const sources = page.locator('#setting-metadata_providers');
     const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });

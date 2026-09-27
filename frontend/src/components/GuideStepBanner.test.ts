@@ -18,7 +18,7 @@ const STRINGS = {
   GuideMetadataTitle: 'Choose metadata sources',
   GuideMetadataAction: 'Open the sources',
   GuideRuleAction: 'Create a rule',
-  GuideLiveTitle: 'Leave test mode',
+  GuideLiveTitle: 'Turn off the global dry-run',
   GuideLiveAction: 'Open the routing settings',
   GuideBack: 'Back to the guide',
   GuideInstanceTitle: 'Connect Radarr or Sonarr',
@@ -113,7 +113,9 @@ describe('GuideStepBanner', () => {
     publishOnboarding(onboardingStatus(['instance', 'categories', 'rule', 'simulation']));
     renderWithI18n(GuideStepBanner, { props: { step: 'simulation' }, strings: STRINGS });
 
-    expect(screen.getByText('Step 4 of 4 is done. Next, optional: Leave test mode')).toBeTruthy();
+    expect(
+      screen.getByText('Step 4 of 4 is done. Next, optional: Turn off the global dry-run'),
+    ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Skip this step' }).getAttribute('href')).toBe('/');
   });
 

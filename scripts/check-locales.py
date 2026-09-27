@@ -9,7 +9,9 @@ Checks, in order of how much a failure would hurt:
    value the sentence is about;
 3. no language carries a key English does not have (a rename left behind);
 4. no key is left behind once its last use is deleted;
-5. no language falls below MIN_COMPLETION.
+5. no language falls below MIN_COMPLETION;
+6. every dictionary keeps the English key order, which `add-locale.py` writes:
+   a file out of order has every line moved by the next run of it.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
@@ -77,9 +79,13 @@ def referenced_keys(text: str) -> set[str]:
         r'translate\(\s*"([A-Z][A-Za-z0-9]*)"',          # Rust: localizer.translate("Key")
         r"\bt\(\s*'([A-Z][A-Za-z0-9]*)'",                 # frontend: t('Key')
         r"translateStatic\(\s*'([A-Z][A-Za-z0-9]*)'",     # frontend, outside a component
-        r'ValidationIssue::(?:error|warning)\(\s*"[a-z_]+",\s*"([A-Z][A-Za-z0-9]*)"',
+        # The section comes first, as a literal or as a variable.
+        r'ValidationIssue::(?:error|warning)\(\s*[^,()]+,\s*"([A-Z][A-Za-z0-9]*)"',
         r'"(Condition[A-Z][A-Za-z0-9]*)"',                # rule engine outcome keys
-        r"(?:key|labelKey|helpKey):\s*'([A-Z][A-Za-z0-9]*)'",  # keys held in config objects
+        r'\(\s*"([A-Z][A-Za-z0-9]*)",\s*vec!\[',          # Rust: ("Key", vec![params])
+        # Keys held in config objects: `key`, `labelKey`, `titleKey` and every
+        # other `…Key`, and a route's `hint`.
+        r"\b(?:key|[a-z]+Key|hint):\s*'([A-Z][A-Za-z0-9]*)'",
         r"^\s*[a-z_]+:\s*'([A-Z][A-Za-z0-9]*)',\s*$",         # keys held in lookup maps
         r"\?\s*'([A-Z][A-Za-z0-9]*)'\s*:\s*'([A-Z][A-Za-z0-9]*)'",  # t(cond ? 'A' : 'B')
     ]
@@ -159,6 +165,19 @@ def main() -> int:
             continue
         if f'"{key}"' not in text and f"'{key}'" not in text:
             problems.append(f"defined but never referenced: {key}")
+
+    # 6. In the English order. The first key out of place is enough to name:
+    #    `add-locale.py` given an empty batch rewrites the whole file in order.
+    for language, dictionary in sorted(dictionaries.items()):
+        found = [key for key in dictionary if key in english]
+        expected = [key for key in english if key in dictionary]
+        if found != expected:
+            at = next(i for i, (a, b) in enumerate(zip(found, expected)) if a != b)
+            problems.append(
+                f"{language}.json leaves the English key order at '{found[at]}' "
+                f"(expected '{expected[at]}'): "
+                f"echo '{{}}' | python3 scripts/add-locale.py {language}"
+            )
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)

@@ -477,7 +477,7 @@ async fn with_tmdb_key_in_the_environment() -> TestApp {
 /// Listed without a key, TMDb answers nothing and the diagnostics say so, which
 /// an installation nobody has configured yet reads as a fault of its own.
 #[tokio::test]
-async fn a_fresh_install_lists_the_arr_alone_and_warns_about_no_key() {
+async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
     let app = TestApp::new().await;
 
     let catalogue = app.get("/api/v1/metadata/providers").await;

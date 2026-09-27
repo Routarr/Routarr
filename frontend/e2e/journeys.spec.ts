@@ -46,7 +46,8 @@ test.describe('navigation', () => {
     await page.goto('/');
 
     await expect(page.locator('.sidebar-nav')).toContainText('Réglages');
-    await expect(page.locator('.topbar')).toContainText(/simulation|réel/i);
+    // The mode badge, in either mode.
+    await expect(page.locator('.topbar')).toContainText(/essai à blanc|mode réel/i);
   });
 
   test('a deep link survives a reload', async ({ page, instanceId }) => {

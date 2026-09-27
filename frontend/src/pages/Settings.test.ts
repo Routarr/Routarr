@@ -41,7 +41,7 @@ const STRINGS = {
   GuideRestartText: 'Show the steps again.',
   GuideRestart: 'Show the guide',
   GuideLiveAction: 'Open the routing settings',
-  GuideLiveTitle: 'Leave test mode',
+  GuideLiveTitle: 'Turn off the global dry-run',
   GuideOptionalDoneNext: 'Optional step done. Next: {next}',
   SettingsTabMaintenance: 'Maintenance',
   UnsavedChanges: 'Unsaved changes: {count}',
@@ -470,6 +470,7 @@ describe('housekeeping', () => {
       logs_removed: 2,
       jobs_removed: 1,
       metadata_cache_removed: 0,
+      source_identifiers_removed: 0,
       sessions_removed: 0,
     });
     mount({});
