@@ -23,9 +23,9 @@ pub enum MetadataField {
 }
 
 impl MetadataField {
-    /// Every field a condition can read, iterated by `merge` so a variant
-    /// added above cannot be forgotten there. `api::media::metadata_predicate`
-    /// spells the same fields as SQL columns.
+    /// Every field a condition can read, iterated by `merge` and by
+    /// `api::media::metadata_predicate`, so a variant added above cannot be
+    /// forgotten by either.
     pub const ALL: [MetadataField; 5] = [
         Self::Genres,
         Self::Keywords,

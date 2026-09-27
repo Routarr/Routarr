@@ -58,15 +58,9 @@ pub struct MediaListItem {
 pub(crate) fn metadata_predicate(
     providers: &[&'static crate::services::metadata::ProviderInfo],
 ) -> String {
-    const MATCHABLE: &str = "(COALESCE(c.genres, '[]') != '[]'
-                             OR COALESCE(c.keywords, '[]') != '[]'
-                             OR c.original_language IS NOT NULL
-                             OR COALESCE(c.origin_countries, '[]') != '[]'
-                             OR c.certification IS NOT NULL)";
-
     let mut clauses: Vec<String> = Vec::new();
-    if providers.iter().any(|p| p.id == metadata::ARR) {
-        clauses.push("(m.genres IS NOT NULL AND m.genres != '[]')".to_string());
+    if let Some(arr) = providers.iter().find(|p| p.id == metadata::ARR) {
+        clauses.push(holds_any("m", arr.fields));
     }
     let fetched: Vec<&'static str> =
         providers.iter().map(|p| p.id).filter(|id| *id != metadata::ARR).collect();
@@ -79,10 +73,22 @@ pub(crate) fn metadata_predicate(
                         AND (c.external_id = CAST(m.tmdb_id AS TEXT)
                              OR c.external_id = CAST(m.tvdb_id AS TEXT)
                              OR c.external_id = m.imdb_id)
-                        AND {MATCHABLE})"
+                        AND {})",
+            holds_any("c", &MetadataField::ALL)
         ));
     }
     if clauses.is_empty() { "0".to_string() } else { clauses.join(" OR ") }
+}
+
+/// "This row holds a value for one of these fields", in SQL. A column holds a
+/// JSON list or a plain value, and the merge counts neither when it is blank,
+/// so `''`, `'[]'` and NULL are all empty.
+fn holds_any(alias: &str, fields: &[MetadataField]) -> String {
+    let any: Vec<String> = fields
+        .iter()
+        .map(|field| format!("COALESCE(TRIM({alias}.{}), '') NOT IN ('', '[]')", field.as_str()))
+        .collect();
+    format!("({})", any.join(" OR "))
 }
 
 pub async fn list(
@@ -395,9 +401,8 @@ pub struct LibraryFacets {
     /// elsewhere, and offering only the five languages that happen to be synced
     /// would hide the other forty-eight — and leave the code to be guessed.
     pub vocabularies: Vocabularies,
-    /// Carrying neither a genre nor an original language — invisible to every
-    /// condition that reads metadata, which is the failure that looks like a
-    /// broken rule.
+    /// Described by no enabled source, so invisible to every condition that
+    /// reads metadata: the failure that looks like a broken rule.
     pub without_metadata: i64,
     pub genres: Vec<Facet>,
     pub original_languages: Vec<Facet>,
@@ -615,47 +620,12 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
     // the same one.
     let sources = state.metadata_order().await;
     let total_media: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(pool).await?;
-    // No *enabled* source describes these, which is what makes them invisible to
-    // every condition reading metadata. Counting the media row alone would call
-    // an item enriched by TMDb undescribed, and contradict the lists below.
-    let fetched: Vec<&str> =
-        sources.iter().map(|p| p.id).filter(|id| *id != metadata::ARR).collect();
-    let arr_clause = if sources.iter().any(|p| p.id == metadata::ARR) {
-        "(m.genres IS NULL OR m.genres = '' OR m.genres = '[]')
-         AND (m.original_language IS NULL OR m.original_language = '')"
-    } else {
-        "1 = 1"
-    };
-    let cache_clause = if fetched.is_empty() {
-        "1 = 1".to_string()
-    } else {
-        // Three seeks rather than one OR: the cache index is led by
-        // `external_id`, which each equality supplies from the media row.
-        let holes = crate::db::placeholders(fetched.len());
-        ["CAST(m.tmdb_id AS TEXT)", "CAST(m.tvdb_id AS TEXT)", "m.imdb_id"]
-            .iter()
-            .map(|key| {
-                format!(
-                    "NOT EXISTS (
-                       SELECT 1 FROM metadata_cache c
-                        WHERE c.external_id = {key} AND c.media_type = m.media_type
-                          AND c.source IN ({holes})
-                          AND ((c.genres != '' AND c.genres != '[]')
-                            OR (c.original_language IS NOT NULL AND c.original_language != '')))"
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(" AND ")
-    };
-    let sql = format!("SELECT COUNT(*) FROM media m WHERE {arr_clause} AND {cache_clause}");
-    let mut query = sqlx::query_scalar::<_, i64>(AssertSqlSafe(sql.as_str()));
-    // Once per NOT EXISTS: the placeholders repeat with the clause.
-    for _ in 0..3 {
-        for source in &fetched {
-            query = query.bind(*source);
-        }
-    }
-    let without_metadata: i64 = query.fetch_one(pool).await?;
+    let known = metadata_predicate(&sources);
+    let without_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
+        "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
+    )))
+    .fetch_one(pool)
+    .await?;
 
     Ok(Json(LibraryFacets {
         total_media,
