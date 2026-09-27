@@ -727,9 +727,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
         // place next to a restored file, SQLite would try to replay them over
         // it and refuse to open, or worse, succeed.
         for suffix in ["-wal", "-shm"] {
-            let mut sidecar = target.as_os_str().to_os_string();
-            sidecar.push(suffix);
-            std::fs::remove_file(PathBuf::from(sidecar)).ok();
+            std::fs::remove_file(with_suffix(&target, suffix)).ok();
         }
 
         std::fs::rename(&staged, &target)

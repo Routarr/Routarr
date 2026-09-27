@@ -9,7 +9,9 @@
 use super::Json;
 use axum::extract::State;
 use serde::{Deserialize, Serialize};
+use sqlx::AssertSqlSafe;
 
+use crate::api::health::UNMAPPED;
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
 
@@ -86,17 +88,16 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     // proposals of a manual one, the purge then deletes them, and a library
     // already in place gets none. The job row lasts `log_retention_days`.
     let (instance, mapped, unmapped, rule, simulation): (bool, bool, bool, bool, bool) =
-        sqlx::query_as(
+        sqlx::query_as(AssertSqlSafe(format!(
             "SELECT
                 EXISTS(SELECT 1 FROM instances WHERE enabled = 1 AND last_sync_at IS NOT NULL),
                 EXISTS(SELECT 1 FROM root_folders rf JOIN instances i ON i.id = rf.instance_id
                        WHERE i.enabled = 1 AND rf.category IS NOT NULL AND rf.category <> ''),
-                EXISTS(SELECT 1 FROM categories c WHERE NOT EXISTS
-                       (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)),
+                EXISTS(SELECT 1 FROM categories c WHERE {UNMAPPED}),
                 EXISTS(SELECT 1 FROM rules WHERE enabled = 1),
                 EXISTS(SELECT 1 FROM jobs
-                       WHERE kind = ? AND trigger = ? AND status = 'success')",
-        )
+                       WHERE kind = ? AND trigger = ? AND status = 'success')"
+        )))
         .bind(crate::jobs::JobKind::Simulate.as_str())
         .bind(crate::jobs::TRIGGER_MANUAL)
         .fetch_one(&state.pool)

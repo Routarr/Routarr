@@ -363,6 +363,11 @@ fn provider_health(
         .collect()
 }
 
+/// "No root folder is mapped to category `c`", for every count of unmapped
+/// categories: the badge, the dashboard and the guide read one answer.
+pub(crate) const UNMAPPED: &str =
+    "NOT EXISTS (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)";
+
 /// Every warning that can be reached without touching the network.
 ///
 /// Shared by the top bar and the diagnostics page: two hand-built lists drift in
@@ -403,8 +408,7 @@ async fn offline_warnings(
     let known = crate::api::media::metadata_predicate(&state.metadata_order().await);
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
-            (SELECT COUNT(*) FROM categories c WHERE NOT EXISTS
-                (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)),
+            (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),
             (SELECT COUNT(*) FROM instances WHERE enabled = 1),
             (SELECT COUNT(*) FROM media m WHERE NOT ({known}))"
     )))
@@ -603,8 +607,9 @@ async fn probe_instance(state: &AppState, instance: &Instance) -> InstanceHealth
 
 /// All counters in one round trip instead of a dozen sequential `COUNT(*)`s.
 async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
-    let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
-        "SELECT
+    let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT
             (SELECT COUNT(*) FROM instances),
             (SELECT COUNT(*) FROM media),
             (SELECT COUNT(*) FROM media WHERE media_type = 'movie'),
@@ -615,12 +620,11 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
             (SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0),
             (SELECT COUNT(*) FROM decisions WHERE status = 'applied'),
             (SELECT COUNT(*) FROM decisions WHERE status = 'failed'),
-            (SELECT COUNT(*) FROM categories c WHERE NOT EXISTS
-                (SELECT 1 FROM root_folders rf WHERE rf.category = c.name)),
-            (SELECT COUNT(*) FROM jobs WHERE status = 'running')",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+            (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),
+            (SELECT COUNT(*) FROM jobs WHERE status = 'running')"
+        )))
+        .fetch_one(&state.pool)
+        .await?;
 
     Ok(AppStats {
         total_instances: row.0,

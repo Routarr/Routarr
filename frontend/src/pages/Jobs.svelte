@@ -18,7 +18,6 @@
 
   const STATUS_BADGE: Record<Job['status'], string> = {
     running: 'badge-info',
-    queued: 'badge-warning',
     success: 'badge-success',
     failed: 'badge-danger',
   };

@@ -140,7 +140,7 @@ async fn reap(state: &AppState, chain: JoinHandle<()>) {
 /// unattended guardrails allow. On a task of its own — see `tick`.
 fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = enrichment::enrich_all_media(&state, "schedule").await {
+        if let Err(e) = enrichment::enrich_all_media(&state, TRIGGER_SCHEDULE).await {
             error!("Scheduled enrichment failed: {e}");
         }
 
@@ -156,7 +156,7 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
             && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
         {
             let options = routing::SimulationOptions {
-                trigger: crate::jobs::TRIGGER_SCHEDULE.to_string(),
+                trigger: TRIGGER_SCHEDULE.to_string(),
                 persist: true,
                 language: state.language().await,
                 ..Default::default()
@@ -170,7 +170,7 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
                     if let Err(e) = auto_apply::apply_simulation(
                         &state,
                         &result.simulation_id,
-                        crate::jobs::TRIGGER_SCHEDULE,
+                        TRIGGER_SCHEDULE,
                     )
                     .await
                     {
@@ -227,7 +227,7 @@ pub(crate) async fn tick(
             continue;
         }
 
-        match sync::sync_instance(state, &instance.id, "schedule").await {
+        match sync::sync_instance(state, &instance.id, TRIGGER_SCHEDULE).await {
             Ok(_) => {
                 last_sync.insert(instance.id.clone(), now);
                 synced_any = true;
@@ -266,7 +266,7 @@ pub(crate) async fn tick(
             tokio::time::Instant::now().duration_since(last) >= Duration::from_secs(hours * 3600)
         });
         if due {
-            match backup::create(state, "schedule").await {
+            match backup::create(state, TRIGGER_SCHEDULE).await {
                 // Stamped on an attempt that happened, not on one that worked.
                 // Recorded on success alone, a backup failing on a full disk is
                 // retried every tick — ninety-six `VACUUM INTO` a day against
@@ -293,7 +293,7 @@ pub(crate) async fn tick(
     let maintenance_due =
         last_maintenance.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(3600));
     if maintenance_due {
-        match maintenance::run(state, "schedule").await {
+        match maintenance::run(state, TRIGGER_SCHEDULE).await {
             Ok(_) => *last_maintenance = Some(now),
             // Same reason as the backup above: an hourly pass that fails must
             // not become a pass on every tick.

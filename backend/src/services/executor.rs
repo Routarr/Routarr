@@ -52,6 +52,14 @@ struct PendingMove {
     current_path: Option<String>,
 }
 
+impl From<MoveRow> for PendingMove {
+    fn from(
+        (decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path): MoveRow,
+    ) -> Self {
+        Self { decision_id, media_id, media_title, instance_id, arr_id, from, to, current_path }
+    }
+}
+
 /// The names a guardrail asks under.
 ///
 /// A caller that has looked at one refusal sends its name back, and only that
@@ -579,7 +587,6 @@ async fn record_success(
     log_execution(
         pool,
         by,
-        &mv.decision_id,
         match direction {
             MoveDirection::Forward => "move",
             MoveDirection::Revert => "revert",
@@ -639,8 +646,7 @@ async fn record_failure(state: &AppState, mv: &PendingMove, message: &str, by: &
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
-    log_execution(&state.pool, by, &mv.decision_id, "move", "failed", false, Some(message), mv)
-        .await;
+    log_execution(&state.pool, by, "move", "failed", false, Some(message), mv).await;
 }
 
 /// Refuse everything while the global dry-run switch is on.
@@ -949,21 +955,7 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
         }
     }
 
-    Ok(current
-        .into_iter()
-        .map(|(decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path)| {
-            PendingMove {
-                decision_id,
-                media_id,
-                media_title,
-                instance_id,
-                arr_id,
-                from,
-                to,
-                current_path,
-            }
-        })
-        .collect())
+    Ok(current.into_iter().map(PendingMove::from).collect())
 }
 
 async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {
@@ -995,23 +987,7 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
         query = query.bind(id);
     }
 
-    Ok(query
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|(decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path)| {
-            PendingMove {
-                decision_id,
-                media_id,
-                media_title,
-                instance_id,
-                arr_id,
-                from,
-                to,
-                current_path,
-            }
-        })
-        .collect())
+    Ok(query.fetch_all(pool).await?.into_iter().map(PendingMove::from).collect())
 }
 
 /// Re-root a media path under a new root folder, keeping its own folder name.
@@ -1028,11 +1004,9 @@ fn relocate(current_path: &str, new_root: &str) -> String {
     if name.is_empty() { root.to_string() } else { format!("{root}{separator}{name}") }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn log_execution(
     pool: &SqlitePool,
     by: &Attribution,
-    decision_id: &str,
     action: &str,
     details: &str,
     success: bool,
@@ -1045,7 +1019,7 @@ async fn log_execution(
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
-    .bind(decision_id)
+    .bind(&mv.decision_id)
     .bind(action)
     .bind(details)
     .bind(success)
@@ -1058,7 +1032,7 @@ async fn log_execution(
     .execute(pool)
     .await;
     if let Err(e) = written {
-        error!(decision = %decision_id, "The execution log entry could not be written: {e}");
+        error!(decision = %mv.decision_id, "The execution log entry could not be written: {e}");
     }
 }
 

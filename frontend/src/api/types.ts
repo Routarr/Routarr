@@ -406,7 +406,7 @@ export interface OverrideEntry {
 export interface Job {
   id: string;
   kind: string;
-  status: 'queued' | 'running' | 'success' | 'failed';
+  status: 'running' | 'success' | 'failed';
   trigger: string;
   instance_id: string | null;
   detail: string | null;

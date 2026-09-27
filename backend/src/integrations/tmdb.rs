@@ -132,17 +132,13 @@ pub struct TmdbDetails {
 }
 
 impl TmdbClient {
+    /// `regions` as `AppState::certification_regions_from` reads them.
     pub fn new(client: Client, api_key: &str, base_url: &str, regions: &[String]) -> Self {
-        let regions = if regions.is_empty() {
-            vec!["US".to_string()]
-        } else {
-            regions.iter().map(|r| r.trim().to_uppercase()).collect()
-        };
         Self {
             client,
             api_key: api_key.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
-            regions,
+            regions: regions.to_vec(),
         }
     }
 

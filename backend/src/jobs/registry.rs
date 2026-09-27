@@ -125,7 +125,7 @@ impl JobRegistry {
         let result = sqlx::query(
             "UPDATE jobs SET status = 'failed', finished_at = datetime('now'),
              error_message = 'Interrupted by a Routarr restart'
-             WHERE status IN ('running', 'queued')",
+             WHERE status = 'running'",
         )
         .execute(&self.pool)
         .await?;

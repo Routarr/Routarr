@@ -83,6 +83,7 @@ struct ContentRating {
 }
 
 impl TvdbClient {
+    /// `regions` as `AppState::certification_regions_from` reads them.
     pub fn new(
         client: Client,
         api_key: &str,
@@ -97,11 +98,7 @@ impl TvdbClient {
             pin: pin.map(str::to_string),
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
-            regions: if regions.is_empty() {
-                vec!["US".to_string()]
-            } else {
-                regions.iter().map(|r| r.trim().to_uppercase()).collect()
-            },
+            regions: regions.to_vec(),
         }
     }
 

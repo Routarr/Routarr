@@ -159,12 +159,12 @@ impl ArrAdapter {
     /// download per episode of a season.
     pub async fn get_media_one(&self, arr_id: i64) -> AppResult<Option<ArrMedia>> {
         let found = match self {
-            Self::Radarr(c) => c.get_movie(arr_id).await.map(|m| m.map(movie_to_media)),
-            Self::Sonarr(c) => c.get_series_one(arr_id).await.map(|s| s.map(series_to_media)),
+            Self::Radarr(c) => c.get_movie(arr_id).await.map(movie_to_media),
+            Self::Sonarr(c) => c.get_series_one(arr_id).await.map(series_to_media),
         };
         match found {
             Err(AppError::ExternalApi { status: 404, .. }) => Ok(None),
-            other => other,
+            other => other.map(Some),
         }
     }
 

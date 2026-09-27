@@ -23,7 +23,7 @@ use crate::services::rate_limit::RateLimiter;
 use crate::state::AppState;
 
 /// Outcome of an enrichment pass.
-#[derive(Debug, Default, Clone, serde::Serialize)]
+#[derive(Debug, Default, Clone)]
 pub struct EnrichmentReport {
     pub considered: usize,
     pub enriched: usize,
@@ -182,7 +182,6 @@ async fn run_enrichment(
             "{} rate-limited part of this pass. The remainder is retried on the next run",
             source.id()
         );
-        tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
     if report.skipped > 0 {

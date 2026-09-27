@@ -85,6 +85,22 @@ pub async fn run_all(pool: &SqlitePool) -> AppResult<RuleTestRun> {
     Ok(RuleTestRun { total: results.len(), passed, failed: results.len() - passed, results })
 }
 
+/// The category the rules alone give one item, and the rule that won, if any.
+///
+/// No override: a case pins what the *rules* decide. An override is a human
+/// decision about one item, and it short-circuits the engine entirely, so
+/// folding it in here would let a pinned exception mask a broken rule.
+pub fn decided_by_rules(
+    ctx: EvalContext,
+    rules: &[crate::models::rule::Rule],
+    default_category: &str,
+) -> (String, Option<String>) {
+    match rule_engine::evaluate_rules(ctx, rules, None).winner {
+        Some(winner) => (winner.category, Some(winner.rule_name)),
+        None => (default_category.to_string(), None),
+    }
+}
+
 fn run_one(
     case: &RuleTest,
     rules: &[crate::models::rule::Rule],
@@ -118,15 +134,7 @@ fn run_one(
     };
 
     let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
-    // No override: a case pins what the *rules* decide. An override is a human
-    // decision about one item, and it short-circuits the engine entirely —
-    // folding it in here would let a pinned exception mask a broken rule.
-    let evaluation = rule_engine::evaluate_rules(ctx, rules, None);
-
-    let (actual, matched_rule) = match evaluation.winner {
-        Some(winner) => (winner.category, Some(winner.rule_name)),
-        None => (default_category.to_string(), None),
-    };
+    let (actual, matched_rule) = decided_by_rules(ctx, rules, default_category);
 
     RuleTestResult {
         id: case.id.clone(),

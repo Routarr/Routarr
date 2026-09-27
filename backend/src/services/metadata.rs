@@ -203,6 +203,19 @@ pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
     seen
 }
 
+/// Metadata sources as the user ordered them, highest priority first, from the
+/// `metadata_providers` setting.
+///
+/// An absent setting is the shipped default. A setting set to the empty string
+/// means the user disabled every source, which is a legitimate choice for a
+/// library routed on paths and titles alone.
+pub fn configured_order(setting: Option<&str>) -> Vec<&'static ProviderInfo> {
+    match setting {
+        Some(value) => parse_order(value),
+        None => parse_order(&DEFAULT_ORDER.join(",")),
+    }
+}
+
 /// The fields at least one of these sources can answer.
 pub fn covered_fields(providers: &[&'static ProviderInfo]) -> Vec<MetadataField> {
     let mut fields: Vec<MetadataField> = Vec::new();
@@ -692,20 +705,20 @@ pub async fn load_cache(
     Ok(rows
         .into_iter()
         .map(|row| {
-            let key = (row.source.clone(), row.external_id.clone(), row.media_type.clone());
-            let answer = ProviderMetadata {
-                genres: serde_json::from_str(&row.genres).unwrap_or_default(),
-                keywords: serde_json::from_str(&row.keywords).unwrap_or_default(),
+            let answer = CacheRow {
+                genres: row.genres,
+                keywords: row.keywords,
                 original_language: row.original_language,
-                origin_countries: serde_json::from_str(&row.origin_countries).unwrap_or_default(),
+                origin_countries: row.origin_countries,
                 certification: row.certification,
                 // Not loaded, because no condition can read them. The per-item
                 // path is where the panel gets them.
                 status: None,
                 overview: None,
                 poster_path: None,
-            };
-            (key, answer)
+            }
+            .into_answer();
+            ((row.source, row.external_id, row.media_type), answer)
         })
         .collect())
 }

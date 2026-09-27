@@ -88,8 +88,13 @@ impl Settings {
 
     /// `true` or `1`, as `AppState::bool_setting` answers.
     pub fn bool(&self, key: &str, default: bool) -> bool {
-        self.raw(key).map_or(default, |v| v.eq_ignore_ascii_case("true") || v == "1")
+        self.raw(key).map_or(default, is_true)
     }
+}
+
+/// How a boolean setting is stored: `true` in any case, or `1`.
+fn is_true(value: &str) -> bool {
+    value.eq_ignore_ascii_case("true") || value == "1"
 }
 
 impl AppState {
@@ -223,21 +228,14 @@ impl AppState {
         Some(TmdbClient::new(self.http.clone(), &key, &self.config.tmdb_base_url, &regions))
     }
 
-    /// Metadata sources as the user ordered them, highest priority first.
-    ///
-    /// An absent setting is the shipped default; a setting set to the empty
-    /// string means the user disabled every source, which is a legitimate
-    /// choice for a library routed on paths and titles alone.
+    /// Metadata sources as the user ordered them (`metadata::configured_order`).
     pub async fn metadata_order(&self) -> Vec<&'static ProviderInfo> {
         Self::metadata_order_from(&self.settings().await)
     }
 
     /// `metadata_order`, answered from a snapshot already read.
     pub fn metadata_order_from(settings: &Settings) -> Vec<&'static ProviderInfo> {
-        match settings.raw("metadata_providers") {
-            Some(value) => metadata::parse_order(value),
-            None => metadata::parse_order(&metadata::DEFAULT_ORDER.join(",")),
-        }
+        metadata::configured_order(settings.raw("metadata_providers"))
     }
 
     /// The same list minus the sources that cannot answer today — one that
@@ -380,7 +378,7 @@ impl AppState {
             .unwrap_or_else(|| DEFAULT_CATEGORY.to_string())
     }
 
-    /// Read a boolean setting stored as `"true"`/`"false"`.
+    /// Read a boolean setting stored as `"true"` or `"false"`.
     pub async fn bool_setting(&self, key: &str, default: bool) -> bool {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -388,8 +386,7 @@ impl AppState {
             .await
             .ok()
             .flatten()
-            .map(|v| v.eq_ignore_ascii_case("true") || v == "1")
-            .unwrap_or(default)
+            .map_or(default, |v| is_true(&v))
     }
 
     /// Load an instance by id, or 404.
