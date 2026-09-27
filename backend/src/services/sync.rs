@@ -147,7 +147,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // Before the first request, not after: everything below describes the Arr as
     // it was at *this* instant, and an apply that lands while we are reading
     // makes what we are about to write stale. `upsert_media` compares this
-    // against `moved_at` and declines to put an old path back — migration 007.
+    // against `moved_at` and declines to put an old path back.
     let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
 
     let root_folders = adapter.get_root_folders().await?;

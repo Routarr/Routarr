@@ -9,13 +9,8 @@
 //! keeps its own spelling, lowercased, so a rule still has something to compare
 //! against instead of the field going empty.
 
-/// ISO 639-1 code for a language *name*, or the name itself, lowercased, when it
-/// is not one we know.
-///
-/// `None` for "Unknown", the value the Arr uses when it has no idea — an
-/// absent field is the truth there, and it lets the source below answer.
 /// Every language this build knows, as (ISO 639-1 code, the spellings a source may use).
-/// The first spelling is the one shown; the rest are what `normalise` accepts.
+/// The first spelling is the one shown, the rest are what `normalise` accepts.
 ///
 /// One table read both ways. A rule is written against the code, which no user
 /// would guess from a library that happens to hold five languages, so the rule
@@ -124,6 +119,11 @@ pub const COUNTRIES: &[(&str, &[&str])] = &[
     ("RO", &["romania"]),
 ];
 
+/// ISO 639-1 code for a language *name*, or the name itself, lowercased, when it
+/// is not one we know.
+///
+/// `None` for "Unknown", the value the Arr uses when it has no idea: an
+/// absent field is the truth there, and it lets the source below answer.
 pub fn normalise(name: &str) -> Option<String> {
     // "Portuguese (Brazil)" and "Spanish (Latino)" are regional spellings of a
     // language TMDb reports without the region.
@@ -143,9 +143,9 @@ pub fn normalise(name: &str) -> Option<String> {
 
 /// ISO 639-1 from a three-letter code.
 ///
-/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Only the
-/// bibliographic/terminological pairs that differ are listed explicitly; the
-/// rest map by their own table above once the name is unavailable.
+/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every code
+/// is listed, the bibliographic form beside the terminological one where they
+/// differ (`fre` and `fra`), and a code outside the list answers `None`.
 pub fn from_iso_639_3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {

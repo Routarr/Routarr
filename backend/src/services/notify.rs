@@ -24,7 +24,7 @@ use crate::state::AppState;
 /// not an event.
 #[derive(Debug, Clone)]
 pub enum Event {
-    /// A scheduled sync could not reach an Arr. Sent on the transition only.
+    /// A sync could not reach an Arr. Sent on the transition only.
     InstanceUnreachable { instance: String, error: String },
     /// The same instance answered again. Closes the loop so the operator does
     /// not have to go and check whether the problem is still there.

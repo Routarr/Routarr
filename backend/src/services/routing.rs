@@ -690,8 +690,9 @@ pub fn rule_from_row(r: RuleRow) -> Rule {
 }
 
 /// Load media, filtering in SQL rather than in memory.
-/// `instance_ids` is a plain list because an empty one is every instance, the
-/// way `Rule::covers_instance` reads the same shape — there is no second
+///
+/// `instance_filter` is a plain list because an empty one is every instance,
+/// the way `Rule::covers_instance` reads the same shape, so there is no second
 /// spelling of "all" for a caller to get wrong. `media_ids` is not: an empty
 /// list there is these zero items, which a webhook whose item has just been
 /// deleted needs to say.

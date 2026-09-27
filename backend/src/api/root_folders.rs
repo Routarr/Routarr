@@ -212,10 +212,10 @@ pub async fn create(
 
     let instance = state.instance(&req.instance_id).await?;
 
-    // Read here only to answer well; the insert below is what decides, in one
+    // Read here only to answer well: the insert below is what decides, in one
     // statement. Asked and then inserted, two declarations racing each other
-    // both passed the question and both landed — and since 019 no index is
-    // left to catch the second.
+    // would both pass the question and both land, and no index on the path is
+    // there to catch the second.
     let taken: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM root_folders
           WHERE instance_id = ? AND rtrim(path, '/') = ?)",

@@ -23,10 +23,10 @@ pub struct Media {
     /// movies.
     pub series_type: Option<String>,
     pub size_on_disk: Option<i64>,
-    /// Seasons excluding specials; `None` for movies.
+    /// Seasons excluding specials, `None` for movies.
     pub season_count: Option<i64>,
     /// Tag labels as a JSON array, denormalised from the Arr. Read in bulk on
-    /// every rule evaluation and never queried on its own.
+    /// every rule evaluation and by the library's tag facet.
     pub tags: Option<String>,
     /// Genres as a JSON array, straight from Radarr or Sonarr. The `arr`
     /// metadata source reads these three columns; they cost no request and go

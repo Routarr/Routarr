@@ -169,9 +169,6 @@ impl ArrAdapter {
     }
 
     /// Get the instance's tag catalogue, so ids can be resolved to labels.
-    ///
-    /// An Arr that predates tags, or one whose endpoint fails, yields an empty
-    /// catalogue rather than failing the sync: tags are one signal among many.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTag>> {
         let tags = match self {
             Self::Radarr(c) => c.get_tags().await?,
@@ -223,9 +220,9 @@ impl ArrAdapter {
     }
 }
 
-/// `AppError` is not `Clone` (it wraps `sqlx`/`reqwest` errors); rebuild the
-/// variants the Arr clients can actually produce so a bulk failure can be
-/// reported per item.
+/// `AppError` is not `Clone`, since it wraps `sqlx` and `serde_json` errors.
+/// This rebuilds the variants the Arr clients can actually produce, so a bulk
+/// failure can be reported per item.
 fn clone_error(e: &AppError) -> AppError {
     match e {
         AppError::ExternalApi { service, status, message, retry_after } => AppError::ExternalApi {

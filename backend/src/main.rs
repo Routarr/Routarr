@@ -82,26 +82,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // never wrote. Declared configuration outranks generated state, and that is
     // also why a rotation is refused while the variable is set — it could not
     // survive the next restart.
-    let api_key = match config.api_key.clone() {
-        Some(pinned) => Some(pinned),
-        None => {
-            let path = config.api_key_path();
-            match config.auth_mode {
-                AuthMode::ApiKey => {
-                    let (key, generated) = crypto::load_or_generate_api_key(&path)?;
-                    if generated {
-                        info!(
-                            "Generated an API key at {}. Use it as X-Api-Key: {key}",
-                            path.display()
-                        );
-                    }
-                    Some(key)
-                }
-                // The other modes do not need one, but one minted from the
-                // interface for a script has to survive a restart.
-                _ => crypto::read_api_key(&path),
-            }
+    // The other modes need no key, but one minted from the interface for a
+    // script has to survive a restart: they read the stored one, never make one.
+    let api_key = if config.api_key.is_none() && config.auth_mode == AuthMode::ApiKey {
+        let path = config.api_key_path();
+        let (key, generated) = crypto::load_or_generate_api_key(&path)?;
+        if generated {
+            info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
         }
+        Some(key)
+    } else {
+        state::resolve_api_key(&config)
     };
 
     let pool = db::init_pool(&config).await?;
@@ -176,7 +167,7 @@ async fn api_not_found() -> Response {
         StatusCode::NOT_FOUND,
         axum::Json(serde_json::json!({
             "error": "not_found",
-            "message": "No such API route. The routes are listed in the README.",
+            "message": "No such API route.",
         })),
     )
         .into_response()
@@ -185,8 +176,8 @@ async fn api_not_found() -> Response {
 /// What the request span records as the path.
 ///
 /// The webhook token is a credential, and the span is on every line logged
-/// while a delivery is served — the error line an operator pastes into a
-/// ticket included — so that route is recorded as its template. Every other
+/// while a delivery is served, the error line an operator pastes into a
+/// ticket included, so that route is recorded as its template. Every other
 /// path is logged as sent: an id in it is what makes a line findable.
 fn loggable_path(request: &axum::extract::Request) -> String {
     match request.extensions().get::<axum::extract::MatchedPath>() {
@@ -472,7 +463,7 @@ fn index_html(config: &Config) -> String {
 ///
 /// The original build allowed any origin with any header — combined with the
 /// absence of authentication, any page the user visited could drive the API.
-/// Same-origin is the default; the dev server origin is added explicitly.
+/// Same-origin by default. `ROUTARR_CORS_ORIGINS` names any other origin allowed.
 fn cors_layer(config: &Config) -> CorsLayer {
     if config.cors_origins.is_empty() {
         return CorsLayer::new();

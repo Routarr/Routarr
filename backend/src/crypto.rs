@@ -1,9 +1,9 @@
-//! Encryption of secrets at rest (Arr API keys).
+//! Encryption of secrets at rest (the Arr and metadata source API keys).
 //!
 //! Values are stored as `enc:v1:<base64(nonce || ciphertext)>`. Anything that
 //! does not carry that prefix is treated as legacy plaintext and returned as-is,
-//! so upgrading an existing database never loses access to the instances; the
-//! values are re-encrypted the next time they are written.
+//! so upgrading an existing database never loses access to the instances, and
+//! `maintenance::reseal_secrets` seals them at the next start.
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -187,14 +187,6 @@ impl SecretBox {
     }
 }
 
-/// Load the API key from `path`, generating one on first run.
-///
-/// An API that can move files on disk must not be open by omission, and the
-/// Arrs set the same default. Generating one keeps the zero-configuration first
-/// run: the key appears in the startup log and in a file beside the database.
-///
-/// Returns the key and whether it had to be created, so the caller can make the
-/// first run loud and later ones quiet.
 /// 32 bytes of OS randomness, hex-encoded.
 ///
 /// URL-safe, shell-safe, and easy to copy out of a log without the ambiguity
@@ -210,6 +202,14 @@ pub fn generate_secret() -> AppResult<String> {
     }))
 }
 
+/// Load the API key from `path`, generating one on first run.
+///
+/// An API that can move files on disk must not be open by omission, and the
+/// Arrs set the same default. Generating one keeps the zero-configuration first
+/// run: the key appears in the startup log and in a file beside the database.
+///
+/// Returns the key and whether it had to be created, so the caller can make the
+/// first run loud and later ones quiet.
 pub fn load_or_generate_api_key(path: &Path) -> AppResult<(String, bool)> {
     if let Some(existing) = read_api_key(path) {
         return Ok((existing, false));
@@ -320,13 +320,12 @@ fn derive_key(input: &str) -> [u8; 32] {
     out
 }
 
-/// Best-effort `chmod 600`; ignored on platforms without Unix permissions.
 /// Lock down a database file *and* its write-ahead sidecars.
 ///
 /// `routarr.db-wal` holds every commit not yet checkpointed and `-shm` its
 /// index: between checkpoints they contain exactly what the database contains,
-/// including the sealed Arr credentials. Restricting only the `.db` left the
-/// most recent data readable to anyone on the host.
+/// including the sealed Arr credentials. Restricting only the `.db` would
+/// leave the most recent data readable to anyone on the host.
 pub fn restrict_database_permissions(path: &Path) {
     restrict_permissions(path);
     for suffix in ["-wal", "-shm"] {
@@ -340,6 +339,7 @@ pub fn restrict_database_permissions(path: &Path) {
     }
 }
 
+/// Best-effort `chmod 600`, ignored on platforms without Unix permissions.
 pub fn restrict_permissions(path: &Path) {
     #[cfg(unix)]
     {

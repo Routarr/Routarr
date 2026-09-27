@@ -23,7 +23,7 @@ use crate::error::{AppError, AppResult};
 /// The name the generated account carries. One account, so it needs no other.
 pub const DEFAULT_USERNAME: &str = "admin";
 
-/// How long a session lasts without use, renewed on every request that uses it.
+/// How long a session lasts without use, extended by the requests that use it.
 ///
 /// Seven days, the value Radarr's cookie carries, and sliding for the same
 /// reason: a tab left open over a weekend should not ask again on Monday.

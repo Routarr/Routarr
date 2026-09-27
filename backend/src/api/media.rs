@@ -38,16 +38,13 @@ pub struct MediaListItem {
     pub has_metadata: bool,
 }
 
-/// SQL predicate for "at least one enabled source describes this item".
-///
-/// Built from the source list rather than hard-coded: with every source off the
-/// answer is `0`, not "whatever happens to be left in the cache".
 /// "Something a rule could read is known about this item", in SQL.
 ///
-/// Four places asked this and three of them spelled it differently: the library
-/// column, the diagnostics count, the warning beside it. They must agree — a
-/// badge saying "metadata missing" over a count saying otherwise is how a
-/// diagnostic stops being read — so it is written once and they all splice it.
+/// Built from the source list rather than hard-coded: with every source off the
+/// answer is `0`, not "whatever happens to be left in the cache". The library
+/// column, the diagnostics count and the warning beside it all splice it, and
+/// must agree: a badge saying "metadata missing" over a count saying otherwise
+/// is how a diagnostic stops being read.
 ///
 /// Three things it has to get right. Only the *enabled* sources count, exactly
 /// as `routing::load_context` reads them, or a source switched off yesterday
@@ -475,24 +472,11 @@ async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Fac
         .collect())
 }
 
-/// Everything the *enabled* sources say about one axis, not just the Arr row.
-///
-/// The rule builder offers this list, so it has to hold what the engine can
-/// actually match: a genre TMDb supplied is matched by a rule and would be
-/// missing from a list read off `media` alone. The `arr` branch is the media
-/// row, the other is `metadata_cache`, and a source the user disabled
-/// contributes to neither — exactly as `routing::load_context` reads them.
-///
-/// Counted with `COUNT(DISTINCT m.id)`, since one item is described by several
-/// sources at once. Spellings that differ only by case or by a separator are one
-/// value, as they are to [`normalise_value`](crate::services::rule_engine::normalise_value); accents are not folded here, SQLite
-/// having no way to, so `Comédie` and `Comedie` stay two entries in the list
-/// while the engine still matches both.
 /// Say what a certification code stands for, where that is not in dispute.
 ///
 /// `U`, `TP` and `TV-PG` say nothing to most readers, and this panel exists to
-/// show what the library holds. The code stays the *value* — it is what a rule
-/// matches on — and the name is only ever what is shown, which is why it goes
+/// show what the library holds. The code stays the *value*, since it is what a
+/// rule matches on, and the name is only ever what is shown, which is why it goes
 /// in `label` beside it rather than replacing it.
 fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
     use crate::integrations::certification::{Meaning, meaning};
@@ -529,6 +513,20 @@ fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> 
     named.into_iter().map(|(_, facet)| facet).collect()
 }
 
+/// Everything the *enabled* sources say about one axis, not just the Arr row.
+///
+/// The rule builder offers this list, so it has to hold what the engine can
+/// actually match: a genre TMDb supplied is matched by a rule and would be
+/// missing from a list read off `media` alone. The `arr` branch is the media
+/// row, the other is `metadata_cache`, and a source the user disabled
+/// contributes to neither, exactly as `routing::load_context` reads them.
+///
+/// Counted with `COUNT(DISTINCT m.id)`, since one item is described by several
+/// sources at once. Spellings that differ only by case or by a separator are
+/// one value, as they are to
+/// [`normalise_value`](crate::services::rule_engine::normalise_value). Accents
+/// are not folded here, SQLite having no way to, so `Comédie` and `Comedie`
+/// stay two entries in the list while the engine still matches both.
 /// `media_column` is where the sync puts the Arr's own answer, and `None` for
 /// an axis the Arr does not report at all: origin countries live in the cache
 /// and nowhere else, and naming a column the table has not got fails the whole

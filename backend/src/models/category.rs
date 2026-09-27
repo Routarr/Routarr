@@ -11,7 +11,7 @@ pub struct Category {
     pub created_at: String,
 }
 
-/// Request body for creating/updating a category.
+/// Request body for renaming a category.
 #[derive(Debug, Deserialize)]
 pub struct RenameCategoryRequest {
     pub name: String,

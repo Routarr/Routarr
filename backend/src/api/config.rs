@@ -1,15 +1,15 @@
 //! Exporting and restoring the configuration.
 //!
 //! What this is for: rebuilding an installation, or moving it to another
-//! machine, without redoing by hand the work that cannot be regenerated —
-//! the rules, the folder mappings and above all the manual overrides, which are
+//! machine, without redoing by hand the work that cannot be regenerated: the
+//! rules, the folder mappings and above all the manual overrides, which are
 //! human decisions no amount of resyncing brings back.
 //!
 //! What it deliberately is not: a database backup. The library, the decision
-//! history and the metadata cache are all reproducible from the Arrs and TMDb,
-//! so they are left out; a bundle stays small enough to read and to diff. For a
-//! true backup, `data/routarr.db` and `data/routarr.key` must be copied
-//! **together** — without the key the encrypted API keys are lost.
+//! history and the metadata cache are all reproducible from the Arrs and the
+//! metadata sources, so they are left out, and a bundle stays small enough to
+//! read and to diff. A backup is `services::backup`, which archives the
+//! database with the master key and the API key.
 //!
 //! Nothing host-specific crosses the boundary. Ids are generated per install,
 //! and API keys are sealed with a master key that exists on one machine only:
@@ -258,8 +258,8 @@ pub async fn import(
             other => other,
         };
 
-        // Sealed elsewhere, meaningless here. An older bundle can still carry
-        // one, since the export only stopped emitting them in this version.
+        // Sealed elsewhere, meaningless here. The export never writes one, but
+        // a bundle edited by hand can carry one.
         if crate::api::settings::is_secret(key) {
             report
                 .skipped

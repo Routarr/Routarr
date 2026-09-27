@@ -3,10 +3,10 @@
 //! The source Sonarr itself is built on, and the only one in the set that
 //! authenticates with a **login** rather than a query parameter: `POST /login`
 //! returns a bearer token valid for about a month. The token is fetched on first
-//! use and kept in the client, so a full enrichment pass costs one login, not
-//! one per item.
+//! use and kept in `AppState`, so one login serves every enrichment pass until
+//! it expires, not one per item.
 //!
-//! Its key is free; a *user-supported* key additionally needs the subscriber PIN
+//! Its key is free. A *user-supported* key additionally needs the subscriber PIN
 //! its owner was given, which is why the PIN is a separate optional setting
 //! rather than being folded into the key.
 

@@ -369,9 +369,9 @@ fn provider_health(
 /// both directions, and the badge then reads "1 warning" over a page listing
 /// three.
 ///
-/// Everything here is a fact about the database or the configuration. The two
-/// findings that need a probe are added by `health_check`, the only caller
-/// allowed to wait on the network.
+/// Everything here is a fact about the database or the configuration. The
+/// findings that need a probe are written to `probe_results` by `health_check`,
+/// the only caller allowed to wait on the network, and read back here.
 async fn offline_warnings(
     state: &AppState,
     localizer: &Localizer,

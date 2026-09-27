@@ -55,11 +55,6 @@ pub struct Provider {
     pub token_endpoint: String,
 }
 
-/// Read the provider's own description of itself.
-///
-/// Discovery rather than four configured endpoints: a provider states its own
-/// addresses, and copying them by hand is four more values to keep in step with
-/// somebody else's deployment.
 /// How long the provider's description is trusted without asking again.
 ///
 /// A static document by specification, and the endpoint that reads it is
@@ -69,6 +64,11 @@ pub struct Provider {
 /// a provider moving an endpoint is picked up within a deploy window.
 const DISCOVERY_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
 
+/// Read the provider's own description of itself.
+///
+/// Discovery rather than four configured endpoints: a provider states its own
+/// addresses, and copying them by hand is four more values to keep in step with
+/// somebody else's deployment.
 pub async fn discover(state: &AppState) -> AppResult<Provider> {
     let issuer = state
         .config

@@ -87,8 +87,7 @@ pub async fn list(
             &mut binds,
         );
     }
-    // Superseded proposals are noise by default: they were replaced by a newer
-    // simulation and can no longer be applied.
+    // Superseded proposals are noise by default: they can no longer be applied.
     if !query.include_superseded.unwrap_or(false) {
         filters.push_str(" AND superseded = 0");
     }

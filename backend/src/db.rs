@@ -237,7 +237,6 @@ pub fn placeholders(n: usize) -> String {
     vec!["?"; n].join(", ")
 }
 
-/// In-memory pool with the full schema applied, for tests.
 /// Escape `%`, `_` and `\` in user input destined for a `LIKE ? ESCAPE '\'`
 /// pattern. Without it, searching for "100%" matches every title starting with
 /// "100", and a stray backslash changes the meaning of whatever follows it.
@@ -252,6 +251,7 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
+/// In-memory pool with the full schema applied, for tests.
 #[cfg(test)]
 pub async fn test_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()

@@ -21,12 +21,12 @@ use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::models::Instance;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
 
-/// The same resolution `main` performs: the environment, else what is stored.
+/// The API key: the environment's, else the stored one.
 ///
-/// Written once and used by both, so a harness cannot drift into testing a
-/// precedence the application does not have.
-#[cfg(test)]
-fn resolve_api_key(config: &Config) -> Option<String> {
+/// Read by `main` and by the test harness alike, so a harness cannot drift into
+/// testing a precedence the application does not have. `main` generates a key
+/// first when `apikey` mode finds neither.
+pub(crate) fn resolve_api_key(config: &Config) -> Option<String> {
     config.api_key.clone().or_else(|| crate::crypto::read_api_key(&config.api_key_path()))
 }
 
@@ -201,7 +201,8 @@ impl AppState {
         }
     }
 
-    /// `provider_keys`, answered from a snapshot already read.
+    /// Every metadata source's key, stored or from the environment, read from a
+    /// settings snapshot.
     pub fn provider_keys_from(
         &self,
         settings: &Settings,
@@ -215,7 +216,7 @@ impl AppState {
         keys
     }
 
-    /// `tmdb`, built from a snapshot already read.
+    /// A TMDb client, when a key is stored or set, read from a settings snapshot.
     pub fn tmdb_from(&self, settings: &Settings) -> Option<TmdbClient> {
         let key = self.provider_key_from(settings, metadata::TMDB)?;
         let regions = Self::certification_regions_from(settings);
@@ -333,7 +334,8 @@ impl AppState {
         Localizer::new(&self.language().await)
     }
 
-    /// `certification_regions`, answered from a snapshot already read.
+    /// The regions whose certifications count, upper-case, `US` when none is
+    /// set, read from a settings snapshot.
     pub fn certification_regions_from(settings: &Settings) -> Vec<String> {
         let raw = settings.raw("certification_regions");
 

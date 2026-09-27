@@ -18,8 +18,8 @@ use crate::error::AppResult;
 const SERVICE: &str = "AniList";
 pub const DEFAULT_BASE_URL: &str = "https://graphql.anilist.co";
 
-/// One query for the search, one for the details. Both ask for the same shape,
-/// so a search can answer without a second round trip when it matches.
+/// The search asks only what picks a candidate (titles and year), the details
+/// only what a rule reads, so a search that finds nothing costs one small call.
 const SEARCH_QUERY: &str = "query ($search: String, $format: MediaFormat) {
   Page(perPage: 5) {
     media(search: $search, type: ANIME, format: $format, sort: SEARCH_MATCH) {
@@ -37,7 +37,6 @@ const DETAILS_QUERY: &str = "query ($id: Int) {
     countryOfOrigin
     status
     description(asHtml: false)
-    isAdult
     tags { name rank }
   }
 }";
@@ -293,7 +292,6 @@ mod tests {
             "countryOfOrigin": "JP",
             "status": "FINISHED",
             "description": "Two young girls move to the countryside.",
-            "isAdult": false,
             "tags": [
               { "name": "Rural", "rank": 88 },
               { "name": "Iyashikei", "rank": 71 },

@@ -355,8 +355,6 @@ fn pascal_case(kind: &str) -> String {
         .collect()
 }
 
-// ---------------------------------------------------------------- helpers
-
 #[cfg(test)]
 mod tests {
     use crate::models::Condition;

@@ -144,7 +144,7 @@ fn run_one(
 pub struct NewRuleTest {
     pub name: String,
     /// The library item to snapshot. Resolved once, here, and never referenced
-    /// again — see migration 008.
+    /// again: a case keeps its own copy of the item, so it outlives it.
     pub media_id: String,
     /// Defaults to what the engine decides for that item today, which is what
     /// makes "pin this decision" a single click.

@@ -1,9 +1,10 @@
-//! The only code that writes to Radarr/Sonarr.
+//! The only code that writes to Radarr or Sonarr.
 //!
-//! Guardrails, in order: global dry-run, batch limit, explicit confirmation past
-//! a threshold, and per-decision revalidation right before the call. Moves are
-//! grouped so a batch of 200 films landing in the same folder is one Radarr call
-//! rather than 200.
+//! Guardrails, in order: global dry-run, batch limit, the destinations'
+//! reachability and free space, explicit confirmation past a threshold, and
+//! per-decision revalidation right before the call. Moves are grouped so a
+//! batch of 200 films landing in the same folder is one Radarr call rather
+//! than 200.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
@@ -116,11 +117,11 @@ pub async fn apply_decisions(
 ) -> AppResult<ApplyReport> {
     guard_dry_run(state).await?;
     // The limit first: it is a count, so it costs no query, and it keeps a
-    // list longer than one statement can bind from ever reaching one — the
-    // capacity guard spells the ids out. Then capacity before the threshold,
-    // because a destination that cannot hold the plan is a graver thing to be
-    // told than a count. Answering one no longer answers the other: each asks
-    // under its own name and reads only that name back.
+    // list longer than one statement can bind from ever reaching one, since
+    // the capacity guard spells the ids out. Then capacity before the
+    // threshold, because a destination that cannot hold the plan is a graver
+    // thing to be told than a count. Each asks under its own name and reads
+    // only that name back, so answering one never answers the other.
     guard_batch_limit(state, decision_ids.len()).await?;
     // Reachability before capacity: a destination that is not answering at all
     // is a graver thing to be told than one that may be short of room, and the
@@ -173,17 +174,15 @@ pub async fn apply_simulation_in_batches(
     }
 
     if !confirmed.has(confirm::BATCH) {
-        // This path always asks, so a second gate on capacity would be waved
-        // through by the same flag. The shortfall is carried *into* the one
-        // question instead — a confirmation that omits the graver fact is worse
-        // than no confirmation, because it looks like the fact was considered.
+        // This path always asks, so a separate gate on reachability or
+        // capacity would be waved through by the same flag. Both graver facts
+        // are carried *into* the one question instead: a confirmation that
+        // omits one is worse than none, because it looks like it was
+        // considered.
         let mut message = localizer.translate(
             "ErrorConfirmationRequired",
             &[("count", &ids.len().to_string()), ("threshold", "0")],
         );
-        // Both graver facts are carried *into* the one question rather than
-        // left for a second round trip: a confirmation that omits one looks
-        // like it was considered.
         for check in [
             guard_reachable(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
                 .await,
@@ -381,8 +380,6 @@ async fn run_apply(
 }
 
 /// Roll applied decisions back to the root folder they came from.
-///
-/// Spec: "possibilité d'annuler ou de rejouer certaines opérations".
 pub async fn revert_decisions(
     state: &AppState,
     decision_ids: &[String],
@@ -522,8 +519,7 @@ async fn execute_moves(
             }
         }
 
-        // Spec: "rafraîchissement ou rescan si nécessaire". Best effort — a
-        // failed rescan does not invalidate a successful move.
+        // Best effort: a failed rescan does not invalidate a successful move.
         if refresh_after_move
             && !succeeded_ids.is_empty()
             && let Err(e) = adapter.refresh(&succeeded_ids).await
@@ -599,7 +595,7 @@ async fn record_success(
 /// The two rows a successful move changes, written together.
 ///
 /// `moved_at` is what stops a synchronisation that read the Arr *before* this
-/// move from putting the old path back — see migration 007.
+/// move from putting the old path back (`upsert_media` in `services/sync.rs`).
 async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,

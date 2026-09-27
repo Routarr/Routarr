@@ -26,11 +26,11 @@ const KNOWN: &[(&str, Kind)] = &[
     ("auto_apply_enabled", Kind::Bool),
     ("refresh_after_move", Kind::Bool),
     ("move_files_default", Kind::Bool),
-    // Every count is bounded on both sides. `RetentionCount` was the only one
-    // that was, and its reason — a number that decides how long a list gets and
-    // how much disk it costs — is not special to backups. Unbounded, each of
-    // these has a value that reads as "off" while the interface reports it as
-    // set: an interval of a million hours is a backup that never runs.
+    // Every count is bounded on both sides: a number that decides how long a
+    // list gets and how much disk it costs is not special to backups.
+    // Unbounded, each of these has a value that reads as "off" while the
+    // interface reports it as set: an interval of a million hours is a backup
+    // that never runs.
     ("batch_limit", Kind::Bounded(1, 1_000)),
     ("confirmation_threshold", Kind::Bounded(1, 10_000)),
     // Ten years. Past that the intent is "never expire", which should be said

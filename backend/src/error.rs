@@ -42,10 +42,11 @@ pub enum AppError {
     #[error("Confirmation required: {message}")]
     ConfirmationRequired { kind: &'static str, message: String },
 
-    /// A call to Radarr, Sonarr or TMDb failed.
+    /// An outbound call failed: an Arr, a metadata source, the identity
+    /// provider or the notification webhook.
     ///
     /// `status` is 0 for a transport failure (refused, timed out, unreadable
-    /// body); the cause is always in `message`.
+    /// body), and the cause is always in `message`.
     #[error("{}", describe_external(service, *status, message))]
     ExternalApi {
         service: String,

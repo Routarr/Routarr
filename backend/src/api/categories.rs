@@ -135,8 +135,8 @@ pub async fn create(
 
 /// Rename a category, and carry every reference to it along.
 ///
-/// The name is the join key — there is no foreign key to cascade — so it lives
-/// in six places: this row, the four columns that name a category, and the
+/// The name is the join key, with no foreign key to cascade, so it lives in
+/// this row, in every column that names a category, and in the
 /// `default_category` setting. Missing that last one leaves an installation
 /// holding a setting its own validator rejects the next time anything is saved.
 ///
@@ -186,7 +186,7 @@ pub async fn rename(
         "UPDATE overrides SET target_category = ? WHERE target_category = ?",
         "UPDATE decisions SET target_category = ? WHERE target_category = ?",
         // Pinned expectations too. A case left pointing at the old name fails
-        // for a reason that has nothing to do with the rules — and it is the
+        // for a reason that has nothing to do with the rules, and it is the
         // one place a stale name is *silent*, since the case simply starts
         // reporting a mismatch nobody caused.
         "UPDATE rule_tests SET expected_category = ? WHERE expected_category = ?",
