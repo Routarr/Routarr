@@ -10,8 +10,9 @@ import { mkdirSync } from 'node:fs';
 
 // Resolved against the frontend, which owns the dependency: ESM resolves from
 // the *file's* directory, so a plain import would look under site/ and fail
-// however the script is launched.
-const require = createRequire(`${process.env.FRONTEND_DIR}/package.json`);
+// however the script is launched. The same fallback as verify.mjs.
+const FRONTEND = process.env.FRONTEND_DIR ?? new URL('../../frontend', import.meta.url).pathname;
+const require = createRequire(`${FRONTEND}/package.json`);
 const { chromium } = require('@playwright/test');
 
 const BASE = process.env.ROUTARR_URL ?? 'http://127.0.0.1:9899';

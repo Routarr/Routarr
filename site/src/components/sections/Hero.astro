@@ -10,11 +10,11 @@ const t = useTranslations(locale);
 const detail = pathFor(locale, 'how');
 
 /**
- * The board announces six departures from the demonstration library. Titles,
- * folders and instances are the library's own words and read the same in every
- * language; the rule names and the statuses come from the catalogue. A row
- * carries only what the application's own plan shows, so the board promises
- * nothing the product does not say.
+ * The plan shows six titles of the demonstration library. Titles, folders and
+ * instances are the library's own words and read the same in every language,
+ * and the rule names and the statuses come from the catalogue. A row carries
+ * only what the application's own plan shows, so the plan promises nothing the
+ * product does not say.
  */
 type Kind = 'go' | 'confirm' | 'still';
 interface Departure {
@@ -54,10 +54,6 @@ const DEPARTURES: Departure[] = [
   },
 ];
 
-/* Two rows carry the explanation under the plan: one where every condition
-   held, and one where the first rule was asked, failed, and the next took it.
-   A pair of successes would show the panel without showing what it is for. */
-
 const STATUS_CLASS: Record<Kind, string> = { go: 'is-go', confirm: 'is-confirm', still: 'is-still' };
 const LEGEND: { cls: string; label: Key; note: Key }[] = [
   { cls: 'is-go', label: 'hero.status.proposed', note: 'hero.legend.proposed' },
@@ -88,9 +84,8 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
     </div>
 
     {/* The plan, as the application draws it. The columns are the ones the
-        simulation screen shows, and every reason below is an `expected ·
-        observed` pair the explanation panel produces, so nothing here promises
-        what the product does not say. */}
+        simulation screen shows, so nothing here promises what the product
+        does not say. */}
     <div class="plan">
       <div class="plan-head">
         <span class="plan-title">{t('hero.plan')}</span>
@@ -124,7 +119,7 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
                   </td>
                   <td class="plan-dest">
                     <span class="mono from">{d.from}</span>
-                    {d.kind === 'still' ? null : <><span class="arrow dir-aware" aria-hidden="true">&rarr;</span><span class="mono to">{d.to}</span></>}
+                    {d.kind === 'still' ? null : <><span class="arrow" aria-hidden="true">&rarr;</span><span class="mono to">{d.to}</span></>}
                   </td>
                   <td class="plan-gate">{d.gate}</td>
                   <td><span class={`chip ${STATUS_CLASS[d.kind]}`}>{t(d.status)}</span></td>

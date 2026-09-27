@@ -6,10 +6,11 @@ const t = useTranslations(Astro.props.locale);
 
 /**
  * Six gates, in the order the executor runs them, and the first one to object
- * stops the rest. Two of them ask instead of refusing, which is not a
+ * stops the rest. Three of them ask instead of refusing, which is not a
  * softening: a destination that did not answer may be a NAS that has spun
- * down, and two folders reporting the same free space may be one volume where
- * a move is a rename. Evidence, not proof, so the operator is asked.
+ * down, two folders reporting the same free space may be one volume where a
+ * move is a rename, and a batch past the threshold is the operator's to
+ * confirm. Evidence, not proof, so the operator is asked.
  */
 const GATES: { number: string; name: Key; note: Key; asks: boolean }[] = [
   { number: '01', name: 'safety.b', note: 'safety.p.2', asks: false },

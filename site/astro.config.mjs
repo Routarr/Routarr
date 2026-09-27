@@ -11,7 +11,7 @@ import sitemap from '@astrojs/sitemap';
  * repeated as literals in four pages, where they drift apart.
  *
  * `prefixDefaultLocale: false` keeps English at `/` and the rest at `/fr/`,
- * `/de/`, `/es/` — the paths already published, already in `sitemap.xml` and
+ * `/de/`, `/es/`: the paths already published, already in the sitemap and
  * already named by every `hreflang`.
  */
 export default defineConfig({

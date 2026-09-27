@@ -1,4 +1,4 @@
-# Cloudflare Pages reads this file. Harmless on any other static host.
+# Cloudflare's static assets read this file. Harmless on any other static host.
 #
 # The Content-Security-Policy is as tight as the page allows: the site makes no
 # external request at all, so every directive can be 'self' or 'none' — and a
@@ -80,8 +80,6 @@
 /_astro/*
   Cache-Control: public, max-age=31536000, immutable
 
-# The one asset under /assets/ that is hand-written and carries no fingerprint,
-# so it must not inherit the rule above: editing it and deploying would reach
-# nobody who had already loaded the page.
+# Revalidated on every load: an edit must reach a returning visitor at once.
 /assets/site.js
   Cache-Control: public, max-age=0, must-revalidate

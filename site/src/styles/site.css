@@ -12,11 +12,8 @@
    restores before first paint. There is deliberately no `prefers-color-scheme`
    palette, and `check.mjs` refuses one: a palette the visitor's system picks is
    a third state nothing measures, and the contrast test would then be checking
-   a theme nobody chose.
-
-   The accent is three tokens, not one, and that split is what the flip made
-   load-bearing: `--accent` decorates, `--accent-text` is the amber that passes
-   AA *as text*, and on a white ground those two cannot be the same value. */
+   a theme nobody chose. On a white ground the accent's decoration and text
+   values cannot be the same, which is why it is three tokens (above). */
 :root {
   color-scheme: light;
 
@@ -127,7 +124,6 @@ a:hover { opacity: 0.85; }
 }
 
 code, kbd, pre { font-family: var(--mono); font-size: 0.87em; }
-h2 code { font-size: 0.92em; color: var(--accent-text); }
 
 img { max-width: 100%; height: auto; }
 
@@ -218,10 +214,8 @@ img { max-width: 100%; height: auto; }
 .lang-hint button:hover { color: var(--text); }
 
 /* The language switch and the theme switch, as ruled cells. Both carry the
-   height, the border and the radius of the Index control beside them, so the
-   right of the bar reads as one row of objects rather than three kinds of
-   thing, and the current cell is lit the way the current column is lit on the
-   departure board.
+   height, the border and the radius of the Index control, so the panel reads
+   as one set of objects rather than three kinds of thing.
 
    Plain links for the languages, because the CSP allows exactly one inline
    script and it is the theme bootstrap — a <select> would need a handler. Two
@@ -264,7 +258,6 @@ img { max-width: 100%; height: auto; }
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   box-shadow: inset 0 -2px 0 var(--accent);
 }
-.lang-nav { margin-inline-start: auto; }
 
 /* A <details>: it opens and closes with no JavaScript, which is the property
    the rest of the page keeps. site.js adds Ctrl K, Escape and closing on a
@@ -372,9 +365,6 @@ img { max-width: 100%; height: auto; }
   padding-top: 14px;
   border-top: 1px solid var(--border);
 }
-/* Inside the panel nothing is pushed to an edge: the rule that did that was
-   written for the bar, where the switch sat after the brand. */
-.index-settings .lang-nav { margin-inline-start: 0; }
 
 @media (max-width: 640px) {
   .index-panel .index-nav { grid-template-columns: minmax(0, 1fr); }
@@ -402,18 +392,12 @@ img { max-width: 100%; height: auto; }
 @media (max-width: 859px) {
   .index kbd { display: none; }
 }
-/* Below 740px the two switches take a row of their own, brand and Index
-   keeping the first. The bar never becomes three rows: that was ~200px of a
-   phone viewport spent on chrome, which is what moving the destinations into
-   the panel was for. `verify.mjs` measures every control in the header against
-   every other at nine widths on all four pages, open and closed. */
+/* Below 740px the bar may wrap rather than push the repository link off the
+   page: the Index control's label is longer in French and German.
+   `verify.mjs` measures every header control against every other at nine
+   widths on every page. */
 @media (max-width: 739px) {
   .site-header .wrap { flex-wrap: wrap; row-gap: 8px; padding-bottom: 9px; }
-  .lang-nav, .theme-nav { order: 3; margin-inline-start: 0; }
-  .index { margin-inline-start: auto; }
-  .index-panel { grid-template-columns: minmax(0, 1fr); }
-  .index-panel a:nth-last-child(-n + 2) { border-bottom: 1px solid var(--border); }
-  .index-panel a:last-child { border-bottom: 0; }
 }
 
 /* ---------------------------------------------------------------- buttons */
@@ -503,8 +487,7 @@ main > section:nth-of-type(even) {
   .section-head h2 em,
   .more-say h2 em,
   .cta-say h2 em,
-  #detail-head h1 em,
-  #why h2 em { display: block; }
+  #detail-head h1 em { display: block; }
 }
 
 .eyebrow {
@@ -550,12 +533,6 @@ main > section:nth-of-type(even) {
 }
 .hero > .wrap { position: relative; }
 
-/* The headline spans the page, as the board below it does, and the lead sits
-   beside the actions underneath. Boxed into a column next to the buttons it
-   took a third line in French and German, whose button labels are longer, and
-   a headline that wraps differently in every language is what made the section
-   read as loose. Measured on the built page: two lines from 900px up in all
-   four languages, and the note under the buttons stays on one line there. */
 /* The hero is centred and the headline is light, not heavy. At 780 the weight
    made a 46px line shout; the size carries the claim now and the weight steps
    up only for the clause that matters. The break before that clause is markup,
@@ -575,16 +552,8 @@ main > section:nth-of-type(even) {
 }
 h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .hero-lower { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 26px; margin-top: 34px; }
-/* The two columns stretch to one height and the buttons sit at the bottom of
-   theirs, so they land on the last line of the sentence opposite whatever
-   that sentence measures. Sized to its content, the right column took the
-   natural width of the note underneath the buttons: 427px in English and
-   675px in French, which left the explanation 385px and seven lines against
-   the 87px facing it. The column is a share of the row now, and the note
-   wraps. */
-/* Nothing to place side by side any more: the hero is one centred column at
-   every width, which is also what stops the lead and the buttons trading
-   widths between languages. */
+/* The hero is one centred column at every width, which is also what stops the
+   lead and the buttons trading widths between languages. */
 
 .hero p.lead { font-size: 1.28rem; line-height: 1.45; max-width: 52ch; margin: 0; }
 .hero-actions { display: flex; flex-direction: column; align-items: center; gap: 16px; }
@@ -658,10 +627,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   line-height: 1.75;
   tab-size: 2;
 }
-.terminal .c { color: #7f8694; }
 .terminal .k { color: #ffa500; }
 .terminal .s { color: #7dd3a0; }
-.terminal .p { color: #6ea8ff; }
 
 .copy-btn {
   margin-left: auto;
@@ -682,10 +649,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    the headline checkable rather than a claim: three steps write nothing you
    own, and only the fourth does. */
 /* The four steps, as a sequence rather than as a grid. No frame and no
-   banded header: the ledger above is the section's one framed object, and a
-   second under it is what made this section the only one on either page
-   carrying two. The number is the ordering, and `reads`/`writes` are labelled
-   per step, so nothing depends on a column heading three rows up. */
+   banded header: the number is the ordering, and `reads`/`writes` are
+   labelled per step, so nothing depends on a column heading three rows up. */
 .flow { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 22px; }
 /* The pair sits in the third column rather than under the note. Stacked, a
    note capped at its measure left 400px of nothing down the right of every
@@ -1043,8 +1008,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 
 /* ------------------------------------------------------------ rule card */
 
-/* The rule as the application draws it. The JSON did not disappear, it became
-   the line at the foot that says a rule set can leave the application. */
+/* The rule as the application draws it. */
 .rule-card {
   margin-top: 34px;
   border: 1px solid var(--border);
@@ -1146,18 +1110,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .rule-group-except .rule-group-head h4 { color: var(--accent-text); }
 .rule-note { margin: 12px 0 0; font-size: 0.94rem; }
 .rule-note code { color: var(--accent-text); }
-
-/* ---------------------------------------------------------------- shots */
-
-/* A lazy image that has not arrived reads as a loading surface, not a void. */
-/* Explainability: the full panel with the near-1:1 table crop layered over
-   its corner — the one overlapping composition on the page. */
-/* One column below 940px, stated rather than implicit: an implicit track is
-   sized to its widest unbreakable content, so the longest line of a `<pre>`
-   widened the page instead of scrolling inside its own block. */
-.split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 34px; align-items: start; }
-@media (min-width: 940px) { .split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 48px; } }
-.split > .terminal { align-self: center; }
 
 /* ---------------------------------------------------------------- chain */
 
@@ -1403,16 +1355,10 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .callout p { margin: 0; font-size: 0.95rem; }
 
-/* The claim takes its own line and the accent, which is what makes the
-   sentence before it read as setup rather than as a boast. Scoped, because an
-   <em> in any other heading is emphasis and nothing more. */
-/* The claim inside a heading is the accent, not an italic: at this size the
-   slant reads as a quotation and the colour reads as the point. In the gap it
-   also takes a line of its own, which the four steps do not need. */
 /* A claim inside a heading is the accent, not an italic: at this size the
-   slant reads as a quotation and the colour reads as the point. An <em> in
-   body text keeps its italic, which is why this is scoped to headings. In the
-   gap the claim also takes a line of its own; no other section needs that. */
+   slant reads as a quotation and the colour reads as the point, and the
+   sentence before it reads as setup rather than as a boast. An <em> in body
+   text keeps its italic, which is why this is scoped to headings. */
 h2 { text-wrap: balance; }
 h2 em { font-style: normal; color: var(--accent-text); }
 
@@ -1432,8 +1378,6 @@ h2 em { font-style: normal; color: var(--accent-text); }
   grid-template-columns: minmax(0, 1fr);
   gap: 28px;
 }
-.more-say h2 { margin-top: 0; }
-/* The claim takes the second line, as every other heading here does. */
 /* No measure on a heading of six words: the cap, not the language, is what
    broke it onto a second line in three of the four. */
 .more-say h2 { margin: 0.2em 0 0; }
@@ -1503,11 +1447,8 @@ h2 em { font-style: normal; color: var(--accent-text); }
 #detail-head h1 em { font-style: normal; color: var(--accent-text); }
 
 /* ------------------------------------------------------------------- the plan
-   The hero's object: the plan as the simulation screen draws it, then the
-   explanation the panel produces for two of its rows. It replaced a split-flap
-   board, which was a fine picture of a departure and a poor picture of a
-   decision: the thing worth showing is why a title goes where it goes, and a
-   flap cannot say that. */
+   The hero's object: the plan as the simulation screen draws it, where a title
+   goes and why. */
 .plan {
   margin-top: 56px;
   background: var(--bg-card);
@@ -1587,13 +1528,8 @@ h2 em { font-style: normal; color: var(--accent-text); }
   .plan-legend { flex-wrap: wrap; justify-content: flex-start; gap: 10px 24px; }
 }
 
-/* One grid for both explanations, not one each: two grids sized themselves on
-   their own text and the rows stopped lining up, which is exactly what a
-   side-by-side comparison may not do. The divider is a cell spanning every
-   row. */
-/* The heading of each explanation spans its own three columns. */
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
-   the table, the legend and the explanation. Three states, and the middle one
+   the table and the legend. Three states, and the middle one
    is bordered rather than filled because asking is not the same answer as
    proposing. */
 .chip {
@@ -1618,8 +1554,8 @@ h2 em { font-style: normal; color: var(--accent-text); }
 
 /* The plan's columns do not wrap, so on a narrow window the table scrolls
    inside its own card rather than pushing the document sideways. Named here
-   and not on the card, because the head, the legend and the explanation must
-   stay put while only the rows move. */
+   and not on the card, because the head and the legend must stay put while
+   only the rows move. */
 .table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 .table-scroll::-webkit-scrollbar { height: 8px; }
 .table-scroll::-webkit-scrollbar-track { background: transparent; }
