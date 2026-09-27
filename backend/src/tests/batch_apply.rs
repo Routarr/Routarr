@@ -37,6 +37,7 @@ async fn library(arr: &FakeArr, count: usize) -> TestApp {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
 
     for index in 0..count {
         sqlx::query(

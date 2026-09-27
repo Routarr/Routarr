@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -59,8 +59,10 @@ function render(
   addable: ConditionSpec[],
   onRetype: (index: number, type: string) => void = () => {},
   facets?: unknown,
+  language = 'en',
 ) {
   renderWithI18n(ConditionList, {
+    language,
     props: {
       title: 'All of',
       list: 'conditions',
@@ -137,6 +139,33 @@ describe('ConditionList', () => {
 
     expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
   });
+
+  /**
+   * A title has one original language, so several values on this condition can
+   * only be alternatives. Unsaid, the search box after the first one reads as
+   * an invitation to give a title a second language.
+   */
+  it('says in words that the values of a single-valued axis are alternatives', () => {
+    render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
+
+    expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
+    expect(screen.getByText('any of')).toBeTruthy();
+  });
+
+  /** Heard with the field, not only seen beside it. */
+  it('ties the fixed "any of" to the field it qualifies', () => {
+    render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
+
+    expect(screen.getByRole('combobox', { name: LANGUAGE.label })).toHaveAccessibleDescription(
+      'any of',
+    );
+  });
+
+  it('says nothing about combining a value that is not a list', () => {
+    render([{ type: 'season_count_over', value: 3 }], [SEASONS]);
+
+    expect(screen.queryByText('any of')).toBeNull();
+  });
   /**
    * The library counts values, the closed vocabulary names them, and a value in
    * both needs both.
@@ -162,5 +191,77 @@ describe('ConditionList', () => {
     // The one the library holds keeps its count *and* gains its name.
     expect(screen.getByRole('option', { name: /English \(en\)/ })).toBeTruthy();
     expect(screen.getByRole('option', { name: /Afrikaans \(af\)/ })).toBeTruthy();
+  });
+
+  /** Chosen from names in the reader's language, stored as the code. */
+  it('offers a language by its name in the language of the interface', async () => {
+    render(
+      [{ type: 'original_language', value: [] } as unknown as Condition],
+      [],
+      () => {},
+      {
+        vocabularies: {
+          original_languages: [{ value: 'ja', label: 'Japanese (ja)', count: 0 }],
+          origin_countries: [],
+        },
+        original_languages: [],
+      },
+      'fr',
+    );
+
+    await userEvent.click(screen.getByRole('combobox', { name: 'Original language is' }));
+
+    expect(screen.getByRole('option', { name: 'japonais (ja)' })).toBeTruthy();
+  });
+});
+
+/**
+ * Delete takes its own row away, and the focus with it, inside the rule
+ * editor's dialog. Rows are kept by position, so the condition
+ * after it moves up under the focus. The last row takes its button with it,
+ * and the picker below is what is left.
+ */
+describe('deleting a condition', () => {
+  function renderLive(conditions: Condition[]) {
+    const view = renderWithI18n(ConditionList, {
+      props: {
+        title: 'All of',
+        list: 'conditions',
+        conditions,
+        specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
+        addable: [GENRE],
+        onAdd: () => {},
+        onRetype: () => {},
+        onUpdate: () => {},
+        onRemove: (index: number) =>
+          void view.rerender({ conditions: conditions.filter((_, at) => at !== index) }),
+      },
+      strings: STRINGS,
+    });
+  }
+
+  it('leaves the focus on the Delete of the condition that took its place', async () => {
+    renderLive([
+      { type: 'genre_contains', value: ['Anime'] },
+      { type: 'season_count_over', value: 3 },
+    ]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – Genre contains' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Delete – Season count over' }),
+      ),
+    );
+  });
+
+  it('hands the focus to the picker once the last condition is deleted', async () => {
+    renderLive([{ type: 'genre_contains', value: ['Anime'] }]);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – Genre contains' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'All of' })),
+    );
   });
 });

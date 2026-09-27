@@ -3,13 +3,14 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -52,13 +53,18 @@
     }
   }
 
-  async function remove(id: string, name: string) {
+  const deleteId = (index: number) => `rule-tests-delete-${index}`;
+
+  // The deleted case takes its row and the pressed Delete with it: the case
+  // now in its place takes the focus, else the one before, else the table.
+  async function remove(id: string, name: string, index: number) {
     if (!(await askConfirmation(t('ConfirmDeleteRuleTest', { name }), 'Delete'))) return;
     try {
       await api.deleteRuleTest(id);
       run = null;
       outcome.succeed(t('RuleTestDeleted'));
       await cases.reload();
+      void handFocus(deleteId(index), deleteId(index - 1), 'rule-tests-table');
     } catch (err) {
       outcome.fail(err);
     }
@@ -75,14 +81,16 @@
       <h1 class="page-title">{t('RuleTests')}</h1>
       <p class="page-subtitle">{t('RuleTestsSubtitle')}</p>
     </div>
-    <button
-      class="btn btn-primary"
-      disabled={busy || (cases.data?.length ?? 0) === 0}
-      onclick={() => void runAll()}
-    >
-      <Play size={16} class={busy ? 'spin' : ''} />
-      {t('RunRuleTests')}
-    </button>
+    <div class="flex gap-2">
+      <button
+        class="btn btn-primary"
+        disabled={busy || (cases.data?.length ?? 0) === 0}
+        onclick={() => void runAll()}
+      >
+        <Play size={16} class={busy ? 'spin' : ''} />
+        {t('RunRuleTests')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -93,7 +101,7 @@
   <OutcomeBanner {outcome} />
 
   <div class="card">
-    <TableRegion label={t('RuleTests')}>
+    <TableRegion id="rule-tests-table" label={t('RuleTests')}>
       <table>
         <caption class="visually-hidden">{t('RuleTests')}</caption>
         <thead>
@@ -106,19 +114,18 @@
           </tr>
         </thead>
         <tbody>
-          {#if cases.loading}
-            <tr><td colspan="5"><Loading /></td></tr>
+          <!-- The first load only: a reload that swapped the rows for a skeleton
+               would take the focus with them. -->
+          {#if cases.loading && cases.data === null}
+            <TableSkeleton columns={5} />
           {:else if (cases.data?.length ?? 0) === 0}
             <tr>
               <td colspan="5">
-                <EmptyState>
-                  <p><strong>{t('NoRuleTests')}</strong></p>
-                  <p class="muted">{t('NoRuleTestsHint')}</p>
-                </EmptyState>
+                <EmptyState>{t('NoRuleTests')}</EmptyState>
               </td>
             </tr>
           {:else}
-            {#each cases.data ?? [] as testCase (testCase.id)}
+            {#each cases.data ?? [] as testCase, index (testCase.id)}
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
@@ -145,10 +152,11 @@
                 </td>
                 <td>
                   <button
+                    id={deleteId(index)}
                     class="btn btn-danger btn-sm"
                     aria-label="{t('Delete')} – {testCase.name}"
                     title={t('Delete')}
-                    onclick={() => void remove(testCase.id, testCase.name)}
+                    onclick={() => void remove(testCase.id, testCase.name, index)}
                   >
                     <Trash2 size={14} />
                   </button>

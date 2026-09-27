@@ -187,10 +187,16 @@ impl AppState {
                 }
             };
         }
+        self.environment_key(provider).cloned()
+    }
+
+    /// The key a source takes from the environment, as its `key_env` in the
+    /// catalogue names it.
+    pub fn environment_key(&self, provider: &str) -> Option<&String> {
         match provider {
-            metadata::TMDB => self.config.tmdb_api_key.clone(),
-            metadata::OMDB => self.config.omdb_api_key.clone(),
-            metadata::TVDB => self.config.tvdb_api_key.clone(),
+            metadata::TMDB => self.config.tmdb_api_key.as_ref(),
+            metadata::OMDB => self.config.omdb_api_key.as_ref(),
+            metadata::TVDB => self.config.tvdb_api_key.as_ref(),
             _ => None,
         }
     }
@@ -409,7 +415,12 @@ impl AppState {
     /// Test-only state backed by an in-memory database.
     #[cfg(test)]
     pub async fn for_tests() -> Self {
-        let pool = crate::db::test_pool().await;
+        Self::for_tests_on(crate::db::test_pool().await)
+    }
+
+    /// Test-only state around a database the test prepared itself.
+    #[cfg(test)]
+    pub fn for_tests_on(pool: SqlitePool) -> Self {
         let config = Config::for_tests();
         Self {
             http: crate::http::build_client(&config).expect("test http client"),

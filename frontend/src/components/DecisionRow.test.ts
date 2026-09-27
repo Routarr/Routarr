@@ -21,6 +21,9 @@ const STRINGS = {
   AlsoMatched: '{rule} also matched, for {category}',
   ExcludedAlternative: '{rule} was vetoed by {reason}',
   None: '-',
+  ActionMove: 'Move',
+  ActionSkip: 'Skip',
+  ActionNone: 'Already correct',
 };
 
 const show = (props: Record<string, unknown>) =>
@@ -115,5 +118,24 @@ describe('DecisionRow', () => {
     const line = screen.getByText(reason);
     expect(line.getAttribute('title')).toBe(reason);
     expect(line.className).toContain('reason-line');
+  });
+});
+
+/** Told apart by shape and colour on screen, and by a word to a screen reader. */
+describe('the action cell', () => {
+  it('says the action in words beside its icon', () => {
+    for (const [action, word] of [
+      ['move', 'Move'],
+      ['skip', 'Skip'],
+      ['none', 'Already correct'],
+    ] as const) {
+      const { unmount } = show({
+        decision: decision({ action }),
+        selected: false,
+        onToggle: vi.fn(),
+      });
+      expect(screen.getByText(word)).toBeTruthy();
+      unmount();
+    }
   });
 });

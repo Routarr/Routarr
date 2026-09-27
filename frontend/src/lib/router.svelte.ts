@@ -36,10 +36,19 @@ export const href = (to: string) => `${basePath()}${to}`;
 
 /** Follow a link the way the browser would, without reloading the document. */
 export function navigate(to: string, options: { replace?: boolean } = {}) {
+  const { pathname, hash, href: from } = window.location;
   const url = `${basePath()}${to}`;
   if (options.replace) window.history.replaceState({}, '', url);
   else window.history.pushState({}, '', url);
   router.path = strip(window.location.pathname);
+  // A link to another fragment of the page on screen is one the browser
+  // follows with a `hashchange`, which `pushState` never fires. A page that
+  // shows a section per fragment, as Settings does, listens for it.
+  if (pathname === window.location.pathname && hash !== window.location.hash) {
+    window.dispatchEvent(
+      new HashChangeEvent('hashchange', { oldURL: from, newURL: window.location.href }),
+    );
+  }
   window.scrollTo(0, 0);
 }
 

@@ -85,10 +85,12 @@ to belong to uid 1000. Back up the whole data/ directory: without routarr.key, t
 credentials cannot be recovered. The image tag latest follows the most recent release, 0.1
 follows the patch releases of 0.1, and a full version such as 0.1.0 pins one.
 
-First use, in the interface: Instances (add Radarr or Sonarr, test the connection, sync), Root
-Folders (create categories, map folders to them, declare any destination the Arrs do not list),
-Rules (write rules and preview their impact), Simulation (run it, read the justifications, apply
-what you agree with), and Settings (turn off the global dry-run once the result is trusted).
+First use, in the interface, walked through by the dashboard on a fresh install: Instances (add
+Radarr or Sonarr, which the form tries and syncs on save), Root Folders (create categories, map
+folders to them, declare any destination the Arrs do not list), optionally a metadata source
+beside the Arrs for keywords and origin country, Rules (write rules and preview their impact),
+Simulation (run it, read the justifications, apply what you agree with), and optionally Settings
+(turn off the global dry-run once the result is trusted).
 
 ROUTARR_AUTH selects authentication: apikey (the default), forms (one account with a password),
 oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open).

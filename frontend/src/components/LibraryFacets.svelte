@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { FacetAxis, LibraryFacets, Vocabularies } from '../api/types';
-  import { nameFacets } from '../api/conditions';
-  import { t } from '../lib/i18n.svelte';
+  import { localFacets, nameFacets } from '../api/conditions';
+  import { i18n, t } from '../lib/i18n.svelte';
 
   /**
    * What the library actually holds, beside the rules that read it.
@@ -16,7 +16,16 @@
    * times and one seen once the same weight, and put the only number that
    * matters in the smallest element on screen.
    */
-  let { facets }: { facets: LibraryFacets } = $props();
+  let {
+    facets,
+    captionOf = () => undefined,
+  }: {
+    facets: LibraryFacets;
+    /// The caption of a condition, from the catalogue the rule editor reads:
+    /// a card names the condition that reads its axis in the reader's words,
+    /// never by the engine's identifier.
+    captionOf?: (type: string) => string | undefined;
+  } = $props();
 
   /**
    * Folded by default, and it remembers.
@@ -64,6 +73,7 @@
 
   // Only axes carrying something. An empty card teaches nothing and the panel
   // exists to be read at a glance.
+  const named = $derived(localFacets(facets, i18n.language));
   const cards = $derived(
     AXES.map((axis) => {
       // Named from the closed vocabulary where there is one: the counts say
@@ -71,8 +81,8 @@
       // Two of the seven axes have a closed vocabulary; the index is partial
       // by design. `facets[axis.key]` needs no assertion at all now that
       // `AXES` is typed by the payload.
-      const vocabulary = facets.vocabularies[axis.key as keyof Vocabularies];
-      const values = nameFacets(facets[axis.key], vocabulary ?? []);
+      const vocabulary = named.vocabularies[axis.key as keyof Vocabularies];
+      const values = nameFacets(named[axis.key], vocabulary ?? []);
       return {
         ...axis,
         values: values.slice(0, SHOWN),
@@ -114,7 +124,9 @@
         <section class="facet-card">
           <header>
             <h3>{t(axis.label)}</h3>
-            <span class="mono">{axis.condition}</span>
+            {#if captionOf(axis.condition)}
+              <span class="text-muted text-sm">{captionOf(axis.condition)}</span>
+            {/if}
           </header>
           {#each axis.values as facet (facet.value)}
             <div class="facet-row">

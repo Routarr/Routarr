@@ -137,7 +137,9 @@ export const FIELDS: Field[] = [
     labelKey: 'SettingMetadataProviders',
     helpKey: 'SettingMetadataProvidersHelp',
     kind: 'providers',
-    fallback: 'arr,tmdb',
+    // The screen seeds this field from the order the server resolves, so the
+    // fallback only has to be a list the backend accepts.
+    fallback: 'arr',
   },
   // The three metadata credentials. Sealed by the backend on the way in and
   // never returned, so the field always renders empty and a companion

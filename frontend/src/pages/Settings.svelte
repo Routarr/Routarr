@@ -1,11 +1,12 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
+  import { AlertTriangle, Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
   import { api, getApiKey, setApiKey } from '../api/client';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { handFocus } from '../lib/focus';
   import { applyTheme, loadDictionary, t } from '../lib/i18n.svelte';
   import {
     FIELDS,
@@ -19,9 +20,12 @@
   import Loading from '../components/Loading.svelte';
   import ProviderOrder from '../components/ProviderOrder.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
+  import { navigate } from '../lib/router.svelte';
   import { downloadJson } from '../lib/download';
 
   const bundle = createAsync(async (signal) => {
@@ -31,8 +35,16 @@
       api.getLanguages(signal),
       api.getMetadataProviders(signal),
     ]);
+    // An unstored source list is the shipped default, which only the server
+    // knows. Seeded from a copy kept here instead, the first save of any
+    // setting would store that copy, since a save sends every field. Blank
+    // counts as unstored, as an older server answers a key it never stored.
+    const stored: SettingsMap = {
+      ...settings,
+      metadata_providers: settings.metadata_providers || metadata.order.join(','),
+    };
     return {
-      settings,
+      settings: stored,
       categories,
       languages: languages.languages,
       providers: metadata.providers,
@@ -125,13 +137,16 @@
   function openSection(id: SectionId) {
     section = id;
     // `replaceState`, not `pushState`: switching section is not navigation, and
-    // stacking twenty history entries would make the back button useless.
-    window.history.replaceState(null, '', `#${id}`);
+    // stacking twenty history entries would make the back button useless. The
+    // path is written out: a bare `#id` resolves against the `<base href>`,
+    // which is the mount point and not this page.
+    const { pathname, search } = window.location;
+    window.history.replaceState(null, '', `${pathname}${search}#${id}`);
   }
 
-  // A hash that changes without a remount — a link to `#metadata` followed from
-  // this very page — has to move the section too; read once at mount, the URL
-  // and the screen disagree.
+  // A hash that changes without a remount, as a link to `#routing` followed
+  // from this very page, has to move the section too. Read once at mount, the
+  // URL and the screen disagree.
   $effect(() => {
     const sync = () => {
       const next = window.location.hash.replace('#', '');
@@ -184,6 +199,18 @@
     return !Number.isInteger(value) || value < low || (high !== null && value > high);
   }
   const invalid = $derived(FIELDS.filter(outOfRange));
+  // From another tab, the field that holds Save is out of sight.
+  const flagged = $derived(
+    SECTIONS.filter((entry) =>
+      invalid.some((field) => (entry.keys as readonly string[]).includes(field.key)),
+    ).map((entry) => entry.id),
+  );
+
+  function bounds([low, high]: readonly [number, number | null]): string {
+    return high === null
+      ? t('RangeAtLeast', { min: low })
+      : t('RangeBetween', { min: low, max: high });
+  }
 
   // `SECTIONS[0]` is `| undefined` to the compiler even though the array is a
   // `const` with five entries, so the fallback is named rather than indexed.
@@ -212,8 +239,20 @@
   const providers = $derived<MetadataProvider[]>(bundle.data?.providers ?? []);
   const languages = $derived(bundle.data?.languages ?? []);
 
+  // Save and Discard live in the save bar, which goes once nothing is pending,
+  // and the focus with it: the open section's panel takes it back.
+  const keepFocus = () => void handFocus(`panel-${section}`);
+
+  function discard() {
+    draft = { ...saved };
+    keepFocus();
+  }
+
+  // Never disabled while it runs: a focused button that turns disabled drops
+  // the focus to the page, so a second press is ignored instead.
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    if (saving) return;
     saving = true;
     try {
       // A blank credential is left out rather than sent. The backend never
@@ -235,6 +274,7 @@
       // A metadata key added or cleared, or a source enabled: the warnings
       // about sources are computed from exactly these.
       invalidateStatus();
+      keepFocus();
     } catch (err) {
       outcome.fail(err);
     } finally {
@@ -255,6 +295,19 @@
           jobs: report.jobs_removed,
         }),
       );
+    } catch (err) {
+      outcome.fail(err);
+    }
+  }
+
+  // Offered in every state, so the one place the guide is said to live never
+  // turns up empty. A guide already showing needs only the way back to it.
+  async function restartGuide() {
+    try {
+      if (onboarding.current?.state !== 'pending') {
+        publishOnboarding(await api.setOnboarding('pending'));
+      }
+      navigate('/');
     } catch (err) {
       outcome.fail(err);
     }
@@ -336,21 +389,27 @@
   }
 </script>
 
-{#if bundle.loading}
-  <Loading />
-{:else}
-  <div>
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">{t('Settings')}</h1>
-        <p class="page-subtitle">{t('SettingsSubtitle')}</p>
-      </div>
+<div>
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{t('Settings')}</h1>
+      <p class="page-subtitle">{t('SettingsSubtitle')}</p>
     </div>
+  </div>
 
+  {#if bundle.loading}
+    <div class="card"><Loading /></div>
+  {:else}
     <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
          it one. -->
     <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
     <OutcomeBanner {outcome} />
+    <!-- The guide's two optional steps are done here, each on its own tab. -->
+    {#if section === 'metadata'}
+      <GuideStepBanner step="metadata" />
+    {:else if section === 'routing'}
+      <GuideStepBanner step="live" />
+    {/if}
 
     {#if draft.global_dry_run === 'false'}
       <WarningBanner message={t('LiveModeWarning')} />
@@ -378,27 +437,33 @@
             class="tab {entry.id === section ? 'active' : ''}"
             aria-selected={entry.id === section}
             aria-controls="panel-{entry.id}"
+            aria-label={flagged.includes(entry.id)
+              ? t('SectionHasInvalid', { section: t(entry.labelKey) })
+              : undefined}
             tabindex={entry.id === section ? 0 : -1}
             onclick={() => openSection(entry.id)}
             onkeydown={onTabKey}
           >
             {t(entry.labelKey)}
+            {#if flagged.includes(entry.id)}
+              <AlertTriangle size={14} class="tab-flag" aria-hidden="true" />
+            {/if}
           </button>
         {/each}
       </div>
 
-      <div id="panel-{section}" role="tabpanel" aria-labelledby="tab-{section}">
+      <div id="panel-{section}" role="tabpanel" aria-labelledby="tab-{section}" tabindex="-1">
         {#if section === 'general' && keyCard}
           <div class="card">
             <div class="card-header">
-              <h2 class="card-title">
-                <KeyRound size={16} />
-                {t('RoutarrApiKey')}
-              </h2>
+              <div>
+                <h2 class="card-title flex items-center gap-2">
+                  <KeyRound size={18} aria-hidden="true" />
+                  {t('RoutarrApiKey')}
+                </h2>
+                <p class="card-note">{t(keyCard.help)}</p>
+              </div>
             </div>
-            <p class="text-muted text-md mb-3">
-              {t(keyCard.help)}
-            </p>
 
             {#if minted}
               <!-- The one moment this value is readable. `mono` carries the
@@ -449,6 +514,20 @@
                 {/if}
               </div>
             {/if}
+          </div>
+        {/if}
+
+        {#if section === 'general'}
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">{t('GuideTitle')}</h2>
+                <p class="card-note">{t('GuideRestartText')}</p>
+              </div>
+              <button type="button" class="btn btn-secondary" onclick={() => void restartGuide()}>
+                {t('GuideRestart')}
+              </button>
+            </div>
           </div>
         {/if}
 
@@ -558,17 +637,23 @@
                     {/each}
                   </select>
                 {:else}
+                  {@const outside = outOfRange(field)}
                   <input
                     id="setting-{field.key}"
-                    aria-describedby="setting-{field.key}-help"
+                    aria-describedby="setting-{field.key}-help{outside
+                      ? ` setting-${field.key}-range`
+                      : ''}"
                     type={field.kind === 'number' ? 'number' : 'text'}
                     min={field.range?.[0]}
                     max={field.range?.[1] ?? undefined}
-                    aria-invalid={outOfRange(field) ? 'true' : undefined}
+                    aria-invalid={outside ? 'true' : undefined}
                     class="form-input"
                     value={draft[field.key] ?? field.fallback}
                     oninput={(event) => (draft[field.key] = event.currentTarget.value)}
                   />
+                  {#if outside && field.range}
+                    <p id="setting-{field.key}-range" class="field-error">{bounds(field.range)}</p>
+                  {/if}
                 {/if}
 
                 <p id="setting-{field.key}-help" class="text-muted text-sm mt-1">
@@ -630,13 +715,12 @@
                 <div>
                   <strong>{t('UnsavedChanges', { count: changed.length })}</strong>
                   <div class="save-bar-scope">{t('SavesEverySection')}</div>
+                  {#if invalid.length > 0}
+                    <div class="field-error" id="settings-save-held">{t('SaveHeldInvalid')}</div>
+                  {/if}
                 </div>
                 <div class="flex gap-2">
-                  <button
-                    type="button"
-                    class="btn btn-secondary"
-                    onclick={() => (draft = { ...saved })}
-                  >
+                  <button type="button" class="btn btn-secondary" onclick={discard}>
                     {t('DiscardChanges')}
                   </button>
                   <!-- Held while the settings could not be read: the draft
@@ -644,7 +728,8 @@
                   <button
                     type="submit"
                     class="btn btn-primary"
-                    disabled={saving || invalid.length > 0 || bundle.error !== null}
+                    aria-describedby={invalid.length > 0 ? 'settings-save-held' : undefined}
+                    disabled={invalid.length > 0 || bundle.error !== null}
                   >
                     <Save size={16} />
                     {saving ? t('Saving') : t('Save')}
@@ -656,5 +741,5 @@
         </form>
       </div>
     </div>
-  </div>
-{/if}
+  {/if}
+</div>

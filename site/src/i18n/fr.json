@@ -111,7 +111,7 @@
   "footer.p": "Routarr, licence GPLv3. Sans lien avec le projet Servarr.",
   "head.description": "Routarr achemine chaque film et chaque série vers le bon dossier racine dans Radarr et Sonarr, selon vos règles. Essai à blanc d'abord, chaque décision expliquée.",
   "head.description.how": "Le manque que Routarr comble, les quatre étapes, l'explication d'une décision, les dossiers racine déclarés, la fiche technique et les objections.",
-  "head.og-description": "Décide dans quel dossier racine appartient chaque film et chaque série, selon vos règles et TMDb. Essai à blanc d'abord, chaque décision expliquée.",
+  "head.og-description": "Décide dans quel dossier racine appartient chaque film et chaque série, selon vos règles. Essai à blanc d'abord, chaque décision expliquée.",
   "head.title": "Routarr, dossier racine automatique pour Radarr et Sonarr",
   "head.title.how": "Comment Routarr décide du dossier racine d'un titre",
   "header.desc": "Quatre étapes, et vous pouvez vous arrêter après la troisième",

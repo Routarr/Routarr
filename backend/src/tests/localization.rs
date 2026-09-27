@@ -6,7 +6,7 @@
 
 use axum::http::StatusCode;
 
-use super::TestApp;
+use super::{TestApp, warning_messages};
 
 async fn speak_french(app: &TestApp) {
     app.put("/api/v1/settings", serde_json::json!({ "settings": { "ui_language": "fr" } }))
@@ -121,6 +121,34 @@ async fn the_explanation_panel_is_translated() {
     assert_eq!(trace["conditions"][0]["key"], "ConditionOriginalLanguage");
 }
 
+/// The caption names what the condition reads, so the sentence carries no
+/// identifier of the engine, in any language.
+#[tokio::test]
+async fn the_no_source_warning_names_no_engine_identifier() {
+    let app = TestApp::new().await;
+    speak_french(&app).await;
+
+    let response = app
+        .post(
+            "/api/v1/rules/validate",
+            serde_json::json!({
+                "name": "X",
+                "media_type": "both",
+                "target_category": "anime",
+                "conditions": [{ "type": "origin_country", "value": ["JP"] }]
+            }),
+        )
+        .await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let unanswered = issues
+        .iter()
+        .find(|i| i["key"] == "ValidationConditionNoSource")
+        .expect("the Arr alone answers no origin country");
+    let message = unanswered["message"].as_str().unwrap();
+    assert!(!message.contains("origin_countries"), "{message}");
+}
+
 #[tokio::test]
 async fn validation_messages_are_translated() {
     let app = TestApp::new().await;
@@ -156,7 +184,7 @@ async fn guardrail_refusals_are_translated() {
         app.post("/api/v1/decisions/apply", serde_json::json!({ "decision_ids": ["x"] })).await;
 
     response.assert_status(StatusCode::BAD_REQUEST);
-    assert!(response.message().contains("simulation globale"), "{}", response.message());
+    assert!(response.message().contains("essai à blanc global"), "{}", response.message());
 }
 
 #[tokio::test]
@@ -164,13 +192,9 @@ async fn diagnostics_warnings_are_translated() {
     let app = TestApp::new().await;
     speak_french(&app).await;
 
-    let response = app.get("/api/v1/status").await;
-    let warnings = response.assert_ok()["warnings"].as_array().unwrap().clone();
+    let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
 
-    assert!(
-        warnings.iter().any(|w| w.as_str().unwrap().contains("n'est pas authentifiée")),
-        "{warnings:?}"
-    );
+    assert!(warnings.iter().any(|w| w.contains("n'est pas authentifiée")), "{warnings:?}");
 }
 
 /// Where the line falls between a translated refusal and an English one.

@@ -1,12 +1,21 @@
 <script lang="ts">
-  import { AlertTriangle, Play, RefreshCw } from '../lib/icons';
+  import { Play, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
   import { href } from '../lib/router.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatTimestamp } from '../api/format';
+  import { formatRelative, formatTimestamp } from '../api/format';
+  import { createOutcome } from '../lib/outcome.svelte';
+  import { onboarding } from '../lib/onboarding.svelte';
+  import { invalidateStatus } from '../lib/status.svelte';
+  import { outsideTheGuide } from '../api/onboarding';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import BannerList from '../components/BannerList.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
+  import GettingStarted from '../components/GettingStarted.svelte';
+  import InstanceStatus from '../components/InstanceStatus.svelte';
   import Loading from '../components/Loading.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /**
@@ -23,6 +32,11 @@
   const probed = createAsync((signal) => api.getHealth(undefined, signal));
 
   const health = $derived(probed.data ?? quick.data);
+  const outcome = createOutcome();
+  // A warning an open step restates is left to the guide above it: listing
+  // both says the same thing twice, the second time as an alarm. It stays on
+  // the diagnostics screen.
+  const warnings = $derived(outsideTheGuide(health?.warnings ?? [], onboarding.current));
   const stats = $derived(health?.stats);
 
   async function refresh() {
@@ -30,53 +44,53 @@
   }
 </script>
 
-{#if quick.loading && !health}
-  <Loading />
-{:else}
-  <div>
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">{t('Dashboard')}</h1>
-        <p class="page-subtitle">{t('DashboardSubtitle')}</p>
-      </div>
-      <div class="flex gap-2">
-        <button class="btn btn-secondary" onclick={() => void refresh()}>
-          <RefreshCw size={16} />
-          {t('Refresh')}
-        </button>
-        <a href={href('/simulation')} class="btn btn-primary">
-          <Play size={16} />
-          {t('RunADryRun')}
-        </a>
-      </div>
+<div>
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{t('Dashboard')}</h1>
+      <p class="page-subtitle">{t('DashboardSubtitle')}</p>
     </div>
+    <div class="flex gap-2">
+      <button class="btn btn-secondary" onclick={() => void refresh()}>
+        <RefreshCw size={16} />
+        {t('Refresh')}
+      </button>
+    </div>
+  </div>
 
+  {#if quick.loading && !health}
+    <div class="card"><Loading /></div>
+  {:else}
     <ErrorBanner
       message={quick.error ?? probed.error}
       onDismiss={() => ((quick.error = null), (probed.error = null))}
     />
+    <OutcomeBanner {outcome} />
+
+    <!-- The shell reads the guide, and this is where the guide lives: a read
+         that failed is said here, rather than the guide going missing. -->
+    <ErrorBanner
+      message={onboarding.failure ? t('GuideUnavailable', { error: onboarding.failure }) : null}
+      onRetry={invalidateStatus}
+    />
+    {#if onboarding.current}
+      <GettingStarted status={onboarding.current} {outcome} />
+    {/if}
 
     <!-- One block, not one banner per warning. Three stacked tinted bars said
          the same thing three times, each with its own copy of the same button,
          and a fourth warning was invisible because the list was capped at
          three without saying so. The count leads, the list follows, and the
          one action sits once. -->
-    {#if health && health.warnings.length > 0}
-      <div class="banner banner-warning items-start">
-        <AlertTriangle size={16} />
-        <div class="flex-1">
-          <div class="flex items-center justify-between gap-2">
-            <strong>{t('DiagnosticWarnings', { count: health.warnings.length })}</strong>
-            <a href={href('/health')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>
-          </div>
-          <ul class="banner-list">
-            {#each health.warnings.slice(0, 3) as warning, index (index)}
-              <li>{warning}</li>
-            {/each}
-          </ul>
-        </div>
-      </div>
-    {/if}
+    <BannerList
+      tone="warning"
+      title={t('DiagnosticWarnings', { count: warnings.length })}
+      items={warnings.slice(0, 3).map((warning) => ({ text: warning.message }))}
+    >
+      {#snippet action()}
+        <a href={href('/health')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>
+      {/snippet}
+    </BannerList>
 
     {#if stats && health}
       <!-- A dashboard answers one question first. Six cards of equal weight,
@@ -88,7 +102,12 @@
           <div class="headline-value">{stats.pending_decisions}</div>
           <div class="headline-label">{t('PendingDecisions')}</div>
         </div>
-        <a href={href('/simulation')} class="btn btn-primary">
+        <!-- The one primary action of the screen, unless the guide shows:
+             its next step is then the one. -->
+        <a
+          href={href('/simulation')}
+          class="btn {onboarding.current?.state === 'pending' ? 'btn-secondary' : 'btn-primary'}"
+        >
           <Play size={16} />
           {t('Simulation')}
         </a>
@@ -161,38 +180,20 @@
                       {instance.instance_type}
                     </span>
                   </td>
-                  <td>
-                    {#if instance.status === 'unchecked'}
-                      <!-- The probe has not answered yet. Saying so beats
-                           showing a state that is not known, and beats an
-                           empty cell that reads as "no instance". -->
-                      <span class="badge badge-value muted">{t('Checking')}</span>
-                    {:else}
-                      <span
-                        class="badge {instance.status === 'connected'
-                          ? 'badge-success'
-                          : 'badge-danger'}"
-                      >
-                        {instance.status === 'connected'
-                          ? t('Connected')
-                          : instance.status === 'disabled'
-                            ? t('Disabled')
-                            : instance.status}
-                      </span>
-                    {/if}
-                  </td>
+                  <td><InstanceStatus status={instance.status} /></td>
                   <td>{instance.media_count}</td>
                   <td>{instance.mapped_root_folders}</td>
-                  <td class="cell-timestamp text-muted" title={instance.last_sync ?? undefined}>
-                    {formatTimestamp(instance.last_sync, i18n.language, t('Never'))}
+                  <td
+                    class="cell-timestamp"
+                    title={formatTimestamp(instance.last_sync, i18n.language, '')}
+                  >
+                    {formatRelative(instance.last_sync, i18n.language, t('Never'))}
                   </td>
                 </tr>
               {/each}
               {#if health.instances.length === 0}
                 <tr>
-                  <td colspan="5" class="text-muted text-center">
-                    {t('NoInstanceYet')}
-                  </td>
+                  <td colspan="5"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td>
                 </tr>
               {/if}
             </tbody>
@@ -200,5 +201,5 @@
         </TableRegion>
       </div>
     {/if}
-  </div>
-{/if}
+  {/if}
+</div>

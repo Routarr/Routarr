@@ -85,9 +85,14 @@ pub enum ArrAdapter {
 impl ArrAdapter {
     /// Build the adapter for a stored instance, decrypting its API key.
     pub fn for_instance(client: Client, instance: &Instance, api_key: &str) -> AppResult<Self> {
-        match instance.instance_type.as_str() {
-            "radarr" => Ok(Self::Radarr(RadarrClient::new(client, &instance.base_url, api_key))),
-            "sonarr" => Ok(Self::Sonarr(SonarrClient::new(client, &instance.base_url, api_key))),
+        Self::new(client, &instance.instance_type, &instance.base_url, api_key)
+    }
+
+    /// Build the adapter for values not saved yet, as the instance form tries them.
+    pub fn new(client: Client, kind: &str, base_url: &str, api_key: &str) -> AppResult<Self> {
+        match kind {
+            "radarr" => Ok(Self::Radarr(RadarrClient::new(client, base_url, api_key))),
+            "sonarr" => Ok(Self::Sonarr(SonarrClient::new(client, base_url, api_key))),
             other => Err(AppError::BadRequest(format!("Unknown instance type '{other}'"))),
         }
     }

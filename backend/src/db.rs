@@ -10,8 +10,12 @@ use crate::crypto;
 /// Migrations embedded in the binary, applied in order, exactly once.
 ///
 /// Adding a `.sql` file to `migrations/` is not enough — it must be listed here.
-const MIGRATIONS: &[(&str, &str)] =
-    &[("001_initial_schema", include_str!("../migrations/001_initial_schema.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("001_initial_schema", include_str!("../migrations/001_initial_schema.sql")),
+    ("002_onboarding", include_str!("../migrations/002_onboarding.sql")),
+    ("003_metadata_sources", include_str!("../migrations/003_metadata_sources.sql")),
+    ("004_orphaned_proposals", include_str!("../migrations/004_orphaned_proposals.sql")),
+];
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
@@ -99,10 +103,21 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
 
 /// Apply any migration not yet recorded in `_migrations`.
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    run_migrations_upto(pool).await
+    apply_migrations(pool, MIGRATIONS).await
 }
 
-async fn run_migrations_upto(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+/// Apply the migrations up to `last` included, leaving the schema of the
+/// release that shipped `last` for a test to upgrade from.
+#[cfg(test)]
+pub async fn run_migrations_through(pool: &SqlitePool, last: &str) -> Result<(), sqlx::Error> {
+    let end = MIGRATIONS.iter().position(|(name, _)| *name == last).expect("a listed migration");
+    apply_migrations(pool, &MIGRATIONS[..=end]).await
+}
+
+async fn apply_migrations(
+    pool: &SqlitePool,
+    migrations: &[(&str, &str)],
+) -> Result<(), sqlx::Error> {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS _migrations (
             id INTEGER PRIMARY KEY,
@@ -113,7 +128,7 @@ async fn run_migrations_upto(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     .execute(pool)
     .await?;
 
-    for (name, sql) in MIGRATIONS {
+    for (name, sql) in migrations {
         let already_applied: bool =
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM _migrations WHERE name = ?)")
                 .bind(name)

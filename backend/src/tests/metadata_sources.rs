@@ -7,10 +7,10 @@
 //! still filling in what the winner had nothing to say about.
 
 use crate::services::routing::{self, SimulationOptions};
-use crate::services::sync;
+use crate::services::{maintenance, sync};
 
-use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 
 async fn synced(kind: &str, arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
@@ -394,12 +394,9 @@ async fn the_three_metadata_counters_agree_on_one_library() {
         "the diagnostics count and the library column disagree"
     );
 
-    let warning = health["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find_map(|w| w.as_str().filter(|w| w.contains("no metadata") || w.contains("Metadata")))
-        .map(str::to_string);
+    let warning = warning_messages(&health)
+        .into_iter()
+        .find(|w| w.contains("no metadata") || w.contains("Metadata"));
     if without > 0 {
         let warning = warning.expect("a library with undescribed items warns about them");
         assert!(
@@ -456,4 +453,145 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
         "the engine and the list disagree: {}",
         explained.json
     );
+}
+
+// ------------------------------------------------------------ shipped order
+
+async fn stored_order(app: &TestApp) -> Option<String> {
+    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
+        .fetch_optional(&app.state.pool)
+        .await
+        .unwrap()
+}
+
+async fn warnings(app: &TestApp) -> Vec<String> {
+    warning_messages(app.get("/api/v1/health").await.assert_ok())
+}
+
+async fn with_tmdb_key_in_the_environment() -> TestApp {
+    let mut config = crate::config::Config::for_tests();
+    config.tmdb_api_key = Some("from-the-environment".into());
+    TestApp::around(crate::state::AppState::for_tests().await.with_config(config))
+}
+
+/// Listed without a key, TMDb answers nothing and the diagnostics say so, which
+/// an installation nobody has configured yet reads as a fault of its own.
+#[tokio::test]
+async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
+    let app = TestApp::new().await;
+
+    let catalogue = app.get("/api/v1/metadata/providers").await;
+    assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
+    let warnings = warnings(&app).await;
+    assert!(!warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
+}
+
+#[tokio::test]
+async fn listing_tmdb_without_a_key_still_warns() {
+    let app = TestApp::new().await;
+    set_order(&app, "arr,tmdb").await;
+
+    let warnings = warnings(&app).await;
+    assert!(warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
+}
+
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and a
+/// start is what reads it.
+#[tokio::test]
+async fn a_start_lists_tmdb_when_its_key_is_in_the_environment() {
+    let app = with_tmdb_key_in_the_environment().await;
+
+    maintenance::converge(&app.state).await.unwrap();
+
+    let catalogue = app.get("/api/v1/metadata/providers").await;
+    assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr", "tmdb"]));
+}
+
+/// Any save stores the source list the screen holds, so a key set in the
+/// environment afterwards finds a list the start leaves alone. Said, rather
+/// than read and never used.
+#[tokio::test]
+async fn a_tmdb_key_that_arrives_after_a_save_is_reported() {
+    let app = with_tmdb_key_in_the_environment().await;
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "metadata_providers": "arr" } }))
+        .await
+        .assert_ok();
+
+    maintenance::converge(&app.state).await.unwrap();
+
+    let expected = app.state.localizer().await.translate(
+        "WarnProviderKeyUnlisted",
+        &[("provider", "TMDb"), ("variable", "TMDB_API_KEY")],
+    );
+    let warnings = warnings(&app).await;
+    assert!(warnings.contains(&expected), "{warnings:?}");
+}
+
+/// A key in the environment for a listed source is the ordinary case.
+#[tokio::test]
+async fn a_tmdb_key_for_a_listed_source_is_not_reported() {
+    let app = with_tmdb_key_in_the_environment().await;
+    app.list_tmdb().await;
+
+    let warnings = warnings(&app).await;
+    assert!(!warnings.iter().any(|w| w.contains("TMDB_API_KEY")), "{warnings:?}");
+}
+
+/// Taking TMDb out is a choice, and the environment must not undo it.
+#[tokio::test]
+async fn a_chosen_order_is_never_changed_by_the_environment() {
+    let app = with_tmdb_key_in_the_environment().await;
+    set_order(&app, "arr").await;
+
+    assert!(!maintenance::converge_metadata_sources(&app.state).await.unwrap());
+    assert_eq!(stored_order(&app).await.as_deref(), Some("arr"));
+}
+
+#[tokio::test]
+async fn no_key_in_the_environment_leaves_the_order_unchosen() {
+    let app = TestApp::new().await;
+
+    assert!(!maintenance::converge_metadata_sources(&app.state).await.unwrap());
+    assert_eq!(stored_order(&app).await, None);
+}
+
+/// The source list a first-release database holds once a start upgraded it,
+/// after `seed` prepared it. The initial schema seeds `arr,tmdb`.
+async fn upgraded(seed: &[&'static str]) -> Option<String> {
+    let pool = database_through("001_initial_schema").await;
+    for statement in seed {
+        sqlx::query(*statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
+        .fetch_optional(&pool)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn a_database_that_routes_nothing_yet_drops_the_seeded_tmdb() {
+    assert_eq!(upgraded(&[]).await, None);
+}
+
+/// Its rules may rely on what only TMDb answers.
+#[tokio::test]
+async fn an_installation_with_an_instance_keeps_tmdb_across_the_upgrade() {
+    assert_eq!(upgraded(&[AN_INSTANCE]).await.as_deref(), Some("arr,tmdb"));
+}
+
+#[tokio::test]
+async fn a_tmdb_key_stored_in_the_interface_keeps_tmdb_across_the_upgrade() {
+    let key = "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', 'sealed')";
+
+    assert_eq!(upgraded(&[key]).await.as_deref(), Some("arr,tmdb"));
+}
+
+#[tokio::test]
+async fn a_source_list_someone_chose_comes_through_the_upgrade_unchanged() {
+    let chosen = "UPDATE settings SET value = 'arr,anilist' WHERE key = 'metadata_providers'";
+
+    assert_eq!(upgraded(&[chosen]).await.as_deref(), Some("arr,anilist"));
 }

@@ -81,6 +81,14 @@ describe('Confidence', () => {
    * A table column gives it 28px after the figure — a stub that measures
    * nothing — so there the same ramp is carried by a dot instead.
    */
+  /** The guide's bar: the length is the value, in one colour for every value. */
+  it('draws the meter as a length alone', () => {
+    const fill = show(0.7, true).container.querySelector('.confidence-fill') as HTMLElement;
+
+    expect(fill.style.width).toBe('70%');
+    expect(fill.style.getPropertyValue('--mix')).toBe('');
+  });
+
   it('carries a meter only where there is room to read one', () => {
     const table = show(0.7).container;
     expect(table.querySelector('.confidence-track')).toBeNull();

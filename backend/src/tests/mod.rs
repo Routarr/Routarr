@@ -9,6 +9,7 @@ mod base_path;
 mod batch_apply;
 mod categories;
 mod config_bundle;
+mod connection;
 mod crypto_format;
 mod enrichment;
 mod executor;
@@ -22,6 +23,7 @@ mod localization;
 mod metadata_sources;
 mod metrics;
 mod notify;
+mod onboarding;
 mod outbound_http;
 mod provider_keys;
 mod routing;
@@ -201,6 +203,22 @@ impl TestApp {
         .execute(&self.state.pool)
         .await
         .unwrap();
+
+        self.list_tmdb().await;
+    }
+
+    /// List TMDb after the Arr, for a library TMDb describes.
+    ///
+    /// Under the shipped order, the Arr alone, a TMDb answer in the cache counts
+    /// for nothing. An order a test set first is its own.
+    pub async fn list_tmdb(&self) {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb')
+             ON CONFLICT(key) DO NOTHING",
+        )
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
     }
 
     /// Point an instance at a running fake Arr, so sync and webhook paths can be
@@ -274,4 +292,34 @@ impl TestResponse {
     pub fn message(&self) -> String {
         self.json.get("message").and_then(|v| v.as_str()).unwrap_or_default().to_string()
     }
+}
+
+/// A database as the release that shipped migration `last` hands it to an
+/// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
+pub async fn database_through(last: &str) -> sqlx::SqlitePool {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA foreign_keys=ON").execute(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, last).await.unwrap();
+    pool
+}
+
+/// One enabled instance, written in the initial schema's terms, which every
+/// later schema reads.
+pub const AN_INSTANCE: &str = "INSERT INTO instances
+    (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+    VALUES ('inst-1', 'Radarr', 'radarr', 'http://radarr:7878', 'secret', 1, 'tok')";
+
+/// The warnings of a `/status` or `/health` answer, as the reader sees them.
+#[track_caller]
+pub fn warning_messages(body: &serde_json::Value) -> Vec<String> {
+    body["warnings"]
+        .as_array()
+        .expect("a list of warnings")
+        .iter()
+        .map(|warning| warning["message"].as_str().expect("a warning's message").to_string())
+        .collect()
 }

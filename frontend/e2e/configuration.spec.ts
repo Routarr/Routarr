@@ -99,7 +99,7 @@ test.describe('root folders', () => {
   });
 });
 
-test.describe('overrides', () => {
+test.describe('exceptions', () => {
   test('pinning a film outranks the rules and can be undone', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
     // A rule that would send Akira to anime, so the override has something to
@@ -119,14 +119,14 @@ test.describe('overrides', () => {
     });
 
     await page.goto('/overrides');
-    await page.getByRole('button', { name: /new override/i }).click();
+    await page.getByRole('button', { name: /new exception/i }).click();
 
     await page.getByPlaceholder(/search the library/i).fill('Akira');
     await page.getByRole('button', { name: /^search$/i }).click();
     await page.getByRole('button', { name: /select – akira/i }).click();
 
     await page.locator('.modal-content select').selectOption('standard');
-    await page.getByRole('button', { name: /create override/i }).click();
+    await page.getByRole('button', { name: /create exception/i }).click();
 
     await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(1);
 
@@ -228,20 +228,35 @@ test.describe('the API key card', () => {
   });
 });
 
+/** Store a source list, the way an installation upgraded with it holds one. */
+async function listSources(order: string): Promise<void> {
+  await api('/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: { metadata_providers: order } }),
+  });
+}
+
 test.describe('metadata sources', () => {
+  // The suite shares one server: the shipped list goes back after each test,
+  // whatever the test left.
+  test.afterEach(() => listSources('arr'));
+
   /**
    * The priority list is the only control in Settings that is neither an input
    * nor a select: two buttons mutating an order that is saved as one string. A
    * button wired to nothing would look perfectly fine in a screenshot.
    */
   test('reordering the sources survives a save and a reload', async ({ page }) => {
+    // TMDb has no key here and answers nothing, but a listed source is ordered
+    // all the same, and it is the one every stack knows.
+    await listSources('arr,tmdb');
     await page.goto('/settings#metadata');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources.getByText('Radarr / Sonarr')).toBeVisible();
 
-    await sources.getByLabel('Move up TMDb').click();
+    await sources.getByLabel('Move up – TMDb').click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.banner-success')).toBeVisible();
 
@@ -250,15 +265,36 @@ test.describe('metadata sources', () => {
     // field. `.source-name` rather than `strong`: the list is two named groups
     // with a rank column, and the name is its own element.
     await expect(sources.locator('.source-name').first()).toHaveText('TMDb');
-
-    // Put the shipped order back, so the ordering of the suite does not matter.
-    await sources.getByLabel('Move down TMDb').click();
-    await page.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(page.locator('.banner-success')).toBeVisible();
   });
 });
 
 test.describe('metadata sources without a key', () => {
+  test.afterEach(() => listSources('arr'));
+
+  /**
+   * A fresh installation has configured nothing yet, so nothing on screen
+   * should call it a fault: TMDb waits in the inactive group for a key, and
+   * the diagnostics say nothing about it.
+   */
+  test('a fresh stack lists the Arr alone and raises no key warning', async ({ page }) => {
+    await page.goto('/settings#metadata');
+    const sources = page.locator('#setting-metadata_providers');
+    const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
+    await expect(tmdb.getByRole('button', { name: 'Enable' })).toBeDisabled();
+    await expect(tmdb.locator('input')).toHaveAttribute('placeholder', /TMDB_API_KEY/);
+
+    // The source rows arrive with the warnings, so the list is loaded before
+    // its silence is read.
+    await page.goto('/health');
+    await expect(page.locator('.source-name')).toHaveText(['Radarr / Sonarr']);
+    await expect(page.getByText(/TMDb is in the source list/)).toHaveCount(0);
+
+    // The same reading finds the warning once TMDb is listed without its key.
+    await listSources('arr,tmdb');
+    await page.reload();
+    await expect(page.getByText(/TMDb is in the source list/)).toBeVisible();
+  });
+
   /**
    * The stack runs with no TMDb, OMDb or TheTVDB key, which is exactly the
    * state this has to render honestly: those sources answer nothing, and the
@@ -267,14 +303,15 @@ test.describe('metadata sources without a key', () => {
    * a button is actually refused rather than merely styled as such.
    */
   test('a source that cannot answer is marked, and cannot be added', async ({ page }) => {
+    await listSources('arr,tmdb');
     // Addressed by its section: the settings are grouped into tabs, and the
     // hash is what makes one of them linkable.
     await page.goto('/settings#metadata');
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources).toBeVisible();
 
-    // TMDb ships enabled by default and has no key here: it stays in the list,
-    // in its position, and says so in words rather than only by being greyed.
+    // TMDb is listed and has no key here: it stays in the list, in its
+    // position, and says so in words rather than only by being greyed.
     const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
     await expect(tmdb.locator('.badge-warning')).toHaveText('inactive');
 
@@ -315,7 +352,7 @@ test.describe('backups', () => {
 
     // Removable, and the list reflects it without a reload.
     const name = (await entry.first().textContent())!.trim();
-    await page.getByLabel(`Delete ${name}`).click();
+    await page.getByLabel(`Delete – ${name}`).click();
     // Deleting is the one irreversible half of the pair: a restore is staged
     // and undone by not restarting, a deleted archive is the only copy.
     await page.locator('dialog[open]').getByRole('button', { name: 'Delete', exact: true }).click();
@@ -442,5 +479,30 @@ test.describe('rule tests', () => {
     await page.getByRole('button', { name: 'Run tests' }).click();
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.getByText(/now goes to/)).toBeVisible();
+  });
+});
+
+test.describe('the instance form', () => {
+  /**
+   * The values are tried before anything is saved: against the stand-in Arr,
+   * and against a port nothing listens on, where the reason names what to
+   * change instead of the transport's own words.
+   */
+  test('tries the typed values and says what to change when they fail', async ({ page }) => {
+    await page.goto('/instances');
+    await page.getByRole('button', { name: 'Add instance' }).click();
+    const dialog = page.getByRole('dialog');
+    const address = dialog.getByLabel('Base URL', { exact: true });
+    const test = dialog.getByRole('button', { name: 'Test connectivity' });
+
+    await address.fill(process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979');
+    await dialog.getByLabel('API key', { exact: true }).fill('e2e-key');
+    await test.click();
+    await expect(dialog.getByRole('status')).toContainText('connected');
+
+    await address.fill('http://127.0.0.1:1');
+    await test.click();
+    await expect(dialog.getByRole('alert')).toContainText('Nothing answers at http://127.0.0.1:1');
+    await expect(dialog.getByRole('status')).toBeEmpty();
   });
 });

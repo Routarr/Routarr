@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -124,5 +124,108 @@ describe('a credential is edited in the row of the source it unlocks', () => {
 
     const field = await screen.findByLabelText('TMDb');
     expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
+  });
+});
+
+/** A row's buttons name their source, so a list of buttons tells them apart. */
+describe('each source button names its source', () => {
+  it('names every button of a row with the source it acts on', async () => {
+    renderWithI18n(ProviderOrder, {
+      props: {
+        id: 'sources',
+        catalogue: [
+          provider({
+            id: 'arr',
+            display_name: 'Radarr / Sonarr',
+            needs_key: false,
+            fetched: false,
+          }),
+          provider({ id: 'anilist', display_name: 'AniList', needs_key: false, configured: true }),
+          provider(),
+        ],
+        value: 'arr,anilist',
+        onChange: vi.fn(),
+      },
+      strings: STRINGS,
+    });
+
+    expect(await screen.findByRole('button', { name: 'Enable – TMDb' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Disable – AniList' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Move up – AniList' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Move down – Radarr / Sonarr' })).toBeTruthy();
+  });
+});
+
+/**
+ * A press that moves a row draws it again, in its new place or in the other
+ * list, and the pressed button with it. The focus follows the source rather
+ * than falling to the page, on the guide's own metadata step.
+ */
+describe('a source keeps the focus when its row moves', () => {
+  function showSources(value: string) {
+    const view = renderWithI18n(ProviderOrder, {
+      props: {
+        id: 'sources',
+        catalogue: [
+          provider({
+            id: 'arr',
+            display_name: 'Radarr / Sonarr',
+            needs_key: false,
+            fetched: false,
+          }),
+          provider({ id: 'anilist', display_name: 'AniList', needs_key: false }),
+          provider(),
+        ],
+        value,
+        onChange: (next: string) => void view.rerender({ value: next }),
+        keys: { tmdb_api_key: '' },
+        onKeyChange: vi.fn(),
+      },
+      strings: STRINGS,
+    });
+  }
+
+  it('enabling a source leaves the focus on that source', async () => {
+    showSources('arr');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Enable – AniList' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Disable – AniList' }),
+      ),
+    );
+  });
+
+  it('disabling a source leaves the focus on that source', async () => {
+    showSources('arr,anilist');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Disable – AniList' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Enable – AniList' })),
+    );
+  });
+
+  /** Its Enable refused until a key is given, the source's key field is what is left. */
+  it('hands a source switched off without its key to that key field', async () => {
+    showSources('arr,tmdb');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Disable – TMDb' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('TMDb')));
+  });
+
+  /** At the top, its Move up refused, the row keeps the focus on the way back down. */
+  it('moving a source keeps the focus on its row', async () => {
+    showSources('arr,anilist');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Move up – AniList' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Move down – AniList' }),
+      ),
+    );
   });
 });

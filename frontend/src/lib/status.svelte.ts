@@ -19,11 +19,13 @@
 const state = $state({ revision: 0 });
 
 /**
- * Say that something the warnings are computed from has changed.
+ * Say that something the shell draws has changed.
  *
- * Call it after a write that could add or remove one, never on a read. The
- * warnings are derived server-side from the instances, the mappings, the
- * metadata sources and the jobs, so those are the writes that matter.
+ * Call it after a write that could add or remove a warning, or tick or reopen
+ * a step of the getting-started guide, never on a read. The warnings are
+ * derived server-side from the instances, the mappings, the metadata sources
+ * and the jobs. The guide also reads the rules and the decisions a simulation
+ * leaves.
  */
 export function invalidateStatus(): void {
   state.revision += 1;

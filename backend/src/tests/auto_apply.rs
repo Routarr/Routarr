@@ -45,6 +45,7 @@ async fn library_with_one_move(arr: &FakeArr, has_files: bool) -> TestApp {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
 
     app
 }
@@ -329,6 +330,7 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
 
@@ -392,6 +394,7 @@ async fn the_same_event_only_proposes_when_auto_apply_is_off() {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
     set(&app, "global_dry_run", "false").await;
 
     let response = app

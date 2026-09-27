@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import { AlertTriangle, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, ListChecks, Menu, Search } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -8,6 +8,12 @@
   import { applyTheme, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { statusRevision } from '../lib/status.svelte';
+  import { guideProgress, outsideTheGuide } from '../api/onboarding';
+  import {
+    onboarding,
+    publishOnboarding,
+    publishOnboardingFailure,
+  } from '../lib/onboarding.svelte';
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
@@ -30,6 +36,26 @@
     (signal) => api.getStatus(signal),
     () => statusRevision(),
   );
+
+  // Read again on every navigation and after every write the warnings follow:
+  // a step is done by the screen the reader just left, and the pill, the
+  // dashboard list and the step banners all read this one answer.
+  const guide = createAsync(
+    (signal) => api.getOnboarding(signal),
+    () => [statusRevision(), router.path],
+  );
+  $effect(() => {
+    if (guide.data) publishOnboarding(guide.data);
+    publishOnboardingFailure(guide.error);
+  });
+  const guidePill = $derived.by(() => {
+    const status = onboarding.current;
+    if (!status || status.state !== 'pending') return null;
+    return guideProgress(status);
+  });
+  // A warning an open step restates is left to the guide, which the pill
+  // points at. A failed move is never a step, so it always shows.
+  const warned = $derived(outsideTheGuide(status.data?.warnings ?? [], onboarding.current).length);
 
   // Which gate to show, and whether to offer a way out. Public and cheap, and
   // asked once: a browser that has not signed in cannot be asked for a session
@@ -89,6 +115,11 @@
     if (event.altKey || event.shiftKey) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
       event.preventDefault();
+      // An open dialog holds the reader's work, a rule half written or an
+      // instance form, and a destination chosen in the palette unmounts the
+      // page under it, draft and all. The key stays claimed, so the browser's
+      // own search does not open in its place.
+      if (document.querySelector('dialog[open]')) return;
       palette = true;
     }
   }
@@ -105,7 +136,6 @@
     const data = status.data;
     if (!data) return null;
     const failed = data.failed_decisions;
-    const warned = data.warnings.length;
     if (failed === 0 && warned === 0) return null;
     const parts: string[] = [];
     if (failed > 0) parts.push(t('FailedMoves', { count: failed }));
@@ -186,7 +216,7 @@
         jobs: status.data?.running_jobs ?? 0,
         decisions: status.data?.pending_decisions ?? 0,
         failed: status.data?.failed_decisions ?? 0,
-        warnings: status.data?.warnings.length ?? 0,
+        warnings: warned,
       }}
     />
 
@@ -254,6 +284,23 @@
             <kbd class="palette-trigger-key">{shortcut}</kbd>
           </button>
 
+          {#if guidePill}
+            <!-- A figure and a glyph, the same width in every language, like
+                 the chips beside it. The sentence is the accessible name. -->
+            <a
+              href={href('/')}
+              class="guide-pill"
+              title={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
+            >
+              <ListChecks size={14} aria-hidden="true" />
+              {guidePill.done}/{guidePill.total}
+              <!-- After the figure, so the name starts with what the eye reads:
+                   a speech input user says what they see. -->
+              <span class="visually-hidden">
+                {t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
+              </span>
+            </a>
+          {/if}
           {#if attention}
             <!-- Failures first: they are what `is-critical` is painted for,
                  and they are listed on the log screen, not on diagnostics.
@@ -262,11 +309,11 @@
             <a
               href={href(attention.critical ? '/logs' : '/health')}
               class="attention {attention.critical ? 'is-critical' : ''}"
-              aria-label={attention.label}
               title={attention.label}
             >
               <AlertTriangle size={14} aria-hidden="true" />
               {attention.total}
+              <span class="visually-hidden">{attention.label}</span>
             </a>
           {/if}
           <!-- Only where signing in was possible: a key or a proxy has no

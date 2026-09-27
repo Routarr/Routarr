@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ConditionSpec } from './types';
+import type { ConditionSpec, LibraryFacets } from './types';
 import {
   defaultConditionValue,
   parseNumberList,
@@ -9,6 +9,7 @@ import {
   addValue,
   removeValue,
   conditionAppliesTo,
+  localFacets,
 } from './conditions';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
@@ -144,5 +145,27 @@ describe('conditionAppliesTo', () => {
     // offer a condition that silently makes half the rule dead.
     expect(conditionAppliesTo(scoped(['series']), 'both')).toBe(false);
     expect(conditionAppliesTo(scoped(['movie', 'series']), 'both')).toBe(true);
+  });
+});
+
+describe('localFacets', () => {
+  const facets = {
+    vocabularies: {
+      original_languages: [{ value: 'ja', label: 'Japanese (ja)', count: 0 }],
+      origin_countries: [{ value: 'JP', label: 'Japan (JP)', count: 0 }],
+    },
+    original_languages: [{ value: 'ja', count: 9 }],
+    origin_countries: [{ value: 'JP', label: 'Japan (JP)', count: 4 }],
+    genres: [{ value: 'Animation', count: 12 }],
+  } as unknown as LibraryFacets;
+
+  it("names the languages and the regions in the reader's language, and nothing else", () => {
+    const named = localFacets(facets, 'fr');
+
+    expect(named.vocabularies.original_languages[0]?.label).toBe('japonais (ja)');
+    expect(named.vocabularies.origin_countries[0]?.label).toBe('Japon (JP)');
+    expect(named.original_languages[0]?.label).toBe('japonais (ja)');
+    expect(named.origin_countries[0]?.label).toBe('Japon (JP)');
+    expect(named.genres).toBe(facets.genres);
   });
 });

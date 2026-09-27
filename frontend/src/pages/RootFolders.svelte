@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { AlertTriangle, Pencil, Plus, Trash2 } from '../lib/icons';
+  import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
   import { formatBytes, formatRelative } from '../api/format';
@@ -8,9 +8,11 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
+  import BannerList from '../components/BannerList.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
 
@@ -35,6 +37,8 @@
   const folders = $derived<RootFolder[]>(bundle.data?.folders ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
   const conflicts = $derived<MappingConflict[]>(bundle.data?.conflicts ?? []);
+  const errors = $derived(conflicts.filter((conflict) => conflict.severity === 'error'));
+  const warnings = $derived(conflicts.filter((conflict) => conflict.severity !== 'error'));
   const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
 
   /**
@@ -102,10 +106,12 @@
       <h1 class="page-title">{t('RootFolders')}</h1>
       <p class="page-subtitle">{t('RootFoldersSubtitle')}</p>
     </div>
-    <button class="btn btn-primary" onclick={() => (creating = true)}>
-      <Plus size={16} />
-      {t('NewCategory')}
-    </button>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" onclick={() => (creating = true)}>
+        <Plus size={16} />
+        {t('NewCategory')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -114,16 +120,18 @@
     onRetry={() => void bundle.reload()}
   />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="categories" />
 
-  {#each conflicts as conflict, index (index)}
-    <div class="banner {conflict.severity === 'error' ? 'banner-danger' : 'banner-warning'}">
-      <AlertTriangle size={16} />
-      <span>
-        {#if conflict.instance_name}<strong>{conflict.instance_name}: </strong>{/if}
-        {conflict.message}
-      </span>
-    </div>
-  {/each}
+  <BannerList
+    tone="danger"
+    title={t('DiagnosticErrors', { count: errors.length })}
+    items={errors.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+  />
+  <BannerList
+    tone="warning"
+    title={t('DiagnosticWarnings', { count: warnings.length })}
+    items={warnings.map((conflict) => ({ lead: conflict.instance_name, text: conflict.message }))}
+  />
 
   <div class="card">
     <div class="card-header">
@@ -145,7 +153,7 @@
         </thead>
         <tbody>
           {#if bundle.loading && folders.length === 0}
-            <tr><td colspan="7"><Loading /></td></tr>
+            <TableSkeleton columns={7} />
           {:else if folders.length === 0}
             <tr><td colspan="7"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
           {:else}
@@ -236,7 +244,9 @@
           {/each}
         </select>
       </div>
-      <div class="form-group flex-1">
+      <!-- A base width, so on a phone the path takes a line of its own rather
+           than folding its caption beside the instance picker. -->
+      <div class="form-group flex-fill-240">
         <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
         <input
           id="declare-path"
@@ -269,6 +279,9 @@
           </tr>
         </thead>
         <tbody>
+          {#if bundle.loading && categories.length === 0}
+            <TableSkeleton columns={5} />
+          {/if}
           {#each categories as category (category.id)}
             <tr>
               <td>
@@ -323,7 +336,11 @@
 
   {#if renaming}
     {@const target = renaming}
-    <Modal label={t('RenameCategory')} onClose={() => (renaming = null)}>
+    <Modal
+      label={t('RenameCategory')}
+      onClose={() => (renaming = null)}
+      initialFocus="rootfolders-rename"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t('RenameCategory')}</h2>
         <button
@@ -365,7 +382,7 @@
             {t('RenameCategoryHint')}
           </p>
         </div>
-        <div class="flex justify-between mt-4">
+        <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (renaming = null)}>
             {t('Cancel')}
           </button>
@@ -378,7 +395,11 @@
   {/if}
 
   {#if creating}
-    <Modal label={t('NewCategory')} onClose={() => (creating = false)}>
+    <Modal
+      label={t('NewCategory')}
+      onClose={() => (creating = false)}
+      initialFocus="rootfolders-name"
+    >
       <div class="modal-header">
         <h2 class="modal-title">{t('NewCategory')}</h2>
         <button
@@ -413,7 +434,7 @@
           </label>
           <input id="rootfolders-description" class="form-input" bind:value={description} />
         </div>
-        <div class="flex justify-between mt-4">
+        <div class="dialog-actions">
           <button type="button" class="btn btn-secondary" onclick={() => (creating = false)}>
             {t('Cancel')}
           </button>

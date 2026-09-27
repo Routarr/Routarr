@@ -449,3 +449,303 @@ describe('a screen shows how an action went through its outcome', () => {
     expect(direct).toEqual([]);
   });
 });
+
+/**
+ * The elements of a component's markup, each with the chain of elements around
+ * it, outermost first.
+ *
+ * Svelte blocks and expressions are not elements, so an element inside
+ * `{#if}` has the element around the block as its parent, as it does in the
+ * DOM. The script, the style and the comments are left out. Attributes are read
+ * with brace depth, as `buttons` reads them, since `onclick={() => run()}`
+ * carries a `>`.
+ */
+interface Markup {
+  tag: string;
+  attributes: string;
+  line: number;
+  ancestors: { tag: string; attributes: string }[];
+}
+
+const VOID = new Set(['input', 'br', 'hr', 'img', 'meta', 'link', 'source', 'col', 'wbr']);
+
+function markup(source: string): Markup[] {
+  const blank = (match: string) => match.replace(/[^\n]/g, ' ');
+  const text = source
+    .replace(/<script\b[\s\S]*?<\/script>/g, blank)
+    .replace(/<style\b[\s\S]*?<\/style>/g, blank)
+    .replace(/<!--[\s\S]*?-->/g, blank);
+  const found: Markup[] = [];
+  const open: { tag: string; attributes: string }[] = [];
+  const TAG = /<(\/?)([A-Za-z][\w.-]*)/g;
+  let match: RegExpExecArray | null;
+  while ((match = TAG.exec(text)) !== null) {
+    const closing = match[1] === '/';
+    const tag = match[2]!;
+    let depth = 0;
+    let cursor = match.index + match[0].length;
+    while (cursor < text.length) {
+      const char = text[cursor];
+      if (char === '{') depth += 1;
+      else if (char === '}') depth -= 1;
+      else if (char === '>' && depth === 0) break;
+      cursor += 1;
+    }
+    const attributes = text.slice(match.index + match[0].length, cursor);
+    TAG.lastIndex = cursor + 1;
+    if (closing) {
+      const at = open.map((element) => element.tag).lastIndexOf(tag);
+      if (at >= 0) open.length = at;
+      continue;
+    }
+    found.push({
+      tag,
+      attributes,
+      line: text.slice(0, match.index).split('\n').length,
+      ancestors: [...open],
+    });
+    if (!attributes.trimEnd().endsWith('/') && !VOID.has(tag.toLowerCase())) {
+      open.push({ tag, attributes });
+    }
+  }
+  return found;
+}
+
+/** Whether an element's `class` attribute names `name` as a whole word. */
+const hasClass = (attributes: string, name: string) =>
+  new RegExp(`class="[^"]*\\b${name}\\b`).test(attributes);
+
+/** The screens alone, where a page's own layout is decided. */
+const screens = () => pages().filter((file) => file.startsWith('pages'));
+
+/** The stylesheet with its comments blanked, line numbers kept. */
+const stylesheet = () =>
+  read('index.css').replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '));
+
+/**
+ * One look for one thing, on every screen: a difference nobody chose reads as
+ * a bug, and each rule below was broken on at least one screen when it was
+ * written.
+ */
+describe('every screen draws a shared thing the same way', () => {
+  it('reads the markup it sweeps', () => {
+    expect(markup(read('pages/Instances.svelte')).some((e) => e.tag === 'table')).toBe(true);
+  });
+
+  /** A variant declared before the base is overridden by it, as the guide's stripe was. */
+  it('declares every banner variant after the banner itself', () => {
+    const css = stylesheet();
+    const base = css.search(/^\.banner\s*\{/m);
+    expect(base).toBeGreaterThan(0);
+    const early = [...css.matchAll(/^\.banner-[\w-]+[^{]*\{/gm)]
+      .filter((m) => (m.index ?? 0) < base)
+      .map((m) => m[0]);
+    expect(early).toEqual([]);
+  });
+
+  /** Colours are tokens, which is what lets the light theme restate them. */
+  it('writes no literal colour outside a token declaration', () => {
+    const literal = stylesheet()
+      .split('\n')
+      .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+      .filter(({ line }) => /rgba?\(|hsla?\(|#[0-9a-fA-F]{3,8}\b/.test(line))
+      .filter(({ line }) => !line.startsWith('--'))
+      .map(({ line, number }) => `index.css:${number} ${line}`);
+    expect(literal).toEqual([]);
+  });
+
+  /** The fill accent is 1.7:1 on a light ground: a mark drawn in it goes unseen. */
+  it('draws no border or outline in the fill accent', () => {
+    const fill = stylesheet()
+      .split('\n')
+      .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+      .filter(({ line }) => /^(border|outline)[\w-]*\s*:.*var\(--accent-primary\)/.test(line))
+      .map(({ number }) => `index.css:${number}`);
+    expect(fill).toEqual([]);
+  });
+
+  /** Cancel at the start, the actions at the end, in every dialog. */
+  it('lays out every dialog footer with .dialog-actions', () => {
+    const loose = pages().flatMap((file) =>
+      markup(read(file))
+        .filter(
+          (element) =>
+            element.tag === 'button' &&
+            /t\('Cancel'\)/.test(
+              read(file)
+                .split('\n')
+                .slice(element.line - 1, element.line + 3)
+                .join('\n'),
+            ),
+        )
+        .filter(
+          (element) => !hasClass(element.ancestors.at(-1)?.attributes ?? '', 'dialog-actions'),
+        )
+        .map((element) => `${file}:${element.line}`),
+    );
+    expect(loose).toEqual([]);
+  });
+
+  /** An empty list sits in the frame the full one would. */
+  it('frames every empty state in a card', () => {
+    const bare = screens().flatMap((file) =>
+      markup(read(file))
+        .filter(
+          (element) => element.tag === 'EmptyState' || hasClass(element.attributes, 'empty-state'),
+        )
+        .filter((element) => !element.ancestors.some((a) => hasClass(a.attributes, 'card')))
+        .map((element) => `${file}:${element.line}`),
+    );
+    expect(bare).toEqual([]);
+  });
+
+  /** On a phone the group stretches, and a lone button outside one does not. */
+  it('puts every page header action in a group', () => {
+    const lone = screens().flatMap((file) =>
+      markup(read(file))
+        .filter((element) => hasClass(element.attributes, 'btn'))
+        .filter((element) => hasClass(element.ancestors.at(-1)?.attributes ?? '', 'page-header'))
+        .map((element) => `${file}:${element.line}`),
+    );
+    expect(lone).toEqual([]);
+  });
+
+  /** A table loading holds its own height with placeholder rows, on every screen. */
+  it('loads every table with TableSkeleton, never with a spinner row', () => {
+    const spinning = screens().flatMap((file) =>
+      [...read(file).matchAll(/<tbody\b[\s\S]*?<\/tbody>/g)]
+        .filter((m) => m[0].includes('<Loading'))
+        .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
+    );
+    expect(spinning).toEqual([]);
+  });
+
+  /** A row's buttons carry their own names, so the column's is for a screen reader. */
+  it('names the actions column for a screen reader alone, on every table', () => {
+    const shown = screens().flatMap((file) =>
+      [...read(file).matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/g)]
+        .filter((m) => m[1]!.includes("t('Actions')") && !m[1]!.includes('visually-hidden'))
+        .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
+    );
+    expect(shown).toEqual([]);
+  });
+
+  /** A row action is a bordered button, on every table. */
+  it('draws no borderless button in a table row', () => {
+    const ghost = screens().flatMap((file) =>
+      [...read(file).matchAll(/<tr\b[\s\S]*?<\/tr>/g)]
+        .filter((m) => m[0].includes('btn-ghost'))
+        .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
+    );
+    expect(ghost).toEqual([]);
+  });
+
+  /** An icon in a title sits on the text's centre line, as the guide's does. */
+  it('aligns the icon of every card title with its text', () => {
+    const loose = pages().flatMap((file) =>
+      [...read(file).matchAll(/<h[23]\s+class="card-title([^"]*)"[^>]*>([\s\S]*?)<\/h[23]>/g)]
+        .filter((m) => /<[A-Z]\w*\s+size=/.test(m[2]!))
+        .filter((m) => !(/\bflex\b/.test(m[1]!) && /\bitems-center\b/.test(m[1]!)))
+        .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
+    );
+    expect(loose).toEqual([]);
+  });
+});
+
+describe('every screen names and dates things one way', () => {
+  const english = JSON.parse(
+    fs.readFileSync(path.join(SRC, '..', '..', 'backend', 'locales', 'en.json'), 'utf-8'),
+  ) as Record<string, string>;
+
+  /** Each route with its navigation key and the key of the title its screen draws. */
+  function titles(): { route: string; nav: string; title: string | undefined }[] {
+    const app = read('App.svelte');
+    return [...read('lib/routes.ts').matchAll(/\{ to: '([^']+)', key: '(\w+)'/g)].map((m) => {
+      const page = new RegExp(
+        `'${m[1]}':\\s*\\(\\)\\s*=>\\s*import\\('\\./pages/(\\w+)\\.svelte'\\)`,
+      ).exec(app)?.[1];
+      const title = page
+        ? /<h1 class="page-title">\{t\('(\w+)'\)\}<\/h1>/.exec(read(`pages/${page}.svelte`))?.[1]
+        : undefined;
+      return { route: m[1]!, nav: m[2]!, title };
+    });
+  }
+
+  it('reads every route and its title', () => {
+    const found = titles();
+    expect(found.length).toBeGreaterThan(10);
+    expect(found.filter((entry) => !entry.title)).toEqual([]);
+  });
+
+  /** One name per screen: the menu entry a reader clicks is the title they land on. */
+  it('titles every screen with the name its menu entry gives it', () => {
+    const renamed = titles()
+      .filter(({ nav, title }) => title !== nav && english[title!] !== english[nav])
+      .map(({ route, nav, title }) => `${route}: ${english[nav]} / ${english[title!]}`);
+    expect(renamed).toEqual([]);
+  });
+
+  /** Sentence case, as every other title and button is written. */
+  it('capitalises no common word after the first in a title or a menu entry', () => {
+    const PROPER = /^(Radarr|Sonarr|Routarr|TMDb|Arr|API|URL)$/;
+    const keys = new Set(titles().flatMap(({ nav, title }) => [nav, title!]));
+    for (const button of ['NewRule', 'NewCategory', 'NewOverride', 'AddInstance']) keys.add(button);
+    const loud = [...keys]
+      .filter((key) =>
+        (english[key] ?? '')
+          .split(/\s+/)
+          .slice(1)
+          .some((word) => /^[A-Z][a-z]/.test(word) && !PROPER.test(word)),
+      )
+      .map((key) => `${key}: ${english[key]}`);
+    expect(loud).toEqual([]);
+  });
+
+  /** A date cell looks the same on every screen: muted, proportional, nothing else. */
+  it('draws every date cell with .cell-timestamp and no other font or colour', () => {
+    const FONT_OR_COLOUR = /\b(mono|text-(muted|sm|xs|md|primary|secondary|danger|success))\b/;
+    const loose = screens().flatMap((file) =>
+      [...read(file).matchAll(/<td\b([^>]*)>((?:(?!<\/td>)[\s\S])*?)<\/td>/g)]
+        // A date drawn as the cell's value, not one named inside a sentence.
+        .filter((m) => /\{format(Timestamp|Relative)\(/.test(m[2]!))
+        .filter((m) => !/\bcell-timestamp\b/.test(m[1]!) || FONT_OR_COLOUR.test(m[1]!))
+        .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
+    );
+    expect(loose).toEqual([]);
+  });
+
+  /** An empty table says so in one sentence, inside its body, on every screen. */
+  it('says a table is empty in one sentence inside its body', () => {
+    const off = screens().flatMap((file) =>
+      markup(read(file))
+        .filter((element) => element.tag === 'EmptyState')
+        .filter((element) => {
+          const body = read(file)
+            .split('\n')
+            .slice(element.line - 1)
+            .join('\n');
+          const content = /<EmptyState>([\s\S]*?)<\/EmptyState>/.exec(body)?.[1] ?? '';
+          return !element.ancestors.some((a) => a.tag === 'tbody') || content.includes('<');
+        })
+        .map((element) => `${file}:${element.line}`),
+    );
+    expect(off).toEqual([]);
+  });
+
+  /**
+   * A row action is named by the action, a spaced en dash, then its subject.
+   * A bare space runs the two together into one phrase: "Sync now Radarr",
+   * "Why? Akira".
+   */
+  it('names a row action with a spaced en dash between the action and its subject', () => {
+    const NAME = /\b(?:aria-label|label)="\{t\('\w+'\)\}( – | )\{/g;
+    const names = pages().flatMap((file) =>
+      [...read(file).matchAll(NAME)].map((m) => ({
+        at: `${file}:${read(file).slice(0, m.index).split('\n').length}`,
+        dashed: m[1] === ' – ',
+      })),
+    );
+    expect(names.filter((name) => name.dashed).length).toBeGreaterThan(10);
+    expect(names.filter((name) => !name.dashed).map((name) => name.at)).toEqual([]);
+  });
+});

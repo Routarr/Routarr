@@ -32,9 +32,11 @@ pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
 
 /// Order applied when the setting is missing or unreadable: the free source
-/// first, TMDb second for what only it carries. The rest are opt-in — every
-/// extra source is extra requests, and most libraries need neither.
-pub const DEFAULT_ORDER: &[&str] = &[ARR, TMDB];
+/// alone. Every other source is opt-in: each is extra requests, and a keyed
+/// one listed without its key answers nothing and makes the diagnostics warn.
+/// A TMDb key in the environment lists TMDb at startup
+/// (`maintenance::converge_metadata_sources`).
+pub const DEFAULT_ORDER: &[&str] = &[ARR];
 
 /// How a source is addressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

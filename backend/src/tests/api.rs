@@ -3,7 +3,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 
-use super::TestApp;
+use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 use tower::ServiceExt;
 
 // ------------------------------------------------------------ authentication
@@ -235,6 +235,58 @@ async fn validation_reports_warnings_without_blocking() {
     let result = response.assert_ok();
     assert_eq!(result["valid"], true, "warnings must not make a rule invalid");
     assert!(!result["issues"].as_array().unwrap().is_empty());
+}
+
+/// A condition is named as the editor shows it: by its section, its place in
+/// that section and its caption, never by the engine's identifier.
+#[tokio::test]
+async fn a_condition_is_named_by_its_section_place_and_caption() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut body = anime_rule_body();
+    let empty = serde_json::json!({ "type": "certification_in", "value": [] });
+    body["conditions"] = serde_json::json!([
+        { "type": "genre_contains", "value": ["Animation"] },
+        empty.clone(),
+    ]);
+    body["exclusions"] = serde_json::json!([empty]);
+
+    let response = app.post("/api/v1/rules/validate", body).await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let localizer = app.state.localizer().await;
+    let caption = localizer.translate("ConditionLabelCertificationIn", &[]);
+    for (section, reference, index) in
+        [("conditions", "ConditionReference", "2"), ("exclusions", "ExclusionReference", "1")]
+    {
+        let issue = issues
+            .iter()
+            .find(|i| i["key"] == "ValidationConditionEmpty" && i["field"] == section)
+            .unwrap_or_else(|| panic!("no empty condition reported under {section}: {issues:?}"));
+        let message = issue["message"].as_str().unwrap();
+        let named = localizer.translate(reference, &[("index", index), ("label", &caption)]);
+        assert!(message.starts_with(&named), "{section}: {message}");
+        assert!(!message.contains("certification_in"), "{message}");
+    }
+}
+
+#[tokio::test]
+async fn a_condition_both_required_and_excluded_is_named_by_its_caption() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut body = anime_rule_body();
+    let genre = serde_json::json!({ "type": "genre_contains", "value": ["Animation"] });
+    body["conditions"] = serde_json::json!([genre.clone()]);
+    body["exclusions"] = serde_json::json!([genre]);
+
+    let response = app.post("/api/v1/rules/validate", body).await;
+    let issues = response.assert_ok()["issues"].as_array().unwrap().clone();
+
+    let conflict = issues.iter().find(|i| i["key"] == "ValidationExclusionConflict").unwrap();
+    let message = conflict["message"].as_str().unwrap();
+    let caption = app.state.localizer().await.translate("ConditionLabelGenreContains", &[]);
+    assert!(message.contains(&caption), "{message}");
+    assert!(!message.contains("genre_contains"), "{message}");
 }
 
 /// Stored, each of these would be a rule that never matches and reads on
@@ -960,6 +1012,23 @@ async fn valid_settings_are_stored() {
     assert_eq!(app.state.setting("batch_limit", 0usize).await, 5);
 }
 
+/// A client reading every setting and writing them all back, as a script
+/// backing them up does, is not refused on a fresh database.
+#[tokio::test]
+async fn every_setting_read_can_be_written_back_as_it_came() {
+    let app = TestApp::new().await;
+    let read = app.get("/api/v1/settings").await.assert_ok().clone();
+    let values: serde_json::Map<String, serde_json::Value> = read
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(_, value)| value.is_string())
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
+    app.put("/api/v1/settings", serde_json::json!({ "settings": values })).await.assert_ok();
+}
+
 // ------------------------------------------------------------ decisions
 
 #[tokio::test]
@@ -1039,6 +1108,73 @@ async fn superseded_decisions_are_hidden_by_default() {
 
     let all = app.get("/api/v1/decisions?include_superseded=true").await.assert_ok().clone();
     assert_eq!(all["pagination"]["total"], 2);
+}
+
+/// Deleting an instance takes its proposals with it: they would move titles
+/// that no longer exist, and the dashboard would go on counting them. What was
+/// applied stays, since the history is the record of a write that happened.
+#[tokio::test]
+async fn deleting_an_instance_retires_its_proposals_and_keeps_its_history() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         target_category, action, status)
+         VALUES ('d-applied', 'm-1', 'My Neighbor Totoro', 'movie', 'inst-1', 'anime', 'move',
+                 'applied')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 1, "the fixture must propose a move");
+
+    app.delete("/api/v1/instances/inst-1").await.assert_ok();
+
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 0, "{pending}");
+    let status = app.get("/api/v1/status").await.assert_ok().clone();
+    assert_eq!(status["pending_decisions"], 0);
+    let applied = app.get("/api/v1/decisions?status=applied").await.assert_ok().clone();
+    assert_eq!(applied["pagination"]["total"], 1, "the history is kept: {applied}");
+}
+
+/// An instance deleted before deletion retired its proposals left them
+/// pending: the upgrade retires those, and leaves alone the proposals of an
+/// instance that exists and whatever was applied.
+#[tokio::test]
+async fn an_upgrade_retires_the_proposals_of_an_instance_already_deleted() {
+    let pool = database_through("003_metadata_sources").await;
+    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
+    for (id, instance, status) in [
+        ("d-applied", "inst-gone", "applied"),
+        ("d-kept", "inst-1", "pending"),
+        ("d-orphan", "inst-gone", "pending"),
+    ] {
+        sqlx::query(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+             target_category, action, status)
+             VALUES (?, 'm-1', 'My Neighbor Totoro', 'movie', ?, 'anime', 'move', ?)",
+        )
+        .bind(id)
+        .bind(instance)
+        .bind(status)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let retired: Vec<(String, bool)> =
+        sqlx::query_as("SELECT id, superseded FROM decisions ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let expected = [("d-applied", false), ("d-kept", false), ("d-orphan", true)];
+    assert_eq!(retired, expected.map(|(id, flag)| (id.to_string(), flag)));
 }
 
 // ------------------------------------------------------------ media
@@ -1306,6 +1442,7 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
 
     // A second item that also needs a move; the webhook must leave it alone.
     sqlx::query(
@@ -1465,13 +1602,7 @@ async fn status_makes_no_outbound_calls() {
 
     assert_eq!(status["dry_run"], true);
     assert_eq!(status["running_jobs"], 0);
-    assert!(
-        status["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| { w.as_str().unwrap().contains("unauthenticated") })
-    );
+    assert!(warning_messages(status).iter().any(|w| w.contains("unauthenticated")));
 }
 
 #[tokio::test]
@@ -1493,9 +1624,8 @@ async fn status_warns_when_a_category_has_no_root_folder() {
         .await
         .assert_ok();
 
-    let response = app.get("/api/v1/status").await;
-    let warnings = response.assert_ok()["warnings"].as_array().unwrap().clone();
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("not mapped to any root folder")));
+    let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
+    assert!(warnings.iter().any(|w| w.contains("not mapped to any root folder")));
 }
 
 /// The badge counts `/status` and the page it links to renders `/health`. Two
@@ -1516,20 +1646,10 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
         .assert_ok();
 
     let status = app.get("/api/v1/status").await;
-    let from_badge: Vec<String> = status.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let from_badge = warning_messages(status.assert_ok());
 
     let health = app.get("/api/v1/health").await;
-    let on_the_page: Vec<String> = health.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let on_the_page = warning_messages(health.assert_ok());
 
     assert!(from_badge.len() > 1, "the fixture should produce several warnings");
 
@@ -1564,12 +1684,7 @@ async fn the_badge_reports_what_the_last_probe_found() {
     // switched off does.
     app.seed_instance_at("i-dead", "radarr", "http://127.0.0.1:1").await;
 
-    let before: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let before = warning_messages(app.get("/api/v1/status").await.assert_ok());
     // Matched on the finding itself: the fixture already warns about this
     // instance for an unrelated reason, so a name alone proves nothing.
     assert!(
@@ -1579,12 +1694,7 @@ async fn the_badge_reports_what_the_last_probe_found() {
 
     app.get("/api/v1/health").await.assert_ok();
 
-    let after: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let after = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         after.iter().any(|w| w.contains("Fake radarr") && w.contains("is unreachable")),
         "the badge still ignores what the probe found: {after:?}"
@@ -1600,12 +1710,7 @@ async fn a_subject_that_answers_again_stops_being_reported() {
     app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
 
     app.get("/api/v1/health").await.assert_ok();
-    let healthy: Vec<String> = app.get("/api/v1/status").await.assert_ok()["warnings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|w| w.as_str().unwrap().to_string())
-        .collect();
+    let healthy = warning_messages(app.get("/api/v1/status").await.assert_ok());
     assert!(
         !healthy.iter().any(|w| w.contains("is unreachable")),
         "a reachable instance must leave no verdict behind: {healthy:?}"
@@ -1662,22 +1767,28 @@ async fn health_probes_by_default() {
 #[tokio::test]
 async fn health_reports_actionable_warnings() {
     let app = TestApp::new().await;
+    app.put(
+        "/api/v1/settings",
+        serde_json::json!({ "settings": { "metadata_providers": "arr,tmdb" } }),
+    )
+    .await
+    .assert_ok();
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
 
     assert_eq!(health["database"], "connected");
 
-    // The Arr answers without a key, TMDb does not: the source list says so
-    // rather than the page claiming metadata is simply unavailable.
+    // Listed, the Arr answers without a key and TMDb does not: the source list
+    // says so rather than the page claiming metadata is simply unavailable.
     let providers = health["metadata"]["providers"].as_array().unwrap();
     assert_eq!(providers[0]["id"], "arr");
     assert_eq!(providers[0]["configured"], true);
     assert_eq!(providers[1]["id"], "tmdb");
     assert_eq!(providers[1]["configured"], false);
 
-    let warnings = health["warnings"].as_array().unwrap();
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("TMDb")));
-    assert!(warnings.iter().any(|w| w.as_str().unwrap().contains("unauthenticated")));
+    let warnings = warning_messages(health);
+    assert!(warnings.iter().any(|w| w.contains("TMDb")));
+    assert!(warnings.iter().any(|w| w.contains("unauthenticated")));
     assert_eq!(health["status"], "degraded");
 }
 
@@ -1932,6 +2043,7 @@ async fn seed_akira_needing_a_move(app: &TestApp) {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.list_tmdb().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
          current_root_folder, monitored, has_files)

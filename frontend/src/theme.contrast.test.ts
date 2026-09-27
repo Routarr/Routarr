@@ -104,6 +104,21 @@ const PAIRS: [string, string][] = [
   // making if both ends of it stay legible.
   ['--text-nav', '--bg-surface'],
   ['--text-muted', '--bg-surface'],
+  // Success as a line of text: the guide's finish on a card, and a connection
+  // try inside a dialog, drawn on the surface.
+  ['--status-success', '--bg-card'],
+  ['--status-success', '--bg-surface'],
+  // A refused value in words: under a settings field and in the save bar, both
+  // on a card, and under a field of a dialog, drawn on the surface.
+  ['--status-danger', '--bg-card'],
+  ['--status-danger', '--bg-surface'],
+  // Text on a filled button. White on the dark theme's light red read 2.85:1.
+  ['--text-on-accent', '--accent-primary'],
+  ['--text-on-danger', '--status-danger'],
+  // The kind badges, whose label takes the kind's hue: the dark theme's pale
+  // blue and violet read 2.4:1 and 2.7:1 on a white card.
+  ['--kind-radarr', '--bg-card'],
+  ['--kind-sonarr', '--bg-card'],
 ];
 
 /** Badge text on its own translucent background, itself over a card. */

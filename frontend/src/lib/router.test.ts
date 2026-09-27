@@ -27,6 +27,22 @@ describe('navigation', () => {
     expect(window.location.pathname).toBe('/rules');
   });
 
+  /** What the browser does for a fragment link, and nothing when the page changes. */
+  it('announces a new fragment of the page on screen, as the browser would', () => {
+    const heard: string[] = [];
+    const listen = (event: HashChangeEvent) => heard.push(new URL(event.newURL).hash);
+    window.addEventListener('hashchange', listen);
+    try {
+      navigate('/settings#metadata');
+      navigate('/settings#routing');
+      navigate('/settings#routing');
+    } finally {
+      window.removeEventListener('hashchange', listen);
+    }
+
+    expect(heard).toEqual(['#routing']);
+  });
+
   it('replaces the entry rather than stacking one when asked', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     navigate('/logs', { replace: true });

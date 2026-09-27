@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -21,6 +21,7 @@ const STRINGS = {
   PlaceholderPickValues: 'Search or type a value…',
   Remove: 'Remove',
   SelectedValues: 'Selected values',
+  PickerCountCaption: 'Titles in your library',
 };
 
 const OPTIONS = [
@@ -46,6 +47,45 @@ function open(values: string[] = [], over: Record<string, unknown> = {}) {
 }
 
 describe('ValuePicker', () => {
+  /**
+   * Certification codes of several countries mean the same thing, and a rule
+   * wants every one of them: listed under what they mean, "TP" and "U" read
+   * as the same choice instead of two unexplained entries.
+   */
+  it('gathers the values that mean the same thing under that meaning', async () => {
+    const { field } = open([], {
+      options: [
+        { value: 'TP', label: 'TP (all ages)', group: 'all ages', count: 24 },
+        { value: 'U', label: 'U (all ages)', group: 'all ages', count: 1 },
+        { value: '12', label: '12 (12 and over)', group: '12 and over', count: 11 },
+        { value: 'M', count: 1 },
+      ],
+    });
+
+    await userEvent.click(field);
+
+    const allAges = screen.getByRole('group', { name: 'all ages' });
+    expect(
+      within(allAges)
+        .getAllByRole('option')
+        .map((o) => o.getAttribute('aria-label')),
+    ).toEqual(['TP (all ages)', 'U (all ages)']);
+    // Under its meaning a code needs no repeat of it.
+    expect(within(allAges).getByText('TP')).toBeTruthy();
+    expect(
+      within(screen.getByRole('group', { name: '12 and over' })).getAllByRole('option'),
+    ).toHaveLength(1);
+    expect(screen.getByRole('option', { name: 'M' }).closest('[role="group"]')).toBeNull();
+  });
+
+  it('says what the figures beside the values count', async () => {
+    const { field } = open();
+
+    await userEvent.click(field);
+
+    expect(screen.getByText('Titles in your library')).toBeTruthy();
+  });
+
   it('offers what the library holds, with how many items carry it', async () => {
     const { field } = open();
     await userEvent.click(field);
@@ -111,6 +151,64 @@ describe('ValuePicker', () => {
     await userEvent.type(field, 'anim{Enter}');
 
     expect(onChange).toHaveBeenCalledWith(['Animation']);
+  });
+
+  /**
+   * Inside the rule editor's dialog, an Escape nobody claims closes the dialog
+   * and throws the draft away. Folding the list is all it may do here.
+   */
+  it('folds the list on Escape and claims the key, then lets the next Escape through', async () => {
+    const { field } = open();
+    await userEvent.click(field);
+
+    expect(await fireEvent.keyDown(field, { key: 'Escape' })).toBe(false);
+    expect(field).toHaveAttribute('aria-expanded', 'false');
+    expect(await fireEvent.keyDown(field, { key: 'Escape' })).toBe(true);
+  });
+
+  /** Nothing typed and nothing chosen: Enter is the form's, which saves. */
+  it('adds nothing on Enter in an empty picker, and lets the form have it', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    expect(await fireEvent.keyDown(field, { key: 'Enter' })).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  /** The focus stays in the field and the arrows move through the list. */
+  it('adds the suggestion the arrows reach, and keeps the focus in the field', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    await userEvent.keyboard('{ArrowDown}{ArrowDown}');
+    const reached = screen.getByRole('option', { name: 'Science Fiction' });
+    expect(reached).toHaveAttribute('aria-selected', 'true');
+    expect(field).toHaveAttribute('aria-activedescendant', reached.id);
+    await userEvent.keyboard('{Enter}');
+
+    expect(onChange).toHaveBeenCalledWith(['Science Fiction']);
+    expect(document.activeElement).toBe(field);
+  });
+
+  /** Fifty suggestions are not fifty tab stops before the next control. */
+  it('is one tab stop, whatever the list holds', async () => {
+    const { field } = open();
+    await userEvent.click(field);
+    expect(screen.getAllByRole('option').every((option) => option.tabIndex < 0)).toBe(true);
+
+    await userEvent.tab();
+
+    expect(document.activeElement?.getAttribute('role')).not.toBe('option');
+  });
+
+  it('keeps the focus in the field when a suggestion is clicked', async () => {
+    const { onChange, field } = open();
+    await userEvent.click(field);
+
+    await userEvent.click(screen.getByRole('option', { name: 'Animation' }));
+
+    expect(onChange).toHaveBeenCalledWith(['Animation']);
+    expect(document.activeElement).toBe(field);
   });
 
   it('says so when the filter matches nothing', async () => {
@@ -191,5 +289,57 @@ describe('ValuePicker', () => {
     expect(korean).toBeInTheDocument();
     expect(korean.textContent).not.toContain('0');
     expect(screen.getByRole('option', { name: 'Japanese (ja)' }).textContent).toContain('3');
+  });
+});
+
+/**
+ * A chip's button goes with its chip, and the focus with it, inside the rule
+ * editor's dialog. It moves to the chip that takes its place,
+ * else to the one before, else to the field, so removing several values is
+ * one key pressed several times.
+ */
+describe('removing a chosen value', () => {
+  function openLive(values: string[]) {
+    const view = renderWithI18n(ValuePicker, {
+      props: {
+        label: 'Genre contains',
+        values,
+        options: OPTIONS,
+        onChange: (next: string[]) => void view.rerender({ values: next }),
+      },
+      strings: STRINGS,
+    });
+  }
+
+  it('hands the focus to the chip that took its place', async () => {
+    openLive(['Animation', 'Comédie']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Animation' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Remove – Comédie' })),
+    );
+  });
+
+  it('hands the focus to the chip before a last one removed', async () => {
+    openLive(['Animation', 'Comédie']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Comédie' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Remove – Animation' }),
+      ),
+    );
+  });
+
+  it('hands the focus to the field once no value is left', async () => {
+    openLive(['Animation']);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Remove – Animation' }));
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('combobox', { name: 'Genre contains' })),
+    );
   });
 });

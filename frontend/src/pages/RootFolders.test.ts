@@ -330,6 +330,32 @@ describe('Root folders', () => {
     expect(await screen.findByText('unreachable')).toBeTruthy();
   });
 
+  /** One banner a severity, as the dashboard draws its warnings. */
+  it('lists the conflicts of one severity in one banner', async () => {
+    const conflict = (severity: 'error' | 'warning', message: string) => ({
+      kind: 'unmapped',
+      severity,
+      instance_name: 'Radarr',
+      category: 'anime',
+      message,
+    });
+    const { container } = show(
+      [folder()],
+      [category()],
+      [
+        conflict('warning', 'Nothing maps "kids"'),
+        conflict('error', 'Two folders claim "anime"'),
+        conflict('warning', 'Nothing maps "docs"'),
+      ],
+    );
+
+    await screen.findByText('Nothing maps "kids"');
+    const warnings = container.querySelectorAll('.banner-warning');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.querySelectorAll('li')).toHaveLength(2);
+    expect(container.querySelectorAll('.banner-danger li')).toHaveLength(1);
+  });
+
   it('surfaces a mapping conflict the server found', async () => {
     show(
       [folder()],
@@ -346,5 +372,17 @@ describe('Root folders', () => {
     );
 
     expect(await screen.findByText('Two folders claim "anime"')).toBeTruthy();
+  });
+
+  /** Opened on its close button, a form is one reflex Enter from thrown away. */
+  it('opens each category dialog on its name field', async () => {
+    show([], [category({ name: 'anime' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Rename category – anime' }));
+    expect(document.activeElement).toBe(await screen.findByLabelText('Name'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New category' }));
+    expect(document.activeElement).toBe(await screen.findByLabelText('Name'));
   });
 });

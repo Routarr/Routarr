@@ -112,6 +112,18 @@
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
   --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.5);
+  /* The edge a table casts where it scrolls under its region. */
+  --scroll-shadow: rgba(0, 0, 0, 0.35);
+  --row-hover: rgba(255, 255, 255, 0.02);
+
+  /* Text on a filled button: the orange fill keeps dark text in both themes,
+     the red one takes dark text on the light red of the dark theme. */
+  --text-on-accent: #111111;
+  --text-on-danger: #111111;
+
+  /* The two kinds, in hues no status takes. */
+  --kind-radarr: #7aa8f7;
+  --kind-sonarr: #a78bfa;
 
   /* System stacks, never web fonts: fetching a face from a third party tells
      it the address of every installation that opens the interface, and leaves
@@ -168,6 +180,13 @@
   --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
   --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
   --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+  --scroll-shadow: rgba(15, 23, 42, 0.12);
+  --row-hover: rgba(15, 23, 42, 0.03);
+
+  --text-on-danger: #ffffff;
+
+  --kind-radarr: #1e5bb8;
+  --kind-sonarr: #6d3fd6;
 }
 
 /* The light palette again, for the setting that stamps nothing.
@@ -214,6 +233,13 @@
     --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
     --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
     --shadow-lg: 0 10px 25px rgba(15, 23, 42, 0.12);
+    --scroll-shadow: rgba(15, 23, 42, 0.12);
+    --row-hover: rgba(15, 23, 42, 0.03);
+
+    --text-on-danger: #ffffff;
+
+    --kind-radarr: #1e5bb8;
+    --kind-sonarr: #6d3fd6;
   }
 }
 
@@ -394,7 +420,7 @@ a {
    a tree, where the pill said "this is a tag". */
 .nav-item.active {
   background-color: var(--bg-card-hover);
-  border-inline-start-color: var(--accent-primary);
+  border-inline-start-color: var(--accent-strong);
   color: var(--accent-strong);
   font-weight: 600;
 }
@@ -504,6 +530,12 @@ a {
   margin-bottom: 20px;
 }
 
+/* A header that is the whole card, as a title, a note and a button are, keeps
+   no space under it for a body that is not there. */
+.card-header:last-child {
+  margin-bottom: 0;
+}
+
 .card-title {
   font-size: 17px;
   font-weight: 600;
@@ -564,7 +596,7 @@ a {
 
 .btn-primary {
   background-color: var(--accent-primary);
-  color: #111;
+  color: var(--text-on-accent);
   font-weight: 600;
 }
 
@@ -601,7 +633,7 @@ a {
 
 .modal-content .btn-danger {
   background-color: var(--status-danger);
-  color: #fff;
+  color: var(--text-on-danger);
   font-weight: 600;
 }
 
@@ -743,6 +775,170 @@ a {
   background-color: var(--bg-card-hover);
 }
 
+/* The getting-started guide's place in the bar: a glyph and a figure, the same
+   width in every language, drawn in the accent because it is the next thing to
+   do rather than something wrong. */
+.guide-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 1;
+  height: 28px;
+  padding: 0 9px;
+  flex: none;
+  border: 1px solid var(--accent-strong);
+  border-radius: var(--radius-sm);
+  color: var(--accent-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-decoration: none;
+}
+.guide-pill:hover {
+  background-color: var(--bg-card-hover);
+}
+
+/* The getting-started list. One row per step: its mark, what it is, and the
+   link that does it, which drops under the text on a phone. */
+.guide-progress {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-2);
+}
+.guide-count {
+  font-size: 13px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* One bar in three places: the guide's progress, a decision's confidence and a
+   task's progress, so the three read as the same instrument. A thin accent edge
+   marks where the bar ends, since the unfilled part is the input colour on a
+   card, too close to it to see. The edge is the accent as a border,
+   `--accent-strong`, readable on both grounds. Six pixels edge included, and
+   barely rounded ends. */
+.guide-bar,
+.confidence-track,
+.progress-track {
+  box-sizing: border-box;
+  height: 6px;
+  border: 1px solid var(--accent-strong);
+  border-radius: var(--radius-xs);
+  background-color: var(--bg-input);
+  overflow: hidden;
+}
+.guide-bar {
+  appearance: none;
+  width: 160px;
+}
+.guide-bar::-webkit-progress-bar {
+  background-color: var(--bg-input);
+}
+.guide-bar::-webkit-progress-value {
+  background-color: var(--accent-primary);
+}
+.guide-bar::-moz-progress-bar {
+  background-color: var(--accent-primary);
+}
+.guide-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.guide-step {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+.guide-step.is-current {
+  border-color: var(--accent-strong);
+}
+.guide-step-mark {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.guide-step.is-current .guide-step-mark {
+  color: var(--accent-strong);
+}
+.guide-step.is-done .guide-step-mark {
+  color: var(--status-success);
+}
+/* The ring of the icons beside it, drawn to their size: a 20px box with the
+   circle inset by its stroke, so a number and a tick sit on one line. */
+.guide-step-number {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 1px;
+  border: 2px solid currentColor;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.guide-step-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.guide-step.is-done .guide-step-title {
+  color: var(--text-secondary);
+}
+.guide-step-text {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 70ch;
+}
+.guide-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.guide-complete {
+  flex: 1;
+  margin: 0;
+  color: var(--status-success);
+}
+.guide-paused {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.guide-paused > p {
+  margin: 0;
+  color: var(--text-secondary);
+}
+@media (max-width: 560px) {
+  .guide-step {
+    grid-template-columns: auto 1fr;
+  }
+  .guide-step-action {
+    grid-column: 2;
+    justify-self: start;
+  }
+  .guide-progress {
+    align-items: flex-start;
+  }
+}
+
 /* ─────────────────────────────────────────────────── the command palette
  *
  * "Why did Routarr put this film there?" is the question this product exists
@@ -861,7 +1057,7 @@ a {
    Enter opens" — one shape, one meaning. */
 .palette-row.is-current {
   background-color: var(--bg-card-hover);
-  border-inline-start-color: var(--accent-primary);
+  border-inline-start-color: var(--accent-strong);
 }
 
 .palette-name {
@@ -877,6 +1073,23 @@ a {
   font-size: 11.5px;
   color: var(--text-muted);
   white-space: nowrap;
+}
+
+/* A destination reads as its name, then what it is for. The names hold one
+   column, so every description starts at the same edge, in the quieter colour
+   of the search results' own details. Cut rather than wrapped: a row is one
+   line in every language. */
+.palette-row.is-destination .palette-name {
+  flex: 0 0 36%;
+}
+.palette-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* Above the results rather than in their place: only the library needs the
@@ -911,9 +1124,12 @@ a {
 }
 
 /* Badges */
+/* One line in every language: Chinese, Japanese and Korean break between any
+   two characters, so a narrow cell would stack a badge letter by letter. */
 .badge {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 6px;
   padding: 3px 8px;
   border-radius: var(--radius-xs);
@@ -952,14 +1168,14 @@ a {
   transform: translateY(1px);
 }
 .kind-radarr {
-  color: #7aa8f7;
+  color: var(--kind-radarr);
 }
 /* Violet rather than Sonarr's green: the identity dot sat two shades from the
    `connected` badge beside it, which is the confusion this whole vocabulary
    exists to end. None of the four status hues is free, so the kind takes one
    that is. */
 .kind-sonarr {
-  color: #a78bfa;
+  color: var(--kind-sonarr);
 }
 
 /* A value the user chose — a category, a scope, a match mode. Vocabulary, not
@@ -1100,9 +1316,11 @@ a {
    status badge) belong on one line: stacked, they make every row in the table
    twice as tall for no added meaning. `nowrap` keeps a long locale format from
    folding — the column is scrollable via .table-container if it ever has to be. */
+/* One look for a date on every screen: muted, proportional, one line. */
 .cell-timestamp {
   white-space: nowrap;
   font-size: 12px;
+  color: var(--text-muted);
 }
 
 .cell-timestamp > * + * {
@@ -1158,7 +1376,7 @@ tr:last-child td {
 }
 
 tr:hover td {
-  background-color: rgba(255, 255, 255, 0.02);
+  background-color: var(--row-hover);
 }
 
 /* Form inputs */
@@ -1226,6 +1444,20 @@ tr:hover td {
   border-color: var(--accent-strong);
 }
 
+/* After the focus rule, so a refused value stays marked while it is typed. */
+.form-input[aria-invalid='true'],
+.form-select[aria-invalid='true'] {
+  border-color: var(--status-danger);
+}
+
+/* What a field refuses, in words under it: the border alone is a colour, and a
+   screen reader reads this through the field's `aria-describedby`. */
+.field-error {
+  margin-top: var(--space-1);
+  font-size: 12px;
+  color: var(--status-danger);
+}
+
 /* The checkbox was the one control still drawn entirely by the browser: a 13px
    pale box that no palette reaches, beside 14px text. `accent-color` alone only
    reaches the *checked* fill, so the box itself is drawn here.
@@ -1263,7 +1495,7 @@ input[type='checkbox'] {
 
 input[type='checkbox']:checked {
   background-color: var(--accent-primary);
-  border-color: var(--accent-primary);
+  border-color: var(--accent-strong);
 }
 
 /* Drawn rather than a glyph: a character would inherit the font, and the tick
@@ -1407,6 +1639,79 @@ td * {
 }
 
 /* ------------------------------------------------------------ feedback */
+/* A rule's conditions in the rules table: a plus to match, a minus to veto, in
+   the text's own face rather than the code's. The marks carry the colour, the
+   words stay in the text colour. */
+.rule-conditions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.rule-condition {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+.rule-condition-mark {
+  flex: none;
+  margin-top: 2px;
+  color: var(--status-success);
+}
+.rule-condition.is-excluded .rule-condition-mark {
+  color: var(--status-danger);
+}
+.rule-condition-except {
+  color: var(--text-muted);
+}
+
+/* What a try of the typed values answered, inside the dialog that typed them.
+   A line, not a banner: the screen's outcome is the banner, behind the dialog. */
+.probe-ok {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  font-size: 13px;
+  color: var(--status-success);
+}
+
+/* An address that opens the Arr's own interface. Underlined in the border
+   colour so a column of addresses stays quiet until one is pointed at. */
+.instance-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.instance-link:hover {
+  color: var(--accent-strong);
+  text-decoration-color: currentColor;
+}
+
+/* A dialog's buttons: the way out at the start, the actions at the end, and
+   both free to wrap, so a phone-wide dialog in a long language keeps every
+   button inside it. */
+.dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+/* At the end of whichever line it lands on: wrapped under Cancel on a phone,
+   the actions otherwise sit at the start, where Cancel is. */
+.dialog-actions > div {
+  flex-wrap: wrap;
+  margin-inline-start: auto;
+}
+
 /* The editor's live validation: one banner per issue, no bullets. */
 .validation-issues {
   list-style: none;
@@ -1453,6 +1758,20 @@ td * {
 }
 .banner-success > svg {
   color: var(--status-success);
+}
+/* The sentence first, the buttons after it: where both do not fit, on a
+   phone or in a long language, the buttons move under the sentence rather
+   than past the edge of the banner. After `.banner`, whose stripe it
+   recolours with the same specificity. */
+.banner-guide {
+  flex-wrap: wrap;
+  border-inline-start-color: var(--accent-strong);
+}
+.banner-guide > .flex-1 {
+  flex: 1 1 16rem;
+}
+.banner-guide > svg {
+  color: var(--accent-strong);
 }
 
 /* The warnings a block enumerates. Plain text rather than one banner each: the
@@ -1526,30 +1845,23 @@ td * {
   color: var(--status-danger);
 }
 
-/* One ramp, two shapes. `--mix` is set per element by the component, which is
-   what makes the formula shareable at all: an unregistered custom property
-   inside a colour function is invalid at computed-value time, so the
-   arithmetic cannot live in the `calc()` here. */
-.confidence-dot,
-.confidence-fill {
-  --confidence-ramp: color-mix(in oklab, var(--status-success) var(--mix), var(--text-muted));
-}
-
 /* The mark a table column has room for.
  *
  * The meter below is for the explanation panel, where it has 150px. A column
  * gives it 28px after the figure, which measures nothing and reads as a smudge.
- * The dot carries the same ramp at a size the column cannot take away.
- *
- * Muted to success, not warning to success: starting at the warning colour made
- * an ordinary two-condition rule look like a problem, which is the claim the
- * three bands used to make in another form. */
+ * The dot says the same thing in intensity, muted to the accent of the meter,
+ * at a size the column cannot take away. A ramp claims no category:
+ * `confidence_for` scales differently per match mode, an `all` rule with one
+ * condition is 60% and an `any` rule with two is 53%, so no threshold can
+ * order them. `--mix` is set per element by the component: an unregistered
+ * custom property inside a colour function is invalid at computed-value time,
+ * so the arithmetic cannot live in a `calc()` here. */
 .confidence-dot {
   width: 7px;
   height: 7px;
   flex: none;
   border-radius: var(--radius-full);
-  background-color: var(--confidence-ramp);
+  background-color: color-mix(in oklab, var(--accent-primary) var(--mix), var(--text-muted));
 }
 
 /* Nothing agreed: the one value that asks for something. */
@@ -1557,30 +1869,19 @@ td * {
   background-color: var(--status-danger);
 }
 
+/* The same bar as the guide's progress: its length is the value, and one
+   colour for every value claims no good or bad of its own. */
 .confidence-track {
   flex: 1;
   min-width: 28px;
-  height: 4px;
-  border-radius: var(--radius-xs);
-  background-color: var(--facet-bar);
-  overflow: hidden;
 }
 
-/* A ramp, not three bands.
- *
- * `confidence_for` scales differently per match mode — an `all` rule with one
- * condition is 60%, an `any` rule with two is 53% — so no percentage threshold
- * can order them, and the old bands painted an ordinary two-condition rule as
- * a warning. Mixed in oklab from the tokens, so both themes follow and the
- * fill is never one of the four saturated status hues at full strength.
- */
 .confidence-fill {
   /* Stated: the element is a `<span>`, and an inline box ignores both width
-     and height — the fill computed its colour correctly and drew nothing. */
+     and height, so the fill would draw nothing. */
   display: block;
   height: 100%;
-  border-radius: var(--radius-xs);
-  background-color: var(--confidence-ramp);
+  background-color: var(--accent-primary);
   transition: width 0.2s ease;
 }
 
@@ -1599,8 +1900,26 @@ td * {
 }
 .condition-row .form-input,
 .condition-row .form-select {
-  padding: 7px 10px;
+  padding-block: 7px;
+  padding-inline-start: 10px;
   font-size: 13px;
+}
+/* Where a pair's selector stands, the fixed answer for a single-valued axis:
+   the same height and inset as the selector, so the values line up either way. */
+.condition-quantifier {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding-inline: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+/* The end side is set apart: a select keeps the room `select.form-select`
+   reserves for its arrow, and a padding shorthand here would draw the arrow
+   over the text, "all of" included. */
+.condition-row .form-input {
+  padding-inline-end: 10px;
 }
 
 .explain-row {
@@ -1666,10 +1985,6 @@ td * {
   min-width: 0;
 }
 .progress-track {
-  height: 6px;
-  background-color: var(--bg-input);
-  border-radius: var(--radius-full);
-  overflow: hidden;
   min-width: 90px;
 }
 .progress-fill {
@@ -1765,6 +2080,14 @@ td * {
 .tab.active {
   color: var(--accent-strong);
   border-bottom-color: var(--accent-strong);
+}
+
+/* A tab holding a value Save waits on: from another tab, the field is out of
+   sight. The tab's name says it in words. */
+.tab-flag {
+  margin-inline-start: 6px;
+  vertical-align: -2px;
+  color: var(--status-danger);
 }
 
 /* The strip carries a roving tab order, so the focus ring is the only thing
@@ -2052,7 +2375,8 @@ td * {
      the credential field beside them measured 51px — narrower than the word
      it holds — while "Disable" was clipped 50px outside its own row. The
      document never scrolled, so nothing but a measurement showed it. */
-  .source-list .source-row,
+  /* Rows with a rank only: a row without one, as Diagnostics draws them, put
+     its name in the 24px lane and wrapped it over three lines. */
   .source-list .source-row:has(.source-rank) {
     grid-template-columns: 24px 1fr;
   }
@@ -2124,7 +2448,7 @@ td * {
   z-index: var(--z-modal);
   padding: 8px 14px;
   background-color: var(--accent-primary);
-  color: #111;
+  color: var(--text-on-accent);
   border-radius: var(--radius-md);
   font-weight: 600;
   text-decoration: none;
@@ -2134,9 +2458,10 @@ td * {
   top: 12px;
 }
 
-/* The target takes focus programmatically; the ring belongs on controls, not on
-   the whole page. */
-.main-content:focus {
+/* Out of the tab order, so only a script focuses it: the page after the skip
+   link, a settings panel after a save, the guide's heading. The ring belongs on
+   controls, not on a whole region. */
+[tabindex='-1']:focus {
   outline: none;
 }
 
@@ -2227,8 +2552,14 @@ td * {
 .flex-fixed-120 {
   flex: 0 0 120px;
 }
-.flex-fixed-160 {
-  flex: 0 0 160px;
+/* As wide as its caption, never narrower than 160px: a fixed width folded
+   the caption in every language longer than English. */
+.flex-fit {
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+.flex-fit > .form-label {
+  white-space: nowrap;
 }
 /* Status and source colours on an icon or a word, where the badge shape would
    be too much. */
@@ -2335,7 +2666,7 @@ td * {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-lg);
   display: flex;
   flex-direction: column;
 }
@@ -2408,8 +2739,8 @@ td * {
   background-image:
     linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
     linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
-    linear-gradient(to right, rgba(0, 0, 0, 0.35), transparent 14px),
-    linear-gradient(to left, rgba(0, 0, 0, 0.35), transparent 14px);
+    linear-gradient(to right, var(--scroll-shadow), transparent 14px),
+    linear-gradient(to left, var(--scroll-shadow), transparent 14px);
   background-position:
     0 0,
     100% 0,
@@ -2496,7 +2827,7 @@ td * {
   margin-bottom: var(--space-4);
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-inline-start: 3px solid var(--accent-primary);
+  border-inline-start: 3px solid var(--accent-strong);
   border-radius: var(--radius-md);
 }
 .headline-value {
@@ -2570,9 +2901,9 @@ td * {
   margin-top: var(--space-5);
   padding: var(--space-3) var(--space-4);
   background-color: var(--bg-card);
-  border: 1px solid var(--accent-primary);
+  border: 1px solid var(--accent-strong);
   border-radius: var(--radius-md);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-lg);
 }
 .save-bar-scope {
   color: var(--text-muted);
@@ -2797,7 +3128,7 @@ select.form-select {
   background-color: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg, 0 8px 24px rgb(0 0 0 / 35%));
+  box-shadow: var(--shadow-lg);
 }
 
 .picker-option {
@@ -2809,6 +3140,7 @@ select.form-select {
   padding: 8px 12px;
   background: none;
   border: none;
+  border-inline-start: 2px solid transparent;
   color: var(--text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -2816,9 +3148,15 @@ select.form-select {
   cursor: pointer;
 }
 
-.picker-option:hover,
-.picker-option:focus-visible {
+.picker-option:hover {
   background-color: var(--bg-card-hover);
+}
+
+/* What Enter adds, marked as the palette marks what Enter opens: the focus
+   stays in the field, so no focus ring can say it. */
+.picker-option[aria-selected='true'] {
+  background-color: var(--bg-card-hover);
+  border-inline-start-color: var(--accent-strong);
 }
 
 /* The figure is reference data, so it recedes rather than competing with the
@@ -2834,4 +3172,25 @@ select.form-select {
   padding: 8px 12px;
   color: var(--text-muted);
   font-size: 13px;
+}
+
+/* The caption over the figures, aligned with them at the end of the row. */
+.picker-head {
+  margin: 0;
+  padding: 6px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: end;
+}
+
+/* A meaning over the codes that share it, set like the navigation's group
+   headings so it reads as a heading and not as a choice. */
+.picker-group-title {
+  margin: 0;
+  padding: 8px 12px 2px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }

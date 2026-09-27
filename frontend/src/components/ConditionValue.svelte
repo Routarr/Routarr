@@ -16,6 +16,7 @@
     suggestions = [],
     suggestionsLoading = false,
     suggestionsError = null,
+    describedBy,
     onChange,
   }: {
     spec?: ConditionSpec;
@@ -26,6 +27,8 @@
     suggestions?: Facet[];
     suggestionsLoading?: boolean;
     suggestionsError?: string | null;
+    /// The element that qualifies a list, as the fixed "any of" beside it.
+    describedBy?: string;
     onChange: (value: unknown) => void;
   } = $props();
 
@@ -55,6 +58,7 @@
   {:else if spec.value_type === 'number_list'}
     <input
       aria-label={spec.label}
+      aria-describedby={describedBy}
       class="form-input"
       placeholder={t('PlaceholderNumberList')}
       value={Array.isArray(value) ? (value as number[]).join(', ') : ''}
@@ -102,11 +106,13 @@
       options={suggestions}
       loading={suggestionsLoading}
       error={suggestionsError}
+      {describedBy}
       onChange={(values) => onChange(values)}
     />
   {:else}
     <input
       aria-label={spec.label}
+      aria-describedby={describedBy}
       class="form-input"
       placeholder={t('PlaceholderStringList')}
       value={list.join(', ')}

@@ -8,6 +8,7 @@
   import Loading from './Loading.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { downloadBlob } from '../lib/download';
+  import { handFocus } from '../lib/focus';
 
   /**
    * The archives on disk, and what can be done with them.
@@ -33,6 +34,8 @@
     }
   }
 
+  const deleteId = (index: number) => `backup-delete-${index}`;
+
   async function download(name: string) {
     // Fetched with the API key rather than linked: the archive carries the
     // master key, so it is never reachable from an unauthenticated URL.
@@ -42,14 +45,17 @@
 
 <div class="card">
   <div class="card-header">
-    <h2 class="card-title">
-      <Archive size={16} />
-      {t('Backups')}
-    </h2>
+    <div>
+      <h2 class="card-title flex items-center gap-2">
+        <Archive size={18} aria-hidden="true" />
+        {t('Backups')}
+      </h2>
+      <p class="card-note">{t('BackupsHelp')}</p>
+    </div>
   </div>
-  <p class="text-muted text-md mb-3">{t('BackupsHelp')}</p>
 
   <button
+    id="backup-now"
     type="button"
     class="btn btn-secondary"
     disabled={busy}
@@ -63,7 +69,9 @@
     {t('BackupNow')}
   </button>
 
-  {#if backups.loading}
+  <!-- The first load only: a reload that swapped the rows for a spinner would
+       take the focus with them. -->
+  {#if backups.loading && backups.data === null}
     <Loading />
   {:else if (backups.data?.backups.length ?? 0) === 0}
     <p class="text-muted mt-4">{t('NoBackupsYet')}</p>
@@ -75,7 +83,7 @@
            reached when there is data, but the `{:else}` cannot tell the
            compiler that, and an assertion is a claim nothing rechecks if the
            condition above it ever changes. -->
-      {#each backups.data?.backups ?? [] as file (file.name)}
+      {#each backups.data?.backups ?? [] as file, index (file.name)}
         <div class="flex gap-2 items-center">
           <div class="flex-1">
             <span class="mono text-md">{file.name}</span>
@@ -90,7 +98,7 @@
             type="button"
             class="btn btn-secondary btn-sm"
             disabled={busy}
-            aria-label="{t('DownloadBackup')} {file.name}"
+            aria-label="{t('DownloadBackup')} – {file.name}"
             onclick={() =>
               run(async () => {
                 await download(file.name);
@@ -103,7 +111,7 @@
             type="button"
             class="btn btn-secondary btn-sm"
             disabled={busy}
-            aria-label="{t('RestoreBackup')} {file.name}"
+            aria-label="{t('RestoreBackup')} – {file.name}"
             onclick={() =>
               run(async () => {
                 if (
@@ -126,10 +134,11 @@
             {t('RestoreBackup')}
           </button>
           <button
+            id={deleteId(index)}
             type="button"
             class="btn btn-secondary btn-sm"
             disabled={busy}
-            aria-label="{t('Delete')} {file.name}"
+            aria-label="{t('Delete')} – {file.name}"
             onclick={async () => {
               // Asked, because this one is the irreversible half: restoring is
               // staged and undone by not restarting, while deleting destroys the
@@ -140,6 +149,9 @@
                 await api.deleteBackup(file.name);
                 outcome.clear();
               });
+              // The archive takes its row and the pressed Delete with it: the
+              // one now in its place takes the focus, else the one before.
+              void handFocus(deleteId(index), deleteId(index - 1), 'backup-now');
             }}
           >
             <Trash2 size={14} />

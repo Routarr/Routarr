@@ -28,7 +28,7 @@ use crate::error::{AppError, AppResult};
 ///
 /// A free function rather than a closure so it can be tested without a TLS
 /// server: the property is about three fields of two URLs, and nothing else.
-fn stays_on_origin(previous: &reqwest::Url, to: &reqwest::Url) -> bool {
+pub(crate) fn stays_on_origin(previous: &reqwest::Url, to: &reqwest::Url) -> bool {
     let same_host = match (previous.host_str(), to.host_str()) {
         (Some(from), Some(to)) => from.eq_ignore_ascii_case(to),
         _ => false,

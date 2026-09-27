@@ -240,6 +240,7 @@ async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {
     let count = 5000;
     seed(&app.state.pool, count).await;
     seed_cache(&app.state.pool, count).await;
+    app.list_tmdb().await;
 
     let started = Instant::now();
     let response = app.get("/api/v1/media/facets").await;

@@ -9,6 +9,10 @@ import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
 import { FIELDS, SOURCE_KEY_SETTING } from '../lib/settings';
 import Settings from './Settings.svelte';
+import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
+import { interceptLinks } from '../lib/router.svelte';
+import { onboardingStatus } from '../test/fixtures';
+import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
 
 /**
@@ -19,15 +23,26 @@ import { answerConfirmation } from '../test/confirm';
 
 const STRINGS = {
   Settings: 'Settings',
+  RangeBetween: 'Enter a whole number from {min} to {max}.',
+  RangeAtLeast: 'Enter a whole number of {min} or more.',
+  SectionHasInvalid: '{section}: a value is outside its bounds',
+  SaveHeldInvalid: 'Save waits for every marked value to be within its bounds.',
   LiveModeWarning: 'Live mode is on',
   AutoApplyWarning: 'Automatic application is armed',
   SettingsSaved: 'Saved',
   SettingsSections: 'Sections',
   SettingsTabRouting: 'Routing',
   SettingBatchLimit: 'Batch limit',
+  SettingLogRetention: 'Log retention',
   SettingsTabAutomation: 'Automation',
   Metadata: 'Metadata',
   SettingsTabGeneral: 'General',
+  GuideTitle: 'Getting started',
+  GuideRestartText: 'Show the steps again.',
+  GuideRestart: 'Show the guide',
+  GuideLiveAction: 'Open the routing settings',
+  GuideLiveTitle: 'Turn off the global dry-run',
+  GuideOptionalDoneNext: 'Optional step done. Next: {next}',
   SettingsTabMaintenance: 'Maintenance',
   UnsavedChanges: 'Unsaved changes: {count}',
   SavesEverySection: 'Every section is saved together',
@@ -138,7 +153,9 @@ async function save(): Promise<Record<string, string>> {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  window.location.hash = '';
+  withBase(null);
+  publishOnboarding(null);
+  window.history.replaceState({}, '', '/');
 });
 
 describe('the unattended-writing warning', () => {
@@ -227,6 +244,54 @@ describe('the save bar', () => {
 
     await waitFor(() => expect(screen.queryByText('Unsaved changes: 1')).toBeNull());
   });
+
+  /**
+   * Save and Discard live in the bar, which goes once nothing is pending, and
+   * the focus with it. The open section takes it back.
+   */
+  it('hands the focus to the open section once a save takes the bar away', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    (await screen.findByRole('button', { name: 'Save' })).focus();
+
+    await save();
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')));
+  });
+
+  it('hands the focus to the open section once a discard takes the bar away', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    const discard = await screen.findByRole('button', { name: 'Discard' });
+    discard.focus();
+
+    await fireEvent.click(discard);
+
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('tabpanel')));
+  });
+
+  /** A save sent by Enter from a field takes nothing away: the focus stays there. */
+  it('leaves the focus in the field a save was sent from', async () => {
+    const update = vi.spyOn(api, 'updateSettings').mockResolvedValue(undefined as never);
+    vi.spyOn(api, 'getLocalization').mockResolvedValue({
+      language: 'en',
+      direction: 'ltr',
+      strings: STRINGS,
+    });
+    mount({ batch_limit: '50' });
+    await openSection('Routing');
+    const field = await screen.findByLabelText('Batch limit');
+    await fireEvent.input(field, { target: { value: '25' } });
+    field.focus();
+
+    await fireEvent.submit(field.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull());
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(field);
+  });
 });
 
 describe('the metadata sources', () => {
@@ -257,9 +322,9 @@ describe('the metadata sources', () => {
     mount({ metadata_providers: 'arr' });
     await openSection('Metadata');
 
-    const enable = (
-      await screen.findAllByRole('button', { name: 'Enable' })
-    )[0] as HTMLButtonElement;
+    const enable = (await screen.findByRole('button', {
+      name: 'Enable – TMDb',
+    })) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
 
     // A key typed but not yet saved counts: refusing the click then would send
@@ -336,10 +401,30 @@ describe('the metadata sources', () => {
     mount({ metadata_providers: 'tmdb' }, APIKEY_MODE, { order: ['tmdb'] });
     await openSection('Metadata');
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable – TMDb' }));
     const payload = await save();
     expect(payload).toHaveProperty('metadata_providers');
     expect(payload.metadata_providers).toBe('');
+  });
+
+  /**
+   * The shipped order is the backend's to state. A copy kept here drifts from
+   * it, and since a save sends every field, the first save of anything at all
+   * would store the copy.
+   */
+  /** Absent, or empty as an older server answers it, a list nobody chose is the server's. */
+  it.each([
+    ['absent', {}],
+    ['empty', { metadata_providers: '' }],
+  ])('shows and saves the order the server resolved when none is stored (%s)', async (_, unset) => {
+    mount({ global_dry_run: 'true', ...unset }, APIKEY_MODE, {
+      configured: true,
+      order: ['tmdb', 'arr'],
+    });
+    await openSection('Routing');
+
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
   it('separates what is active from what is switched off', async () => {
@@ -356,8 +441,8 @@ describe('the metadata sources', () => {
     mount({ metadata_providers: 'arr' });
     await openSection('Metadata');
 
-    const up = await screen.findByRole('button', { name: 'Move up Radarr / Sonarr' });
-    const down = screen.getByRole('button', { name: 'Move down Radarr / Sonarr' });
+    const up = await screen.findByRole('button', { name: 'Move up – Radarr / Sonarr' });
+    const down = screen.getByRole('button', { name: 'Move down – Radarr / Sonarr' });
     expect((up as HTMLButtonElement).disabled).toBe(true);
     expect((down as HTMLButtonElement).disabled).toBe(true);
   });
@@ -385,6 +470,7 @@ describe('housekeeping', () => {
       logs_removed: 2,
       jobs_removed: 1,
       metadata_cache_removed: 0,
+      source_identifiers_removed: 0,
       sessions_removed: 0,
     });
     mount({});
@@ -398,8 +484,20 @@ describe('housekeeping', () => {
 });
 
 describe('the section strip', () => {
+  /** A bare fragment resolves against the `<base href>`, which is the mount point. */
+  it('keeps the page address when switching sections under a mount point', async () => {
+    withBase('/routarr/');
+    window.history.replaceState({}, '', '/routarr/settings');
+    mount({});
+
+    await openSection('Routing');
+
+    expect(window.location.pathname).toBe('/routarr/settings');
+    expect(window.location.hash).toBe('#routing');
+  });
+
   it('opens the section named in the URL', async () => {
-    window.location.hash = '#metadata';
+    window.history.replaceState({}, '', '/settings#metadata');
     mount({});
 
     const tab = await screen.findByRole('tab', { name: 'Metadata' });
@@ -709,6 +807,56 @@ describe('a number outside its bounds', () => {
     expect(save.disabled).toBe(false);
     expect(field.hasAttribute('aria-invalid')).toBe(false);
   });
+
+  /**
+   * A value outside its bounds holds Save. The field names its bounds and the
+   * save bar says why Save waits, or nothing on screen says which field holds
+   * it, and a screen reader hears "invalid" only back on that very field.
+   */
+  it('says the bounds under the field, and why Save waits', async () => {
+    mount({ batch_limit: '50' });
+    await openSection('Routing');
+    const field = await screen.findByLabelText('Batch limit');
+
+    await fireEvent.input(field, { target: { value: '0' } });
+
+    expect(screen.getByText('Enter a whole number from 1 to 1000.')).toBeTruthy();
+    expect(field).toHaveAccessibleDescription(
+      expect.stringContaining('Enter a whole number from 1 to 1000.'),
+    );
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveAccessibleDescription(
+      'Save waits for every marked value to be within its bounds.',
+    );
+  });
+
+  /** A retention has no ceiling, so its bound is said as a floor. */
+  it('says an open-ended bound as a floor', async () => {
+    mount({ log_retention_days: '90' });
+    await openSection('Maintenance');
+    const field = await screen.findByLabelText('Log retention');
+
+    await fireEvent.input(field, { target: { value: '-1' } });
+
+    expect(field).toHaveAccessibleDescription(
+      expect.stringContaining('Enter a whole number of 0 or more.'),
+    );
+  });
+
+  /** From another tab, the field that holds Save is out of sight. */
+  it('marks the tab that holds a value outside its bounds', async () => {
+    mount({ batch_limit: '50' });
+    await openSection('Routing');
+    await fireEvent.input(await screen.findByLabelText('Batch limit'), {
+      target: { value: '0' },
+    });
+
+    await openSection('General');
+
+    expect(
+      screen.getByRole('tab', { name: 'Routing: a value is outside its bounds' }),
+    ).toBeTruthy();
+    expect(screen.getByRole('tab', { name: 'General' })).toBeTruthy();
+  });
 });
 
 describe('a refused save', () => {
@@ -782,5 +930,56 @@ describe('a refused save', () => {
     const payload = await save();
     expect(payload.global_dry_run).toBe('false');
     expect(payload.batch_limit).toBe('25');
+  });
+});
+
+describe('the getting-started guide', () => {
+  it('can be shown again once it was skipped', async () => {
+    publishOnboarding(onboardingStatus([], { state: 'dismissed' }));
+    const resumed = onboardingStatus();
+    const set = vi.spyOn(api, 'setOnboarding').mockResolvedValue(resumed);
+    window.history.replaceState({}, '', '/settings');
+    mount({});
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show the guide' }));
+
+    await waitFor(() => expect(set).toHaveBeenCalledWith('pending'));
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(onboarding.current).toEqual(resumed);
+  });
+
+  /** A link to another section of this page moves no route, only the fragment. */
+  it('follows the guide from the metadata section to the routing one', async () => {
+    const stop = interceptLinks();
+    try {
+      publishOnboarding(
+        onboardingStatus(['instance', 'categories', 'metadata', 'rule', 'simulation']),
+      );
+      window.history.replaceState({}, '', '/settings#metadata');
+      mount({});
+
+      await fireEvent.click(await screen.findByRole('link', { name: 'Open the routing settings' }));
+
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: 'Routing' })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        ),
+      );
+    } finally {
+      stop();
+    }
+  });
+
+  it('leads back to a guide that already shows, without writing anything', async () => {
+    publishOnboarding(onboardingStatus());
+    const set = vi.spyOn(api, 'setOnboarding');
+    window.history.replaceState({}, '', '/settings');
+    mount({});
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Show the guide' }));
+
+    await waitFor(() => expect(window.location.pathname).toBe('/'));
+    expect(set).not.toHaveBeenCalled();
   });
 });

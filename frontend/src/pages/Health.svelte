@@ -1,34 +1,38 @@
 <script lang="ts">
-  import { AlertTriangle, CheckCircle2, RefreshCw, XCircle } from '../lib/icons';
+  import { CheckCircle2, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatTimestamp } from '../api/format';
+  import { formatRelative, formatTimestamp } from '../api/format';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import Stat from '../components/Stat.svelte';
+  import BannerList from '../components/BannerList.svelte';
+  import InstanceStatus from '../components/InstanceStatus.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   const report = createAsync((signal) => api.getHealth(undefined, signal));
   const health = $derived(report.data);
 </script>
 
-{#if report.loading && !health}
-  <Loading label={t('RunningDiagnostics')} />
-{:else}
-  <div>
-    <div class="page-header">
-      <div>
-        <h1 class="page-title">{t('Diagnostics')}</h1>
-        <p class="page-subtitle">{t('DiagnosticsSubtitle')}</p>
-      </div>
+<div>
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">{t('Diagnostics')}</h1>
+      <p class="page-subtitle">{t('DiagnosticsSubtitle')}</p>
+    </div>
+    <div class="flex gap-2">
       <button class="btn btn-secondary" onclick={() => void report.reload()}>
         <RefreshCw size={16} />
         {t('Recheck')}
       </button>
     </div>
+  </div>
 
+  {#if report.loading && !health}
+    <div class="card"><Loading label={t('RunningDiagnostics')} /></div>
+  {:else}
     <ErrorBanner
       message={report.error}
       onDismiss={() => (report.error = null)}
@@ -42,12 +46,11 @@
           <span>{t('AllGood')}</span>
         </div>
       {:else}
-        {#each health.warnings as warning, index (index)}
-          <div class="banner banner-warning">
-            <AlertTriangle size={16} />
-            <span>{warning}</span>
-          </div>
-        {/each}
+        <BannerList
+          tone="warning"
+          title={t('DiagnosticWarnings', { count: health.warnings.length })}
+          items={health.warnings.map((warning) => ({ text: warning.message }))}
+        />
       {/if}
 
       <div class="metrics">
@@ -91,21 +94,7 @@
                         {instance.instance_type}
                       </span>
                     </td>
-                    <td>
-                      {#if instance.status === 'connected'}
-                        <span class="flex items-center gap-2 text-success">
-                          <CheckCircle2 size={14} />
-                          {t('Connected')}
-                        </span>
-                      {:else if instance.status === 'disabled'}
-                        <span class="text-muted">{t('Disabled')}</span>
-                      {:else}
-                        <span class="flex items-center gap-2 text-danger">
-                          <XCircle size={14} />
-                          {instance.status}
-                        </span>
-                      {/if}
-                    </td>
+                    <td><InstanceStatus status={instance.status} /></td>
                     <td class="mono">{instance.version ?? t('None')}</td>
                     <td>{instance.media_count}</td>
                     <td>
@@ -114,8 +103,11 @@
                            reason this number was ever painted red. -->
                       <span class="num">{instance.mapped_root_folders}</span>
                     </td>
-                    <td class="text-muted mono text-sm">
-                      {formatTimestamp(instance.last_sync, i18n.language, t('Never'))}
+                    <td
+                      class="cell-timestamp"
+                      title={formatTimestamp(instance.last_sync, i18n.language, '')}
+                    >
+                      {formatRelative(instance.last_sync, i18n.language, t('Never'))}
                     </td>
                   </tr>
                 {/each}
@@ -182,5 +174,5 @@
         </div>
       </div>
     {/if}
-  </div>
-{/if}
+  {/if}
+</div>

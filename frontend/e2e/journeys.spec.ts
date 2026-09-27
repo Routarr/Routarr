@@ -46,7 +46,8 @@ test.describe('navigation', () => {
     await page.goto('/');
 
     await expect(page.locator('.sidebar-nav')).toContainText('Réglages');
-    await expect(page.locator('.topbar')).toContainText(/simulation|réel/i);
+    // The mode badge, in either mode.
+    await expect(page.locator('.topbar')).toContainText(/essai à blanc|mode réel/i);
   });
 
   test('a deep link survives a reload', async ({ page, instanceId }) => {
@@ -75,8 +76,8 @@ test.describe('navigation', () => {
     await expect(page.locator('.sidebar-nav .active')).toHaveCount(0);
 
     // Scoped: the sidebar has a link to the same place, and the way out being
-    // offered here is the one on the page.
-    await page.locator('.empty-state').getByRole('link').click();
+    // offered here is the one in the page's header, where every action is.
+    await page.locator('.page-header').getByRole('link').click();
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     expect(new URL(page.url()).pathname).toMatch(/\/$/);
   });
@@ -129,6 +130,40 @@ test.describe('picking a condition value', () => {
     const rules = (await api('/rules')) as { name: string; conditions: unknown[] }[];
     const saved = rules.find((rule) => rule.name === 'Animated');
     expect(saved?.conditions).toEqual([{ type: 'genre_contains', value: ['Animation'] }]);
+  });
+
+  /**
+   * The editor is a modal dialog, where an Escape nobody claims closes it and
+   * the draft with it. Folding the suggestions is what Escape does in a picker.
+   */
+  test('Escape in a picker folds its list and keeps the draft', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.goto('/rules');
+    await page.getByRole('button', { name: 'New Rule' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog
+      .locator('.form-group')
+      .filter({ hasText: 'Rule name' })
+      .first()
+      .locator('input')
+      .fill('Draft');
+    await dialog
+      .locator('.form-group')
+      .filter({ hasText: 'Conditions (all of)' })
+      .first()
+      .locator('select')
+      .selectOption('genre_contains');
+
+    const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
+    await picker.fill('anim');
+    await expect(page.getByRole('option', { name: 'Animation' })).toBeVisible();
+    await picker.press('Escape');
+
+    await expect(page.getByRole('option', { name: 'Animation' })).toHaveCount(0);
+    await expect(dialog).toBeVisible();
+    await expect(
+      dialog.locator('.form-group').filter({ hasText: 'Rule name' }).first().locator('input'),
+    ).toHaveValue('Draft');
   });
 
   /**

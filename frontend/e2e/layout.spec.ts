@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 
 import { test, expect, api } from './fixtures';
+import { SCREENS as ROUTES } from './screens';
 
 /**
  * Layout facts that only a real browser can establish. happy-dom computes no
@@ -204,7 +205,7 @@ test.describe('on a phone', () => {
           running_jobs: 2,
           pending_decisions: 12,
           failed_decisions: 3,
-          warnings: ['a', 'b', 'c', 'd'],
+          warnings: ['a', 'b', 'c', 'd'].map((message) => ({ message, guide_step: null })),
         },
       });
     });
@@ -262,22 +263,23 @@ test.describe('on a phone', () => {
   });
 });
 
-test.describe('buttons are one size', () => {
-  const PAGES = [
-    '/',
-    '/instances',
-    '/root-folders',
-    '/rules',
-    '/media',
-    '/simulation',
-    '/history',
-    '/overrides',
-    '/jobs',
-    '/logs',
-    '/health',
-    '/settings',
-  ];
+/** Every screen with a page title, which is how a sweep knows it has loaded. */
+const PAGES = [
+  '/',
+  '/instances',
+  '/root-folders',
+  '/rules',
+  '/media',
+  '/simulation',
+  '/history',
+  '/overrides',
+  '/jobs',
+  '/logs',
+  '/health',
+  '/settings',
+];
 
+test.describe('buttons are one size', () => {
   /**
    * Without a fixed height the same `btn btn-primary` renders at three sizes:
    * a flex row stretches buttons to their tallest sibling, `<label class="btn">`
@@ -323,6 +325,45 @@ test.describe('buttons are one size', () => {
     // everything the same size by accident.
     expect([...regular.keys()][0]).toBeGreaterThan([...small.keys()][0]);
   });
+});
+
+/**
+ * `select.form-select` draws its arrow over its end padding. A rule that sets
+ * the padding in one shorthand, as a compact row does, draws the arrow over
+ * the text, and "all of" reads as a glyph sitting on its last letter.
+ */
+test('every select keeps the room its arrow is drawn in', async ({ page, instanceId }) => {
+  expect(instanceId).toBeTruthy();
+  const cramped: string[] = [];
+  const measure = async (where: string) => {
+    const found = await page.locator('select.form-select').evaluateAll((selects) =>
+      selects
+        .filter((el) => el.getBoundingClientRect().width > 0)
+        .filter((el) => parseFloat(getComputedStyle(el).paddingInlineEnd) < 28)
+        .map((el) => el.getAttribute('aria-label') ?? el.id),
+    );
+    cramped.push(...found.map((name) => `${where}: ${name}`));
+  };
+
+  for (const path of PAGES) {
+    await page.goto(path);
+    await expect(page.locator('.page-title')).toBeVisible();
+    await measure(path);
+  }
+
+  // The compact selects live in the rule editor, one per condition that has a
+  // quantifier to choose.
+  await page.goto('/rules?new=1');
+  const dialog = page.getByRole('dialog');
+  await dialog
+    .locator('select')
+    .filter({ hasText: 'Add a condition' })
+    .first()
+    .selectOption('genre_contains');
+  await expect(dialog.getByRole('combobox', { name: /^How these values combine/ })).toBeVisible();
+  await measure('rule editor');
+
+  expect(cramped).toEqual([]);
 });
 
 test.describe('the chrome draws one line', () => {
@@ -529,4 +570,114 @@ test('a table with nothing to scroll has no shadow down its edges', async ({
     }
     expect(varied, `${side} edge is not flat: ${varied.join(' | ')}`).toEqual([]);
   }
+});
+
+/**
+ * One look for one thing, measured where only a browser can: while a screen
+ * loads, on a phone, and across every screen of the route table.
+ */
+test.describe('every screen draws a shared thing the same way', () => {
+  /** A screen whose title waits for its data reads as a broken page. */
+  test('every screen keeps its title while its data loads', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    // Held rather than failed, so each screen stays in its loading state. The
+    // dictionary and the sign-in mode are what any screen needs to draw at all.
+    await page.route('**/api/v1/**', async (route) => {
+      if (/\/api\/v1\/(localization|auth\/mode)/.test(route.request().url())) {
+        await route.continue();
+        return;
+      }
+      await new Promise(() => {});
+    });
+    for (const path of ROUTES) {
+      await page.goto(path);
+      await expect(page.locator('.page-title'), path).toBeVisible();
+    }
+  });
+
+  /** The primary colour says what the screen is for, which is one thing. */
+  test('every screen offers at most one primary action', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    const { state } = (await api('/onboarding')) as { state: string };
+    try {
+      for (const shown of ['done', 'pending']) {
+        await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: shown }) });
+        for (const path of ROUTES) {
+          await page.goto(path);
+          await expect(page.locator('.page-title')).toBeVisible();
+          const primary = await page.locator('.btn-primary:visible').count();
+          expect(primary, `${path} with the guide ${shown}`).toBeLessThanOrEqual(1);
+        }
+      }
+    } finally {
+      await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state }) });
+    }
+  });
+
+  /** A row without a rank keeps its name in the wide lane. */
+  test('a source name on Diagnostics holds one line on a phone', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/health');
+    const names = page.locator('.source-row .source-name');
+    await expect(names.first()).toBeVisible();
+
+    const wrapped = await names.evaluateAll((nodes) =>
+      nodes
+        .filter((node) => {
+          const element = node as HTMLElement;
+          const before = element.getBoundingClientRect().height;
+          element.style.whiteSpace = 'nowrap';
+          const after = element.getBoundingClientRect().height;
+          element.style.whiteSpace = '';
+          return before > after + 1;
+        })
+        .map((node) => node.textContent),
+    );
+    expect(wrapped).toEqual([]);
+  });
+
+  /** Wrapped under Cancel, the actions still end where the footer ends. */
+  test('a wrapped dialog footer keeps its actions at the end', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto('/instances?add=1');
+    const dialog = page.getByRole('dialog');
+    const footer = dialog.locator('.dialog-actions');
+    const add = footer.getByRole('button', { name: 'Add instance' });
+    await expect(add).toBeVisible();
+
+    const [footerBox, addBox] = [await footer.boundingBox(), await add.boundingBox()];
+    const gap = footerBox!.x + footerBox!.width - (addBox!.x + addBox!.width);
+    expect(Math.abs(gap), `the action ends ${gap}px before the footer`).toBeLessThanOrEqual(1);
+  });
+
+  /**
+   * A value Save waits on is marked on its field, in words under it and on its
+   * tab, since from another tab the field is out of sight. The border and the
+   * mark are what only a stylesheet draws.
+   */
+  test('marks a value outside its bounds on its field and on its tab', async ({ page }) => {
+    await page.goto('/settings#routing');
+    const field = page.getByLabel('Batch limit', { exact: true });
+    await field.fill('0');
+
+    await expect(page.getByText('Enter a whole number from 1 to 1000.')).toBeVisible();
+    const danger = await page.evaluate(() => {
+      const probe = document.createElement('span');
+      probe.style.color = 'var(--status-danger)';
+      document.body.append(probe);
+      const colour = getComputedStyle(probe).color;
+      probe.remove();
+      return colour;
+    });
+    // Polled: the border fades to its colour.
+    await expect
+      .poll(() => field.evaluate((node) => getComputedStyle(node).borderTopColor))
+      .toBe(danger);
+
+    await page.getByRole('tab', { name: 'General' }).click();
+    const tab = page.getByRole('tab', { name: 'Routing: a value is outside its bounds' });
+    await expect(tab.locator('svg')).toBeVisible();
+  });
 });

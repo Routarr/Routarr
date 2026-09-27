@@ -8,8 +8,9 @@
     LibraryFacets,
     Vocabularies,
   } from '../api/types';
-  import { t } from '../lib/i18n.svelte';
-  import { canonicalKey, nameFacets } from '../api/conditions';
+  import { i18n, t } from '../lib/i18n.svelte';
+  import { canonicalKey, localFacets, nameFacets } from '../api/conditions';
+  import { handFocus } from '../lib/focus';
   import ConditionValue from './ConditionValue.svelte';
 
   let {
@@ -51,20 +52,21 @@
   // The catalogue names the axis; this reads it off the payload. Indexed rather
   // than switched on the condition kind, so a condition added in Rust needs no
   // change here.
+  const named = $derived(facets ? localFacets(facets, i18n.language) : null);
   function facetOf(spec?: ConditionSpec): Facet[] {
-    if (!spec?.suggestions || !facets) return [];
+    if (!spec?.suggestions || !named) return [];
     // Narrowed, not widened: the name arrives from the backend so this is an
     // assertion either way, but `Record<string, Facet[]>` erased every later
     // check as well. A test vouches for the name itself.
     const axis = spec.suggestions as FacetAxis;
-    const held = facets[axis] ?? [];
+    const held = named[axis] ?? [];
     // A closed vocabulary is offered whole, the library's own values first so
     // the common answer stays at the top. Without it a language rule offers the
     // five codes that happen to be synced, and the other forty-eight have to be
     // guessed — as codes, which nobody would.
     // Only two axes have a closed vocabulary, so this indexing is partial by
     // design and the key may legitimately miss.
-    const vocabulary = facets.vocabularies[axis as keyof Vocabularies] ?? [];
+    const vocabulary = named.vocabularies[axis as keyof Vocabularies] ?? [];
     if (!vocabulary.length) return held;
 
     const seen = new Set(held.map((facet) => canonicalKey(facet.value)));
@@ -86,6 +88,16 @@
   // Only one half of each pair is offered: the other is a turn of the selector,
   // and listing both would put two entries that read alike in one picker.
   const offerable = $derived(addable.filter((spec) => spec.quantifier !== 'all'));
+
+  /**
+   * Delete takes its own row away, and can take the focus with it. The
+   * condition that moved up into its place takes it, else the picker that adds
+   * one, rather than the page behind the dialog.
+   */
+  function remove(index: number) {
+    onRemove(index);
+    void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
+  }
 </script>
 
 <!-- A caption over a *list* of controls is a group heading, not a label: a
@@ -98,6 +110,10 @@
        match mode above combines the conditions themselves. -->
   {#if list === 'conditions'}
     <p class="text-muted text-sm mt-1">{t('ConditionValuesHelp')}</p>
+  {:else}
+    <!-- What an exclusion does, under a short caption like the conditions'
+         own, rather than in a caption long enough to fold on a phone. -->
+    <p class="text-muted text-sm mt-1">{t('ExclusionsHelp')}</p>
   {/if}
 
   <div class="flex flex-col gap-2 mt-2">
@@ -116,10 +132,23 @@
             <option value="any">{t('QuantifierAny')}</option>
             <option value="all">{t('QuantifierAll')}</option>
           </select>
+        {:else if spec?.value_type === 'string_list' || spec?.value_type === 'number_list'}
+          <!-- No counterpart means the media side holds one value, so several
+               values can only be alternatives: said in words where the
+               selector would stand, or the search box after the first value
+               reads as an invitation to give a title a second language. The
+               field names it as its description, so it is heard as well. -->
+          <span class="condition-quantifier" id="rules-{list}-{index}-quantifier"
+            >{t('QuantifierAny')}</span
+          >
         {/if}
         <div class="flex-1">
           <ConditionValue
             {spec}
+            describedBy={!spec?.counterpart &&
+            (spec?.value_type === 'string_list' || spec?.value_type === 'number_list')
+              ? `rules-${list}-${index}-quantifier`
+              : undefined}
             value={condition.value}
             suggestions={facetOf(spec)}
             suggestionsLoading={facetsLoading}
@@ -128,9 +157,10 @@
           />
         </div>
         <button
+          id="rules-{list}-{index}-delete"
           type="button"
           class="btn btn-secondary btn-sm"
-          onclick={() => onRemove(index)}
+          onclick={() => remove(index)}
           aria-label="{t('Delete')} – {spec?.label ?? condition.type}"
           title={t('Delete')}
         >
@@ -141,6 +171,7 @@
   </div>
 
   <select
+    id="rules-{list}-add"
     class="form-select mt-2"
     aria-label={title}
     value=""

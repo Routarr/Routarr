@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { health, healthInstance } from '../test/fixtures';
+import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
 import HealthPage from './Health.svelte';
@@ -42,16 +42,18 @@ describe('Diagnostics', () => {
     expect(await screen.findByText('Everything checks out.')).toBeTruthy();
   });
 
-  it('lists every warning it was given, not a sample of them', async () => {
+  /** One banner, as the dashboard draws it: the count leads, the list follows. */
+  it('lists every warning it was given in one banner, not a sample of them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ warnings: ['one', 'two', 'three', 'four', 'five'] }),
+      health({ warnings: ['one', 'two', 'three', 'four', 'five'].map((each) => warning(each)) }),
     );
     const { container } = show();
 
     await screen.findByText('one');
     // The dashboard caps at three because it is a summary; this page is the
     // full list, and a cap here would hide the problem it exists to report.
-    expect(container.querySelectorAll('.banner-warning')).toHaveLength(5);
+    expect(container.querySelectorAll('.banner-warning')).toHaveLength(1);
+    expect(container.querySelectorAll('.banner-warning li')).toHaveLength(5);
     expect(screen.getByText('five')).toBeTruthy();
     expect(screen.queryByText('Everything checks out.')).toBeNull();
   });

@@ -15,6 +15,25 @@ import ModalHarness from '../test/ModalHarness.svelte';
 afterEach(() => vi.restoreAllMocks());
 
 describe('Modal', () => {
+  /**
+   * Beside a form, a stray click would throw away what was typed, so a click
+   * outside does nothing unless the caller holds nothing to lose.
+   */
+  it('closes on a click beside its content only when the caller allows it', async () => {
+    const guarded = vi.fn();
+    const { unmount } = render(ModalHarness, { label: 'Rename category', onClose: guarded });
+    await fireEvent.click(screen.getByRole('dialog'));
+    expect(guarded).not.toHaveBeenCalled();
+    unmount();
+
+    const onClose = vi.fn();
+    render(ModalHarness, { label: 'Quick search', onClose, closeOnBackdrop: true });
+    await fireEvent.click(screen.getByText('body'));
+    expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole('dialog'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('is announced as a dialog, with a name', () => {
     render(ModalHarness, { label: 'Rename category', onClose: vi.fn() });
 
@@ -105,5 +124,60 @@ describe('Modal', () => {
 
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+
+  /**
+   * The browser opens a dialog on its first focusable element, the close
+   * button in a form's header, where a reflex Enter throws the form away.
+   */
+  it('opens on the element it is told to', () => {
+    render(ModalHarness, {
+      label: 'Add instance',
+      onClose: vi.fn(),
+      initialFocus: 'harness-field',
+    });
+
+    expect(document.activeElement).toBe(screen.getByRole('textbox', { name: 'field' }));
+  });
+
+  /**
+   * A dialog a screen opens on arrival has no opener but the page. Without a
+   * fallback, closing it leaves the focus on `<body>`.
+   */
+  it('gives the focus to its fallback when the page itself opened it', () => {
+    const fallback = document.createElement('button');
+    fallback.id = 'add-instance';
+    document.body.append(fallback);
+    (document.activeElement as HTMLElement | null)?.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    const { unmount } = render(ModalHarness, {
+      label: 'Add instance',
+      onClose: vi.fn(),
+      returnFocus: 'add-instance',
+    });
+    unmount();
+
+    expect(document.activeElement).toBe(fallback);
+    fallback.remove();
+  });
+
+  it('prefers the control that opened it over its fallback', () => {
+    const opener = document.createElement('button');
+    const fallback = document.createElement('button');
+    fallback.id = 'add-instance';
+    document.body.append(opener, fallback);
+    opener.focus();
+
+    const { unmount } = render(ModalHarness, {
+      label: 'Edit instance',
+      onClose: vi.fn(),
+      returnFocus: 'add-instance',
+    });
+    unmount();
+
+    expect(document.activeElement).toBe(opener);
+    opener.remove();
+    fallback.remove();
   });
 });

@@ -111,7 +111,7 @@
   "footer.p": "Routarr, licencia GPLv3. Sin relación con el proyecto Servarr.",
   "head.description": "Routarr lleva cada película y serie a la carpeta raíz correcta en Radarr y Sonarr, según sus propias reglas. Primero en simulación, cada decisión explicada.",
   "head.description.how": "El hueco que cubre Routarr, los cuatro pasos, cómo se explica una decisión, las carpetas raíz declaradas, la ficha técnica y las objeciones.",
-  "head.og-description": "Decide a qué carpeta raíz pertenece cada película y serie, según sus reglas y los metadatos de TMDb. Primero en simulación, cada decisión explicada.",
+  "head.og-description": "Decide a qué carpeta raíz pertenece cada película y serie, según sus reglas. Primero en simulación, cada decisión explicada.",
   "head.title": "Routarr, carpeta raíz automática para Radarr y Sonarr",
   "head.title.how": "Cómo decide Routarr a qué carpeta raíz pertenece un título",
   "header.desc": "Cuatro pasos, y puede parar después del tercero",

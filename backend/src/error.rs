@@ -60,6 +60,14 @@ pub enum AppError {
         retry_after: Option<u64>,
     },
 
+    /// An Arr that is down or failing, told in the reader's language.
+    ///
+    /// A 502 like `ExternalApi`, since the caller's request was right and a
+    /// retry may get through, carrying a sentence the interface shows as it
+    /// is rather than the upstream's own text.
+    #[error("{0}")]
+    UpstreamDown(String),
+
     #[error("Configuration error: {0}")]
     Config(String),
 
@@ -103,7 +111,9 @@ impl IntoResponse for AppError {
             AppError::ConfirmationRequired { .. } => {
                 (StatusCode::CONFLICT, "confirmation_required")
             }
-            AppError::ExternalApi { .. } => (StatusCode::BAD_GATEWAY, "external_api_error"),
+            AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
+                (StatusCode::BAD_GATEWAY, "external_api_error")
+            }
             AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
@@ -116,6 +126,7 @@ impl IntoResponse for AppError {
             AppError::NotFound(message)
             | AppError::BadRequest(message)
             | AppError::Conflict(message)
+            | AppError::UpstreamDown(message)
             | AppError::ConfirmationRequired { message, .. } => message.clone(),
 
             // The underlying text is logged, never returned. `sqlx::Error`

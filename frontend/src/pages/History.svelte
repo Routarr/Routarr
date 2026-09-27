@@ -160,7 +160,7 @@
             <th>{t('Rule')}</th>
             <th class="w-90">{t('Confidence')}</th>
             <th>{t('Status')}</th>
-            <th class="w-70">{t('Actions')}</th>
+            <th class="w-70"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -171,7 +171,7 @@
           {:else}
             {#each decisions as decision (decision.id)}
               <tr class:row-muted={decision.superseded}>
-                <td class="text-muted cell-timestamp" title={decision.decided_at}>
+                <td class="cell-timestamp" title={decision.decided_at}>
                   {formatTimestamp(decision.decided_at, i18n.language)}
                   <!-- Null on rows written before the column existed, and a
                        guess there would read as a fact. -->
@@ -267,6 +267,14 @@
     <Modal label={t('Revert')} onClose={() => (reverting = null)} maxWidth={520}>
       <div class="modal-header">
         <h2 class="modal-title">{t('Revert')}</h2>
+        <button
+          class="btn btn-secondary btn-sm"
+          onclick={() => (reverting = null)}
+          aria-label={t('Dismiss')}
+          title={t('Dismiss')}
+        >
+          ✕
+        </button>
       </div>
       <p>
         {t('ConfirmRevert', {
@@ -278,11 +286,13 @@
         <input type="checkbox" bind:checked={revertFiles} />
         {t('ConfirmRevertFiles')}
       </label>
-      <div class="flex gap-2 mt-4">
+      <div class="dialog-actions">
         <button class="btn btn-secondary" onclick={() => (reverting = null)}>{t('Cancel')}</button>
-        <button class="btn btn-primary" onclick={() => void revert(target, revertFiles)}>
-          {t('Revert')}
-        </button>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn btn-primary" onclick={() => void revert(target, revertFiles)}>
+            {t('Revert')}
+          </button>
+        </div>
       </div>
     </Modal>
   {/if}

@@ -103,7 +103,7 @@ describe('Media explorer', () => {
   it('names the explain button after its row', async () => {
     show([media({ title: 'Perfect Blue' })]);
 
-    expect(await screen.findByRole('button', { name: 'Why? Perfect Blue' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Why? – Perfect Blue' })).toBeTruthy();
   });
 
   it('asks the server to explain the row that was clicked', async () => {
@@ -120,7 +120,7 @@ describe('Media explorer', () => {
     });
     show([media({ id: 'm7', title: 'Akira' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Why? Akira' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
 
     await waitFor(() => expect(explain).toHaveBeenCalledWith('m7'));
   });
@@ -174,7 +174,7 @@ describe('Media explorer', () => {
       new ApiError('The rules could not be evaluated', 409, 'conflict'),
     );
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Why? Perfect Blue' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Perfect Blue' }));
 
     expect(await screen.findByText('The rules could not be evaluated')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
@@ -195,7 +195,7 @@ describe('Media explorer', () => {
         winning_rule: 'Japanese',
         rule_traces: [],
       });
-    const why = await screen.findByRole('button', { name: 'Why? Perfect Blue' });
+    const why = await screen.findByRole('button', { name: 'Why? – Perfect Blue' });
     await fireEvent.click(why);
     expect(await screen.findByText('The rules could not be evaluated')).toBeTruthy();
 

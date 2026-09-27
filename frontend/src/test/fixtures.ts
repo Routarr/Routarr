@@ -1,4 +1,13 @@
-import type { Decision, Health, Instance, Job, MediaListItem } from '../api/types';
+import type {
+  Decision,
+  Health,
+  Instance,
+  Job,
+  MediaListItem,
+  OnboardingStatus,
+  OnboardingStep,
+  Warning,
+} from '../api/types';
 
 let counter = 0;
 
@@ -164,6 +173,37 @@ export function media(over: Partial<MediaListItem> = {}): MediaListItem {
     computed_category: 'anime',
     override_category: null,
     has_metadata: true,
+    ...over,
+  };
+}
+
+/** A warning as `/status` and `/health` send it, restating a guide step or none. */
+export function warning(message: string, guideStep: OnboardingStep['id'] | null = null): Warning {
+  return { message, guide_step: guideStep };
+}
+
+/** A guide state with the named steps done, pending unless said otherwise. */
+export function onboardingStatus(
+  done: OnboardingStep['id'][] = [],
+  over: Partial<OnboardingStatus> = {},
+): OnboardingStatus {
+  const ids: OnboardingStep['id'][] = [
+    'instance',
+    'categories',
+    'metadata',
+    'rule',
+    'simulation',
+    'live',
+  ];
+  const steps = ids.map((id) => ({
+    id,
+    done: done.includes(id),
+    optional: id === 'metadata' || id === 'live',
+  }));
+  return {
+    state: 'pending',
+    complete: steps.every((step) => step.done || step.optional),
+    steps,
     ...over,
   };
 }

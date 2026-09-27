@@ -8,7 +8,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
   /** Backend enum values are lower-case; the dictionary keys are PascalCase. */
@@ -47,10 +47,12 @@
       <h1 class="page-title">{t('Tasks')}</h1>
       <p class="page-subtitle">{t('TasksSubtitle')}</p>
     </div>
-    <button class="btn btn-secondary" onclick={() => void jobsPage.reload()}>
-      <RefreshCw size={16} />
-      {t('Refresh')}
-    </button>
+    <div class="flex gap-2">
+      <button class="btn btn-secondary" onclick={() => void jobsPage.reload()}>
+        <RefreshCw size={16} />
+        {t('Refresh')}
+      </button>
+    </div>
   </div>
 
   <ErrorBanner
@@ -93,7 +95,7 @@
         </thead>
         <tbody>
           {#if jobsPage.loading && jobs.length === 0}
-            <tr><td colspan="7"><Loading /></td></tr>
+            <TableSkeleton columns={7} />
           {:else if jobs.length === 0}
             <tr>
               <td colspan="7"><EmptyState>{t('NoTaskYet')}</EmptyState></td>

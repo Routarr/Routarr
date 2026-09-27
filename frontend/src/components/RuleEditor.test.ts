@@ -66,15 +66,33 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
 afterEach(() => vi.restoreAllMocks());
 
 describe('RuleEditor', () => {
+  /** Opened on its close button, a form is one reflex Enter from thrown away. */
+  it('opens on the rule name', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+
+    expect(document.activeElement).toBe(await screen.findByLabelText('Rule name'));
+  });
+
   it('names a dead condition before the rule is saved, and holds Save until it is fixed', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
-      issues: [{ severity: 'error', field: 'conditions', message: 'Condition #1 has no value' }],
+      issues: [
+        {
+          severity: 'error',
+          field: 'conditions',
+          key: 'ValidationYearRangeInverted',
+          params: {},
+          message: 'Condition 1 (Year): the range is inverted',
+        },
+      ],
     });
     render();
     await touch();
 
-    await waitFor(() => expect(screen.getByText('Condition #1 has no value')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText('Condition 1 (Year): the range is inverted')).toBeInTheDocument(),
+    );
     expect(screen.getByRole('list', { name: 'Validation results' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
   });
@@ -82,7 +100,15 @@ describe('RuleEditor', () => {
   it('shows a warning without holding Save', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: true,
-      issues: [{ severity: 'warning', field: 'target_category', message: 'anime is not mapped' }],
+      issues: [
+        {
+          severity: 'warning',
+          field: 'target_category',
+          key: 'ValidationCategoryUnmapped',
+          params: {},
+          message: 'anime is not mapped',
+        },
+      ],
     });
     render();
     await touch();
@@ -115,7 +141,15 @@ describe('RuleEditor', () => {
   it('keeps speaking once an edit has been undone', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
-      issues: [{ severity: 'error', field: 'name', message: 'A rule needs a name' }],
+      issues: [
+        {
+          severity: 'error',
+          field: 'name',
+          key: 'ValidationNameEmpty',
+          params: {},
+          message: 'A rule needs a name',
+        },
+      ],
     });
     render();
 
@@ -138,7 +172,15 @@ describe('RuleEditor', () => {
   it('says nothing about a new rule until it is touched', async () => {
     const validate = vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
-      issues: [{ severity: 'error', field: 'name', message: 'A rule needs a name' }],
+      issues: [
+        {
+          severity: 'error',
+          field: 'name',
+          key: 'ValidationNameEmpty',
+          params: {},
+          message: 'A rule needs a name',
+        },
+      ],
     });
     render();
 
@@ -159,7 +201,15 @@ describe('RuleEditor', () => {
   it('speaks immediately about a rule that already exists', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
-      issues: [{ severity: 'error', field: 'target_category', message: 'anime no longer exists' }],
+      issues: [
+        {
+          severity: 'error',
+          field: 'target_category',
+          key: 'CategoryNotFound',
+          params: {},
+          message: 'anime no longer exists',
+        },
+      ],
     });
     render('rule-1');
 
@@ -187,12 +237,82 @@ describe('RuleEditor', () => {
     expect(document.querySelector('#rules-rule-name')?.hasAttribute('required')).toBe(true);
   });
 
+  /**
+   * A condition just added has no value yet. Flagged before the reader had a
+   * chance to pick one, it reads as a mistake they did not make, and it holds
+   * Save for a reason that is only the order of their clicks.
+   */
+  it('keeps quiet about a condition with no value until Save is pressed', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({
+      valid: false,
+      issues: [
+        {
+          severity: 'error',
+          field: 'conditions',
+          key: 'ValidationConditionEmpty',
+          params: {},
+          message: 'Condition 1 (Genre contains) has no value',
+        },
+      ],
+    });
+    const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
+    render();
+    await touch();
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalled());
+
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    expect(screen.queryByText('Condition 1 (Genre contains) has no value')).toBeNull();
+    expect(save).toBeEnabled();
+
+    await fireEvent.click(save);
+
+    expect(
+      await screen.findByText('Condition 1 (Genre contains) has no value'),
+    ).toBeInTheDocument();
+    expect(create).not.toHaveBeenCalled();
+    expect(save).toBeDisabled();
+  });
+
+  /** A value picked within the last debounce: Save reads the fresh verdict. */
+  it('asks again on Save, and saves a condition that has its value by then', async () => {
+    vi.spyOn(api, 'validateRule')
+      .mockResolvedValueOnce({
+        valid: false,
+        issues: [
+          {
+            severity: 'error',
+            field: 'conditions',
+            key: 'ValidationConditionEmpty',
+            params: {},
+            message: 'Condition 1 (Genre contains) has no value',
+          },
+        ],
+      })
+      .mockResolvedValue({ valid: true, issues: [] });
+    const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
+    render();
+    await touch();
+    await waitFor(() => expect(api.validateRule).toHaveBeenCalledTimes(1));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+  });
+
   /// Pressing Save on an untouched form is also asking: the answer appears
   /// there rather than through a round trip the server would only refuse.
   it('answers the first Save press instead of sending a draft it knows is refused', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({
       valid: false,
-      issues: [{ severity: 'error', field: 'name', message: 'A rule needs a name' }],
+      issues: [
+        {
+          severity: 'error',
+          field: 'name',
+          key: 'ValidationNameEmpty',
+          params: {},
+          message: 'A rule needs a name',
+        },
+      ],
     });
     const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
     render();

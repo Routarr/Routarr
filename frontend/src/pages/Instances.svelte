@@ -1,20 +1,32 @@
 <script lang="ts">
-  import { KeyRound, Link2, Plus, RefreshCw, Trash2, Wifi } from '../lib/icons';
-  import { api } from '../api/client';
+  import {
+    CheckCircle2,
+    ExternalLink,
+    KeyRound,
+    Link2,
+    Plus,
+    RefreshCw,
+    Trash2,
+    Wifi,
+  } from '../lib/icons';
+  import { ApiError, api } from '../api/client';
   import { formatRelative, formatTimestamp } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
-  import Loading from '../components/Loading.svelte';
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
+  import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { poll } from '../lib/poll.svelte';
 
   interface FormState {
     name: string;
@@ -25,10 +37,22 @@
     sync_interval_minutes: number;
   }
 
+  // Empty rather than a guess: a guessed address left in the field is saved by
+  // whoever does not notice it, and `localhost` is Routarr's own container in
+  // Docker. The example shows the shape instead, as a placeholder.
+  const EXAMPLE_URL = { radarr: 'http://radarr:7878', sonarr: 'http://sonarr:8989' } as const;
+  const SERVICE = { radarr: 'Radarr', sonarr: 'Sonarr' } as const;
+
+  // The backend clamps an interval outside these bounds, which would store a
+  // figure nobody typed: Save waits for one inside them instead.
+  const MAX_INTERVAL_MINUTES = 1440;
+  const intervalFits = (minutes: number) =>
+    Number.isInteger(minutes) && minutes >= 1 && minutes <= MAX_INTERVAL_MINUTES;
+
   const blankForm = (): FormState => ({
     name: '',
     instance_type: 'radarr',
-    base_url: 'http://localhost:7878',
+    base_url: '',
     api_key: '',
     enabled: true,
     sync_interval_minutes: 15,
@@ -64,22 +88,170 @@
   // on the URL looked like a Save button that did nothing.
   let formError = $state<string | null>(null);
 
+  // What the typed values answered, a success or a failure, kept with the
+  // values it answered for: once one of them changes, the result would vouch
+  // for values nobody tried.
+  let probe = $state<{ tried: string; ok: boolean; text: string } | null>(null);
+  let probing = $state(false);
+  const typed = $derived(
+    editing
+      ? [editing.form.instance_type, editing.form.base_url, editing.form.api_key].join('\n')
+      : '',
+  );
+  const probed = $derived(probe && probe.tried === typed ? probe : null);
+  // One refusal at a time, the try's or the save's, whichever came last.
+  const refused = $derived(formError ?? (probed && !probed.ok ? probed.text : null));
+
+  // A try waits a full connect timeout on an address that does not answer,
+  // and outlives nothing: the dialog it was for may be gone by then.
+  let trying: AbortController | null = null;
+  function stopTrying() {
+    trying?.abort();
+    trying = null;
+    probing = false;
+  }
+
+  async function tryConnection() {
+    if (!editing) return;
+    const { form, id } = editing;
+    completeScheme(form);
+    const tried = typed;
+    stopTrying();
+    const attempt = new AbortController();
+    trying = attempt;
+    probing = true;
+    probe = null;
+    formError = null;
+    try {
+      const answer = await api.probeInstance(
+        { instance_type: form.instance_type, base_url: form.base_url, api_key: form.api_key, id },
+        attempt.signal,
+      );
+      if (attempt.signal.aborted) return;
+      probe = {
+        tried,
+        ok: true,
+        text: t('ConnectionOk', {
+          name: answer.app_name ?? SERVICE[form.instance_type],
+          version: answer.version,
+          folders: answer.root_folders,
+        }),
+      };
+    } catch (err) {
+      if (attempt.signal.aborted) return;
+      probe = { tried, ok: false, text: describeError(err) };
+    } finally {
+      if (trying === attempt) {
+        trying = null;
+        probing = false;
+      }
+    }
+  }
+
+  // Copied from a browser bar or typed from memory, an address often lacks its
+  // scheme, which the backend refuses, and a phone keyboard capitalises it.
+  function completeScheme(form: FormState) {
+    const address = form.base_url.trim();
+    const scheme = /^(https?):\/\//i.exec(address);
+    if (!address) form.base_url = address;
+    else if (scheme)
+      form.base_url = `${scheme[1]!.toLowerCase()}://${address.slice(scheme[0].length)}`;
+    else form.base_url = `http://${address}`;
+  }
+
+  /**
+   * Only an address the reader's browser can open is a link. A single-label
+   * host, as the container name the form recommends in Docker, resolves
+   * inside Routarr's network alone, and nothing but http runs from a click.
+   */
+  const opensInBrowser = (address: string) => {
+    const host = /^https?:\/\/(\[[^\]]+\]|[^/:?#]+)/i.exec(address)?.[1] ?? '';
+    return host.startsWith('[') || host.includes('.');
+  };
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!editing) return;
+    completeScheme(editing.form);
     formError = null;
+    let saved: Instance;
+    const wasEdit = Boolean(editing.id);
     try {
-      if (editing.id) await api.updateInstance(editing.id, editing.form);
-      else await api.createInstance(editing.form);
-      const wasEdit = Boolean(editing.id);
-      editing = null;
-      outcome.succeed(t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded'));
-      invalidateStatus();
-      await list.reload();
+      saved = editing.id
+        ? await api.updateInstance(editing.id, editing.form)
+        : await api.createInstance(editing.form);
     } catch (err) {
+      probe = null;
       formError = describeError(err);
+      return;
     }
+    editing = null;
+    const firstSync = saved.enabled && !saved.last_sync_at;
+    outcome.succeed(
+      firstSync
+        ? t('InstanceFirstSync', { name: saved.name })
+        : t(wasEdit ? 'InstanceUpdated' : 'InstanceAdded'),
+    );
+    invalidateStatus();
+    await list.reload();
+    if (firstSync) await syncFirstTime(saved);
   }
+
+  // Left to the scheduler, an instance never synced waits up to a whole pass
+  // with no library and no root folders, and the guide's first step waits with
+  // it. Synced on save, a wrong address or key also shows while the form is
+  // fresh in mind. Saved and not synced is a partial result, not a failure.
+  async function syncFirstTime(saved: Instance) {
+    busyId = saved.id;
+    try {
+      const report = await api.syncInstance(saved.id);
+      outcome.succeed(
+        t('InstanceFirstSyncDone', {
+          name: saved.name,
+          media: report.media,
+          folders: report.root_folders,
+        }),
+      );
+    } catch (err) {
+      // The server finishes a sync the browser stopped waiting for, and a
+      // large library outlasts a request. The banner saying the library is
+      // being read stays true, and the list is followed until it is.
+      if (err instanceof ApiError && err.kind === 'timeout') {
+        following = saved;
+        return;
+      }
+      outcome.warn(t('InstanceFirstSyncFailed', { name: saved.name }), [describeError(err)]);
+    } finally {
+      busyId = null;
+    }
+    invalidateStatus();
+    await list.reload();
+  }
+
+  // The first sync the browser stopped waiting for, until its attempt is
+  // recorded on the instance, which happens once it ends.
+  let following = $state<Instance | null>(null);
+  async function followFirstSync() {
+    const awaited = following;
+    if (!awaited) return;
+    await list.reload();
+    const now = list.data?.find((each) => each.id === awaited.id);
+    if (!now?.last_sync_attempt_at || following !== awaited) return;
+    following = null;
+    if (now.last_sync_status === 'success') {
+      outcome.succeed(t('InstanceFirstSyncFinished', { name: awaited.name }));
+    } else {
+      outcome.warn(t('InstanceFirstSyncFailed', { name: awaited.name }), [
+        now.last_sync_status ?? '',
+      ]);
+    }
+    invalidateStatus();
+  }
+  poll(
+    () => void followFirstSync(),
+    () => 3000,
+    () => following !== null,
+  );
 
   const syncNow = (instance: Instance) =>
     act(
@@ -133,14 +305,26 @@
     }
   }
 
-  // A dialog opens on its own form, never on the refusal of the one before.
+  // A dialog opens on its own form, never on the refusal or the try of the one
+  // before.
   function startAdd() {
+    stopTrying();
     formError = null;
+    probe = null;
     editing = { form: blankForm() };
   }
+  function close() {
+    stopTrying();
+    editing = null;
+    formError = null;
+  }
+  // The guide's "Add an instance" lands here with the dialog open.
+  if (takeQueryFlag('add')) startAdd();
 
   function startEdit(instance: Instance) {
+    stopTrying();
     formError = null;
+    probe = null;
     editing = {
       id: instance.id,
       form: {
@@ -164,7 +348,7 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('ArrInstances')}</h1>
+      <h1 class="page-title">{t('Instances')}</h1>
       <p class="page-subtitle">{t('InstancesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
@@ -176,7 +360,7 @@
         <RefreshCw size={16} class={busyId === 'all' ? 'spin' : ''} />
         {t('SyncAll')}
       </button>
-      <button class="btn btn-primary" onclick={startAdd}>
+      <button id="instances-add" class="btn btn-primary" onclick={startAdd}>
         <Plus size={16} />
         {t('AddInstance')}
       </button>
@@ -189,6 +373,7 @@
     onRetry={() => void list.reload()}
   />
   <OutcomeBanner {outcome} />
+  <GuideStepBanner step="instance" />
 
   <div class="card">
     <TableRegion label={t('ArrInstances')}>
@@ -201,14 +386,14 @@
             <th>{t('BaseUrl')}</th>
             <th>{t('ApiKey')}</th>
             <th>{t('LastSync')}</th>
-            <th class="w-230">{t('Actions')}</th>
+            <th class="w-230"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if list.loading && instances.length === 0}
-            <tr><td colspan="6"><Loading /></td></tr>
+            <TableSkeleton columns={6} />
           {:else if instances.length === 0}
-            <tr><td colspan="7"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
+            <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance (instance.id)}
               <tr class:row-muted={!instance.enabled}>
@@ -225,7 +410,23 @@
                     {instance.instance_type}
                   </span>
                 </td>
-                <td class="mono text-sm">{instance.base_url}</td>
+                <td class="mono text-sm">
+                  {#if opensInBrowser(instance.base_url)}
+                    <!-- The Arr's own interface, one click from its row. -->
+                    <a
+                      class="instance-link"
+                      href={instance.base_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      {instance.base_url}
+                      <ExternalLink size={12} aria-hidden="true" />
+                      <span class="visually-hidden">({t('OpensInNewTab')})</span>
+                    </a>
+                  {:else}
+                    {instance.base_url}
+                  {/if}
+                </td>
                 <td>
                   <!-- Encrypted is a property of the stored value, not an
                        outcome — the last green that meant something other than
@@ -286,7 +487,7 @@
                       class="btn btn-secondary btn-sm"
                       disabled={busyId !== null}
                       title={t('SyncNow')}
-                      aria-label="{t('SyncNow')} {instance.name}"
+                      aria-label="{t('SyncNow')} – {instance.name}"
                       onclick={() => void syncNow(instance)}
                     >
                       <RefreshCw size={14} class={busyId === instance.id ? 'spin' : ''} />
@@ -359,25 +560,31 @@
   {#if editing}
     {@const form = editing.form}
     {@const isEdit = Boolean(editing.id)}
+    {@const intervalOk = intervalFits(form.sync_interval_minutes)}
     <Modal
       label={t(isEdit ? 'EditInstance' : 'AddInstance')}
-      onClose={() => {
-        editing = null;
-        formError = null;
-      }}
+      onClose={close}
+      initialFocus="instances-name"
+      returnFocus="instances-add"
     >
       <div class="modal-header">
         <h2 class="modal-title">{t(isEdit ? 'EditInstance' : 'AddInstance')}</h2>
         <button
           class="btn btn-secondary btn-sm"
-          onclick={() => (editing = null)}
+          onclick={close}
           aria-label={t('Dismiss')}
           title={t('Dismiss')}
         >
           ✕
         </button>
       </div>
-      <ErrorBanner message={formError} onDismiss={() => (formError = null)} />
+      <ErrorBanner
+        message={refused}
+        onDismiss={() => {
+          formError = null;
+          probe = null;
+        }}
+      />
       <!-- `novalidate`: the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
        handler. Nothing is traded away for it — Save is held until the required
@@ -396,17 +603,14 @@
               class="form-select"
               value={form.instance_type}
               onchange={(event) => {
-                const kind = event.currentTarget.value as 'radarr' | 'sonarr';
-                form.instance_type = kind;
-                form.base_url =
-                  kind === 'radarr' ? 'http://localhost:7878' : 'http://localhost:8989';
+                form.instance_type = event.currentTarget.value as 'radarr' | 'sonarr';
               }}
             >
               <option value="radarr">Radarr ({t('Movies')})</option>
               <option value="sonarr">Sonarr ({t('Series')})</option>
             </select>
           </div>
-          <div class="form-group flex-fixed-160">
+          <div class="form-group flex-fit">
             <label class="form-label" for="instances-sync-every-minutes">
               {t('SyncEveryMinutes')}
             </label>
@@ -414,21 +618,37 @@
               id="instances-sync-every-minutes"
               type="number"
               min="1"
-              max="1440"
+              max={MAX_INTERVAL_MINUTES}
               class="form-input"
+              aria-invalid={intervalOk ? undefined : 'true'}
+              aria-describedby={intervalOk ? undefined : 'instances-sync-every-minutes-range'}
               bind:value={form.sync_interval_minutes}
             />
           </div>
         </div>
+        <!-- Under the row rather than in the interval's column: the two fields
+             share a bottom edge, which a line under one of them would break. -->
+        {#if !intervalOk}
+          <p id="instances-sync-every-minutes-range" class="field-error">
+            {t('RangeBetween', { min: 1, max: MAX_INTERVAL_MINUTES })}
+          </p>
+        {/if}
         <div class="form-group">
           <label class="form-label" for="instances-base-url">{t('BaseUrl')}</label>
           <input
             id="instances-base-url"
             class="form-input"
-            placeholder="http://radarr:7878"
+            placeholder={EXAMPLE_URL[form.instance_type]}
+            aria-describedby="instances-base-url-help"
             bind:value={form.base_url}
+            onblur={() => completeScheme(form)}
+            autocapitalize="off"
+            spellcheck="false"
             required
           />
+          <p id="instances-base-url-help" class="text-muted text-sm mt-1">
+            {t('InstanceUrlHelp', { service: SERVICE[form.instance_type] })}
+          </p>
         </div>
         <div class="form-group">
           <label class="form-label" for="instances-api-key">{t('ApiKey')}</label>
@@ -436,28 +656,55 @@
             id="instances-api-key"
             type="password"
             class="form-input"
-            placeholder={t(isEdit ? 'ApiKeyKeepHint' : 'ApiKeyWhereHint')}
+            placeholder={isEdit ? t('ApiKeyKeepHint') : undefined}
+            aria-describedby="instances-api-key-help"
             bind:value={form.api_key}
             required={!isEdit}
           />
+          <p id="instances-api-key-help" class="text-muted text-sm mt-1">
+            {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
+          </p>
         </div>
         <label class="flex items-center gap-2 text-base">
           <input type="checkbox" bind:checked={form.enabled} />
           {t('EnabledSyncedRouted')}
         </label>
-        <div class="flex justify-between mt-4">
-          <button type="button" class="btn btn-secondary" onclick={() => (editing = null)}>
+        <!-- Mounted before the answer, so filling it is a change a screen
+             reader reports. -->
+        <div role="status">
+          {#if probed?.ok}
+            <p class="probe-ok">
+              <CheckCircle2 size={16} aria-hidden="true" />
+              {probed.text}
+            </p>
+          {/if}
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="btn btn-secondary" onclick={close}>
             {t('Cancel')}
           </button>
-          <button
-            type="submit"
-            class="btn btn-primary"
-            disabled={!form.name.trim() ||
-              !form.base_url.trim() ||
-              !Number.isInteger(form.sync_interval_minutes) ||
-              form.sync_interval_minutes < 1 ||
-              (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
-          >
+          <div class="flex flex-wrap gap-2">
+            <!-- Never held while a try runs: a focused button that turns
+                 disabled drops the focus to the page, and a second press
+                 starts the try over. -->
+            <button
+              type="button"
+              class="btn btn-secondary"
+              disabled={!form.base_url.trim() || (!isEdit && !form.api_key.trim())}
+              onclick={() => void tryConnection()}
+            >
+              <Wifi size={16} class={probing ? 'spin' : ''} aria-hidden="true" />
+              {t('TestConnection')}
+            </button>
+            <button
+              type="submit"
+              class="btn btn-primary"
+              disabled={!form.name.trim() ||
+                !form.base_url.trim() ||
+                !intervalOk ||
+                (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
+            >
+          </div>
         </div>
       </form>
     </Modal>

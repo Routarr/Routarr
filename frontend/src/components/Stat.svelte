@@ -10,9 +10,13 @@
    * about what a count looks like.
    */
   let { label, value, tone }: { label: string; value: number | string; tone?: string } = $props();
+
+  // Nothing failed is not a failure: a zero in the danger colour reads as one,
+  // so the tone is the figure's only while there is something to count.
+  const shown = $derived(tone && Number(value) !== 0 ? tone : undefined);
 </script>
 
-<div class="metric{tone ? ` is-${tone}` : ''}">
+<div class="metric{shown ? ` is-${shown}` : ''}">
   <span class="metric-value">{value}</span>
   <span class="metric-label">{label}</span>
 </div>

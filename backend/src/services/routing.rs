@@ -787,6 +787,16 @@ pub async fn supersede_decisions(
     retire_pending(tx, "id", decision_ids).await
 }
 
+/// A deleted instance's proposals would move titles that no longer exist, and
+/// the dashboard would go on counting them. What was applied is history and
+/// stays: only pending proposals are retired.
+pub async fn supersede_instance_decisions(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+) -> AppResult<()> {
+    retire_pending(tx, "instance_id", &[instance_id]).await
+}
+
 /// The one statement that writes `superseded`, whichever list it is given,
 /// so a change to its chunking or its filter reaches every caller.
 async fn retire_pending(

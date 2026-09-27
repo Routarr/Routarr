@@ -2,6 +2,7 @@
   import { ArrowDown, ArrowUp } from '../lib/icons';
   import type { MetadataProvider } from '../api/types';
   import { t } from '../lib/i18n.svelte';
+  import { handFocus } from '../lib/focus';
   import { SOURCE_KEY_SETTING } from '../lib/settings';
 
   let {
@@ -44,6 +45,9 @@
 
   const emit = (ids: string[]) => onChange(ids.join(','));
 
+  const control = (providerId: string, part: 'up' | 'down' | 'toggle') =>
+    `${id}-${providerId}-${part}`;
+
   function move(index: number, by: number) {
     const next = [...enabled];
     const target = index + by;
@@ -54,6 +58,27 @@
     next[index] = to;
     next[target] = from;
     emit(next);
+    // A press that moves a row draws it again, and the pressed button with it,
+    // or leaves that button disabled at the end of the list.
+    const [ahead, back] = by < 0 ? (['up', 'down'] as const) : (['down', 'up'] as const);
+    void handFocus(control(from, ahead), control(from, back));
+  }
+
+  function disable(providerId: string) {
+    emit(enabled.filter((entry) => entry !== providerId));
+    // Its Enable refused until a key is given, the key field is what is left.
+    const setting = SOURCE_KEY_SETTING[providerId];
+    void handFocus(control(providerId, 'toggle'), setting && `setting-${setting}`);
+  }
+
+  function enable(providerId: string) {
+    emit([...enabled, providerId]);
+    // The Arr's own row has no Disable, only its place in the order.
+    void handFocus(
+      control(providerId, 'toggle'),
+      control(providerId, 'up'),
+      control(providerId, 'down'),
+    );
   }
 
   /** A source that is listed but cannot answer: it is waiting for a key. */
@@ -134,18 +159,20 @@
           </div>
           <div class="source-actions">
             <button
+              id={control(providerId, 'up')}
               type="button"
               class="btn btn-secondary btn-sm"
-              aria-label="{t('MoveUp')} {provider.display_name}"
+              aria-label="{t('MoveUp')} – {provider.display_name}"
               disabled={index === 0}
               onclick={() => move(index, -1)}
             >
               <ArrowUp size={14} />
             </button>
             <button
+              id={control(providerId, 'down')}
               type="button"
               class="btn btn-secondary btn-sm"
-              aria-label="{t('MoveDown')} {provider.display_name}"
+              aria-label="{t('MoveDown')} – {provider.display_name}"
               disabled={index === enabled.length - 1}
               onclick={() => move(index, 1)}
             >
@@ -155,9 +182,11 @@
                  and every genre rule leans on it. -->
             {#if providerId !== 'arr'}
               <button
+                id={control(providerId, 'toggle')}
                 type="button"
                 class="btn btn-secondary btn-sm"
-                onclick={() => emit(enabled.filter((entry) => entry !== providerId))}
+                aria-label="{t('DisableSource')} – {provider.display_name}"
+                onclick={() => disable(providerId)}
               >
                 {t('DisableSource')}
               </button>
@@ -192,6 +221,7 @@
         </div>
         <div class="source-actions">
           <button
+            id={control(provider.id, 'toggle')}
             type="button"
             class="btn btn-secondary btn-sm"
             /* The affordance is refused rather than the mistake explained
@@ -200,7 +230,8 @@
                then would send the reader back for a save they cannot see the
                need for. */
             disabled={unusable && !(setting && keys?.[setting]?.trim())}
-            onclick={() => emit([...enabled, provider.id])}
+            aria-label="{t('EnableSource')} – {provider.display_name}"
+            onclick={() => enable(provider.id)}
           >
             {t('EnableSource')}
           </button>

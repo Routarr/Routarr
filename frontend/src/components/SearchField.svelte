@@ -18,12 +18,15 @@
    */
   let {
     value = $bindable(),
+    id,
     placeholder,
     label,
     oninput,
     debounce = 0,
   }: {
     value: string;
+    /** For a dialog that opens on this field. */
+    id?: string;
     placeholder: string;
     /** The accessible name, which the placeholder is not: it disappears on the first keystroke. */
     label: string;
@@ -68,6 +71,7 @@
 <div class="search-field">
   <Search size={16} class="text-muted" aria-hidden="true" />
   <input
+    {id}
     class="form-input"
     type="search"
     {placeholder}

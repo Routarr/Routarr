@@ -134,7 +134,7 @@
             <th>{t('CurrentRootFolder')}</th>
             <th>{t('ProposedCategory')}</th>
             <th>{t('Metadata')}</th>
-            <th class="w-120">{t('Actions')}</th>
+            <th class="w-120"><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
@@ -191,9 +191,9 @@
                   <!-- The action is the same on every line, so it does not need
                        spelling out once per row. -->
                   <button
-                    class="btn btn-ghost btn-sm"
+                    class="btn btn-secondary btn-sm"
                     onclick={() => void explain(media)}
-                    aria-label="{t('WhyQuestion')} {media.title}"
+                    aria-label="{t('WhyQuestion')} – {media.title}"
                     title={t('WhyQuestion')}
                   >
                     <HelpCircle size={15} aria-hidden="true" />

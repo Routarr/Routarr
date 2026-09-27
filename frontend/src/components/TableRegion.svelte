@@ -13,12 +13,19 @@
    */
   let {
     label,
+    id,
     class: extra = '',
     children,
-  }: { label: string; class?: string; children: Snippet } = $props();
+  }: {
+    label: string;
+    /** For a screen that hands the focus here once the rows it held are gone. */
+    id?: string;
+    class?: string;
+    children: Snippet;
+  } = $props();
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-<div class="table-container {extra}" role="region" aria-label={label} tabindex="0">
+<div {id} class="table-container {extra}" role="region" aria-label={label} tabindex="0">
   {@render children()}
 </div>

@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use crate::jobs::scheduler;
 use crate::services::backup;
 
-use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::{TestApp, warning_messages};
 
 /// Run one tick with fresh cadence state, as the loop does on its first pass,
 /// and wait for the work it handed off — what the loop does before stopping.
@@ -449,10 +449,10 @@ async fn a_panicked_pass_is_visible_without_reading_the_log() {
 
     let after = app.get("/api/v1/status").await;
     let after = after.assert_ok();
-    let warnings = after["warnings"].as_array().unwrap();
+    let warnings = warning_messages(after);
     assert_eq!(warnings.len(), before + 1, "the badge did not count it: {warnings:?}");
     assert!(
-        warnings.iter().any(|w| w.as_str().unwrap().contains("background pass")),
+        warnings.iter().any(|w| w.contains("background pass")),
         "the warning does not say what happened: {warnings:?}"
     );
 
@@ -460,11 +460,7 @@ async fn a_panicked_pass_is_visible_without_reading_the_log() {
     let health = app.get("/api/v1/health?probe=false").await;
     let health = health.assert_ok();
     assert!(
-        health["warnings"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|w| w.as_str().unwrap().contains("background pass")),
+        warning_messages(health).iter().any(|w| w.contains("background pass")),
         "the two lists disagree"
     );
 }

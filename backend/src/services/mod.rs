@@ -1,6 +1,7 @@
 pub mod accounts;
 pub mod auto_apply;
 pub mod backup;
+pub mod connection;
 pub mod enrichment;
 pub mod executor;
 pub mod maintenance;

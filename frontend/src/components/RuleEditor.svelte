@@ -27,6 +27,7 @@
     onClose,
     onSaved,
     knownFacets = null,
+    returnFocus,
   }: {
     draft: RuleDraft;
     ruleId?: string;
@@ -36,6 +37,8 @@
     onSaved: (message: string) => Promise<void>;
     /** The library's facets, when the parent already holds them. */
     knownFacets?: LibraryFacets | null;
+    /** Where the focus goes on closing when no control opened the editor. */
+    returnFocus?: string;
   } = $props();
 
   // What the library holds, so each condition can offer its values rather than
@@ -105,7 +108,17 @@
     }, VALIDATE_DELAY_MS);
     return () => clearTimeout(timer);
   });
-  const shown = $derived(speaking ? issues : []);
+  /**
+   * A condition just added has no value yet. Said before the reader had a
+   * chance to pick one, it reads as a mistake they did not make and holds Save
+   * for a reason that is only the order of their clicks, so it waits for a
+   * Save press, which asks the question outright.
+   */
+  const EMPTY_CONDITION = 'ValidationConditionEmpty';
+  let submitted = $state(false);
+  const shown = $derived(
+    speaking ? issues.filter((issue) => submitted || issue.key !== EMPTY_CONDITION) : [],
+  );
   // Gated on the same flag as the list: a button disabled by a reason nobody is
   // shown is a dead control, which is worse than the premature complaint.
   const blocking = $derived(shown.some((issue) => issue.severity === 'error'));
@@ -173,12 +186,15 @@
     // rather than read from `issues`, which is empty for the first few hundred
     // milliseconds after mount and stays empty if the debounced call failed —
     // and falling through then would send a draft the server only refuses.
-    if (!speaking) {
+    // An empty condition held back until now is asked about again: the value
+    // may have been picked within the last debounce.
+    submitted = true;
+    if (!speaking || issues.some((issue) => issue.key === EMPTY_CONDITION)) {
       edited = true;
       const verdict = await api.validateRule(draft).catch(() => null);
       if (verdict) issues = verdict.issues;
-      if (issues.some((issue) => issue.severity === 'error')) return;
     }
+    if (issues.some((issue) => issue.severity === 'error')) return;
     busy = 'save';
     error = null;
     try {
@@ -200,7 +216,14 @@
   }
 </script>
 
-<Modal label={t(ruleId ? 'EditRule' : 'CreateRule')} {onClose} maxWidth={860} maxHeight="88vh">
+<Modal
+  label={t(ruleId ? 'EditRule' : 'CreateRule')}
+  {onClose}
+  maxWidth={860}
+  maxHeight="88vh"
+  initialFocus="rules-rule-name"
+  {returnFocus}
+>
   <div class="modal-header">
     <h2 class="modal-title">{t(ruleId ? 'EditRule' : 'CreateRule')}</h2>
     <button
@@ -376,7 +399,7 @@
       {/if}
     </div>
 
-    <div class="flex justify-between mt-4">
+    <div class="dialog-actions">
       <button type="button" class="btn btn-secondary" onclick={onClose}>{t('Cancel')}</button>
       <div class="flex gap-2">
         <button

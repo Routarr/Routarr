@@ -15,8 +15,13 @@ type Render = typeof testingLibraryRender;
  */
 export function renderWithI18n(
   component: Parameters<Render>[0],
-  options: { props?: Record<string, unknown>; strings?: Record<string, string> } = {},
+  options: {
+    props?: Record<string, unknown>;
+    strings?: Record<string, string>;
+    /** The interface language, English unless a test reads another one. */
+    language?: string;
+  } = {},
 ) {
-  seedDictionary(options.strings ?? {});
+  seedDictionary(options.strings ?? {}, options.language);
   return testingLibraryRender(component, options.props as never);
 }
