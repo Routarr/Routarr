@@ -59,10 +59,12 @@ def main() -> int:
     target = LOCALES / f"{code}.json"
     existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() else {}
     merged = {**existing, **incoming}
-    merged = {k: v for k, v in merged.items() if k in english}
+    # In the English file's order, which every dictionary follows: written
+    # sorted instead, a batch of ten keys would move every line of the file.
+    merged = {k: merged[k] for k in english if k in merged}
 
     target.write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        json.dumps(merged, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
 
