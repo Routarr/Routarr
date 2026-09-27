@@ -92,9 +92,9 @@
      radius on a 36px button is 28% of its height — the proportion of a
      consumer application rather than of an operations tool.
 
-     `--radius-full` is a closed list: the 7px kind dot, the progress bar, the
-     navigation count and the scrollbar thumb. A pill anywhere else is a badge
-     pretending to be a state. */
+     `--radius-full` is a closed list: the kind, mode and confidence dots, the
+     guide's step numbers, the navigation count and the scrollbar thumb. A pill
+     anywhere else is a badge pretending to be a state. */
   --radius-xs: 2px;
   --radius-sm: 3px;
   --radius-md: 4px;
@@ -458,9 +458,6 @@ a {
   justify-content: space-between;
   gap: var(--space-4);
   padding: 0 var(--space-6);
-  position: sticky;
-  top: 0;
-  z-index: var(--z-bar);
 }
 
 .page-container {
@@ -1160,7 +1157,7 @@ a {
   content: '';
   width: 7px;
   height: 7px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background-color: currentColor;
   flex: none;
   /* See `.mode-dot`: the label beside it is lowercase, so the dot belongs on
@@ -1534,7 +1531,6 @@ input[type='checkbox']:disabled {
   height: 100%;
   max-height: 100%;
   margin: 0;
-  padding: 0;
   border: none;
   color: inherit;
   background-color: var(--bg-overlay);
@@ -1996,9 +1992,6 @@ td * {
 }
 .text-danger {
   color: var(--status-danger);
-}
-.text-success {
-  color: var(--status-success);
 }
 .gap-1 {
   gap: 4px;
@@ -2797,7 +2790,7 @@ td * {
 .modal-content::-webkit-scrollbar-thumb,
 .action-menu-list::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   /* Transparent border rather than a margin: it is the only way to inset a
      webkit thumb, and `background-clip: content-box` is what keeps the border
      from being painted in the thumb's own colour. */

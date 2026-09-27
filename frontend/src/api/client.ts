@@ -127,7 +127,11 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 /** Long enough for a simulation over a large library, short enough to be a signal. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  read: (response: Response) => Promise<T> = (response) => response.json() as Promise<T>,
+): Promise<T> {
   const key = getApiKey();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -157,7 +161,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
   const signal = caller ? anySignal([caller, timeout]) : timeout;
   try {
-    return await exchange<T>(path, { ...options, headers, signal });
+    return await exchange<T>(path, { ...options, headers, signal }, read);
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
@@ -172,7 +176,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
  * mapped around `fetch` alone that timeout would reach the banner as the
  * browser's own untranslated sentence.
  */
-async function exchange<T>(path: string, init: RequestInit): Promise<T> {
+async function exchange<T>(
+  path: string,
+  init: RequestInit,
+  read: (response: Response) => Promise<T>,
+): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
 
   if (!res.ok) {
@@ -198,8 +206,15 @@ async function exchange<T>(path: string, init: RequestInit): Promise<T> {
   }
 
   if (res.status === 204) return undefined as T;
-  return (await res.json()) as T;
+  return read(res);
 }
+
+/**
+ * A file the API serves, fetched rather than linked: a plain `<a href>` cannot
+ * carry the key, and the download would 401 into an empty file. It has the
+ * bound and the error reading of every other request.
+ */
+const download = (path: string) => request<Blob>(path, {}, (response) => response.blob());
 
 const body = (data: unknown) => JSON.stringify(data ?? {});
 const query = (params?: Record<string, string | number | boolean | undefined>) => {
@@ -383,7 +398,7 @@ export const api = {
   /// A link the browser follows itself: the sign-in has to leave this origin,
   /// so it cannot be a fetch.
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
-  logsExportUrl: (params?: QueryParams) => `${API_BASE}/logs/export${query(params)}`,
+  exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
 
   // ---------------------------------------------------------- settings
   getSettings: (signal?: AbortSignal) => request<Settings>('/settings', { signal }),
@@ -398,18 +413,8 @@ export const api = {
       method: 'POST',
       body: body({}),
     }),
-  /// The archive carries the master key, so it is fetched with the API key like
-  /// everything else rather than linked to directly.
-  downloadBackup: async (name: string): Promise<Blob> => {
-    const key = getApiKey();
-    const response = await fetch(`${API_BASE}/backups/${encodeURIComponent(name)}`, {
-      headers: key ? { 'X-Api-Key': key } : {},
-    });
-    if (!response.ok) {
-      throw new ApiError(await response.text(), response.status, 'download_failed');
-    }
-    return response.blob();
-  },
+  /// The archive carries the master key, so it is never reachable without one.
+  downloadBackup: (name: string) => download(`/backups/${encodeURIComponent(name)}`),
   updateSettings: (settings: Settings) =>
     request<unknown>('/settings', { method: 'PUT', body: body({ settings }) }),
   getOnboarding: (signal?: AbortSignal) => request<OnboardingStatus>('/onboarding', { signal }),

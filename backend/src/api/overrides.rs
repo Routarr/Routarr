@@ -64,6 +64,7 @@ pub async fn create(
         return Err(AppError::BadRequest(format!("Category '{category}' does not exist")));
     }
 
+    let mut tx = state.pool.begin().await?;
     sqlx::query(
         "INSERT INTO overrides (id, media_id, target_category, reason, locked)
          VALUES (?, ?, ?, ?, ?)
@@ -77,14 +78,12 @@ pub async fn create(
     .bind(&category)
     .bind(&req.reason)
     .bind(req.locked)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
 
     // Any pending proposal predates this override and is now wrong.
-    sqlx::query("UPDATE decisions SET superseded = 1 WHERE media_id = ? AND status = 'pending'")
-        .bind(&req.media_id)
-        .execute(&state.pool)
-        .await?;
+    crate::services::routing::supersede_pending(&mut tx, &[&req.media_id]).await?;
+    tx.commit().await?;
 
     // Read back so the response carries the row that actually exists — on an
     // upsert the stored id is the original one, not the one just generated.
@@ -124,12 +123,10 @@ pub async fn remove(
         return Err(AppError::NotFound(format!("Override {id} not found")));
     };
 
-    sqlx::query("DELETE FROM overrides WHERE id = ?").bind(&id).execute(&state.pool).await?;
-
-    sqlx::query("UPDATE decisions SET superseded = 1 WHERE media_id = ? AND status = 'pending'")
-        .bind(&media_id)
-        .execute(&state.pool)
-        .await?;
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM overrides WHERE id = ?").bind(&id).execute(&mut *tx).await?;
+    crate::services::routing::supersede_pending(&mut tx, &[&media_id]).await?;
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

@@ -6,7 +6,7 @@ import { defineConfig, devices } from '@playwright/test';
  * catch what the unit tests structurally cannot — a route that 404s, a button
  * wired to nothing, a table that renders empty because the payload shape moved.
  *
- * The server is started by `e2e/server.ts` rather than by `webServer` here: it
+ * The server is started by `e2e/run.sh` rather than by `webServer` here: it
  * needs a throwaway database and a fake Arr on a known port, and both have to
  * be torn down afterwards.
  */

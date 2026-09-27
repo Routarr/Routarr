@@ -124,10 +124,8 @@ updates:
       # `ts.sys`), which the native 7.0 compiler does not ship — and unlike
       # `frontend/`, no aliased second install works around it.
       #
-      # Remove when withastro/roadmap discussion 1321 lands.
-      #
-      # **Remove this the day `svelte-check` accepts TypeScript 7 with a single
-      # installation.** Minor and patch updates are untouched, so an advisory
-      # against the 6.x line still arrives.
+      # Remove when withastro/roadmap discussion 1321 lands. Minor and patch
+      # updates are untouched, so an advisory against the 6.x line still
+      # arrives.
       - dependency-name: 'typescript'
         update-types: ['version-update:semver-major']

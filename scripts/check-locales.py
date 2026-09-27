@@ -78,7 +78,6 @@ def referenced_keys(text: str) -> set[str]:
     patterns = [
         r'translate\(\s*"([A-Z][A-Za-z0-9]*)"',          # Rust: localizer.translate("Key")
         r"\bt\(\s*'([A-Z][A-Za-z0-9]*)'",                 # frontend: t('Key')
-        r"translateStatic\(\s*'([A-Z][A-Za-z0-9]*)'",     # frontend, outside a component
         # The section comes first, as a literal or as a variable.
         r'ValidationIssue::(?:error|warning)\(\s*[^,()]+,\s*"([A-Z][A-Za-z0-9]*)"',
         r'"(Condition[A-Z][A-Za-z0-9]*)"',                # rule engine outcome keys

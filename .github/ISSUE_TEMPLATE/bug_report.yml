@@ -22,7 +22,7 @@ body:
       label: How to get there
       description: |
         The rule, the media item, the folders — enough to reproduce it. If a
-        decision is involved, the "why" panel on the Media screen explains it
+        decision is involved, the "why" panel on the Library screen explains it
         condition by condition and that text is exactly what is needed here.
     validations:
       required: true

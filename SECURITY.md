@@ -152,8 +152,9 @@ reach, on the invariant that no input produces a panic or a 500.
 
 Not vulnerabilities to report — decisions, with reasons.
 
-- **`style-src` keeps `'unsafe-inline'`.** Four bars draw their width from
-  data (`Confidence`, `LibraryFacets`, `Jobs`, `TableSkeleton`) and CSP does not
+- **`style-src` keeps `'unsafe-inline'`.** A few elements take a size or a
+  colour mix computed from data as an inline style (`Confidence`, `LibraryFacets`,
+  `Jobs`, `TableSkeleton`, and the size a screen hands `Modal`), and CSP does not
   distinguish a style attribute from an injected `<style>` block. Styles cannot
   exfiltrate `localStorage`; scripts can, and `script-src 'self'` allows none.
 - **The API key is a full-access credential.** Whoever holds it can download a

@@ -1,7 +1,7 @@
 name: Release
 
-# Tags only. `ci.yml` already builds the image on every push to main with
-# `push: false`, which proves the Dockerfile works; this is the one place an
+# Tags only. `docker.yml` already builds the image on every push to main and
+# every pull request with `push: false`, which proves the Dockerfile works; this is the one place an
 # image leaves the runner, and it should happen because someone tagged a
 # release rather than because someone merged.
 on:

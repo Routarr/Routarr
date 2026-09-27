@@ -131,8 +131,10 @@ test.describe('exceptions', () => {
     await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(1);
 
     // The engine must now propose `standard`, not what the rule wanted.
-    const decision = (await api('/media?search=Akira')) as { data: { id: string }[] };
-    const explained = (await api(`/media/${decision.data[0].id}/explain`)) as {
+    const found = (await api('/media?search=Akira')) as { data: { id: string }[] };
+    const [akira] = found.data;
+    if (!akira) throw new Error('Akira is not in the library');
+    const explained = (await api(`/media/${akira.id}/explain`)) as {
       target_category: string;
       override_category: string | null;
     };
@@ -155,7 +157,7 @@ test.describe('exceptions', () => {
     await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(0);
 
-    const again = (await api(`/media/${decision.data[0].id}/explain`)) as {
+    const again = (await api(`/media/${akira.id}/explain`)) as {
       target_category: string;
     };
     expect(again.target_category).toBe('anime');
@@ -190,8 +192,9 @@ test.describe('rule bundles', () => {
       await (await import('node:fs/promises')).readFile(await file.path(), 'utf-8'),
     ) as { version: number; rules: { name: string; instance_ids: unknown }[] };
     expect(bundle.version).toBe(1);
-    expect(bundle.rules.map((r) => r.name)).toContain('Round trip');
-    expect(bundle.rules[0].instance_ids ?? null).toBeNull();
+    const roundTrip = bundle.rules.find((r) => r.name === 'Round trip');
+    expect(roundTrip).toBeDefined();
+    expect(roundTrip?.instance_ids ?? null).toBeNull();
 
     // Wipe and restore through the interface.
     const rules = (await api('/rules')) as { id: string }[];

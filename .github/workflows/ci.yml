@@ -32,7 +32,7 @@ jobs:
   # Which of the three deliverables a commit touched.
   #
   # The three directories are disjoint, so a site-only commit costs neither
-  # Rust nor Playwright.
+  # the Rust jobs nor the end-to-end suite.
   #
   # **It fails open.** A base commit that cannot be resolved — force push, first
   # push to a branch, shallow fetch — runs everything: skipping too much lets a
@@ -80,7 +80,7 @@ jobs:
             fi
           }
 
-          # `scripts/` is the locale tooling, which the backend job runs.
+          # `scripts/` holds the locale and API type checks the backend job runs.
           backend=$(decide '^(backend/|scripts/|\.github/workflows/ci\.yml)')
           frontend=$(decide '^(frontend/|\.github/workflows/ci\.yml)')
           # `site/check.mjs` reads the version out of the crate's manifest, and
@@ -302,15 +302,21 @@ jobs:
         working-directory: .
         run: python3 scripts/check-locales.py
 
-      # `all: true` in vite.config.ts is load-bearing: without it v8 counts
-      # only the files a test imported, reporting a high number over a small
-      # fraction of the tree.
+      # `coverage.include` in vite.config.ts is load-bearing: without it v8
+      # counts only the files a test imported, reporting a high number over a
+      # small fraction of the tree.
       - name: Test
         run: npm run coverage
 
-      # `npm run build` runs tsc first, so this is the type check too.
+      # `npm run build` runs svelte-check first, so this is the application's
+      # type check too.
       - name: Build
         run: npm run build
+
+      # The specs have a tsconfig of their own, which the build does not read,
+      # and Playwright strips their types without checking them.
+      - name: Type-check the end-to-end specs
+        run: npx tsc -p e2e --noEmit
 
       # The two bundles every visit downloads, held to a ceiling: nothing else
       # measures them, and a size that drifts up is invisible until the

@@ -766,8 +766,9 @@ pub const BIND_CHUNK: usize = 400;
 
 /// Retire every pending proposal for these media, in place.
 ///
-/// A run supersedes what it re-evaluated, and a row that leaves the library,
-/// a full sync or a delete event, takes its proposals with it.
+/// A run supersedes what it re-evaluated, a row that leaves the library, a
+/// full sync or a delete event, takes its proposals with it, and an override
+/// set or removed makes them wrong.
 pub async fn supersede_pending(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     media_ids: &[&str],

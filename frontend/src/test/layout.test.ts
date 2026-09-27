@@ -749,3 +749,42 @@ describe('every screen names and dates things one way', () => {
     expect(names.filter((name) => !name.dashed).map((name) => name.at)).toEqual([]);
   });
 });
+
+/**
+ * A selector set twice at the top level, one property in both blocks: the later
+ * block wins, and an edit to the earlier one changes nothing on screen. A
+ * selector split into blocks by theme keeps each property in one of them.
+ */
+describe('the stylesheet sets each property of a selector once', () => {
+  it('declares no property twice for one top-level selector', () => {
+    const css = stylesheet();
+    const line = (at: number) => css.slice(0, at).split('\n').length;
+    const first = new Map<string, number>();
+    const twice: string[] = [];
+    let depth = 0;
+    let head = 0;
+    for (const brace of css.matchAll(/[{}]/g)) {
+      const at = brace.index ?? 0;
+      if (brace[0] === '{') {
+        const selector = css.slice(head, at).trim().replace(/\s+/g, ' ');
+        if (depth === 0 && !selector.startsWith('@')) {
+          const body = css.slice(at + 1, css.indexOf('}', at));
+          for (const declaration of body.split(';')) {
+            const property = declaration.split(':')[0]?.trim();
+            if (!property) continue;
+            const key = `${selector} { ${property} }`;
+            const earlier = first.get(key);
+            if (earlier === undefined) first.set(key, line(at));
+            else twice.push(`${key} at lines ${earlier} and ${line(at)}`);
+          }
+        }
+        depth += 1;
+      } else {
+        depth -= 1;
+      }
+      head = at + 1;
+    }
+    expect(first.size).toBeGreaterThan(500);
+    expect(twice).toEqual([]);
+  });
+});

@@ -16,12 +16,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # `curl | bash` of unpinned code run as root in an image that pins every other
 # tool it installs.
 #
-# The setup script exits 0 when its own `apt update` fails — it reports `$?`
-# from inside `if !`, which is always 0 — and leaves the repository unwritten.
-# `apt-get install nodejs` then takes Debian's package without a word, and the
-# build fails much later on `npx: not found`, naming neither the mirror nor
-# Node. The `test -f` stops it at the cause; `npx --version` checks the outcome.
-#
 # psmisc provides `fuser`, which frontend/e2e/run.sh uses to free its ports
 # before starting. A run killed before its trap fires leaves a server holding
 # one, and the next run then silently talks to the stale process instead of

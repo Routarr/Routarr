@@ -351,21 +351,6 @@ fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(security_headers))
 }
 
-/// Headers every response carries.
-///
-/// The API key lives in the browser's `localStorage`, so script injection is
-/// the vector that would hand it to someone else: `script-src 'self'` is what
-/// closes it, whatever ends up in the DOM.
-///
-/// `style-src` keeps `'unsafe-inline'` — a stated weakening. Four bars draw a
-/// width computed from data as an inline `style` attribute, and CSP does not
-/// distinguish one from an injected `<style>` block; styles cannot read
-/// `localStorage`, scripts can, and those are locked down. A per-response nonce
-/// on those four is what would close it.
-///
-/// Everything else is same-origin: the application makes no external request.
-/// `Cross-Origin-Opener-Policy` severs `window.opener`, which costs nothing
-/// while nothing calls `window.open` and holds if that changes.
 /// What a panicking handler answers.
 ///
 /// The same shape as every other error this API returns, so the interface's
@@ -382,6 +367,23 @@ pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Resp
         .into_response()
 }
 
+/// Headers every response carries.
+///
+/// The API key lives in the browser's `localStorage`, so script injection is
+/// the vector that would hand it to someone else: `script-src 'self'` is what
+/// closes it, whatever ends up in the DOM.
+///
+/// `style-src` keeps `'unsafe-inline'`, a stated weakening. A few elements take
+/// a size or a colour mix computed from data as an inline `style` attribute (the
+/// confidence meter and its dot, the facet bars, a task's progress, the table
+/// skeleton, the size a screen hands a dialog), and CSP does not distinguish one
+/// from an injected `<style>` block. Styles cannot read `localStorage`, scripts
+/// can, and those are locked down. A per-response nonce on those elements is what
+/// would close it.
+///
+/// Everything else is same-origin: the application makes no external request.
+/// `Cross-Origin-Opener-Policy` severs `window.opener`, which costs nothing
+/// while nothing calls `window.open` and holds if that changes.
 async fn security_headers(request: axum::extract::Request, next: middleware::Next) -> Response {
     use axum::http::header::{HeaderName, HeaderValue};
 

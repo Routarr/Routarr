@@ -226,8 +226,8 @@ describe('request bodies', () => {
  */
 describe('every endpoint', () => {
   /** Methods that build a URL for the browser rather than fetching one. */
-  // The backup is fetched as a blob (`downloadBackup`), not linked: no URL builder for it.
-  const URL_BUILDERS = ['logsExportUrl', 'oidcStartUrl'];
+  // Files are fetched as blobs (`downloadBackup`, `exportLogs`), not linked.
+  const URL_BUILDERS = ['oidcStartUrl'];
 
   const methods = Object.entries(api).filter(
     ([name, value]) => typeof value === 'function' && !URL_BUILDERS.includes(name),

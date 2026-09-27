@@ -967,6 +967,31 @@ async fn creating_an_override_supersedes_pending_decisions() {
     assert_eq!(pending, 0);
 }
 
+/// The proposal an override made is wrong once the override goes: the rules
+/// decide again, and a stale move would still be applied from Simulation.
+#[tokio::test]
+async fn removing_an_override_supersedes_pending_decisions() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let created = app
+        .post(
+            "/api/v1/overrides",
+            serde_json::json!({ "media_id": "m-1", "target_category": "anime" }),
+        )
+        .await
+        .assert_ok()
+        .clone();
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 1, "the override must propose a move");
+
+    let id = created["id"].as_str().unwrap();
+    app.delete(&format!("/api/v1/overrides/{id}")).await.assert_ok();
+
+    let pending = app.get("/api/v1/decisions?status=pending").await.assert_ok().clone();
+    assert_eq!(pending["pagination"]["total"], 0, "{pending}");
+}
+
 // ------------------------------------------------------------ settings
 
 #[tokio::test]

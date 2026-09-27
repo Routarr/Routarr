@@ -33,7 +33,8 @@ paths:
   `container_name` in `docker-compose.yml` and on `ROUTARR_DB_PATH`, set in the `Dockerfile`
   and again in `docker-compose.yml`.
   `scripts/smoke-image.sh` runs the copy in `ApiKeyGate.svelte` against the image, and nothing
-  checks the copies in `README.md` and `site/src/components/sections/Start.astro`.
+  checks the copies in `README.md`, `site/public/llms.txt` and
+  `site/src/components/sections/Start.astro`.
 
 ## Checks that run only in CI
 

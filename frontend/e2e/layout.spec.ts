@@ -323,7 +323,9 @@ test.describe('buttons are one size', () => {
 
     // And the two sizes are actually distinct, so this cannot pass by making
     // everything the same size by accident.
-    expect([...regular.keys()][0]).toBeGreaterThan([...small.keys()][0]);
+    const [regularHeight = 0] = regular.keys();
+    const [smallHeight = Infinity] = small.keys();
+    expect(regularHeight).toBeGreaterThan(smallHeight);
   });
 });
 

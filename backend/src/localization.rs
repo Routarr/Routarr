@@ -91,10 +91,10 @@ fn base_tag(code: &str) -> String {
 
 /// Languages shipped with this build, in the order the picker shows them.
 ///
-/// Each entry needs a matching `locales/<code>.json`; `scripts/check-locales.py`
-/// enforces that the file exists, carries no unknown key and keeps every
-/// `{placeholder}`. Untranslated keys fall back to English at runtime, so a
-/// language may ship before it is complete.
+/// Each entry embeds its `locales/<code>.json` with `include_str!`, so a missing
+/// file fails the build, and `scripts/check-locales.py` refuses a key English
+/// lacks or a changed `{placeholder}`. Untranslated keys fall back to English at
+/// runtime, so a language may ship before it is complete.
 const CATALOG: &[(Language, &str)] = &[
     (Language { code: "en", name: "English" }, include_str!("../locales/en.json")),
     (Language { code: "de", name: "Deutsch" }, include_str!("../locales/de.json")),
@@ -485,71 +485,10 @@ mod tests {
     }
 
     #[test]
-    fn no_language_defines_a_key_english_does_not() {
-        // Missing keys are allowed — they fall back to English, which is what
-        // lets a translation land incomplete. A key English does *not* have is
-        // a different thing entirely: a typo, or one left behind when the
-        // English string was renamed. It can never be reached, so it is a bug.
-        let english = dictionaries().get("en").expect("english dictionary");
-
-        for (language, _) in CATALOG {
-            if language.code == "en" {
-                continue;
-            }
-            let translated = dictionaries().get(language.code).expect("dictionary");
-
-            let extra: Vec<&String> =
-                translated.keys().filter(|key| !english.contains_key(*key)).collect();
-            assert!(extra.is_empty(), "{} has keys English does not: {extra:?}", language.code);
-        }
-    }
-
-    #[test]
-    fn placeholders_match_across_languages() {
-        // A translation that drops `{name}` would render a message missing the
-        // very value it is about.
-        let english = dictionaries().get("en").expect("english dictionary");
-
-        for (language, _) in CATALOG {
-            if language.code == "en" {
-                continue;
-            }
-            let translated = dictionaries().get(language.code).expect("dictionary");
-
-            for (key, source) in english {
-                let Some(target) = translated.get(key) else { continue };
-                // Compared as sets, as `check-locales.py` and `add-locale.py`
-                // do: a language may name a value once where English repeats
-                // it and use a pronoun after, which drops nothing.
-                let expected: std::collections::BTreeSet<_> =
-                    placeholders(source).into_iter().collect();
-                let actual: std::collections::BTreeSet<_> =
-                    placeholders(target).into_iter().collect();
-                assert_eq!(
-                    expected, actual,
-                    "{}: placeholders differ for key '{key}'",
-                    language.code
-                );
-            }
-        }
-    }
-
-    #[test]
     fn the_merged_dictionary_covers_every_english_key() {
         let english = dictionaries().get("en").expect("english dictionary");
         let merged = dictionary("fr");
         assert_eq!(merged.len(), english.len());
-    }
-
-    fn placeholders(template: &str) -> Vec<String> {
-        let mut found = Vec::new();
-        let mut rest = template;
-        while let Some(start) = rest.find('{') {
-            let Some(end) = rest[start..].find('}') else { break };
-            found.push(rest[start + 1..start + end].to_string());
-            rest = &rest[start + end + 1..];
-        }
-        found
     }
 
     /// Every job kind the registry can write must have a label.

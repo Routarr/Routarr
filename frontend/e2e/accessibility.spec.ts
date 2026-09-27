@@ -326,9 +326,10 @@ test('every screen nests its headings without skipping a level', async ({ page, 
     );
 
     levels.forEach((heading, i) => {
-      if (i > 0 && heading.level - levels[i - 1].level > 1) {
+      const previous = levels[i - 1];
+      if (previous && heading.level - previous.level > 1) {
         jumps.push(
-          `${path}: h${levels[i - 1].level} "${levels[i - 1].text}" → h${heading.level} "${heading.text}"`,
+          `${path}: h${previous.level} "${previous.text}" → h${heading.level} "${heading.text}"`,
         );
       }
     });
@@ -557,9 +558,10 @@ test('every modal names itself and every control inside it', async ({ page, inst
         Number(h.tagName[1]),
       );
       const skips = levels
-        .map((level, i) =>
-          i > 0 && level - levels[i - 1] > 1 ? `h${levels[i - 1]} → h${level}` : '',
-        )
+        .map((level, i) => {
+          const previous = levels[i - 1];
+          return previous !== undefined && level - previous > 1 ? `h${previous} → h${level}` : '';
+        })
         .filter(Boolean);
 
       return [...nameless, ...mute, ...anonymous, ...skips];
