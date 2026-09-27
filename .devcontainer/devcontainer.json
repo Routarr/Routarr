@@ -124,6 +124,23 @@
     },
     "8788": {
       "label": "Showcase site (node site/serve.mjs)"
+    },
+    "4321": {
+      "label": "Showcase site (astro dev)"
+    },
+    "4173": {
+      "label": "Vite preview of frontend/dist"
+    },
+    "9323": {
+      "label": "Playwright report and trace viewer"
     }
+  },
+  // Every port not listed is a test's: the backend suite's stand-ins bind a
+  // random one on each run, and the browser harness binds 9877 and 7979
+  // (`frontend/e2e/run.sh`). Forwarded automatically, each would stay in the
+  // Ports panel after it closed. A server started by hand on a port missing
+  // above comes up with no notification and nothing forwarded.
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
   }
 }
