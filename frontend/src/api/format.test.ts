@@ -88,8 +88,10 @@ describe('formatBytes', () => {
     expect(plain(formatBytes(5_368_709_120, 'de'))).toBe('5,0 GB');
   });
 
-  /// The settings store `zh_CN`; BCP-47 wants a hyphen, and an unfixed
-  /// underscore makes `Intl` throw rather than fall back.
+  /**
+   * The settings store `zh_CN`; BCP-47 wants a hyphen, and an unfixed
+   * underscore makes `Intl` throw rather than fall back.
+   */
   it('accepts the stored locale form', () => {
     expect(formatBytes(5_368_709_120, 'zh_CN')).toContain('5.0');
   });
@@ -194,15 +196,19 @@ describe('formatTimestamp', () => {
 });
 
 describe('formatPercent', () => {
-  /// French puts a non-breaking space before the sign and English does not,
-  /// which is why this goes through `Intl` rather than a template string.
+  /**
+   * French puts a non-breaking space before the sign and English does not,
+   * which is why this goes through `Intl` rather than a template string.
+   */
   it('writes the sign the way the language writes it', () => {
     expect(formatPercent(0.7, 'en')).toBe('70%');
     expect(formatPercent(0.7, 'fr').replace(/\u202f|\u00a0/g, ' ')).toBe('70 %');
   });
 
-  /// The underscore form is what the settings store; BCP-47 wants a hyphen,
-  /// and an unfixed `zh_CN` throws rather than falling back.
+  /**
+   * The underscore form is what the settings store; BCP-47 wants a hyphen,
+   * and an unfixed `zh_CN` throws rather than falling back.
+   */
   it('accepts the stored locale form', () => {
     expect(formatPercent(0.45, 'zh_CN')).toBe('45%');
   });

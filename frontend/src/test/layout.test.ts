@@ -227,23 +227,6 @@ describe('a row of fields survives labels of different lengths', () => {
 });
 
 /**
- * The navigation and the route table, read as source and compared.
- *
- * Nothing else joins them: a route added to `App.svelte` with no entry in the
- * sidebar is a screen only a typed URL reaches, and an entry pointing at no
- * route lands on the dashboard without a word. Both have to be deliberate, and
- * this is what makes them so.
- */
-/**
- * One search box, wherever a screen filters by typing.
- *
- * Four screens had three treatments — a magnifier at 18px on one, at 16px on
- * another, none at all on the third — and only one of them anchored its width,
- * so revealing a button beside the box shifted the whole row on the others.
- * Written out at each call site, that divergence is invisible to every other
- * check here: each screen is correct on its own.
- */
-/**
  * The application's own voice, not the browser's.
  *
  * A native constraint bubble renders in the *browser's* language whatever
@@ -273,6 +256,14 @@ describe('no form leaves the browser to do the talking', () => {
   });
 });
 
+/**
+ * One search box, wherever a screen filters by typing.
+ *
+ * A magnifier at a different size on each screen, or none, and a width anchored
+ * on one only, so that revealing a button beside the box shifts the row: written
+ * out at each call site, that divergence is invisible to every other check here,
+ * each screen being correct on its own.
+ */
 describe('every screen searches through the same box', () => {
   const searching = () =>
     pages().filter(
@@ -303,6 +294,14 @@ describe('every screen searches through the same box', () => {
   });
 });
 
+/**
+ * The navigation and the route table, read as source and compared.
+ *
+ * Nothing else joins them: a route added to `App.svelte` with no entry in the
+ * sidebar is a screen only a typed URL reaches, and an entry pointing at no
+ * route lands on the dashboard without a word. Both have to be deliberate, and
+ * this is what makes them so.
+ */
 describe('the navigation covers the route table', () => {
   const routes = () =>
     [...read('App.svelte').matchAll(/^\s*'(\/[^']*)':/gm)].map((match) => match[1] as string);

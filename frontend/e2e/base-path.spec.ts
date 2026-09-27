@@ -16,7 +16,7 @@ test('a deep link loads its assets rather than coming up blank @subpath', async 
   expect(instanceId).toBeTruthy();
   const failures: string[] = [];
   page.on('response', (r) => {
-    if (!r.ok() && !r.url().includes('fonts.g')) failures.push(`${r.status()} ${r.url()}`);
+    if (!r.ok()) failures.push(`${r.status()} ${r.url()}`);
   });
   page.on('pageerror', (e) => failures.push(`JS: ${e.message}`));
 

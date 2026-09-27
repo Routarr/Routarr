@@ -51,7 +51,6 @@ const show = () => renderWithI18n(Logs, { strings: STRINGS });
 afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
-  localStorage.clear();
 });
 
 describe('Activity log', () => {

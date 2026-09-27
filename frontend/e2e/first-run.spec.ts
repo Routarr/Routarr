@@ -37,9 +37,9 @@ test.describe('a browser with no API key', () => {
     ).toBeVisible();
     await expect(page.getByText(/set ROUTARR_API_KEY and restart/)).toBeVisible();
 
-    // Only the shell asks for anything. The twelve pages are never mounted, so
-    // none of them fires its own doomed request — a failure per page is what
-    // makes an ordinary first visit look like a broken install.
+    // Only the shell asks for anything. The pages are never mounted, so none of
+    // them fires its own doomed request: a failure per page is what makes an
+    // ordinary first visit look like a broken install.
     const pageData = refused.filter((path) =>
       /\/(media|rules|instances|decisions|overrides|jobs|logs|root-folders|backups)/.test(path),
     );

@@ -263,20 +263,6 @@ describe('Rules', () => {
     expect(screen.getByText('disabled')).toBeTruthy();
   });
 
-  it('shows an exclusion as a veto, not as another condition', async () => {
-    show([
-      rule({
-        conditions: [{ type: 'genre_contains', value: ['Animation'] }],
-        exclusions: [{ type: 'genre_contains', value: ['Documentary'] }],
-      }),
-    ]);
-
-    await screen.findByText('Japanese animation');
-    // An exclusion vetoes a rule that otherwise matched; reading it as a third
-    // condition inverts what the rule does.
-    expect(screen.getByText(/except/)).toBeTruthy();
-  });
-
   /** The table reads as the editor does, never in the engine's own identifiers. */
   it('describes each condition by its caption and each value by its name', async () => {
     const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];

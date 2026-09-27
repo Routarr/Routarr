@@ -218,10 +218,15 @@ describe('Overrides', () => {
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
     await fireEvent.click(await screen.findByText('Perfect Blue'));
+    // Not the first category, which is what the dialog would send unasked.
+    await userEvent.selectOptions(
+      await screen.findByLabelText('Force category for "Perfect Blue"'),
+      'kids',
+    );
     await fireEvent.click(await screen.findByRole('button', { name: 'Pin it' }));
 
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
-    expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'anime' });
+    expect(nthCall(create)[0]).toMatchObject({ media_id: 'm7', target_category: 'kids' });
   });
 
   /** Opened on its close button, a search is one reflex Enter from thrown away. */

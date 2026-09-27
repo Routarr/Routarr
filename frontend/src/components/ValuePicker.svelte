@@ -24,12 +24,14 @@
   }: {
     label: string;
     values: string[];
-    /// What the library carries on this axis, commonest first. Empty is a
-    /// legitimate state: nothing synced yet, or an axis no source answers.
+    /**
+     * What the library carries on this axis, commonest first. Empty is a
+     * legitimate state: nothing synced yet, or an axis no source answers.
+     */
     options: Facet[];
     loading?: boolean;
     error?: string | null;
-    /// The element that qualifies the field, as the fixed "any of" beside it.
+    /** The element that qualifies the field, as the fixed "any of" beside it. */
     describedBy?: string;
     onChange: (values: string[]) => void;
   } = $props();
@@ -43,7 +45,7 @@
   let open = $state(false);
   let root: HTMLDivElement | undefined = $state();
   let field: HTMLInputElement | undefined = $state();
-  /// The suggestion the arrows reached, or none until an arrow is pressed.
+  /** The suggestion the arrows reached, or none until an arrow is pressed. */
   let cursor = $state(-1);
 
   // Compared on the canonical key, so an option already chosen under another
@@ -77,10 +79,10 @@
     return runs;
   });
   const optionId = (index: number) => `${listId}-${index}`;
-  /// Whether the figures beside the values are counts worth a caption.
+  /** Whether the figures beside the values are counts worth a caption. */
   const counted = $derived(matches.some((option) => option.count > 0));
 
-  /// What a stored value is called, so a chip reads "Japanese (ja)" and not `ja`.
+  /** What a stored value is called, so a chip reads "Japanese (ja)" and not `ja`. */
   const shown = (value: string) =>
     options.find((option) => canonicalKey(option.value) === canonicalKey(value))?.label ?? value;
 
@@ -94,7 +96,7 @@
       ? query.trim()
       : '',
   );
-  /// Every value the list offers, in its order: the matches, then the typed text.
+  /** Every value the list offers, in its order: the matches, then the typed text. */
   const choices = $derived([...matches.map((option) => option.value), ...(custom ? [custom] : [])]);
 
   function add(value: string) {

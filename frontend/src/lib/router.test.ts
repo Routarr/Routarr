@@ -3,9 +3,9 @@ import { href, interceptLinks, isCurrent, navigate, router } from './router.svel
 import { withBase } from '../test/base';
 
 /**
- * Twelve flat routes, written rather than installed — because the mount point
- * is discovered at runtime from the `<base href>` the backend injects, and
- * every SPA router worth taking wants its base at build time.
+ * Flat routes, written rather than installed, because the mount point is
+ * discovered at runtime from the `<base href>` the backend injects, and every
+ * SPA router worth taking wants its base at build time.
  */
 
 beforeEach(() => {
@@ -92,11 +92,12 @@ describe('the href of a route', () => {
 });
 
 describe('the current entry', () => {
-  it('matches the dashboard exactly, so it is not current everywhere', () => {
-    navigate('/logs');
+  it('matches an exact entry on its own path only, not on a path under it', () => {
+    navigate('/rules/tests');
 
-    expect(isCurrent('/', true)).toBe(false);
-    expect(isCurrent('/logs')).toBe(true);
+    expect(isCurrent('/rules', true)).toBe(false);
+    expect(isCurrent('/rules')).toBe(true);
+    expect(isCurrent('/rules/tests')).toBe(true);
   });
 
   it('treats a child path as being under its section', () => {

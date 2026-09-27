@@ -58,9 +58,11 @@ export class ApiError extends Error {
   // pipeline can actually honour.
   readonly status: number;
   readonly kind: string;
-  /// The `X-Request-Id` the server answered with, so a failure on screen can be
-  /// matched to the line it left in the log. Null for a request that never
-  /// reached it.
+  /**
+   * The `X-Request-Id` the server answered with, so a failure on screen can be
+   * matched to the line it left in the log. Null for a request that never
+   * reached it.
+   */
   readonly requestId: string | null;
   /**
    * Which guardrail is asking, for a refusal that can be answered.
@@ -328,8 +330,10 @@ export const api = {
       body: body({ username, password }),
     }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
-  /// The new key comes back exactly once — there is no route that reads it
-  /// again, so a caller that drops it has to mint another.
+  /**
+   * The new key comes back exactly once — there is no route that reads it
+   * again, so a caller that drops it has to mint another.
+   */
   rotateApiKey: () => request<{ api_key: string }>('/auth/api-key', { method: 'POST' }),
   deleteApiKey: () => request<unknown>('/auth/api-key', { method: 'DELETE' }),
 
@@ -395,8 +399,10 @@ export const api = {
   // ---------------------------------------------------------- logs
   getLogs: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<LogEntry>>(`/logs${query(params)}`, { signal }),
-  /// A link the browser follows itself: the sign-in has to leave this origin,
-  /// so it cannot be a fetch.
+  /**
+   * A link the browser follows itself: the sign-in has to leave this origin,
+   * so it cannot be a fetch.
+   */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
   exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
 
@@ -413,7 +419,7 @@ export const api = {
       method: 'POST',
       body: body({}),
     }),
-  /// The archive carries the master key, so it is never reachable without one.
+  /** The archive carries the master key, so it is never reachable without one. */
   downloadBackup: (name: string) => download(`/backups/${encodeURIComponent(name)}`),
   updateSettings: (settings: Settings) =>
     request<unknown>('/settings', { method: 'PUT', body: body({ settings }) }),

@@ -21,13 +21,15 @@
   }: {
     spec?: ConditionSpec;
     value: unknown;
-    /// What the library carries on this condition's axis. Empty for a condition
-    /// the catalogue names no axis for, which is what selects the free-text
-    /// input below.
+    /**
+     * What the library carries on this condition's axis. Empty for a condition
+     * the catalogue names no axis for, which is what selects the free-text
+     * input below.
+     */
     suggestions?: Facet[];
     suggestionsLoading?: boolean;
     suggestionsError?: string | null;
-    /// The element that qualifies a list, as the fixed "any of" beside it.
+    /** The element that qualifies a list, as the fixed "any of" beside it. */
     describedBy?: string;
     onChange: (value: unknown) => void;
   } = $props();

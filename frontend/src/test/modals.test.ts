@@ -10,7 +10,7 @@ const SWEEP = path.resolve(SRC, '..', 'e2e', 'accessibility.spec.ts');
  * kept by hand is a list that stops being complete.
  *
  * It is the same shape as selecting e2e specs by filename, where a new spec is
- * silently never run: an eighth dialog added to `MODALS` by nobody is a dialog
+ * silently never run: a dialog nobody adds to `MODALS` is a dialog
  * nothing opens, and nothing would say so.
  *
  * So the source is the authority: every file that renders a `<Modal>` has to be

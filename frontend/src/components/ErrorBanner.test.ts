@@ -37,8 +37,10 @@ describe('ErrorBanner', () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  /// A write that failed must not grow a button that does it again; retry is
-  /// the caller's to offer, never the banner's to assume.
+  /**
+   * A write that failed must not grow a button that does it again; retry is
+   * the caller's to offer, never the banner's to assume.
+   */
   it('shows no retry when none was offered', () => {
     render({ message: 'Rule rejected', onDismiss: () => {} });
 

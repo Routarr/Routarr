@@ -21,7 +21,7 @@ const STRINGS = {
   AutoRefreshing: 'Refreshing',
   NoTaskYet: 'Nothing has run yet',
   JobSync: 'Library sync',
-  TriggerScheduled: 'Scheduled',
+  TriggerSchedule: 'Scheduled',
   StatusRunning: 'Running',
   StatusSuccess: 'Succeeded',
   None: '-',

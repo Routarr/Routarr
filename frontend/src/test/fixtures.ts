@@ -58,9 +58,9 @@ export function paginated<T>(
 /**
  * A health payload.
  *
- * Three screens read it — the dashboard, diagnostics and the top bar. A literal
- * built per test drifts: a field added to `Health` reaches whichever fixture the
- * author happened to open. One fixture, overridden per test, keeps them honest.
+ * Two screens read it, the dashboard and diagnostics. A literal built per test
+ * drifts: a field added to `Health` reaches whichever fixture the author
+ * happened to open. One fixture, overridden per test, keeps them honest.
  */
 export function health(over: Partial<Health> = {}): Health {
   return {
@@ -143,7 +143,7 @@ export function job(over: Partial<Job> = {}): Job {
     id: 'j1',
     kind: 'sync',
     status: 'success',
-    trigger: 'scheduled',
+    trigger: 'schedule',
     instance_id: null,
     detail: null,
     progress_current: 0,

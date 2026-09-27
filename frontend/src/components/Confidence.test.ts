@@ -58,7 +58,7 @@ describe('Confidence', () => {
     expect(mix(0.1)).toBe(0);
   });
 
-  /// Nothing agreed. The bar is empty, so it cannot say it and the figure does.
+  /** Nothing agreed. The bar is empty, so it cannot say it and the figure does. */
   it('flags the one value an empty bar cannot show', () => {
     expect(show(0).container.querySelector('.confidence-value')?.className).toContain('is-none');
     expect(show(0.45).container.querySelector('.confidence-value')?.className).not.toContain(
@@ -66,7 +66,7 @@ describe('Confidence', () => {
     );
   });
 
-  /// The mark repeats the figure in a form a screen reader has no use for.
+  /** The mark repeats the figure in a form a screen reader has no use for. */
   it('leaves the mark out of the accessibility tree', () => {
     expect(show(0.7).container.querySelector('.confidence-dot')?.getAttribute('aria-hidden')).toBe(
       'true',
@@ -76,11 +76,6 @@ describe('Confidence', () => {
     ).toBe('true');
   });
 
-  /**
-   * The meter is for the explanation panel, where it has 150px to be read in.
-   * A table column gives it 28px after the figure — a stub that measures
-   * nothing — so there the same ramp is carried by a dot instead.
-   */
   /** The guide's bar: the length is the value, in one colour for every value. */
   it('draws the meter as a length alone', () => {
     const fill = show(0.7, true).container.querySelector('.confidence-fill') as HTMLElement;
@@ -89,6 +84,11 @@ describe('Confidence', () => {
     expect(fill.style.getPropertyValue('--mix')).toBe('');
   });
 
+  /**
+   * The meter is for the explanation panel, where it has room to be read in.
+   * A table column leaves it a stub after the figure that measures nothing, so
+   * there the same ramp is carried by a dot instead.
+   */
   it('carries a meter only where there is room to read one', () => {
     const table = show(0.7).container;
     expect(table.querySelector('.confidence-track')).toBeNull();

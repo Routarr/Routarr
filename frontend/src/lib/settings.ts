@@ -20,8 +20,10 @@ export interface Field {
     | 'language'
     | 'providers'
     | 'theme'
-    /// Sealed by the backend, never returned: the field renders empty and a
-    /// companion `<key>_configured` boolean says whether one is stored.
+    /**
+     * Sealed by the backend, never returned: the field renders empty and a
+     * companion `<key>_configured` boolean says whether one is stored.
+     */
     | 'secret';
   fallback: string;
   /**

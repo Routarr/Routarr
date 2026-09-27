@@ -42,7 +42,6 @@ const show = (props: Record<string, unknown> = {}) =>
 
 afterEach(() => {
   withBase(null);
-  navigate('/', { replace: true });
   vi.restoreAllMocks();
 });
 
@@ -73,15 +72,15 @@ describe('Sidebar', () => {
   });
 
   /**
-   * The dashboard is matched exactly, without which every path starts with "/"
-   * and it is highlighted on all twelve screens.
+   * Rules is matched exactly, without which it lights up beside Rule tests,
+   * whose path sits under its own. `findByRole` throws on two current links.
    */
-  it('does not mark the dashboard current from another screen', async () => {
-    navigate('/logs', { replace: true });
+  it('marks only Rule tests current on its own screen', async () => {
+    navigate('/rules/tests', { replace: true });
     show();
 
     const current = await screen.findByRole('link', { current: 'page' });
-    expect(current.textContent).toContain('Logs');
+    expect(current.textContent).toContain('Tests');
   });
 
   it('closes the drawer when a destination is chosen', async () => {
@@ -93,8 +92,10 @@ describe('Sidebar', () => {
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });
 
-  /// The order is the argument: the screen the product exists for comes first,
-  /// and what is configured once at install goes last.
+  /**
+   * The order is the argument: the screen the product exists for comes first,
+   * and what is configured once at install goes last.
+   */
   it('opens on routing and ends on configuration', () => {
     show();
 
@@ -103,8 +104,10 @@ describe('Sidebar', () => {
     expect(links.slice(-3)).toEqual(['/instances', '/root-folders', '/settings']);
   });
 
-  /// A group of two or three is read at a glance where a list of thirteen is
-  /// scanned every time — but only if a reader is told the groups exist.
+  /**
+   * A group of two or three is read at a glance where a long list is scanned
+   * every time, but only if a reader is told the groups exist.
+   */
   it('names every group, and the navigation itself', () => {
     show();
 
@@ -114,12 +117,10 @@ describe('Sidebar', () => {
     }
   });
 
-  /// In the rail the badge is the only thing that says something is waiting,
-  /// and a zero must not draw the eye to nothing.
   /**
-   * A `<base href>` applies to relative URLs only. Left root-absolute, the
-   * left click worked because the router prefixed the mount point, and a
-   * middle-click, a ctrl-click or a copied link went to the proxy's root.
+   * A `<base href>` applies to relative URLs only. Left root-absolute, a link
+   * works on a left click, where the router prefixes the mount point, and sends
+   * a middle-click, a ctrl-click or a copied link to the proxy's root.
    */
   it('prefixes every destination with the mount point a reverse proxy adds', () => {
     withBase('/routarr/');
@@ -132,6 +133,10 @@ describe('Sidebar', () => {
     expect(links).toContain('/routarr/');
   });
 
+  /**
+   * In the rail the badge is the only thing that says something is waiting,
+   * and a zero must not draw the eye to nothing.
+   */
   it('carries each count onto the entry that answers it, and nothing when there is none', () => {
     const { unmount } = show({
       counts: { jobs: 2, decisions: 5, failed: 1, warnings: 3 },

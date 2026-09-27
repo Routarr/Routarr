@@ -442,7 +442,7 @@
                     {instance.api_key_encrypted ? t('ApiKeyEncrypted') : instance.api_key_masked}
                   </span>
                 </td>
-                <td class="cell-timestamp">
+                <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
                   <!-- Date and outcome read as one fact, so they share a line
                        rather than stacking the cell two rows tall.
                        The date is the last *success*: a failed attempt stamping

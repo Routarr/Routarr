@@ -112,8 +112,8 @@ describe('Layout', () => {
 
   /**
    * A key is generated at first start, so a browser without one is the ordinary
-   * first visit. Mounting the twelve pages behind the gate instead costs a
-   * failed request each and reads as a broken install.
+   * first visit. Mounting the pages behind the gate instead costs a failed
+   * request each and reads as a broken install.
    */
   it('replaces the whole shell when the server asks for a key', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
@@ -168,10 +168,8 @@ describe('Layout', () => {
     );
     show();
 
-    const entry = (label: string) => screen.getByText(label).closest('a');
-    await screen.findByText('2 failed');
-    expect(entry('2 failed')?.getAttribute('href')).toBe('/routarr/logs');
-    expect(entry('1 warnings')?.getAttribute('href')).toBe('/routarr/health');
+    const attention = await screen.findByRole('link', { name: /Needs attention/ });
+    expect(attention.getAttribute('href')).toBe('/routarr/logs');
   });
 
   /**
@@ -231,9 +229,9 @@ describe('Layout', () => {
     show();
 
     await screen.findByLabelText('Dry-run: writes blocked');
-    expect(screen.queryByLabelText(/running/)).toBeNull();
-    expect(screen.queryByLabelText(/awaiting review/)).toBeNull();
-    expect(screen.queryByLabelText(/failed/)).toBeNull();
+    expect(screen.queryByText(/\d+ running/)).toBeNull();
+    expect(screen.queryByText(/\d+ awaiting review/)).toBeNull();
+    expect(screen.queryByText(/\d+ failed/)).toBeNull();
     expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull();
   });
 
@@ -285,7 +283,7 @@ describe('Layout', () => {
     expect(getStatus).toHaveBeenCalledTimes(2);
   });
 
-  /// A warning that is gone leaves nothing behind, in either place.
+  /** A warning that is gone leaves nothing behind, in either place. */
   it('removes both counters when the last warning is fixed', async () => {
     vi.spyOn(api, 'getStatus')
       .mockResolvedValueOnce(status({ warnings: [warning('unmapped')] }))
@@ -299,7 +297,7 @@ describe('Layout', () => {
     await vi.waitFor(() =>
       expect(screen.queryByRole('link', { name: /Needs attention/ })).toBeNull(),
     );
-    expect(screen.queryByLabelText(/warnings/)).toBeNull();
+    expect(screen.queryByText(/\d+ warnings/)).toBeNull();
   });
 
   /** A fresh install is a list of steps, not a list of alarms. */

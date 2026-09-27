@@ -21,7 +21,6 @@ const STRINGS = {
   QuantifierAll: 'all of',
   QuantifierLabel: 'How these values combine',
   PlaceholderStringList: 'comma separated',
-  PlaceholderNumber: 'number',
 };
 
 const spec = (type: string, media_types: string[], label: string): ConditionSpec => ({

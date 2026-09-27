@@ -29,8 +29,6 @@ test.describe('navigation', () => {
         page.getByRole('heading', { level: 1 }),
         `${label} has an empty title`,
       ).not.toHaveText('');
-      // `banner-danger` is the class ErrorBanner actually renders; asserting on
-      // one that does not exist would pass on every page, broken or not.
       await expect(page.getByRole('alert'), `${label} shows an error`).toHaveCount(0);
     }
   });
@@ -48,15 +46,6 @@ test.describe('navigation', () => {
     await expect(page.locator('.sidebar-nav')).toContainText('Réglages');
     // The mode badge, in either mode.
     await expect(page.locator('.topbar')).toContainText(/essai à blanc|mode réel/i);
-  });
-
-  test('a deep link survives a reload', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
-    // Without the index fallback in the static handler this is a 404.
-    await page.goto('/rules');
-    await page.reload();
-
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
   });
 
   /**

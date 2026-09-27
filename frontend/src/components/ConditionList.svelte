@@ -30,20 +30,26 @@
     title: string;
     list: 'conditions' | 'exclusions';
     conditions: Condition[];
-    /// Every spec, for rendering what the rule already carries. Never filtered:
-    /// a rule saved before its media type narrowed still has to display, and a
-    /// condition with no spec found renders as nothing at all.
+    /**
+     * Every spec, for rendering what the rule already carries. Never filtered:
+     * a rule saved before its media type narrowed still has to display, and a
+     * condition with no spec found renders as nothing at all.
+     */
     specs: ConditionSpec[];
-    /// The subset offerable for this rule's media type. Only the add picker.
+    /** The subset offerable for this rule's media type. Only the add picker. */
     addable: ConditionSpec[];
-    /// What the library holds per axis, so a condition can offer its values
-    /// instead of asking for an exact spelling. Absent while it loads.
+    /**
+     * What the library holds per axis, so a condition can offer its values
+     * instead of asking for an exact spelling. Absent while it loads.
+     */
     facets?: LibraryFacets | null;
     facetsLoading?: boolean;
     facetsError?: string | null;
     onAdd: (type: string) => void;
-    /// Swap a condition for the one asking the same question with the other
-    /// quantifier, keeping its values.
+    /**
+     * Swap a condition for the one asking the same question with the other
+     * quantifier, keeping its values.
+     */
     onRetype: (index: number, type: string) => void;
     onUpdate: (index: number, value: unknown) => void;
     onRemove: (index: number) => void;

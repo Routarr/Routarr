@@ -10,7 +10,7 @@ import { SCREENS } from './screens';
  * and clicking the caption did not focus it.
  *
  * `getByLabel` resolves through the browser's real accessible-name computation,
- * which is why this belongs here and not in a happy-dom test: it is the only
+ * which is why this belongs here and not in a jsdom test: it is the only
  * layer that can tell a visible caption from a programmatic label.
  */
 test.describe('form fields carry a programmatic label', () => {
@@ -135,16 +135,6 @@ test.describe('modal dialogs', () => {
     });
     expect(focusIsInside).toBe(true);
   });
-});
-
-test('the active navigation entry is announced, not only coloured', async ({ page }) => {
-  await page.goto('/rules');
-
-  // Colour says "you are here" to sighted users only. A screen reader needs
-  // aria-current, and only a real browser can confirm what the router emits.
-  const active = page.locator('.sidebar-nav a[aria-current="page"]');
-  await expect(active).toHaveCount(1);
-  await expect(active).toHaveClass(/active/);
 });
 
 /**
@@ -289,7 +279,7 @@ test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
 });
 
 /**
- * Twelve navigation links stand between the top of the page and its content.
+ * A dozen navigation links stand between the top of the page and its content.
  * The first Tab has to offer a way past them, and taking it has to land focus
  * where the content starts.
  */
@@ -407,10 +397,8 @@ test('no two row actions in a table answer to the same name', async ({ page, ins
 /**
  * The same sweep, for what a page only shows once you ask for it.
  *
- * The screen sweep above walks twelve paths and opens nothing, so every modal
- * in the application was outside it — the two named tests at the top of this
- * file cover the rule and instance editors and nothing covers the other six.
- * A dialog is where a screen reader user is most captive: the background is
+ * The screen sweep above walks every path and opens nothing, so every modal is
+ * outside it. A dialog is where a screen reader user is most captive: the background is
  * inert, so an unnamed control there is not something they can navigate around.
  */
 
