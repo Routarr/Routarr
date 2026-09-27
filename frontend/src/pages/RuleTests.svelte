@@ -92,28 +92,32 @@
   />
   <OutcomeBanner {outcome} />
 
-  {#if cases.loading}
-    <Loading />
-  {:else if (cases.data?.length ?? 0) === 0}
-    <EmptyState>
-      <p><strong>{t('NoRuleTests')}</strong></p>
-      <p class="muted">{t('NoRuleTestsHint')}</p>
-    </EmptyState>
-  {:else}
-    <div class="card">
-      <TableRegion label={t('RuleTests')}>
-        <table>
-          <caption class="visually-hidden">{t('RuleTests')}</caption>
-          <thead>
+  <div class="card">
+    <TableRegion label={t('RuleTests')}>
+      <table>
+        <caption class="visually-hidden">{t('RuleTests')}</caption>
+        <thead>
+          <tr>
+            <th>{t('Name')}</th>
+            <th>{t('PinnedFrom')}</th>
+            <th>{t('ExpectedCategory')}</th>
+            <th>{t('Result')}</th>
+            <th><span class="visually-hidden">{t('Actions')}</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          {#if cases.loading}
+            <tr><td colspan="5"><Loading /></td></tr>
+          {:else if (cases.data?.length ?? 0) === 0}
             <tr>
-              <th>{t('Name')}</th>
-              <th>{t('PinnedFrom')}</th>
-              <th>{t('ExpectedCategory')}</th>
-              <th>{t('Result')}</th>
-              <th><span class="visually-hidden">{t('Actions')}</span></th>
+              <td colspan="5">
+                <EmptyState>
+                  <p><strong>{t('NoRuleTests')}</strong></p>
+                  <p class="muted">{t('NoRuleTestsHint')}</p>
+                </EmptyState>
+              </td>
             </tr>
-          </thead>
-          <tbody>
+          {:else}
             {#each cases.data ?? [] as testCase (testCase.id)}
               {@const verdict = verdictOf(testCase.id)}
               <tr>
@@ -151,9 +155,9 @@
                 </td>
               </tr>
             {/each}
-          </tbody>
-        </table>
-      </TableRegion>
-    </div>
-  {/if}
+          {/if}
+        </tbody>
+      </table>
+    </TableRegion>
+  </div>
 </div>

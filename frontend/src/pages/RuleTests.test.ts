@@ -94,4 +94,15 @@ describe('RuleTests', () => {
     expect(summary.closest('.banner')?.classList.contains('banner-danger')).toBe(true);
     expect(screen.getByText('Failed')).toBeTruthy();
   });
+
+  /** Every screen frames an empty list the way it frames a full one. */
+  it('says there is no case inside the table, as the other screens do', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue([]);
+    renderWithI18n(RuleTests, { strings: { ...STRINGS, NoRuleTests: 'No pinned case yet' } });
+
+    const empty = await screen.findByText('No pinned case yet');
+    expect(empty.closest('.card')).not.toBeNull();
+    expect(screen.getByRole('table', { name: 'Rule tests' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Run the tests' })).toBeDisabled();
+  });
 });
