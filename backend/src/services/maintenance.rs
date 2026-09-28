@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 
-use sqlx::SqlitePool;
+use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::{info, warn};
 
 use crate::error::AppResult;
@@ -142,15 +142,19 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         info!("Re-encrypted {resealed} instance API key(s) under the current master key");
     }
 
-    // The metadata credentials, sealed the same way and living in `settings`.
-    // Covering `instances` alone leaves them unreadable after a rotation — and
-    // unlike an Arr, a metadata source failing to open shows up only as
-    // conditions that quietly stop matching.
-    let settings: Vec<(String, String)> = sqlx::query_as(
-        "SELECT key, value FROM settings WHERE key LIKE '%\\_api\\_key' ESCAPE '\\'",
-    )
-    .fetch_all(&state.pool)
-    .await?;
+    // The sealed settings, as `KNOWN` marks them. Covering `instances` alone
+    // leaves them unreadable after a rotation, and unlike an Arr, a setting
+    // that fails to open shows up only as conditions that quietly stop
+    // matching or notifications that stop arriving.
+    let keys = crate::api::settings::sealed_keys();
+    let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(format!(
+        "SELECT key, value FROM settings WHERE key IN ({})",
+        crate::db::placeholders(keys.len())
+    )));
+    for key in &keys {
+        query = query.bind(*key);
+    }
+    let settings = query.fetch_all(&state.pool).await?;
 
     let mut settings_resealed = 0;
     for (key, stored) in settings {
@@ -160,7 +164,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         let Ok(plaintext) = state.secrets.open(&stored) else {
             tracing::error!(
                 setting = %key,
-                "Cannot decrypt this metadata key. Set ROUTARR_PREVIOUS_SECRET_KEY or enter it again"
+                "Cannot decrypt this setting. Set ROUTARR_PREVIOUS_SECRET_KEY or enter it again"
             );
             continue;
         };
@@ -173,7 +177,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
     }
 
     if settings_resealed > 0 {
-        info!("Re-encrypted {settings_resealed} metadata key(s) under the current master key");
+        info!("Re-encrypted {settings_resealed} sealed setting(s) under the current master key");
     }
     let resealed = resealed + settings_resealed;
     Ok(resealed)

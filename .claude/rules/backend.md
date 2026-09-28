@@ -97,10 +97,9 @@ Each of these questions has one function. Call it, never spell the question agai
 - A source answers in Routarr's vocabulary: an ISO 639-1 language code and an ISO 3166-1
   alpha-2 country code, converted through `backend/src/integrations/language.rs`. A name or a
   three-letter code stored as it came matches no rule written against `ja` or `JP`.
-- A sealed setting is `Kind::Secret` in `KNOWN` (`backend/src/api/settings.rs`) and its key
-  ends in `_api_key`: `maintenance::reseal_secrets` selects settings by that suffix, so a
-  secret named otherwise does not follow a master-key rotation. A source's key is
-  `<id>_api_key`, the name `provider_key_from` builds.
+- A credential setting takes a sealed `Kind` in `KNOWN` (`backend/src/api/settings.rs`, see
+  `Kind::sealed`): the settings API, the export, the import and `maintenance::reseal_secrets`
+  all read it there. A source's key is `<id>_api_key`, the name `provider_key_from` builds.
 - Every call uses the shared `state.http`, never `reqwest::Client::new()`: the shared client
   carries the timeout and the same-origin redirect policy that keeps `X-Api-Key` from leaking.
 - Send through `integrations::send_json` or `send_ok`. Never format a `reqwest::Error` with

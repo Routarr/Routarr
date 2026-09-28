@@ -1,3 +1,5 @@
+import type { Settings, StoredSettings } from '../api/types';
+
 /**
  * What the Settings screen shows, as data.
  *
@@ -44,14 +46,31 @@ export interface Field {
  * once in each place instead, adding a source removes its field from one and
  * adds it to neither.
  *
- * Not derived from `kind === 'secret'`: the application's own API key is a
- * secret too, and it belongs on its own card.
+ * Not derived from `kind === 'secret'`: the notification webhook is sealed
+ * too, and it belongs to the automation section.
  */
 export const SOURCE_KEY_SETTING: Record<string, string> = {
   tmdb: 'tmdb_api_key',
   omdb: 'omdb_api_key',
   tvdb: 'tvdb_api_key',
 };
+
+const CONFIGURED = '_configured';
+
+/**
+ * `GET /settings` split in two: the values the form edits, and the sealed
+ * settings that hold one, which the server answers with an empty value and a
+ * `<key>_configured` boolean.
+ */
+export function splitStored(stored: StoredSettings): { values: Settings; sealed: string[] } {
+  const values: Settings = {};
+  const sealed: string[] = [];
+  for (const [key, value] of Object.entries(stored)) {
+    if (typeof value === 'string') values[key] = value;
+    else if (value && key.endsWith(CONFIGURED)) sealed.push(key.slice(0, -CONFIGURED.length));
+  }
+  return { values, sealed };
+}
 
 export const FIELDS: Field[] = [
   {
@@ -181,7 +200,7 @@ export const FIELDS: Field[] = [
     key: 'notification_webhook_url',
     labelKey: 'SettingNotificationWebhook',
     helpKey: 'SettingNotificationWebhookHelp',
-    kind: 'text',
+    kind: 'secret',
     fallback: '',
   },
   {

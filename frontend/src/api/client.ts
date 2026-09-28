@@ -33,6 +33,7 @@ import type {
   RestoreResult,
   RulePreview,
   Settings,
+  StoredSettings,
   SimulationResult,
   Status,
   SyncReport,
@@ -407,7 +408,7 @@ export const api = {
   exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
 
   // ---------------------------------------------------------- settings
-  getSettings: (signal?: AbortSignal) => request<Settings>('/settings', { signal }),
+  getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
   getMetadataProviders: (signal?: AbortSignal) =>
     request<MetadataProviders>('/metadata/providers', { signal }),
   listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),

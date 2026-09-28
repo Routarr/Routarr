@@ -7,7 +7,7 @@ import { renderWithI18n } from '../test/render';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
-import { FIELDS, SOURCE_KEY_SETTING } from '../lib/settings';
+import { FIELDS } from '../lib/settings';
 import Settings from './Settings.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import { interceptLinks } from '../lib/router.svelte';
@@ -78,8 +78,12 @@ const STRINGS = {
   NoBackupsYet: 'No backup yet',
   BackupNow: 'Back up now',
   SettingGlobalDryRun: 'Global dry-run',
-  SettingAutoApplyEnabled: 'Apply automatically',
+  SettingAutoApply: 'Apply automatically',
   SecretConfiguredPlaceholder: 'A key is stored – type to replace it',
+  SecretStoredPlaceholder: 'A value is stored – type to replace it',
+  SecretRemovedOnSave: 'Removed when you save',
+  SettingNotificationWebhook: 'Notification webhook',
+  Remove: 'Remove',
   ConfigImportResult: 'Restored: {settings} settings.',
   ConfigImportSkipped: 'Not restored: {count}',
   ConfigImportNeedsKey: 'Instances waiting for their API key: {names}',
@@ -95,7 +99,7 @@ const APIKEY_MODE: AuthMode = {
 type ProviderOverride = { configured?: boolean; order?: string[] };
 
 function mount(
-  settings: Record<string, string>,
+  settings: Record<string, string | boolean>,
   auth: AuthMode = APIKEY_MODE,
   provider: ProviderOverride = {},
 ) {
@@ -211,9 +215,9 @@ describe('the save bar', () => {
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     const payload = await save();
-    // Every field except the three credentials, which are blank here and are
-    // left out rather than sent — see the test below for why that matters.
-    const credentials = new Set(Object.values(SOURCE_KEY_SETTING));
+    // Every field except the credentials, which are blank here and are left
+    // out rather than sent: see the metadata sources below for why.
+    const credentials = new Set(FIELDS.filter((f) => f.kind === 'secret').map((f) => f.key));
     expect(Object.keys(payload).sort()).toEqual(
       FIELDS.map((f) => f.key)
         .filter((key) => !credentials.has(key))
@@ -423,6 +427,51 @@ describe('the metadata sources', () => {
     const down = screen.getByRole('button', { name: 'Move down – Radarr / Sonarr' });
     expect((up as HTMLButtonElement).disabled).toBe(true);
     expect((down as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe('the notification webhook', () => {
+  /**
+   * The address is the channel's credential, sealed by the server and never
+   * returned: the field reads empty whether or not one is stored, so the
+   * placeholder says which, and a save that leaves it blank leaves it alone.
+   */
+  it('says an address is stored, and leaves it alone when saved blank', async () => {
+    mount({ notification_webhook_url: '', notification_webhook_url_configured: true });
+    await openSection('Automation');
+
+    const field = await screen.findByLabelText('Notification webhook');
+    expect(field.getAttribute('type')).toBe('password');
+    expect(field.getAttribute('placeholder')).toBe('A value is stored – type to replace it');
+
+    await userEvent.selectOptions(screen.getByLabelText('Apply automatically'), 'true');
+    const payload = await save();
+    expect(payload).not.toHaveProperty('notification_webhook_url');
+    expect(payload.auto_apply_enabled).toBe('true');
+  });
+
+  /** Blank means "leave it", so removing one takes a button of its own. */
+  it('removes a stored address at the next save', async () => {
+    mount({ notification_webhook_url: '', notification_webhook_url_configured: true });
+    await openSection('Automation');
+
+    await fireEvent.click(
+      await screen.findByRole('button', { name: 'Remove – Notification webhook' }),
+    );
+
+    // The button goes, so the field takes the focus and says what Save will do.
+    const field = screen.getByLabelText('Notification webhook');
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(field.getAttribute('placeholder')).toBe('Removed when you save');
+    expect((await save()).notification_webhook_url).toBe('');
+  });
+
+  it('offers nothing to remove while no address is stored', async () => {
+    mount({ notification_webhook_url: '', notification_webhook_url_configured: false });
+    await openSection('Automation');
+
+    await screen.findByLabelText('Notification webhook');
+    expect(screen.queryByRole('button', { name: 'Remove – Notification webhook' })).toBeNull();
   });
 });
 
