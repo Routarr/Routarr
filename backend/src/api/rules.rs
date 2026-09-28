@@ -366,6 +366,29 @@ pub async fn import(
         creating.into_iter().filter(|name| !env.known.contains(name)).collect();
     env.known.extend(created.iter().cloned());
 
+    // Judged whole before anything is written: a replace in which no rule
+    // survives would delete every rule and add none, and the next pass would
+    // route the whole library to the fallback category.
+    let mut importable = Vec::new();
+    for rule in &req.bundle.rules {
+        let errors: Vec<String> = judge(&env, rule)
+            .into_iter()
+            .filter(ValidationIssue::is_error)
+            .map(|issue| issue.message)
+            .collect();
+        if errors.is_empty() {
+            importable.push(rule);
+        } else {
+            skipped.push(format!("'{}': {}", rule.name, errors.join(" · ")));
+        }
+    }
+    if req.replace && importable.is_empty() {
+        return Err(AppError::BadRequest(format!(
+            "No rule of the bundle can be imported, so the rules in place are kept. {}",
+            skipped.join(" · ")
+        )));
+    }
+
     let mut tx = state.pool.begin().await?;
 
     for name in &created {
@@ -383,27 +406,14 @@ pub async fn import(
         sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
     }
 
-    let mut imported = 0usize;
-    for rule in &req.bundle.rules {
-        let errors: Vec<String> = judge(&env, rule)
-            .into_iter()
-            .filter(ValidationIssue::is_error)
-            .map(|issue| issue.message)
-            .collect();
-        if !errors.is_empty() {
-            skipped.push(format!("'{}': {}", rule.name, errors.join(" · ")));
-            continue;
-        }
-
+    for rule in &importable {
         insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
-
-        imported += 1;
     }
 
     tx.commit().await?;
 
     Ok(Json(serde_json::json!({
-        "imported": imported,
+        "imported": importable.len(),
         "replaced": req.replace,
         "skipped": skipped,
     })))
