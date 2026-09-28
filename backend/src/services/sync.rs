@@ -156,15 +156,17 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
 
     // Tags are one signal among many: an Arr too old to expose the endpoint, or
     // one that errors on it, must not take the whole sync down with it.
-    let tags = match adapter.get_tags().await {
-        Ok(tags) => tags,
+    let fresh_tags = match adapter.get_tags().await {
+        Ok(tags) => Some(tags),
         Err(e) => {
             tracing::warn!(instance = %instance.name, "Could not read the tag catalogue: {e}");
-            Vec::new()
+            None
         }
     };
-    let tag_labels: std::collections::HashMap<i64, String> =
-        tags.iter().map(|t| (t.arr_id, t.label.clone())).collect();
+    let tag_labels = match &fresh_tags {
+        Some(tags) => tags.iter().map(|t| (t.arr_id, t.label.clone())).collect(),
+        None => stored_tag_labels(&state.pool, &instance.id).await?,
+    };
 
     info!(
         instance = %instance.name,
@@ -272,17 +274,21 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     inherit_declared(&mut *tx, &instance.id).await?;
 
     // Replaced wholesale: a tag renamed or deleted upstream must not linger.
-    sqlx::query("DELETE FROM arr_tags WHERE instance_id = ?")
-        .bind(&instance.id)
-        .execute(&mut *tx)
-        .await?;
-    for tag in &tags {
-        sqlx::query("INSERT INTO arr_tags (instance_id, arr_id, label) VALUES (?, ?, ?)")
+    // Kept when the catalogue could not be read, which is what resolves the
+    // ids until it can.
+    if let Some(tags) = &fresh_tags {
+        sqlx::query("DELETE FROM arr_tags WHERE instance_id = ?")
             .bind(&instance.id)
-            .bind(tag.arr_id)
-            .bind(&tag.label)
             .execute(&mut *tx)
             .await?;
+        for tag in tags {
+            sqlx::query("INSERT INTO arr_tags (instance_id, arr_id, label) VALUES (?, ?, ?)")
+                .bind(&instance.id)
+                .bind(tag.arr_id)
+                .bind(&tag.label)
+                .execute(&mut *tx)
+                .await?;
+        }
     }
 
     for item in &media {
@@ -361,13 +367,13 @@ pub async fn sync_single_media(
 
     // The tag catalogue too: a rule on "tag is anime" must be able to match the
     // moment the item is added, which is the whole point of the webhook path.
-    let tag_labels: std::collections::HashMap<i64, String> = adapter
-        .get_tags()
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|t| (t.arr_id, t.label))
-        .collect();
+    let tag_labels = match adapter.get_tags().await {
+        Ok(tags) => tags.into_iter().map(|t| (t.arr_id, t.label)).collect(),
+        Err(e) => {
+            tracing::warn!(instance = %instance.name, "Could not read the tag catalogue: {e}");
+            stored_tag_labels(&state.pool, &instance.id).await?
+        }
+    };
 
     upsert_media(&state.pool, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
 
@@ -525,6 +531,21 @@ async fn update_sync_status(pool: &SqlitePool, instance_id: &str, status: &str) 
     .bind(instance_id)
     .execute(pool)
     .await;
+}
+
+/// The tag catalogue the last good pass stored, for when the Arr fails to
+/// answer its own. Resolved against nothing instead, every item would lose its
+/// tags, and every `tag_in` rule would stop matching, until a later pass.
+async fn stored_tag_labels(
+    pool: &SqlitePool,
+    instance_id: &str,
+) -> AppResult<std::collections::HashMap<i64, String>> {
+    let stored: Vec<(i64, String)> =
+        sqlx::query_as("SELECT arr_id, label FROM arr_tags WHERE instance_id = ?")
+            .bind(instance_id)
+            .fetch_all(pool)
+            .await?;
+    Ok(stored.into_iter().collect())
 }
 
 /// A declared destination inherits from the folder it sits under.

@@ -232,6 +232,9 @@ pub async fn update(
     for (key, value) in &req.settings {
         check(key, value, &categories)?;
     }
+    if let Some(list) = req.settings.get("metadata_providers") {
+        refuse_a_source_without_its_key(&state, list, &req.settings).await?;
+    }
 
     let mut tx = state.pool.begin().await?;
     for (key, value) in &req.settings {
@@ -264,6 +267,35 @@ pub async fn update(
     }
 
     Ok(Json(serde_json::json!({ "updated": req.settings.len() })))
+}
+
+/// Refuse to add a source that needs a key and has none: not in this save, not
+/// stored, not in the environment. It could answer nothing, and the health
+/// page could only warn about it. A source already listed stays: the Settings
+/// screen sends the whole list on every save, and refusing the list as it
+/// stands would refuse every setting until the source is removed.
+async fn refuse_a_source_without_its_key(
+    state: &AppState,
+    list: &str,
+    saving: &HashMap<String, String>,
+) -> AppResult<()> {
+    let settings = state.settings().await;
+    let listed: Vec<&str> =
+        AppState::metadata_order_from(&settings).iter().map(|source| source.id).collect();
+    let added = list.split(',').map(str::trim).filter(|id| !id.is_empty() && !listed.contains(id));
+    for id in added {
+        let Some(source) = crate::services::metadata::info(id).filter(|source| source.needs_key)
+        else {
+            continue;
+        };
+        let typed = saving.get(&format!("{id}_api_key")).is_some_and(|key| !key.trim().is_empty());
+        if !typed && state.provider_key_from(&settings, source.id).is_none() {
+            return Err(AppError::BadRequest(format!(
+                "'metadata_providers': '{id}' needs an API key before it can be enabled"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppResult<()> {
