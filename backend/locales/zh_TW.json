@@ -581,7 +581,7 @@
   "SettingConfirmationThreshold": "確認門檻",
   "SettingConfirmationThresholdHelp": "超過此數量後，套用需要第二次明確確認。",
   "SettingDecisionRetention": "決策保留（天）",
-  "SettingDecisionRetentionHelp": "更早的待處理與已略過決策會被清除。設為 0 則停用清除。",
+  "SettingDecisionRetentionHelp": "更早的待處理與已略過決策會被清除。已復原的移動會保留到其執行記錄被清除為止。設為 0 則停用清除。",
   "SettingDefaultCategory": "預設分類",
   "SettingDefaultCategoryHelp": "當沒有任何規則符合某個項目時使用。",
   "SettingGlobalDryRun": "全域試執行模式",

@@ -581,7 +581,7 @@
   "SettingConfirmationThreshold": "Seuil de confirmation",
   "SettingConfirmationThresholdHelp": "Au-delà de ce nombre, l'application exige une seconde confirmation explicite.",
   "SettingDecisionRetention": "Rétention des décisions (jours)",
-  "SettingDecisionRetentionHelp": "Les décisions en attente ou ignorées plus anciennes sont purgées. 0 désactive la purge.",
+  "SettingDecisionRetentionHelp": "Les décisions en attente ou ignorées plus anciennes sont purgées. Un déplacement annulé reste tant que son journal d'exécution existe. 0 désactive la purge.",
   "SettingDefaultCategory": "Catégorie par défaut",
   "SettingDefaultCategoryHelp": "Utilisée quand aucune règle ne correspond au média.",
   "SettingGlobalDryRun": "Essai à blanc global",

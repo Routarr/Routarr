@@ -4,6 +4,7 @@
   import { formatTimestamp, statusKey, triggerKey } from '../api/format';
   import type { Decision } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
+  import { answering } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import Confidence from '../components/Confidence.svelte';
@@ -56,7 +57,13 @@
   async function revert(decision: Decision, moveFiles: boolean) {
     reverting = null;
     try {
-      const report = await api.revertDecisions([decision.id], moveFiles);
+      // A revert writes into the folder the move came from, and the backend
+      // asks there what it asks before an apply.
+      const report = await answering(
+        (answered) => api.revertDecisions([decision.id], moveFiles, answered),
+        'Revert',
+      );
+      if (!report) return;
       await history.reload();
       // A revert that restored nothing did not do what was asked: under the
       // success banner its reason would read as good news.

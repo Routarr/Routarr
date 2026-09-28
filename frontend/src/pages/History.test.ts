@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { decision, paginated } from '../test/fixtures';
 import { api, ApiError } from '../api/client';
+import { answerConfirmation } from '../test/confirm';
 import History from './History.svelte';
 
 /**
@@ -123,6 +124,53 @@ describe('History', () => {
 
     await waitFor(() => expect(revertDecisions).toHaveBeenCalledTimes(1));
     expect(nthCall(revertDecisions)[1]).toBe(moveFiles);
+  });
+
+  const unreachable = () =>
+    new ApiError(
+      '/movies/standard is not answering.',
+      409,
+      'confirmation_required',
+      null,
+      'unreachable',
+    );
+
+  /**
+   * A revert writes into the folder the move came from, and the backend asks
+   * there what it asks before an apply. The question lifts only its own name,
+   * so the second send carries that name and nothing else.
+   */
+  it('asks the question the backend raises, and reverts once it is answered', async () => {
+    const revertDecisions = vi
+      .spyOn(api, 'revertDecisions')
+      .mockRejectedValueOnce(unreachable())
+      .mockResolvedValueOnce({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+
+    expect(await answerConfirmation()).toBe('/movies/standard is not answering.');
+    await waitFor(() => expect(revertDecisions).toHaveBeenCalledTimes(2));
+    expect(nthCall(revertDecisions, 1)[2]).toEqual(['unreachable']);
+    expect(await screen.findByText('1 reverted')).toBeTruthy();
+  });
+
+  it('reverts nothing, and reports no failure, when the question is declined', async () => {
+    const revertDecisions = vi.spyOn(api, 'revertDecisions').mockRejectedValueOnce(unreachable());
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+    await answerConfirmation(null);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(revertDecisions).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   /**

@@ -1,3 +1,5 @@
+import { ApiError } from '../api/client';
+
 /**
  * The one confirmation dialog.
  *
@@ -61,4 +63,31 @@ export function settle(value: string | null): void {
   const pending = state.request;
   state.request = null;
   pending?.resolve(value);
+}
+
+/**
+ * Send a write, and ask the reader each question the backend raises, in the
+ * backend's words followed by `after`, under a button reading `label`.
+ *
+ * Several guardrails can refuse the same write, and each asks under its own
+ * name: a blanket yes would answer all of them at once, so confirming "there
+ * is not enough room" would also lift the batch threshold without showing it.
+ * The list grows one name at a time, so nothing is lifted that was not read.
+ * `null` is a question declined, and nothing was written.
+ */
+export async function answering<T>(
+  send: (answered: string[]) => Promise<T>,
+  label: string,
+  after = '',
+  answered: string[] = [],
+): Promise<T | null> {
+  try {
+    return await send(answered);
+  } catch (err) {
+    if (!(err instanceof ApiError && err.needsConfirmation && err.confirm)) throw err;
+    const asking = err.confirm;
+    const question = after ? `${err.message}\n\n${after}` : err.message;
+    if (!(await askConfirmation(question, label))) return null;
+    return answering(send, label, after, [...answered, asking]);
+  }
 }

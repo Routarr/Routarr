@@ -581,7 +581,7 @@
   "SettingConfirmationThreshold": "Vahvistusraja",
   "SettingConfirmationThresholdHelp": "Tämän määrän ylittyessä toteutus vaatii toisen, nimenomaisen vahvistuksen.",
   "SettingDecisionRetention": "Päätösten säilytys (päivää)",
-  "SettingDecisionRetentionHelp": "Tätä vanhemmat odottavat ja ohitetut päätökset siivotaan. 0 poistaa siivouksen käytöstä.",
+  "SettingDecisionRetentionHelp": "Tätä vanhemmat odottavat ja ohitetut päätökset siivotaan. Kumottu siirto säilyy niin kauan kuin sen suoritusloki. 0 poistaa siivouksen käytöstä.",
   "SettingDefaultCategory": "Oletusluokka",
   "SettingDefaultCategoryHelp": "Käytetään, kun yksikään sääntö ei täsmää kohteeseen.",
   "SettingGlobalDryRun": "Yleinen koeajo",

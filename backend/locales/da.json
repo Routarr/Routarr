@@ -581,7 +581,7 @@
   "SettingConfirmationThreshold": "Bekræftelsesgrænse",
   "SettingConfirmationThresholdHelp": "Over dette antal kræver anvendelse en ekstra, udtrykkelig bekræftelse.",
   "SettingDecisionRetention": "Opbevaring af beslutninger (dage)",
-  "SettingDecisionRetentionHelp": "Ældre afventende og oversprungne beslutninger ryddes. 0 slår oprydningen fra.",
+  "SettingDecisionRetentionHelp": "Ældre afventende og oversprungne beslutninger ryddes. En fortrudt flytning bliver, så længe dens kørselslog findes. 0 slår oprydningen fra.",
   "SettingDefaultCategory": "Standardkategori",
   "SettingDefaultCategoryHelp": "Bruges, når ingen regel matcher et medie.",
   "SettingGlobalDryRun": "Global prøvekørsel",
