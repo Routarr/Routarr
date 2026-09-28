@@ -534,6 +534,97 @@ async fn a_root_folder_renumbered_by_the_arr_does_not_break_the_sync() {
     assert_eq!(arr_id, Some(1), "the row kept the id the Arr no longer uses");
 }
 
+/// A folder as a previous pass left it, with the category mapped onto it.
+async fn left_by_a_previous_pass(
+    app: &TestApp,
+    arr_id: Option<i64>,
+    path: &str,
+    category: &str,
+    origin: &str,
+) {
+    sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES (?, ?)")
+        .bind(format!("cat-{category}"))
+        .bind(category)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category,
+         last_synced_at, origin)
+         VALUES (?, 'i-1', ?, ?, 1, ?, 'a-previous-pass', ?)",
+    )
+    .bind(format!("rf-old-{path}"))
+    .bind(arr_id)
+    .bind(path)
+    .bind(category)
+    .bind(origin)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+}
+
+async fn category_of(app: &TestApp, path: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT category FROM root_folders WHERE path = ?")
+        .bind(path)
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap()
+}
+
+/// A rebuilt Arr hands its folder ids out again, to other paths. The category
+/// was set on a path, and a folder that merely inherits the id is not that
+/// folder: carried over, the next simulation moves the library into it.
+#[tokio::test]
+async fn a_folder_the_arr_reuses_an_id_for_does_not_take_the_old_category_with_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    // Id 1 was `/movies/old-anime`. The Arr now reports `/movies/standard` under it.
+    left_by_a_previous_pass(&app, Some(1), "/movies/old-anime", "anime", "arr").await;
+
+    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+
+    assert_eq!(category_of(&app, "/movies/standard").await, None, "the category followed the id");
+}
+
+/// The same path under a new id is the same folder, and keeps its category.
+#[tokio::test]
+async fn a_category_follows_its_folder_through_a_renumbering() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    left_by_a_previous_pass(&app, Some(99), "/movies/kids", "kids", "arr").await;
+
+    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+
+    assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
+}
+
+/// A declared path the Arr adopts is promoted to the id the Arr gives it. A
+/// stale row still holding that id made the promotion break the unique id,
+/// and the instance's whole sync failed on every pass.
+#[tokio::test]
+async fn a_declared_path_adopted_under_a_taken_id_does_not_fail_the_sync() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    // The Arr reports `/movies/kids` under id 3, which a folder it dropped held.
+    left_by_a_previous_pass(&app, None, "/movies/kids", "kids", "declared").await;
+    left_by_a_previous_pass(&app, Some(3), "/movies/gone", "gone", "arr").await;
+
+    let synced = app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await;
+
+    assert_eq!(synced.status, 200, "the adoption failed the sync: {}", synced.json);
+    let (rows, arr_id, origin): (i64, Option<i64>, String) = sqlx::query_as(
+        "SELECT COUNT(*), MAX(arr_id), MAX(origin) FROM root_folders WHERE path = '/movies/kids'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!((rows, arr_id, origin.as_str()), (1, Some(3), "arr"));
+    assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
+}
+
 /// A declared folder has no id in the Arr, and must not publish one.
 ///
 /// `arr_id` is nullable since the row can be Routarr's own; typed as `i64` sqlx
