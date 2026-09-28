@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Kural adı boş olamaz",
   "ValidationNameTooLong": "Kural adı {max} karakterle sınırlıdır",
   "ValidationNoConditions": "Bir kuralın en az bir koşula ihtiyacı var",
+  "ValidationValueRepeated": "{condition}: «{value}», zaten listelenmiş bir değeri tekrarlıyor. Yalnızca birini bırakın.",
   "ValidationYearImplausible": "{condition}: {year} yılı, Routarr'ın kabul ettiği {min}–{max} aralığının dışında",
   "ValidationYearRangeInverted": "{condition}: {min}–{max} yıl aralığı ters ve hiç eşleşmeyecek",
   "Version": "Sürüm",

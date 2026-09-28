@@ -85,7 +85,59 @@ describe('request headers', () => {
 
     expect(fetchCall(spy).options.headers['X-Api-Key']).toBe('s3cret');
   });
+
+  /**
+   * A rotation swaps the key while other requests are out with the old one.
+   * Answered 401, one of them would put the sign-in gate over the screen that
+   * shows the new key, the only time it is shown.
+   */
+  it('asks again with the new key when the key changed while the request was out', async () => {
+    setApiKey('old');
+    const spy = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        setApiKey('new');
+        return refusal();
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers(),
+        json: async () => ({ version: '0.1.2' }),
+      });
+    vi.stubGlobal('fetch', spy);
+    try {
+      await expect(api.getStatus()).resolves.toEqual({ version: '0.1.2' });
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(fetchCall(spy, 1).options.headers['X-Api-Key']).toBe('new');
+    } finally {
+      setApiKey('');
+    }
+  });
+
+  it('takes a refusal of the key still stored as it is', async () => {
+    setApiKey('old');
+    const spy = vi.fn().mockResolvedValue(refusal());
+    vi.stubGlobal('fetch', spy);
+    try {
+      await expect(api.getStatus()).rejects.toMatchObject({ status: 401 });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      setApiKey('');
+    }
+  });
 });
+
+function refusal() {
+  return {
+    ok: false,
+    status: 401,
+    statusText: 'Unauthorized',
+    headers: new Headers(),
+    text: async () => JSON.stringify({ error: 'unauthorized', message: 'Unauthorized' }),
+  };
+}
 
 describe('error handling', () => {
   it('surfaces the backend message, not the raw body', async () => {

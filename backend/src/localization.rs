@@ -264,16 +264,34 @@ impl Localizer {
     }
 }
 
-/// Replace `{placeholder}` occurrences.
+/// Replace `{placeholder}` occurrences, in one pass over the template: a value
+/// is never read again, so a `{name}` inside it stays as written.
 fn substitute(template: &str, params: &[(&str, &str)]) -> String {
     if params.is_empty() || !template.contains('{') {
         return template.to_string();
     }
 
-    let mut out = template.to_string();
-    for (name, value) in params {
-        out = out.replace(&format!("{{{name}}}"), value);
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let found = after.find('}').and_then(|close| {
+            let name = &after[..close];
+            params.iter().find(|(known, _)| *known == name).map(|(_, value)| (*value, close))
+        });
+        match found {
+            Some((value, close)) => {
+                out.push_str(value);
+                rest = &after[close + 1..];
+            }
+            None => {
+                out.push('{');
+                rest = after;
+            }
+        }
     }
+    out.push_str(rest);
     out
 }
 
@@ -474,6 +492,17 @@ mod tests {
     #[test]
     fn substitutes_every_placeholder() {
         assert_eq!(substitute("{a} and {b} and {a}", &[("a", "1"), ("b", "2")]), "1 and 2 and 1");
+    }
+
+    /// A value is text the operator typed or the library holds, a rule named
+    /// after a placeholder among them. Replaced in turn by the parameter after
+    /// it, the name would read as a count.
+    #[test]
+    fn a_placeholder_inside_a_value_is_left_as_written() {
+        assert_eq!(
+            substitute("{name} holds {count}", &[("name", "Rule {count}"), ("count", "3")]),
+            "Rule {count} holds 3"
+        );
     }
 
     #[test]

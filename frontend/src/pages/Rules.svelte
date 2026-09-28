@@ -12,7 +12,7 @@
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition } from '../api/format';
-  import { canonicalKey, localFacets } from '../api/conditions';
+  import { canonicalKey, localFacets, withoutRepeats } from '../api/conditions';
   import type {
     Category,
     Condition,
@@ -149,8 +149,8 @@
         priority: rule.priority,
         enabled: rule.enabled,
         media_type: rule.media_type,
-        conditions: rule.conditions,
-        exclusions: rule.exclusions,
+        conditions: rule.conditions.map(withoutRepeats),
+        exclusions: rule.exclusions.map(withoutRepeats),
         match_mode: rule.match_mode,
         target_category: rule.target_category,
         instance_ids: rule.instance_ids,

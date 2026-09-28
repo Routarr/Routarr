@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "لا يمكن أن يكون اسم القاعدة فارغًا",
   "ValidationNameTooLong": "اسم القاعدة محدود بـ {max} حرفًا",
   "ValidationNoConditions": "تحتاج القاعدة إلى شرط واحد على الأقل",
+  "ValidationValueRepeated": "{condition}: '{value}' يكرر قيمة مذكورة بالفعل. أبقِ على واحدة منهما.",
   "ValidationYearImplausible": "{condition}: السنة {year} خارج النطاق من {min} إلى {max} الذي يقبله Routarr",
   "ValidationYearRangeInverted": "{condition}: نطاق السنوات من {min} إلى {max} معكوس ولن يتطابق أبدًا",
   "Version": "الإصدار",

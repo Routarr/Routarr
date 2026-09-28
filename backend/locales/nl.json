@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "De naam van de regel mag niet leeg zijn",
   "ValidationNameTooLong": "De regelnaam is beperkt tot {max} tekens",
   "ValidationNoConditions": "Een regel heeft minstens één voorwaarde nodig",
+  "ValidationValueRepeated": "{condition}: '{value}' herhaalt een waarde die al in de lijst staat. Houd er één van over.",
   "ValidationYearImplausible": "{condition}: het jaar {year} valt buiten het bereik {min}–{max} dat Routarr accepteert",
   "ValidationYearRangeInverted": "{condition}: het jaarbereik {min}–{max} is omgekeerd en zal nooit overeenkomen",
   "Version": "Versie",

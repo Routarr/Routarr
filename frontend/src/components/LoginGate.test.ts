@@ -25,7 +25,10 @@ const STRINGS = {
   Dismiss: 'Dismiss',
 };
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  window.history.replaceState({}, '', '/');
+});
 
 describe('LoginGate', () => {
   it('says where the password is, since nobody chose it', () => {
@@ -88,6 +91,21 @@ describe('LoginGate', () => {
     stop();
     expect(followed, 'the router took the click').toBe(true);
     expect(router.path).not.toContain('/auth/oidc/start');
+  });
+
+  /**
+   * The provider's refusal is said once. Left in the address, a reload or a
+   * bookmark says it again about a sign-in nobody attempted.
+   */
+  it('says the provider refused, and takes the word out of the address', () => {
+    window.history.replaceState({}, '', '/?signin=failed');
+    renderWithI18n(LoginGate, {
+      props: { mode: 'oidc' },
+      strings: { ...STRINGS, SignInRefused: 'The provider refused the sign-in' },
+    });
+
+    expect(screen.getByText('The provider refused the sign-in')).toBeTruthy();
+    expect(window.location.search).toBe('');
   });
 
   it('does not submit an empty password', async () => {

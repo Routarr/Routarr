@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Назва правила не може бути порожньою",
   "ValidationNameTooLong": "Назва правила обмежена {max} символами",
   "ValidationNoConditions": "Правилу потрібна хоча б одна умова",
+  "ValidationValueRepeated": "{condition}: «{value}» повторює вже вказане значення. Залиште лише одне.",
   "ValidationYearImplausible": "{condition}: рік {year} поза діапазоном {min}–{max}, який приймає Routarr",
   "ValidationYearRangeInverted": "{condition}: діапазон років {min}–{max} перевернутий і ніколи не збігатиметься",
   "Version": "Версія",

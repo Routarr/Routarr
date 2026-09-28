@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Regelnamnet får inte vara tomt",
   "ValidationNameTooLong": "Regelnamnet är begränsat till {max} tecken",
   "ValidationNoConditions": "En regel behöver minst ett villkor",
+  "ValidationValueRepeated": "{condition}: \"{value}\" upprepar ett värde som redan finns i listan. Behåll bara ett av dem.",
   "ValidationYearImplausible": "{condition}: året {year} ligger utanför intervallet {min}–{max} som Routarr accepterar",
   "ValidationYearRangeInverted": "{condition}: årsintervallet {min}–{max} är omvänt och kommer aldrig att matcha",
   "Version": "Version",

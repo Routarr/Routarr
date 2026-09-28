@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "El nom de la regla no pot estar buit",
   "ValidationNameTooLong": "El nom de la regla està limitat a {max} caràcters",
   "ValidationNoConditions": "Una regla necessita almenys una condició",
+  "ValidationValueRepeated": "{condition}: «{value}» repeteix un valor que ja hi és. Conserva'n només un.",
   "ValidationYearImplausible": "{condition}: l'any {year} és fora de l'interval {min}–{max} que accepta Routarr",
   "ValidationYearRangeInverted": "{condition}: l'interval d'anys {min}–{max} està invertit i no coincidirà mai",
   "Version": "Versió",

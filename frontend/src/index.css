@@ -3053,7 +3053,8 @@ select.form-select {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 6px 3px 10px;
+  padding-block: 3px;
+  padding-inline: 10px 6px;
   background-color: var(--bg-card-hover);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);

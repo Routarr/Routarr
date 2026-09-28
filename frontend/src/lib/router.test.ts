@@ -43,6 +43,17 @@ describe('navigation', () => {
     expect(heard).toEqual(['#routing']);
   });
 
+  /** As a link does in the browser: Back would otherwise take two presses to leave. */
+  it('adds no history entry for the page already on screen', () => {
+    navigate('/rules');
+    const push = vi.spyOn(window.history, 'pushState');
+
+    navigate('/rules');
+
+    expect(push).not.toHaveBeenCalled();
+    expect(router.path).toBe('/rules');
+  });
+
   it('replaces the entry rather than stacking one when asked', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState');
     navigate('/logs', { replace: true });
@@ -69,6 +80,20 @@ describe('navigation', () => {
     navigate('/');
 
     expect(router.path).toBe('/');
+  });
+
+  /** `/routarr` is a prefix of `/routarrX`, which is not under it. */
+  it('does not take a path beside the mount point for one under it', () => {
+    withBase('/routarr/');
+    const stop = interceptLinks();
+    try {
+      window.history.replaceState({}, '', '/routarrX/rules');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+
+      expect(router.path).toBe('/routarrX/rules');
+    } finally {
+      stop();
+    }
   });
 });
 

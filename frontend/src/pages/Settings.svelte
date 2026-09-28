@@ -42,10 +42,14 @@
     // An unstored source list is the shipped default, which only the server
     // knows. Seeded from a copy kept here instead, the first save of any
     // setting would store that copy, since a save sends every field. Blank
-    // counts as unstored, as an older server answers a key it never stored.
+    // counts as unstored, as an older server answers a key it never stored. A
+    // repeat keeps its first place: the server refuses a list that repeats a
+    // source, and one stored before it did would hold back every save.
+    const listed = (values.metadata_providers ?? '').split(',').map((id) => id.trim());
     const settings: SettingsMap = {
       ...values,
-      metadata_providers: values.metadata_providers || metadata.order.join(','),
+      metadata_providers:
+        [...new Set(listed.filter(Boolean))].join(',') || metadata.order.join(','),
     };
     return {
       settings,

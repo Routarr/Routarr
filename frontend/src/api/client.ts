@@ -166,6 +166,12 @@ async function request<T>(
   try {
     return await exchange<T>(path, { ...options, headers, signal }, read);
   } catch (cause) {
+    // Refused for a key rotated while the request was out, not for the one
+    // stored now. Taken as it is, the refusal puts the sign-in gate over the
+    // screen that shows the new key, the only time it is shown.
+    if (cause instanceof ApiError && cause.status === 401 && getApiKey() !== key) {
+      return request<T>(path, options, read);
+    }
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
     }

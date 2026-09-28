@@ -295,6 +295,29 @@ describe('Rules', () => {
   });
 
   /**
+   * The server refuses a value listed twice, but a rule stored before it did
+   * still opens here. Its chips are keyed by value, and a repeat takes the
+   * screen down, so the editor starts from the list without it.
+   */
+  it('opens a rule stored with a repeated value, and saves it without the repeat', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const update = vi.spyOn(api, 'updateRule').mockResolvedValue(rule());
+    show([
+      rule({
+        conditions: [{ type: 'genre_contains', value: ['Animation', 'Animation', 'animation'] }],
+      }),
+    ]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /^Edit – / }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Save rule' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    expect(nthCall(update)[1].conditions).toEqual([
+      { type: 'genre_contains', value: ['Animation'] },
+    ]);
+  });
+
+  /**
    * A disabled rule is dimmed and marked, not hidden. Hiding it makes a routing
    * that "should" match and does not look like a bug in the engine.
    */

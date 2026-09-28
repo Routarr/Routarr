@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "A szabály neve nem lehet üres",
   "ValidationNameTooLong": "A szabály neve legfeljebb {max} karakter lehet",
   "ValidationNoConditions": "Egy szabályhoz legalább egy feltétel kell",
+  "ValidationValueRepeated": "{condition}: \"{value}\" egy már felsorolt értéket ismétel. Csak az egyiket tartsa meg.",
   "ValidationYearImplausible": "{condition}: a(z) {year} év kívül esik a Routarr által elfogadott {min}–{max} tartományon",
   "ValidationYearRangeInverted": "{condition}: a(z) {min}–{max} évtartomány fordított, soha nem fog egyezni",
   "Version": "Verzió",

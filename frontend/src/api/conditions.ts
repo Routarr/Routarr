@@ -2,7 +2,7 @@
 // expects. Getting this wrong silently stores a rule that can never match, so
 // it lives here as pure functions rather than inline in the form.
 
-import type { ConditionSpec, Facet, LibraryFacets } from './types';
+import type { Condition, ConditionSpec, Facet, LibraryFacets } from './types';
 import { localName } from './format';
 
 /** Value a freshly added condition starts with. */
@@ -55,6 +55,20 @@ export function removeValue(values: string[], value: string): string[] {
 }
 
 /**
+ * The same condition with each value once, as matching compares them. The
+ * server refuses a repeat, but a rule stored before it did still arrives with
+ * one, and the editor keys each chip by its value.
+ */
+export function withoutRepeats(condition: Condition): Condition {
+  const { value } = condition;
+  if (!Array.isArray(value)) return condition;
+  const kept = value.every((item) => typeof item === 'string')
+    ? value.reduce<string[]>((list, item: string) => addValue(list, item), [])
+    : [...new Set(value)];
+  return { ...condition, value: kept };
+}
+
+/**
  * Split a comma-separated input, dropping blanks and equivalent repeats.
  *
  * The free-text path, kept for the axes the library cannot enumerate — a
@@ -69,12 +83,13 @@ export function parseStringList(input: string): string[] {
     .reduce<string[]>((kept, value) => addValue(kept, value), []);
 }
 
-/** Same, for external identifiers. Non-numeric fragments are discarded. */
+/** Same, for external identifiers: whole numbers above zero, once each. */
 export function parseNumberList(input: string): number[] {
-  return input
+  const ids = input
     .split(',')
     .map((part) => Number(part.trim()))
-    .filter((value) => Number.isFinite(value) && value !== 0);
+    .filter((value) => Number.isInteger(value) && value > 0);
+  return [...new Set(ids)];
 }
 
 /**

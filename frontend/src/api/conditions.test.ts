@@ -104,6 +104,14 @@ describe('parseNumberList', () => {
     expect(parseNumberList('8392, abc, 129')).toEqual([8392, 129]);
     expect(parseNumberList('')).toEqual([]);
   });
+
+  /**
+   * An identifier is a whole number above zero, listed once. The server
+   * refuses the rest, a fraction with the whole request.
+   */
+  it('keeps whole numbers above zero, once each', () => {
+    expect(parseNumberList('8392, 1.5, -3, 0, 8392')).toEqual([8392]);
+  });
 });
 
 describe('parseYearBound', () => {

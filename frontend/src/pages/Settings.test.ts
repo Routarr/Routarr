@@ -409,6 +409,24 @@ describe('the metadata sources', () => {
     expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
+  /**
+   * The server refuses a source listed twice, but a list stored before it did
+   * still arrives here. Each row is keyed by its source, and a save sends every
+   * field, so the list is read without the repeat and saved that way.
+   */
+  it('reads a stored list without its repeated source, and saves it that way', async () => {
+    mount({ global_dry_run: 'true', metadata_providers: 'tmdb,arr,tmdb' }, APIKEY_MODE, {
+      configured: true,
+      order: ['tmdb', 'arr'],
+    });
+    await openSection('Metadata');
+    expect(await screen.findAllByRole('button', { name: 'Disable – TMDb' })).toHaveLength(1);
+
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    expect((await save()).metadata_providers).toBe('tmdb,arr');
+  });
+
   it('separates what is active from what is switched off', async () => {
     mount({ metadata_providers: 'arr' });
     await openSection('Metadata');

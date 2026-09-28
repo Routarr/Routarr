@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Le nom de la règle ne peut pas être vide",
   "ValidationNameTooLong": "Le nom de la règle est limité à {max} caractères",
   "ValidationNoConditions": "Une règle doit comporter au moins une condition",
+  "ValidationValueRepeated": "{condition} : « {value} » répète une valeur déjà présente. Gardez-en une seule.",
   "ValidationYearImplausible": "{condition} : l'année {year} est hors de la plage {min}–{max} que Routarr accepte",
   "ValidationYearRangeInverted": "{condition} : la plage d'années {min}–{max} est inversée et ne correspondra jamais",
   "Version": "Version",

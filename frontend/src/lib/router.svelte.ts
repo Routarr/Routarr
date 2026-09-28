@@ -15,7 +15,8 @@ import { basePath } from '../api/basePath';
 
 const strip = (pathname: string) => {
   const base = basePath();
-  const path = base && pathname.startsWith(base) ? pathname.slice(base.length) : pathname;
+  const under = base && (pathname === base || pathname.startsWith(`${base}/`));
+  const path = under ? pathname.slice(base.length) : pathname;
   return path.startsWith('/') ? path : `/${path}`;
 };
 
@@ -36,9 +37,11 @@ export const href = (to: string) => `${basePath()}${to}`;
 
 /** Follow a link the way the browser would, without reloading the document. */
 export function navigate(to: string, options: { replace?: boolean } = {}) {
-  const { pathname, hash, href: from } = window.location;
+  const { pathname, search, hash, href: from } = window.location;
   const url = `${basePath()}${to}`;
-  if (options.replace) window.history.replaceState({}, '', url);
+  // The page on screen takes no second entry, as with a link in the browser.
+  const here = url === `${pathname}${search}${hash}`;
+  if (options.replace || here) window.history.replaceState({}, '', url);
   else window.history.pushState({}, '', url);
   router.path = strip(window.location.pathname);
   // A link to another fragment of the page on screen is one the browser
