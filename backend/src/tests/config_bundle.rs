@@ -95,6 +95,55 @@ async fn no_api_key_leaves_the_installation() {
     assert_eq!(bundle["instances"].as_array().unwrap()[0]["has_api_key"], false);
 }
 
+/// A webhook address lets whoever holds it post to the channel, and a bundle is
+/// something people share.
+#[tokio::test]
+async fn an_export_leaves_the_notification_webhook_out() {
+    let app = configured().await;
+    let url = "https://discord.com/api/webhooks/123/hook-secret-8d2e";
+    app.put(
+        "/api/v1/settings",
+        serde_json::json!({ "settings": { "notification_webhook_url": url } }),
+    )
+    .await
+    .assert_ok();
+
+    let bundle = export(&app).await;
+
+    let serialised = serde_json::to_string(&bundle).unwrap();
+    assert!(!serialised.contains("notification_webhook_url"), "the setting travelled");
+    assert!(!serialised.contains("hook-secret"), "the address travelled");
+}
+
+/// A bundle exported before the address was sealed carries it in the clear. The
+/// import leaves it out like any credential and says to set it again, rather
+/// than storing a credential that arrived in a shared file.
+#[tokio::test]
+async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
+    let app = TestApp::new().await;
+    let bundle = serde_json::json!({
+        "bundle": {
+            "version": 1,
+            "settings": [
+                { "key": "notification_webhook_url", "value": "https://discord.com/api/webhooks/1/abc" },
+                { "key": "batch_limit", "value": "25" }
+            ]
+        }
+    });
+
+    let report = app.post("/api/v1/config/import", bundle).await.assert_ok().clone();
+
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, None, "the credential was stored from the bundle");
+    let skipped = report["skipped"].to_string();
+    assert!(skipped.contains("notification_webhook_url"), "not reported: {skipped}");
+    assert_eq!(report["settings"], 1, "the other setting was not restored");
+}
+
 #[tokio::test]
 async fn nothing_reproducible_is_carried() {
     let app = configured().await;

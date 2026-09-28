@@ -258,12 +258,14 @@ pub async fn import(
             other => other,
         };
 
-        // Sealed elsewhere, meaningless here. The export never writes one, but
-        // a bundle edited by hand can carry one.
+        // A credential never arrives through a bundle: sealed elsewhere it
+        // opens with nothing here, and in the clear it came through a file
+        // people share. The export writes none, but a bundle edited by hand, or
+        // exported before the setting was sealed, can carry one.
         if crate::api::settings::is_secret(key) {
-            report
-                .skipped
-                .push(format!("setting '{key}' is sealed by another installation. Set it again"));
+            report.skipped.push(format!(
+                "setting '{key}' is a credential a bundle does not carry. Set it again"
+            ));
             continue;
         }
 

@@ -66,16 +66,61 @@ impl Drop for Receiver {
     }
 }
 
+/// Saved as the Settings screen saves it, so what the notifier reads is what an
+/// installation holds.
 async fn set(app: &TestApp, key: &str, value: &str) {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(key)
-    .bind(value)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } }))
+        .await
+        .assert_ok();
+}
+
+/// The address of a Discord or Slack webhook is the channel's credential:
+/// whoever reads it can post there. It is sealed like an API key, and what the
+/// screen gets back says whether one is stored, never what it is.
+#[tokio::test]
+async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
+    let app = TestApp::new().await;
+    let url = "https://discord.com/api/webhooks/123/hook-secret-8d2e";
+    set(&app, "notification_webhook_url", url).await;
+
+    let stored: String =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(stored.starts_with("enc:v1:"), "stored in the clear: {stored}");
+
+    let body = app.get("/api/v1/settings").await.assert_ok().clone();
+    assert_eq!(body["notification_webhook_url"], "", "the address came back out");
+    assert_eq!(body["notification_webhook_url_configured"], true);
+    assert!(!body.to_string().contains("hook-secret"), "the secret is in the payload");
+}
+
+/// A database from before the address was sealed holds it in the clear. The
+/// pass that seals every secret at startup covers it, and the notifications
+/// keep arriving.
+#[tokio::test]
+async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
+    let receiver = Receiver::start().await;
+    let app = TestApp::new().await;
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('notification_webhook_url', ?)")
+        .bind(&receiver.url)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
+
+    let stored: String =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(stored.starts_with("enc:v1:"), "left in the clear: {stored}");
+
+    let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
+    crate::services::notify::send(&app.state, event).await;
+    assert_eq!(receiver.messages().len(), 1, "the sealed address no longer delivers");
 }
 
 #[tokio::test]

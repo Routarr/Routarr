@@ -72,9 +72,10 @@ const KNOWN: &[(&str, Kind)] = &[
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Kind {
     Bool,
-    /// Stored sealed and never read back out. An empty value clears it, which
-    /// is how a source is turned off from the interface.
+    /// A credential of no shape anyone can predict, sealed (see [`Kind::sealed`]).
     Secret,
+    /// An `http://` or `https://` address, sealed like a `Secret`: whoever
+    /// holds a Discord or Slack webhook address can post to the channel.
     WebhookUrl,
     /// A whole number within an inclusive range, both ends stated at the table
     /// above so the reason for each ceiling sits beside the setting it bounds.
@@ -96,6 +97,13 @@ enum Kind {
 }
 
 impl Kind {
+    /// Whether the value is a credential: sealed on the way in, never read back
+    /// out, left out of a bundle and resealed when the master key rotates. An
+    /// empty value is stored empty, and that is how a credential is removed.
+    fn sealed(self) -> bool {
+        matches!(self, Kind::Secret | Kind::WebhookUrl)
+    }
+
     /// The inclusive range a value must sit in to be saved, if it is a number
     /// with one. The one place the two ranged kinds are read alike.
     fn range(self) -> Option<(i64, i64)> {
@@ -204,7 +212,12 @@ pub fn ranged_keys() -> Vec<(&'static str, i64, i64, bool)> {
 /// Sealed with a master key one installation holds, so it is meaningless
 /// anywhere else: a bundle must neither carry it nor accept it.
 pub fn is_secret(key: &str) -> bool {
-    KNOWN.iter().any(|(k, kind)| *k == key && *kind == Kind::Secret)
+    KNOWN.iter().any(|(k, kind)| *k == key && kind.sealed())
+}
+
+/// Every key that holds a sealed value, for the pass that reseals them all.
+pub fn sealed_keys() -> Vec<&'static str> {
+    KNOWN.iter().filter(|(_, kind)| kind.sealed()).map(|(k, _)| *k).collect()
 }
 
 pub async fn update(
@@ -222,14 +235,13 @@ pub async fn update(
 
     let mut tx = state.pool.begin().await?;
     for (key, value) in &req.settings {
-        let kind = KNOWN.iter().find(|(k, _)| k == key).map(|(_, kind)| *kind);
-        let stored = match kind {
-            // Sealed here rather than in the client, so a value reaching the
-            // table in plaintext is impossible whatever the caller sent. An
-            // empty value stays empty: it is how the source is switched off,
-            // and sealing nothing would store an opaque blob meaning "unset".
-            Some(Kind::Secret) if !value.trim().is_empty() => state.secrets.seal(value.trim())?,
-            _ => value.trim().to_string(),
+        // Sealed here rather than in the client, so a value reaching the table
+        // in plaintext is impossible whatever the caller sent. An empty value
+        // stays empty: sealing nothing would store an opaque blob meaning "unset".
+        let stored = if is_secret(key) && !value.trim().is_empty() {
+            state.secrets.seal(value.trim())?
+        } else {
+            value.trim().to_string()
         };
         sqlx::query(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

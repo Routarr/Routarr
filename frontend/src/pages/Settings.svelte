@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
 
   import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
   import { api, getApiKey, setApiKey } from '../api/client';
@@ -12,6 +13,7 @@
     FIELDS,
     SECTIONS,
     SOURCE_KEY_SETTING,
+    splitStored,
     type SectionId,
     type Field,
   } from '../lib/settings';
@@ -30,22 +32,24 @@
   import { downloadJson } from '../lib/download';
 
   const bundle = createAsync(async (signal) => {
-    const [settings, categories, languages, metadata] = await Promise.all([
+    const [answer, categories, languages, metadata] = await Promise.all([
       api.getSettings(signal),
       api.getCategories(signal),
       api.getLanguages(signal),
       api.getMetadataProviders(signal),
     ]);
+    const { values, sealed } = splitStored(answer);
     // An unstored source list is the shipped default, which only the server
     // knows. Seeded from a copy kept here instead, the first save of any
     // setting would store that copy, since a save sends every field. Blank
     // counts as unstored, as an older server answers a key it never stored.
-    const stored: SettingsMap = {
-      ...settings,
-      metadata_providers: settings.metadata_providers || metadata.order.join(','),
+    const settings: SettingsMap = {
+      ...values,
+      metadata_providers: values.metadata_providers || metadata.order.join(','),
     };
     return {
-      settings: stored,
+      settings,
+      sealed,
       categories,
       languages: languages.languages,
       providers: metadata.providers,
@@ -62,6 +66,13 @@
    * Save is pressed, and nothing on screen said what was written.
    */
   let saved = $state<SettingsMap>({});
+  /** The sealed settings holding a value, which no field can show. */
+  const stored = new SvelteSet<string>();
+  /**
+   * The sealed settings to remove at the next save. A blank credential field
+   * means "leave it alone", so removing one is a state of its own.
+   */
+  const removing = new SvelteSet<string>();
   const outcome = createOutcome();
   let saving = $state(false);
   let key = $state(getApiKey());
@@ -180,6 +191,8 @@
       );
       seed(data.settings);
       draft = { ...draft, ...pending };
+      stored.clear();
+      for (const setting of data.sealed) stored.add(setting);
       // The screen wears the theme it has just read: an import replaces it
       // without a save.
       applyTheme(data.settings.ui_theme || 'dark');
@@ -188,7 +201,9 @@
 
   const changed = $derived(
     FIELDS.filter(
-      (field) => (draft[field.key] ?? field.fallback) !== (saved[field.key] ?? field.fallback),
+      (field) =>
+        removing.has(field.key) ||
+        (draft[field.key] ?? field.fallback) !== (saved[field.key] ?? field.fallback),
     ),
   );
 
@@ -235,7 +250,16 @@
    * so those fields are empty on every load. Every other setting is loaded with
    * what is stored, so an empty one is an empty one the reader chose.
    */
-  const CREDENTIALS = new Set(Object.values(SOURCE_KEY_SETTING));
+  const CREDENTIALS = new Set(
+    FIELDS.filter((field) => field.kind === 'secret').map((field) => field.key),
+  );
+
+  function remove(field: Field) {
+    removing.add(field.key);
+    draft[field.key] = '';
+    // The button goes with the value, and the field says what Save will do.
+    void handFocus(`setting-${field.key}`);
+  }
 
   const providers = $derived<MetadataProvider[]>(bundle.data?.providers ?? []);
   const languages = $derived(bundle.data?.languages ?? []);
@@ -246,6 +270,7 @@
 
   function discard() {
     draft = { ...saved };
+    removing.clear();
     keepFocus();
   }
 
@@ -257,16 +282,24 @@
     saving = true;
     try {
       // A blank credential is left out rather than sent. The backend never
-      // returns a sealed value, so the field is empty on every load; sending
-      // that empty string writes it, and saving an unrelated setting would
-      // delete the key. Leaving the field alone has to mean leaving the key
-      // alone, which is what the `_configured` boolean is for.
-      const payload = Object.fromEntries(
-        FIELDS.map((field) => [field.key, draft[field.key] ?? field.fallback]).filter(
-          ([key, value]) => !CREDENTIALS.has(key as string) || (value as string).trim() !== '',
-        ),
+      // returns a sealed value, so the field is empty on every load, and
+      // sending that emptiness would delete the credential on every unrelated
+      // save. One the reader asked to remove is sent empty, which is how the
+      // backend removes it.
+      const payload: SettingsMap = Object.fromEntries(
+        FIELDS.flatMap((field) => {
+          const value = draft[field.key] ?? field.fallback;
+          if (!CREDENTIALS.has(field.key) || value.trim() !== '') return [[field.key, value]];
+          return removing.has(field.key) ? [[field.key, '']] : [];
+        }),
       );
       await api.updateSettings(payload);
+      for (const [setting, value] of Object.entries(payload)) {
+        if (!CREDENTIALS.has(setting)) continue;
+        if (value.trim() === '') stored.delete(setting);
+        else stored.add(setting);
+      }
+      removing.clear();
       applyTheme(payload.ui_theme);
       // The dictionary is served per language, so a language change needs a refetch.
       await loadDictionary();
@@ -330,6 +363,7 @@
       // carried over the values read back, whenever that read succeeds, Save
       // would write it over the import.
       draft = { ...saved };
+      removing.clear();
       // Before the summary, which is written in the language the import set.
       await loadDictionary();
       const restored =
@@ -637,6 +671,36 @@
                       <option value={category.name}>{category.name}</option>
                     {/each}
                   </select>
+                {:else if field.kind === 'secret'}
+                  <!-- Never returned by the server, so empty on every load: the
+                       placeholder says whether a value is stored, and only
+                       Remove clears one, since a blank field leaves it alone. -->
+                  <div class="flex gap-2">
+                    <input
+                      id="setting-{field.key}"
+                      aria-describedby="setting-{field.key}-help"
+                      type="password"
+                      autocomplete="off"
+                      class="form-input"
+                      placeholder={removing.has(field.key)
+                        ? t('SecretRemovedOnSave')
+                        : stored.has(field.key)
+                          ? t('SecretStoredPlaceholder')
+                          : undefined}
+                      value={draft[field.key] ?? ''}
+                      oninput={(event) => (draft[field.key] = event.currentTarget.value)}
+                    />
+                    {#if stored.has(field.key) && !removing.has(field.key)}
+                      <button
+                        type="button"
+                        class="btn btn-secondary"
+                        aria-label="{t('Remove')} – {t(field.labelKey)}"
+                        onclick={() => remove(field)}
+                      >
+                        {t('Remove')}
+                      </button>
+                    {/if}
+                  </div>
                 {:else}
                   {@const outside = outOfRange(field)}
                   <input

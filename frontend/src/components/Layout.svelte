@@ -67,7 +67,9 @@
   $effect(() => {
     api
       .getSettings()
-      .then((settings) => applyTheme(settings.ui_theme || 'dark'))
+      .then(({ ui_theme }) =>
+        applyTheme(typeof ui_theme === 'string' && ui_theme ? ui_theme : 'dark'),
+      )
       // A theme that cannot be read is not worth an error banner: the default
       // renders perfectly well.
       .catch(() => {});

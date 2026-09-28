@@ -75,12 +75,18 @@ impl Event {
 /// rather than spawned, so the outbound HTTP timeout bounds it and tests stay
 /// deterministic.
 pub async fn send(state: &AppState, event: Event) {
-    let url = state.setting::<String>("notification_webhook_url", String::new()).await;
-    let url = url.trim();
-    if url.is_empty() {
+    let stored = state.setting::<String>("notification_webhook_url", String::new()).await;
+    if stored.trim().is_empty() {
         debug!(event = event.kind(), "No notification webhook configured");
         return;
     }
+    let url = match state.secrets.open(stored.trim()) {
+        Ok(url) => url,
+        Err(e) => {
+            warn!(event = event.kind(), "The notification webhook could not be opened: {e}");
+            return;
+        }
+    };
 
     let message = event.message();
     let payload = json!({
@@ -98,7 +104,7 @@ pub async fn send(state: &AppState, event: Event) {
 
     // Through `send_ok`, which says why a send failed without the address: a
     // Discord or Slack webhook URL carries its secret in the path.
-    match send_ok("Notification webhook", state.http.post(url).json(&payload)).await {
+    match send_ok("Notification webhook", state.http.post(&url).json(&payload)).await {
         Ok(()) => debug!(event = event.kind(), "Notification delivered"),
         Err(e) => warn!(event = event.kind(), "Notification not delivered: {e}"),
     }
