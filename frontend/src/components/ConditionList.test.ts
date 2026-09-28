@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -14,6 +14,7 @@ import ConditionList from './ConditionList.svelte';
 
 const STRINGS = {
   AddCondition: 'Add a condition',
+  Add: 'Add',
   ConditionsAllOf: 'All of',
   NeedsMetadataSuffix: '(needs metadata)',
   Remove: 'Remove',
@@ -59,6 +60,7 @@ function render(
   onRetype: (index: number, type: string) => void = () => {},
   facets?: unknown,
   language = 'en',
+  onAdd: (type: string) => void = () => {},
 ) {
   renderWithI18n(ConditionList, {
     language,
@@ -69,7 +71,7 @@ function render(
       specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
       addable,
       facets,
-      onAdd: () => {},
+      onAdd,
       onRetype,
       onUpdate: () => {},
       onRemove: () => {},
@@ -79,6 +81,22 @@ function render(
 }
 
 describe('ConditionList', () => {
+  /**
+   * On Windows and Linux an arrow key on a closed select fires `change`, and
+   * adding on `change` added a condition at every arrow. Choosing is free,
+   * Add adds.
+   */
+  it('adds the condition chosen only when Add is pressed', async () => {
+    const onAdd = vi.fn();
+    render([], [GENRE, SEASONS], () => {}, undefined, 'en', onAdd);
+
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'All of' }), GENRE.type);
+    expect(onAdd).not.toHaveBeenCalled();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Add – All of' }));
+    expect(onAdd).toHaveBeenCalledWith(GENRE.type);
+  });
+
   it('offers only the conditions the rule can use', () => {
     render([], [GENRE]);
 

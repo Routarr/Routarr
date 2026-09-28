@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import type { ConditionSpec } from '../api/types';
 import ConditionValue from './ConditionValue.svelte';
+import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
 
 /**
  * One editor per value type, and every one of them named.
@@ -88,6 +89,46 @@ describe('ConditionValue', () => {
     });
 
     expect(onChange).toHaveBeenCalledWith(['Animation', 'Drama']);
+  });
+
+  /**
+   * The field holds what is typed. Rewritten from the parsed list, a list typed
+   * without spaces came back spaced under the cursor, which jumped to the end.
+   */
+  it.each([
+    ['number_list', 'Years', '2019,2020', '[2019,2020]'],
+    ['string_list', 'Genre contains', 'anime,kids', '["anime","kids"]'],
+  ] as const)(
+    'a %s shows what is typed, as it is typed',
+    async (valueType, label, typed, bound) => {
+      renderWithI18n(ConditionValueHarness, {
+        props: { spec: spec({ value_type: valueType, label }), initial: [] },
+        strings: STRINGS,
+      });
+      const field = screen.getByLabelText(label) as HTMLInputElement;
+
+      await userEvent.type(field, typed);
+
+      expect(field.value).toBe(typed);
+      expect(screen.getByTestId('bound').textContent).toBe(bound);
+    },
+  );
+
+  /**
+   * An id added mid-list stays where it is typed. With the cursor sent to the
+   * end at each rewrite, its digits ran into the last id of the list.
+   */
+  it('a corrected id list keeps its separator', async () => {
+    renderWithI18n(ConditionValueHarness, {
+      props: { spec: spec({ value_type: 'number_list', label: 'Years' }), initial: [2019, 2020] },
+      strings: STRINGS,
+    });
+    const field = screen.getByLabelText('Years') as HTMLInputElement;
+
+    await userEvent.type(field, '2021,', { initialSelectionStart: 5, initialSelectionEnd: 5 });
+
+    expect(field.value).toBe('2019,2021, 2020');
+    expect(screen.getByTestId('bound').textContent).toBe('[2019,2021,2020]');
   });
 
   it('takes a path as plain text', async () => {

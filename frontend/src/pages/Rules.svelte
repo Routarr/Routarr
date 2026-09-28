@@ -26,6 +26,7 @@
   } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
+  import { handFocus } from '../lib/focus';
   import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -64,7 +65,7 @@
   });
 
   const bundle = createAsync(async (signal) => {
-    const [rules, categories, catalog, health, facets] = await Promise.all([
+    const [rules, categories, catalog, health] = await Promise.all([
       api.getRules(signal),
       api.getCategories(signal),
       api.getConditionCatalog(signal),
@@ -79,12 +80,14 @@
       // library, and a rule list that refuses to render because a diagnostic
       // failed is worse than a rule list without badges.
       api.getRuleHealth(signal).catch(() => null),
-      // Same tolerance, same reason: an aggregation that failed must not take
-      // the rule list down with it.
-      api.getLibraryFacets(signal).catch(() => null),
     ]);
-    return { rules, categories, catalog, health, facets };
+    return { rules, categories, catalog, health };
   });
+
+  // What the library carries, read once when the screen opens: an aggregation
+  // over the whole library that no action on a rule changes. Tolerated like
+  // the health report, and for the same reason.
+  const library = createAsync((signal) => api.getLibraryFacets(signal).catch(() => null));
 
   const health = $derived(
     new Map((bundle.data?.health?.rules ?? []).map((entry) => [entry.rule_id, entry])),
@@ -102,9 +105,7 @@
 
   // The table reads as the editor does: a condition by its caption, a value by
   // the name the library or its vocabulary gives it, `ja` as Japanese.
-  const facets = $derived(
-    bundle.data?.facets ? localFacets(bundle.data.facets, i18n.language) : null,
-  );
+  const facets = $derived(library.data ? localFacets(library.data, i18n.language) : null);
   function nameIn(axis: string | undefined, value: string): string {
     if (!axis || !facets) return value;
     const key = canonicalKey(value);
@@ -186,6 +187,10 @@
     reordered[index] = to;
     reordered[target] = from;
     await act(() => api.reorderRules(reordered.map((rule) => rule.id)), t('PrioritiesUpdated'));
+    // With the rule: the arrow pressed, or the other one once it reached an
+    // end of the list and the arrow pressed turned disabled.
+    const [pressed, other] = direction === -1 ? ['raise', 'lower'] : ['lower', 'raise'];
+    void handFocus(`rule-${from.id}-${pressed}`, `rule-${from.id}-${other}`);
   }
 
   async function exportBundle() {
@@ -256,11 +261,8 @@
   <!-- Before the rules, not after: it is what you consult in order to write
        one, and a rule written against a value the library does not carry
        matches nothing while looking exactly like a rule that should. -->
-  {#if bundle.data?.facets}
-    <LibraryFacetsPanel
-      facets={bundle.data.facets}
-      captionOf={(type) => specByType.get(type)?.label}
-    />
+  {#if library.data}
+    <LibraryFacetsPanel facets={library.data} captionOf={(type) => specByType.get(type)?.label} />
   {/if}
 
   <div class="card">
@@ -279,7 +281,9 @@
           </tr>
         </thead>
         <tbody>
-          {#if bundle.loading}
+          <!-- The skeleton on the first load only: over a reload it took the
+               rows, and the focus with them, after every action on a rule. -->
+          {#if bundle.loading && rules.length === 0}
             <TableSkeleton columns={7} />
           {:else if rules.length === 0}
             <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
@@ -366,6 +370,7 @@
                 <td>
                   <div class="flex gap-2">
                     <button
+                      id="rule-{rule.id}-raise"
                       class="btn btn-secondary btn-sm"
                       disabled={index === 0}
                       title={t('RaisePriority')}
@@ -375,6 +380,7 @@
                       <MoveUp size={14} />
                     </button>
                     <button
+                      id="rule-{rule.id}-lower"
                       class="btn btn-secondary btn-sm"
                       disabled={index === rules.length - 1}
                       title={t('LowerPriority')}
@@ -429,7 +435,7 @@
 
   {#if editing && catalog}
     <RuleEditor
-      knownFacets={bundle.data?.facets ?? null}
+      knownFacets={library.data ?? null}
       draft={editing.draft}
       ruleId={editing.id}
       {categories}

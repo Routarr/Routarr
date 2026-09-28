@@ -20,6 +20,7 @@ test.describe('root folders', () => {
     const row = page.locator('tbody tr').filter({ hasText: '/movies/anime' });
     await expect(row).toHaveCount(1);
     await row.locator('select').selectOption('');
+    await row.getByRole('button', { name: 'Save – /movies/anime' }).click();
 
     await expect(page.locator('.banner-success')).toBeVisible();
     await page.reload();
@@ -28,11 +29,9 @@ test.describe('root folders', () => {
     ).toHaveValue('');
 
     // Put it back, so the ordering of the suite does not matter.
-    await page
-      .locator('tbody tr')
-      .filter({ hasText: '/movies/anime' })
-      .locator('select')
-      .selectOption('anime');
+    const again = page.locator('tbody tr').filter({ hasText: '/movies/anime' });
+    await again.locator('select').selectOption('anime');
+    await again.getByRole('button', { name: 'Save – /movies/anime' }).click();
     await expect(page.locator('.banner-success')).toBeVisible();
   });
 

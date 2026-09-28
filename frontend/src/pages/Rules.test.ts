@@ -172,6 +172,36 @@ describe('Rules', () => {
     expect(nthCall(reorder)[0]).toEqual(['r2', 'r1']);
   });
 
+  /**
+   * An action on a rule keeps the table on screen and the focus with the rule.
+   * Swapped for a skeleton at each reload, the rows took the focus to the page
+   * and a keyboard user started again from the top. The library facets are
+   * the screen's, read once: no action on a rule changes them.
+   */
+  it("moving a rule keeps the table and the focus on the moved rule's button", async () => {
+    const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
+    const facets = vi.spyOn(api, 'getLibraryFacets').mockRejectedValue(new Error('not read'));
+    show([rule({ id: 'r1', name: 'First' }), rule({ id: 'r2', name: 'Last' })]);
+    const raise = await screen.findByRole('button', { name: 'Raise priority – Last' });
+    let answer: (rules: Rule[]) => void = () => {};
+    vi.spyOn(api, 'getRules').mockReturnValue(new Promise((resolve) => (answer = resolve)));
+
+    raise.focus();
+    await fireEvent.click(raise);
+    await waitFor(() => expect(reorder).toHaveBeenCalledTimes(1));
+
+    // While the list reloads, its rows stay.
+    expect(screen.getByRole('button', { name: 'Lower priority – Last' })).toBeTruthy();
+    answer([rule({ id: 'r2', name: 'Last' }), rule({ id: 'r1', name: 'First' })]);
+    // At the top it cannot rise further, so its other arrow takes the focus.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Lower priority – Last' }),
+      ),
+    );
+    expect(facets).toHaveBeenCalledTimes(1);
+  });
+
   it('asks before deleting, naming the rule', async () => {
     const remove = vi.spyOn(api, 'deleteRule');
     show([rule({ name: 'Japanese animation' })]);

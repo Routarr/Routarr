@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Trash2 } from '../lib/icons';
+  import { Plus, Trash2 } from '../lib/icons';
   import type {
     Condition,
     ConditionSpec,
@@ -96,6 +96,22 @@
   const offerable = $derived(addable.filter((spec) => spec.quantifier !== 'all'));
 
   /**
+   * The condition picked to add. On Windows and Linux an arrow key on a closed
+   * select fires `change`, so adding on `change` added a condition at each
+   * arrow: picking is free, and Add adds.
+   */
+  let chosen = $state('');
+
+  function addChosen() {
+    if (!chosen) return;
+    onAdd(chosen);
+    chosen = '';
+    // Add turns disabled with nothing picked, and a disabled button drops the
+    // focus: the picker takes it back, ready for the next condition.
+    void handFocus(`rules-${list}-add`);
+  }
+
+  /**
    * Delete takes its own row away, and can take the focus with it. The
    * condition that moved up into its place takes it, else the picker that adds
    * one, rather than the page behind the dialog.
@@ -176,23 +192,32 @@
     {/each}
   </div>
 
-  <select
-    id="rules-{list}-add"
-    class="form-select mt-2"
-    aria-label={title}
-    value=""
-    onchange={(event) => {
-      if (event.currentTarget.value) onAdd(event.currentTarget.value);
-      event.currentTarget.value = '';
-    }}
-  >
-    <option value="">{t('AddCondition')}</option>
-    {#each offerable as spec (spec.type)}
-      <!-- Flagged only when no enabled source can answer it: with the Arr as a
-           source, a genre condition needs no warning at all. -->
-      <option value={spec.type}>
-        {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
-      </option>
-    {/each}
-  </select>
+  <div class="flex gap-2 mt-2">
+    <select
+      id="rules-{list}-add"
+      class="form-select"
+      aria-label={title}
+      value={chosen}
+      onchange={(event) => (chosen = event.currentTarget.value)}
+    >
+      <option value="">{t('AddCondition')}</option>
+      {#each offerable as spec (spec.type)}
+        <!-- Flagged only when no enabled source can answer it: with the Arr as
+             a source, a genre condition needs no warning at all. -->
+        <option value={spec.type}>
+          {spec.label}{spec.available ? '' : ` ${t('NeedsMetadataSuffix')}`}
+        </option>
+      {/each}
+    </select>
+    <button
+      type="button"
+      class="btn btn-secondary"
+      disabled={!chosen}
+      aria-label="{t('Add')} – {title}"
+      onclick={addChosen}
+    >
+      <Plus size={14} />
+      {t('Add')}
+    </button>
+  </div>
 </div>

@@ -15,6 +15,7 @@
   import BannerList from '../components/BannerList.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import { handFocus } from '../lib/focus';
 
   const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances] = await Promise.all([
@@ -55,6 +56,24 @@
 
   let renaming = $state<Category | null>(null);
   let newName = $state('');
+
+  /**
+   * The category picked for each folder, by folder id, until Save writes it.
+   * On Windows and Linux an arrow key on a closed select fires `change`, and
+   * writing on `change` sent every category passed on the way to the server.
+   */
+  const picked = $state<Record<string, string>>({});
+  const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
+
+  async function saveCategory(folder: RootFolder) {
+    const category = pickedFor(folder);
+    await act(() => api.updateRootFolderCategory(folder.id, category || null), t('MappingUpdated'));
+    // Written or refused, the row reads what the server now holds.
+    delete picked[folder.id];
+    // Save turns disabled once nothing is pending, and a disabled button
+    // drops the focus: the folder's select takes it back.
+    void handFocus(`folder-${folder.id}-category`);
+  }
 
   async function act(fn: () => Promise<unknown>, message: string) {
     try {
@@ -188,25 +207,29 @@
                   {/if}
                 </td>
                 <td>
-                  <select
-                    class="form-select"
-                    aria-label={t('CategoryForFolder', { path: folder.path })}
-                    value={folder.category ?? ''}
-                    onchange={(event) =>
-                      act(
-                        () =>
-                          api.updateRootFolderCategory(
-                            folder.id,
-                            event.currentTarget.value || null,
-                          ),
-                        t('MappingUpdated'),
-                      )}
-                  >
-                    <option value="">{t('Unmapped')}</option>
-                    {#each categories as category (category.id)}
-                      <option value={category.name}>{category.name}</option>
-                    {/each}
-                  </select>
+                  <div class="flex gap-2">
+                    <select
+                      id="folder-{folder.id}-category"
+                      class="form-select"
+                      aria-label={t('CategoryForFolder', { path: folder.path })}
+                      value={pickedFor(folder)}
+                      onchange={(event) => (picked[folder.id] = event.currentTarget.value)}
+                    >
+                      <option value="">{t('Unmapped')}</option>
+                      {#each categories as category (category.id)}
+                        <option value={category.name}>{category.name}</option>
+                      {/each}
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      disabled={pickedFor(folder) === (folder.category ?? '')}
+                      aria-label="{t('Save')} – {folder.path}"
+                      onclick={() => void saveCategory(folder)}
+                    >
+                      {t('Save')}
+                    </button>
+                  </div>
                 </td>
                 <td>
                   <!-- Only what Routarr owns. A folder the instance reports

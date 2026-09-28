@@ -121,6 +121,9 @@
   // Gated on the same flag as the list: a button disabled by a reason nobody is
   // shown is a dead control, which is worse than the premature complaint.
   const blocking = $derived(shown.some((issue) => issue.severity === 'error'));
+  // Checked here: a fraction never reaches the live validation, since the
+  // server refuses the draft before reading it, and Save stayed lit.
+  const wholePriority = $derived(Number.isInteger(draft.priority));
 
   const specs = $derived(new Map(catalog.conditions.map((spec) => [spec.type, spec])));
 
@@ -312,7 +315,10 @@
         <input
           id="rules-priority"
           type="number"
+          step="1"
           class="form-input"
+          aria-invalid={wholePriority ? undefined : 'true'}
+          aria-describedby={wholePriority ? undefined : 'rules-priority-error'}
           value={draft.priority}
           oninput={(event) => {
             draft.priority = Number(event.currentTarget.value);
@@ -320,6 +326,9 @@
           }}
           title={t('PriorityHint')}
         />
+        {#if !wholePriority}
+          <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
+        {/if}
       </div>
     </div>
 
@@ -405,12 +414,16 @@
           type="button"
           class="btn btn-secondary"
           onclick={runPreview}
-          disabled={busy !== null || draft.conditions.length === 0}
+          disabled={busy !== null || draft.conditions.length === 0 || !wholePriority}
         >
           <FlaskConical size={16} />
           {busy === 'preview' ? t('Simulating') : t('PreviewImpact')}
         </button>
-        <button type="submit" class="btn btn-primary" disabled={busy !== null || blocking}>
+        <button
+          type="submit"
+          class="btn btn-primary"
+          disabled={busy !== null || blocking || !wholePriority}
+        >
           {busy === 'save' ? t('Saving') : t('SaveRule')}
         </button>
       </div>
