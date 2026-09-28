@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Megerősítési küszöb",
   "SettingConfirmationThresholdHelp": "E szám fölött a végrehajtás második, kifejezett megerősítést kér.",
   "SettingDecisionRetention": "Döntések megőrzése (nap)",
-  "SettingDecisionRetentionHelp": "Az ennél régebbi függő és kihagyott döntések törlődnek. A 0 kikapcsolja a takarítást.",
+  "SettingDecisionRetentionHelp": "Az ennél régebbi függő és kihagyott döntések törlődnek. A visszavont áthelyezés addig marad, amíg a végrehajtási naplója megvan. A 0 kikapcsolja a takarítást.",
   "SettingDefaultCategory": "Alapértelmezett kategória",
   "SettingDefaultCategoryHelp": "Akkor használatos, ha egyetlen szabály sem illeszkedik az elemre.",
   "SettingGlobalDryRun": "Globális próbafuttatás",

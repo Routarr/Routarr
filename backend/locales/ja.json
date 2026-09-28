@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "確認しきい値",
   "SettingConfirmationThresholdHelp": "この件数を超えると、適用には 2 度目の明示的な確認が必要になります。",
   "SettingDecisionRetention": "判定の保持期間 (日)",
-  "SettingDecisionRetentionHelp": "これより古い保留中およびスキップされた判定は消去されます。0 で消去を無効にします。",
+  "SettingDecisionRetentionHelp": "これより古い保留中およびスキップされた判定は消去されます。取り消した移動は、その実行ログが残っている間は保持されます。0 で消去を無効にします。",
   "SettingDefaultCategory": "既定のカテゴリ",
   "SettingDefaultCategoryHelp": "どのルールも項目に一致しなかった場合に使用されます。",
   "SettingGlobalDryRun": "全体ドライラン",

@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Umbral de confirmación",
   "SettingConfirmationThresholdHelp": "Por encima de esta cantidad, aplicar exige una segunda confirmación explícita.",
   "SettingDecisionRetention": "Retención de decisiones (días)",
-  "SettingDecisionRetentionHelp": "Las decisiones pendientes y omitidas más antiguas se purgan. 0 desactiva la purga.",
+  "SettingDecisionRetentionHelp": "Las decisiones pendientes y omitidas más antiguas se purgan. Un movimiento revertido se conserva mientras exista su registro de ejecución. 0 desactiva la purga.",
   "SettingDefaultCategory": "Categoría predeterminada",
   "SettingDefaultCategoryHelp": "Se usa cuando ninguna regla coincide con un medio.",
   "SettingGlobalDryRun": "Ejecución en seco global",

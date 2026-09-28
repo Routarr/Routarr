@@ -161,6 +161,7 @@ pub async fn revert(
             &state,
             &req.decision_ids,
             req.move_files,
+            &req.confirm,
             &Attribution::manual(identity.actor()),
         )
         .await?,

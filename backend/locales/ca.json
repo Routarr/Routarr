@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Llindar de confirmació",
   "SettingConfirmationThresholdHelp": "Per damunt d'aquesta quantitat, aplicar exigeix una segona confirmació explícita.",
   "SettingDecisionRetention": "Retenció de decisions (dies)",
-  "SettingDecisionRetentionHelp": "Les decisions pendents i omeses més antigues es purguen. 0 desactiva la purga.",
+  "SettingDecisionRetentionHelp": "Les decisions pendents i omeses més antigues es purguen. Un moviment revertit es conserva mentre en quedi el registre d'execució. 0 desactiva la purga.",
   "SettingDefaultCategory": "Categoria predeterminada",
   "SettingDefaultCategoryHelp": "S'utilitza quan cap regla no coincideix amb un element.",
   "SettingGlobalDryRun": "Execució en sec global",

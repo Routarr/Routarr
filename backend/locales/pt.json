@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Limiar de confirmação",
   "SettingConfirmationThresholdHelp": "Acima deste número, aplicar exige uma segunda confirmação explícita.",
   "SettingDecisionRetention": "Retenção de decisões (dias)",
-  "SettingDecisionRetentionHelp": "As decisões pendentes e ignoradas mais antigas são eliminadas. 0 desativa a limpeza.",
+  "SettingDecisionRetentionHelp": "As decisões pendentes e ignoradas mais antigas são eliminadas. Uma deslocação revertida mantém-se enquanto existir o respetivo registo de execução. 0 desativa a limpeza.",
   "SettingDefaultCategory": "Categoria predefinida",
   "SettingDefaultCategoryHelp": "Usada quando nenhuma regra corresponde a um item.",
   "SettingGlobalDryRun": "Execução a seco global",

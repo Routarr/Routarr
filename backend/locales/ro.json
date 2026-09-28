@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Pragul de confirmare",
   "SettingConfirmationThresholdHelp": "Peste acest număr, aplicarea cere o a doua confirmare explicită.",
   "SettingDecisionRetention": "Păstrarea deciziilor (zile)",
-  "SettingDecisionRetentionHelp": "Deciziile în așteptare și cele omise mai vechi sunt curățate. 0 dezactivează curățarea.",
+  "SettingDecisionRetentionHelp": "Deciziile în așteptare și cele omise mai vechi sunt curățate. O mutare anulată rămâne cât timp există jurnalul ei de execuție. 0 dezactivează curățarea.",
   "SettingDefaultCategory": "Categoria implicită",
   "SettingDefaultCategoryHelp": "Se folosește când nicio regulă nu se potrivește unui element.",
   "SettingGlobalDryRun": "Rulare de probă globală",

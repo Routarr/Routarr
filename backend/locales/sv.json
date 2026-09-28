@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Bekräftelsegräns",
   "SettingConfirmationThresholdHelp": "Över det här antalet kräver tillämpning en andra, uttrycklig bekräftelse.",
   "SettingDecisionRetention": "Lagring av beslut (dagar)",
-  "SettingDecisionRetentionHelp": "Äldre väntande och överhoppade beslut rensas. 0 stänger av rensningen.",
+  "SettingDecisionRetentionHelp": "Äldre väntande och överhoppade beslut rensas. En ångrad flytt finns kvar så länge dess körningslogg finns. 0 stänger av rensningen.",
   "SettingDefaultCategory": "Standardkategori",
   "SettingDefaultCategoryHelp": "Används när ingen regel matchar ett objekt.",
   "SettingGlobalDryRun": "Global testkörning",

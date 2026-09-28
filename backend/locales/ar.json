@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "عتبة التأكيد",
   "SettingConfirmationThresholdHelp": "فوق هذا العدد من العناصر، يتطلب التطبيق تأكيدًا ثانيًا صريحًا.",
   "SettingDecisionRetention": "الاحتفاظ بالقرارات (أيام)",
-  "SettingDecisionRetentionHelp": "تُطهَّر القرارات المعلّقة والمتخطاة الأقدم من ذلك. القيمة 0 تعطّل التطهير.",
+  "SettingDecisionRetentionHelp": "تُطهَّر القرارات المعلّقة والمتخطاة الأقدم من ذلك. تبقى النقلة التي تم التراجع عنها ما دام سجل تنفيذها باقيًا. القيمة 0 تعطّل التطهير.",
   "SettingDefaultCategory": "الفئة الافتراضية",
   "SettingDefaultCategoryHelp": "تُستعمل حين لا تطابق أي قاعدة عنصرًا.",
   "SettingGlobalDryRun": "تشغيل تجريبي عام",

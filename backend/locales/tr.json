@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Onay eşiği",
   "SettingConfirmationThresholdHelp": "Bu sayının üzerinde, uygulama ikinci bir açık onay gerektirir.",
   "SettingDecisionRetention": "Karar saklama (gün)",
-  "SettingDecisionRetentionHelp": "Daha eski bekleyen ve atlanan kararlar temizlenir. 0 temizlemeyi kapatır.",
+  "SettingDecisionRetentionHelp": "Daha eski bekleyen ve atlanan kararlar temizlenir. Geri alınan bir taşıma, yürütme günlüğü durdukça kalır. 0 temizlemeyi kapatır.",
   "SettingDefaultCategory": "Varsayılan kategori",
   "SettingDefaultCategoryHelp": "Bir ögeyle hiçbir kural eşleşmediğinde kullanılır.",
   "SettingGlobalDryRun": "Genel deneme modu",

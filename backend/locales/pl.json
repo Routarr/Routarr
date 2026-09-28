@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Próg potwierdzenia",
   "SettingConfirmationThresholdHelp": "Powyżej tej liczby zastosowanie wymaga drugiego, wyraźnego potwierdzenia.",
   "SettingDecisionRetention": "Przechowywanie decyzji (dni)",
-  "SettingDecisionRetentionHelp": "Starsze oczekujące i pominięte decyzje są usuwane. 0 wyłącza czyszczenie.",
+  "SettingDecisionRetentionHelp": "Starsze oczekujące i pominięte decyzje są usuwane. Cofnięte przeniesienie pozostaje, dopóki istnieje jego dziennik wykonania. 0 wyłącza czyszczenie.",
   "SettingDefaultCategory": "Kategoria domyślna",
   "SettingDefaultCategoryHelp": "Używana, gdy żadna reguła nie pasuje do pozycji.",
   "SettingGlobalDryRun": "Globalny tryb próbny",

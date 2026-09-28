@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Soglia di conferma",
   "SettingConfirmationThresholdHelp": "Oltre questo numero, l'applicazione richiede una seconda conferma esplicita.",
   "SettingDecisionRetention": "Conservazione delle decisioni (giorni)",
-  "SettingDecisionRetentionHelp": "Le decisioni in attesa e ignorate più vecchie vengono eliminate. 0 disattiva l'eliminazione.",
+  "SettingDecisionRetentionHelp": "Le decisioni in attesa e ignorate più vecchie vengono eliminate. Uno spostamento annullato resta finché esiste il suo registro di esecuzione. 0 disattiva l'eliminazione.",
   "SettingDefaultCategory": "Categoria predefinita",
   "SettingDefaultCategoryHelp": "Usata quando nessuna regola corrisponde a un media.",
   "SettingGlobalDryRun": "Prova a secco globale",

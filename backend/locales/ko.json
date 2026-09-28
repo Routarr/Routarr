@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "확인 임계값",
   "SettingConfirmationThresholdHelp": "이 개수를 넘으면 적용 시 두 번째 명시적 확인이 필요합니다.",
   "SettingDecisionRetention": "결정 보존 기간 (일)",
-  "SettingDecisionRetentionHelp": "이보다 오래된 보류 중 및 건너뛴 결정은 정리됩니다. 0이면 정리하지 않습니다.",
+  "SettingDecisionRetentionHelp": "이보다 오래된 보류 중 및 건너뛴 결정은 정리됩니다. 되돌린 이동은 실행 로그가 남아 있는 동안 유지됩니다. 0이면 정리하지 않습니다.",
   "SettingDefaultCategory": "기본 카테고리",
   "SettingDefaultCategoryHelp": "어떤 규칙도 항목과 일치하지 않을 때 사용됩니다.",
   "SettingGlobalDryRun": "전역 드라이런",

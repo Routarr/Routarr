@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Prah potvrdenia",
   "SettingConfirmationThresholdHelp": "Nad týmto počtom vyžaduje vykonanie druhé, výslovné potvrdenie.",
   "SettingDecisionRetention": "Uchovávanie rozhodnutí (dni)",
-  "SettingDecisionRetentionHelp": "Staršie čakajúce a preskočené rozhodnutia sa mažú. 0 čistenie vypne.",
+  "SettingDecisionRetentionHelp": "Staršie čakajúce a preskočené rozhodnutia sa mažú. Presun vrátený späť zostáva, kým existuje jeho protokol vykonávania. 0 čistenie vypne.",
   "SettingDefaultCategory": "Predvolená kategória",
   "SettingDefaultCategoryHelp": "Použije sa, keď položke nezodpovedá žiadne pravidlo.",
   "SettingGlobalDryRun": "Globálny skúšobný režim",

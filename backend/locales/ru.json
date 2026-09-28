@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Порог подтверждения",
   "SettingConfirmationThresholdHelp": "Свыше этого количества применение требует второго явного подтверждения.",
   "SettingDecisionRetention": "Хранение решений (дней)",
-  "SettingDecisionRetentionHelp": "Более старые ожидающие и пропущенные решения удаляются. 0 отключает очистку.",
+  "SettingDecisionRetentionHelp": "Более старые ожидающие и пропущенные решения удаляются. Откаченное перемещение хранится, пока существует его журнал выполнения. 0 отключает очистку.",
   "SettingDefaultCategory": "Категория по умолчанию",
   "SettingDefaultCategoryHelp": "Используется, когда ни одно правило не совпало с элементом.",
   "SettingGlobalDryRun": "Глобальный тестовый прогон",

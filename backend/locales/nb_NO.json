@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Bekreftelsesgrense",
   "SettingConfirmationThresholdHelp": "Over dette antallet krever utføring en ekstra, uttrykkelig bekreftelse.",
   "SettingDecisionRetention": "Oppbevaring av beslutninger (dager)",
-  "SettingDecisionRetentionHelp": "Eldre ventende og oversprungne beslutninger ryddes bort. 0 slår av oppryddingen.",
+  "SettingDecisionRetentionHelp": "Eldre ventende og oversprungne beslutninger ryddes bort. En angret flytting blir værende så lenge kjøringsloggen finnes. 0 slår av oppryddingen.",
   "SettingDefaultCategory": "Standardkategori",
   "SettingDefaultCategoryHelp": "Brukes når ingen regel treffer et medium.",
   "SettingGlobalDryRun": "Global prøvekjøring",

@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Práh potvrzení",
   "SettingConfirmationThresholdHelp": "Nad tímto počtem vyžaduje provedení druhé, výslovné potvrzení.",
   "SettingDecisionRetention": "Uchování rozhodnutí (dny)",
-  "SettingDecisionRetentionHelp": "Starší čekající a přeskočená rozhodnutí se mažou. 0 čištění vypne.",
+  "SettingDecisionRetentionHelp": "Starší čekající a přeskočená rozhodnutí se mažou. Přesun vrácený zpět zůstává, dokud existuje jeho protokol provádění. 0 čištění vypne.",
   "SettingDefaultCategory": "Výchozí kategorie",
   "SettingDefaultCategoryHelp": "Použije se, když položce neodpovídá žádné pravidlo.",
   "SettingGlobalDryRun": "Globální zkušební režim",

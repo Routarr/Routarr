@@ -407,10 +407,16 @@ pub async fn revert_decisions(
     state: &AppState,
     decision_ids: &[String],
     move_files: bool,
+    confirmed: &Confirmed,
     by: &Attribution,
 ) -> AppResult<ApplyReport> {
     guard_dry_run(state).await?;
     guard_batch_limit(state, decision_ids.len()).await?;
+    // A revert writes into the folders its moves came from, and asks there what
+    // an apply asks of its destinations, in the same order.
+    guard_reachable(state, CapacityScope::Reverting(decision_ids), confirmed).await?;
+    guard_capacity(state, CapacityScope::Reverting(decision_ids), move_files, confirmed).await?;
+    guard_confirmation(state, decision_ids.len(), confirmed).await?;
 
     let Some(lock) = state.jobs.try_lock("apply") else {
         return Err(AppError::Conflict(
@@ -771,28 +777,23 @@ async fn guard_reachable(
     if confirmed.has(confirm::UNREACHABLE) {
         return Ok(());
     }
-    let selected = match scope {
-        CapacityScope::Decisions([]) => return Ok(()),
-        CapacityScope::Decisions(ids) => {
-            format!("d.id IN ({})", crate::db::placeholders(ids.len()))
-        }
-        CapacityScope::Simulation(_) => "d.simulation_id = ?".to_string(),
+    let Some(Weighed { rows, to, .. }) = scope.weighed() else {
+        return Ok(());
     };
     let sql = format!(
         "SELECT DISTINCT tgt.path, tgt.last_accessible_at
          FROM decisions d
          JOIN root_folders tgt
               ON tgt.instance_id = d.instance_id
-             AND rtrim(tgt.path, '/') = rtrim(d.target_root_folder, '/')
-         WHERE {selected}
-           AND d.status = 'pending' AND d.superseded = 0 AND d.action = 'move'
+             AND rtrim(tgt.path, '/') = rtrim({to}, '/')
+         WHERE {rows}
            AND tgt.accessible = 0
          ORDER BY tgt.path
          LIMIT 1"
     );
     let mut query = sqlx::query_as::<_, (String, Option<String>)>(AssertSqlSafe(sql.as_str()));
     match scope {
-        CapacityScope::Decisions(ids) => {
+        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
             for id in ids {
                 query = query.bind(id);
             }
@@ -816,11 +817,56 @@ async fn guard_reachable(
     Ok(())
 }
 
-/// What a capacity check weighs: a person's selection, or a whole run.
+/// What a guard weighs: a person's selection, a whole run, or moves undone.
 #[derive(Clone, Copy)]
 enum CapacityScope<'a> {
     Decisions(&'a [String]),
     Simulation(&'a str),
+    Reverting(&'a [String]),
+}
+
+/// The moves a guard weighs, as SQL over `decisions d`.
+struct Weighed {
+    /// Which decisions, narrowed to the moves still to write.
+    rows: String,
+    /// The folder each move writes into.
+    to: &'static str,
+    /// The folder each move leaves.
+    from: &'static str,
+}
+
+/// The proposals an apply writes.
+const PROPOSED: &str = "d.status = 'pending' AND d.superseded = 0 AND d.action = 'move'";
+
+/// The moves a revert may undo: applied, not undone yet, and knowing where
+/// they came from.
+const REVERTIBLE: &str =
+    "d.status = 'applied' AND d.reverted_at IS NULL AND d.current_root_folder IS NOT NULL";
+
+impl CapacityScope<'_> {
+    /// `None` for an empty selection, which there is nothing to weigh in.
+    fn weighed(self) -> Option<Weighed> {
+        let listed = |ids: &[String]| format!("d.id IN ({})", crate::db::placeholders(ids.len()));
+        let forward = |rows: String| Weighed {
+            rows: format!("{rows} AND {PROPOSED}"),
+            to: "d.target_root_folder",
+            from: "d.current_root_folder",
+        };
+        match self {
+            CapacityScope::Decisions([]) | CapacityScope::Reverting([]) => None,
+            CapacityScope::Decisions(ids) => Some(forward(listed(ids))),
+            // A whole run is selected by its id rather than by listing its
+            // decisions: a library-sized run has more of them than one
+            // statement can bind.
+            CapacityScope::Simulation(_) => Some(forward("d.simulation_id = ?".to_string())),
+            // Back to the folder each move came from.
+            CapacityScope::Reverting(ids) => Some(Weighed {
+                rows: format!("{} AND {REVERTIBLE}", listed(ids)),
+                to: "d.current_root_folder",
+                from: "d.target_root_folder",
+            }),
+        }
+    }
 }
 
 /// Refuse a plan a destination cannot hold.
@@ -854,17 +900,11 @@ async fn guard_capacity(
     if !move_files || confirmed.has(confirm::CAPACITY) {
         return Ok(());
     }
-    // A whole run is selected by its id rather than by listing its decisions:
-    // a library-sized run has more of them than one statement can bind.
-    let selected = match scope {
-        CapacityScope::Decisions([]) => return Ok(()),
-        CapacityScope::Decisions(ids) => {
-            format!("d.id IN ({})", crate::db::placeholders(ids.len()))
-        }
-        CapacityScope::Simulation(_) => "d.simulation_id = ?".to_string(),
+    let Some(Weighed { rows, to, from }) = scope.weighed() else {
+        return Ok(());
     };
     let sql = format!(
-        "SELECT d.target_root_folder,
+        "SELECT {to},
                 SUM(CASE WHEN tgt.free_space IS NOT NULL AND tgt.free_space = src.free_space
                          THEN 0 ELSE COALESCE(m.size_on_disk, 0) END),
                 MAX(tgt.free_space),
@@ -873,18 +913,17 @@ async fn guard_capacity(
          JOIN media m ON m.id = d.media_id
          JOIN root_folders tgt
               ON tgt.instance_id = d.instance_id
-             AND rtrim(tgt.path, '/') = rtrim(d.target_root_folder, '/')
+             AND rtrim(tgt.path, '/') = rtrim({to}, '/')
          LEFT JOIN root_folders src
               ON src.instance_id = d.instance_id
-             AND rtrim(src.path, '/') = rtrim(d.current_root_folder, '/')
-         WHERE {selected}
-           AND d.status = 'pending' AND d.superseded = 0 AND d.action = 'move'
-         GROUP BY d.instance_id, d.target_root_folder"
+             AND rtrim(src.path, '/') = rtrim({from}, '/')
+         WHERE {rows}
+         GROUP BY d.instance_id, {to}"
     );
     let mut query =
         sqlx::query_as::<_, (String, i64, Option<i64>, i64)>(AssertSqlSafe(sql.as_str()));
     match scope {
-        CapacityScope::Decisions(ids) => {
+        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
             for id in ids {
                 query = query.bind(id);
             }
@@ -1034,9 +1073,7 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
          FROM decisions d
          JOIN media m ON m.id = d.media_id
          WHERE d.id IN ({placeholders})
-           AND d.status = 'applied'
-           AND d.reverted_at IS NULL
-           AND d.current_root_folder IS NOT NULL"
+           AND {REVERTIBLE}"
     );
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
     for id in ids {

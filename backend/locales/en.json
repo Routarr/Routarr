@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Confirmation threshold",
   "SettingConfirmationThresholdHelp": "Above this many items, applying requires a second, explicit confirmation.",
   "SettingDecisionRetention": "Decision retention (days)",
-  "SettingDecisionRetentionHelp": "Pending and skipped decisions older than this are purged. 0 disables the purge.",
+  "SettingDecisionRetentionHelp": "Pending and skipped decisions older than this are purged. A reverted move stays as long as its execution log. 0 disables the purge.",
   "SettingDefaultCategory": "Default category",
   "SettingDefaultCategoryHelp": "Used when no rule matches a media item.",
   "SettingGlobalDryRun": "Global dry-run",

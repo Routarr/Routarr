@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "Bevestigingsdrempel",
   "SettingConfirmationThresholdHelp": "Boven dit aantal vraagt toepassen om een tweede, uitdrukkelijke bevestiging.",
   "SettingDecisionRetention": "Bewaartermijn beslissingen (dagen)",
-  "SettingDecisionRetentionHelp": "Oudere openstaande en overgeslagen beslissingen worden opgeruimd. 0 schakelt het opruimen uit.",
+  "SettingDecisionRetentionHelp": "Oudere openstaande en overgeslagen beslissingen worden opgeruimd. Een teruggedraaide verplaatsing blijft zolang het uitvoeringslogboek bestaat. 0 schakelt het opruimen uit.",
   "SettingDefaultCategory": "Standaardcategorie",
   "SettingDefaultCategoryHelp": "Gebruikt wanneer geen enkele regel op een item past.",
   "SettingGlobalDryRun": "Globale testmodus",

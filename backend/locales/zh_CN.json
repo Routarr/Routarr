@@ -580,7 +580,7 @@
   "SettingConfirmationThreshold": "确认阈值",
   "SettingConfirmationThresholdHelp": "超过该数量后，应用需要第二次明确确认。",
   "SettingDecisionRetention": "决策保留（天）",
-  "SettingDecisionRetentionHelp": "更早的待处理和已跳过决策会被清理。设为 0 则禁用清理。",
+  "SettingDecisionRetentionHelp": "更早的待处理和已跳过决策会被清理。已撤销的移动会保留到其执行日志被清理为止。设为 0 则禁用清理。",
   "SettingDefaultCategory": "默认分类",
   "SettingDefaultCategoryHelp": "当没有任何规则匹配某个项目时使用。",
   "SettingGlobalDryRun": "全局演练模式",
