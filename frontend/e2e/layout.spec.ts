@@ -313,6 +313,10 @@ test('every select keeps the room its arrow is drawn in', async ({ page, instanc
     .filter({ hasText: 'Add a condition' })
     .first()
     .selectOption('genre_contains');
+  await dialog
+    .getByRole('button', { name: /^Add – / })
+    .first()
+    .click();
   await expect(dialog.getByRole('combobox', { name: /^How these values combine/ })).toBeVisible();
   await measure('rule editor');
 

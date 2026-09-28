@@ -99,6 +99,7 @@ test.describe('picking a condition value', () => {
       .filter({ hasText: 'Conditions (all of)' })
       .first();
     await conditions.locator('select').selectOption('genre_contains');
+    await conditions.getByRole('button', { name: /^Add – / }).click();
 
     // The list is what the fake Radarr's library carries, so a value appears
     // here only if the facets reached the browser. Named exactly: the
@@ -136,12 +137,12 @@ test.describe('picking a condition value', () => {
       .first()
       .locator('input')
       .fill('Draft');
-    await dialog
+    const conditions = dialog
       .locator('.form-group')
       .filter({ hasText: 'Conditions (all of)' })
-      .first()
-      .locator('select')
-      .selectOption('genre_contains');
+      .first();
+    await conditions.locator('select').selectOption('genre_contains');
+    await conditions.getByRole('button', { name: /^Add – / }).click();
 
     const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
     await picker.fill('anim');
@@ -177,13 +178,12 @@ test.describe('picking a condition value', () => {
       .first()
       .locator('select')
       .selectOption('anime');
-    await page
+    const conditions = page
       .locator('.form-group')
       .filter({ hasText: 'Conditions (all of)' })
-      .first()
-      .locator('select')
-      .first()
-      .selectOption('genre_contains');
+      .first();
+    await conditions.locator('select').first().selectOption('genre_contains');
+    await conditions.getByRole('button', { name: /^Add – / }).click();
 
     const picker = page.getByRole('combobox', { name: 'Genre contains', exact: true });
     // Both are carried by the fixture's library, so both come from the facets.
@@ -231,8 +231,11 @@ test.describe('the routing journey', () => {
     await field('Rule name').locator('input').fill('Japanese animation');
     await field('Target category').locator('select').selectOption('anime');
 
-    // Conditions are added by picking from a select, not by clicking a button.
+    // A condition is added by picking its kind, then pressing Add.
     await field('Conditions (all of)').locator('select').selectOption('title_contains');
+    await field('Conditions (all of)')
+      .getByRole('button', { name: /^Add – / })
+      .click();
     await page.locator('.condition-row input.form-input').fill('akira, totoro, perfect blue');
 
     await page.getByRole('button', { name: 'Save rule' }).click();

@@ -18,6 +18,8 @@ const STRINGS = {
   SaveRule: 'Save rule',
   ValidationIssues: 'Validation results',
   RuleName: 'Rule name',
+  Priority: 'Priority',
+  EnterWholeNumber: 'Enter a whole number.',
 };
 
 const DRAFT: RuleDraft = {
@@ -95,6 +97,29 @@ describe('RuleEditor', () => {
     );
     expect(screen.getByRole('list', { name: 'Validation results' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
+  });
+
+  /**
+   * A priority is a whole number. `1.5` reached the server, which refused it in
+   * English inside a 422 the live check swallows, and Save stayed lit on a rule
+   * that could not be saved.
+   */
+  it('holds Save on a fractional priority and says why', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+    const priority = await screen.findByLabelText('Priority');
+
+    await userEvent.clear(priority);
+    await userEvent.type(priority, '1.5');
+
+    expect(screen.getByText('Enter a whole number.')).toBeInTheDocument();
+    expect(priority).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('button', { name: 'Save rule' })).toBeDisabled();
+
+    await userEvent.clear(priority);
+    await userEvent.type(priority, '15');
+    expect(screen.queryByText('Enter a whole number.')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Save rule' })).toBeEnabled();
   });
 
   it('shows a warning without holding Save', async () => {

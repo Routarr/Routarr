@@ -36,6 +36,27 @@
 
   const range = $derived((value ?? {}) as { min?: number | null; max?: number | null });
   const list = $derived(Array.isArray(value) ? (value as string[]) : []);
+
+  /**
+   * A free list as the reader typed it, kept while it still reads as the value.
+   * Rewritten from the parsed list at each keystroke, a list typed without
+   * spaces came back spaced, and the browser sent the cursor to the end, where
+   * the next digits ran into the last id. A value that stops matching the text,
+   * as when the condition is reset, replaces it.
+   */
+  let typed = $state<string | null>(null);
+  const parseList = (text: string): unknown[] =>
+    spec?.value_type === 'number_list' ? parseNumberList(text) : parseStringList(text);
+  const sameList = (a: unknown[], b: unknown[]) =>
+    a.length === b.length && a.every((item, index) => item === b[index]);
+  const listText = $derived(
+    typed !== null && sameList(parseList(typed), list) ? typed : list.join(', '),
+  );
+
+  function typeList(text: string) {
+    typed = text;
+    onChange(parseList(text));
+  }
 </script>
 
 {#if spec}
@@ -63,8 +84,8 @@
       aria-describedby={describedBy}
       class="form-input"
       placeholder={t('PlaceholderNumberList')}
-      value={Array.isArray(value) ? (value as number[]).join(', ') : ''}
-      oninput={(event) => onChange(parseNumberList(event.currentTarget.value))}
+      value={listText}
+      oninput={(event) => typeList(event.currentTarget.value)}
     />
   {:else if spec.value_type === 'year_range'}
     <div class="flex gap-2">
@@ -117,8 +138,8 @@
       aria-describedby={describedBy}
       class="form-input"
       placeholder={t('PlaceholderStringList')}
-      value={list.join(', ')}
-      oninput={(event) => onChange(parseStringList(event.currentTarget.value))}
+      value={listText}
+      oninput={(event) => typeList(event.currentTarget.value)}
     />
   {/if}
 {/if}

@@ -149,7 +149,12 @@ describe('Root folders', () => {
     await waitFor(() => expect(reread.mock.calls.length).toBeGreaterThan(1));
   });
 
-  it('maps a folder to the category picked on its own row', async () => {
+  /**
+   * On Windows and Linux an arrow key on a closed select fires `change`, and
+   * writing on `change` sent every category passed on the way to the server.
+   * Choosing is free, Save writes.
+   */
+  it('writes the category chosen only when Save is pressed', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
     show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
 
@@ -157,7 +162,9 @@ describe('Root folders', () => {
       await screen.findByLabelText('Category for /data/anime'),
       'anime',
     );
+    expect(update).not.toHaveBeenCalled();
 
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime'));
   });
 
@@ -175,6 +182,7 @@ describe('Root folders', () => {
       await screen.findByLabelText('Category for /data/anime'),
       'anime',
     );
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
 
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
@@ -308,6 +316,7 @@ describe('Root folders', () => {
     show([folder({ path: '/data/films' })], [category()]);
 
     await userEvent.selectOptions(await screen.findByLabelText('Category for /data/films'), '');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/films' }));
 
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', null));
   });
