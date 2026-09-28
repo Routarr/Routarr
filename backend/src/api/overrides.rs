@@ -8,11 +8,11 @@ use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
 
-type OverrideRow = (String, String, String, Option<String>, bool, String, String, String, String);
+type OverrideRow = (String, String, String, Option<String>, String, String, String, String);
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<OverrideWithMedia>>> {
     let rows: Vec<OverrideRow> = sqlx::query_as(
-        "SELECT o.id, o.media_id, o.target_category, o.reason, o.locked, o.created_at,
+        "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at,
          m.title, m.media_type, i.name
          FROM overrides o
          JOIN media m ON o.media_id = m.id
@@ -30,12 +30,11 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<OverrideW
                     media_id: r.1,
                     target_category: r.2,
                     reason: r.3,
-                    locked: r.4,
-                    created_at: r.5,
+                    created_at: r.4,
                 },
-                media_title: r.6,
-                media_type: r.7,
-                instance_name: r.8,
+                media_title: r.5,
+                media_type: r.6,
+                instance_name: r.7,
             })
             .collect(),
     ))
@@ -66,18 +65,16 @@ pub async fn create(
 
     let mut tx = state.pool.begin().await?;
     sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, reason, locked)
-         VALUES (?, ?, ?, ?, ?)
+        "INSERT INTO overrides (id, media_id, target_category, reason)
+         VALUES (?, ?, ?, ?)
          ON CONFLICT(media_id) DO UPDATE SET
             target_category = excluded.target_category,
-            reason = excluded.reason,
-            locked = excluded.locked",
+            reason = excluded.reason",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(&req.media_id)
     .bind(&category)
     .bind(&req.reason)
-    .bind(req.locked)
     .execute(&mut *tx)
     .await?;
 
@@ -88,7 +85,7 @@ pub async fn create(
     // Read back so the response carries the row that actually exists — on an
     // upsert the stored id is the original one, not the one just generated.
     let row: OverrideRow = sqlx::query_as(
-        "SELECT o.id, o.media_id, o.target_category, o.reason, o.locked, o.created_at,
+        "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at,
          m.title, m.media_type, i.name
          FROM overrides o
          JOIN media m ON o.media_id = m.id
@@ -104,8 +101,7 @@ pub async fn create(
         media_id: row.1,
         target_category: row.2,
         reason: row.3,
-        locked: row.4,
-        created_at: row.5,
+        created_at: row.4,
     }))
 }
 

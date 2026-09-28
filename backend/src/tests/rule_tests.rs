@@ -133,3 +133,53 @@ async fn a_case_needs_a_name_and_a_media_item() {
         404
     );
 }
+
+/// A pinned category is a category name, stored the way every writer of one
+/// stores it: `"Anime "` would never equal the `anime` the engine answers, and
+/// the case would fail for ever against the very decision it pinned.
+#[tokio::test]
+async fn a_pinned_category_is_stored_as_a_category_name() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+
+    pin(&app, "Akira stays in anime", "m-1", Some("Anime ")).await;
+
+    let outcome = run(&app).await;
+    assert_eq!(outcome["results"][0]["expected_category"], "anime");
+    assert_eq!(outcome["passed"], 1, "{outcome}");
+}
+
+/// A case expecting a category that does not exist can only ever fail.
+#[tokio::test]
+async fn a_case_cannot_expect_a_category_that_does_not_exist() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    let response = app
+        .post(
+            "/api/v1/rule-tests",
+            serde_json::json!({ "name": "Lost", "media_id": "m-1", "expected_category": "nowhere" }),
+        )
+        .await;
+
+    response.assert_status(axum::http::StatusCode::BAD_REQUEST);
+}
+
+/// A category a case expects is in use: deleted, it leaves the case unable to
+/// pass, as a deleted category leaves a rule unable to route.
+#[tokio::test]
+async fn a_category_a_case_expects_is_not_deleted() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-kids', 'kids')")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    pin(&app, "Totoro is for kids", "m-1", Some("kids")).await;
+
+    let refused = app.delete("/api/v1/categories/cat-kids").await;
+
+    refused.assert_status(axum::http::StatusCode::CONFLICT);
+    assert!(refused.message().contains("rule tests: 1"), "{}", refused.message());
+}

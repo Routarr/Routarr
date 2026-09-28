@@ -7,6 +7,7 @@ import { renderWithI18n } from '../test/render';
 import { instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import { statusRevision } from '../lib/status.svelte';
+import { answerConfirmation } from '../test/confirm';
 import Instances from './Instances.svelte';
 
 /**
@@ -17,6 +18,8 @@ import Instances from './Instances.svelte';
 
 const STRINGS = {
   ArrInstances: 'Instances',
+  RotateWebhookToken: 'Rotate the webhook token',
+  ConfirmRotateWebhookToken: 'Rotate the webhook token of "{name}"?',
   RangeBetween: 'Enter a whole number from {min} to {max}.',
   AddInstance: 'Add instance',
   NoInstanceConfigured: 'No instance configured',
@@ -87,8 +90,26 @@ describe('Instances', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
 
     expect(await screen.findByRole('menuitem', { name: 'Copy the webhook URL' })).toBeTruthy();
-    expect(screen.queryByRole('menuitem', { name: 'RotateWebhookToken' })).toBeNull();
+    expect(screen.queryByRole('menuitem', { name: 'Rotate the webhook token' })).toBeNull();
     expect(screen.queryByRole('menuitem', { name: 'Delete' })).toBeNull();
+  });
+
+  /**
+   * A new token breaks the webhook the Arr holds at once, until the new address
+   * is pasted there: asked first, like every other action that cannot be
+   * taken back.
+   */
+  it('asks before rotating a webhook token, and rotates nothing on Cancel', async () => {
+    const rotate = vi.spyOn(api, 'rotateWebhookToken');
+    show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+    await fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Rotate the webhook token' }),
+    );
+
+    expect(await answerConfirmation(null)).toBe('Rotate the webhook token of "Radarr"?');
+    expect(rotate).not.toHaveBeenCalled();
   });
 
   /** Only enabled instances sync, so with none there is nothing a click could do. */

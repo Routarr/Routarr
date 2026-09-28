@@ -211,8 +211,8 @@ async fn an_override_wins_over_the_rules() {
     app.seed_anime_rule().await;
 
     sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, locked)
-         VALUES ('o-1', 'm-1', 'standard', 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+         VALUES ('o-1', 'm-1', 'standard')",
     )
     .execute(&app.state.pool)
     .await

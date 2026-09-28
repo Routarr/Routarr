@@ -246,10 +246,16 @@ pub async fn remove(
             .bind(&name)
             .fetch_one(&state.pool)
             .await?;
+    // A case expecting the category could only fail once it is gone.
+    let tests: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rule_tests WHERE expected_category = ?")
+            .bind(&name)
+            .fetch_one(&state.pool)
+            .await?;
 
-    if rules + folders + overrides > 0 {
+    if rules + folders + overrides + tests > 0 {
         return Err(AppError::Conflict(format!(
-            "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}"
+            "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}, rule tests: {tests}"
         )));
     }
 

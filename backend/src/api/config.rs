@@ -95,7 +95,6 @@ pub struct Override {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tvdb_id: Option<i64>,
     pub target_category: String,
-    pub locked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
@@ -156,29 +155,26 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     .map(|(instance_name, path, category)| RootFolderMapping { instance_name, path, category })
     .collect();
 
-    let overrides: Vec<Override> = sqlx::query_as::<
-        _,
-        (String, String, Option<i64>, Option<i64>, String, bool, Option<String>),
-    >(
-        "SELECT m.title, m.media_type, m.tmdb_id, m.tvdb_id,
-                    o.target_category, o.locked, o.reason
+    let overrides: Vec<Override> =
+        sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>, String, Option<String>)>(
+            "SELECT m.title, m.media_type, m.tmdb_id, m.tvdb_id,
+                    o.target_category, o.reason
                FROM overrides o
                JOIN media m ON m.id = o.media_id
               ORDER BY m.title",
-    )
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .map(|(media_title, media_type, tmdb_id, tvdb_id, target_category, locked, reason)| Override {
-        media_title,
-        media_type,
-        tmdb_id,
-        tvdb_id,
-        target_category,
-        locked,
-        reason,
-    })
-    .collect();
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(media_title, media_type, tmdb_id, tvdb_id, target_category, reason)| Override {
+            media_title,
+            media_type,
+            tmdb_id,
+            tvdb_id,
+            target_category,
+            reason,
+        })
+        .collect();
 
     Ok(Json(ConfigBundle {
         version: BUNDLE_VERSION,
@@ -401,9 +397,31 @@ pub async fn import(
             continue;
         }
 
+        // One category, one folder per instance, as the mapping route insists:
+        // two folders answering to one category leave the target ambiguous.
+        let taken: Option<String> = sqlx::query_scalar(
+            "SELECT path FROM root_folders
+              WHERE category = ?
+                AND instance_id = (SELECT id FROM instances WHERE name = ?)
+                AND rtrim(path, '/') <> rtrim(?, '/')
+              LIMIT 1",
+        )
+        .bind(&category)
+        .bind(&mapping.instance_name)
+        .bind(&mapping.path)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some(other) = taken {
+            report.skipped.push(format!(
+                "mapping '{}' → '{}' on '{}': that category already maps '{other}' there",
+                mapping.path, mapping.category, mapping.instance_name
+            ));
+            continue;
+        }
+
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ?
-              WHERE path = ?
+              WHERE rtrim(path, '/') = rtrim(?, '/')
                 AND instance_id = (SELECT id FROM instances WHERE name = ?)",
         )
         .bind(&category)
@@ -463,18 +481,16 @@ pub async fn import(
         }
 
         sqlx::query(
-            "INSERT INTO overrides (id, media_id, target_category, reason, locked)
-             VALUES (?, ?, ?, ?, ?)
+            "INSERT INTO overrides (id, media_id, target_category, reason)
+             VALUES (?, ?, ?, ?)
              ON CONFLICT(media_id) DO UPDATE SET
                 target_category = excluded.target_category,
-                reason = excluded.reason,
-                locked = excluded.locked",
+                reason = excluded.reason",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(&media_id)
         .bind(&category)
         .bind(&over.reason)
-        .bind(over.locked)
         .execute(&mut *tx)
         .await?;
         report.overrides += 1;

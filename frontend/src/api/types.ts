@@ -406,7 +406,6 @@ export interface OverrideEntry {
   media_id: string;
   target_category: string;
   reason: string | null;
-  locked: boolean;
   created_at: string;
   media_title: string;
   media_type: MediaType;

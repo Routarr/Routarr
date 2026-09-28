@@ -523,12 +523,22 @@
                           label: t('RotateWebhookToken'),
                           icon: keyIcon,
                           disabled: busyId !== null,
-                          onSelect: () =>
-                            void act(
-                              instance.id,
-                              () => api.rotateWebhookToken(instance.id),
-                              () => t('WebhookTokenRotated'),
-                            ),
+                          // The Arr's webhook stops at once, until the new
+                          // address is pasted there: asked, as a deletion is.
+                          onSelect: async () => {
+                            if (
+                              await askConfirmation(
+                                t('ConfirmRotateWebhookToken', { name: instance.name }),
+                                'RotateWebhookToken',
+                              )
+                            ) {
+                              void act(
+                                instance.id,
+                                () => api.rotateWebhookToken(instance.id),
+                                () => t('WebhookTokenRotated'),
+                              );
+                            }
+                          },
                         },
                         {
                           label: t('Delete'),
