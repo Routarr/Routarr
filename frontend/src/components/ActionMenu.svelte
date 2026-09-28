@@ -119,7 +119,9 @@
             tabindex="-1"
             class="action-menu-item{action.danger ? ' is-danger' : ''}"
             onclick={() => {
-              open = false;
+              // A dialog the action opens hands the focus back to whatever
+              // held it, and the item is about to disappear.
+              close(true);
               action.onSelect();
             }}
           >

@@ -111,6 +111,18 @@ afterEach(() => {
 });
 
 describe('Rules', () => {
+  /** A label over a hidden input takes no focus, so the import is a button. */
+  it('offers the import as a button that opens the file picker', async () => {
+    show([]);
+    const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+    const button = await screen.findByRole('button', { name: 'Import' });
+
+    button.focus();
+    expect(document.activeElement).toBe(button);
+    await fireEvent.click(button);
+    expect(pick).toHaveBeenCalledTimes(1);
+  });
+
   it('invites a first rule instead of showing an empty table', async () => {
     show([]);
 
