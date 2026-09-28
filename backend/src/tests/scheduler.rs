@@ -359,6 +359,7 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
     let timings = scheduler::Timings {
         settle: std::time::Duration::from_millis(10),
         floor: std::time::Duration::from_millis(50),
+        ..Default::default()
     };
     let handle = scheduler::start_with(app.state.clone(), stopped, timings);
 

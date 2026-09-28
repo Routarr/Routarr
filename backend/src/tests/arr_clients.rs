@@ -239,3 +239,40 @@ async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched(
         );
     }
 }
+
+/// Sonarr has no batch rescan: each series is a command of its own. One the
+/// Arr refuses must not keep the series after it from being rescanned, or
+/// their files, just moved, read as missing until Sonarr's next scan.
+#[tokio::test]
+async fn a_refused_rescan_does_not_skip_the_series_after_it() {
+    use axum::routing::post;
+    use std::sync::{Arc, Mutex};
+
+    let asked: Arc<Mutex<Vec<i64>>> = Arc::default();
+    let seen = Arc::clone(&asked);
+    let app = axum::Router::new().route(
+        "/api/v3/command",
+        post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+            let seen = Arc::clone(&seen);
+            async move {
+                let series = body["seriesId"].as_i64().unwrap_or_default();
+                seen.lock().unwrap().push(series);
+                if series == 1 {
+                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
+                } else {
+                    axum::http::StatusCode::CREATED
+                }
+            }
+        }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    let adapter =
+        ArrAdapter::Sonarr(SonarrClient::new(client(), &format!("http://{address}"), "k"));
+
+    let outcome = adapter.refresh(&[1, 2, 3]).await;
+
+    assert!(outcome.is_err(), "the refused rescan went unreported");
+    assert_eq!(*asked.lock().unwrap(), [1, 2, 3], "the series after the refused one were skipped");
+}

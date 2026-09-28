@@ -163,15 +163,24 @@ async fn apply_migrations(
 /// Split a migration into statements.
 ///
 /// Naively splitting on `;` breaks on semicolons inside string literals and
-/// inside `BEGIN ... END` trigger bodies, so both are tracked here.
+/// inside `BEGIN ... END` trigger bodies, so both are tracked here. Blocks are
+/// counted by whole words: a `CASE` also closes with `END`, and `ended` is no
+/// `END`.
 fn split_statements(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let mut current = String::new();
+    let mut word = String::new();
     let mut in_string = false;
     let mut block_depth = 0usize;
     let mut chars = sql.chars().peekable();
 
     while let Some(c) = chars.next() {
+        if !in_string && (c.is_alphanumeric() || c == '_') {
+            word.push(c);
+            current.push(c);
+            continue;
+        }
+        count_block_word(&mut word, &mut block_depth);
         match c {
             '-' if !in_string && chars.peek() == Some(&'-') => {
                 // Line comment: drop through to the newline.
@@ -195,22 +204,23 @@ fn split_statements(sql: &str) -> Vec<String> {
             ';' if !in_string && block_depth == 0 => {
                 push_statement(&mut statements, &mut current);
             }
-            _ => {
-                current.push(c);
-                if !in_string {
-                    let upper = current.to_uppercase();
-                    if upper.ends_with("BEGIN") && is_word_boundary(&upper, "BEGIN") {
-                        block_depth += 1;
-                    } else if upper.ends_with("END") && is_word_boundary(&upper, "END") {
-                        block_depth = block_depth.saturating_sub(1);
-                    }
-                }
-            }
+            _ => current.push(c),
         }
     }
+    count_block_word(&mut word, &mut block_depth);
     push_statement(&mut statements, &mut current);
 
     statements
+}
+
+/// Count a whole word that opens or closes a block, and start the next one.
+fn count_block_word(word: &mut String, block_depth: &mut usize) {
+    if word.eq_ignore_ascii_case("BEGIN") || word.eq_ignore_ascii_case("CASE") {
+        *block_depth += 1;
+    } else if word.eq_ignore_ascii_case("END") {
+        *block_depth = block_depth.saturating_sub(1);
+    }
+    word.clear();
 }
 
 fn push_statement(statements: &mut Vec<String>, current: &mut String) {
@@ -219,13 +229,6 @@ fn push_statement(statements: &mut Vec<String>, current: &mut String) {
         statements.push(trimmed.to_string());
     }
     current.clear();
-}
-
-/// True when the keyword at the end of `haystack` is not part of a longer word.
-fn is_word_boundary(haystack: &str, keyword: &str) -> bool {
-    let before = haystack.len() - keyword.len();
-    before == 0
-        || !haystack[..before].chars().next_back().is_some_and(|c| c.is_alphanumeric() || c == '_')
 }
 
 /// The `?, ?, ?` an `IN (...)` binds `n` values through.
@@ -382,6 +385,21 @@ mod tests {
         let s = split_statements(sql);
         assert_eq!(s.len(), 2, "trigger body must stay in one statement: {s:?}");
         assert!(s[0].contains("UPDATE y SET a = 1"));
+    }
+
+    /// A `CASE` closes with `END` as a trigger's block does, and a word that
+    /// only starts like a keyword is none: counted otherwise, a trigger is cut
+    /// at the first `;` inside it, or two statements are run as one.
+    #[test]
+    fn a_trigger_stays_one_statement_whatever_its_body_holds() {
+        let sql = "CREATE TRIGGER t AFTER UPDATE ON a BEGIN
+                     UPDATE b SET ended = CASE WHEN new.x THEN 1 ELSE 0 END;
+                     UPDATE b SET beginner = 1;
+                   END;
+                   SELECT 1;";
+        let s = split_statements(sql);
+        assert_eq!(s.len(), 2, "{s:?}");
+        assert!(s[0].starts_with("CREATE TRIGGER") && s[0].ends_with("END"), "{s:?}");
     }
 
     #[test]
