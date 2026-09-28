@@ -509,3 +509,37 @@ test.describe('the instance form', () => {
     await expect(dialog.getByRole('status')).toBeEmpty();
   });
 });
+
+test.describe('a deletion asked about', () => {
+  /**
+   * Cancel is the answer every guarded action relies on. Pressed, the rule
+   * stays on screen and on the server.
+   */
+  test('cancelling a deletion leaves the row where it was', async ({ page, instanceId }) => {
+    expect(instanceId).toBeTruthy();
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Stays put',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        condition_logic: 'all',
+        conditions: [{ type: 'title_contains', value: ['totoro'] }],
+        exclusions: [],
+      }),
+    });
+
+    await page.goto('/rules');
+    await page.getByRole('button', { name: 'Delete – Stays put' }).click();
+    const dialog = page.locator('dialog[open]');
+    await expect(dialog).toContainText('Delete the rule "Stays put"?');
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Delete – Stays put' })).toBeVisible();
+    const rules = (await api('/rules')) as { name: string }[];
+    expect(rules.map((rule) => rule.name)).toContain('Stays put');
+  });
+});
