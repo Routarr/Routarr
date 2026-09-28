@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Název pravidla nesmí být prázdný",
   "ValidationNameTooLong": "Název pravidla je omezen na {max} znaků",
   "ValidationNoConditions": "Pravidlo potřebuje alespoň jednu podmínku",
+  "ValidationValueRepeated": "{condition}: \"{value}\" opakuje hodnotu, která už je v seznamu. Ponechte jen jednu.",
   "ValidationYearImplausible": "{condition}: rok {year} je mimo rozsah {min}–{max}, který Routarr přijímá",
   "ValidationYearRangeInverted": "{condition}: rozsah let {min}–{max} je obrácený a nikdy nebude odpovídat",
   "Version": "Verze",

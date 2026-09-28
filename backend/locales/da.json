@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Regelnavnet må ikke være tomt",
   "ValidationNameTooLong": "Regelnavnet er begrænset til {max} tegn",
   "ValidationNoConditions": "En regel kræver mindst én betingelse",
+  "ValidationValueRepeated": "{condition}: \"{value}\" gentager en værdi, der allerede står på listen. Behold kun én af dem.",
   "ValidationYearImplausible": "{condition}: året {year} ligger uden for intervallet {min}–{max}, som Routarr accepterer",
   "ValidationYearRangeInverted": "{condition}: årsintervallet {min}–{max} er omvendt og vil aldrig matche",
   "Version": "Version",

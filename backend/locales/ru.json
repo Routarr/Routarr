@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Название правила не может быть пустым",
   "ValidationNameTooLong": "Имя правила ограничено {max} символами",
   "ValidationNoConditions": "Правилу нужно хотя бы одно условие",
+  "ValidationValueRepeated": "{condition}: «{value}» повторяет уже указанное значение. Оставьте только одно.",
   "ValidationYearImplausible": "{condition}: год {year} вне диапазона {min}–{max}, принимаемого Routarr",
   "ValidationYearRangeInverted": "{condition}: диапазон лет {min}–{max} перевёрнут и никогда не совпадёт",
   "Version": "Версия",

@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "規則名稱不能為空",
   "ValidationNameTooLong": "規則名稱最多 {max} 個字元",
   "ValidationNoConditions": "規則至少需要一個條件",
+  "ValidationValueRepeated": "{condition}：「{value}」與已列出的值重複。請只保留其中一個。",
   "ValidationYearImplausible": "{condition}：年份 {year} 不在 Routarr 接受的 {min} 至 {max} 範圍內",
   "ValidationYearRangeInverted": "{condition}：年份範圍 {min} 至 {max} 顛倒，永遠不會符合",
   "Version": "版本",

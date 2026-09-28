@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Numele regulii nu poate fi gol",
   "ValidationNameTooLong": "Numele regulii are o limită de caractere: {max}",
   "ValidationNoConditions": "O regulă are nevoie de cel puțin o condiție",
+  "ValidationValueRepeated": "{condition}: \"{value}\" repetă o valoare deja prezentă. Păstrează doar una.",
   "ValidationYearImplausible": "{condition}: anul {year} este în afara intervalului {min}–{max} acceptat de Routarr",
   "ValidationYearRangeInverted": "{condition}: intervalul de ani {min}–{max} este inversat și nu se va potrivi niciodată",
   "Version": "Versiune",

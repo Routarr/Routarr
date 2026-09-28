@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "ルール名は空にできません",
   "ValidationNameTooLong": "ルール名は{max}文字までです",
   "ValidationNoConditions": "ルールには少なくとも 1 つの条件が必要です",
+  "ValidationValueRepeated": "{condition}: 「{value}」は既に指定された値と重複しています。どちらか一方だけを残してください。",
   "ValidationYearImplausible": "{condition}: 年 {year} は Routarr が受け付ける {min} から {max} の範囲外です",
   "ValidationYearRangeInverted": "{condition}: 年の範囲 ({min} から {max}) が逆転しており、一致することはありません",
   "Version": "バージョン",

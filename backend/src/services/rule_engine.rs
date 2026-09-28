@@ -563,6 +563,24 @@ pub fn normalise_value(raw: &str) -> String {
     out
 }
 
+/// The first value a list condition names twice, compared as matching compares
+/// them: `science fiction` repeats `Science-Fiction`. Read through the stored
+/// shape, `{"type": …, "value": […]}`, so a list variant added later is covered
+/// without an arm here.
+fn repeated_value(condition: &Condition) -> Option<String> {
+    let stored = serde_json::to_value(condition).ok()?;
+    let mut seen = std::collections::HashSet::new();
+    stored
+        .get("value")?
+        .as_array()?
+        .iter()
+        .map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_string))
+        .find(|text| {
+            let key = normalise_value(text);
+            !key.is_empty() && !seen.insert(key)
+        })
+}
+
 /// Latin letters that carry a mark, reduced to the letter underneath. Only the
 /// one-to-one cases: `ß` and `œ` expand, and no genre needs them.
 fn fold_diacritic(c: char) -> char {
@@ -757,6 +775,13 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         // rule that correctly matches nothing.
         if condition.is_empty() {
             issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
+        }
+        if let Some(value) = repeated_value(condition) {
+            issues.push(ValidationIssue::error(
+                section,
+                "ValidationValueRepeated",
+                &at(&[("value", value)]),
+            ));
         }
         if let Condition::YearRange { min: Some(min), max: Some(max) } = condition
             && min > max
@@ -1775,6 +1800,31 @@ mod tests {
 
         let blank = validate(vec![Condition::TagIn(vec!["   ".into()])], vec![]);
         assert!(blank.iter().any(|i| i.is_error() && i.key == "ValidationConditionEmpty"));
+    }
+
+    /// The values of a condition are alternatives compared once folded, so a
+    /// repeat adds nothing, and a client drawing each value under its own key
+    /// cannot draw it twice.
+    #[test]
+    fn a_value_listed_twice_in_one_condition_is_an_error() {
+        let folded = validate(
+            vec![Condition::GenreContains(vec![
+                "Science-Fiction".into(),
+                "science fiction".into(),
+            ])],
+            vec![],
+        );
+        assert!(
+            folded.iter().any(|i| i.is_error() && i.key == "ValidationValueRepeated"),
+            "{folded:?}"
+        );
+
+        let ids = validate(vec![], vec![Condition::TmdbIdIn(vec![603, 603])]);
+        assert!(ids.iter().any(|i| i.is_error() && i.key == "ValidationValueRepeated"), "{ids:?}");
+
+        let distinct =
+            validate(vec![Condition::GenreContains(vec!["Drama".into(), "Comedy".into()])], vec![]);
+        assert!(!distinct.iter().any(|i| i.key == "ValidationValueRepeated"), "{distinct:?}");
     }
 
     #[test]

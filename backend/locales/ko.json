@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "규칙 이름은 비워 둘 수 없습니다",
   "ValidationNameTooLong": "규칙 이름은 {max}자로 제한됩니다",
   "ValidationNoConditions": "규칙에는 조건이 하나 이상 필요합니다",
+  "ValidationValueRepeated": "{condition}: '{value}'이(가) 이미 지정된 값과 중복됩니다. 하나만 남기세요.",
   "ValidationYearImplausible": "{condition}: 연도({year})는 Routarr가 허용하는 {min}부터 {max}까지의 범위를 벗어났습니다",
   "ValidationYearRangeInverted": "{condition}: 연도 범위({min}부터 {max}까지)가 뒤바뀌어 절대 일치하지 않습니다",
   "Version": "버전",

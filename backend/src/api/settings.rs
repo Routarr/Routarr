@@ -373,9 +373,12 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
             // list without it makes every metadata rule dead.
             let ids: Vec<&str> =
                 value.split(',').map(str::trim).filter(|v| !v.is_empty()).collect();
-            for id in &ids {
+            for (at, id) in ids.iter().enumerate() {
                 if crate::services::metadata::info(id).is_none() {
                     return Err(bad(format!("'{key}': '{id}' is not a known metadata source")));
+                }
+                if ids[..at].contains(id) {
+                    return Err(bad(format!("'{key}': '{id}' is listed twice")));
                 }
             }
             if !ids.contains(&"arr") {
@@ -482,6 +485,14 @@ mod tests {
     #[test]
     fn a_misspelled_source_is_refused_rather_than_ignored() {
         assert!(validate("metadata_providers", "arr,tmbd", Kind::ProviderList, &[]).is_err());
+    }
+
+    /// A client drawing one row per source, keyed by its id, cannot draw one
+    /// twice, and an order gains nothing from a repeat.
+    #[test]
+    fn a_source_listed_twice_is_refused() {
+        assert!(validate("metadata_providers", "arr,tmdb,tmdb", Kind::ProviderList, &[]).is_err());
+        assert!(validate("metadata_providers", "arr, arr", Kind::ProviderList, &[]).is_err());
     }
 
     #[test]

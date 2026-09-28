@@ -18,11 +18,12 @@ const state = $state({
   direction: 'ltr' as 'ltr' | 'rtl',
 });
 
+// One pass over the template: a value is never read again, so a `{name}`
+// inside it stays as written.
 function substitute(template: string, params?: Params): string {
   if (!params || !template.includes('{')) return template;
-  return Object.entries(params).reduce(
-    (out, [name, value]) => out.split(`{${name}}`).join(String(value)),
-    template,
+  return template.replace(/\{(\w+)\}/g, (whole, name: string) =>
+    Object.hasOwn(params, name) ? String(params[name]) : whole,
   );
 }
 

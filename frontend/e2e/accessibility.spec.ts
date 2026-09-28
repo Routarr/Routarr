@@ -283,6 +283,28 @@ test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
  * The first Tab has to offer a way past them, and taking it has to land focus
  * where the content starts.
  */
+/**
+ * A field says it has the focus by its border colour, and forced colours paint
+ * every border in one system colour. An outline is drawn in a colour of its
+ * own there, so it is what still shows where typing will land.
+ */
+test('a focused field is outlined when the system forces its colours', async ({ page }) => {
+  await page.emulateMedia({ forcedColors: 'active' });
+  await page.goto('/instances');
+  await page.getByRole('button', { name: 'Add instance' }).click();
+
+  const field = page.getByLabel('Name', { exact: true });
+  await field.focus();
+  const outline = await field.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return { style: style.outlineStyle, width: style.outlineWidth, color: style.outlineColor };
+  });
+
+  expect(outline.style).not.toBe('none');
+  expect(parseFloat(outline.width)).toBeGreaterThan(0);
+  expect(outline.color).not.toBe('rgba(0, 0, 0, 0)');
+});
+
 test('the first tab stop skips to the content', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
   await ready(page, '/rules');

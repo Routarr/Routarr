@@ -1,6 +1,7 @@
 <script lang="ts">
   import { KeyRound } from '../lib/icons';
   import { api } from '../api/client';
+  import { takeQueryFlag } from '../api/onboarding';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -21,7 +22,9 @@
 
   // The provider redirects back with this when it refused, or when the person
   // did. Without it a failed sign-in returns to the same button with no word.
+  // Taken out of the address once read, or a reload says it again.
   const refused = new URLSearchParams(location.search).get('signin') === 'failed';
+  takeQueryFlag('signin');
 
   let username = $state('admin');
   let password = $state('');

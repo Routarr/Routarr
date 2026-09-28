@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Το όνομα του κανόνα δεν μπορεί να είναι κενό",
   "ValidationNameTooLong": "Το όνομα του κανόνα περιορίζεται σε {max} χαρακτήρες",
   "ValidationNoConditions": "Ένας κανόνας χρειάζεται τουλάχιστον μία συνθήκη",
+  "ValidationValueRepeated": "{condition}: το «{value}» επαναλαμβάνει μια τιμή που υπάρχει ήδη. Κρατήστε μόνο μία.",
   "ValidationYearImplausible": "{condition}: το έτος {year} είναι εκτός του εύρους {min}–{max} που δέχεται το Routarr",
   "ValidationYearRangeInverted": "{condition}: το εύρος ετών {min}–{max} είναι αντεστραμμένο και δεν θα ταιριάξει ποτέ",
   "Version": "Έκδοση",

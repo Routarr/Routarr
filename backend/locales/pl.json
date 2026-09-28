@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Nazwa reguły nie może być pusta",
   "ValidationNameTooLong": "Nazwa reguły jest ograniczona do {max} znaków",
   "ValidationNoConditions": "Reguła wymaga co najmniej jednego warunku",
+  "ValidationValueRepeated": "{condition}: \"{value}\" powtarza wartość, która już jest na liście. Zostaw tylko jedną.",
   "ValidationYearImplausible": "{condition}: rok {year} jest poza zakresem {min}–{max} akceptowanym przez Routarr",
   "ValidationYearRangeInverted": "{condition}: zakres lat {min}–{max} jest odwrócony i nigdy nie zostanie dopasowany",
   "Version": "Wersja",

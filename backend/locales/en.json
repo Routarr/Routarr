@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Rule name cannot be empty",
   "ValidationNameTooLong": "Rule name is limited to {max} characters",
   "ValidationNoConditions": "A rule needs at least one condition",
+  "ValidationValueRepeated": "{condition}: '{value}' repeats a value already listed. Keep one of them.",
   "ValidationYearImplausible": "{condition}: the year {year} is not between {min} and {max}, the range Routarr accepts",
   "ValidationYearRangeInverted": "{condition}: the year range from {min} to {max} is inverted and will never match",
   "Version": "Version",

@@ -224,6 +224,20 @@ describe('a row of fields survives labels of different lengths', () => {
       expect(rule, selector).toContain('flex-wrap: wrap');
     }
   });
+
+  /**
+   * Four values name the right side second and the left side last, whatever
+   * the direction, so two different ones put the wider side at the wrong end
+   * of the line in Arabic. `padding-inline` names the start and the end.
+   */
+  it('no padding or margin sets its left and right sides apart', () => {
+    const css = read('index.css').replace(/\/\*[\s\S]*?\*\//g, '');
+    const lopsided = [...css.matchAll(/(?<![\w-])(?:padding|margin):\s*([^;]+);/g)]
+      .map(([declaration, value]) => ({ declaration, sides: (value ?? '').trim().split(/\s+/) }))
+      .filter(({ sides }) => sides.length === 4 && sides[1] !== sides[3])
+      .map(({ declaration }) => declaration);
+    expect(lopsided).toEqual([]);
+  });
 });
 
 /**

@@ -689,6 +689,7 @@
   "ValidationNameEmpty": "Säännön nimi ei voi olla tyhjä",
   "ValidationNameTooLong": "Säännön nimi on rajoitettu {max} merkkiin",
   "ValidationNoConditions": "Sääntö tarvitsee vähintään yhden ehdon",
+  "ValidationValueRepeated": "{condition}: \"{value}\" toistaa jo luetellun arvon. Säilytä niistä vain yksi.",
   "ValidationYearImplausible": "{condition}: vuosi {year} on Routarrin hyväksymän välin {min}–{max} ulkopuolella",
   "ValidationYearRangeInverted": "{condition}: vuosiväli {min}–{max} on käänteinen eikä koskaan täsmää",
   "Version": "Versio",
