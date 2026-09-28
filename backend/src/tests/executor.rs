@@ -655,10 +655,15 @@ async fn a_move_on_a_disabled_instance_is_not_reverted() {
     let writes = arr.recorded().writes.len();
 
     sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
-    let reverted =
-        executor::revert_decisions(&app.state, std::slice::from_ref(&decision_id), false, &by)
-            .await
-            .unwrap();
+    let reverted = executor::revert_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::none(),
+        &by,
+    )
+    .await
+    .unwrap();
 
     assert_eq!((reverted.applied, reverted.failed), (0, 1));
     assert_eq!(arr.recorded().writes.len(), writes, "the disabled instance was written to");
@@ -671,8 +676,16 @@ async fn a_revert_the_arr_refuses_leaves_the_decision_applied() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = ready(&arr).await;
     let by = Attribution::manual(None);
-    let revert =
-        || executor::revert_decisions(&app.state, std::slice::from_ref(&decision_id), false, &by);
+    let nothing_answered = executor::Confirmed::none();
+    let revert = || {
+        executor::revert_decisions(
+            &app.state,
+            std::slice::from_ref(&decision_id),
+            false,
+            &nothing_answered,
+            &by,
+        )
+    };
     executor::apply_decisions(
         &app.state,
         std::slice::from_ref(&decision_id),
@@ -726,6 +739,112 @@ async fn a_superseded_decision_is_never_applied() {
     assert!(arr.recorded().writes.is_empty(), "nothing may be sent upstream");
 }
 
+/// `ready`, with its proposal applied: the film sits in `/movies/anime` and
+/// came from `/movies/standard`, which a revert writes into.
+async fn applied(arr: &FakeArr) -> (TestApp, String) {
+    let (app, decision_id) = ready(arr).await;
+    executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    (app, decision_id)
+}
+
+/// Records the folder a revert goes back to, as the last sync saw it.
+async fn origin_folder(app: &TestApp, accessible: bool, free_space: i64) {
+    sqlx::query(
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, free_space,
+         last_accessible_at)
+         VALUES ('rf-1', 'inst-1', 1, '/movies/standard', ?, ?, '2026-09-20 08:00:00')",
+    )
+    .bind(accessible)
+    .bind(free_space)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+}
+
+fn asked(outcome: &crate::error::AppResult<executor::ApplyReport>) -> Option<&str> {
+    match outcome {
+        Err(crate::error::AppError::ConfirmationRequired { kind, .. }) => Some(kind),
+        _ => None,
+    }
+}
+
+/// A revert writes into the folder a move came from, as an apply writes into
+/// its destination, and the same question stands before it: a NAS that sleeps
+/// is unknown rather than gone, and only a person can tell which.
+#[tokio::test]
+async fn a_revert_onto_a_folder_that_is_not_answering_asks_first() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    origin_folder(&app, false, 1 << 40).await;
+    let writes = arr.recorded().writes.len();
+    let ids = std::slice::from_ref(&decision_id);
+    let by = Attribution::manual(None);
+
+    let first =
+        executor::revert_decisions(&app.state, ids, false, &executor::Confirmed::none(), &by).await;
+
+    assert_eq!(asked(&first), Some(executor::confirm::UNREACHABLE), "{first:?}");
+    assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
+    let answered = app
+        .post(
+            "/api/v1/decisions/revert",
+            serde_json::json!({ "decision_ids": [decision_id], "confirm": ["unreachable"] }),
+        )
+        .await;
+    assert_eq!(answered.assert_ok()["applied"], 1, "answering the question did not let it through");
+}
+
+/// Moved back with its files, a film needs room where it goes.
+#[tokio::test]
+async fn a_revert_moving_files_onto_a_full_folder_asks_first() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    origin_folder(&app, true, 1024).await;
+    sqlx::query("UPDATE media SET size_on_disk = 8589934592 WHERE id = 'm-1'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let writes = arr.recorded().writes.len();
+    let ids = std::slice::from_ref(&decision_id);
+    let by = Attribution::manual(None);
+
+    let first =
+        executor::revert_decisions(&app.state, ids, true, &executor::Confirmed::none(), &by).await;
+
+    assert_eq!(asked(&first), Some(executor::confirm::CAPACITY), "{first:?}");
+    assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
+}
+
+/// More reverts at once than the threshold is the same large change as an
+/// apply of that size, and asks the same question.
+#[tokio::test]
+async fn a_revert_larger_than_the_threshold_asks_first() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    sqlx::query("UPDATE settings SET value = '1' WHERE key = 'confirmation_threshold'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let writes = arr.recorded().writes.len();
+    let ids = [decision_id, "d-elsewhere".to_string()];
+    let by = Attribution::manual(None);
+
+    let first =
+        executor::revert_decisions(&app.state, &ids, false, &executor::Confirmed::none(), &by)
+            .await;
+
+    assert_eq!(asked(&first), Some(executor::confirm::THRESHOLD), "{first:?}");
+    assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
+}
+
 #[tokio::test]
 async fn reverting_puts_the_media_back() {
     let arr = FakeArr::start().await;
@@ -744,6 +863,7 @@ async fn reverting_puts_the_media_back() {
         &app.state,
         std::slice::from_ref(&decision_id),
         false,
+        &executor::Confirmed::none(),
         &Attribution::manual(None),
     )
     .await
@@ -791,14 +911,20 @@ async fn a_decision_cannot_be_reverted_twice() {
         &app.state,
         std::slice::from_ref(&decision_id),
         false,
+        &executor::Confirmed::none(),
         &Attribution::manual(None),
     )
     .await
     .unwrap();
-    let second =
-        executor::revert_decisions(&app.state, &[decision_id], false, &Attribution::manual(None))
-            .await
-            .unwrap();
+    let second = executor::revert_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::none(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(second.applied, 0);
     assert_eq!(second.skipped, 1);
@@ -809,10 +935,15 @@ async fn a_pending_decision_cannot_be_reverted() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = ready(&arr).await;
 
-    let report =
-        executor::revert_decisions(&app.state, &[decision_id], false, &Attribution::manual(None))
-            .await
-            .unwrap();
+    let report = executor::revert_decisions(
+        &app.state,
+        &[decision_id],
+        false,
+        &executor::Confirmed::none(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(report.applied, 0);
     assert!(arr.recorded().writes.is_empty());

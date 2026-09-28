@@ -99,6 +99,9 @@ pub struct RevertDecisionsRequest {
     pub decision_ids: Vec<String>,
     #[serde(default)]
     pub move_files: bool,
+    /// The guardrails the caller has looked at, by name, as for an apply.
+    #[serde(default)]
+    pub confirm: crate::services::executor::Confirmed,
 }
 
 /// Request to run a simulation.

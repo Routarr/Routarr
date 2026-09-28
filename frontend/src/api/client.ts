@@ -385,10 +385,10 @@ export const api = {
       body: body({ simulation_id, move_files, confirm }),
     }),
 
-  revertDecisions: (decision_ids: string[], move_files = false) =>
+  revertDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
     request<ApplyReport>('/decisions/revert', {
       method: 'POST',
-      body: body({ decision_ids, move_files }),
+      body: body({ decision_ids, move_files, confirm }),
     }),
 
   // ---------------------------------------------------------- overrides

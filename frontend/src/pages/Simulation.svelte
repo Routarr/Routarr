@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes } from '../api/format';
-  import { ApiError, api } from '../api/client';
+  import { api } from '../api/client';
   import type { ApplyReport, Decision, SimulationResult } from '../api/types';
   import { describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -14,7 +14,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
-  import { askConfirmation } from '../lib/confirm.svelte';
+  import { answering } from '../lib/confirm.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import { SvelteSet } from 'svelte/reactivity';
@@ -114,32 +114,6 @@
   const c_key = (c: { instance_id: string; path: string }) => `${c.instance_id}:${c.path}`;
 
   /**
-   * Send a write, and ask the reader each question the backend raises, in the
-   * backend's words followed by `after`.
-   *
-   * Several guardrails can refuse the same write, and each asks under its own
-   * name: a blanket yes would answer all of them at once, so confirming "there
-   * is not enough room" would also lift the batch threshold without showing
-   * it. The list grows one name at a time, so nothing is lifted that was not
-   * read. `null` is a question declined, and nothing was written.
-   */
-  async function answering<T>(
-    send: (answered: string[]) => Promise<T>,
-    after: string,
-    answered: string[] = [],
-  ): Promise<T | null> {
-    try {
-      return await send(answered);
-    } catch (err) {
-      if (!(err instanceof ApiError && err.needsConfirmation && err.confirm)) throw err;
-      const asking = err.confirm;
-      const question = after ? `${err.message}\n\n${after}` : err.message;
-      if (!(await askConfirmation(question, 'ApplyLabel'))) return null;
-      return answering(send, after, [...answered, asking]);
-    }
-  }
-
-  /**
    * Apply everything this run proposed, not just what is on screen.
    *
    * The list is capped for the payload's sake, so on a large library the
@@ -156,7 +130,7 @@
     try {
       const batch = await answering(
         (answered) => api.applyAllDecisions(simulationId, moveFiles, answered),
-        '',
+        'ApplyLabel',
       );
       if (!batch) return;
       // A run cut short by a failing slice is unfinished too: the slices after
@@ -194,6 +168,7 @@
     try {
       const done = await answering(
         (answered) => api.applyDecisions(ids, moveFiles, answered),
+        'ApplyLabel',
         t('ConfirmApply', { count: ids.length }) + (moveFiles ? t('ConfirmApplyWithFiles') : '.'),
       );
       if (!done) return;

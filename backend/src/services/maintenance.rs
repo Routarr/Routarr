@@ -223,6 +223,24 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
 
     let mut report = MaintenanceReport::default();
 
+    // Logs first: a decision a log names is kept, so one whose last log goes
+    // now goes in this same pass rather than at the next.
+    if log_days > 0 {
+        report.logs_removed = delete_older_than(
+            pool,
+            "DELETE FROM execution_logs WHERE executed_at < datetime('now', ?)",
+            log_days,
+        )
+        .await?;
+
+        report.jobs_removed = delete_older_than(
+            pool,
+            "DELETE FROM jobs WHERE status != 'running' AND started_at < datetime('now', ?)",
+            log_days,
+        )
+        .await?;
+    }
+
     if decision_days > 0 {
         // Applied and failed decisions are the audit trail and are never purged
         // here, whatever the window: only proposals age out, and superseded
@@ -251,22 +269,6 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
                 .execute(pool)
                 .await?
                 .rows_affected();
-    }
-
-    if log_days > 0 {
-        report.logs_removed = delete_older_than(
-            pool,
-            "DELETE FROM execution_logs WHERE executed_at < datetime('now', ?)",
-            log_days,
-        )
-        .await?;
-
-        report.jobs_removed = delete_older_than(
-            pool,
-            "DELETE FROM jobs WHERE status != 'running' AND started_at < datetime('now', ?)",
-            log_days,
-        )
-        .await?;
     }
 
     // Housekeeping rather than a guard: an expired row already fails the
@@ -477,6 +479,57 @@ mod tests {
         .execute(&state.pool)
         .await
         .unwrap();
+    }
+
+    /// A reverted move is named by its execution logs, so it stays as long as
+    /// they do, whatever the decision retention reads. It goes in the pass
+    /// that removes the last of them, not an hour later.
+    #[tokio::test]
+    async fn a_reverted_move_goes_in_the_pass_that_removes_its_log() {
+        let state = crate::state::AppState::for_tests().await;
+        seed_media(&state, "m-1").await;
+        sqlx::query(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                target_category, action, status, decided_at, reverted_at)
+             VALUES ('d-1', 'm-1', 'T', 'movie', 'i1', 'anime', 'move', 'skipped',
+                     datetime('now', '-40 days'), datetime('now', '-40 days'))",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        for (id, action) in [("l-1", "move"), ("l-2", "revert")] {
+            sqlx::query(
+                "INSERT INTO execution_logs (id, decision_id, action, success, executed_at)
+                 VALUES (?, 'd-1', ?, 1, datetime('now', '-40 days'))",
+            )
+            .bind(id)
+            .bind(action)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+        let kept = || async {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM decisions WHERE id = 'd-1'")
+                .fetch_one(&state.pool)
+                .await
+                .unwrap()
+        };
+        let retain_logs = |days: &'static str| {
+            sqlx::query(
+                "INSERT INTO settings (key, value) VALUES ('log_retention_days', ?)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .bind(days)
+            .execute(&state.pool)
+        };
+
+        retain_logs("90").await.unwrap();
+        purge(&state).await.unwrap();
+        assert_eq!(kept().await, 1, "a reverted move went while its log remained");
+
+        retain_logs("30").await.unwrap();
+        purge(&state).await.unwrap();
+        assert_eq!(kept().await, 0, "the reverted move outlived the log that named it");
     }
 
     #[tokio::test]

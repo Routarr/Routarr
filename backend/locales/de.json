@@ -581,7 +581,7 @@
   "SettingConfirmationThreshold": "Bestätigungsschwelle",
   "SettingConfirmationThresholdHelp": "Oberhalb dieser Anzahl erfordert das Anwenden eine zweite, ausdrückliche Bestätigung.",
   "SettingDecisionRetention": "Aufbewahrung von Entscheidungen (Tage)",
-  "SettingDecisionRetentionHelp": "Ältere offene und übersprungene Entscheidungen werden gelöscht. 0 deaktiviert die Bereinigung.",
+  "SettingDecisionRetentionHelp": "Ältere offene und übersprungene Entscheidungen werden gelöscht. Eine rückgängig gemachte Verschiebung bleibt, solange ihr Ausführungsprotokoll besteht. 0 deaktiviert die Bereinigung.",
   "SettingDefaultCategory": "Standardkategorie",
   "SettingDefaultCategoryHelp": "Wird verwendet, wenn keine Regel auf ein Medium zutrifft.",
   "SettingGlobalDryRun": "Globaler Testlauf",

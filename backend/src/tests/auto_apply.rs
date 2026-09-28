@@ -255,6 +255,7 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
         &app.state,
         &[decision_id],
         false,
+        &crate::services::executor::Confirmed::none(),
         &crate::jobs::Attribution::manual(None),
     )
     .await
