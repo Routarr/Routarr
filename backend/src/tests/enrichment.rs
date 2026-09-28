@@ -82,6 +82,22 @@ async fn tmdb_s_two_codes_outside_iso_are_read_as_a_rule_is_written() {
     assert_eq!(languages, [(CANTONESE, Some("zh".to_string())), (NO_LANGUAGE, None)]);
 }
 
+/// Sonarr sends one delivery per imported episode, and the webhook enriches
+/// the series on each. What the cache still holds is not fetched again: a
+/// season is one TMDb call, not one per episode.
+#[tokio::test]
+async fn a_second_delivery_for_the_same_series_fetches_nothing() {
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(1, "series", 1399)]).await;
+
+    for _ in 0..2 {
+        enrichment::enrich_one(&app.state, 1399, "series").await.unwrap();
+    }
+
+    let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with("/tv/1399")).count();
+    assert_eq!(fetched, 1, "the cached series was fetched again");
+}
+
 #[tokio::test]
 async fn enriches_movies_and_series_from_one_call_each() {
     let tmdb = FakeTmdb::start().await;

@@ -60,6 +60,8 @@ struct FakeState {
     hold: std::time::Duration,
     in_flight: Arc<AtomicUsize>,
     max_in_flight: Arc<AtomicUsize>,
+    /// Whether the tag catalogue answers a 500, as an Arr failing on it does.
+    tags_broken: Arc<std::sync::atomic::AtomicBool>,
 }
 
 pub struct FakeArr {
@@ -67,6 +69,7 @@ pub struct FakeArr {
     recorded: Arc<Mutex<Recorded>>,
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     max_in_flight: Arc<AtomicUsize>,
+    tags_broken: Arc<std::sync::atomic::AtomicBool>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -115,6 +118,11 @@ impl FakeArr {
     /// The most requests this fake ever had open at the same moment.
     ///
     /// One means the caller was sequential — not slow, sequential.
+    /// From now on the tag catalogue answers a 500.
+    pub fn break_tag_endpoint(&self) {
+        self.tags_broken.store(true, Ordering::SeqCst);
+    }
+
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)
     }
@@ -132,6 +140,7 @@ impl FakeArr {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let series_body: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
         let max_in_flight = Arc::new(AtomicUsize::new(0));
+        let tags_broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             fail_with,
@@ -141,6 +150,7 @@ impl FakeArr {
             hold,
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_in_flight: Arc::clone(&max_in_flight),
+            tags_broken: Arc::clone(&tags_broken),
         };
 
         let app = Router::new()
@@ -174,6 +184,7 @@ impl FakeArr {
             recorded,
             series_body,
             max_in_flight,
+            tags_broken,
             shutdown: Some(tx),
         }
     }
@@ -278,12 +289,18 @@ async fn filesystem(
     Json(serde_json::json!({ "parent": null, "directories": children, "files": [] }))
 }
 
-async fn tags(State(state): State<FakeState>, headers: HeaderMap) -> Json<serde_json::Value> {
+async fn tags(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StatusCode> {
     record_key(&state, &headers);
-    Json(serde_json::json!([
+    if state.tags_broken.load(Ordering::SeqCst) {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    Ok(Json(serde_json::json!([
         { "id": 1, "label": "anime" },
         { "id": 2, "label": "kids" },
-    ]))
+    ])))
 }
 
 /// Count this request as open, hold it, and report the high-water mark.

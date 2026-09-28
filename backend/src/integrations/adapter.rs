@@ -210,11 +210,16 @@ impl ArrAdapter {
     pub async fn refresh(&self, arr_ids: &[i64]) -> AppResult<()> {
         match self {
             Self::Radarr(c) => c.refresh_movies(arr_ids).await,
+            // One command per series: each is tried, whatever the one before
+            // it answered, and the first refusal is what is reported.
             Self::Sonarr(c) => {
+                let mut first_failure = None;
                 for id in arr_ids {
-                    c.refresh_series(*id).await?;
+                    if let Err(e) = c.refresh_series(*id).await {
+                        first_failure.get_or_insert(e);
+                    }
                 }
-                Ok(())
+                first_failure.map_or(Ok(()), Err)
             }
         }
     }

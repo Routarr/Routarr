@@ -625,6 +625,38 @@ async fn a_declared_path_adopted_under_a_taken_id_does_not_fail_the_sync() {
     assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
 }
 
+/// A failing tag endpoint must not strip the library of its tags: every
+/// `tag_in` rule would stop matching until a later pass read them again. The
+/// catalogue the last good pass stored resolves the ids meanwhile, for a full
+/// sync and for the webhook's one item alike.
+#[tokio::test]
+async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    let tags = || async {
+        sqlx::query_scalar::<_, String>("SELECT tags FROM media")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+    };
+    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    let read = tags().await;
+    assert!(read.contains("anime"), "the fixture carries no tag to begin with: {read}");
+
+    arr.break_tag_endpoint();
+    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    assert_eq!(tags().await, read, "a full sync stripped the tags");
+
+    app.post(
+        "/api/v1/webhook/i-1/tok",
+        serde_json::json!({ "eventType": "Download", "movie": { "id": 10 } }),
+    )
+    .await
+    .assert_ok();
+    assert_eq!(tags().await, read, "the webhook's sync stripped the tags");
+}
+
 /// A declared folder has no id in the Arr, and must not publish one.
 ///
 /// `arr_id` is nullable since the row can be Routarr's own; typed as `i64` sqlx

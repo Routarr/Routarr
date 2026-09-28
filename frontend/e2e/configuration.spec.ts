@@ -230,12 +230,21 @@ test.describe('the API key card', () => {
   });
 });
 
-/** Store a source list, the way an installation upgraded with it holds one. */
+/**
+ * Store a source list, keyed sources included. The API refuses to add a source
+ * with no key, so each goes in with one, removed right after: how an
+ * installation ends up listing a source it has no key for.
+ */
 async function listSources(order: string): Promise<void> {
+  const keyed = ['tmdb', 'omdb', 'tvdb'].filter((id) => order.split(',').includes(id));
+  const keys = (value: string) => Object.fromEntries(keyed.map((id) => [`${id}_api_key`, value]));
   await api('/settings', {
     method: 'PUT',
-    body: JSON.stringify({ settings: { metadata_providers: order } }),
+    body: JSON.stringify({ settings: { metadata_providers: order, ...keys('e2e-removed-below') } }),
   });
+  if (keyed.length > 0) {
+    await api('/settings', { method: 'PUT', body: JSON.stringify({ settings: keys('') }) });
+  }
 }
 
 test.describe('metadata sources', () => {
