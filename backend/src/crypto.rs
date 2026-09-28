@@ -371,8 +371,6 @@ mod tests {
         let (second, generated_again) = load_or_generate_api_key(&path).unwrap();
         assert_eq!(second, first);
         assert!(!generated_again);
-
-        std::fs::remove_file(&path).ok();
     }
 
     /// Two installations must not share a key.
@@ -382,20 +380,15 @@ mod tests {
 
         let a = dir.join("a.key");
         let b = dir.join("b.key");
-        let _ = std::fs::remove_file(&a);
-        let _ = std::fs::remove_file(&b);
 
         let (first, _) = load_or_generate_api_key(&a).unwrap();
         let (second, _) = load_or_generate_api_key(&b).unwrap();
         assert_ne!(first, second);
-
-        std::fs::remove_file(&a).ok();
-        std::fs::remove_file(&b).ok();
     }
 
     /// A secret file is born 0600 rather than locked down after: with the
-    /// usual umask, `write` then `chmod` left it readable for the instant in
-    /// between, and only warned where the chmod was refused.
+    /// usual umask, `write` then `chmod` would leave it readable for the
+    /// instant in between.
     #[cfg(unix)]
     #[test]
     fn a_private_file_is_created_with_its_mode_and_truncated_on_rewrite() {
@@ -426,11 +419,24 @@ mod tests {
         load_or_generate_api_key(&path).unwrap();
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "the API key was left readable to others");
-
-        std::fs::remove_file(&path).ok();
     }
 
     use super::*;
+
+    /// The key generated at first start is the key every later start reads. A
+    /// key written in one form and read back in another opens none of the
+    /// sealed Arr and metadata keys after a restart, and nothing else warns.
+    #[test]
+    fn a_generated_master_key_opens_what_it_sealed_after_a_restart() {
+        let dir = crate::tests::TempDir::new("master-key");
+        let path = dir.join("routarr.key");
+
+        let sealed = SecretBox::load(None, None, &path).unwrap().seal("the-arr-key").unwrap();
+        assert!(path.exists(), "the first start writes the key it generated");
+
+        let restarted = SecretBox::load(None, None, &path).unwrap();
+        assert_eq!(restarted.open(&sealed).unwrap(), "the-arr-key");
+    }
 
     fn boxed() -> SecretBox {
         SecretBox::load(
