@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Lock, Plus, Search, Trash2 } from '../lib/icons';
+  import { Plus, Search, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, MediaListItem } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -53,7 +53,6 @@
   let chosenCategory = $state<string | null>(null);
   const category = $derived(chosenCategory ?? categories[0]?.name ?? '');
   let reason = $state('');
-  let locked = $state(true);
 
   function openCreate() {
     search = '';
@@ -61,7 +60,6 @@
     selected = null;
     chosenCategory = null;
     reason = '';
-    locked = true;
     dialogError = null;
     creating = true;
   }
@@ -88,7 +86,6 @@
         media_id: selected.id,
         target_category: category,
         reason: reason || null,
-        locked,
       });
       creating = false;
       outcome.succeed(t('OverrideCreated', { title: selected.title, category }));
@@ -145,12 +142,6 @@
                 <td>
                   <strong>{override.media_title}</strong>
                   <span class="badge badge-value muted">{override.media_type}</span>
-                  {#if override.locked}
-                    <span class="badge badge-warning ms-1">
-                      <Lock size={11} />
-                      {t('Locked')}
-                    </span>
-                  {/if}
                 </td>
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>
@@ -271,11 +262,6 @@
             bind:value={reason}
           />
         </div>
-
-        <label class="flex items-center gap-2 text-base">
-          <input type="checkbox" bind:checked={locked} />
-          {t('LockClassification')}
-        </label>
       {/if}
 
       <div class="dialog-actions">

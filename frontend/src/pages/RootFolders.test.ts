@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { instance as fixtureInstance } from '../test/fixtures';
 import { statusRevision } from '../lib/status.svelte';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { Category, MappingConflict, RootFolder } from '../api/types';
+import { answerConfirmation } from '../test/confirm';
 import RootFolders from './RootFolders.svelte';
 
 /**
@@ -45,6 +46,12 @@ const STRINGS = {
   LastAnswered: 'Last answered {since}',
   NeverAnswered: 'Has never answered',
   NoRootFolderDiscovered: 'No root folder',
+  Create: 'Create',
+  Cancel: 'Cancel',
+  CategoryCreated: 'Category {name} created',
+  CategoryDeleted: 'Category deleted',
+  ConfirmRemoveDestination: 'Remove the destination {path}?',
+  ConfirmDeleteCategory: 'Delete the category "{name}"?',
 };
 
 function category(over: Partial<Category> = {}): Category {
@@ -292,6 +299,97 @@ describe('Root folders', () => {
 
     await waitFor(() => expect(screen.queryByText(/added/)).toBeNull());
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
+  });
+
+  /** The select reads what the server holds, never the choice it refused. */
+  it('leaves the select on the stored category when a save is refused', async () => {
+    vi.spyOn(api, 'updateRootFolderCategory').mockRejectedValue(
+      new ApiError('anime already maps /data/other', 409, 'conflict'),
+    );
+    show(
+      [folder({ path: '/data/anime', category: 'standard' })],
+      [category(), category({ id: 'c2', name: 'anime' })],
+    );
+    const select = (await screen.findByLabelText('Category for /data/anime')) as HTMLSelectElement;
+
+    await userEvent.selectOptions(select, 'anime');
+    await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
+
+    expect(await screen.findByText('anime already maps /data/other')).toBeInTheDocument();
+    await waitFor(() => expect(select.value).toBe('standard'));
+  });
+
+  /** A refused path stays in its field, to be corrected rather than typed again. */
+  it('keeps a refused destination in its field', async () => {
+    vi.spyOn(api, 'declareRootFolder').mockRejectedValue(new Error('the instance cannot see it'));
+    show([folder()], []);
+    const field = (await screen.findByLabelText('Destination folder')) as HTMLInputElement;
+
+    await userEvent.type(field, '/mnt/typo');
+    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
+    // Once the screen has read the folders again, which is when it cleared.
+    await waitFor(() => expect(api.getRootFolders).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(field.value).toBe('/mnt/typo');
+  });
+
+  /**
+   * A refused name stays in its dialog, and the reason is said there: the page
+   * banner sits under the modal, dimmed and out of reach.
+   */
+  it('keeps a refused new category in its dialog and says why there', async () => {
+    vi.spyOn(api, 'createCategory').mockRejectedValue(
+      new ApiError('A category named anime exists', 409, 'conflict'),
+    );
+    show([folder()], [category()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New category' }));
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.type(within(dialog).getByLabelText('Name'), 'anime');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }));
+
+    expect(await within(dialog).findByText('A category named anime exists')).toBeInTheDocument();
+    expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('anime');
+  });
+
+  it('keeps a refused rename in its dialog and says why there', async () => {
+    vi.spyOn(api, 'renameCategory').mockRejectedValue(
+      new ApiError('A category named kids exists', 409, 'conflict'),
+    );
+    show([folder()], [category({ name: 'anime' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Rename category – anime/ }));
+    const dialog = await screen.findByRole('dialog');
+    const field = within(dialog).getByLabelText('Name') as HTMLInputElement;
+    await userEvent.clear(field);
+    await userEvent.type(field, 'kids');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }));
+
+    expect(await within(dialog).findByText('A category named kids exists')).toBeInTheDocument();
+    expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('kids');
+  });
+
+  /** Every other deletion asks first, and these two remove as much. */
+  it('asks before removing a destination, and removes nothing on Cancel', async () => {
+    const remove = vi.spyOn(api, 'deleteRootFolder');
+    show([folder({ path: '/data/anime', origin: 'declared' })], [category()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/anime' }));
+
+    expect(await answerConfirmation(null)).toBe('Remove the destination /data/anime?');
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('asks before deleting a category, and deletes nothing on Cancel', async () => {
+    const remove = vi.spyOn(api, 'deleteCategory');
+    show([folder()], [category({ id: 'c2', name: 'kids', is_default: false })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – kids' }));
+
+    expect(await answerConfirmation(null)).toBe('Delete the category "kids"?');
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it('shows a refusal without waiting for the page to reload', async () => {

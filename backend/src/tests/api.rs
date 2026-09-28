@@ -897,6 +897,62 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
         .assert_status(axum::http::StatusCode::NOT_FOUND);
 }
 
+/// An override pins a title to a category, and that is all it does: it wins
+/// over every rule already. The lock it carried protected nothing, so it is
+/// gone from what the API answers. An older client still sending it is heard.
+#[tokio::test]
+async fn an_override_carries_no_lock() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    let created = app
+        .post(
+            "/api/v1/overrides",
+            serde_json::json!({ "media_id": "m-1", "target_category": "anime", "locked": true }),
+        )
+        .await;
+
+    let created = created.assert_ok().clone();
+    assert!(created.get("locked").is_none(), "{created}");
+    let listed = app.get("/api/v1/overrides").await.assert_ok().clone();
+    assert!(listed[0].get("locked").is_none(), "{listed}");
+    let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
+    assert!(detail["override"].get("locked").is_none(), "{detail}");
+}
+
+/// An upgrade drops the column and keeps every override.
+#[tokio::test]
+async fn an_upgrade_drops_the_override_lock_and_keeps_the_override() {
+    let pool = database_through("005_jikan_film_misses").await;
+    sqlx::query(AN_INSTANCE).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title) VALUES ('m-1', 'inst-1', 1, 'movie', 'Akira')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO overrides (id, media_id, target_category, locked) VALUES ('o-1', 'm-1', 'anime', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let columns: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_table_info('overrides')")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert!(!columns.contains(&"locked".to_string()), "{columns:?}");
+    let kept: String = sqlx::query_scalar("SELECT target_category FROM overrides WHERE id = 'o-1'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, "anime");
+}
+
 #[tokio::test]
 async fn an_override_returns_the_stored_id_on_upsert() {
     let app = TestApp::new().await;

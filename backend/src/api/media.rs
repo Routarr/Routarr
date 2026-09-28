@@ -178,8 +178,8 @@ pub async fn get_one(
 
     let metadata = enrichment::resolve_for_media(&state, &media).await?;
 
-    let override_entry: Option<(String, Option<String>, bool)> =
-        sqlx::query_as("SELECT target_category, reason, locked FROM overrides WHERE media_id = ?")
+    let override_entry: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT target_category, reason FROM overrides WHERE media_id = ?")
             .bind(&media.id)
             .fetch_optional(&state.pool)
             .await?;
@@ -188,10 +188,9 @@ pub async fn get_one(
         "media": media,
         "instance_name": instance_name,
         "metadata": metadata,
-        "override": override_entry.map(|(category, reason, locked)| serde_json::json!({
+        "override": override_entry.map(|(category, reason)| serde_json::json!({
             "target_category": category,
             "reason": reason,
-            "locked": locked,
         })),
     })))
 }

@@ -7,7 +7,6 @@ pub struct OverrideEntry {
     pub media_id: String,
     pub target_category: String,
     pub reason: Option<String>,
-    pub locked: bool,
     pub created_at: String,
 }
 
@@ -17,8 +16,6 @@ pub struct CreateOverrideRequest {
     pub media_id: String,
     pub target_category: String,
     pub reason: Option<String>,
-    #[serde(default)]
-    pub locked: bool,
 }
 
 /// Override with associated media info for display.

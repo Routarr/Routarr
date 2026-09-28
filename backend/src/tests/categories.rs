@@ -21,8 +21,8 @@ async fn seed_every_reference(app: &TestApp) {
     app.seed_anime_rule().await;
 
     sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, reason, locked)
-         SELECT 'ovr-1', id, 'anime', 'test', 0 FROM media LIMIT 1",
+        "INSERT INTO overrides (id, media_id, target_category, reason)
+         SELECT 'ovr-1', id, 'anime', 'test' FROM media LIMIT 1",
     )
     .execute(&app.state.pool)
     .await

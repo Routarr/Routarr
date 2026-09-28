@@ -16,6 +16,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("003_metadata_sources", include_str!("../migrations/003_metadata_sources.sql")),
     ("004_orphaned_proposals", include_str!("../migrations/004_orphaned_proposals.sql")),
     ("005_jikan_film_misses", include_str!("../migrations/005_jikan_film_misses.sql")),
+    ("006_drop_override_lock", include_str!("../migrations/006_drop_override_lock.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.

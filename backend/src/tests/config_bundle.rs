@@ -37,8 +37,8 @@ async fn configured() -> TestApp {
     .await
     .unwrap();
     sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, reason, locked)
-         VALUES ('o-1', 'm-1', 'kids', 'The rules read it as anime', 1)",
+        "INSERT INTO overrides (id, media_id, target_category, reason)
+         VALUES ('o-1', 'm-1', 'kids', 'The rules read it as anime')",
     )
     .execute(&app.state.pool)
     .await
@@ -78,7 +78,6 @@ async fn the_bundle_carries_what_cannot_be_regenerated() {
     // The override is keyed by external id, the only identity a media keeps.
     let over = &bundle["overrides"].as_array().unwrap()[0];
     assert_eq!(over["target_category"], "kids");
-    assert_eq!(over["locked"], true);
     assert!(over["tmdb_id"].is_i64(), "matched on external id, not on our own");
 }
 
@@ -270,13 +269,11 @@ async fn an_override_lands_once_its_media_exists() {
         .clone();
 
     assert_eq!(report["overrides"], 1);
-    let (category, locked): (String, bool) =
-        sqlx::query_as("SELECT target_category, locked FROM overrides")
-            .fetch_one(&target.state.pool)
-            .await
-            .unwrap();
+    let category: String = sqlx::query_scalar("SELECT target_category FROM overrides")
+        .fetch_one(&target.state.pool)
+        .await
+        .unwrap();
     assert_eq!(category, "kids");
-    assert!(locked, "the lock is part of the human decision");
 }
 
 #[tokio::test]
@@ -568,6 +565,35 @@ async fn an_instance_stored_with_a_stray_space_still_counts_as_existing() {
 /// Categories are joined by value with no foreign key, so the database would
 /// not stop a mapping naming one that does not exist — it would route nowhere,
 /// and no warning could count it, there being no category row.
+/// One category, one folder per instance, as `PUT /root-folders/{id}/category`
+/// insists: two folders answering to one category leave the target ambiguous,
+/// and the simulation and the explanation each pick their own.
+#[tokio::test]
+async fn a_bundle_cannot_map_one_category_to_two_folders_of_an_instance() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    let report = app
+        .post(
+            "/api/v1/config/import",
+            serde_json::json!({ "bundle": { "version": 1, "root_folders": [
+                { "instance_name": "Radarr", "path": "/movies/standard", "category": "anime" }
+            ] } }),
+        )
+        .await
+        .assert_ok()
+        .clone();
+
+    let mapped: Vec<String> =
+        sqlx::query_scalar("SELECT path FROM root_folders WHERE category = 'anime' ORDER BY path")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(mapped, ["/movies/anime"], "the category now answers for two folders");
+    assert_eq!(report["root_folders"], 0);
+    assert!(report["skipped"].to_string().contains("/movies/anime"), "{}", report["skipped"]);
+}
+
 #[tokio::test]
 async fn a_bundle_cannot_map_a_folder_to_a_category_that_does_not_exist() {
     let app = configured().await;
@@ -599,8 +625,8 @@ async fn a_bundle_cannot_map_a_folder_to_a_category_that_does_not_exist() {
     );
 }
 
-/// The categories loop lowercases; the mapping loop did not. A bundle carrying
-/// `Anime` created `anime` and pointed the folder at a name no row holds.
+/// The categories loop lowercases, and so must the mapping loop: a bundle
+/// carrying `Kids` pointed the folder at a name no row holds.
 #[tokio::test]
 async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
     let app = configured().await;
@@ -609,11 +635,11 @@ async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
         "/api/v1/config/import",
         serde_json::json!({ "bundle": {
             "version": 1, "settings": [],
-            "categories": [{ "name": "Anime", "description": null }],
+            "categories": [{ "name": "Kids", "description": null }],
             "instances": [],
             "root_folders": [
                 { "instance_name": "Radarr", "path": "/movies/standard",
-                  "category": "Anime" }
+                  "category": "Kids" }
             ],
             "overrides": []
         }}),
@@ -626,7 +652,7 @@ async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
             .fetch_optional(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(stored.as_deref(), Some("anime"), "the mapping names a category that exists");
+    assert_eq!(stored.as_deref(), Some("kids"), "the mapping names a category that exists");
 }
 
 /// `POST /categories` refuses a name with a space, an ampersand or five hundred

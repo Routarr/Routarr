@@ -3,7 +3,8 @@
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
   import { formatBytes, formatRelative } from '../api/format';
-  import { createAsync } from '../lib/async.svelte';
+  import { createAsync, describeError } from '../lib/async.svelte';
+  import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -75,7 +76,8 @@
     void handFocus(`folder-${folder.id}-category`);
   }
 
-  async function act(fn: () => Promise<unknown>, message: string) {
+  /** Whether the write went through: what was typed is cleared on success only. */
+  async function act(fn: () => Promise<unknown>, message: string): Promise<boolean> {
     try {
       await fn();
       outcome.succeed(message);
@@ -83,39 +85,64 @@
       // about categories and instances that reach no folder.
       invalidateStatus();
       await bundle.reload();
+      return true;
     } catch (err) {
       outcome.fail(err);
       await bundle.reload();
+      return false;
     }
   }
 
   /**
-   * Declare a destination the instance does not report as a root folder.
-   *
-   * A target used to have to exist in Radarr or Sonarr already, so routing into
-   * `/movies/anime` meant declaring it there first. The arrangement an operator
-   * wants is the opposite: one root folder per Arr, and the targets beneath it
-   * named here.
+   * A write from a dialog, whose refusal is said inside it: the page banner
+   * sits under the modal, dimmed and out of reach. The dialog closes on
+   * success only, so a refused name is corrected rather than typed again.
+   */
+  let dialogError = $state<string | null>(null);
+  async function fromDialog(fn: () => Promise<unknown>, message: string): Promise<boolean> {
+    dialogError = null;
+    try {
+      await fn();
+    } catch (err) {
+      dialogError = describeError(err);
+      return false;
+    }
+    outcome.succeed(message);
+    invalidateStatus();
+    await bundle.reload();
+    return true;
+  }
+
+  /**
+   * Declare a destination the instance does not report as a root folder: one
+   * root folder per Arr is what an operator keeps there, and the targets
+   * beneath it are named here.
    */
   async function declare(event: SubmitEvent) {
     event.preventDefault();
     if (!target || !targetPath.trim()) return;
-    await act(
+    const declared = await act(
       () => api.declareRootFolder(target, targetPath.trim()),
       t('DestinationDeclared', { path: targetPath.trim() }),
     );
-    targetPath = '';
+    if (declared) targetPath = '';
   }
 
   async function createCategory(event: SubmitEvent) {
     event.preventDefault();
-    await act(
+    const created = await fromDialog(
       () => api.createCategory({ name, description: description || null }),
       t('CategoryCreated', { name: name.trim().toLowerCase() }),
     );
+    if (!created) return;
     name = '';
     description = '';
     creating = false;
+  }
+
+  function openDialog(open: () => void) {
+    dialogError = null;
+    open();
   }
 </script>
 
@@ -126,7 +153,7 @@
       <p class="page-subtitle">{t('RootFoldersSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-primary" onclick={() => (creating = true)}>
+      <button class="btn btn-primary" onclick={() => openDialog(() => (creating = true))}>
         <Plus size={16} />
         {t('NewCategory')}
       </button>
@@ -239,11 +266,19 @@
                       class="btn btn-danger btn-sm"
                       type="button"
                       aria-label="{t('Remove')} – {folder.path}"
-                      onclick={() =>
-                        act(
-                          () => api.deleteRootFolder(folder.id),
-                          t('DestinationRemoved', { path: folder.path }),
-                        )}
+                      onclick={async () => {
+                        if (
+                          await askConfirmation(
+                            t('ConfirmRemoveDestination', { path: folder.path }),
+                            'Remove',
+                          )
+                        ) {
+                          void act(
+                            () => api.deleteRootFolder(folder.id),
+                            t('DestinationRemoved', { path: folder.path }),
+                          );
+                        }
+                      }}
                     >
                       {t('Remove')}
                     </button>
@@ -330,10 +365,11 @@
                     class="btn btn-secondary btn-sm"
                     aria-label="{t('RenameCategory')} – {category.name}"
                     title={t('RenameCategory')}
-                    onclick={() => {
-                      renaming = category;
-                      newName = category.name;
-                    }}
+                    onclick={() =>
+                      openDialog(() => {
+                        renaming = category;
+                        newName = category.name;
+                      })}
                   >
                     <Pencil size={14} />
                   </button>
@@ -342,8 +378,16 @@
                       class="btn btn-danger btn-sm"
                       aria-label="{t('Delete')} – {category.name}"
                       title={t('Delete')}
-                      onclick={() =>
-                        act(() => api.deleteCategory(category.id), t('CategoryDeleted'))}
+                      onclick={async () => {
+                        if (
+                          await askConfirmation(
+                            t('ConfirmDeleteCategory', { name: category.name }),
+                            'Delete',
+                          )
+                        ) {
+                          void act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
+                        }
+                      }}
                     >
                       <Trash2 size={14} />
                     </button>
@@ -375,21 +419,23 @@
           ✕
         </button>
       </div>
+      <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
       <!-- `novalidate`, like the form below and the rule editor: the browser's
            bubble speaks the browser's language, not `ui_language`. Save is held
            until the field is filled, so the constraint is enforced before the
            press rather than complained about after it. -->
       <form
         novalidate
-        onsubmit={(event) => {
+        onsubmit={async (event) => {
           event.preventDefault();
-          // Read before closing. `{@const}` is reactive, so `target` follows
-          // `renaming` — clearing it first and reading `target.id` afterwards
-          // reads it as null, and the rename never leaves the browser.
+          // Read before the request: `{@const}` is reactive, so `target`
+          // follows `renaming`, which a success clears.
           const id = target.id;
-          const name = newName;
-          renaming = null;
-          void act(() => api.renameCategory(id, name), t('CategoryRenamed'));
+          const renamed = await fromDialog(
+            () => api.renameCategory(id, newName),
+            t('CategoryRenamed'),
+          );
+          if (renamed) renaming = null;
         }}
       >
         <div class="form-group">
@@ -434,6 +480,7 @@
           ✕
         </button>
       </div>
+      <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
       <!-- `novalidate`: the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
        handler. Nothing is traded away for it — Save is held until the required

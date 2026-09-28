@@ -61,7 +61,6 @@ function override(over: Partial<OverrideEntry> = {}): OverrideEntry {
     media_id: 'm1',
     target_category: 'anime',
     reason: null,
-    locked: false,
     created_at: '2026-08-27 10:00:00',
     media_title: 'Akira',
     media_type: 'movie',
@@ -120,7 +119,7 @@ describe('Overrides', () => {
   it('takes the previous success off screen when the next removal is refused', async () => {
     vi.spyOn(api, 'deleteOverride')
       .mockResolvedValueOnce(undefined as never)
-      .mockRejectedValueOnce(new ApiError('The override is locked', 409, 'conflict'));
+      .mockRejectedValueOnce(new ApiError('The override could not be removed', 409, 'conflict'));
     show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
@@ -130,7 +129,7 @@ describe('Overrides', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Totoro' }));
     await answerConfirmation();
 
-    expect(await screen.findByText('The override is locked')).toBeTruthy();
+    expect(await screen.findByText('The override could not be removed')).toBeTruthy();
     expect(screen.queryByText('Override removed')).toBeNull();
   });
 

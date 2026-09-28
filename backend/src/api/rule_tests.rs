@@ -46,7 +46,26 @@ pub async fn create(
     // Default to what the engine decides today, which is what makes pinning a
     // decision one click from the explanation panel.
     let expected = match body.expected_category {
-        Some(category) if !category.trim().is_empty() => category,
+        // A category name as every writer of one stores it, and one that
+        // exists: a case expecting `Anime ` or a category nobody has can only
+        // ever fail.
+        Some(category) if !category.trim().is_empty() => {
+            let name = crate::api::categories::normalise(&category)?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
+                    .bind(&name)
+                    .fetch_one(&state.pool)
+                    .await?;
+            if !exists {
+                return Err(AppError::BadRequest(
+                    state
+                        .localizer()
+                        .await
+                        .translate("ErrorCategoryUnknown", &[("category", &name)]),
+                ));
+            }
+            name
+        }
         _ => {
             let rules = routing::load_rules(&state.pool).await?;
             let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
