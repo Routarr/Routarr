@@ -254,7 +254,7 @@
   "Error": "erro",
   "ErrorApplyInProgress": "Já está a decorrer uma aplicação",
   "ErrorBatchLimit": "O lote de {count} excede o limite de {limit}. Reduza a seleção ou aumente batch_limit nas Definições.",
-  "ErrorConfirmationRequired": "Itens acima do limiar de confirmação de {threshold}: {count}. Reenvie com confirm = true para prosseguir.",
+  "ErrorConfirmationRequired": "Itens acima do limiar de confirmação de {threshold}: {count}.",
   "ErrorDryRunEnabled": "A execução a seco global está ativa. Desative-a nas Definições para aplicar alterações.",
   "ErrorNoSelection": "Nenhuma decisão selecionada",
   "ErrorNotEnoughSpace": "{path} receberia {needed} mas declara apenas {free} livres. Reenvie com confirm = true para mover mesmo assim.",

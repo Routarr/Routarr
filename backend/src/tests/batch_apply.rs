@@ -273,6 +273,35 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
     assert!(arr.recorded().writes.is_empty(), "nothing may be written before confirming");
 }
 
+/// The question is asked whole: how many move, and whether their files move
+/// with them. The interface shows it as it comes, so a clause missing here is
+/// missing on screen, and a threshold of zero is no threshold to name.
+#[tokio::test]
+async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
+    let arr = FakeArr::start().await;
+    let app = library(&arr, 3).await;
+    let simulation = simulate(&app).await;
+    let localizer = app.state.localizer().await;
+    let count = localizer.translate("ConfirmApplyAll", &[("count", "3")]);
+    let with_files = localizer.translate("ConfirmApplyWithFiles", &[]);
+
+    for (move_files, expected) in
+        [(false, format!("{count}.")), (true, format!("{count}{with_files}"))]
+    {
+        let response = app
+            .post(
+                "/api/v1/decisions/apply-all",
+                serde_json::json!({ "simulation_id": simulation, "move_files": move_files }),
+            )
+            .await;
+        let message = response.assert_status(axum::http::StatusCode::CONFLICT)["message"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(message.starts_with(&expected), "move_files {move_files}: {message}");
+    }
+}
+
 #[tokio::test]
 async fn the_endpoint_applies_everything_once_confirmed() {
     let arr = FakeArr::start().await;

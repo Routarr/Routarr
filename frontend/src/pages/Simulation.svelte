@@ -111,24 +111,51 @@
   const c_key = (c: { instance_id: string; path: string }) => `${c.instance_id}:${c.path}`;
 
   /**
+   * Send a write, and ask the reader each question the backend raises, in the
+   * backend's words followed by `after`.
+   *
+   * Several guardrails can refuse the same write, and each asks under its own
+   * name: a blanket yes would answer all of them at once, so confirming "there
+   * is not enough room" would also lift the batch threshold without showing
+   * it. The list grows one name at a time, so nothing is lifted that was not
+   * read. `null` is a question declined, and nothing was written.
+   */
+  async function answering<T>(
+    send: (answered: string[]) => Promise<T>,
+    after: string,
+    answered: string[] = [],
+  ): Promise<T | null> {
+    try {
+      return await send(answered);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.needsConfirmation && err.confirm)) throw err;
+      const asking = err.confirm;
+      const question = after ? `${err.message}\n\n${after}` : err.message;
+      if (!(await askConfirmation(question, 'ApplyLabel'))) return null;
+      return answering(send, after, [...answered, asking]);
+    }
+  }
+
+  /**
    * Apply everything this run proposed, not just what is on screen.
    *
    * The list is capped for the payload's sake, so on a large library the
    * selection can only ever cover part of it. Scoping by simulation id rather
-   * than by selected rows is what makes "apply all" mean all of them.
+   * than by selected rows is what makes "apply all" mean all of them. The
+   * question is the server's alone: it names the count, and a destination
+   * that is not answering or short of room, which only the server knows.
    */
   async function applyAll() {
     if (!result) return;
-    const proceed = await askConfirmation(
-      t('ConfirmApplyAll', { count: result.moves_required }) +
-        (moveFiles ? t('ConfirmApplyWithFiles') : '.'),
-      'ApplyLabel',
-    );
-    if (!proceed) return;
+    const simulationId = result.simulation_id;
 
     busy = 'apply';
     try {
-      const batch = await api.applyAllDecisions(result.simulation_id, moveFiles, ['batch']);
+      const batch = await answering(
+        (answered) => api.applyAllDecisions(simulationId, moveFiles, answered),
+        '',
+      );
+      if (!batch) return;
       // A run cut short by a failing slice is unfinished too: the slices after
       // it were never tried.
       reportApply(
@@ -156,21 +183,17 @@
     }
   }
 
-  /**
-   * `answered` carries the guardrails the reader has already looked at.
-   *
-   * Several can refuse the same apply, and each asks its own question: a
-   * blanket yes answered all of them at once, so confirming "there is not
-   * enough room" also lifted the batch threshold without showing it. The list
-   * grows one name at a time, so nothing is lifted that was not read.
-   */
-  async function apply(answered: string[] = []): Promise<void> {
+  async function apply() {
     const ids = [...selected];
     if (ids.length === 0) return;
 
     busy = 'apply';
     try {
-      const done = await api.applyDecisions(ids, moveFiles, answered);
+      const done = await answering(
+        (answered) => api.applyDecisions(ids, moveFiles, answered),
+        t('ConfirmApply', { count: ids.length }) + (moveFiles ? t('ConfirmApplyWithFiles') : '.'),
+      );
+      if (!done) return;
       reportApply(
         t('ApplyReport', { applied: done.applied, requested: done.requested }) +
           (done.skipped > 0 ? t('ApplyReportSkipped', { count: done.skipped }) : '') +
@@ -181,23 +204,7 @@
       );
       await run({ refresh: true });
     } catch (err) {
-      // The backend asks for a second, explicit pass past the configured
-      // threshold; surface that as a confirmation instead of a raw error.
-      if (err instanceof ApiError && err.needsConfirmation && err.confirm) {
-        const asking = err.confirm;
-        const proceed = await askConfirmation(
-          `${err.message}\n\n` +
-            t('ConfirmApply', { count: ids.length }) +
-            (moveFiles ? t('ConfirmApplyWithFiles') : '.'),
-          'ApplyLabel',
-        );
-        if (proceed) {
-          busy = null;
-          return apply([...answered, asking]);
-        }
-      } else {
-        outcome.fail(err);
-      }
+      outcome.fail(err);
     } finally {
       busy = null;
     }

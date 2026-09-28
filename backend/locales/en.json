@@ -254,7 +254,7 @@
   "Error": "error",
   "ErrorApplyInProgress": "Another apply run is already in progress",
   "ErrorBatchLimit": "Batch size {count} exceeds the limit of {limit}. Reduce the selection or raise batch_limit in Settings.",
-  "ErrorConfirmationRequired": "Items over the confirmation threshold of {threshold}: {count}. Re-send with confirm = true to proceed.",
+  "ErrorConfirmationRequired": "Items over the confirmation threshold of {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global dry-run mode is enabled. Disable it in Settings to apply changes.",
   "ErrorNoSelection": "No decision selected",
   "ErrorNotEnoughSpace": "{path} would receive {needed} but reports only {free} free. Re-send with confirm = true to move anyway.",

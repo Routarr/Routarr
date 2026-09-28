@@ -254,7 +254,7 @@
   "Error": "fel",
   "ErrorApplyInProgress": "En tillämpning pågår redan",
   "ErrorBatchLimit": "En sats på {count} överskrider gränsen {limit}. Minska urvalet eller höj batch_limit under Inställningar.",
-  "ErrorConfirmationRequired": "Objekt över bekräftelsetröskeln på {threshold}: {count}. Skicka om med confirm = true för att fortsätta.",
+  "ErrorConfirmationRequired": "Objekt över bekräftelsetröskeln på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global testkörning är påslagen. Stäng av den under Inställningar för att tillämpa ändringar.",
   "ErrorNoSelection": "Inget beslut markerat",
   "ErrorNotEnoughSpace": "{path} skulle ta emot {needed} men rapporterar bara {free} ledigt. Skicka igen med confirm = true för att flytta ändå.",

@@ -254,7 +254,7 @@
   "Error": "chyba",
   "ErrorApplyInProgress": "Jiné provádění již probíhá",
   "ErrorBatchLimit": "Dávka {count} překračuje limit {limit}. Zmenšete výběr nebo zvyšte batch_limit v Nastavení.",
-  "ErrorConfirmationRequired": "Položky nad prahem potvrzení {threshold}: {count}. Odešlete znovu s confirm = true pro pokračování.",
+  "ErrorConfirmationRequired": "Položky nad prahem potvrzení {threshold}: {count}.",
   "ErrorDryRunEnabled": "Globální zkušební režim je zapnutý. Vypněte jej v Nastavení, chcete-li změny provést.",
   "ErrorNoSelection": "Není vybráno žádné rozhodnutí",
   "ErrorNotEnoughSpace": "{path} by přijal {needed}, ale hlásí jen {free} volných. Odešlete znovu s confirm = true, chcete-li přesto přesunout.",

@@ -404,4 +404,49 @@ test.describe('reclassifying a whole library', () => {
     const moved = movies.filter((m) => m.rootFolderPath === '/movies/anime').map((m) => m.title);
     expect(moved.sort()).toEqual(['Akira', 'My Neighbor Totoro', 'Perfect Blue']);
   });
+
+  /**
+   * A destination that stopped answering is named in the one question Apply all
+   * asks, before anything is written: a sleeping disk may wake on access and a
+   * dead one will not, and only the reader can tell which.
+   */
+  test('apply all names a destination that is not answering before writing', async ({
+    page,
+    instanceId,
+  }) => {
+    const arr = process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979';
+    await api('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
+    });
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Everything japanese',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
+        exclusions: [],
+      }),
+    });
+    await fetch(`${arr}/__asleep?path=/movies/anime`);
+    await api(`/instances/${instanceId}/sync`, { method: 'POST' });
+
+    await page.goto('/simulation');
+    await page.getByRole('button', { name: /run simulation/i }).click();
+    await expect(page.locator('tbody strong', { hasText: /^Akira$/ })).toHaveCount(1);
+    await page.getByRole('button', { name: /apply all/i }).click();
+
+    const dialog = page.locator('dialog[open]');
+    await expect(dialog).toContainText("'/movies/anime' is not answering");
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+    const movies = (await (await fetch(`${arr}/api/v3/movie`)).json()) as {
+      rootFolderPath: string;
+    }[];
+    expect(movies.filter((m) => m.rootFolderPath === '/movies/anime')).toHaveLength(0);
+  });
 });

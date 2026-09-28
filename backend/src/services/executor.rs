@@ -186,11 +186,15 @@ pub async fn apply_simulation_in_batches(
         // capacity would be waved through by the same flag. Both graver facts
         // are carried *into* the one question instead: a confirmation that
         // omits one is worse than none, because it looks like it was
-        // considered.
-        let mut message = localizer.translate(
-            "ErrorConfirmationRequired",
-            &[("count", &ids.len().to_string()), ("threshold", "0")],
-        );
+        // considered. The interface shows the question as it comes, so it is
+        // asked whole, files included.
+        let mut message =
+            localizer.translate("ConfirmApplyAll", &[("count", &ids.len().to_string())]);
+        message.push_str(&if move_files {
+            localizer.translate("ConfirmApplyWithFiles", &[])
+        } else {
+            ".".to_string()
+        });
         for check in [
             guard_reachable(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
                 .await,
