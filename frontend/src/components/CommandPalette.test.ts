@@ -94,7 +94,7 @@ describe('CommandPalette', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Dismiss' }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    await fireEvent.click(screen.getByRole('dialog'));
+    await userEvent.click(screen.getByRole('dialog'));
     expect(onClose).toHaveBeenCalledTimes(2);
   });
 

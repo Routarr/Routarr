@@ -8,6 +8,7 @@ export function describeError(err: unknown): string {
   if (err instanceof ApiError) {
     if (err.status === 401) return t('Unauthorized');
     if (err.kind === 'timeout') return t('RequestTimedOut');
+    if (err.kind === 'unreachable') return t('ServerUnreachable');
     // A server-side failure is one the operator will look for in the log; the
     // id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
@@ -72,7 +73,13 @@ export function createAsync<T>(
   let inFlight: AbortController | null = null;
   let destroyed = false;
 
-  async function reload() {
+  /**
+   * `fresh` for new inputs, whose last error was about something else. The
+   * same inputs asked again keep it until the answer: cleared on the way, a
+   * banner blinks at every poll, and a gate driven by it unmounts, taking what
+   * was typed into it.
+   */
+  async function load(fresh: boolean) {
     // An action that finishes after its screen closed still calls this, and
     // nothing would ever cancel what it started.
     if (destroyed) return;
@@ -81,11 +88,17 @@ export function createAsync<T>(
     inFlight = controller;
     const current = ++generation;
     state.loading = true;
-    state.error = null;
-    state.failure = null;
+    if (fresh) {
+      state.error = null;
+      state.failure = null;
+    }
     try {
       const result = await loader(controller.signal);
-      if (current === generation) state.data = result;
+      if (current === generation) {
+        state.data = result;
+        state.error = null;
+        state.failure = null;
+      }
     } catch (err) {
       // Silent only for a run this helper cancelled itself: a superseded run is
       // already discarded by the generation, and on teardown there is no
@@ -110,7 +123,7 @@ export function createAsync<T>(
   // case.
   $effect(() => {
     deps?.();
-    void reload();
+    void load(true);
   });
 
   // `onDestroy` rather than the effect's own cleanup, which also runs before
@@ -137,6 +150,6 @@ export function createAsync<T>(
     get failure() {
       return state.failure;
     },
-    reload,
+    reload: () => load(false),
   };
 }

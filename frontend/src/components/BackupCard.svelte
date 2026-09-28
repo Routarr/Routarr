@@ -6,6 +6,7 @@
   import type { Outcome } from '../lib/outcome.svelte';
   import { formatBytes, formatTimestamp } from '../api/format';
   import Loading from './Loading.svelte';
+  import ErrorBanner from './ErrorBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { downloadBlob } from '../lib/download';
   import { handFocus } from '../lib/focus';
@@ -71,21 +72,22 @@
     {t('BackupNow')}
   </button>
 
+  {#if backups.error}
+    <div class="mt-4">
+      <ErrorBanner message={backups.error} onRetry={() => void backups.reload()} />
+    </div>
+  {/if}
   <!-- The first load only: a reload that swapped the rows for a spinner would
        take the focus with them. -->
   {#if backups.loading && backups.data === null}
     <Loading />
-  {:else if (backups.data?.backups.length ?? 0) === 0}
+  {:else if backups.data?.backups.length === 0}
     <p class="text-muted mt-4">{t('NoBackupsYet')}</p>
-  {:else}
+  {:else if backups.data}
     <!-- A gap on the list, not a margin on each row: a margin also lands
            below the last one, inside the card. -->
     <div class="mt-4 flex-col gap-2">
-      <!-- `?? []` rather than a non-null assertion: this branch is only
-           reached when there is data, but the `{:else}` cannot tell the
-           compiler that, and an assertion is a claim nothing rechecks if the
-           condition above it ever changes. -->
-      {#each backups.data?.backups ?? [] as file, index (file.name)}
+      {#each backups.data.backups as file, index (file.name)}
         <div class="flex gap-2 items-center">
           <div class="flex-1">
             <span class="mono text-md">{file.name}</span>

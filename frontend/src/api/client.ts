@@ -169,6 +169,9 @@ async function request<T>(
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
     }
+    // A failed connection, from `fetch` or a body read. Its message is the
+    // browser's, in the browser's language whatever the interface speaks.
+    if (cause instanceof TypeError) throw new ApiError('', 0, 'unreachable');
     throw cause;
   }
 }

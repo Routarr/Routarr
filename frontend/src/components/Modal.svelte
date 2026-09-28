@@ -59,6 +59,7 @@
   } = $props();
 
   let dialog = $state<HTMLDialogElement | null>(null);
+  let pressedOnBackdrop = false;
 
   $effect(() => {
     const element = dialog;
@@ -114,9 +115,13 @@
     event.preventDefault();
     onClose();
   }}
+  onpointerdown={(event) => {
+    pressedOnBackdrop = event.target === event.currentTarget;
+  }}
   onclick={(event) => {
-    // The overlay itself, never a click that started inside the content.
-    if (closeOnBackdrop && event.target === event.currentTarget) onClose();
+    // A click goes to the common ancestor of its press and its release, so a
+    // drag from the field released beside it lands on the dialog itself.
+    if (closeOnBackdrop && pressedOnBackdrop && event.target === event.currentTarget) onClose();
   }}
 >
   <div class="modal-content" {style}>

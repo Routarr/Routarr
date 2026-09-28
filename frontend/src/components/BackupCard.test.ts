@@ -25,6 +25,7 @@ const STRINGS = {
   ConfirmRestore: 'Restore {name}?',
   RestoreStaged: 'Restore staged.',
   RestoreStagedWithoutKey: 'Restore staged, but the credentials will have to be entered again.',
+  Retry: 'Retry',
 };
 
 const FILE = {
@@ -53,6 +54,26 @@ function mount() {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+/**
+ * "No backup yet" tells the operator there is nothing to restore. Said of a
+ * list that never arrived, it is false at the moment they look for one.
+ */
+describe('listing the backups', () => {
+  it('reports a list that failed to load, rather than showing it empty', async () => {
+    vi.spyOn(api, 'listBackups')
+      .mockRejectedValueOnce(new ApiError('The backup folder cannot be read', 500, 'internal'))
+      .mockResolvedValueOnce({ backups: [FILE], retention_count: 7 });
+    renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('The backup folder cannot be read');
+    expect(screen.queryByText('No backup yet')).toBeNull();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByText(FILE.name)).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
 
 describe('restoring a backup', () => {
   it('says nothing extra when the archive carries the master key', async () => {

@@ -429,14 +429,16 @@ describe('a server that never answers', () => {
   });
 
   /**
-   * Any other network failure keeps its own identity: a refused connection is
-   * not a timeout, and saying so would send the user looking in the wrong place.
+   * A refused connection is not a timeout, and saying so would send the user
+   * looking in the wrong place. Left as it came, it is the browser's own
+   * sentence, in the browser's language whatever the interface speaks.
    */
-  it('leaves other failures untouched', async () => {
+  it('reports a connection that failed as unreachable, not as a timeout', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
 
     const failure = await api.getStatus().catch((e: unknown) => e);
-    expect(failure).toBeInstanceOf(TypeError);
+    expect(failure).toBeInstanceOf(ApiError);
+    expect((failure as ApiError).kind).toBe('unreachable');
   });
 });
 
@@ -465,5 +467,18 @@ describe('a failing response', () => {
 
     const failure = (await api.getStatus().catch((e: unknown) => e)) as ApiError;
     expect(failure.requestId).toBeNull();
+  });
+
+  /**
+   * A file is read as a blob, not as JSON, but its refusal is the same
+   * envelope. Read as text, an archive pruned between the list and the click
+   * shows the operator the literal `{"error":...}`.
+   */
+  it('reads the refusal of a download out of its envelope', async () => {
+    mockFetch({ ok: false, status: 404, body: { error: 'not_found', message: 'No such backup' } });
+
+    const failure = (await api.downloadBackup('gone.zip').catch((e: unknown) => e)) as ApiError;
+    expect(failure.message).toBe('No such backup');
+    expect(failure.kind).toBe('not_found');
   });
 });

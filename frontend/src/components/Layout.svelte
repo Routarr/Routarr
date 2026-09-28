@@ -4,6 +4,7 @@
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
+  import PageFailure from './PageFailure.svelte';
   import { poll } from '../lib/poll.svelte';
   import { applyTheme, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
@@ -363,27 +364,9 @@
             {@render children()}
 
             <!-- `unknown`, not inferred: a boundary catches whatever was
-                 thrown, and a `throw 'oops'` is as valid as an `Error`. Left
-                 unannotated the parameter is an implicit `any` — which the
-                 line below happens to handle correctly, and which nothing
-                 would have kept correct. -->
+                 thrown, and a `throw 'oops'` is as valid as an `Error`. -->
             {#snippet failed(error: unknown)}
-              <div class="banner banner-danger items-start">
-                <AlertTriangle size={16} />
-                <div class="flex-1">
-                  <strong>{t('UnexpectedError')}</strong>
-                  <!-- Shown, not hidden behind "something went wrong": the
-                       message is what makes a bug report actionable. -->
-                  <div class="mono text-sm mt-2">
-                    {error instanceof Error ? error.message : String(error)}
-                  </div>
-                  <div class="flex gap-2 mt-4">
-                    <button class="btn btn-secondary btn-sm" onclick={() => location.reload()}>
-                      {t('ReloadPage')}
-                    </button>
-                  </div>
-                </div>
-              </div>
+              <PageFailure {error} />
             {/snippet}
           </svelte:boundary>
         {/key}

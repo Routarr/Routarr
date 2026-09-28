@@ -2,6 +2,7 @@
   import { CheckCircle2, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
+  import { invalidateStatus } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatRelative, formatTimestamp } from '../api/format';
   import EmptyState from '../components/EmptyState.svelte';
@@ -12,7 +13,13 @@
   import InstanceStatus from '../components/InstanceStatus.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
-  const report = createAsync((signal) => api.getHealth(undefined, signal));
+  // A probe records what it finds, and the shell counts that among its
+  // warnings without probing itself.
+  const report = createAsync(async (signal) => {
+    const found = await api.getHealth(undefined, signal);
+    invalidateStatus();
+    return found;
+  });
   const health = $derived(report.data);
 </script>
 

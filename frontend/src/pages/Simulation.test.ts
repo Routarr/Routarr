@@ -375,6 +375,23 @@ describe('what the screen says after applying', () => {
     expect(screen.getByText('Applied: 1 of 1.')).toBeTruthy();
   });
 
+  /** The apply moved what the shell counts, whatever the refresh after it ends in. */
+  it('tells the shell of an apply whose refresh failed', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation')
+      .mockResolvedValueOnce(simulation([decision({ media_title: 'Akira' })]))
+      .mockRejectedValueOnce(new ApiError('The library could not be read', 409, 'conflict'));
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    const apply = await screen.findByRole('button', { name: /apply selected/i });
+    const before = statusRevision();
+
+    await fireEvent.click(apply);
+
+    await screen.findByText('The library could not be read');
+    expect(statusRevision()).toBeGreaterThan(before);
+  });
+
   /**
    * Part done and part failed is neither a success nor a failure. Red over
    * forty-nine moves made would say nothing was done, green would hide the

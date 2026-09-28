@@ -74,10 +74,6 @@
     try {
       const data = await api.runSimulation({ persist: true });
       result = data;
-      // The shell counts the pending decisions, and the guide it draws reads
-      // its simulation step from them. Without the revision, the count waits
-      // for the next poll and the step for the next navigation.
-      invalidateStatus();
       // Pre-select the actionable proposals only.
       select(
         data.decisions
@@ -88,6 +84,11 @@
       if (refresh) loadError = describeError(err);
       else outcome.fail(err);
     } finally {
+      // The shell counts the pending and failed decisions, and the guide it
+      // draws reads its simulation step from them. After an apply they moved
+      // whatever the refresh ends in. Without the revision, the counts wait
+      // for the next poll and the step for the next navigation.
+      invalidateStatus();
       busy = null;
       void handFocus(pressed);
     }
