@@ -622,6 +622,7 @@
   "SignInRefused": "لم يكتمل تسجيل الدخول. حاول مرة أخرى.",
   "SignInWithProvider": "سجّل الدخول عبر مزوّدك",
   "SignInWithProviderHelp": "لا يحتفظ Routarr بكلمة مرورك: مزوّد الهوية هو من يقرر من يدخل.",
+  "SignInWrongCredentials": "اسم المستخدم أو كلمة المرور غير صحيحة.",
   "SignOut": "تسجيل الخروج",
   "SigningIn": "جارٍ تسجيل الدخول…",
   "Simulating": "جارٍ المحاكاة…",

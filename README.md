@@ -99,7 +99,9 @@ else is set from the **Settings** page.
 
 Behind a reverse proxy in `forms` or `oidc` mode, forward the public host and scheme
 (`X-Forwarded-Host`, `X-Forwarded-Proto`): the first is what a write from the browser is checked
-against, the second is what marks the session cookie `Secure`. In `oidc` mode the provider and the
+against, the second is what marks the session cookie `Secure`. A refused sign-in is logged and
+throttled by the client address, which a proxy on the same machine or network forwards as
+`X-Forwarded-For`. In `oidc` mode the provider and the
 redirect URL have to be `https://`, except on `localhost`.
 
 ## Contributing

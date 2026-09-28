@@ -622,6 +622,7 @@
   "SignInRefused": "Login blev ikke gennemført. Prøv igen.",
   "SignInWithProvider": "Log ind med din udbyder",
   "SignInWithProviderHelp": "Routarr gemmer ikke din adgangskode: din identitetsudbyder afgør, hvem der lukkes ind.",
+  "SignInWrongCredentials": "Brugernavnet eller adgangskoden er forkert.",
   "SignOut": "Log ud",
   "SigningIn": "Logger ind…",
   "Simulating": "Simulerer…",

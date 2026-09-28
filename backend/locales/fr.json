@@ -622,6 +622,7 @@
   "SignInRefused": "La connexion n'a pas abouti. Réessayez.",
   "SignInWithProvider": "Se connecter avec votre fournisseur",
   "SignInWithProviderHelp": "Routarr ne détient pas votre mot de passe : votre fournisseur d'identité décide qui entre.",
+  "SignInWrongCredentials": "Le nom d'utilisateur ou le mot de passe est incorrect.",
   "SignOut": "Se déconnecter",
   "SigningIn": "Connexion…",
   "Simulating": "Simulation…",

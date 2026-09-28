@@ -13,8 +13,10 @@
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
 use sqlx::SqlitePool;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use tracing::info;
 use uuid::Uuid;
 
@@ -43,6 +45,13 @@ const CONCURRENT_CHECKS: usize = 2;
 /// with the flood is the flood, moved from the processor to the socket table.
 const MAX_IN_FLIGHT: usize = 10;
 
+/// How many of those one client may hold.
+///
+/// Below `MAX_IN_FLIGHT`, so one address filling the queue leaves the owner of
+/// the account room to sign in from another. A request with no known address
+/// counts against the queue alone.
+const PER_CLIENT: usize = 3;
+
 /// The endpoint is already checking as many passwords as it will.
 pub struct Busy;
 
@@ -70,6 +79,7 @@ pub struct SignInThrottle {
     // blocking task rather than held by the request future — see `verify`.
     permits: Arc<tokio::sync::Semaphore>,
     in_flight: Arc<AtomicUsize>,
+    by_client: Arc<Mutex<HashMap<IpAddr, usize>>>,
 }
 
 impl Default for SignInThrottle {
@@ -77,6 +87,7 @@ impl Default for SignInThrottle {
         Self {
             permits: Arc::new(tokio::sync::Semaphore::new(CONCURRENT_CHECKS)),
             in_flight: Arc::new(AtomicUsize::new(0)),
+            by_client: Arc::default(),
         }
     }
 }
@@ -98,7 +109,16 @@ impl SignInThrottle {
     ///
     /// `Err(Busy)` means the queue is full, which the caller answers with a
     /// `503` and a `Retry-After` — a wait of milliseconds, not a lockout.
-    pub async fn verify(&self, password: &str, hash: &str) -> Result<bool, Busy> {
+    pub async fn verify(
+        &self,
+        password: &str,
+        hash: &str,
+        client: Option<IpAddr>,
+    ) -> Result<bool, Busy> {
+        let share = match client {
+            Some(ip) => Some(ClientShare::take(&self.by_client, ip).ok_or(Busy)?),
+            None => None,
+        };
         // Counted before the wait, so the refusal happens without holding a
         // connection open behind a semaphore that is already saturated.
         if self.in_flight.fetch_add(1, Ordering::AcqRel) >= MAX_IN_FLIGHT {
@@ -123,6 +143,7 @@ impl SignInThrottle {
         match tokio::task::spawn_blocking(move || {
             let _permit = permit;
             let _leave = leave;
+            let _share = share;
             verify_password(&password, &hash)
         })
         .await
@@ -147,6 +168,39 @@ struct Leaving(Arc<AtomicUsize>);
 impl Drop for Leaving {
     fn drop(&mut self) {
         self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// One client's slot in the queue, given back however the check ends.
+struct ClientShare {
+    clients: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    ip: IpAddr,
+}
+
+impl ClientShare {
+    /// A slot for `ip`, unless it already holds its share.
+    fn take(clients: &Arc<Mutex<HashMap<IpAddr, usize>>>, ip: IpAddr) -> Option<Self> {
+        let mut held = clients.lock().unwrap_or_else(PoisonError::into_inner);
+        let count = held.entry(ip).or_insert(0);
+        if *count >= PER_CLIENT {
+            return None;
+        }
+        *count += 1;
+        Some(Self { clients: Arc::clone(clients), ip })
+    }
+}
+
+impl Drop for ClientShare {
+    fn drop(&mut self) {
+        let mut held = self.clients.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(count) = held.get_mut(&self.ip) {
+            *count -= 1;
+            // An address that holds nothing leaves the table, or a flood from
+            // many addresses would keep one entry for each of them.
+            if *count == 0 {
+                held.remove(&self.ip);
+            }
+        }
     }
 }
 
@@ -189,16 +243,19 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
     }
 
     let password = crate::crypto::generate_secret()?;
-    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
-        .bind(Uuid::new_v4().to_string())
-        .bind(DEFAULT_USERNAME)
-        .bind(hash_password(&password)?)
-        .execute(pool)
-        .await?;
-
+    let hash = hash_password(&password)?;
+    // The file before the row: an account whose password never reached the
+    // file is one nobody can open, and the next start, finding it, would
+    // generate none. A file without its row is written over at that start.
     crate::crypto::write_private(password_path, password.as_bytes()).map_err(|e| {
         AppError::Config(format!("cannot write the password to {}: {e}", password_path.display()))
     })?;
+    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
+        .bind(Uuid::new_v4().to_string())
+        .bind(DEFAULT_USERNAME)
+        .bind(&hash)
+        .execute(pool)
+        .await?;
 
     info!(
         "Created the '{DEFAULT_USERNAME}' account at {}. Sign in with: {password}",
@@ -247,8 +304,16 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
     Ok(id)
 }
 
-/// The subject a session belongs to, if it is live and `source` opened it,
-/// renewing it as it answers.
+/// A live session, as answering it left it.
+pub struct Session {
+    pub subject: String,
+    /// Answering it moved its expiry, which the browser's cookie does not
+    /// follow until it is given again.
+    pub renewed: bool,
+}
+
+/// The session behind an id, if it is live and `source` opened it, renewing it
+/// as it answers.
 ///
 /// `source` is the mode in force. The database outlives a change of
 /// `ROUTARR_AUTH`, and an operator who moves from `forms` to `oidc` does so to
@@ -258,11 +323,7 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
 /// Expiry is compared in SQL rather than in Rust: the timestamps are written by
 /// SQLite's own `datetime`, and comparing them anywhere else means agreeing on
 /// a format twice.
-pub async fn session_subject(
-    pool: &SqlitePool,
-    id: &str,
-    source: &str,
-) -> AppResult<Option<String>> {
+pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResult<Option<Session>> {
     let subject: Option<String> = sqlx::query_scalar(
         "SELECT subject FROM sessions
          WHERE id = ? AND source = ? AND expires_at > datetime('now')",
@@ -271,26 +332,27 @@ pub async fn session_subject(
     .bind(source)
     .fetch_optional(pool)
     .await?;
+    let Some(subject) = subject else {
+        return Ok(None);
+    };
 
-    if subject.is_some() {
-        // Sliding, like Radarr's: use is what keeps a session alive. Extended
-        // only once it has less than a day to run, rather than on every
-        // request: this runs on each authenticated call, SQLite takes one
-        // writer at a time, and the Tasks screen polls every three seconds
-        // while a job runs. A window that slides a day early slides just as
-        // well, at a fraction of the writes.
-        let _ = sqlx::query(
-            "UPDATE sessions SET last_used_at = datetime('now'),
-             expires_at = datetime('now', ?)
-             WHERE id = ? AND expires_at < datetime('now', ?)",
-        )
-        .bind(format!("+{SESSION_DAYS} days"))
-        .bind(id)
-        .bind(format!("+{} days", SESSION_DAYS - 1))
-        .execute(pool)
-        .await;
-    }
-    Ok(subject)
+    // Sliding, like Radarr's: use is what keeps a session alive. Extended only
+    // once it has less than a day to run, rather than on every request: this
+    // runs on each authenticated call, SQLite takes one writer at a time, and
+    // the Tasks screen polls every three seconds while a job runs. A window
+    // that slides a day early slides just as well, at a fraction of the writes.
+    let renewed = sqlx::query(
+        "UPDATE sessions SET last_used_at = datetime('now'),
+         expires_at = datetime('now', ?)
+         WHERE id = ? AND expires_at < datetime('now', ?)",
+    )
+    .bind(format!("+{SESSION_DAYS} days"))
+    .bind(id)
+    .bind(format!("+{} days", SESSION_DAYS - 1))
+    .execute(pool)
+    .await
+    .is_ok_and(|done| done.rows_affected() > 0);
+    Ok(Some(Session { subject, renewed }))
 }
 
 /// End one session.
@@ -302,7 +364,7 @@ pub async fn close_session(pool: &SqlitePool, id: &str) -> AppResult<()> {
 /// Drop the sessions nobody can use any more.
 ///
 /// Run by the maintenance sweep rather than on every request: an expired row
-/// already fails `session_subject`, so this is housekeeping and not a guard.
+/// already fails `live_session`, so this is housekeeping and not a guard.
 pub async fn purge_expired_sessions(pool: &SqlitePool) -> AppResult<u64> {
     Ok(sqlx::query("DELETE FROM sessions WHERE expires_at <= datetime('now')")
         .execute(pool)
@@ -326,10 +388,10 @@ mod tests {
         // count is taken before the first await — so exactly MAX_IN_FLIGHT get
         // in and the next one does not, whatever the scheduler does after.
         let filling = futures::future::join_all(
-            (0..MAX_IN_FLIGHT).map(|_| throttle.verify("correct horse battery", &hash)),
+            (0..MAX_IN_FLIGHT).map(|_| throttle.verify("correct horse battery", &hash, None)),
         );
         let (accepted, extra) =
-            tokio::join!(filling, throttle.verify("correct horse battery", &hash));
+            tokio::join!(filling, throttle.verify("correct horse battery", &hash, None));
 
         assert!(
             accepted.iter().all(|r| matches!(r, Ok(true))),
@@ -362,7 +424,7 @@ mod tests {
         // the hash — then drop the future, which is what a client hanging up
         // does to it.
         {
-            let checking = throttle.verify("correct horse battery", &hash);
+            let checking = throttle.verify("correct horse battery", &hash, None);
             tokio::pin!(checking);
             let waker = futures::task::noop_waker();
             let polled = checking.as_mut().poll(&mut Context::from_waker(&waker));
@@ -384,12 +446,32 @@ mod tests {
         // so its completing *is* the proof that the hash finished and gave the
         // permit back — no budget to tune and nothing to go flaky under a
         // slower build, since no other permit exists to recycle.
-        assert!(matches!(throttle.verify("correct horse battery", &hash).await, Ok(true)));
+        assert!(matches!(throttle.verify("correct horse battery", &hash, None).await, Ok(true)));
 
         assert_eq!(throttle.in_flight(), 0, "the slot never came back");
         assert_eq!(throttle.free_permits(), 1, "the permit never came back");
         drop(held);
         assert_eq!(throttle.free_permits(), CONCURRENT_CHECKS);
+    }
+
+    /// One client filling every slot would keep the owner of the one account
+    /// out from anywhere else. Past its own share a client is refused, and
+    /// another still gets in.
+    #[tokio::test]
+    async fn a_client_filling_the_queue_leaves_room_for_another() {
+        let throttle = SignInThrottle::default();
+        let hash = hash_password("correct horse battery").unwrap();
+        let flooding = "198.51.100.7".parse().ok();
+        let other = "203.0.113.9".parse().ok();
+
+        let flood = futures::future::join_all(
+            (0..MAX_IN_FLIGHT).map(|_| throttle.verify("wrong", &hash, flooding)),
+        );
+        let (flood, signed_in) =
+            tokio::join!(flood, throttle.verify("correct horse battery", &hash, other));
+
+        assert!(matches!(signed_in, Ok(true)), "the other client was refused");
+        assert!(flood.iter().any(|r| matches!(r, Err(Busy))), "the flood was never held back");
     }
 
     /// A slot is given back however the check ends, or the endpoint refuses
@@ -400,10 +482,10 @@ mod tests {
         let hash = hash_password("correct horse battery").unwrap();
 
         for _ in 0..(MAX_IN_FLIGHT * 2) {
-            assert!(matches!(throttle.verify("wrong", &hash).await, Ok(false)));
+            assert!(matches!(throttle.verify("wrong", &hash, None).await, Ok(false)));
         }
         assert!(
-            matches!(throttle.verify("correct horse battery", &hash).await, Ok(true)),
+            matches!(throttle.verify("correct horse battery", &hash, None).await, Ok(true)),
             "the count leaked a slot"
         );
     }
@@ -455,7 +537,7 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(
-            session_subject(&pool, "fresh", "forms").await.unwrap().as_deref(),
+            live_session(&pool, "fresh", "forms").await.unwrap().map(|s| s.subject).as_deref(),
             Some("admin")
         );
         let after: Option<String> =
@@ -474,7 +556,7 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(
-            session_subject(&pool, "stale", "forms").await.unwrap().as_deref(),
+            live_session(&pool, "stale", "forms").await.unwrap().map(|s| s.subject).as_deref(),
             Some("admin")
         );
         let extended: String =
@@ -505,16 +587,40 @@ mod tests {
         assert_eq!(hash, again);
     }
 
+    /// The file is the one copy of the generated password an operator finds
+    /// once the log has scrolled away. An account that outlives a failed write
+    /// is one nobody can open, and the next start, finding it, generates none.
+    #[tokio::test]
+    async fn a_password_that_cannot_be_written_leaves_no_account_behind() {
+        let pool = crate::db::test_pool().await;
+        let dir = crate::tests::TempDir::new("accounts-unwritable");
+        let path = dir.join("routarr.password");
+        // A directory where the file goes refuses the write whoever runs this.
+        std::fs::create_dir(&path).unwrap();
+
+        assert!(ensure_account(&pool, &path).await.is_err());
+        assert!(account(&pool).await.unwrap().is_none(), "an account outlived its password");
+
+        std::fs::remove_dir(&path).unwrap();
+        ensure_account(&pool, &path).await.unwrap();
+        let password = std::fs::read_to_string(&path).unwrap();
+        let (_, hash) = account(&pool).await.unwrap().unwrap();
+        assert!(verify_password(&password, &hash));
+    }
+
     #[tokio::test]
     async fn a_session_answers_until_it_is_closed() {
         let pool = crate::db::test_pool().await;
         let id = open_session(&pool, "admin", "forms").await.unwrap();
 
-        assert_eq!(session_subject(&pool, &id, "forms").await.unwrap().as_deref(), Some("admin"));
-        assert!(session_subject(&pool, "not a session", "forms").await.unwrap().is_none());
+        assert_eq!(
+            live_session(&pool, &id, "forms").await.unwrap().map(|s| s.subject).as_deref(),
+            Some("admin")
+        );
+        assert!(live_session(&pool, "not a session", "forms").await.unwrap().is_none());
 
         close_session(&pool, &id).await.unwrap();
-        assert!(session_subject(&pool, &id, "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
     }
 
     /// A password is changed because the old one is no longer trusted; the
@@ -528,7 +634,7 @@ mod tests {
         let id = open_session(&pool, "admin", "forms").await.unwrap();
         set_password(&pool, "a new one").await.unwrap();
 
-        assert!(session_subject(&pool, &id, "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
         let (_, hash) = account(&pool).await.unwrap().unwrap();
         assert!(verify_password("a new one", &hash));
     }
@@ -544,7 +650,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(session_subject(&pool, "stale", "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, "stale", "forms").await.unwrap().is_none());
         assert_eq!(purge_expired_sessions(&pool).await.unwrap(), 1);
     }
 }

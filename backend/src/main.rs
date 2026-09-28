@@ -141,7 +141,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Routarr web server listening on http://{bind_addr}");
 
-    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+    // The peer's address is what a refused sign-in is logged and throttled by.
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
 
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
@@ -202,13 +205,20 @@ fn build_router(state: AppState) -> Router {
         // the middleware by necessity: a browser with no session cannot be
         // asked for one to learn that it needs one.
         .route("/auth/mode", get(api::auth::mode))
-        .route("/auth/login", post(api::auth::login))
-        .route("/auth/logout", post(api::auth::logout))
+        .route("/auth/logout", post(api::auth::logout));
+    // Each way in exists in its own mode only. Elsewhere a request for the
+    // provider's start logs an error on an install that has no provider, and
+    // `/auth/login` checks a password a former `forms` mode left behind.
+    let public = match config.auth_mode {
+        AuthMode::Forms => public.route("/auth/login", post(api::auth::login)),
         // The browser leaves and comes back, so both ends are outside the
         // middleware: it has no session yet on the way out, and the provider's
         // redirect carries none on the way in.
-        .route("/auth/oidc/start", get(api::auth::oidc_start))
-        .route("/auth/oidc/callback", get(api::auth::oidc_callback));
+        AuthMode::Oidc => public
+            .route("/auth/oidc/start", get(api::auth::oidc_start))
+            .route("/auth/oidc/callback", get(api::auth::oidc_callback)),
+        AuthMode::ApiKey | AuthMode::None | AuthMode::External => public,
+    };
 
     let protected = Router::new()
         .route("/auth/me", get(api::auth::me))

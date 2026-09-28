@@ -190,6 +190,41 @@ async fn the_open_routes_answer_without_a_key() {
     }
 }
 
+/// Each way of signing in answers in its own mode only. In every mode, a
+/// request for the provider's start on an install without one logs an error
+/// anyone reaching the port can repeat, and `/auth/login` checks a password a
+/// former `forms` mode left behind.
+#[tokio::test]
+async fn a_sign_in_route_outside_its_mode_is_not_found_and_logs_no_error() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let app = TestApp::with_api_key("s3cret").await;
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let answers = async {
+        let start = Request::get("/api/v1/auth/oidc/start").body(Body::empty()).unwrap();
+        let callback =
+            Request::get("/api/v1/auth/oidc/callback?code=c&state=s").body(Body::empty()).unwrap();
+        let login = Request::post("/api/v1/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"username":"admin","password":"a long enough password"}"#))
+            .unwrap();
+        let mut statuses = Vec::new();
+        for request in [start, callback, login] {
+            statuses.push(app.send(request).await.status);
+        }
+        statuses
+    }
+    .with_subscriber(tracing::Dispatch::new(subscriber))
+    .await;
+
+    assert_eq!(answers, [StatusCode::NOT_FOUND; 3]);
+    let log = capture.contents();
+    assert!(!log.contains("ERROR") && !log.contains("WARN"), "{log}");
+}
+
 /// The keys are compared in constant time, but the comparison must still reject
 /// every near-miss a brute-force or a copy-paste error would produce.
 #[tokio::test]
@@ -484,6 +519,105 @@ async fn sign_in(app: &TestApp, password: &str) -> String {
     let response = app.router.clone().oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK, "sign-in failed");
     response.headers()[header::SET_COOKIE].to_str().unwrap().split(';').next().unwrap().to_string()
+}
+
+/// The row slides while the session is used, but the browser keeps the cookie
+/// only as long as the `Max-Age` it was last given. Given once at sign-in, the
+/// cookie goes on the seventh day whatever the use.
+#[tokio::test]
+async fn a_session_close_to_expiry_gets_a_fresh_cookie() {
+    use axum::http::header;
+    use tower::ServiceExt;
+
+    let (app, _dir) = forms_app("renewal").await;
+    let cookie = sign_in(&app, &generated_password(&app)).await;
+    let id = cookie.split_once('=').unwrap().1.to_string();
+    let read = |cookie: String| {
+        let router = app.router.clone();
+        async move {
+            let request =
+                Request::get("/api/v1/status").header(header::COOKIE, cookie).body(Body::empty());
+            let response = router.oneshot(request.unwrap()).await.unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            response.headers().get(header::SET_COOKIE).map(|v| v.to_str().unwrap().to_string())
+        }
+    };
+
+    assert_eq!(read(cookie.clone()).await, None, "a session with days left was re-issued");
+
+    sqlx::query("UPDATE sessions SET expires_at = datetime('now', '+2 hours') WHERE id = ?")
+        .bind(&id)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let renewed = read(cookie).await.expect("no cookie came back with the extended session");
+    assert!(renewed.starts_with(&format!("routarr_session={id};")), "{renewed}");
+    assert!(renewed.contains("Max-Age=604800"), "{renewed}");
+}
+
+/// A password change ends the session it was made from and clears its cookie.
+/// Given again in the same answer, the cookie would outlive the session.
+#[tokio::test]
+async fn a_password_change_keeps_its_cleared_cookie_on_a_renewed_session() {
+    use axum::http::header;
+    use tower::ServiceExt;
+
+    let (app, _dir) = forms_app("renewal-change").await;
+    let password = generated_password(&app);
+    let cookie = sign_in(&app, &password).await;
+    sqlx::query("UPDATE sessions SET expires_at = datetime('now', '+2 hours')")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let body = serde_json::json!({ "current": password, "new_password": "another long password" });
+    let request = Request::put("/api/v1/auth/password")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header(header::COOKIE, cookie)
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = app.router.clone().oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap())
+        .collect();
+    assert_eq!(cookies.len(), 1, "{cookies:?}");
+    assert!(cookies[0].contains("Max-Age=0"), "{cookies:?}");
+}
+
+/// A refused sign-in leaves a line naming where it came from, which is what a
+/// fail2ban filter reads, and never the password that was tried. Behind a
+/// proxy on the same network, where it came from is what the proxy forwarded.
+#[tokio::test]
+async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password() {
+    use axum::extract::ConnectInfo;
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let (app, _dir) = forms_app("refusal-log").await;
+    let tried = "not the password at all";
+    let mut request = Request::post("/api/v1/auth/login")
+        .header("content-type", "application/json")
+        .header("x-forwarded-for", "203.0.113.9")
+        .body(Body::from(serde_json::json!({ "username": "admin", "password": tried }).to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(ConnectInfo(std::net::SocketAddr::from(([172, 18, 0, 2], 41000))));
+
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let status = app.send(request).with_subscriber(tracing::Dispatch::new(subscriber)).await.status;
+
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let log = capture.contents();
+    assert!(log.contains("A sign-in was refused for 203.0.113.9"), "{log}");
+    assert!(!log.contains(tried), "the password tried is in the log:\n{log}");
 }
 
 /// A request carrying the session, since `TestApp` sends no cookies.

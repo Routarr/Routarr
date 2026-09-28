@@ -622,6 +622,7 @@
   "SignInRefused": "Inloggningen slutfördes inte. Försök igen.",
   "SignInWithProvider": "Logga in med din leverantör",
   "SignInWithProviderHelp": "Routarr lagrar inte ditt lösenord: din identitetsleverantör avgör vem som släpps in.",
+  "SignInWrongCredentials": "Användarnamnet eller lösenordet är fel.",
   "SignOut": "Logga ut",
   "SigningIn": "Loggar in…",
   "Simulating": "Simulerar…",

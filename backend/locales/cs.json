@@ -622,6 +622,7 @@
   "SignInRefused": "Přihlášení se nedokončilo. Zkuste to znovu.",
   "SignInWithProvider": "Přihlásit se u poskytovatele",
   "SignInWithProviderHelp": "Routarr vaše heslo nezná: o tom, kdo se dostane dovnitř, rozhoduje poskytovatel identity.",
+  "SignInWrongCredentials": "Uživatelské jméno nebo heslo není správné.",
   "SignOut": "Odhlásit se",
   "SigningIn": "Přihlašování…",
   "Simulating": "Simuluje se…",

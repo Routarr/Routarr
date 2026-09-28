@@ -622,6 +622,7 @@
   "SignInRefused": "Вхід не завершено. Спробуйте ще раз.",
   "SignInWithProvider": "Увійти через постачальника",
   "SignInWithProviderHelp": "Routarr не зберігає ваш пароль: хто увійде, вирішує постачальник ідентичності.",
+  "SignInWrongCredentials": "Неправильне ім'я користувача або пароль.",
   "SignOut": "Вийти",
   "SigningIn": "Вхід…",
   "Simulating": "Симуляція…",

@@ -622,6 +622,7 @@
   "SignInRefused": "Innloggingen ble ikke fullført. Prøv igjen.",
   "SignInWithProvider": "Logg inn med leverandøren din",
   "SignInWithProviderHelp": "Routarr lagrer ikke passordet ditt: identitetsleverandøren avgjør hvem som slipper inn.",
+  "SignInWrongCredentials": "Brukernavnet eller passordet er feil.",
   "SignOut": "Logg ut",
   "SigningIn": "Logger inn…",
   "Simulating": "Simulerer…",

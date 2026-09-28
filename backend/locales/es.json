@@ -622,6 +622,7 @@
   "SignInRefused": "El inicio de sesión no se completó. Inténtalo de nuevo.",
   "SignInWithProvider": "Iniciar sesión con tu proveedor",
   "SignInWithProviderHelp": "Routarr no guarda tu contraseña: tu proveedor de identidad decide quién entra.",
+  "SignInWrongCredentials": "El nombre de usuario o la contraseña no son correctos.",
   "SignOut": "Cerrar sesión",
   "SigningIn": "Iniciando sesión…",
   "Simulating": "Simulando…",

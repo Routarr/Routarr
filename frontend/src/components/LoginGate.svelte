@@ -1,6 +1,6 @@
 <script lang="ts">
   import { KeyRound } from '../lib/icons';
-  import { api } from '../api/client';
+  import { ApiError, api } from '../api/client';
   import { takeQueryFlag } from '../api/onboarding';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -49,7 +49,12 @@
       // failed already, and re-mounting them all is what a reload does.
       location.reload();
     } catch (cause) {
-      error = describeError(cause);
+      // Its own 401 is the password. Every other 401 is worded as an API key
+      // to set, which this screen offers no way to do.
+      error =
+        cause instanceof ApiError && cause.status === 401
+          ? t('SignInWrongCredentials')
+          : describeError(cause);
     } finally {
       busy = false;
     }

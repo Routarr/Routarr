@@ -622,6 +622,7 @@
   "SignInRefused": "登录未完成，请重试。",
   "SignInWithProvider": "使用你的提供方登录",
   "SignInWithProviderHelp": "Routarr 不保存你的密码：由身份提供方决定谁可以进入。",
+  "SignInWrongCredentials": "用户名或密码不正确。",
   "SignOut": "登出",
   "SigningIn": "正在登录…",
   "Simulating": "正在模拟…",

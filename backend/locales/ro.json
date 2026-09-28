@@ -622,6 +622,7 @@
   "SignInRefused": "Autentificarea nu s-a finalizat. Încearcă din nou.",
   "SignInWithProvider": "Autentificare cu furnizorul",
   "SignInWithProviderHelp": "Routarr nu îți păstrează parola: furnizorul de identitate decide cine intră.",
+  "SignInWrongCredentials": "Numele de utilizator sau parola sunt greșite.",
   "SignOut": "Deconectare",
   "SigningIn": "Se autentifică…",
   "Simulating": "Se simulează…",

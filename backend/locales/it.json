@@ -622,6 +622,7 @@
   "SignInRefused": "L'accesso non è andato a buon fine. Riprova.",
   "SignInWithProvider": "Accedi con il tuo provider",
   "SignInWithProviderHelp": "Routarr non conserva la tua password: il tuo provider di identità decide chi entra.",
+  "SignInWrongCredentials": "Il nome utente o la password non sono corretti.",
   "SignOut": "Esci",
   "SigningIn": "Accesso…",
   "Simulating": "Simulazione in corso…",
