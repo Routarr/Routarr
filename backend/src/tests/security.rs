@@ -1640,6 +1640,32 @@ async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
     assert!(!log.contains(secret), "the webhook secret is in the log:\n{log}");
 }
 
+/// A proxy's password in an Arr's address is a password: a sync logs where it
+/// reads the library from, and the line names the address masked.
+#[tokio::test]
+async fn the_credentials_in_an_arr_address_never_reach_the_log() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let arr = super::fake_arr::FakeArr::start().await;
+    let app = TestApp::new().await;
+    let address = arr.base_url.replacen("http://", "http://proxy-user:proxy-pass-5f1c@", 1);
+    app.seed_instance_at("inst-1", "radarr", &address).await;
+
+    let capture = LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    crate::services::sync::sync_instance(&app.state, "inst-1", "manual")
+        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .await
+        .unwrap();
+
+    let log = capture.contents();
+    let shown = arr.base_url.replacen("http://", "http://***@", 1);
+    assert!(log.contains(&shown), "positive control: the address was logged at all:\n{log}");
+    assert!(!log.contains("proxy-pass-5f1c"), "the password is in the log:\n{log}");
+}
+
 /// The token is the only credential of the only unauthenticated route, and the
 /// request span is on every line logged while a delivery is served — the error
 /// line an operator pastes into a ticket included. With it, anyone reading the

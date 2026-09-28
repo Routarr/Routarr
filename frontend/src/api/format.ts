@@ -30,6 +30,13 @@ function byteSymbol(locale: string): string | undefined {
 const bcp47 = (language: string) => language.replace('_', '-');
 
 /** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
+/**
+ * An address without the `user:pass@` before its host, which a browser
+ * opening it would offer to sign in with. The server answers them masked.
+ */
+export const withoutCredentials = (address: string): string =>
+  address.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
+
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 /** The dictionary key naming what set a job or a decision off. */

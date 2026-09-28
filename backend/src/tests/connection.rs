@@ -229,6 +229,122 @@ async fn an_edit_moving_to_another_address_needs_the_key_again() {
     app.put("/api/v1/instances/inst-1", edit(&elsewhere.base_url, "new-key")).await.assert_ok();
 }
 
+/// `address` with the `user:pass@` a proxy in front of the Arr asks for.
+fn behind_a_proxy(address: &str) -> String {
+    address.replacen("http://", "http://proxy-user:proxy-pass@", 1)
+}
+
+/// `address` as the instance form shows it, its credentials masked.
+fn as_shown(address: &str) -> String {
+    address.replacen("http://", "http://***@", 1)
+}
+
+/// The password of a proxy in front of the Arr is a password: the list and the
+/// form show the address with it masked.
+#[tokio::test]
+async fn an_address_is_shown_with_its_credentials_masked() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &behind_a_proxy(&arr.base_url)).await;
+
+    let listed = app.get("/api/v1/instances").await.assert_ok().clone();
+
+    assert_eq!(listed[0]["base_url"], as_shown(&arr.base_url));
+    let one = app.get("/api/v1/instances/inst-1").await.assert_ok().clone();
+    assert_eq!(one["base_url"], as_shown(&arr.base_url));
+    assert!(!format!("{listed}{one}").contains("proxy-pass"), "the password was answered");
+}
+
+/// A sentence explaining a failure quotes the address, and a 400 or a 502 body
+/// is read, logged and pasted into tickets.
+#[tokio::test]
+async fn an_explanation_quotes_the_address_with_its_credentials_masked() {
+    let app = TestApp::new().await;
+    let address = nothing_listening().await;
+
+    let message = outage(&probe(&app, &behind_a_proxy(&address)).await);
+
+    let expected = said(
+        &app,
+        "ArrUnreachableLoopback",
+        &[("service", "Radarr"), ("address", &as_shown(&address))],
+    )
+    .await;
+    assert_eq!(message, expected);
+}
+
+/// The form sends back the address it was shown. Saved as it came, the mask
+/// would replace the credentials and the proxy would refuse every sync.
+#[tokio::test]
+async fn saving_the_address_as_shown_keeps_its_credentials() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &behind_a_proxy(&arr.base_url)).await;
+
+    app.put("/api/v1/instances/inst-1", edit(&as_shown(&arr.base_url), "")).await.assert_ok();
+
+    let kept: String = sqlx::query_scalar("SELECT base_url FROM instances WHERE id = 'inst-1'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(kept, behind_a_proxy(&arr.base_url));
+}
+
+/// Tried from the form, the address as shown reaches the Arr with the saved
+/// credentials, the way the next sync will.
+#[tokio::test]
+async fn a_test_from_the_form_sends_the_saved_credentials() {
+    use base64::Engine;
+
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &behind_a_proxy(&arr.base_url)).await;
+
+    app.post(
+        "/api/v1/instances/test",
+        json!({ "instance_type": "radarr", "base_url": as_shown(&arr.base_url), "api_key": "",
+                "id": "inst-1" }),
+    )
+    .await
+    .assert_ok();
+
+    let basic = base64::engine::general_purpose::STANDARD.encode("proxy-user:proxy-pass");
+    let seen = arr.recorded().authorizations.clone();
+    assert!(!seen.is_empty() && seen.iter().all(|a| *a == format!("Basic {basic}")), "{seen:?}");
+}
+
+/// The saved credentials go to the address they were saved with, never to one
+/// typed since, like the API key.
+#[tokio::test]
+async fn saved_credentials_do_not_follow_a_new_address() {
+    let saved = FakeArr::start().await;
+    let elsewhere = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &behind_a_proxy(&saved.base_url)).await;
+
+    let moved =
+        app.put("/api/v1/instances/inst-1", edit(&as_shown(&elsewhere.base_url), "new-key")).await;
+
+    assert_eq!(
+        refusal(&moved),
+        said(
+            &app,
+            "InstanceCredentialsForNewAddress",
+            &[("address", &as_shown(&elsewhere.base_url))]
+        )
+        .await
+    );
+    let tried = app
+        .post(
+            "/api/v1/instances/test",
+            json!({ "instance_type": "radarr", "base_url": as_shown(&elsewhere.base_url),
+                    "api_key": "new-key", "id": "inst-1" }),
+        )
+        .await;
+    refusal(&tried);
+    assert!(elsewhere.recorded().authorizations.is_empty(), "the credentials travelled");
+}
+
 /// In Docker, localhost is Routarr's own container, the likeliest mistake of all.
 #[tokio::test]
 async fn nothing_listening_at_localhost_is_explained_with_the_container_trap() {

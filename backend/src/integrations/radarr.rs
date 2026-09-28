@@ -113,7 +113,7 @@ impl RadarrClient {
 
     /// Get all movies from Radarr.
     pub async fn get_movies(&self) -> AppResult<Vec<RadarrMovie>> {
-        debug!("Fetching movies from {}", self.base_url);
+        debug!("Fetching movies from {}", crate::http::masked(&self.base_url));
         send_json(SERVICE, self.get("/api/v3/movie")).await
     }
 

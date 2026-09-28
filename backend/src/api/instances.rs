@@ -69,13 +69,19 @@ pub async fn update(
     let localizer = state.localizer().await;
     let base_url = validate(&req, &localizer)?;
     let existing = state.instance(&id).await?;
+    let base_url = keep_saved_credentials(base_url, &existing.base_url, &localizer)?;
 
     // An empty api_key means "keep the current one": the UI only ever shows a
     // masked value, so re-submitting the form must not wipe the secret. Kept
     // for the address it was saved with only, or the next sync carries it to
     // whatever address was typed.
     let api_key = if req.api_key.trim().is_empty() {
-        stored_key_may_reach(&existing.base_url, &base_url, &localizer)?;
+        saved_for_this_address(
+            &existing.base_url,
+            &base_url,
+            "InstanceKeyForNewAddress",
+            &localizer,
+        )?;
         existing.api_key.clone()
     } else {
         state.secrets.seal(req.api_key.trim())?
@@ -158,10 +164,22 @@ pub async fn probe(
     let kind = req.instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?.to_string();
     let localizer = state.localizer().await;
     let base_url = normalize_base_url(&req.base_url, &localizer)?;
-    let api_key = match (req.api_key.trim(), &req.id) {
-        ("", Some(id)) => {
-            let saved = state.instance(id).await?;
-            stored_key_may_reach(&saved.base_url, &base_url, &localizer)?;
+    let saved = match &req.id {
+        Some(id) => Some(state.instance(id).await?),
+        None => None,
+    };
+    let base_url = match &saved {
+        Some(saved) => keep_saved_credentials(base_url, &saved.base_url, &localizer)?,
+        None => base_url,
+    };
+    let api_key = match (req.api_key.trim(), &saved) {
+        ("", Some(saved)) => {
+            saved_for_this_address(
+                &saved.base_url,
+                &base_url,
+                "InstanceKeyForNewAddress",
+                &localizer,
+            )?;
             state.secrets.open(&saved.api_key)?
         }
         (typed, _) => typed.to_string(),
@@ -238,11 +256,17 @@ pub async fn sync_now(
     })
 }
 
-/// Refuse to send a stored key anywhere but the origin it was saved with.
+/// Refuse to send a stored secret anywhere but the origin it was saved with.
 ///
-/// The key is the Arr's write credential, and the form never shows it back:
-/// left blank on another address, it would leave for that address unseen.
-fn stored_key_may_reach(saved: &str, typed: &str, localizer: &Localizer) -> AppResult<()> {
+/// The API key is the Arr's write credential and a proxy's credentials guard
+/// it, and the form shows neither back: left as shown on another address, one
+/// would leave for that address unseen. `refusal` names the one to type again.
+fn saved_for_this_address(
+    saved: &str,
+    typed: &str,
+    refusal: &str,
+    localizer: &Localizer,
+) -> AppResult<()> {
     let same = match (reqwest::Url::parse(saved), reqwest::Url::parse(typed)) {
         (Ok(saved), Ok(typed)) => crate::http::stays_on_origin(&saved, &typed),
         _ => false,
@@ -251,8 +275,19 @@ fn stored_key_may_reach(saved: &str, typed: &str, localizer: &Localizer) -> AppR
         return Ok(());
     }
     Err(AppError::BadRequest(
-        localizer.translate("InstanceKeyForNewAddress", &[("address", typed)]),
+        localizer.translate(refusal, &[("address", &crate::http::masked(typed))]),
     ))
+}
+
+/// The address as typed, or with the saved credentials in place of the mask
+/// the form was shown. Kept for the address they were saved with only, like
+/// the API key.
+fn keep_saved_credentials(typed: String, saved: &str, localizer: &Localizer) -> AppResult<String> {
+    let Some(restored) = crate::http::with_saved_credentials(&typed, saved) else {
+        return Ok(typed);
+    };
+    saved_for_this_address(saved, &typed, "InstanceCredentialsForNewAddress", localizer)?;
+    Ok(restored)
 }
 
 /// Issue a fresh webhook token, invalidating the previous URL.

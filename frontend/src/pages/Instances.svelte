@@ -10,7 +10,7 @@
     Wifi,
   } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import { formatRelative, formatTimestamp } from '../api/format';
+  import { formatRelative, formatTimestamp, withoutCredentials } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -401,6 +401,7 @@
             <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance (instance.id)}
+              {@const address = withoutCredentials(instance.base_url)}
               <tr class:row-muted={!instance.enabled}>
                 <td>
                   <strong>{instance.name}</strong>
@@ -416,11 +417,11 @@
                   </span>
                 </td>
                 <td class="mono text-sm">
-                  {#if opensInBrowser(instance.base_url)}
+                  {#if opensInBrowser(address)}
                     <!-- The Arr's own interface, one click from its row. -->
                     <a
                       class="instance-link"
-                      href={instance.base_url}
+                      href={address}
                       target="_blank"
                       rel="noopener noreferrer"
                     >

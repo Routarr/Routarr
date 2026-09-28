@@ -130,33 +130,35 @@ pub fn service_name(kind: &str) -> &'static str {
 ///
 /// `kind` is the declared type, `radarr` or `sonarr`.
 pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer) -> String {
+    let masked = crate::http::masked(base_url);
+    let address: &str = &masked;
     let service = service_name(kind);
     let url_base = format!("/{}", service.to_ascii_lowercase());
     let status;
     let (key, params): (&str, Vec<(&str, &str)>) = match cause {
         Cause::NameUnresolved => {
-            ("ArrNameUnresolved", vec![("service", service), ("address", base_url)])
+            ("ArrNameUnresolved", vec![("service", service), ("address", address)])
         }
         Cause::Unreachable if is_loopback(base_url) => {
-            ("ArrUnreachableLoopback", vec![("service", service), ("address", base_url)])
+            ("ArrUnreachableLoopback", vec![("service", service), ("address", address)])
         }
-        Cause::Unreachable => ("ArrUnreachable", vec![("service", service), ("address", base_url)]),
-        Cause::TimedOut => ("ArrTimedOut", vec![("service", service), ("address", base_url)]),
+        Cause::Unreachable => ("ArrUnreachable", vec![("service", service), ("address", address)]),
+        Cause::TimedOut => ("ArrTimedOut", vec![("service", service), ("address", address)]),
         Cause::HandshakeFailed => {
-            ("ArrHandshakeFailed", vec![("service", service), ("address", base_url)])
+            ("ArrHandshakeFailed", vec![("service", service), ("address", address)])
         }
-        Cause::NotHttp => ("ArrNotHttp", vec![("service", service), ("address", base_url)]),
-        Cause::Redirected => ("ArrRedirected", vec![("address", base_url)]),
+        Cause::NotHttp => ("ArrNotHttp", vec![("service", service), ("address", address)]),
+        Cause::Redirected => ("ArrRedirected", vec![("address", address)]),
         Cause::RedirectedElsewhere(host) => (
             "ArrRedirectedElsewhere",
-            vec![("service", service), ("address", base_url), ("host", host.as_str())],
+            vec![("service", service), ("address", address), ("host", host.as_str())],
         ),
         Cause::RedirectLoop => {
-            ("ArrRedirectLoop", vec![("service", service), ("address", base_url)])
+            ("ArrRedirectLoop", vec![("service", service), ("address", address)])
         }
         Cause::NotTheApi => (
             "ArrNotTheApi",
-            vec![("service", service), ("address", base_url), ("base", url_base.as_str())],
+            vec![("service", service), ("address", address), ("base", url_base.as_str())],
         ),
         Cause::KeyRefused => ("ArrKeyRefused", vec![("service", service)]),
         Cause::SignInInFront => ("ArrProxySignIn", vec![("service", service)]),
@@ -171,7 +173,7 @@ pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer)
         }
         Cause::WrongApp(found) => (
             "ArrWrongApp",
-            vec![("service", service), ("address", base_url), ("found", found.as_str())],
+            vec![("service", service), ("address", address), ("found", found.as_str())],
         ),
     };
     localizer.translate(key, &params)
