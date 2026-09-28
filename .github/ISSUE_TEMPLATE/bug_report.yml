@@ -47,8 +47,9 @@ body:
     attributes:
       label: Relevant log lines
       description: |
-        `docker compose logs routarr`. **Check them for keys before pasting** —
-        Routarr does not log its own, but your shell history might have.
+        `docker compose logs routarr`. **Remove any key or password before
+        pasting.** At first start Routarr prints the API key it generates and,
+        in `forms` mode, the password of the account it creates.
       render: text
     validations:
       required: false

@@ -73,11 +73,17 @@ pub async fn authenticate(
     next: Next,
 ) -> Response {
     let identity = match state.config.auth_mode {
-        AuthMode::None => Some(Identity::anonymous(AuthMode::None)),
-        // Nothing is asked for and no header is read. The proxy in front has
-        // already decided, and reading a name it sends would only invent a
-        // trust boundary where none is enforceable.
-        AuthMode::External => Some(Identity::anonymous(AuthMode::External)),
+        // Nothing is asked for, and no name a proxy sends is read: the proxy in
+        // front has already decided, and reading one would only invent a trust
+        // boundary where none is enforceable. A page of another site can then
+        // post here as easily as this application, so a write that carries no
+        // API key is refused when its Origin says another site asked.
+        mode @ (AuthMode::None | AuthMode::External) => {
+            if api_key_identity(&state, request.headers()).is_none() && !same_origin(&request) {
+                return foreign_origin();
+            }
+            Some(Identity::anonymous(mode))
+        }
         // The session, or the API key beside it. A machine client cannot hold
         // a cookie, and Servarr keeps the two the same way. OIDC resolves the
         // same way once the provider has answered: the session is the session.
@@ -89,13 +95,7 @@ pub async fn authenticate(
                 // dangerous shapes and the JSON extractor refuses a form's
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
-                Some(_) if !same_origin(&request) => {
-                    return forbidden(
-                        "This request did not come from Routarr: its Origin is not the host it \
-                         was sent to. Behind a reverse proxy, forward the public host as \
-                         X-Forwarded-Host.",
-                    );
-                }
+                Some(_) if !same_origin(&request) => return foreign_origin(),
                 other => other,
             },
         },
@@ -119,6 +119,14 @@ pub async fn authenticate(
         )
             .into_response(),
     }
+}
+
+/// The refusal of a write whose Origin is another site.
+fn foreign_origin() -> Response {
+    forbidden(
+        "This request did not come from Routarr: its Origin is not the host it was sent to. \
+         Behind a reverse proxy, forward the public host as X-Forwarded-Host.",
+    )
 }
 
 /// A valid API key, whatever the mode.
