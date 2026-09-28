@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Een batch van {count} overschrijdt de limiet van {limit}. Verklein de selectie of verhoog batch_limit in Instellingen.",
   "ErrorConfirmationRequired": "Items boven de bevestigingsdrempel van {threshold}: {count}.",
   "ErrorDryRunEnabled": "De globale testmodus staat aan. Schakel hem uit in Instellingen om wijzigingen toe te passen.",
+  "ErrorInstanceDisabled": "Instantie '{name}' is uitgeschakeld, dus er wordt niets naartoe geschreven.",
   "ErrorNoSelection": "Geen beslissing geselecteerd",
   "ErrorNotEnoughSpace": "{path} zou {needed} ontvangen maar meldt slechts {free} vrij. Verstuur opnieuw met confirm = true om toch te verplaatsen.",
   "ErrorSimulationInProgress": "Er loopt al een simulatie.",

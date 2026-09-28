@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Partia {count} przekracza limit {limit}. Zmniejsz zaznaczenie lub zwiększ batch_limit w Ustawieniach.",
   "ErrorConfirmationRequired": "Pozycje powyżej progu potwierdzenia {threshold}: {count}.",
   "ErrorDryRunEnabled": "Globalny tryb próbny jest włączony. Wyłącz go w Ustawieniach, aby zastosować zmiany.",
+  "ErrorInstanceDisabled": "Instancja \"{name}\" jest wyłączona, więc nic nie jest do niej zapisywane.",
   "ErrorNoSelection": "Nie wybrano żadnej decyzji",
   "ErrorNotEnoughSpace": "{path} otrzymałby {needed}, ale zgłasza tylko {free} wolnego. Wyślij ponownie z confirm = true, aby mimo to przenieść.",
   "ErrorSimulationInProgress": "Symulacja już trwa.",

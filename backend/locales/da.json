@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "En batch på {count} overskrider grænsen på {limit}. Reducér markeringen, eller hæv batch_limit under Indstillinger.",
   "ErrorConfirmationRequired": "Elementer over bekræftelsesgrænsen på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global prøvekørsel er slået til. Slå den fra under Indstillinger for at anvende ændringer.",
+  "ErrorInstanceDisabled": "Instansen \"{name}\" er deaktiveret, så der skrives intet til den.",
   "ErrorNoSelection": "Ingen beslutning valgt",
   "ErrorNotEnoughSpace": "{path} ville modtage {needed}, men melder kun {free} ledigt. Send igen med confirm = true for at flytte alligevel.",
   "ErrorSimulationInProgress": "En simulering kører allerede.",

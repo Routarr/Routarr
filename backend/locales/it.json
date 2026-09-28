@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Il lotto di {count} supera il limite di {limit}. Riduci la selezione o aumenta batch_limit nelle Impostazioni.",
   "ErrorConfirmationRequired": "Elementi oltre la soglia di conferma di {threshold}: {count}.",
   "ErrorDryRunEnabled": "La prova a secco globale è attiva. Disattivala nelle Impostazioni per applicare le modifiche.",
+  "ErrorInstanceDisabled": "L'istanza «{name}» è disattivata, quindi non vi viene scritto nulla.",
   "ErrorNoSelection": "Nessuna decisione selezionata",
   "ErrorNotEnoughSpace": "{path} riceverebbe {needed} ma dichiara solo {free} liberi. Reinvia con confirm = true per spostare comunque.",
   "ErrorSimulationInProgress": "Una simulazione è già in corso.",

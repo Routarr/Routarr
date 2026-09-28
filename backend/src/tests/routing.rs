@@ -479,6 +479,25 @@ async fn a_corrupted_condition_payload_disables_the_rule_instead_of_failing_the_
     assert_eq!(result.no_category_match, 1);
 }
 
+/// "Enabled (synced and routed)": switched off, an instance is not routed
+/// either, so none of its items is proposed.
+#[tokio::test]
+async fn a_disabled_instance_is_not_simulated() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 1, "the rule moves the film");
+
+    sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
+
+    let result = simulate(&app, persisting()).await;
+    assert_eq!(
+        (result.total_media, result.moves_required),
+        (0, 0),
+        "a disabled instance was routed"
+    );
+}
+
 /// A rule "Anime, except Family" whose exclusions cannot be read is not the
 /// rule "Anime": dropped in silence, the exclusions would let it move the very
 /// titles they kept out. It matches nothing until they can be read.

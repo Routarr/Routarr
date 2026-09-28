@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Le lot de {count} éléments dépasse la limite de {limit}. Réduisez la sélection ou augmentez batch_limit dans les Réglages.",
   "ErrorConfirmationRequired": "Éléments au-delà du seuil de confirmation de {threshold} : {count}.",
   "ErrorDryRunEnabled": "L'essai à blanc global est activé. Désactivez-le dans les Réglages pour appliquer les changements.",
+  "ErrorInstanceDisabled": "L'instance « {name} » est désactivée, donc rien n'y est écrit.",
   "ErrorNoSelection": "Aucune décision sélectionnée",
   "ErrorNotEnoughSpace": "{path} recevrait {needed} mais ne déclare que {free} de libre. Renvoyez avec confirm = true pour déplacer quand même.",
   "ErrorSimulationInProgress": "Une simulation est déjà en cours.",

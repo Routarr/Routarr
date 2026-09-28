@@ -10,7 +10,9 @@ use super::TestApp;
 use super::fake_arr::FakeArr;
 
 /// A library wired to a fake Radarr, holding one film that the anime rule wants
-/// to move. `has_files` decides whether auto-apply is allowed to touch it.
+/// to move. `has_files` is what the last sync recorded, and the fake is what
+/// Radarr answers now: auto-apply writes only when both say there is no file,
+/// so `false` goes with [`FakeArr::with_unimported_movie`].
 async fn library_with_one_move(arr: &FakeArr, has_files: bool) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
@@ -75,7 +77,7 @@ async fn simulate(app: &TestApp) -> String {
 
 #[tokio::test]
 async fn a_fresh_install_never_applies_on_its_own() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     // Only dry-run is turned off: auto-apply itself is left at its default.
     set(&app, "global_dry_run", "false").await;
@@ -89,7 +91,7 @@ async fn a_fresh_install_never_applies_on_its_own() {
 
 #[tokio::test]
 async fn global_dry_run_outranks_auto_apply() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     // global_dry_run is left at its default of true.
@@ -126,7 +128,7 @@ async fn a_media_that_already_has_files_is_left_to_a_human() {
 
 #[tokio::test]
 async fn a_media_with_no_files_yet_is_routed_without_asking() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
@@ -159,6 +161,30 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
     );
 }
 
+/// A film downloaded between the sync and the pass has a file the database
+/// does not know about yet. Written with `moveFiles: false`, the file would stay
+/// in the old folder and Radarr would report the film missing.
+#[tokio::test]
+async fn a_film_that_got_its_file_since_the_sync_is_not_moved_unattended() {
+    // The sync saw no file, and Radarr has imported one since.
+    let arr = FakeArr::start().await;
+    let app = library_with_one_move(&arr, false).await;
+    set(&app, "auto_apply_enabled", "true").await;
+    set(&app, "global_dry_run", "false").await;
+    let simulation = simulate(&app).await;
+
+    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+
+    assert!(matches!(outcome, AutoApplyOutcome::NothingToApply), "got {outcome:?}");
+    assert!(arr.recorded().writes.is_empty(), "the film was moved without its file");
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE status = 'pending'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(pending, 1, "the decision stays in the human queue");
+}
+
 /// A destination that is not answering is left for the person who can answer.
 ///
 /// The routing map keeps a folder the Arr reports unreachable, since a NAS that
@@ -168,7 +194,7 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
 /// destination that is not there.
 #[tokio::test]
 async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
@@ -194,7 +220,7 @@ async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
 
 #[tokio::test]
 async fn an_auto_applied_move_is_auditable_and_revertible() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
@@ -241,7 +267,7 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
 
 #[tokio::test]
 async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
@@ -276,7 +302,7 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
 
 #[tokio::test]
 async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;
@@ -296,7 +322,7 @@ async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
 
 #[tokio::test]
 async fn a_media_pointing_at_an_unmapped_category_is_not_applied() {
-    let arr = FakeArr::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     set(&app, "auto_apply_enabled", "true").await;
     set(&app, "global_dry_run", "false").await;

@@ -33,8 +33,8 @@ pub struct RadarrMovie {
     pub root_folder_path: Option<String>,
     #[serde(default)]
     pub monitored: bool,
-    #[serde(rename = "hasFile", default)]
-    pub has_file: bool,
+    #[serde(rename = "hasFile")]
+    has_file: Option<bool>,
     pub status: Option<String>,
     pub added: Option<String>,
     #[serde(rename = "sizeOnDisk")]
@@ -50,6 +50,15 @@ pub struct RadarrMovie {
     pub original_language: Option<ArrLanguage>,
     /// The rating for whichever certification country Radarr is set to.
     pub certification: Option<String>,
+}
+
+impl RadarrMovie {
+    /// A payload silent on `hasFile` is read as a movie with a file: auto-apply
+    /// moves a movie without its file, and only an explicit `false` makes that
+    /// safe.
+    pub fn has_files(&self) -> bool {
+        self.has_file.unwrap_or(true)
+    }
 }
 
 /// A language as an Arr reports it: an id and a name, never a code.

@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "حجم الدفعة {count} يتجاوز الحد {limit}. قلّل التحديد أو ارفع batch_limit في الإعدادات.",
   "ErrorConfirmationRequired": "العناصر التي تتجاوز عتبة التأكيد {threshold}: {count}.",
   "ErrorDryRunEnabled": "التشغيل التجريبي العام مفعّل. عطّله في الإعدادات لتطبيق التغييرات.",
+  "ErrorInstanceDisabled": "الخادم '{name}' معطّل، لذلك لا يُكتب فيه شيء.",
   "ErrorNoSelection": "لم يُحدَّد أي قرار",
   "ErrorNotEnoughSpace": "سيستقبل {path} حجم {needed} لكنه لا يعلن سوى {free} متاحة. أعد الإرسال مع confirm = true للنقل رغم ذلك.",
   "ErrorSimulationInProgress": "هناك محاكاة قيد التنفيذ بالفعل.",

@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "{count} ögelik yığın, {limit} sınırını aşıyor. Seçimi azaltın veya Ayarlar'da batch_limit değerini yükseltin.",
   "ErrorConfirmationRequired": "{threshold} onay eşiğinin üzerindeki öğeler: {count}.",
   "ErrorDryRunEnabled": "Genel deneme modu etkin. Değişiklikleri uygulamak için Ayarlar'dan devre dışı bırakın.",
+  "ErrorInstanceDisabled": "«{name}» örneği devre dışı, bu yüzden ona hiçbir şey yazılmaz.",
   "ErrorNoSelection": "Hiçbir karar seçilmedi",
   "ErrorNotEnoughSpace": "{path} klasörü {needed} alacak ancak yalnızca {free} boş alan bildiriyor. Yine de taşımak için confirm = true ile yeniden gönderin.",
   "ErrorSimulationInProgress": "Zaten bir simülasyon çalışıyor.",

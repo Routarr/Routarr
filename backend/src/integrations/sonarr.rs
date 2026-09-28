@@ -62,9 +62,11 @@ pub struct SonarrSeason {
 }
 
 impl SonarrSeries {
-    /// Sonarr does not expose `hasFile`; derive it from the episode statistics.
+    /// Sonarr has no `hasFile`, so the episode statistics answer. A payload with
+    /// no count is read as a series with files: auto-apply moves a series
+    /// without its files, and only a count of zero makes that safe.
     pub fn has_files(&self) -> bool {
-        self.statistics.as_ref().and_then(|s| s.episode_file_count).is_some_and(|c| c > 0)
+        self.statistics.as_ref().and_then(|s| s.episode_file_count).is_none_or(|c| c > 0)
     }
 
     /// Seasons excluding specials.
@@ -294,37 +296,5 @@ mod tests {
     #[test]
     fn builds_windows_paths() {
         assert_eq!(join_path("D:\\tv\\anime", "Dark"), "D:\\tv\\anime\\Dark");
-    }
-
-    #[test]
-    fn derives_has_files_from_statistics() {
-        let with_files = SonarrSeries {
-            id: 1,
-            title: "x".into(),
-            sort_title: None,
-            year: None,
-            tvdb_id: None,
-            imdb_id: None,
-            tmdb_id: None,
-            path: None,
-            root_folder_path: None,
-            monitored: true,
-            status: None,
-            added: None,
-            statistics: Some(SonarrSeriesStatistics {
-                episode_file_count: Some(3),
-                size_on_disk: None,
-            }),
-            genres: Vec::new(),
-            original_language: None,
-            certification: None,
-            series_type: None,
-            seasons: vec![],
-            tags: vec![],
-        };
-        assert!(with_files.has_files());
-
-        let empty = SonarrSeries { statistics: None, ..with_files.clone() };
-        assert!(!empty.has_files());
     }
 }

@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Batch size {count} exceeds the limit of {limit}. Reduce the selection or raise batch_limit in Settings.",
   "ErrorConfirmationRequired": "Items over the confirmation threshold of {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global dry-run mode is enabled. Disable it in Settings to apply changes.",
+  "ErrorInstanceDisabled": "Instance '{name}' is disabled, so nothing is written to it.",
   "ErrorNoSelection": "No decision selected",
   "ErrorNotEnoughSpace": "{path} would receive {needed} but reports only {free} free. Re-send with confirm = true to move anyway.",
   "ErrorSimulationInProgress": "A simulation is already running.",

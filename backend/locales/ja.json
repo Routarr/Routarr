@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "{count} 件のバッチは上限 {limit} 件を超えています。選択を減らすか、設定で batch_limit を上げてください。",
   "ErrorConfirmationRequired": "確認しきい値 {threshold} を超える項目: {count}。",
   "ErrorDryRunEnabled": "全体ドライランが有効です。変更を適用するには設定で無効にしてください。",
+  "ErrorInstanceDisabled": "インスタンス「{name}」は無効なので、何も書き込まれません。",
   "ErrorNoSelection": "判定が選択されていません",
   "ErrorNotEnoughSpace": "{path} は {needed} を受け取りますが、空き容量は {free} しか報告されていません。それでも移動するには confirm = true で再送してください。",
   "ErrorSimulationInProgress": "シミュレーションはすでに実行中です。",
