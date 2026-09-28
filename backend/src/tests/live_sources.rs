@@ -99,6 +99,9 @@ async fn jikan_answers_the_shape_the_client_expects() {
             })
         })
         .expect("no Jikan candidate matched on title");
+    // A film has no broadcast season: its year has to come from `aired`, or the
+    // resolution refuses every film whose library knows its year.
+    assert_eq!(matched.year, Some(YEAR), "Jikan dated {TITLE} as {:?}", matched.year);
 
     let details = match jikan.get_details(matched.id).await {
         Ok(details) => details,

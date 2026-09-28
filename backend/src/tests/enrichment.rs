@@ -61,6 +61,27 @@ async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, Option<Strin
     .unwrap()
 }
 
+/// TMDb writes ISO 639-1 but for two codes. `cn`, its Cantonese, matches no
+/// rule written against `zh`, and `xx`, no language, claims the field so that
+/// no lower source fills it.
+#[tokio::test]
+async fn tmdb_s_two_codes_outside_iso_are_read_as_a_rule_is_written() {
+    use super::fake_tmdb::{CANTONESE, NO_LANGUAGE};
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(1, "movie", CANTONESE), (2, "movie", NO_LANGUAGE)]).await;
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let languages: Vec<(i64, Option<String>)> = sqlx::query_as(
+        "SELECT CAST(external_id AS INTEGER), original_language FROM metadata_cache
+         WHERE source = 'tmdb' ORDER BY CAST(external_id AS INTEGER)",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(languages, [(CANTONESE, Some("zh".to_string())), (NO_LANGUAGE, None)]);
+}
+
 #[tokio::test]
 async fn enriches_movies_and_series_from_one_call_each() {
     let tmdb = FakeTmdb::start().await;

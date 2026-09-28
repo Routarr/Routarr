@@ -22,6 +22,17 @@ use crate::error::AppResult;
 const SERVICE: &str = "TheTVDB";
 pub const DEFAULT_BASE_URL: &str = "https://api4.thetvdb.com/v4";
 
+/// The token of the last login, with the key it was obtained with: a token
+/// answers for that key only, so a new key logs in again.
+#[derive(Debug)]
+pub struct CachedToken {
+    key: String,
+    token: String,
+}
+
+/// Shared by every client a state builds, so one login serves every pass.
+pub type TokenCache = Arc<Mutex<Option<CachedToken>>>;
+
 #[derive(Debug, Clone)]
 pub struct TvdbClient {
     client: Client,
@@ -31,7 +42,7 @@ pub struct TvdbClient {
     base_url: String,
     /// Owned by `AppState`, so the token outlives the client and one login
     /// serves every pass until it expires.
-    token: Arc<Mutex<Option<String>>>,
+    token: TokenCache,
     /// Certification regions, most preferred first.
     regions: Vec<String>,
 }
@@ -90,7 +101,7 @@ impl TvdbClient {
         pin: Option<&str>,
         base_url: &str,
         regions: &[String],
-        token: Arc<Mutex<Option<String>>>,
+        token: TokenCache,
     ) -> Self {
         Self {
             client,
@@ -108,8 +119,8 @@ impl TvdbClient {
     /// futures would otherwise both log in, and TheTVDB counts that.
     async fn token(&self) -> AppResult<String> {
         let mut guard = self.token.lock().await;
-        if let Some(token) = guard.as_ref() {
-            return Ok(token.clone());
+        if let Some(cached) = guard.as_ref().filter(|cached| cached.key == self.api_key) {
+            return Ok(cached.token.clone());
         }
 
         let mut body = serde_json::json!({ "apikey": self.api_key });
@@ -132,7 +143,7 @@ impl TvdbClient {
                 retry_after: None,
             });
         };
-        *guard = Some(token.clone());
+        *guard = Some(CachedToken { key: self.api_key.clone(), token: token.clone() });
         Ok(token)
     }
 
@@ -158,11 +169,12 @@ impl TvdbClient {
         }
     }
 
-    /// Logging in *is* the probe: it is the only call that can tell a bad key
-    /// from an unreachable host.
+    /// A light read through the token, logging in if it has to. A cached token
+    /// cannot tell a revoked key or a source that stopped answering from one
+    /// that works, and a read can.
     pub async fn test_connection(&self) -> AppResult<bool> {
-        match self.token().await {
-            Ok(token) => Ok(!token.is_empty()),
+        match self.read::<serde_json::Value>("/genres").await {
+            Ok(_) => Ok(true),
             Err(crate::error::AppError::ExternalApi { status, .. })
                 if status == 401 || status == 403 =>
             {

@@ -27,6 +27,11 @@ struct FakeState {
     slow: Arc<Vec<i64>>,
 }
 
+/// A film TMDb says is in Cantonese, which it writes `cn`.
+pub const CANTONESE: i64 = 1101;
+/// A film TMDb says has no language, which it writes `xx`.
+pub const NO_LANGUAGE: i64 = 1102;
+
 pub struct FakeTmdb {
     pub base_url: String,
     recorded: Arc<Mutex<Recorded>>,
@@ -95,11 +100,18 @@ async fn movie(
         return Err(axum::http::StatusCode::NOT_FOUND);
     }
 
+    // Two ids answer TMDb's two codes outside ISO 639-1: `cn`, its Cantonese,
+    // and `xx`, no language at all.
+    let language = match id {
+        CANTONESE => "cn",
+        NO_LANGUAGE => "xx",
+        _ => "ja",
+    };
     Ok(Json(serde_json::json!({
         "id": id,
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
-        "original_language": "ja",
+        "original_language": language,
         // Deliberately absent from the movie payload: the client must fall back
         // to production_countries.
         "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],

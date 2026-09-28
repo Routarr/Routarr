@@ -555,14 +555,25 @@ pub async fn load_identifiers(pool: &SqlitePool) -> AppResult<Identifiers> {
         .collect())
 }
 
+/// How long a search that found nothing holds before the source is asked again.
+///
+/// A work is often listed after the library holds it: a film indexed before its
+/// release is not on AniList or MyAnimeList yet. Not every pass either: a
+/// library's worth of misses, searched again each week against sources paced
+/// to about a request a second, would hold the enrichment for hours.
+const MISS_LIFETIME: &str = "-30 days";
+
 /// The keys already resolved for one source, so a pass only searches for what
-/// it has never searched for.
+/// it has never searched for, or found nothing for long enough ago.
 pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet<String>> {
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT media_type, local_key FROM source_identifiers WHERE source = ?")
-            .bind(source)
-            .fetch_all(pool)
-            .await?;
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT media_type, local_key FROM source_identifiers
+          WHERE source = ? AND (external_id IS NOT NULL OR resolved_at > datetime('now', ?))",
+    )
+    .bind(source)
+    .bind(MISS_LIFETIME)
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows.into_iter().map(|(kind, key)| resolution_key(&kind, &key)).collect())
 }
