@@ -47,6 +47,22 @@ describe('ActionMenu', () => {
     expect(screen.queryByRole('menuitem')).toBeNull();
   });
 
+  /**
+   * A dialog the action opens records the focused element as the one to hand
+   * the focus back to. The item is about to disappear, so the trigger has the
+   * focus before the action runs.
+   */
+  it('hands the focus to its trigger before the action runs', async () => {
+    let focusedWhenRun: Element | null = null;
+    show([{ label: 'Sync now', onSelect: () => (focusedWhenRun = document.activeElement) }]);
+    const trigger = screen.getByRole('button', { name: 'Actions' });
+
+    await fireEvent.click(trigger);
+    await fireEvent.click(screen.getByRole('menuitem', { name: 'Sync now' }));
+
+    expect(focusedWhenRun).toBe(trigger);
+  });
+
   it('closes on Escape and hands the focus back to its trigger', async () => {
     show([{ label: 'Sync now', onSelect: vi.fn() }]);
     const trigger = screen.getByRole('button', { name: 'Actions' });

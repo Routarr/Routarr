@@ -254,7 +254,7 @@
   "Error": "virhe",
   "ErrorApplyInProgress": "Toteutus on jo käynnissä",
   "ErrorBatchLimit": "Erä {count} ylittää rajan {limit}. Pienennä valintaa tai nosta batch_limit-arvoa Asetuksissa.",
-  "ErrorConfirmationRequired": "Kohteita yli vahvistusrajan {threshold}: {count}. Lähetä uudelleen confirm = true jatkaaksesi.",
+  "ErrorConfirmationRequired": "Kohteita yli vahvistusrajan {threshold}: {count}.",
   "ErrorDryRunEnabled": "Yleinen koeajo on päällä. Kytke se pois Asetuksissa toteuttaaksesi muutokset.",
   "ErrorNoSelection": "Yhtään päätöstä ei ole valittu",
   "ErrorNotEnoughSpace": "{path} vastaanottaisi {needed}, mutta ilmoittaa vain {free} vapaana. Lähetä uudelleen confirm = true, jos haluat siirtää silti.",

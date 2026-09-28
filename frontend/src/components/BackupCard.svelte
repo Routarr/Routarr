@@ -23,6 +23,7 @@
   let busy = $state(false);
 
   async function run(action: () => Promise<void>) {
+    const pressed = document.activeElement as HTMLElement | null;
     busy = true;
     try {
       await action();
@@ -31,6 +32,7 @@
       outcome.fail(err);
     } finally {
       busy = false;
+      void handFocus(pressed);
     }
   }
 

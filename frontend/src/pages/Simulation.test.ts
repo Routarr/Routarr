@@ -55,6 +55,21 @@ function simulation(decisions: Decision[]): SimulationResult {
   };
 }
 
+/** What the server answers Apply all with until its batch question is answered. */
+const batchQuestion = () =>
+  new ApiError('1 item will move.', 409, 'confirmation_required', null, 'batch');
+
+const batchReport = {
+  candidates: 1,
+  applied: 1,
+  failed: 0,
+  skipped: 0,
+  batches_run: 1,
+  batches_planned: 1,
+  stopped_early: false,
+  errors: [],
+};
+
 /** Render and wait for the pending-decisions fetch the page makes on mount. */
 async function show(pending: Decision[]) {
   vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated(pending));
@@ -171,7 +186,7 @@ describe('what the screen refuses to do', () => {
   });
 
   it('applies nothing when the confirmation is declined', async () => {
-    const applyAll = vi.spyOn(api, 'applyAllDecisions');
+    const applyAll = vi.spyOn(api, 'applyAllDecisions').mockRejectedValue(batchQuestion());
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
 
@@ -181,7 +196,9 @@ describe('what the screen refuses to do', () => {
     // The question says how many, so a user who miscounted stops here.
     expect(await answerConfirmation(null)).toMatch(/1/);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(applyAll).not.toHaveBeenCalled();
+    // Asked, and never answered: the one request carried no answer.
+    expect(applyAll).toHaveBeenCalledTimes(1);
+    expect(nthCall(applyAll)[2]).toEqual([]);
   });
 
   /**
@@ -211,11 +228,61 @@ describe('what the screen refuses to do', () => {
     // discarded — it is the only place the threshold is named.
     expect(await answerConfirmation()).toContain('Above the threshold');
 
-    // Asked once, then applied again naming the guardrail that was answered —
+    // Asked once, then applied again naming the guardrail that was answered,
     // and only that one, so a second refusal still gets its own question.
     await waitFor(() => expect(apply).toHaveBeenCalledTimes(2));
     expect(nthCall(apply)[2]).toEqual([]);
     expect(nthCall(apply, 1)[2]).toEqual(['threshold']);
+  });
+
+  /**
+   * The batch question is the server's, because only the server knows that a
+   * destination is not answering or short of room. Answered in advance, those
+   * facts never reach the reader, and a sleeping NAS gets the batches after
+   * one generic yes.
+   */
+  it('lets the server ask its own question before Apply all writes', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    const question = new ApiError(
+      "1 item will move.\n\n'/mnt/nas' is not answering.",
+      409,
+      'confirmation_required',
+      null,
+      'batch',
+    );
+    const applyAll = vi
+      .spyOn(api, 'applyAllDecisions')
+      .mockRejectedValueOnce(question)
+      .mockResolvedValue(batchReport);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
+
+    expect(await answerConfirmation()).toContain("'/mnt/nas' is not answering.");
+    await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
+    expect(nthCall(applyAll)[2]).toEqual([]);
+    expect(nthCall(applyAll, 1)[2]).toEqual(['batch']);
+  });
+
+  /** A second click while the confirmed apply writes would start another. */
+  it('holds Apply and Run while the confirmed apply is running', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    vi.spyOn(api, 'applyDecisions')
+      .mockRejectedValueOnce(
+        new ApiError('Above the threshold', 409, 'confirmation_required', null, 'threshold'),
+      )
+      .mockReturnValue(new Promise(() => {}));
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    await answerConfirmation();
+
+    await waitFor(() => expect(api.applyDecisions).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: /run simulation/i })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Applying' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /apply all/i })).toBeDisabled();
   });
 });
 
@@ -252,16 +319,9 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
       simulation([decision({ media_title: 'Akira' })]),
     );
-    vi.spyOn(api, 'applyAllDecisions').mockResolvedValue({
-      candidates: 1,
-      applied: 1,
-      failed: 0,
-      skipped: 0,
-      batches_run: 1,
-      batches_planned: 1,
-      stopped_early: false,
-      errors: [],
-    });
+    vi.spyOn(api, 'applyAllDecisions')
+      .mockRejectedValueOnce(batchQuestion())
+      .mockResolvedValue(batchReport);
     vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
@@ -325,16 +385,18 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
       simulation([decision({ media_title: 'Akira' })]),
     );
-    vi.spyOn(api, 'applyAllDecisions').mockResolvedValue({
-      candidates: 50,
-      applied: 49,
-      failed: 1,
-      skipped: 0,
-      batches_run: 1,
-      batches_planned: 1,
-      stopped_early: true,
-      errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
-    });
+    vi.spyOn(api, 'applyAllDecisions')
+      .mockRejectedValueOnce(batchQuestion())
+      .mockResolvedValue({
+        candidates: 50,
+        applied: 49,
+        failed: 1,
+        skipped: 0,
+        batches_run: 1,
+        batches_planned: 1,
+        stopped_early: true,
+        errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
+      });
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));

@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
 import { test, expect, api } from './fixtures';
-import { SCREENS } from './screens';
+import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
  * Every field was captioned by a `.form-label` sitting *next* to it with no
@@ -294,6 +294,122 @@ test('the first tab stop skips to the content', async ({ page, instanceId }) => 
 
   await page.keyboard.press('Enter');
   await expect(page.locator('main:focus, main:focus-within')).toHaveCount(1);
+});
+
+/**
+ * Every control a pointer can reach, the keyboard reaches, and nothing out of
+ * sight takes the focus.
+ *
+ * Walked with Tab from the top of each screen, at a desktop width and at a
+ * phone's, where the navigation is a drawer. A label dressed as a button over
+ * a hidden file input, or a closed drawer whose links still take the focus,
+ * passes every other check here: both are only seen by walking.
+ */
+test.describe('the keyboard reaches every control', () => {
+  for (const width of [1280, 375]) {
+    test(`on every screen at ${width}px`, async ({ page, instanceId }) => {
+      expect(instanceId).toBeTruthy();
+      await page.setViewportSize({ width, height: 900 });
+      const problems: string[] = [];
+
+      for (const path of [...SCREENS, ...SETTINGS_SECTIONS]) {
+        await ready(page, path);
+        await page.waitForLoadState('networkidle');
+
+        // The controls a pointer can reach: drawn, enabled, not inert, and not
+        // translated out of the viewport (a control past the edge of a table
+        // that scrolls sideways is reachable, one past the edge of the page is
+        // not). Each is tagged, so the walk can say which it met.
+        const expected = await page.evaluate(() => {
+          const scrollsSideways = (el: Element) => {
+            for (let up = el.parentElement; up; up = up.parentElement) {
+              const overflow = getComputedStyle(up).overflowX;
+              if (/auto|scroll/.test(overflow) && up.scrollWidth > up.clientWidth) return true;
+            }
+            return false;
+          };
+          const selector =
+            'a[href], button, input, select, textarea, summary, label.btn, [tabindex]';
+          const controls = [...document.querySelectorAll<HTMLElement>(selector)].filter((el) => {
+            const box = el.getBoundingClientRect();
+            const outside = box.right <= 0 || box.left >= innerWidth;
+            return (
+              el.checkVisibility() &&
+              !el.matches(':disabled') &&
+              el.getAttribute('tabindex') !== '-1' &&
+              !el.closest('[inert]') &&
+              !(outside && !scrollsSideways(el))
+            );
+          });
+          return controls.map((el, index) => {
+            el.dataset.keyboardSweep = String(index);
+            const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 40);
+            return `${el.tagName.toLowerCase()} "${name || el.id}"`;
+          });
+        });
+
+        const reached = new Set<number>();
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        for (let press = 0; press < expected.length * 2 + 20; press += 1) {
+          await page.keyboard.press('Tab');
+          const focused = await page.evaluate(() => {
+            const el = document.activeElement as HTMLElement | null;
+            if (!el || el === document.body) return null;
+            const box = el.getBoundingClientRect();
+            const seen =
+              el.checkVisibility() &&
+              box.right > 0 &&
+              box.left < innerWidth &&
+              box.bottom > 0 &&
+              box.top < innerHeight;
+            const name = el.getAttribute('aria-label') ?? el.textContent?.trim().slice(0, 40);
+            return {
+              tag: el.dataset.keyboardSweep,
+              name: `${el.tagName.toLowerCase()} "${name}"`,
+              seen,
+            };
+          });
+          if (!focused) break;
+          if (!focused.seen) problems.push(`${path}: ${focused.name} takes the focus out of sight`);
+          if (focused.tag === undefined) continue;
+          const index = Number(focused.tag);
+          if (reached.has(index)) break;
+          reached.add(index);
+        }
+        expected.forEach((name, index) => {
+          if (!reached.has(index)) problems.push(`${path}: ${name} cannot be reached`);
+        });
+      }
+
+      expect([...new Set(problems)]).toEqual([]);
+    });
+  }
+});
+
+/**
+ * A button that turns disabled while its action runs drops the focus to
+ * `<body>`, where a screen reader loses its place and the next Tab starts
+ * over. Pressed from the keyboard, each has the focus back once it ends.
+ */
+test.describe('a button keeps the focus through the action it runs', () => {
+  const BUTTONS: { path: string; name: RegExp }[] = [
+    { path: '/instances', name: /^Sync now – / },
+    { path: '/instances', name: /^Sync all$/ },
+    { path: '/simulation', name: /^Run simulation$/ },
+    { path: '/settings#maintenance', name: /^Back up now$/ },
+  ];
+  for (const { path, name } of BUTTONS) {
+    test(`${name.source} on ${path}`, async ({ page, instanceId }) => {
+      expect(instanceId).toBeTruthy();
+      await ready(page, path);
+      const button = page.getByRole('button', { name });
+      await button.focus();
+      await page.keyboard.press('Enter');
+
+      await expect(button).toBeEnabled();
+      await expect(button).toBeFocused();
+    });
+  }
 });
 
 test('every screen nests its headings without skipping a level', async ({ page, instanceId }) => {

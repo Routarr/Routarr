@@ -254,7 +254,7 @@
   "Error": "errore",
   "ErrorApplyInProgress": "C'è già un'applicazione in corso",
   "ErrorBatchLimit": "Il lotto di {count} supera il limite di {limit}. Riduci la selezione o aumenta batch_limit nelle Impostazioni.",
-  "ErrorConfirmationRequired": "Elementi oltre la soglia di conferma di {threshold}: {count}. Rinvia con confirm = true per procedere.",
+  "ErrorConfirmationRequired": "Elementi oltre la soglia di conferma di {threshold}: {count}.",
   "ErrorDryRunEnabled": "La prova a secco globale è attiva. Disattivala nelle Impostazioni per applicare le modifiche.",
   "ErrorNoSelection": "Nessuna decisione selezionata",
   "ErrorNotEnoughSpace": "{path} riceverebbe {needed} ma dichiara solo {free} liberi. Reinvia con confirm = true per spostare comunque.",

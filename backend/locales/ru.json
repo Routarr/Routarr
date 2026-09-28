@@ -254,7 +254,7 @@
   "Error": "ошибка",
   "ErrorApplyInProgress": "Применение уже выполняется",
   "ErrorBatchLimit": "Пакет из {count} превышает лимит {limit}. Сократите выбор или увеличьте batch_limit в Настройках.",
-  "ErrorConfirmationRequired": "Элементов сверх порога подтверждения {threshold}: {count}. Отправьте повторно с confirm = true, чтобы продолжить.",
+  "ErrorConfirmationRequired": "Элементов сверх порога подтверждения {threshold}: {count}.",
   "ErrorDryRunEnabled": "Глобальный тестовый прогон включён. Отключите его в Настройках, чтобы применить изменения.",
   "ErrorNoSelection": "Не выбрано ни одного решения",
   "ErrorNotEnoughSpace": "{path} получит {needed}, но сообщает лишь о {free} свободного места. Отправьте повторно с confirm = true, чтобы переместить всё равно.",

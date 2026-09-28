@@ -85,9 +85,23 @@
     () => (busy ? 5000 : 60000),
   );
 
-  // Only reachable below the drawer breakpoint; above it the rail is always in
+  // Only reachable below the drawer breakpoint. Above it the rail is always in
   // the flow and this stays false.
   let drawer = $state(false);
+  let drawerToggle = $state<HTMLButtonElement | null>(null);
+
+  // Below the drawer breakpoint of `index.css` a closed drawer is out of sight,
+  // and its links leave the tab order with it. Above it the rail is the
+  // navigation and stays reachable.
+  let narrow = $state(false);
+  $effect(() => {
+    const query = window.matchMedia?.('(max-width: 900px)');
+    if (!query) return;
+    narrow = query.matches;
+    const follow = () => (narrow = query.matches);
+    query.addEventListener('change', follow);
+    return () => query.removeEventListener('change', follow);
+  });
 
   let palette = $state(false);
 
@@ -109,6 +123,14 @@
     // this would swallow the keystroke — Firefox's own search bar included —
     // and open nothing at all.
     if (unauthorized) return;
+    // A drawer that covers the page is left the way a dialog is, the focus
+    // going back to the button that opened it. An open dialog answers Escape
+    // itself.
+    if (event.key === 'Escape' && drawer && !document.querySelector('dialog[open]')) {
+      drawer = false;
+      drawerToggle?.focus();
+      return;
+    }
     // Alt and Shift are somebody else's: Ctrl+Shift+K is Firefox's console,
     // and AltGr on Windows sets `ctrlKey` and `altKey` together, so a reader
     // typing a bracketed character would lose it to this.
@@ -210,6 +232,7 @@
          no room for any of them. -->
     <Sidebar
       open={drawer}
+      offstage={narrow && !drawer}
       onNavigate={() => (drawer = false)}
       version={status.data?.version}
       counts={{
@@ -230,6 +253,7 @@
       <header class="topbar">
         <div class="flex items-center gap-2">
           <button
+            bind:this={drawerToggle}
             class="btn btn-ghost btn-sm sidebar-toggle"
             onclick={() => (drawer = !drawer)}
             aria-label={t('OpenNavigation')}

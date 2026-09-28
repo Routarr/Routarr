@@ -254,7 +254,7 @@
   "Error": "خطأ",
   "ErrorApplyInProgress": "هناك عملية تطبيق أخرى قيد التنفيذ",
   "ErrorBatchLimit": "حجم الدفعة {count} يتجاوز الحد {limit}. قلّل التحديد أو ارفع batch_limit في الإعدادات.",
-  "ErrorConfirmationRequired": "العناصر التي تتجاوز عتبة التأكيد {threshold}: {count}. أعد الإرسال مع confirm = true للمتابعة.",
+  "ErrorConfirmationRequired": "العناصر التي تتجاوز عتبة التأكيد {threshold}: {count}.",
   "ErrorDryRunEnabled": "التشغيل التجريبي العام مفعّل. عطّله في الإعدادات لتطبيق التغييرات.",
   "ErrorNoSelection": "لم يُحدَّد أي قرار",
   "ErrorNotEnoughSpace": "سيستقبل {path} حجم {needed} لكنه لا يعلن سوى {free} متاحة. أعد الإرسال مع confirm = true للنقل رغم ذلك.",
