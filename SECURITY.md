@@ -84,6 +84,10 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   session it had opened. The cookie is `HttpOnly`, `SameSite=Lax` and scoped to
   the mount point, and a write carrying it is refused when the request states an
   origin that is not this one.
+- **In `none` and `external` modes a write with no API key is refused when the
+  request states an origin that is not this one.** Nothing else stands between
+  a page of another site and the API there: `none` asks for nothing, and in
+  `external` the proxy in front has already signed the browser in.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
   issuer, the audience, the expiry and the nonce it generated, and takes each
   sign-in attempt out of the table as it is used, so an authorisation code
