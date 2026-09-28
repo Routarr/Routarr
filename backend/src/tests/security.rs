@@ -704,6 +704,34 @@ async fn a_write_from_another_origin_is_refused_even_with_the_cookie() {
     assert_eq!(app.router.clone().oneshot(write).await.unwrap().status(), StatusCode::FORBIDDEN);
 }
 
+/// With no sign-in in the way (`none`), or a proxy in front that signs the
+/// browser in (`external`), a page of another site posts here as easily as
+/// this application does. The Origin the browser states is then the one thing
+/// that tells the two apart.
+#[tokio::test]
+async fn a_cross_origin_write_is_refused_in_every_mode() {
+    use crate::config::AuthMode;
+
+    for mode in [AuthMode::None, AuthMode::External] {
+        let mut config = crate::config::Config::for_tests();
+        config.auth_mode = mode;
+        let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+        let write = |origin: &str| {
+            Request::post("/api/v1/simulate")
+                .header("content-type", "application/json")
+                .header("origin", origin)
+                .header("host", "routarr.local")
+                .body(Body::from("{}"))
+                .unwrap()
+        };
+
+        let foreign = app.send(write("https://evil.example")).await.status;
+        assert_eq!(foreign, StatusCode::FORBIDDEN, "{mode:?}: another site's write went through");
+        let own = app.send(write("http://routarr.local")).await.status;
+        assert!(own.is_success(), "{mode:?}: this application's own write was refused: {own}");
+    }
+}
+
 /// Sends a write with the cookie and the given browser and proxy headers.
 async fn write_from(
     app: &TestApp,

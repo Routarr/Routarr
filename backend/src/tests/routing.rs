@@ -498,6 +498,40 @@ async fn a_disabled_instance_is_not_simulated() {
     );
 }
 
+/// A rule "Anime, except Family" whose exclusions cannot be read is not the
+/// rule "Anime": dropped in silence, the exclusions would let it move the very
+/// titles they kept out. It matches nothing until they can be read.
+#[tokio::test]
+async fn an_unreadable_exclusion_keeps_the_rule_from_matching() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 1, "the rule moves the film");
+
+    sqlx::query("UPDATE rules SET exclusions = '[{\"type\":\"a_kind_this_build_lacks\"}]'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 0, "the rule widened");
+}
+
+/// A scope that cannot be read is not every instance.
+#[tokio::test]
+async fn an_unreadable_instance_list_scopes_the_rule_to_nothing() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 1, "the rule moves the film");
+
+    sqlx::query("UPDATE rules SET instance_ids = 'not json'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 0, "the rule widened");
+}
+
 /// Two library-wide passes both supersede the other's pending decisions, and
 /// the later commit wins — so the survivor may have been computed from a rule
 /// set that changed in between. The webhook's single-item run must *not* queue

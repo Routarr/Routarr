@@ -357,6 +357,34 @@ mod tests {
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
 
+    /// A 200 that is not the API's JSON, as a captive portal or a cut body
+    /// answers. reqwest puts the URL in a decode error, and a TMDb or OMDb key
+    /// travels in that URL, so the description is built from the error's
+    /// cause alone.
+    #[tokio::test]
+    async fn a_body_that_is_not_json_never_echoes_the_url_or_the_key() {
+        let portal = axum::Router::new().route(
+            "/3/movie/1",
+            axum::routing::get(|| async {
+                axum::response::Html("<html>Sign in to the Wi-Fi</html>")
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, portal).await });
+
+        let request = reqwest::Client::new()
+            .get(format!("http://{address}/3/movie/1?api_key=SUPERSECRET123"));
+        let error = send_json::<serde_json::Value>("TMDb", request)
+            .await
+            .expect_err("a page of HTML is not the API's JSON");
+
+        let message = error.to_string();
+        assert!(message.contains("unreadable"), "not reported as unreadable: {message}");
+        assert!(!message.contains("SUPERSECRET123"), "the key leaked: {message}");
+        assert!(!message.contains("api_key"), "the query string leaked: {message}");
+    }
+
     /// The listing in the shape `FileSystemResult` serialises to: camelCase,
     /// every directory's path ending in the Arr's separator. Written from
     /// Radarr's and Sonarr's `FileSystemLookupService`, not captured from a

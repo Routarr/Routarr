@@ -536,6 +536,33 @@ async fn rules_round_trip_through_export_and_import() {
     assert_eq!(rules.as_array().unwrap().len(), 1, "replace must not duplicate");
 }
 
+/// A replace whose every rule is refused would delete the rules in place and
+/// add none, and the next pass would route the whole library to the fallback
+/// category. It is refused whole, and the rules stay.
+#[tokio::test]
+async fn a_replacing_import_that_keeps_nothing_deletes_nothing() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/rules", anime_rule_body()).await.assert_ok();
+
+    let bundle = serde_json::json!({
+        "version": 1,
+        "rules": [{
+            "name": "Inverted",
+            "media_type": "movie",
+            "target_category": "anime",
+            "conditions": [{ "type": "year_range", "value": { "min": 2020, "max": 2000 } }]
+        }]
+    });
+    let response = app
+        .post("/api/v1/rules/import", serde_json::json!({ "bundle": bundle, "replace": true }))
+        .await;
+    response.assert_status(StatusCode::BAD_REQUEST);
+
+    let rules = app.get("/api/v1/rules").await.assert_ok().clone();
+    assert_eq!(rules.as_array().unwrap().len(), 1, "the rules in place were deleted: {rules}");
+}
+
 /// A bundle brings a category with it, and the rules targeting it arrive too.
 /// The category was created and every rule was judged against a list read
 /// before it existed, so all of them were skipped as naming a category that
