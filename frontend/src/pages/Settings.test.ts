@@ -501,6 +501,16 @@ describe('the section strip', () => {
  * copy of what it wrote. Both have to be told.
  */
 describe('importing a configuration', () => {
+  /** The restore is the disaster path, and a keyboard has to reach it. */
+  it('offers the import as a button that opens the file picker', async () => {
+    mount({});
+    await openSection('Maintenance');
+    const pick = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'ImportConfig' }));
+    expect(pick).toHaveBeenCalledTimes(1);
+  });
+
   const BUNDLE = {
     settings: 3,
     categories: 1,

@@ -6,6 +6,7 @@
   import { describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import { handFocus } from '../lib/focus';
   import DecisionRow from '../components/DecisionRow.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -66,6 +67,7 @@
    * never in its place, or the user would not learn what the apply did.
    */
   async function run({ refresh = false }: { refresh?: boolean } = {}) {
+    const pressed = document.activeElement as HTMLElement | null;
     busy = 'run';
     loadError = null;
     if (!refresh) outcome.clear();
@@ -87,6 +89,7 @@
       else outcome.fail(err);
     } finally {
       busy = null;
+      void handFocus(pressed);
     }
   }
 

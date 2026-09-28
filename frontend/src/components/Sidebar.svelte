@@ -22,18 +22,21 @@
 
   let {
     open = false,
+    offstage = false,
     onNavigate,
     counts = { jobs: 0, decisions: 0, failed: 0, warnings: 0 },
     version,
   }: {
     open?: boolean;
+    /** Out of sight, a closed drawer: nothing in it may take the focus. */
+    offstage?: boolean;
     onNavigate?: () => void;
     counts?: Counts;
     version?: string;
   } = $props();
 </script>
 
-<aside id="sidebar" class="sidebar{open ? ' is-open' : ''}">
+<aside id="sidebar" class="sidebar{open ? ' is-open' : ''}" inert={offstage}>
   <div class="sidebar-header">
     <svg
       class="sidebar-logo"

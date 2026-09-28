@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
 
-  import { AlertTriangle, Download, KeyRound, Save, Trash2, Upload } from '../lib/icons';
+  import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
   import { api, getApiKey, setApiKey } from '../api/client';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -15,6 +15,7 @@
     type SectionId,
     type Field,
   } from '../lib/settings';
+  import FileButton from '../components/FileButton.svelte';
   import BackupCard from '../components/BackupCard.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
@@ -668,20 +669,11 @@
                   <Download size={16} />
                   {t('ExportConfig')}
                 </button>
-                <label class="btn btn-secondary cursor-pointer">
-                  <Upload size={16} />
-                  {t('ImportConfig')}
-                  <input
-                    type="file"
-                    accept="application/json"
-                    hidden
-                    onchange={(event) => {
-                      const file = event.currentTarget.files?.[0];
-                      if (file) void importConfig(file);
-                      event.currentTarget.value = '';
-                    }}
-                  />
-                </label>
+                <FileButton
+                  label={t('ImportConfig')}
+                  accept="application/json"
+                  onFile={(file) => void importConfig(file)}
+                />
                 <button type="button" class="btn btn-secondary" onclick={purge}>
                   <Trash2 size={16} />
                   {t('PurgeNow')}

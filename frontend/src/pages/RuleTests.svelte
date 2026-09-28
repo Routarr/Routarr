@@ -32,6 +32,7 @@
   const verdicts = $derived(new Map((run?.results ?? []).map((r) => [r.id, r])));
 
   async function runAll() {
+    const pressed = document.activeElement as HTMLElement | null;
     busy = true;
     // Nothing of the run before stays: its verdicts would read as the answer
     // to this one, whatever this one ends in.
@@ -50,6 +51,7 @@
       outcome.fail(err);
     } finally {
       busy = false;
+      void handFocus(pressed);
     }
   }
 
