@@ -234,7 +234,13 @@ pub(crate) async fn tick(
             }
             // A conflict means a manual sync is already running — not an error.
             Err(crate::error::AppError::Conflict(_)) => {}
-            Err(e) => error!("Scheduled sync of '{}' failed: {e}", instance.name),
+            // Stamped on the attempt, as the backup below is: an instance that
+            // is down waits its own interval, rather than costing a full
+            // connect timeout on every tick in a loop the others wait behind.
+            Err(e) => {
+                last_sync.insert(instance.id.clone(), now);
+                error!("Scheduled sync of '{}' failed: {e}", instance.name);
+            }
         }
     }
 
