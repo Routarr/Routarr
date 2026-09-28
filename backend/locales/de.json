@@ -254,7 +254,7 @@
   "Error": "Fehler",
   "ErrorApplyInProgress": "Es läuft bereits ein Anwendungsvorgang",
   "ErrorBatchLimit": "Stapelgröße {count} überschreitet das Limit von {limit}. Auswahl verkleinern oder batch_limit in den Einstellungen erhöhen.",
-  "ErrorConfirmationRequired": "Einträge über der Bestätigungsschwelle von {threshold}: {count}. Erneut mit confirm = true senden, um fortzufahren.",
+  "ErrorConfirmationRequired": "Einträge über der Bestätigungsschwelle von {threshold}: {count}.",
   "ErrorDryRunEnabled": "Der globale Testlauf-Modus ist aktiv. Deaktivieren Sie ihn in den Einstellungen, um Änderungen anzuwenden.",
   "ErrorNoSelection": "Keine Entscheidung ausgewählt",
   "ErrorNotEnoughSpace": "{path} würde {needed} aufnehmen, meldet aber nur {free} frei. Mit confirm = true erneut senden, um trotzdem zu verschieben.",

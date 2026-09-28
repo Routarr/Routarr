@@ -254,7 +254,7 @@
   "Error": "hata",
   "ErrorApplyInProgress": "Zaten süren bir uygulama var",
   "ErrorBatchLimit": "{count} ögelik yığın, {limit} sınırını aşıyor. Seçimi azaltın veya Ayarlar'da batch_limit değerini yükseltin.",
-  "ErrorConfirmationRequired": "{threshold} onay eşiğinin üzerindeki öğeler: {count}. Devam etmek için confirm = true ile yeniden gönderin.",
+  "ErrorConfirmationRequired": "{threshold} onay eşiğinin üzerindeki öğeler: {count}.",
   "ErrorDryRunEnabled": "Genel deneme modu etkin. Değişiklikleri uygulamak için Ayarlar'dan devre dışı bırakın.",
   "ErrorNoSelection": "Hiçbir karar seçilmedi",
   "ErrorNotEnoughSpace": "{path} klasörü {needed} alacak ancak yalnızca {free} boş alan bildiriyor. Yine de taşımak için confirm = true ile yeniden gönderin.",

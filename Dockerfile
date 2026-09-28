@@ -18,7 +18,7 @@
 # the image is built for amd64 and arm64.
 
 # ---------------------------------------------------------------- frontend
-FROM node:24-alpine@sha256:50c8e8ca1d27439048670df5883f32d57cf81cff6233222c893fd0d9884cbd81 AS frontend-builder
+FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
 WORKDIR /app/frontend
 
 # Dependencies are their own layer so editing a component does not reinstall npm.
@@ -29,7 +29,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # ---------------------------------------------------------------- backend
-FROM rust:1.98.1-alpine@sha256:1716b3aa042d735f4566d14dc54e8037de9d69556e2d5dd58131d93a613d173d AS backend-builder
+FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed7d553f1769ae89f AS backend-builder
 RUN apk add --no-cache musl-dev pkgconfig
 
 WORKDIR /app

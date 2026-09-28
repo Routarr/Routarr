@@ -254,7 +254,7 @@
   "Error": "hiba",
   "ErrorApplyInProgress": "Már fut egy végrehajtás",
   "ErrorBatchLimit": "A(z) {count} elemű köteg meghaladja a(z) {limit} korlátot. Szűkítse a kijelölést, vagy emelje a batch_limit értékét a Beállításokban.",
-  "ErrorConfirmationRequired": "A(z) {threshold} megerősítési küszöb feletti elemek: {count}. Küldje újra confirm = true értékkel a folytatáshoz.",
+  "ErrorConfirmationRequired": "A(z) {threshold} megerősítési küszöb feletti elemek: {count}.",
   "ErrorDryRunEnabled": "A globális próbafuttatás be van kapcsolva. Kapcsolja ki a Beállításokban a módosítások végrehajtásához.",
   "ErrorNoSelection": "Nincs kijelölve döntés",
   "ErrorNotEnoughSpace": "{path} {needed} adatot kapna, de csak {free} szabad helyet jelez. Küldje újra confirm = true értékkel az áthelyezéshez.",
