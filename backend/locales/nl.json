@@ -622,6 +622,7 @@
   "SignInRefused": "De aanmelding is niet voltooid. Probeer het opnieuw.",
   "SignInWithProvider": "Aanmelden bij je provider",
   "SignInWithProviderHelp": "Routarr bewaart je wachtwoord niet: je identiteitsprovider bepaalt wie binnenkomt.",
+  "SignInWrongCredentials": "De gebruikersnaam of het wachtwoord is onjuist.",
   "SignOut": "Afmelden",
   "SigningIn": "Aanmelden…",
   "Simulating": "Bezig met simuleren…",

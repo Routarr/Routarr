@@ -622,6 +622,7 @@
   "SignInRefused": "Prihlásenie sa nedokončilo. Skúste to znova.",
   "SignInWithProvider": "Prihlásiť sa u poskytovateľa",
   "SignInWithProviderHelp": "Routarr vaše heslo nepozná: o tom, kto sa dostane dnu, rozhoduje poskytovateľ identity.",
+  "SignInWrongCredentials": "Používateľské meno alebo heslo nie je správne.",
   "SignOut": "Odhlásiť sa",
   "SigningIn": "Prihlasovanie…",
   "Simulating": "Simuluje sa…",

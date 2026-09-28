@@ -51,18 +51,24 @@ describe('LoginGate', () => {
 
   /**
    * A refusal has to reach the screen: swallowed, a wrong password looks like
-   * a button that does nothing.
+   * a button that does nothing. Worded as every other 401 is, it asks for an
+   * API key this screen offers no way to set.
    */
-  it('shows the refusal rather than swallowing it', async () => {
+  it('says a wrong password is wrong, rather than swallowing it', async () => {
     vi.spyOn(api, 'login').mockRejectedValue(
       new ApiError('Wrong username or password.', 401, 'unauthorized'),
     );
-    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+    renderWithI18n(LoginGate, {
+      props: { mode: 'forms' },
+      strings: { ...STRINGS, SignInWrongCredentials: 'The username or the password is wrong.' },
+    });
 
     await userEvent.type(screen.getByLabelText('Password'), 'nope');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
-    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('alert')).toHaveTextContent('The username or the password is wrong.'),
+    );
   });
 
   /**

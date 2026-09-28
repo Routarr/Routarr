@@ -622,6 +622,7 @@
   "SignInRefused": "サインインが完了しませんでした。もう一度お試しください。",
   "SignInWithProvider": "プロバイダーでサインイン",
   "SignInWithProviderHelp": "Routarr はパスワードを保持しません。誰が入れるかは ID プロバイダーが決めます。",
+  "SignInWrongCredentials": "ユーザー名またはパスワードが正しくありません。",
   "SignOut": "サインアウト",
   "SigningIn": "サインインしています…",
   "Simulating": "シミュレーション中…",

@@ -622,6 +622,7 @@
   "SignInRefused": "Oturum açma tamamlanmadı. Yeniden deneyin.",
   "SignInWithProvider": "Sağlayıcınızla oturum açın",
   "SignInWithProviderHelp": "Routarr parolanızı saklamaz: kimin gireceğine kimlik sağlayıcınız karar verir.",
+  "SignInWrongCredentials": "Kullanıcı adı ya da parola yanlış.",
   "SignOut": "Oturumu kapat",
   "SigningIn": "Oturum açılıyor…",
   "Simulating": "Benzetim yapılıyor…",

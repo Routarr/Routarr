@@ -622,6 +622,7 @@
   "SignInRefused": "L'inici de sessió no s'ha completat. Torna-ho a provar.",
   "SignInWithProvider": "Inicia la sessió amb el teu proveïdor",
   "SignInWithProviderHelp": "Routarr no guarda la teva contrasenya: el teu proveïdor d'identitat decideix qui entra.",
+  "SignInWrongCredentials": "El nom d'usuari o la contrasenya no són correctes.",
   "SignOut": "Tanca la sessió",
   "SigningIn": "S'està iniciant la sessió…",
   "Simulating": "S'està simulant…",

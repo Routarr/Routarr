@@ -622,6 +622,7 @@
   "SignInRefused": "Kirjautuminen ei valmistunut. Yritä uudelleen.",
   "SignInWithProvider": "Kirjaudu palveluntarjoajallasi",
   "SignInWithProviderHelp": "Routarr ei säilytä salasanaasi: identiteetintarjoajasi päättää, kuka pääsee sisään.",
+  "SignInWrongCredentials": "Käyttäjätunnus tai salasana on väärä.",
   "SignOut": "Kirjaudu ulos",
   "SigningIn": "Kirjaudutaan…",
   "Simulating": "Simuloidaan…",

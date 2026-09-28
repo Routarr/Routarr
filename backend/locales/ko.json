@@ -622,6 +622,7 @@
   "SignInRefused": "로그인이 완료되지 않았습니다. 다시 시도하세요.",
   "SignInWithProvider": "공급자로 로그인",
   "SignInWithProviderHelp": "Routarr는 비밀번호를 보관하지 않습니다. 누가 들어올지는 ID 공급자가 결정합니다.",
+  "SignInWrongCredentials": "사용자 이름 또는 비밀번호가 올바르지 않습니다.",
   "SignOut": "로그아웃",
   "SigningIn": "로그인 중…",
   "Simulating": "시뮬레이션 중…",

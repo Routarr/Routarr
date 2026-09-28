@@ -11,6 +11,8 @@
 //! model carries a name and a password hash and nothing else, and a single
 //! account. Access is all or nothing, and who gets in is the mode's business.
 
+use std::net::IpAddr;
+
 use axum::extract::State;
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::Next;
@@ -72,6 +74,7 @@ pub async fn authenticate(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
+    let mut renewal = None;
     let identity = match state.config.auth_mode {
         // Nothing is asked for, and no name a proxy sends is read: the proxy in
         // front has already decided, and reading one would only invent a trust
@@ -96,7 +99,11 @@ pub async fn authenticate(
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
                 Some(_) if !same_origin(&request) => return foreign_origin(),
-                other => other,
+                Some((identity, renewed)) => {
+                    renewal = renewed;
+                    Some(identity)
+                }
+                None => None,
             },
         },
         // A key-less ApiKey mode cannot happen: `main` generates one at startup
@@ -108,7 +115,18 @@ pub async fn authenticate(
     match identity {
         Some(identity) => {
             request.extensions_mut().insert(identity);
-            next.run(request).await
+            let mut response = next.run(request).await;
+            // Not over a cookie the handler set itself, as a password change
+            // clears the session it ends.
+            let sets_its_own = response
+                .headers()
+                .get_all(axum::http::header::SET_COOKIE)
+                .iter()
+                .any(|value| value.as_bytes().starts_with(SESSION_COOKIE.as_bytes()));
+            if let Some(cookie) = renewal.filter(|_| !sets_its_own) {
+                response.headers_mut().append(axum::http::header::SET_COOKIE, cookie);
+            }
+            response
         }
         None => (
             StatusCode::UNAUTHORIZED,
@@ -137,13 +155,21 @@ fn api_key_identity(state: &AppState, headers: &HeaderMap) -> Option<Identity> {
         .map(|_| Identity { subject: "apikey".to_string(), source: AuthMode::ApiKey })
 }
 
-/// The identity a live session cookie names, when the mode in force opened it.
-async fn session_identity(state: &AppState, headers: &HeaderMap) -> Option<Identity> {
+/// The identity a live session cookie names, when the mode in force opened it,
+/// and the cookie to give again when answering it moved its expiry: the
+/// browser keeps a cookie only as long as the `Max-Age` it was last given.
+async fn session_identity(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Option<(Identity, Option<axum::http::HeaderValue>)> {
     let id = cookie(headers, SESSION_COOKIE)?;
     let mode = state.config.auth_mode;
-    let subject =
-        accounts::session_subject(&state.pool, &id, mode.as_str()).await.ok().flatten()?;
-    Some(Identity { subject, source: mode })
+    let session = accounts::live_session(&state.pool, &id, mode.as_str()).await.ok().flatten()?;
+    let renewal = session
+        .renewed
+        .then(|| session_cookie(state, headers, &id, accounts::SESSION_DAYS))
+        .and_then(|cookie| axum::http::HeaderValue::from_str(&cookie).ok());
+    Some((Identity { subject: session.subject, source: mode }, renewal))
 }
 
 /// One named cookie out of the header, without a crate for it.
@@ -331,18 +357,78 @@ fn unauthorized() -> Response {
         .into_response()
 }
 
+/// Where a request comes from: the peer, or the client a proxy on this machine
+/// or its network forwarded. `None` on a connection that carries no peer
+/// address, as a test's does.
+pub struct Client(pub Option<IpAddr>);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Client {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let peer = parts
+            .extensions
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|axum::extract::ConnectInfo(address)| address.ip());
+        Ok(Self(client_address(peer, &parts.headers)))
+    }
+}
+
+/// The client behind `peer`. A proxy appends the address it saw to
+/// `X-Forwarded-For`, so the last entry names the client, but only a proxy on
+/// this machine or its network is taken at its word: anyone else writing the
+/// header would choose whose share of the sign-in queue they fill and which
+/// address a ban lands on.
+fn client_address(peer: Option<IpAddr>, headers: &HeaderMap) -> Option<IpAddr> {
+    let peer = peer?;
+    if !is_local(peer) {
+        return Some(peer);
+    }
+    let forwarded = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.rsplit(',').next())
+        .and_then(|last| last.trim().parse().ok());
+    forwarded.or(Some(peer))
+}
+
+fn is_local(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => is_local(IpAddr::V4(v4)),
+            None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
+        },
+    }
+}
+
 /// Exchange a username and a password for a session cookie.
 ///
 /// One message for a wrong name and a wrong password alike: saying which was
 /// wrong tells an attacker that the other was right.
 pub async fn login(
     State(state): State<AppState>,
+    Client(client): Client,
     headers: HeaderMap,
     super::Json(credentials): super::Json<Credentials>,
 ) -> Response {
+    // Every refusal leaves one line naming where it came from, the line a
+    // fail2ban filter reads, and never what was typed: a password typed into
+    // the name field is a password.
+    let refuse = || {
+        match client {
+            Some(address) => tracing::warn!("A sign-in was refused for {address}"),
+            None => tracing::warn!("A sign-in was refused for an unknown address"),
+        }
+        unauthorized()
+    };
+
     let stored = accounts::account(&state.pool).await.ok().flatten();
     let Some((username, hash)) = stored else {
-        return unauthorized();
+        return refuse();
     };
 
     // One cheap refusal before the expensive one. A password shorter than the
@@ -350,7 +436,7 @@ pub async fn login(
     // so hashing it would spend 355 ms proving what its length already says.
     // The minimum is public: the refusal above states it.
     if credentials.password.chars().count() < MIN_PASSWORD_LENGTH {
-        return unauthorized();
+        return refuse();
     }
     // The username is *not* checked first: answering at once on a wrong name
     // and 355 ms later on the right one tells a caller which name exists. The
@@ -360,7 +446,7 @@ pub async fn login(
     // Bounded, and off the runtime. See `SignInThrottle`: argon2id is what
     // makes this endpoint expensive to serve as well as hard to guess, and it
     // is the machine that needs defending rather than the password.
-    let matched = match state.sign_in.verify(&credentials.password, &hash).await {
+    let matched = match state.sign_in.verify(&credentials.password, &hash, client).await {
         Ok(matched) => matched,
         Err(accounts::Busy) => {
             return (
@@ -376,7 +462,7 @@ pub async fn login(
     };
 
     if !(matched && name_matches) {
-        return unauthorized();
+        return refuse();
     }
 
     match accounts::open_session(&state.pool, credentials.username.trim(), AuthMode::Forms.as_str())
@@ -555,7 +641,7 @@ pub async fn change_password(
     // proceeded on a check that never ran would be the one bug here worth
     // fearing.
     let current_matches: bool =
-        state.sign_in.verify(&change.current, &hash).await.unwrap_or_default();
+        state.sign_in.verify(&change.current, &hash, None).await.unwrap_or_default();
     if !current_matches {
         return unauthorized();
     }
@@ -644,6 +730,22 @@ mod tests {
         for source in [AuthMode::None, AuthMode::External] {
             assert_eq!(Identity::anonymous(source).actor(), None);
         }
+    }
+
+    /// Only a proxy on this machine or its network names the client it
+    /// forwards. Anyone else writing the header would choose whose share of
+    /// the sign-in queue they fill, and which address a ban lands on.
+    #[test]
+    fn only_a_local_proxy_names_the_client_it_forwards() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", HeaderValue::from_static("192.0.2.1, 203.0.113.9"));
+        let proxy: Option<IpAddr> = "172.18.0.2".parse().ok();
+        let stranger: Option<IpAddr> = "198.51.100.7".parse().ok();
+
+        assert_eq!(client_address(proxy, &headers), "203.0.113.9".parse().ok());
+        assert_eq!(client_address(stranger, &headers), stranger);
+        assert_eq!(client_address(proxy, &HeaderMap::new()), proxy);
+        assert_eq!(client_address(None, &headers), None);
     }
 
     #[test]

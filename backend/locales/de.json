@@ -622,6 +622,7 @@
   "SignInRefused": "Die Anmeldung wurde nicht abgeschlossen. Versuchen Sie es erneut.",
   "SignInWithProvider": "Mit Ihrem Anbieter anmelden",
   "SignInWithProviderHelp": "Routarr kennt Ihr Passwort nicht: Ihr Identitätsanbieter entscheidet, wer hereinkommt.",
+  "SignInWrongCredentials": "Benutzername oder Passwort ist falsch.",
   "SignOut": "Abmelden",
   "SigningIn": "Anmeldung…",
   "Simulating": "Simulation läuft…",

@@ -622,6 +622,7 @@
   "SignInRefused": "A bejelentkezés nem fejeződött be. Próbálja újra.",
   "SignInWithProvider": "Bejelentkezés a szolgáltatóval",
   "SignInWithProviderHelp": "A Routarr nem tárolja a jelszavát: a személyazonosság-szolgáltató dönti el, ki léphet be.",
+  "SignInWrongCredentials": "A felhasználónév vagy a jelszó hibás.",
   "SignOut": "Kijelentkezés",
   "SigningIn": "Bejelentkezés…",
   "Simulating": "Szimulálás…",

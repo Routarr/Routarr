@@ -622,6 +622,7 @@
   "SignInRefused": "Logowanie nie zostało ukończone. Spróbuj ponownie.",
   "SignInWithProvider": "Zaloguj się u swojego dostawcy",
   "SignInWithProviderHelp": "Routarr nie przechowuje Twojego hasła: to dostawca tożsamości decyduje, kto wejdzie.",
+  "SignInWrongCredentials": "Nazwa użytkownika lub hasło są nieprawidłowe.",
   "SignOut": "Wyloguj się",
   "SigningIn": "Logowanie…",
   "Simulating": "Symulowanie…",

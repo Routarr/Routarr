@@ -622,6 +622,7 @@
   "SignInRefused": "The sign-in did not complete. Try again.",
   "SignInWithProvider": "Sign in with your provider",
   "SignInWithProviderHelp": "Routarr does not hold your password: your identity provider decides who gets in.",
+  "SignInWrongCredentials": "The username or the password is wrong.",
   "SignOut": "Sign out",
   "SigningIn": "Signing in…",
   "Simulating": "Simulating…",
