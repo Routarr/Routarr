@@ -65,6 +65,7 @@ function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' }))
 afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   publishOnboarding(null);
   publishOnboardingFailure(null);
   window.history.replaceState({}, '', '/');
@@ -249,6 +250,47 @@ describe('Layout', () => {
     // beside it has to dismiss it.
     await fireEvent.click(container.querySelector('.sidebar-scrim') as HTMLElement);
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  /** A drawer that covers the page is left the way a dialog is. */
+  it('closes the drawer on Escape and hands the focus back to its button', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+
+    const toggle = await screen.findByRole('button', { name: 'Open navigation' });
+    await fireEvent.click(toggle);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(toggle);
+  });
+
+  /**
+   * Below the breakpoint a closed drawer is out of sight, and its links must
+   * leave the tab order with it. Above it the rail is the navigation.
+   */
+  it('takes a closed drawer out of reach below the breakpoint, and only there', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    const narrow = (matches: boolean) =>
+      vi.stubGlobal('matchMedia', () => ({
+        matches,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }));
+
+    narrow(true);
+    const { container, unmount } = show();
+    await screen.findByRole('button', { name: 'Open navigation' });
+    const drawer = () => container.querySelector('#sidebar') as HTMLElement;
+    expect(drawer().inert).toBe(true);
+    await fireEvent.click(screen.getByRole('button', { name: 'Open navigation' }));
+    expect(drawer().inert).toBe(false);
+    unmount();
+
+    narrow(false);
+    const wide = show();
+    await screen.findByRole('button', { name: 'Open navigation' });
+    expect((wide.container.querySelector('#sidebar') as HTMLElement).inert).toBe(false);
   });
 
   /**

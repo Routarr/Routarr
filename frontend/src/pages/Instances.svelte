@@ -16,6 +16,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
+  import { handFocus } from '../lib/focus';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -68,6 +69,7 @@
   // Generic over what the call returns, so the message reads the typed payload
   // the client already declares: a cast here is a field rename nobody sees.
   async function act<T>(id: string, fn: () => Promise<T>, describe: (result: T) => string) {
+    const pressed = document.activeElement as HTMLElement | null;
     busyId = id;
     try {
       const result = await fn();
@@ -80,6 +82,7 @@
       outcome.fail(err);
     } finally {
       busyId = null;
+      void handFocus(pressed);
     }
   }
 
@@ -274,6 +277,7 @@
     );
 
   async function syncAll() {
+    const pressed = document.activeElement as HTMLElement | null;
     busyId = 'all';
     try {
       const all = await api.syncAll();
@@ -289,6 +293,7 @@
       outcome.fail(err);
     } finally {
       busyId = null;
+      void handFocus(pressed);
     }
   }
 

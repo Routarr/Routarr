@@ -9,7 +9,6 @@
     Pencil,
     Plus,
     Trash2,
-    Upload,
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition } from '../api/format';
@@ -30,6 +29,7 @@
   import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import FileButton from '../components/FileButton.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -229,20 +229,11 @@
       <p class="page-subtitle">{t('RulesSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <label class="btn btn-secondary cursor-pointer">
-        <Upload size={16} />
-        {t('Import')}
-        <input
-          type="file"
-          accept="application/json"
-          hidden
-          onchange={(event) => {
-            const file = event.currentTarget.files?.[0];
-            if (file) void importBundle(file);
-            event.currentTarget.value = '';
-          }}
-        />
-      </label>
+      <FileButton
+        label={t('Import')}
+        accept="application/json"
+        onFile={(file) => void importBundle(file)}
+      />
       <button class="btn btn-secondary" onclick={exportBundle} disabled={rules.length === 0}>
         <Download size={16} />
         {t('Export')}
