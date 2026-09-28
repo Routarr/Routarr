@@ -86,19 +86,61 @@ async fn clearing_a_saved_key_falls_back_to_the_environment() {
     assert_eq!(stored, "");
 }
 
-/// A source with no key anywhere stays unusable, and one saved here becomes
-/// usable — which is the point of saving it.
+/// A listed source answers while its key is saved, and stops once it is
+/// removed: no key anywhere is no source.
 #[tokio::test]
-async fn saving_a_key_makes_its_source_usable() {
+async fn a_listed_source_answers_while_its_key_is_saved() {
     let app = TestApp::new().await;
-    save(&app, "metadata_providers", "arr,omdb").await;
+    let both = app
+        .put(
+            "/api/v1/settings",
+            serde_json::json!({ "settings": { "omdb_api_key": "a-key", "metadata_providers": "arr,omdb" } }),
+        )
+        .await;
+    both.assert_ok();
 
-    let unusable = app.state.metadata_providers().await;
-    assert!(!unusable.iter().any(|p| p.id == "omdb"), "omdb answered with no key at all");
-
-    save(&app, "omdb_api_key", "a-key").await;
     let usable = app.state.metadata_providers().await;
     assert!(usable.iter().any(|p| p.id == "omdb"), "saving a key did not enable the source");
+
+    save(&app, "omdb_api_key", "").await;
+    let unusable = app.state.metadata_providers().await;
+    assert!(!unusable.iter().any(|p| p.id == "omdb"), "omdb answered with no key at all");
+}
+
+/// A source that needs a key cannot answer without one. The Settings screen
+/// refuses to add it until one is typed, and the API it calls refuses as well,
+/// or a script lists a source the health page can only warn about.
+#[tokio::test]
+async fn a_source_that_needs_a_key_is_not_added_without_one() {
+    let app = TestApp::new().await;
+
+    assert_eq!(save(&app, "metadata_providers", "arr,omdb").await, 400);
+    let listed = app.state.metadata_order().await;
+    assert!(!listed.iter().any(|p| p.id == "omdb"), "the refused list was stored anyway");
+}
+
+/// Already listed, a source that lost its key stays: the screen sends the
+/// whole list on every save, and refusing it as it stands would refuse every
+/// setting until the source is removed.
+#[tokio::test]
+async fn a_listed_source_without_its_key_does_not_block_a_save() {
+    let app = TestApp::new().await;
+    app.put(
+        "/api/v1/settings",
+        serde_json::json!({ "settings": { "omdb_api_key": "a-key", "metadata_providers": "arr,omdb" } }),
+    )
+    .await
+    .assert_ok();
+    save(&app, "omdb_api_key", "").await;
+
+    let saved = app
+        .put(
+            "/api/v1/settings",
+            serde_json::json!({ "settings": { "metadata_providers": "arr,omdb", "batch_limit": "20" } }),
+        )
+        .await;
+
+    saved.assert_ok();
 }
 
 /// A rotation that leaves the metadata keys behind is a rotation that silently
