@@ -7,7 +7,7 @@ use std::panic::AssertUnwindSafe;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::jobs::{FULL_SIMULATION, JobKind, TRIGGER_SCHEDULE};
 use crate::services::{auto_apply, backup, enrichment, maintenance, routing, sync};
@@ -22,11 +22,18 @@ pub struct Timings {
     pub settle: Duration,
     /// The least a pass waits for the next, whatever the setting says.
     pub floor: Duration,
+    /// How long a shutdown waits for the post-sync work. Shorter than the
+    /// wait `main` gives the scheduler, so the pool is never closed under it.
+    pub grace: Duration,
 }
 
 impl Default for Timings {
     fn default() -> Self {
-        Self { settle: Duration::from_secs(5), floor: Duration::from_secs(60) }
+        Self {
+            settle: Duration::from_secs(5),
+            floor: Duration::from_secs(60),
+            grace: Duration::from_secs(5),
+        }
     }
 }
 
@@ -98,7 +105,7 @@ pub fn start_with(
             let wait = Duration::from_secs(minutes.min(24 * 60) * 60).max(timings.floor);
             if wait_or_stop(&mut shutdown, wait).await {
                 if let Some(running) = chain.take() {
-                    reap(&state, running).await;
+                    reap_within(&state, running, timings.grace).await;
                 }
                 info!("Background scheduler stopped");
                 return;
@@ -128,6 +135,24 @@ async fn record_panic(state: &AppState, cause: &str) {
 
 /// Wait for a finished or finishing chain, and say so if it panicked: a
 /// spawned task's panic ends in its `JoinHandle` and nowhere else.
+/// A shutdown's wait for the post-sync chain, for `grace` at most. Past it, the
+/// chain is dropped at its next await rather than left writing into the pool
+/// `main` closes next, and the job it leaves running is marked interrupted at
+/// the next start (`JobRegistry::recover_orphans`).
+async fn reap_within(state: &AppState, mut chain: JoinHandle<()>, grace: Duration) {
+    match tokio::time::timeout(grace, &mut chain).await {
+        Ok(Err(e)) if e.is_panic() => {
+            record_panic(state, &format!("post-sync work: {}", describe_panic(e.into_panic())))
+                .await;
+        }
+        Ok(_) => {}
+        Err(_) => {
+            chain.abort();
+            warn!("The post-sync work was still running at shutdown, and was stopped");
+        }
+    }
+}
+
 async fn reap(state: &AppState, chain: JoinHandle<()>) {
     if let Err(e) = chain.await
         && e.is_panic()
@@ -333,6 +358,23 @@ fn is_due(
 mod tests {
     use super::*;
     use tokio::time::Instant;
+
+    /// A chain still running at shutdown is dropped once the grace is out:
+    /// `main` closes the pool right after, and a chain left running would go
+    /// on writing into it.
+    #[tokio::test]
+    async fn a_shutdown_waits_for_the_post_sync_work_no_longer_than_its_grace() {
+        let state = AppState::for_tests().await;
+        let chain = tokio::spawn(tokio::time::sleep(Duration::from_secs(10)));
+        let stopped = chain.abort_handle();
+        let started = std::time::Instant::now();
+
+        reap_within(&state, chain, Duration::from_millis(50)).await;
+
+        assert!(started.elapsed() < Duration::from_secs(5), "the shutdown waited for the chain");
+        tokio::task::yield_now().await;
+        assert!(stopped.is_finished(), "the chain was left running");
+    }
 
     #[tokio::test]
     async fn an_instance_never_synced_is_due_immediately() {

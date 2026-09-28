@@ -432,6 +432,21 @@ pub async fn enrich_one(state: &AppState, tmdb_id: i64, media_type: &str) -> App
             continue;
         }
         let external_id = tmdb_id.to_string();
+        // Sonarr sends one delivery per imported episode: what the cache still
+        // holds is not fetched again, or a season costs one call per episode.
+        let cached: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM metadata_cache
+                            WHERE source = ? AND external_id = ? AND media_type = ?
+                              AND expires_at > datetime('now'))",
+        )
+        .bind(source.id())
+        .bind(&external_id)
+        .bind(media_type)
+        .fetch_one(&state.pool)
+        .await?;
+        if cached {
+            continue;
+        }
         let data = source.fetch(&external_id, media_type).await?;
         store_metadata(&state.pool, source.id(), &external_id, media_type, &data, ttl_days).await?;
     }
