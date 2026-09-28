@@ -44,7 +44,7 @@ pub struct AppState {
     /// that needs a source — a health page, an enrichment pass — so holding the
     /// token inside the client meant logging in again each time. TheTVDB counts
     /// logins; this is the only source that has any.
-    pub tvdb_token: Arc<tokio::sync::Mutex<Option<String>>>,
+    pub tvdb_token: crate::integrations::tvdb::TokenCache,
     /// The API key as it stands right now.
     ///
     /// Held here rather than on [`Config`] because it can change while the

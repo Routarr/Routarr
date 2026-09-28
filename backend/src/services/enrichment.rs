@@ -273,8 +273,8 @@ type Candidate = (String, Option<i64>, String, Option<i64>, Option<i64>, Option<
 /// Find this source's identifier for every item it has never been asked about.
 ///
 /// Both outcomes are written down. Remembering that AniList has nothing for
-/// *The Matrix* is what stops the next pass — and every pass after it — from
-/// searching for it again.
+/// *The Matrix* is what stops the next passes from searching for it again,
+/// until the miss is old enough to be worth asking about once more.
 async fn resolve_identifiers(
     state: &AppState,
     source: &FetchingSource,

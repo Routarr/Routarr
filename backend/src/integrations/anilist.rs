@@ -13,7 +13,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::send_json;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "AniList";
 pub const DEFAULT_BASE_URL: &str = "https://graphql.anilist.co";
@@ -65,9 +65,36 @@ pub struct AniListDetails {
     pub overview: Option<String>,
 }
 
+/// AniList answers a failure with a 200, `data: null` and an `errors` list.
 #[derive(Debug, Deserialize)]
 struct GraphQlResponse<T> {
     data: Option<T>,
+    #[serde(default)]
+    errors: Vec<GraphQlError>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GraphQlError {
+    message: Option<String>,
+    status: Option<u16>,
+}
+
+impl<T> GraphQlResponse<T> {
+    /// The data, or the failure a missing one reports. Read as an empty answer,
+    /// a failure is remembered as "nothing found" and never asked again.
+    fn data(self) -> AppResult<T> {
+        self.data.ok_or_else(|| {
+            let first = self.errors.first();
+            AppError::ExternalApi {
+                service: SERVICE.to_string(),
+                status: first.and_then(|error| error.status).unwrap_or(502),
+                message: first
+                    .and_then(|error| error.message.clone())
+                    .unwrap_or_else(|| "an answer with no data".to_string()),
+                retry_after: None,
+            }
+        })
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,11 +196,8 @@ impl AniListClient {
         )
         .await?;
 
-        let Some(data) = response.data else {
-            return Ok(Vec::new());
-        };
-
-        Ok(data
+        Ok(response
+            .data()?
             .page
             .media
             .into_iter()
@@ -190,7 +214,7 @@ impl AniListClient {
         let response: GraphQlResponse<DetailsData> =
             send_json(SERVICE, self.post(DETAILS_QUERY, serde_json::json!({ "id": id }))).await?;
 
-        Ok(response.data.and_then(|d| d.media).map(details_of).unwrap_or_default())
+        Ok(response.data()?.media.map(details_of).unwrap_or_default())
     }
 }
 

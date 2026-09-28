@@ -255,6 +255,105 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     assert_eq!(searches, 1);
 }
 
+/// Jikan leaves `year` null for a film and dates it by `aired`. Read from
+/// `year`, every film whose library knows its year was refused, and the
+/// refusal was remembered for good.
+#[tokio::test]
+async fn a_jikan_film_is_resolved_by_its_aired_year() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "jikan").await;
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let resolved: Option<String> =
+        sqlx::query_scalar("SELECT external_id FROM source_identifiers WHERE source = 'jikan'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(resolved.as_deref(), Some("523"));
+}
+
+/// An upgrade forgets the films Jikan "found nothing" for, and nothing else:
+/// read from the wrong field, that answer was never Jikan's.
+#[tokio::test]
+async fn an_upgrade_searches_jikan_again_for_the_films_it_misread() {
+    let pool = super::database_through("004_orphaned_proposals").await;
+    for (source, media_type, key, external) in [
+        ("jikan", "movie", "tmdb:8392", None),
+        ("jikan", "movie", "tmdb:149", Some("47")),
+        ("jikan", "series", "tvdb:76885", None),
+        ("anilist", "movie", "tmdb:8392", None),
+    ] {
+        sqlx::query(
+            "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+             VALUES (?, ?, ?, ?)",
+        )
+        .bind(source)
+        .bind(media_type)
+        .bind(key)
+        .bind(external)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let left: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT source, media_type, local_key FROM source_identifiers
+         ORDER BY source, media_type, local_key",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let left: Vec<(&str, &str, &str)> =
+        left.iter().map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str())).collect();
+    assert_eq!(
+        left,
+        [
+            ("anilist", "movie", "tmdb:8392"),
+            ("jikan", "movie", "tmdb:149"),
+            ("jikan", "series", "tvdb:76885"),
+        ]
+    );
+}
+
+/// A work is often listed after the library holds it: a film indexed before
+/// its release is not on AniList yet. A search that found nothing is asked
+/// again once it is old, not kept for good.
+#[tokio::test]
+async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
+    let sources = FakeSources::with_mismatched_year().await;
+    let app = library(&sources, "anilist").await;
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    sqlx::query("UPDATE source_identifiers SET resolved_at = datetime('now', '-31 days')")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let searches = sources.recorded().searches.iter().filter(|(id, _)| *id == "anilist").count();
+    assert_eq!(searches, 2, "an old miss was never asked again");
+}
+
+/// GraphQL reports a failure as `data: null` beside an `errors` list, with a
+/// 200. Read as an empty answer, the failure was remembered as "nothing found".
+#[tokio::test]
+async fn an_anilist_error_is_not_remembered_as_nothing_found() {
+    let sources = FakeSources::with_graphql_errors().await;
+    let app = library(&sources, "anilist").await;
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let remembered: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM source_identifiers WHERE source = 'anilist'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(remembered, 0, "a failure was stored as an answer");
+}
+
 #[tokio::test]
 async fn jikan_themes_and_demographics_become_keywords() {
     let sources = FakeSources::start().await;
@@ -314,6 +413,49 @@ async fn the_health_page_probes_every_enabled_source() {
     assert_eq!(providers[2]["connected"], true);
     assert_eq!(providers[3]["id"], "tvdb");
     assert_eq!(providers[3]["connected"], true);
+}
+
+/// Whether the health page reads TheTVDB as connected.
+async fn tvdb_connected(app: &TestApp) -> serde_json::Value {
+    let health = app.get("/api/v1/health").await.assert_ok().clone();
+    let providers = health["metadata"]["providers"].as_array().unwrap().clone();
+    providers.into_iter().find(|p| p["id"] == "tvdb").expect("tvdb is listed")["connected"].clone()
+}
+
+/// A revoked key is what the probe is for. Answered from the token the last
+/// login left, it read as connected until that token expired, a month on.
+#[tokio::test]
+async fn a_revoked_tvdb_key_is_reported_by_the_next_probe() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "arr,tvdb").await;
+    assert_eq!(tvdb_connected(&app).await, true, "the fixture's key does not work to begin with");
+
+    sources.revoke_tvdb_key();
+
+    assert_eq!(tvdb_connected(&app).await, false, "the revoked key still reads as connected");
+}
+
+/// A token belongs to the key that obtained it. Kept across a new key, it went
+/// on answering for the old one until it expired.
+#[tokio::test]
+async fn a_new_tvdb_key_logs_in_rather_than_reuse_the_old_token() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "arr,tvdb").await;
+    tvdb_connected(&app).await;
+
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "tvdb_api_key": "new-key" } }))
+        .await
+        .assert_ok();
+    tvdb_connected(&app).await;
+
+    let logins: Vec<String> = sources
+        .recorded()
+        .credentials
+        .iter()
+        .filter(|(id, _)| *id == "tvdb")
+        .map(|(_, credential)| credential.clone())
+        .collect();
+    assert_eq!(logins, ["tvdb-key/1234", "new-key/1234"]);
 }
 
 #[tokio::test]

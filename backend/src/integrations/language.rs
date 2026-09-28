@@ -141,6 +141,19 @@ pub fn normalise(name: &str) -> Option<String> {
         .or(Some(base))
 }
 
+/// ISO 639-1 from TMDb's `original_language`.
+///
+/// TMDb writes ISO 639-1 but for two codes: `cn`, its Cantonese, which ISO
+/// files under `zh`, and `xx`, no language, which would claim the field and
+/// keep a lower source from filling it.
+pub fn from_tmdb(code: &str) -> Option<String> {
+    match code.trim().to_lowercase().as_str() {
+        "" | "xx" => None,
+        "cn" => Some("zh".to_string()),
+        other => Some(other.to_string()),
+    }
+}
+
 /// ISO 639-1 from a three-letter code.
 ///
 /// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every code
