@@ -144,6 +144,19 @@ async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
+/// A proxy's password in an Arr's address stays behind, like the API key: the
+/// restored instance needs both typed again.
+#[tokio::test]
+async fn an_export_writes_an_address_without_its_credentials() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://proxy-user:proxy-pass@radarr.lan:7878").await;
+
+    let bundle = export(&app).await;
+
+    assert_eq!(bundle["instances"][0]["base_url"], "http://radarr.lan:7878");
+    assert!(!bundle.to_string().contains("proxy-"), "the credentials travelled");
+}
+
 #[tokio::test]
 async fn nothing_reproducible_is_carried() {
     let app = configured().await;

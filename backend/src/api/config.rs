@@ -136,7 +136,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     .map(|(name, instance_type, base_url, enabled, sync_interval_minutes)| Instance {
         name,
         instance_type,
-        base_url,
+        base_url: crate::http::without_credentials(&base_url).into_owned(),
         enabled,
         sync_interval_minutes,
         has_api_key: false,

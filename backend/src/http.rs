@@ -96,9 +96,81 @@ pub fn build_client(config: &Config) -> AppResult<reqwest::Client> {
         .map_err(|e| AppError::Config(format!("cannot build the HTTP client: {e}")))
 }
 
+/// What an address shows in place of the `user:pass` it carries.
+///
+/// reqwest sends those as Basic auth, which is how Routarr reaches an Arr
+/// behind a proxy that asks for one, so a stored address may carry a password.
+/// It is answered, quoted and logged masked, and the instance form sends the
+/// mask back to mean "keep the stored ones".
+pub const MASKED_CREDENTIALS: &str = "***";
+
+/// An address cut around its `user:pass`: what comes before, the credentials,
+/// and what follows their `@`. Read as text between `://` and the last `@` of
+/// the authority, so an address the URL parser refuses is masked all the same.
+fn credentials(address: &str) -> Option<(&str, &str, &str)> {
+    let start = address.find("://")? + 3;
+    let authority = &address[start..];
+    let authority = &authority[..authority.find(['/', '?', '#']).unwrap_or(authority.len())];
+    let at = start + authority.rfind('@')?;
+    Some((&address[..start], &address[start..at], &address[at + 1..]))
+}
+
+/// The address with its credentials masked, for whatever a person reads.
+pub fn masked(address: &str) -> std::borrow::Cow<'_, str> {
+    match credentials(address) {
+        Some((head, _, tail)) => format!("{head}{MASKED_CREDENTIALS}@{tail}").into(),
+        None => address.into(),
+    }
+}
+
+/// The address without its credentials, for what leaves the installation.
+pub fn without_credentials(address: &str) -> std::borrow::Cow<'_, str> {
+    match credentials(address) {
+        Some((head, _, tail)) => format!("{head}{tail}").into(),
+        None => address.into(),
+    }
+}
+
+/// `typed` with the credentials of `saved` in place of the mask, or `None`
+/// when `typed` does not carry the mask.
+pub fn with_saved_credentials(typed: &str, saved: &str) -> Option<String> {
+    let (head, shown, tail) = credentials(typed)?;
+    if shown != MASKED_CREDENTIALS {
+        return None;
+    }
+    Some(match credentials(saved) {
+        Some((_, kept, _)) => format!("{head}{kept}@{tail}"),
+        None => format!("{head}{tail}"),
+    })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::stays_on_origin;
+    use super::{masked, stays_on_origin, with_saved_credentials, without_credentials};
+
+    /// Credentials sit in the authority only: an `@` further on is part of a
+    /// path or a query, and an address the URL parser refuses, with a port out
+    /// of range here, is masked all the same.
+    #[test]
+    fn only_the_authority_carries_credentials() {
+        assert_eq!(masked("http://user:pw@nas:7878/radarr"), "http://***@nas:7878/radarr");
+        assert_eq!(masked("http://user:pw@nas:99999"), "http://***@nas:99999");
+        assert_eq!(masked("http://nas:7878/a@b?c=@"), "http://nas:7878/a@b?c=@");
+        assert_eq!(without_credentials("https://user@nas/radarr"), "https://nas/radarr");
+        assert_eq!(masked("nas:7878"), "nas:7878");
+    }
+
+    #[test]
+    fn only_the_mask_brings_the_saved_credentials_back() {
+        let saved = "http://user:pw@nas:7878";
+        assert_eq!(with_saved_credentials("http://***@nas:7878", saved).as_deref(), Some(saved));
+        assert_eq!(with_saved_credentials("http://nas:7878", saved), None);
+        assert_eq!(with_saved_credentials("http://other:pw2@nas:7878", saved), None);
+        assert_eq!(
+            with_saved_credentials("http://***@nas:7878", "http://nas:7878").as_deref(),
+            Some("http://nas:7878")
+        );
+    }
 
     fn judge(from: &str, to: &str) -> bool {
         stays_on_origin(&from.parse().expect("from"), &to.parse().expect("to"))

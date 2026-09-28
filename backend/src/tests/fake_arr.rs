@@ -22,6 +22,9 @@ const HOLD: std::time::Duration = std::time::Duration::from_millis(50);
 #[derive(Debug, Default)]
 pub struct Recorded {
     pub api_keys: Vec<String>,
+    /// The `Authorization` header of every request that carried one: the Basic
+    /// credentials a proxy in front of an Arr asks for.
+    pub authorizations: Vec<String>,
     /// Bodies of every mutating request, in order.
     pub writes: Vec<serde_json::Value>,
     /// Query strings of every mutating request.
@@ -193,8 +196,12 @@ fn record_read(state: &FakeState, path: &str) {
 }
 
 fn record_key(state: &FakeState, headers: &HeaderMap) {
+    let mut recorded = state.recorded.lock().expect("lock");
     if let Some(key) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
-        state.recorded.lock().expect("lock").api_keys.push(key.to_string());
+        recorded.api_keys.push(key.to_string());
+    }
+    if let Some(credentials) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
+        recorded.authorizations.push(credentials.to_string());
     }
 }
 
