@@ -34,6 +34,8 @@ const STRINGS = {
   DiagnosticWarnings: '{count} warnings',
   OpenNavigation: 'Open navigation',
   ApiKeyRequired: 'This Routarr needs an API key',
+  RoutarrApiKey: 'Routarr API key',
+  Password: 'Password',
   Dashboard: 'Dashboard',
   MainNavigation: 'Main navigation',
   NavGroupSupervision: 'Monitoring',
@@ -63,6 +65,7 @@ function show(guide: OnboardingStatus = onboardingStatus([], { state: 'done' }))
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   withBase(null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -122,6 +125,31 @@ describe('Layout', () => {
 
     expect(await screen.findByText('This Routarr needs an API key')).toBeTruthy();
     expect(screen.queryByText('the page')).toBeNull();
+  });
+
+  /**
+   * The gate holds what is being typed into it. A status poll taking it down
+   * and putting it back, a minute apart, would take a half-typed key with it,
+   * or a half-typed password in the session modes.
+   */
+  it.each([
+    ['apikey', 'Routarr API key'],
+    ['forms', 'Password'],
+  ] as const)('keeps what is typed into the %s gate through a status poll', async (mode, label) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode,
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
+    show();
+    const field = (await screen.findByLabelText(label)) as HTMLInputElement;
+    await fireEvent.input(field, { target: { value: 'half-typed' } });
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('half-typed');
   });
 
   /** Any other failure is a banner, not a gate: the pages still work. */

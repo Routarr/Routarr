@@ -16,6 +16,7 @@ import AsyncHarness from '../test/AsyncHarness.svelte';
 seedDictionary({
   Unauthorized: 'The key was refused',
   RequestTimedOut: 'The server did not answer in time',
+  ServerUnreachable: 'The server could not be reached',
   RequestId: 'request {id}',
 });
 
@@ -28,6 +29,12 @@ describe('describeError', () => {
 
   it('names a timeout by its kind, not by the exception it came from', () => {
     expect(describeError(new ApiError('', 0, 'timeout'))).toBe('The server did not answer in time');
+  });
+
+  it('names a server it could not reach in the interface language', () => {
+    expect(describeError(new ApiError('', 0, 'unreachable'))).toBe(
+      'The server could not be reached',
+    );
   });
 
   it('appends the request id to a server-side failure', () => {
@@ -100,6 +107,29 @@ describe('createAsync', () => {
     expect(screen.getByTestId('error')).toHaveTextContent('');
     second.resolve('fresh');
     await waitFor(() => expect(screen.getByTestId('data')).toHaveTextContent('fresh'));
+  });
+
+  /**
+   * A poll asks the same thing again. Cleared on the way, its last error makes
+   * a banner blink at every poll and takes down a gate driven by it. The answer
+   * is what settles it.
+   */
+  it('keeps an error through a reload of the same inputs, until the answer', async () => {
+    const first = deferred<string>();
+    const second = deferred<string>();
+    const answers = [first.promise, second.promise];
+    const loader = vi.fn(() => answers.shift() ?? Promise.resolve('spare'));
+    const { component } = render(AsyncHarness, { loader, filter: 'a' });
+    first.reject(new ApiError('No such rule', 404, 'not_found'));
+    await waitFor(() => expect(screen.getByTestId('error')).toHaveTextContent('No such rule'));
+
+    void component.reload();
+    await waitFor(() => expect(screen.getByTestId('loading')).toHaveTextContent('loading'));
+    expect(screen.getByTestId('error')).toHaveTextContent('No such rule');
+
+    second.resolve('found');
+    await waitFor(() => expect(screen.getByTestId('data')).toHaveTextContent('found'));
+    expect(screen.getByTestId('error')).toHaveTextContent('');
   });
 
   /**

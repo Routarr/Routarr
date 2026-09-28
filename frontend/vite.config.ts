@@ -92,7 +92,7 @@ export default defineConfig({
       // About two points below what the suite measures, the headroom the
       // backend gate keeps too. Enough that ordinary work does not trip it,
       // not so much that it stops guarding.
-      thresholds: { statements: 88, branches: 78, functions: 86, lines: 88 },
+      thresholds: { statements: 89, branches: 79, functions: 87, lines: 90 },
     },
   },
 });

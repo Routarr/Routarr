@@ -62,7 +62,7 @@
   const list = createAsync((signal) => api.getInstances(signal));
   const outcome = createOutcome();
   let busyId = $state<string | null>(null);
-  let editing = $state<{ form: FormState; id?: string } | null>(null);
+  let editing = $state<{ form: FormState; id?: string; webhookUrl?: string | null } | null>(null);
 
   const instances = $derived(list.data ?? []);
 
@@ -297,11 +297,13 @@
     }
   }
 
+  const webhookAddress = (path: string) => `${window.location.origin}${path}`;
+
   // Said once the clipboard took it. The clipboard exists on secure origins
   // only, and a homelab serves plain http more often than not, so a refusal
   // hands over the URL itself.
   async function copyWebhookUrl(instance: Instance) {
-    const url = `${window.location.origin}${instance.webhook_url}`;
+    const url = webhookAddress(instance.webhook_url ?? '');
     try {
       await navigator.clipboard.writeText(url);
       outcome.succeed(t('WebhookUrlCopied'));
@@ -332,6 +334,7 @@
     probe = null;
     editing = {
       id: instance.id,
+      webhookUrl: instance.webhook_url,
       form: {
         name: instance.name,
         instance_type: instance.instance_type,
@@ -680,6 +683,24 @@
             {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
           </p>
         </div>
+        {#if editing.webhookUrl}
+          <!-- Here and not only behind Copy: on a plain http origin the
+               clipboard is closed, and a failed copy would be the one place
+               the URL shows. -->
+          <div class="form-group">
+            <label class="form-label" for="instances-webhook-url">{t('WebhookUrl')}</label>
+            <input
+              id="instances-webhook-url"
+              class="form-input mono"
+              value={webhookAddress(editing.webhookUrl)}
+              readonly
+              aria-describedby="instances-webhook-url-help"
+            />
+            <p id="instances-webhook-url-help" class="text-muted text-sm mt-1">
+              {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
+            </p>
+          </div>
+        {/if}
         <label class="flex items-center gap-2 text-base">
           <input type="checkbox" bind:checked={form.enabled} />
           {t('EnabledSyncedRouted')}

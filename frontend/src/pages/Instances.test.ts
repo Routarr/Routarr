@@ -54,6 +54,7 @@ const STRINGS = {
   CopyUrl: 'Copy the webhook URL',
   WebhookUrlCopied: 'Webhook URL copied',
   WebhookUrlCopyFailed: 'The browser blocked the clipboard. Webhook URL: {url}',
+  WebhookUrl: 'Webhook URL',
 };
 
 const show = (list: ReturnType<typeof instance>[]) => {
@@ -346,6 +347,20 @@ describe('Instances', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add instance' }));
 
     expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull();
+  });
+
+  /**
+   * On a plain http origin every Copy fails, and a URL shown only by the
+   * failure is read by provoking an error.
+   */
+  it('shows the webhook URL in the editor, with no copy to go through', async () => {
+    show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+
+    const field = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+    expect(field.value).toBe(`${window.location.origin}/api/v1/webhooks/i1/tok`);
+    expect(field.readOnly).toBe(true);
   });
 
   async function copyWebhookUrl() {

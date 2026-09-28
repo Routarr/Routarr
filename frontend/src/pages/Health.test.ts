@@ -5,6 +5,7 @@ import { renderWithI18n } from '../test/render';
 import { health, healthInstance, warning } from '../test/fixtures';
 import { api } from '../api/client';
 import type { Health } from '../api/types';
+import { statusRevision } from '../lib/status.svelte';
 import HealthPage from './Health.svelte';
 
 /**
@@ -40,6 +41,20 @@ describe('Diagnostics', () => {
     show();
 
     expect(await screen.findByText('Everything checks out.')).toBeTruthy();
+  });
+
+  /**
+   * A probe records what it found, and the shell counts that among its
+   * warnings. Unannounced, the badge leaves out an unreachable Arr this screen
+   * lists, until the next poll a minute later.
+   */
+  it('has the shell count again what a probe found', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(health());
+    const before = statusRevision();
+    show();
+
+    await screen.findByText('Everything checks out.');
+    expect(statusRevision()).toBeGreaterThan(before);
   });
 
   /** One banner, as the dashboard draws it: the count leads, the list follows. */

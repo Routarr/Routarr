@@ -28,10 +28,27 @@ describe('Modal', () => {
 
     const onClose = vi.fn();
     render(ModalHarness, { label: 'Quick search', onClose, closeOnBackdrop: true });
+    await fireEvent.pointerDown(screen.getByText('body'));
     await fireEvent.click(screen.getByText('body'));
     expect(onClose).not.toHaveBeenCalled();
+    await fireEvent.pointerDown(screen.getByRole('dialog'));
     await fireEvent.click(screen.getByRole('dialog'));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * A click goes to the common ancestor of its press and its release. Selecting
+   * the typed query by dragging past the field's edge ends in a click on the
+   * dialog itself, and the query goes with a closed palette.
+   */
+  it('stays open when a press inside the content is released beside it', async () => {
+    const onClose = vi.fn();
+    render(ModalHarness, { label: 'Quick search', onClose, closeOnBackdrop: true });
+
+    await fireEvent.pointerDown(screen.getByLabelText('field'));
+    await fireEvent.click(screen.getByRole('dialog'));
+
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it('is announced as a dialog, with a name', () => {
