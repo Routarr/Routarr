@@ -289,7 +289,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let lang = metadata.and_then(|m| m.original_language.as_deref()).unwrap_or("");
             ConditionOutcome::new(
                 kind,
-                values.iter().any(|v| v.trim().eq_ignore_ascii_case(lang)),
+                language_listed(lang, values),
                 "ConditionOriginalLanguage",
                 &[("values", values.join(", "))],
                 lang.to_string(),
@@ -300,7 +300,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let lang = metadata.and_then(|m| m.original_language.as_deref()).unwrap_or("");
             ConditionOutcome::new(
                 kind,
-                !values.iter().any(|v| v.trim().eq_ignore_ascii_case(lang)),
+                !language_listed(lang, values),
                 "ConditionOriginalLanguageNot",
                 &[("values", values.join(", "))],
                 lang.to_string(),
@@ -380,7 +380,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let current = media.current_root_folder.as_deref().unwrap_or("");
             ConditionOutcome::new(
                 kind,
-                normalize_path(current).starts_with(&normalize_path(prefix)),
+                is_within(current, prefix),
                 "ConditionCurrentRootFolderStartsWith",
                 &[("value", prefix.clone())],
                 current.to_string(),
@@ -609,6 +609,23 @@ fn contains_all(haystack: &[String], needles: &[String]) -> bool {
 pub fn normalize_path(path: &str) -> String {
     let trimmed = path.trim().trim_end_matches(['/', '\\']);
     if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
+}
+
+/// Whether a language is among `values`. A missing language is absent, never
+/// the empty string, so a blank value in the list reaches no item.
+fn language_listed(lang: &str, values: &[String]) -> bool {
+    !lang.is_empty() && values.iter().any(|v| v.trim().eq_ignore_ascii_case(lang))
+}
+
+/// Whether `path` is `folder` or lies under it, compared by segment: a folder
+/// does not hold a sibling that shares its letters (`/data/movies` against
+/// `/data/movies-4k`).
+fn is_within(path: &str, folder: &str) -> bool {
+    let (path, folder) = (normalize_path(path), normalize_path(folder));
+    path == folder
+        || path
+            .strip_prefix(folder.as_str())
+            .is_some_and(|rest| folder.ends_with(['/', '\\']) || rest.starts_with(['/', '\\']))
 }
 
 fn join_ids(ids: &[i64]) -> String {
@@ -1418,6 +1435,26 @@ mod tests {
         assert!(matches(Condition::CurrentRootFolder("/movies/standard/".into())));
         assert!(matches(Condition::CurrentRootFolder("/movies/standard".into())));
         assert!(!matches(Condition::CurrentRootFolder("/movies/anime".into())));
+    }
+
+    /// An item with no language has none, not the empty string: a blank value
+    /// in a language list reaches no such item, and excludes none.
+    #[test]
+    fn a_blank_language_value_reaches_no_item_without_a_language() {
+        let with_blank = vec!["ja".to_string(), String::new()];
+        assert!(!matches_without_metadata(Condition::OriginalLanguage(with_blank.clone())));
+        assert!(matches_without_metadata(Condition::OriginalLanguageNot(with_blank)));
+    }
+
+    /// A prefix is a folder: `/movies` holds `/movies/standard`, and
+    /// `/movies/stand` is not a folder of it but a sibling sharing its letters,
+    /// as `/data/movies-4k` is to `/data/movies`.
+    #[test]
+    fn a_folder_prefix_does_not_match_a_sibling_sharing_its_letters() {
+        assert!(!matches(Condition::CurrentRootFolderStartsWith("/movies/stand".into())));
+        assert!(matches(Condition::CurrentRootFolderStartsWith("/movies/standard".into())));
+        assert!(matches(Condition::CurrentRootFolderStartsWith("/movies/".into())));
+        assert!(matches(Condition::CurrentRootFolderStartsWith("/".into())));
     }
 
     #[test]

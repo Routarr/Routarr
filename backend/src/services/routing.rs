@@ -657,13 +657,34 @@ pub async fn load_rules(pool: &SqlitePool) -> AppResult<Vec<Rule>> {
 }
 
 pub fn rule_from_row(r: RuleRow) -> Rule {
-    let conditions: Vec<Condition> = serde_json::from_str(&r.6).unwrap_or_else(|e| {
-        tracing::warn!(rule_id = %r.0, "Ignoring unreadable rule conditions: {e}");
+    // A part that cannot be read, as after going back to a build that lacks a
+    // condition kind, makes the rule match nothing. Read as empty, dropped
+    // exclusions or a lost scope would widen it to the titles it was written
+    // to leave alone.
+    let unreadable = |part: &str, e: serde_json::Error| {
+        tracing::warn!(rule_id = %r.0, rule = %r.1, "The rule matches nothing: its {part} cannot be read: {e}");
+    };
+    let mut conditions: Vec<Condition> = serde_json::from_str(&r.6).unwrap_or_else(|e| {
+        unreadable("conditions", e);
         Vec::new()
     });
-    let exclusions: Vec<Condition> = serde_json::from_str(&r.12).unwrap_or_default();
-    let instance_ids: Option<Vec<String>> =
-        r.8.as_deref().filter(|s| !s.is_empty()).and_then(|s| serde_json::from_str(s).ok());
+    let exclusions: Vec<Condition> = if r.12.trim().is_empty() {
+        Vec::new()
+    } else {
+        serde_json::from_str(&r.12).unwrap_or_else(|e| {
+            unreadable("exclusions", e);
+            conditions.clear();
+            Vec::new()
+        })
+    };
+    let instance_ids: Option<Vec<String>> = match r.8.as_deref().filter(|s| !s.trim().is_empty()) {
+        None => None,
+        Some(raw) => serde_json::from_str(raw).unwrap_or_else(|e| {
+            unreadable("instance list", e);
+            conditions.clear();
+            None
+        }),
+    };
     let match_mode: MatchMode = r.11.parse().unwrap_or_default();
 
     Rule {
