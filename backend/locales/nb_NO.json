@@ -254,7 +254,7 @@
   "Error": "feil",
   "ErrorApplyInProgress": "En utføring pågår allerede",
   "ErrorBatchLimit": "Et parti på {count} overskrider grensen på {limit}. Reduser utvalget, eller øk batch_limit under Innstillinger.",
-  "ErrorConfirmationRequired": "Elementer over bekreftelsesgrensen på {threshold}: {count}. Send på nytt med confirm = true for å fortsette.",
+  "ErrorConfirmationRequired": "Elementer over bekreftelsesgrensen på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global prøvekjøring er slått på. Slå den av under Innstillinger for å utføre endringer.",
   "ErrorNoSelection": "Ingen beslutning valgt",
   "ErrorNotEnoughSpace": "{path} ville motta {needed}, men melder bare {free} ledig. Send på nytt med confirm = true for å flytte likevel.",

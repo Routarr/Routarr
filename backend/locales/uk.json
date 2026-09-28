@@ -254,7 +254,7 @@
   "Error": "помилка",
   "ErrorApplyInProgress": "Застосування вже виконується",
   "ErrorBatchLimit": "Пакет із {count} перевищує ліміт {limit}. Зменште вибірку або збільште batch_limit у Налаштуваннях.",
-  "ErrorConfirmationRequired": "Елементів понад поріг підтвердження {threshold}: {count}. Надішліть повторно з confirm = true, щоб продовжити.",
+  "ErrorConfirmationRequired": "Елементів понад поріг підтвердження {threshold}: {count}.",
   "ErrorDryRunEnabled": "Глобальний тестовий запуск увімкнено. Вимкніть його в Налаштуваннях, щоб застосувати зміни.",
   "ErrorNoSelection": "Не вибрано жодного рішення",
   "ErrorNotEnoughSpace": "{path} отримає {needed}, але повідомляє лише про {free} вільного місця. Надішліть повторно з confirm = true, щоб перемістити попри це.",

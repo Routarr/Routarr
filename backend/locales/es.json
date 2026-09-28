@@ -254,7 +254,7 @@
   "Error": "error",
   "ErrorApplyInProgress": "Ya hay una aplicación en curso",
   "ErrorBatchLimit": "El lote de {count} supera el límite de {limit}. Reduce la selección o aumenta batch_limit en Ajustes.",
-  "ErrorConfirmationRequired": "Elementos por encima del umbral de confirmación de {threshold}: {count}. Vuelve a enviar con confirm = true para continuar.",
+  "ErrorConfirmationRequired": "Elementos por encima del umbral de confirmación de {threshold}: {count}.",
   "ErrorDryRunEnabled": "La ejecución en seco global está activa. Desactívala en Ajustes para aplicar cambios.",
   "ErrorNoSelection": "No se ha seleccionado ninguna decisión",
   "ErrorNotEnoughSpace": "{path} recibiría {needed} pero solo declara {free} libres. Vuelve a enviar con confirm = true para mover de todos modos.",

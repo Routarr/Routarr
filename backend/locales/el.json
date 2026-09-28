@@ -254,7 +254,7 @@
   "Error": "σφάλμα",
   "ErrorApplyInProgress": "Μια εφαρμογή βρίσκεται ήδη σε εξέλιξη",
   "ErrorBatchLimit": "Η παρτίδα των {count} υπερβαίνει το όριο των {limit}. Μειώστε την επιλογή ή αυξήστε το batch_limit στις Ρυθμίσεις.",
-  "ErrorConfirmationRequired": "Στοιχεία πάνω από το όριο επιβεβαίωσης {threshold}: {count}. Στείλτε ξανά με confirm = true για να συνεχίσετε.",
+  "ErrorConfirmationRequired": "Στοιχεία πάνω από το όριο επιβεβαίωσης {threshold}: {count}.",
   "ErrorDryRunEnabled": "Η καθολική δοκιμαστική λειτουργία είναι ενεργή. Απενεργοποιήστε την στις Ρυθμίσεις για να εφαρμόσετε αλλαγές.",
   "ErrorNoSelection": "Δεν επιλέχθηκε καμία απόφαση",
   "ErrorNotEnoughSpace": "Ο φάκελος {path} θα λάμβανε {needed} αλλά αναφέρει μόνο {free} ελεύθερα. Ξαναστείλτε με confirm = true για μετακίνηση ούτως ή άλλως.",

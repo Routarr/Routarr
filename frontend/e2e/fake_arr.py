@@ -12,10 +12,14 @@ import json
 import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-ROOT_FOLDERS = [
-    {"id": 1, "path": "/movies/standard", "freeSpace": 900_000_000_000, "accessible": True},
-    {"id": 2, "path": "/movies/anime", "freeSpace": 400_000_000_000, "accessible": True},
-]
+def initial_root_folders():
+    return [
+        {"id": 1, "path": "/movies/standard", "freeSpace": 900_000_000_000, "accessible": True},
+        {"id": 2, "path": "/movies/anime", "freeSpace": 400_000_000_000, "accessible": True},
+    ]
+
+
+ROOT_FOLDERS = initial_root_folders()
 
 
 def movie(
@@ -88,6 +92,15 @@ class Handler(BaseHTTPRequestHandler):
         # A reset hook, so a test can undo what a previous one moved.
         if path == "/__reset":
             MOVIES[:] = initial_movies()
+            ROOT_FOLDERS[:] = initial_root_folders()
+            return self._send({"ok": True})
+        # A disk that stopped answering, as Radarr reports one: listed, and
+        # not accessible.
+        if path == "/__asleep":
+            asleep = self.path.split("path=", 1)[-1]
+            for folder in ROOT_FOLDERS:
+                if folder["path"] == asleep:
+                    folder["accessible"] = False
             return self._send({"ok": True})
         self._send({}, 404)
 
