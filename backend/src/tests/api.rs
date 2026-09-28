@@ -1786,12 +1786,15 @@ async fn health_probes_by_default() {
 #[tokio::test]
 async fn health_reports_actionable_warnings() {
     let app = TestApp::new().await;
-    app.put(
-        "/api/v1/settings",
-        serde_json::json!({ "settings": { "metadata_providers": "arr,tmdb" } }),
+    // Listed while it had a key, gone since: the API refuses to add a source
+    // with no key, and a key removed afterwards is how one stays listed.
+    sqlx::query(
+        "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb')
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
     )
+    .execute(&app.state.pool)
     .await
-    .assert_ok();
+    .unwrap();
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
 
