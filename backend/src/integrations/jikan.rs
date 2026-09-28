@@ -49,7 +49,10 @@ struct Envelope<T> {
 #[derive(Debug, Deserialize)]
 struct RawAnime {
     mal_id: i64,
+    /// The broadcast season's year, null for a film: read through
+    /// [`RawAnime::released`].
     year: Option<i64>,
+    aired: Option<Aired>,
     title: Option<String>,
     title_english: Option<String>,
     title_japanese: Option<String>,
@@ -65,6 +68,31 @@ struct RawAnime {
     rating: Option<String>,
     status: Option<String>,
     synopsis: Option<String>,
+}
+
+/// When an entry first aired or came out, a film included.
+#[derive(Debug, Deserialize)]
+struct Aired {
+    prop: Option<AiredProp>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiredProp {
+    from: Option<AiredDate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AiredDate {
+    year: Option<i64>,
+}
+
+impl RawAnime {
+    /// The year the work came out, which the library's own year is checked
+    /// against.
+    fn released(&self) -> Option<i64> {
+        let aired = self.aired.as_ref().and_then(|aired| aired.prop.as_ref());
+        aired.and_then(|prop| prop.from.as_ref()).and_then(|from| from.year).or(self.year)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,7 +136,11 @@ impl JikanClient {
         Ok(response
             .data
             .into_iter()
-            .map(|raw| JikanCandidate { id: raw.mal_id, year: raw.year, titles: titles_of(&raw) })
+            .map(|raw| JikanCandidate {
+                id: raw.mal_id,
+                year: raw.released(),
+                titles: titles_of(&raw),
+            })
             .collect())
     }
 

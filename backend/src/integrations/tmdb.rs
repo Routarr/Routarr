@@ -9,7 +9,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use tracing::debug;
 
-use super::send_json;
+use super::{language, send_json};
 use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "TMDb";
@@ -183,7 +183,7 @@ impl TmdbClient {
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
-            original_language: raw.original_language,
+            original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
             certification: pick_movie_certification(&raw.release_dates, &self.regions),
             status: raw.status,
@@ -207,7 +207,7 @@ impl TmdbClient {
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
-            original_language: raw.original_language,
+            original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
             certification: pick_tv_certification(&raw.content_ratings, &self.regions),
             status: raw.status,

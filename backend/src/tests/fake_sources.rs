@@ -32,16 +32,22 @@ struct FakeState {
     /// the "the source is down" case the real Jikan produces whenever
     /// MyAnimeList is unavailable.
     fail_with: Option<u16>,
+    /// When set, AniList answers 200 with `data: null` and an `errors` list,
+    /// which is how GraphQL reports a failure.
+    graphql_error: bool,
     /// The generation of the TheTVDB token. A login answers the current one;
     /// a read presenting an older one is refused, as TheTVDB refuses a token
     /// past its month.
     tvdb_token: Arc<Mutex<u32>>,
+    /// Whether TheTVDB has revoked the key: a login with it is refused.
+    tvdb_revoked: Arc<Mutex<bool>>,
 }
 
 pub struct FakeSources {
     pub base_url: String,
     recorded: Arc<Mutex<Recorded>>,
     tvdb_token: Arc<Mutex<u32>>,
+    tvdb_revoked: Arc<Mutex<bool>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -57,21 +63,29 @@ impl FakeSources {
 
     /// A fake where every source answers `status`, whatever is asked.
     pub async fn failing(status: u16) -> Self {
-        Self::build(true, Some(status)).await
+        Self::build(true, Some(status), false).await
+    }
+
+    /// A fake whose AniList reports a failure the GraphQL way.
+    pub async fn with_graphql_errors() -> Self {
+        Self::build(true, None, true).await
     }
 
     async fn with(matching_year: bool) -> Self {
-        Self::build(matching_year, None).await
+        Self::build(matching_year, None, false).await
     }
 
-    async fn build(matching_year: bool, fail_with: Option<u16>) -> Self {
+    async fn build(matching_year: bool, fail_with: Option<u16>, graphql_error: bool) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let tvdb_token = Arc::new(Mutex::new(1));
+        let tvdb_revoked = Arc::new(Mutex::new(false));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             matching_year,
             fail_with,
+            graphql_error,
             tvdb_token: Arc::clone(&tvdb_token),
+            tvdb_revoked: Arc::clone(&tvdb_revoked),
         };
 
         let app = Router::new()
@@ -85,6 +99,7 @@ impl FakeSources {
             .route("/omdb", get(omdb))
             // TheTVDB: a login, then bearer-authenticated reads.
             .route("/tvdb/login", post(tvdb_login))
+            .route("/tvdb/genres", get(tvdb_genres))
             .route("/tvdb/movies/{id}/extended", get(tvdb_record))
             .route("/tvdb/series/{id}/extended", get(tvdb_record))
             .with_state(state);
@@ -101,13 +116,26 @@ impl FakeSources {
                 .await;
         });
 
-        Self { base_url: format!("http://{addr}"), recorded, tvdb_token, shutdown: Some(tx) }
+        Self {
+            base_url: format!("http://{addr}"),
+            recorded,
+            tvdb_token,
+            tvdb_revoked,
+            shutdown: Some(tx),
+        }
     }
 
     /// What TheTVDB does after a month: the token every client holds stops
     /// working, and only a new login gets a working one.
     pub fn expire_tvdb_token(&self) {
         *self.tvdb_token.lock().expect("token") += 1;
+    }
+
+    /// What TheTVDB does to a revoked key: its tokens stop working, and a login
+    /// with it is refused.
+    pub fn revoke_tvdb_key(&self) {
+        *self.tvdb_revoked.lock().expect("revoked") = true;
+        self.expire_tvdb_token();
     }
 
     pub fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
@@ -152,6 +180,12 @@ async fn anilist(
     if query.contains("Page(") {
         let search = body["variables"]["search"].as_str().unwrap_or_default().to_string();
         state.recorded.lock().expect("lock").searches.push(("anilist", search));
+        if state.graphql_error {
+            return Json(serde_json::json!({
+                "data": null,
+                "errors": [{ "message": "Internal Server Error", "status": 500 }]
+            }));
+        }
 
         let year = if state.matching_year { 1988 } else { 1972 };
         return Json(serde_json::json!({
@@ -199,10 +233,17 @@ async fn jikan_search(
     let search = params.get("q").cloned().unwrap_or_default();
     state.recorded.lock().expect("lock").searches.push(("jikan", search));
 
+    // Jikan's `year` is the broadcast season, null for a film: the release
+    // year is the start of `aired`.
+    let released = if state.matching_year { 1988 } else { 1972 };
     Ok(Json(serde_json::json!({
         "data": [{
             "mal_id": 523,
-            "year": if state.matching_year { 1988 } else { 1972 },
+            "year": null,
+            "aired": {
+                "from": format!("{released}-04-16T00:00:00+00:00"),
+                "prop": { "from": { "day": 16, "month": 4, "year": released } }
+            },
             "title": "Tonari no Totoro",
             "title_english": "My Neighbor Totoro",
             "title_japanese": "となりのトトロ",
@@ -264,14 +305,42 @@ async fn omdb(
 async fn tvdb_login(
     State(state): State<FakeState>,
     Json(body): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     record(&state, "/tvdb/login");
     let key = body["apikey"].as_str().unwrap_or_default().to_string();
     let pin = body["pin"].as_str().unwrap_or_default().to_string();
     state.recorded.lock().expect("lock").credentials.push(("tvdb", format!("{key}/{pin}")));
+    if *state.tvdb_revoked.lock().expect("revoked") {
+        return Err(unauthorized());
+    }
 
     let token = format!("tvdb-token-{}", *state.tvdb_token.lock().expect("token"));
-    Json(serde_json::json!({ "status": "success", "data": { "token": token } }))
+    Ok(Json(serde_json::json!({ "status": "success", "data": { "token": token } })))
+}
+
+fn unauthorized() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({ "status": "failure", "message": "Unauthorized" })),
+    )
+}
+
+/// Whether a read presents the token the last login handed out.
+fn holds_the_token(state: &FakeState, headers: &HeaderMap) -> bool {
+    let expected = format!("Bearer tvdb-token-{}", *state.tvdb_token.lock().expect("token"));
+    headers.get("authorization").and_then(|v| v.to_str().ok()) == Some(expected.as_str())
+}
+
+/// A light read, as a probe makes.
+async fn tvdb_genres(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    record(&state, "/tvdb/genres");
+    if !holds_the_token(&state, &headers) {
+        return Err(unauthorized());
+    }
+    Ok(Json(serde_json::json!({ "data": [{ "id": 27, "name": "Anime" }] })))
 }
 
 async fn tvdb_record(
@@ -280,13 +349,8 @@ async fn tvdb_record(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     record(&state, &format!("/tvdb/{id}/extended"));
-    let expected = format!("Bearer tvdb-token-{}", *state.tvdb_token.lock().expect("token"));
-    let presented = headers.get("authorization").and_then(|v| v.to_str().ok()).unwrap_or_default();
-    if presented != expected {
-        return Err((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({ "status": "failure", "message": "Unauthorized" })),
-        ));
+    if !holds_the_token(&state, &headers) {
+        return Err(unauthorized());
     }
     Ok(Json(serde_json::json!({
         "data": {
