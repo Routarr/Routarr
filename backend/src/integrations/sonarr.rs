@@ -124,7 +124,7 @@ impl SonarrClient {
     }
 
     pub async fn get_series(&self) -> AppResult<Vec<SonarrSeries>> {
-        debug!("Fetching series from {}", self.base_url);
+        debug!("Fetching series from {}", crate::http::masked(&self.base_url));
         send_json(SERVICE, self.get("/api/v3/series")).await
     }
 

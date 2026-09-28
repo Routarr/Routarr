@@ -755,6 +755,23 @@ describe('Instances', () => {
   });
 
   /**
+   * The server answers a proxy's credentials masked. Left in the link, a
+   * browser would offer to sign in as `***`, so the link goes without them.
+   */
+  it('links an address behind a proxy without its masked credentials', async () => {
+    show([
+      instance({ id: 'i1', base_url: 'http://***@radarr.home.arpa' }),
+      instance({ id: 'i2', name: 'Sonarr', base_url: 'http://***@[fd00::10]:8989' }),
+    ]);
+
+    const link = await screen.findByRole('link', { name: /\*\*\*@radarr\.home\.arpa/ });
+    expect(link.getAttribute('href')).toBe('http://radarr.home.arpa');
+    expect(screen.getByRole('link', { name: /fd00::10/ }).getAttribute('href')).toBe(
+      'http://[fd00::10]:8989',
+    );
+  });
+
+  /**
    * The container name the form recommends in Docker resolves inside
    * Routarr's network only, so the reader's browser cannot open it.
    */

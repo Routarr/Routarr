@@ -115,7 +115,7 @@ impl InstanceResponse {
             id: i.id,
             name: i.name,
             instance_type: i.instance_type,
-            base_url: i.base_url,
+            base_url: crate::http::masked(&i.base_url).into_owned(),
             api_key_masked: masked,
             enabled: i.enabled,
             sync_interval_minutes: i.sync_interval_minutes,
