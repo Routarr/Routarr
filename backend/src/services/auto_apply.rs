@@ -125,9 +125,24 @@ async fn decide(
         return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
     }
 
+    let without_files = still_without_files(state, candidates).await;
+    if without_files.is_empty() {
+        return Ok(AutoApplyOutcome::NothingToApply);
+    }
+
     Ok(AutoApplyOutcome::Applied(
-        executor::apply_unattended(state, &candidates, &Attribution::unattended(trigger)).await?,
+        executor::apply_unattended(state, &without_files, &Attribution::unattended(trigger))
+            .await?,
     ))
+}
+
+/// A decision an unattended pass may write, and what reading its item again takes.
+#[derive(sqlx::FromRow)]
+struct Candidate {
+    decision_id: String,
+    instance_id: String,
+    arr_id: i64,
+    media_title: String,
 }
 
 /// The decisions from one simulation that may be written without asking.
@@ -138,9 +153,9 @@ async fn decide(
 /// applies instantly and that `POST /decisions/revert` undoes just as cheaply.
 /// The moment files exist, the same edit either strands them at the old path or
 /// starts a real disk move — neither belongs in an unattended pass.
-async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<Vec<String>> {
-    let ids: Vec<String> = sqlx::query_scalar(
-        "SELECT d.id
+async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<Vec<Candidate>> {
+    let candidates = sqlx::query_as(
+        "SELECT d.id AS decision_id, d.instance_id, m.arr_id, d.media_title
            FROM decisions d
            JOIN media m ON m.id = d.media_id
           WHERE d.simulation_id = ?
@@ -168,5 +183,35 @@ async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<
     .fetch_all(&state.pool)
     .await?;
 
-    Ok(ids)
+    Ok(candidates)
+}
+
+/// The candidates the Arr still reports without a file.
+///
+/// `has_files` is what the last sync read, and a film downloaded since has a
+/// file the database does not know about. Moved with `moveFiles: false`, that
+/// file stays in the old folder and the Arr reports the film missing. An item
+/// that cannot be read again is left to a person as well.
+async fn still_without_files(state: &AppState, candidates: Vec<Candidate>) -> Vec<String> {
+    let mut kept = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        match reads_without_files(state, &candidate).await {
+            Ok(true) => kept.push(candidate.decision_id),
+            Ok(false) => info!(
+                item = %candidate.media_title,
+                "Auto-apply held back a move: the Arr reports a file, or no longer has the item"
+            ),
+            Err(e) => warn!(
+                item = %candidate.media_title,
+                "Auto-apply held back a move: the item could not be read again: {e}"
+            ),
+        }
+    }
+    kept
+}
+
+async fn reads_without_files(state: &AppState, candidate: &Candidate) -> AppResult<bool> {
+    let instance = state.instance(&candidate.instance_id).await?;
+    let item = state.adapter(&instance)?.get_media_one(candidate.arr_id).await?;
+    Ok(item.is_some_and(|item| !item.has_files))
 }

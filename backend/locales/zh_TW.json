@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "{count} 個項目的批次超過 {limit} 的上限。請減少所選項目，或在設定中提高 batch_limit。",
   "ErrorConfirmationRequired": "超過確認閾值 {threshold} 的項目：{count}。",
   "ErrorDryRunEnabled": "全域試執行模式已啟用。請在設定中關閉它以套用變更。",
+  "ErrorInstanceDisabled": "執行個體「{name}」已停用，因此不會向其寫入任何內容。",
   "ErrorNoSelection": "未選取任何決策",
   "ErrorNotEnoughSpace": "{path} 將接收 {needed}，但僅回報 {free} 可用空間。若仍要移動，請以 confirm = true 重新傳送。",
   "ErrorSimulationInProgress": "模擬已在執行。",

@@ -696,7 +696,11 @@ async fn load_media(
     media_ids: Option<&[String]>,
     media_type: Option<&str>,
 ) -> AppResult<Vec<Media>> {
-    let mut sql = String::from(&format!("SELECT {MEDIA_COLUMNS} FROM media WHERE 1=1"));
+    // A switched-off instance is neither synced nor routed.
+    let mut sql = String::from(&format!(
+        "SELECT {MEDIA_COLUMNS} FROM media
+          WHERE instance_id IN (SELECT id FROM instances WHERE enabled = 1)"
+    ));
 
     if media_type.is_some() {
         sql.push_str(" AND media_type = ?");

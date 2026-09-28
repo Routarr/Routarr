@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Lotul de {count} depășește limita de {limit}. Redu selecția sau mărește batch_limit în Setări.",
   "ErrorConfirmationRequired": "Elemente peste pragul de confirmare de {threshold}: {count}.",
   "ErrorDryRunEnabled": "Rularea de probă globală este activă. Dezactiveaz-o în Setări pentru a aplica modificările.",
+  "ErrorInstanceDisabled": "Instanța \"{name}\" este dezactivată, deci nu se scrie nimic în ea.",
   "ErrorNoSelection": "Nicio decizie selectată",
   "ErrorNotEnoughSpace": "{path} ar primi {needed}, dar raportează doar {free} liberi. Retrimite cu confirm = true pentru a muta oricum.",
   "ErrorSimulationInProgress": "O simulare rulează deja.",

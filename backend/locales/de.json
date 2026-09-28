@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Stapelgröße {count} überschreitet das Limit von {limit}. Auswahl verkleinern oder batch_limit in den Einstellungen erhöhen.",
   "ErrorConfirmationRequired": "Einträge über der Bestätigungsschwelle von {threshold}: {count}.",
   "ErrorDryRunEnabled": "Der globale Testlauf-Modus ist aktiv. Deaktivieren Sie ihn in den Einstellungen, um Änderungen anzuwenden.",
+  "ErrorInstanceDisabled": "Instanz \"{name}\" ist deaktiviert, daher wird nichts dorthin geschrieben.",
   "ErrorNoSelection": "Keine Entscheidung ausgewählt",
   "ErrorNotEnoughSpace": "{path} würde {needed} aufnehmen, meldet aber nur {free} frei. Mit confirm = true erneut senden, um trotzdem zu verschieben.",
   "ErrorSimulationInProgress": "Es läuft bereits eine Simulation.",

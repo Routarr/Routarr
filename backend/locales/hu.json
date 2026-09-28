@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "A(z) {count} elemű köteg meghaladja a(z) {limit} korlátot. Szűkítse a kijelölést, vagy emelje a batch_limit értékét a Beállításokban.",
   "ErrorConfirmationRequired": "A(z) {threshold} megerősítési küszöb feletti elemek: {count}.",
   "ErrorDryRunEnabled": "A globális próbafuttatás be van kapcsolva. Kapcsolja ki a Beállításokban a módosítások végrehajtásához.",
+  "ErrorInstanceDisabled": "A(z) \"{name}\" példány ki van kapcsolva, ezért a Routarr semmit sem ír bele.",
   "ErrorNoSelection": "Nincs kijelölve döntés",
   "ErrorNotEnoughSpace": "{path} {needed} adatot kapna, de csak {free} szabad helyet jelez. Küldje újra confirm = true értékkel az áthelyezéshez.",
   "ErrorSimulationInProgress": "Már fut egy szimuláció.",

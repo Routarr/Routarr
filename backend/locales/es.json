@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "El lote de {count} supera el límite de {limit}. Reduce la selección o aumenta batch_limit en Ajustes.",
   "ErrorConfirmationRequired": "Elementos por encima del umbral de confirmación de {threshold}: {count}.",
   "ErrorDryRunEnabled": "La ejecución en seco global está activa. Desactívala en Ajustes para aplicar cambios.",
+  "ErrorInstanceDisabled": "La instancia «{name}» está desactivada, así que no se escribe nada en ella.",
   "ErrorNoSelection": "No se ha seleccionado ninguna decisión",
   "ErrorNotEnoughSpace": "{path} recibiría {needed} pero solo declara {free} libres. Vuelve a enviar con confirm = true para mover de todos modos.",
   "ErrorSimulationInProgress": "Ya se está ejecutando una simulación.",

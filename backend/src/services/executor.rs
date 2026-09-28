@@ -135,7 +135,7 @@ pub async fn apply_decisions(
     // is a graver thing to be told than one that may be short of room, and the
     // second figure is unknown while the first is true.
     guard_reachable(state, CapacityScope::Decisions(decision_ids), confirmed).await?;
-    guard_capacity(state, CapacityScope::Decisions(decision_ids), confirmed).await?;
+    guard_capacity(state, CapacityScope::Decisions(decision_ids), move_files, confirmed).await?;
     guard_confirmation(state, decision_ids.len(), confirmed).await?;
     run_apply(state, decision_ids, move_files, by).await
 }
@@ -198,8 +198,13 @@ pub async fn apply_simulation_in_batches(
         for check in [
             guard_reachable(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
                 .await,
-            guard_capacity(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
-                .await,
+            guard_capacity(
+                state,
+                CapacityScope::Simulation(simulation_id),
+                move_files,
+                &Confirmed::none(),
+            )
+            .await,
         ] {
             if let Err(AppError::ConfirmationRequired { message: fact, .. }) = check {
                 message = format!("{message}\n\n{fact}");
@@ -267,10 +272,15 @@ pub async fn apply_simulation_in_batches(
             job.progress(report.applied + report.failed + report.skipped, ids.len()).await;
         }
 
-        job.succeed(&format!(
-            "{} applied, {} failed, {} of {} batch(es)",
-            report.applied, report.failed, report.batches_run, report.batches_planned
-        ))
+        close_job(
+            job,
+            report.applied,
+            report.failed,
+            format!(
+                "{} applied, {} failed, {} of {} batch(es)",
+                report.applied, report.failed, report.batches_run, report.batches_planned
+            ),
+        )
         .await;
 
         Ok(report)
@@ -377,7 +387,8 @@ async fn run_apply(
 
         match &outcome {
             Ok(report) => {
-                job.succeed(&format!("{} applied, {} failed", report.applied, report.failed)).await
+                let detail = format!("{} applied, {} failed", report.applied, report.failed);
+                close_job(job, report.applied, report.failed, detail).await
             }
             Err(e) => job.fail(&e.to_string()).await,
         }
@@ -435,7 +446,8 @@ pub async fn revert_decisions(
 
         match &outcome {
             Ok(report) => {
-                job.succeed(&format!("{} reverted, {} failed", report.applied, report.failed)).await
+                let detail = format!("{} reverted, {} failed", report.applied, report.failed);
+                close_job(job, report.applied, report.failed, detail).await
             }
             Err(e) => job.fail(&e.to_string()).await,
         }
@@ -453,6 +465,16 @@ pub async fn revert_decisions(
 enum MoveDirection {
     Forward,
     Revert,
+}
+
+impl MoveDirection {
+    /// The `action` an execution log line records.
+    fn action(self) -> &'static str {
+        match self {
+            Self::Forward => "move",
+            Self::Revert => "revert",
+        }
+    }
 }
 
 /// Group by (instance, target folder) and issue one bulk call per group.
@@ -487,16 +509,26 @@ async fn execute_moves(
                     i
                 }
                 Err(e) => {
-                    fail_batch(state, &batch, &mut report, &e.to_string(), by).await;
+                    fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
                     continue;
                 }
             },
         };
+        // "Enabled (synced and routed)": a proposal left from before the
+        // switch was turned off must not reach an instance that is neither.
+        if !instance.enabled {
+            let refusal = state
+                .localizer()
+                .await
+                .translate("ErrorInstanceDisabled", &[("name", &instance.name)]);
+            fail_batch(state, &batch, &mut report, &refusal, direction, by).await;
+            continue;
+        }
 
         let adapter = match state.adapter(&instance) {
             Ok(a) => a,
             Err(e) => {
-                fail_batch(state, &batch, &mut report, &e.to_string(), by).await;
+                fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
                 continue;
             }
         };
@@ -521,7 +553,7 @@ async fn execute_moves(
                     .get(&mv.arr_id)
                     .cloned()
                     .unwrap_or_else(|| "unknown failure".to_string());
-                record_failure(state, mv, &message, by).await;
+                record_failure(state, mv, &message, direction, by).await;
                 report.failed += 1;
                 report.errors.push(ApplyError {
                     decision_id: mv.decision_id.clone(),
@@ -549,10 +581,11 @@ async fn fail_batch(
     batch: &[PendingMove],
     report: &mut ApplyReport,
     message: &str,
+    direction: MoveDirection,
     by: &Attribution,
 ) {
     for mv in batch {
-        record_failure(state, mv, message, by).await;
+        record_failure(state, mv, message, direction, by).await;
         report.failed += 1;
         report.errors.push(ApplyError {
             decision_id: mv.decision_id.clone(),
@@ -591,10 +624,7 @@ async fn record_success(
     log_execution(
         pool,
         by,
-        match direction {
-            MoveDirection::Forward => "move",
-            MoveDirection::Revert => "revert",
-        },
+        direction.action(),
         &format!("{} → {}", mv.from.as_deref().unwrap_or("(unknown)"), target),
         true,
         None,
@@ -639,18 +669,37 @@ async fn record_outcome(
     Ok(())
 }
 
-async fn record_failure(state: &AppState, mv: &PendingMove, message: &str, by: &Attribution) {
-    if let Err(e) =
-        sqlx::query("UPDATE decisions SET status = 'failed', error_message = ? WHERE id = ?")
-            .bind(message)
-            .bind(&mv.decision_id)
-            .execute(&state.pool)
-            .await
+async fn record_failure(
+    state: &AppState,
+    mv: &PendingMove,
+    message: &str,
+    direction: MoveDirection,
+    by: &Attribution,
+) {
+    // A revert that fails leaves the move it tried to undo in place: the
+    // decision stays applied, so the next Revert still finds it.
+    if direction == MoveDirection::Forward
+        && let Err(e) =
+            sqlx::query("UPDATE decisions SET status = 'failed', error_message = ? WHERE id = ?")
+                .bind(message)
+                .bind(&mv.decision_id)
+                .execute(&state.pool)
+                .await
     {
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
-    log_execution(&state.pool, by, "move", "failed", false, Some(message), mv).await;
+    log_execution(&state.pool, by, direction.action(), "failed", false, Some(message), mv).await;
+}
+
+/// Close a job on what it did. Nothing done while something failed is a
+/// failure, whatever the count reads, or the Tasks screen shows it in green.
+async fn close_job(job: crate::jobs::JobHandle, done: usize, failed: usize, detail: String) {
+    if done == 0 && failed > 0 {
+        job.fail(&detail).await;
+    } else {
+        job.succeed(&detail).await;
+    }
 }
 
 /// Refuse everything while the global dry-run switch is on.
@@ -797,9 +846,12 @@ enum CapacityScope<'a> {
 async fn guard_capacity(
     state: &AppState,
     scope: CapacityScope<'_>,
+    move_files: bool,
     confirmed: &Confirmed,
 ) -> AppResult<()> {
-    if confirmed.has(confirm::CAPACITY) {
+    // With the files left where they are no byte moves, and a question with
+    // no stake teaches people to answer yes to the ones that have one.
+    if !move_files || confirmed.has(confirm::CAPACITY) {
         return Ok(());
     }
     // A whole run is selected by its id rather than by listing its decisions:

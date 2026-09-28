@@ -479,6 +479,25 @@ async fn a_corrupted_condition_payload_disables_the_rule_instead_of_failing_the_
     assert_eq!(result.no_category_match, 1);
 }
 
+/// "Enabled (synced and routed)": switched off, an instance is not routed
+/// either, so none of its items is proposed.
+#[tokio::test]
+async fn a_disabled_instance_is_not_simulated() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    assert_eq!(simulate(&app, persisting()).await.moves_required, 1, "the rule moves the film");
+
+    sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
+
+    let result = simulate(&app, persisting()).await;
+    assert_eq!(
+        (result.total_media, result.moves_required),
+        (0, 0),
+        "a disabled instance was routed"
+    );
+}
+
 /// Two library-wide passes both supersede the other's pending decisions, and
 /// the later commit wins — so the survivor may have been computed from a rule
 /// set that changed in between. The webhook's single-item run must *not* queue

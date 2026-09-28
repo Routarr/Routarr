@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "{count} 个项目的批次超过了 {limit} 的上限。请减少所选项目，或在设置中提高 batch_limit。",
   "ErrorConfirmationRequired": "超过确认阈值 {threshold} 的条目：{count}。",
   "ErrorDryRunEnabled": "全局演练模式已启用。请在设置中关闭它以应用更改。",
+  "ErrorInstanceDisabled": "实例「{name}」已禁用，因此不会向其写入任何内容。",
   "ErrorNoSelection": "未选择任何决策",
   "ErrorNotEnoughSpace": "{path} 将接收 {needed}，但仅报告 {free} 可用空间。若仍要移动，请以 confirm = true 重新发送。",
   "ErrorSimulationInProgress": "模拟已在运行。",

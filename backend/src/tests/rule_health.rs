@@ -189,6 +189,22 @@ async fn a_move_larger_than_the_destination_is_refused_with_both_figures() {
     assert!(message.contains("9.3 GB"), "and what the destination has: {message}");
 }
 
+/// With `move_files` off no byte moves, so free space is not asked about: a
+/// question with no stake teaches people to answer yes to the ones that have.
+#[tokio::test]
+async fn a_move_that_leaves_its_files_asks_nothing_about_free_space() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+
+    let response = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": ["d1"], "move_files": false, "confirm": [] }),
+        )
+        .await;
+    assert_ne!(response.json["confirm"], "capacity", "{}", response.json);
+}
+
 /// A destination the Arr cannot reach is asked about, not silently written to.
 ///
 /// The routing map keeps a sleeping folder on purpose, so the question of

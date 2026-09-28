@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Erä {count} ylittää rajan {limit}. Pienennä valintaa tai nosta batch_limit-arvoa Asetuksissa.",
   "ErrorConfirmationRequired": "Kohteita yli vahvistusrajan {threshold}: {count}.",
   "ErrorDryRunEnabled": "Yleinen koeajo on päällä. Kytke se pois Asetuksissa toteuttaaksesi muutokset.",
+  "ErrorInstanceDisabled": "Instanssi \"{name}\" ei ole käytössä, joten siihen ei kirjoiteta mitään.",
   "ErrorNoSelection": "Yhtään päätöstä ei ole valittu",
   "ErrorNotEnoughSpace": "{path} vastaanottaisi {needed}, mutta ilmoittaa vain {free} vapaana. Lähetä uudelleen confirm = true, jos haluat siirtää silti.",
   "ErrorSimulationInProgress": "Simulointi on jo käynnissä.",

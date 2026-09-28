@@ -588,6 +588,122 @@ async fn an_upstream_failure_marks_the_decision_failed_and_logs_it() {
     assert_eq!(root, "/movies/standard");
 }
 
+/// "0 applied, 1 failed" in green on the Tasks screen, beside a failed-moves
+/// count that says otherwise: nothing done and something failed is a failure.
+#[tokio::test]
+async fn an_apply_in_which_every_move_failed_is_a_failed_job() {
+    let arr = FakeArr::failing(500).await;
+    let (app, decision_id) = ready(&arr).await;
+
+    executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'apply'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "failed");
+}
+
+/// A proposal left from before its instance was switched off is not applied:
+/// the switch reads "Enabled (synced and routed)", and the revalidation finds
+/// the item no longer routed.
+#[tokio::test]
+async fn a_proposal_for_a_disabled_instance_is_not_applied() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
+
+    let report = executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(report.applied, 0);
+    assert!(arr.recorded().writes.is_empty(), "the disabled instance was written to");
+}
+
+/// A revert reads no rule, so the switch itself has to stop it: a move made
+/// while the instance was on is not undone once it is off.
+#[tokio::test]
+async fn a_move_on_a_disabled_instance_is_not_reverted() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    let by = Attribution::manual(None);
+    let applied = executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &by,
+    )
+    .await
+    .unwrap();
+    assert_eq!(applied.applied, 1);
+    let writes = arr.recorded().writes.len();
+
+    sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
+    let reverted =
+        executor::revert_decisions(&app.state, std::slice::from_ref(&decision_id), false, &by)
+            .await
+            .unwrap();
+
+    assert_eq!((reverted.applied, reverted.failed), (0, 1));
+    assert_eq!(arr.recorded().writes.len(), writes, "the disabled instance was written to");
+}
+
+/// An Arr restarting refuses a revert once. The move it tried to undo is still
+/// in place, so the decision stays applied and the next Revert finds it.
+#[tokio::test]
+async fn a_revert_the_arr_refuses_leaves_the_decision_applied() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    let by = Attribution::manual(None);
+    let revert =
+        || executor::revert_decisions(&app.state, std::slice::from_ref(&decision_id), false, &by);
+    executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    async fn point_at(app: &TestApp, url: &str) {
+        sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
+            .bind(url)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+    }
+    let refusing = FakeArr::failing(503).await;
+    point_at(&app, &refusing.base_url).await;
+    assert_eq!(revert().await.unwrap().failed, 1, "the refusing Arr accepted the revert");
+    let status: String = sqlx::query_scalar("SELECT status FROM decisions WHERE id = ?")
+        .bind(&decision_id)
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "applied", "a refused revert rewrote the move it undid as failed");
+
+    point_at(&app, &arr.base_url).await;
+    assert_eq!(revert().await.unwrap().applied, 1, "the second Revert could not find the move");
+}
+
 #[tokio::test]
 async fn a_superseded_decision_is_never_applied() {
     let arr = FakeArr::start().await;

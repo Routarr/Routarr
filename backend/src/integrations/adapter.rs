@@ -236,6 +236,7 @@ fn clone_error(e: &AppError) -> AppError {
 }
 
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
+    let has_files = m.has_files();
     ArrMedia {
         arr_id: m.id,
         media_type: MOVIE,
@@ -248,7 +249,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         path: m.path,
         root_folder_path: m.root_folder_path,
         monitored: m.monitored,
-        has_files: m.has_file,
+        has_files,
         status: m.status,
         added: m.added,
         series_type: None,
@@ -292,5 +293,37 @@ fn series_to_media(s: crate::integrations::sonarr::SonarrSeries) -> ArrMedia {
             .and_then(|l| l.name)
             .and_then(|name| super::language::normalise(&name)),
         certification: s.certification,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{movie_to_media, series_to_media};
+    use serde_json::json;
+
+    fn movie_has_files(body: serde_json::Value) -> bool {
+        movie_to_media(serde_json::from_value(body).expect("a movie")).has_files
+    }
+
+    fn series_has_files(body: serde_json::Value) -> bool {
+        series_to_media(serde_json::from_value(body).expect("a series")).has_files
+    }
+
+    /// Auto-apply moves an item without its files, so it may only do so when
+    /// the Arr said there are none. A payload silent on the question is read as
+    /// an item with files.
+    #[test]
+    fn an_item_is_without_files_only_when_the_arr_says_so() {
+        assert!(!movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": false })));
+        assert!(movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": true })));
+        assert!(movie_has_files(json!({ "id": 10, "title": "Totoro" })));
+
+        let with_statistics = |statistics: serde_json::Value| {
+            series_has_files(json!({ "id": 20, "title": "Cowboy Bebop", "statistics": statistics }))
+        };
+        assert!(!with_statistics(json!({ "episodeFileCount": 0 })));
+        assert!(with_statistics(json!({ "episodeFileCount": 26 })));
+        assert!(with_statistics(json!({})));
+        assert!(series_has_files(json!({ "id": 20, "title": "Cowboy Bebop" })));
     }
 }

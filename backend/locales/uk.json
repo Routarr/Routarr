@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Пакет із {count} перевищує ліміт {limit}. Зменште вибірку або збільште batch_limit у Налаштуваннях.",
   "ErrorConfirmationRequired": "Елементів понад поріг підтвердження {threshold}: {count}.",
   "ErrorDryRunEnabled": "Глобальний тестовий запуск увімкнено. Вимкніть його в Налаштуваннях, щоб застосувати зміни.",
+  "ErrorInstanceDisabled": "Екземпляр «{name}» вимкнено, тому до нього нічого не записується.",
   "ErrorNoSelection": "Не вибрано жодного рішення",
   "ErrorNotEnoughSpace": "{path} отримає {needed}, але повідомляє лише про {free} вільного місця. Надішліть повторно з confirm = true, щоб перемістити попри це.",
   "ErrorSimulationInProgress": "Симуляція вже виконується.",

@@ -256,6 +256,7 @@
   "ErrorBatchLimit": "Et parti på {count} overskrider grensen på {limit}. Reduser utvalget, eller øk batch_limit under Innstillinger.",
   "ErrorConfirmationRequired": "Elementer over bekreftelsesgrensen på {threshold}: {count}.",
   "ErrorDryRunEnabled": "Global prøvekjøring er slått på. Slå den av under Innstillinger for å utføre endringer.",
+  "ErrorInstanceDisabled": "Instansen «{name}» er deaktivert, så ingenting skrives til den.",
   "ErrorNoSelection": "Ingen beslutning valgt",
   "ErrorNotEnoughSpace": "{path} ville motta {needed}, men melder bare {free} ledig. Send på nytt med confirm = true for å flytte likevel.",
   "ErrorSimulationInProgress": "En simulering kjører allerede.",
