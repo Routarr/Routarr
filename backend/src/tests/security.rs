@@ -57,21 +57,26 @@ async fn delete_with_key(app: &TestApp, path: &str, key: &str) -> super::TestRes
 /// against the files rendering a `<Modal>`, both because a list kept by hand
 /// goes stale in silence.
 fn declared_routes() -> Vec<(&'static str, String)> {
-    // Compile-time, so the test cannot pass by reading nothing: a path that
-    // does not resolve fails the build rather than the assertion.
-    const MAIN: &str = include_str!("../main.rs");
-
-    let block = MAIN
-        .split_once("let public = Router::new()")
-        .expect("main.rs declares a `public` router")
-        .1;
-    // The webhook router authenticates by a token in the path, which is a
-    // different mechanism with its own tests.
-    let block = block.split_once("let webhooks").expect("`webhooks` follows the two").0;
+    let block = route_block();
 
     let mut routes = Vec::new();
-    for line in block.lines() {
-        let Some(rest) = line.trim().strip_prefix(".route(\"") else { continue };
+    for (start, call) in block.match_indices(".route(") {
+        // The call's own arguments, read to its closing parenthesis whatever
+        // the lines it spans.
+        let args = &block[start + call.len()..];
+        let mut depth = 1;
+        let end = args
+            .char_indices()
+            .find_map(|(at, c)| {
+                match c {
+                    '(' => depth += 1,
+                    ')' => depth -= 1,
+                    _ => {}
+                }
+                (depth == 0).then_some(at)
+            })
+            .expect("every `.route(` call is closed");
+        let Some(rest) = args[..end].trim_start().strip_prefix('"') else { continue };
         let Some((path, handlers)) = rest.split_once('"') else { continue };
         for (needle, method) in [
             ("get(", "GET"),
@@ -88,6 +93,32 @@ fn declared_routes() -> Vec<(&'static str, String)> {
         }
     }
     routes
+}
+
+/// The `public` and `protected` routers of `main.rs`, as written.
+fn route_block() -> &'static str {
+    // Compile-time, so the test cannot pass by reading nothing: a path that
+    // does not resolve fails the build rather than the assertion.
+    const MAIN: &str = include_str!("../main.rs");
+
+    let block = MAIN
+        .split_once("let public = Router::new()")
+        .expect("main.rs declares a `public` router")
+        .1;
+    // The webhook router authenticates by a token in the path, which is a
+    // different mechanism with its own tests.
+    block.split_once("let webhooks").expect("`webhooks` follows the two").0
+}
+
+/// The walk reads every route the routers declare, however it is laid out:
+/// `rustfmt` puts a long route over several lines, and a route the walk
+/// cannot read is a route it never probes.
+#[test]
+fn the_route_walk_reads_every_declared_route() {
+    let declared = route_block().matches(".route(").count();
+    let parsed: std::collections::HashSet<String> =
+        declared_routes().into_iter().map(|(_, path)| path).collect();
+    assert_eq!(parsed.len(), declared, "the walk reads {} of {declared} routes", parsed.len());
 }
 
 /// What answers without a key, and why.
@@ -671,6 +702,34 @@ async fn a_write_from_another_origin_is_refused_even_with_the_cookie() {
         .body(Body::from("{}"))
         .unwrap();
     assert_eq!(app.router.clone().oneshot(write).await.unwrap().status(), StatusCode::FORBIDDEN);
+}
+
+/// With no sign-in in the way (`none`), or a proxy in front that signs the
+/// browser in (`external`), a page of another site posts here as easily as
+/// this application does. The Origin the browser states is then the one thing
+/// that tells the two apart.
+#[tokio::test]
+async fn a_cross_origin_write_is_refused_in_every_mode() {
+    use crate::config::AuthMode;
+
+    for mode in [AuthMode::None, AuthMode::External] {
+        let mut config = crate::config::Config::for_tests();
+        config.auth_mode = mode;
+        let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+        let write = |origin: &str| {
+            Request::post("/api/v1/simulate")
+                .header("content-type", "application/json")
+                .header("origin", origin)
+                .header("host", "routarr.local")
+                .body(Body::from("{}"))
+                .unwrap()
+        };
+
+        let foreign = app.send(write("https://evil.example")).await.status;
+        assert_eq!(foreign, StatusCode::FORBIDDEN, "{mode:?}: another site's write went through");
+        let own = app.send(write("http://routarr.local")).await.status;
+        assert!(own.is_success(), "{mode:?}: this application's own write was refused: {own}");
+    }
 }
 
 /// Sends a write with the cookie and the given browser and proxy headers.

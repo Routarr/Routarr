@@ -23,6 +23,10 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:9876',
         changeOrigin: true,
+        // `changeOrigin` rewrites `Host` to the backend's own, and the backend
+        // refuses a write whose Origin names another host. `X-Forwarded-Host`
+        // carries the host the browser addressed, which it compares first.
+        xfwd: true,
       },
     },
   },
