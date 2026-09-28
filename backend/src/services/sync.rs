@@ -2,13 +2,14 @@
 
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, SqlitePool};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::JobKind;
 use crate::models::Instance;
 use crate::services::notify;
+use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Result of syncing one instance.
@@ -181,7 +182,45 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // orphan cleanup delete rows that were simply not written yet.
     let mut tx = state.pool.begin().await?;
 
+    // A category is set on a path, and follows the path: through a renumbering,
+    // and never onto another folder given an id a rebuilt Arr hands out again.
+    let mapped: std::collections::HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT path, category FROM root_folders WHERE instance_id = ? AND category IS NOT NULL",
+    )
+    .bind(&instance.id)
+    .fetch_all(&mut *tx)
+    .await?
+    .into_iter()
+    .map(|(path, category)| (normalize_path(&path), category))
+    .collect();
+
     for rf in &root_folders {
+        // A row holding this id for another path is a folder the Arr no longer
+        // reports under it. Kept, it would take this path's place, or break the
+        // unique id when a declared path is promoted below.
+        let freed: Option<(String, Option<String>)> = sqlx::query_as(
+            "DELETE FROM root_folders
+              WHERE instance_id = ? AND arr_id = ? AND origin = 'arr'
+                AND rtrim(path, '/') <> rtrim(?, '/')
+             RETURNING path, category",
+        )
+        .bind(&instance.id)
+        .bind(rf.arr_id)
+        .bind(&rf.path)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((previous, Some(category))) = freed {
+            warn!(
+                instance = %instance.name,
+                arr_id = rf.arr_id,
+                from = %previous,
+                to = %rf.path,
+                category = %category,
+                "The Arr gives this folder id to another path: the category stays with the path \
+                 it was set on"
+            );
+        }
+
         // The same path, declared here first and adopted by the Arr since, is
         // one folder and not two. Promoting it keeps the category mapped onto
         // it. Without this the upsert below would add a second row for the
@@ -205,15 +244,16 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
             // pass": a NAS asleep for three days would read "just now".
             "INSERT INTO root_folders
                 (id, instance_id, arr_id, path, free_space, accessible,
-                 last_synced_at, last_accessible_at, origin)
-             VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? END, 'arr')
+                 last_synced_at, last_accessible_at, origin, category)
+             VALUES (?, ?, ?, ?, ?, ?, ?, CASE WHEN ? THEN ? END, 'arr', ?)
              ON CONFLICT(instance_id, arr_id) DO UPDATE SET
                 path = excluded.path,
                 free_space = excluded.free_space,
                 accessible = excluded.accessible,
                 last_synced_at = excluded.last_synced_at,
                 last_accessible_at =
-                    COALESCE(excluded.last_accessible_at, root_folders.last_accessible_at)",
+                    COALESCE(excluded.last_accessible_at, root_folders.last_accessible_at),
+                category = excluded.category",
         )
         .bind(format!("rf-{}-{}", instance.id, rf.arr_id))
         .bind(&instance.id)
@@ -224,6 +264,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         .bind(&sync_token)
         .bind(rf.accessible)
         .bind(&sync_token)
+        .bind(mapped.get(&normalize_path(&rf.path)))
         .execute(&mut *tx)
         .await?;
     }

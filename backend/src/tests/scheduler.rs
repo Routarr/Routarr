@@ -138,6 +138,32 @@ async fn disabling_auto_simulate_stops_at_the_sync() {
 
 // ------------------------------------------------- failure does not cascade
 
+/// An instance that is down is tried again at its own interval, not on every
+/// tick: each attempt costs a full connect timeout, in a loop that syncs the
+/// other instances after it.
+#[tokio::test]
+async fn a_failing_instance_waits_its_interval_before_the_next_attempt() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    set(&app, "backup_enabled", "false").await;
+    let mut last_sync = HashMap::new();
+    let mut chain = None;
+
+    for _ in 0..2 {
+        scheduler::tick(&app.state, &mut last_sync, &mut None, &mut None, &mut chain)
+            .await
+            .expect("the tick itself must not fail");
+    }
+
+    let attempts: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM jobs WHERE kind = 'sync' AND trigger = 'schedule'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 1, "the instance that is down was tried on every tick");
+}
+
 /// An unreachable Arr is the ordinary case — a NAS asleep, a container
 /// restarting. The tick has to survive it and still do the rest, or one dead
 /// instance quietly stops the backups and the purges for everybody.
