@@ -245,14 +245,7 @@ pub async fn import(
 
     // Settings first: everything after can depend on them.
     for setting in &bundle.settings {
-        // `tmdb_cache_ttl_days` is an alias of `metadata_cache_ttl_days` that
-        // bundles in circulation carry. The value under it is valid, and
-        // refusing it would lose the one setting the user had bothered to
-        // change.
-        let key = match setting.key.as_str() {
-            "tmdb_cache_ttl_days" => "metadata_cache_ttl_days",
-            other => other,
-        };
+        let key = setting.key.as_str();
 
         // A credential never arrives through a bundle: sealed elsewhere it
         // opens with nothing here, and in the clear it came through a file

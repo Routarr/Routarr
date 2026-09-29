@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
-use crate::jobs::TRIGGER_MANUAL;
+use crate::jobs::{TRIGGER_MANUAL, detached};
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::connection::{self, Cause};
@@ -215,14 +215,19 @@ async fn check(
 
 /// Sync every enabled instance.
 pub async fn sync_all(State(state): State<AppState>) -> AppResult<Json<Vec<sync::SyncReport>>> {
-    Ok(Json(sync::sync_all_instances(&state, TRIGGER_MANUAL).await?))
+    let reports =
+        detached(async move { sync::sync_all_instances(&state, TRIGGER_MANUAL).await }).await?;
+    Ok(Json(reports))
 }
 
 pub async fn sync_now(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<sync::SyncReport>> {
-    let error = match sync::sync_instance(&state, &id, TRIGGER_MANUAL).await {
+    let (task_state, task_id) = (state.clone(), id.clone());
+    let synced =
+        detached(async move { sync::sync_instance(&task_state, &task_id, TRIGGER_MANUAL).await });
+    let error = match synced.await {
         Ok(report) => return Ok(Json(report)),
         Err(error) => error,
     };

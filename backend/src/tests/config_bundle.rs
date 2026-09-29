@@ -143,6 +143,38 @@ async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
+/// `move_files_default` is exported by v0.1.2 and read by nothing: the apply
+/// screen asks each time. A bundle holding it restores the rest and says the
+/// one setting did not come back.
+#[tokio::test]
+async fn a_bundle_holding_a_setting_this_release_dropped_restores_the_rest() {
+    let app = TestApp::new().await;
+    let stored: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'move_files_default'")
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, None, "a fresh database still holds the dropped setting");
+
+    // `tmdb_cache_ttl_days` is a name no release exported.
+    let bundle = serde_json::json!({
+        "bundle": {
+            "version": 1,
+            "settings": [
+                { "key": "move_files_default", "value": "true" },
+                { "key": "tmdb_cache_ttl_days", "value": "14" },
+                { "key": "batch_limit", "value": "25" }
+            ]
+        }
+    });
+    let report = app.post("/api/v1/config/import", bundle).await.assert_ok().clone();
+
+    let skipped = report["skipped"].to_string();
+    assert!(skipped.contains("move_files_default"), "not reported: {skipped}");
+    assert!(skipped.contains("tmdb_cache_ttl_days"), "not reported: {skipped}");
+    assert_eq!(report["settings"], 1, "the other setting was not restored");
+}
+
 /// A proxy's password in an Arr's address stays behind, like the API key: the
 /// restored instance needs both typed again.
 #[tokio::test]

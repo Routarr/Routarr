@@ -3,7 +3,7 @@
   import { formatBytes } from '../api/format';
   import { api } from '../api/client';
   import type { ApplyReport, Decision, SimulationResult } from '../api/types';
-  import { describeError } from '../lib/async.svelte';
+  import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
@@ -24,8 +24,8 @@
   const selected = new SvelteSet<string>();
   let moveFiles = $state(false);
   let busy = $state<'run' | 'apply' | null>(null);
-  /** A load that failed: the pending list, or the refresh that follows an apply. */
-  let loadError = $state<string | null>(null);
+  /** The refresh after an apply, whose failure sits beside the apply's report. */
+  let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
 
   /**
@@ -36,28 +36,16 @@
    * "12 decisions awaiting review" on "run a simulation", for the same twelve,
    * already persisted.
    */
-  let pending = $state<Decision[] | null>(null);
   // The server's page ceiling. Past it the top bar's count and this list
   // disagree, and the banner below says which one is short.
   const PENDING_PAGE = 200;
-
-  $effect(() => {
-    let cancelled = false;
-    api
-      .getDecisions({ status: 'pending', per_page: PENDING_PAGE })
-      .then((page) => {
-        if (!cancelled) pending = page.data;
-      })
-      // A banner, not the empty state: the navigation sent the user here with
-      // "12 decisions to review", and a screen saying "run a simulation" over a
-      // failed request contradicts it without a word about why.
-      .catch((cause: unknown) => {
-        if (!cancelled) loadError = describeError(cause);
-      });
-    return () => {
-      cancelled = true;
-    };
-  });
+  // A failure is a banner, not the empty state: the navigation sent the user
+  // here with a count of decisions to review, and "run a simulation" over a
+  // failed request contradicts it without a word about why.
+  const pendingLoad = createAsync((signal) =>
+    api.getDecisions({ status: 'pending', per_page: PENDING_PAGE }, signal),
+  );
+  const pending = $derived<Decision[] | null>(pendingLoad.data?.data ?? null);
 
   /**
    * Evaluate the library again.
@@ -69,7 +57,7 @@
   async function run({ refresh = false }: { refresh?: boolean } = {}) {
     const pressed = document.activeElement as HTMLElement | null;
     busy = 'run';
-    loadError = null;
+    refreshError = null;
     if (!refresh) outcome.clear();
     try {
       const data = await api.runSimulation({ persist: true });
@@ -80,7 +68,7 @@
           .map((d) => d.id),
       );
     } catch (err) {
-      if (refresh) loadError = describeError(err);
+      if (refresh) refreshError = describeError(err);
       else outcome.fail(err);
     } finally {
       // The shell counts the pending and failed decisions, and the guide it
@@ -201,7 +189,7 @@
   // replaces them, and supersedes them server-side too.
   const shown = $derived<Decision[]>(result?.decisions ?? pending ?? []);
   // The pending list has not answered yet, and no run has replaced it.
-  const loading = $derived(pending === null && !result && !loadError);
+  const loading = $derived(pending === null && !result && !pendingLoad.error);
   const movable = $derived(shown.filter((d) => d.action === 'move'));
   const allSelected = $derived(movable.length > 0 && movable.every((d) => selected.has(d.id)));
 </script>
@@ -226,7 +214,12 @@
     </div>
   </div>
 
-  <ErrorBanner message={loadError} onDismiss={() => (loadError = null)} />
+  <ErrorBanner
+    message={pendingLoad.error}
+    onDismiss={() => (pendingLoad.error = null)}
+    onRetry={() => void pendingLoad.reload()}
+  />
+  <ErrorBanner message={refreshError} onDismiss={() => (refreshError = null)} />
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="simulation" />
 
@@ -391,7 +384,7 @@
             <!-- Nothing pending and nothing run says to run, a run that
                    proposed nothing says so. A list that failed to load says
                    neither: its banner above does. -->
-            {#if !loadError}
+            {#if !pendingLoad.error}
               <tr>
                 <td colspan="8">
                   <EmptyState>

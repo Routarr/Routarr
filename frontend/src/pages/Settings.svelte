@@ -41,15 +41,14 @@
     const { values, sealed } = splitStored(answer);
     // An unstored source list is the shipped default, which only the server
     // knows. Seeded from a copy kept here instead, the first save of any
-    // setting would store that copy, since a save sends every field. A missing
-    // or blank list counts as unstored. A repeat keeps its first place: the
-    // server refuses a list that repeats a source, so a stored list holding one
-    // would hold back every save.
-    const listed = (values.metadata_providers ?? '').split(',').map((id) => id.trim());
+    // setting would store that copy, since a save sends every field. A repeat
+    // keeps its first place: the server refuses a list that repeats a source,
+    // so a stored list holding one would hold back every save.
+    const stored = values.metadata_providers;
+    const listed = stored?.split(',').map((id) => id.trim()) ?? metadata.order;
     const settings: SettingsMap = {
       ...values,
-      metadata_providers:
-        [...new Set(listed.filter(Boolean))].join(',') || metadata.order.join(','),
+      metadata_providers: [...new Set(listed.filter(Boolean))].join(','),
     };
     return {
       settings,

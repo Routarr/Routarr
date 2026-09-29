@@ -3,6 +3,24 @@ pub mod scheduler;
 
 pub use registry::{Detail, JobHandle, JobKind, JobRegistry};
 
+/// Run work that writes on a task of its own, and wait for it.
+///
+/// A request future is dropped the moment the client hangs up (a browser
+/// navigating away, a proxy timing out, an Arr whose webhook timed out), at
+/// its next await. Work that writes must reach its end whatever the caller
+/// does: an apply the Arr has performed is recorded, a sync that read the
+/// library stores it. Spawned, the work keeps its lock and its job handle, so
+/// the next caller still waits its turn and the Tasks screen sees it finish.
+pub async fn detached<T, F>(work: F) -> crate::error::AppResult<T>
+where
+    F: std::future::Future<Output = crate::error::AppResult<T>> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::spawn(work).await.map_err(|e| {
+        crate::error::AppError::Internal(format!("the task ended before it reported: {e}"))
+    })?
+}
+
 /// What set a job off. Stored on the job row and rendered on the Tasks
 /// queue, where the frontend builds its translation key as `Trigger{Capitalised}`,
 /// so a new value here needs its `Trigger…` key in `locales/en.json`.

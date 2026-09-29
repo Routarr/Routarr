@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { nthCall } from '../test/spy';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -28,6 +28,8 @@ const STRINGS = {
   StatusFailed: 'failed',
   None: '-',
   ExportFailed: 'Export failed with status {status}',
+  TriggerManual: 'manual',
+  TriggerSchedule: 'schedule',
 };
 
 function entry(over: Partial<LogEntry> = {}): LogEntry {
@@ -41,6 +43,8 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
     instance_id: 'i1',
     media_id: 'm1',
     media_title: 'Akira',
+    actor: 'schedule',
+    subject: null,
     executed_at: '2026-08-27 10:00:00',
     ...over,
   };
@@ -59,6 +63,23 @@ describe('Activity log', () => {
     show();
 
     expect(await screen.findByText('Nothing has been written yet')).toBeTruthy();
+  });
+
+  /** "Did the nightly sweep do this, or did somebody", and which somebody. */
+  it('names what set each write off, and who asked when a mode said', async () => {
+    vi.spyOn(api, 'getLogs').mockResolvedValue(
+      paginated([
+        entry({ id: 'l1', media_title: 'Akira', actor: 'manual', subject: 'alice' }),
+        entry({ id: 'l2', media_title: 'Totoro', actor: 'schedule', subject: null }),
+      ]),
+    );
+    show();
+
+    const manual = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
+    expect(within(manual).getByText('manual')).toBeTruthy();
+    expect(within(manual).getByText('alice')).toBeTruthy();
+    const scheduled = screen.getByText('Totoro').closest('tr') as HTMLElement;
+    expect(within(scheduled).getByText('schedule')).toBeTruthy();
   });
 
   /**

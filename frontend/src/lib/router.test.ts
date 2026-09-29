@@ -54,14 +54,6 @@ describe('navigation', () => {
     expect(router.path).toBe('/rules');
   });
 
-  it('replaces the entry rather than stacking one when asked', () => {
-    const replaceState = vi.spyOn(window.history, 'replaceState');
-    navigate('/logs', { replace: true });
-
-    expect(replaceState).toHaveBeenCalled();
-    expect(router.path).toBe('/logs');
-  });
-
   /**
    * A sub-path is the case that only ever breaks behind a reverse proxy, where
    * it is hardest to diagnose. The router has to strip it, or every route

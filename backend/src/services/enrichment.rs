@@ -518,7 +518,7 @@ pub async fn resolve_for_media(
     media: &crate::models::Media,
 ) -> AppResult<Option<crate::models::MediaMetadata>> {
     let mut parts: Vec<(&str, ProviderMetadata)> = Vec::new();
-    let identifiers = metadata::load_identifiers(&state.pool).await?;
+    let identifiers = metadata::load_identifiers_of(&state.pool, media).await?;
 
     // The configured order, *not* the usable subset: a key that has been
     // removed stops new fetches, it does not un-know what is already cached.

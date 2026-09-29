@@ -36,12 +36,12 @@ export const router = $state({ path: strip(window.location.pathname) });
 export const href = (to: string) => `${basePath()}${to}`;
 
 /** Follow a link the way the browser would, without reloading the document. */
-export function navigate(to: string, options: { replace?: boolean } = {}) {
+export function navigate(to: string) {
   const { pathname, search, hash, href: from } = window.location;
   const url = `${basePath()}${to}`;
   // The page on screen takes no second entry, as with a link in the browser.
   const here = url === `${pathname}${search}${hash}`;
-  if (options.replace || here) window.history.replaceState({}, '', url);
+  if (here) window.history.replaceState({}, '', url);
   else window.history.pushState({}, '', url);
   router.path = strip(window.location.pathname);
   // A link to another fragment of the page on screen is one the browser

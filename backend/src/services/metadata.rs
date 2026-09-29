@@ -23,6 +23,7 @@ use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::models::{Media, MetadataField, ProviderMetadata};
+use crate::services::rule_engine::normalise_value;
 
 pub const ARR: &str = "arr";
 pub const TMDB: &str = "tmdb";
@@ -477,13 +478,13 @@ fn pick_candidate<I>(title: &str, year: Option<i64>, candidates: I) -> Option<St
 where
     I: IntoIterator<Item = (String, Option<i64>, Vec<String>)>,
 {
-    let wanted = normalise_title(title);
+    let wanted = normalise_value(title);
     if wanted.is_empty() {
         return None;
     }
 
     for (id, candidate_year, titles) in candidates {
-        let title_matches = titles.iter().any(|t| normalise_title(t) == wanted);
+        let title_matches = titles.iter().any(|t| normalise_value(t) == wanted);
         // A release year drifts by one between databases (a December film is a
         // January release elsewhere), so one year of tolerance and no more.
         let year_matches = match (year, candidate_year) {
@@ -502,28 +503,6 @@ where
     }
 
     None
-}
-
-/// Lowercase, strip punctuation, collapse whitespace.
-///
-/// `"My Neighbor Totoro"`, `"my neighbour totoro"` and `"My Neighbor Totoro!"`
-/// are the same work. The spelling of the second is not handled and is not
-/// meant to be: this normalises, it does not guess.
-pub fn normalise_title(title: &str) -> String {
-    let mut out = String::with_capacity(title.len());
-    let mut space = false;
-    for c in title.chars() {
-        if c.is_alphanumeric() {
-            if space && !out.is_empty() {
-                out.push(' ');
-            }
-            space = false;
-            out.extend(c.to_lowercase());
-        } else {
-            space = true;
-        }
-    }
-    out
 }
 
 /// The library's own identity for an item, namespaced by the id it comes from.
@@ -551,7 +530,7 @@ pub fn local_key_of(
     }
     match imdb_id.map(str::trim).filter(|id| !id.is_empty()) {
         Some(id) => format!("imdb:{id}"),
-        None => format!("title:{}|{}", normalise_title(title), year.unwrap_or(0)),
+        None => format!("title:{}|{}", normalise_value(title), year.unwrap_or(0)),
     }
 }
 
@@ -563,6 +542,23 @@ pub async fn load_identifiers(pool: &SqlitePool) -> AppResult<Identifiers> {
         sqlx::query_as("SELECT source, media_type, local_key, external_id FROM source_identifiers")
             .fetch_all(pool)
             .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|(source, kind, key, external)| ((source, kind, key), external))
+        .collect())
+}
+
+/// The resolutions made for one item, which is all one media page reads.
+pub async fn load_identifiers_of(pool: &SqlitePool, media: &Media) -> AppResult<Identifiers> {
+    let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
+        "SELECT source, media_type, local_key, external_id FROM source_identifiers
+          WHERE media_type = ? AND local_key = ?",
+    )
+    .bind(&media.media_type)
+    .bind(local_key(media))
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows
         .into_iter()
@@ -763,6 +759,28 @@ mod tests {
     fn a_duplicate_keeps_only_its_highest_position() {
         let order = parse_order("tmdb,arr,tmdb");
         assert_eq!(order.iter().map(|p| p.id).collect::<Vec<_>>(), vec!["tmdb", "arr"]);
+    }
+
+    /// A source may spell a title without its accents, or with them where the
+    /// library has none, and the rules already read both as one value. A search
+    /// that compared them strictly would leave the work unresolved.
+    #[test]
+    fn a_title_matches_its_candidate_whatever_its_accents() {
+        let candidates = || {
+            vec![(
+                "jikan-1".to_string(),
+                Some(2001),
+                vec!["Le Fabuleux Destin d'Amelie Poulain".to_string()],
+            )]
+        };
+        assert_eq!(
+            pick_candidate("Le Fabuleux Destin d'Amélie Poulain", Some(2001), candidates()),
+            Some("jikan-1".to_string())
+        );
+        assert_eq!(
+            local_key_of(None, None, None, "Amélie", Some(2001)),
+            local_key_of(None, None, None, "Amelie", Some(2001))
+        );
     }
 
     #[test]

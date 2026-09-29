@@ -64,7 +64,7 @@ describe('Sidebar', () => {
    * and disappears for anyone who cannot separate the two greys.
    */
   it('announces which entry is current, rather than only colouring it', async () => {
-    navigate('/rules', { replace: true });
+    navigate('/rules');
     show();
 
     const current = await screen.findByRole('link', { current: 'page' });
@@ -76,7 +76,7 @@ describe('Sidebar', () => {
    * whose path sits under its own. `findByRole` throws on two current links.
    */
   it('marks only Rule tests current on its own screen', async () => {
-    navigate('/rules/tests', { replace: true });
+    navigate('/rules/tests');
     show();
 
     const current = await screen.findByRole('link', { current: 'page' });

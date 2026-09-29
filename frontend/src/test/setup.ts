@@ -12,5 +12,5 @@ afterEach(() => {
   cleanup();
   localStorage.clear();
   if (confirmation.request) settle(null);
-  navigate('/', { replace: true });
+  navigate('/');
 });
