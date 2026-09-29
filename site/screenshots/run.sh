@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Render the showcase's captured images from the real application.
 #
-# The pages show no screenshot since the site was cut to two, so what this
-# produces today is the Open Graph card, and the captures are kept ready for
-# the second page. Everything is disposable: its own database, its own fake Radarr, Sonarr and
-# TMDb, its own ports. A development instance is never touched, and no real
-# library or API key can end up in a published image.
+# No page shows a screenshot yet, so what reaches the site is the Open Graph
+# card. The captures go to screenshots/captures/, outside what the site ships,
+# until a page shows them. Everything is disposable: its own database, its own
+# fake Radarr, Sonarr and TMDb, its own ports. A development instance is never
+# touched, and no real library or API key can end up in a published image.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -112,7 +112,7 @@ echo "    ${total:-0} decision(s)"
 echo "==> capturing"
 FRONTEND_DIR="$ROOT/frontend" ROUTARR_URL="http://127.0.0.1:$PORT" \
   ROUTARR_API_KEY="$DEMO_API_KEY" \
-  SHOTS_DIR="$ROOT/site/public/assets/shots" node "$HERE/capture.mjs"
+  SHOTS_DIR="$HERE/captures" node "$HERE/capture.mjs"
 
 # Two formats from the same PNG, never one from the other: re-encoding a lossy
 # image into another lossy format compounds both sets of artefacts, and these
@@ -132,22 +132,22 @@ command -v avifenc >/dev/null || {
 # failure between the two left a fresh WebP beside a stale AVIF, and the AVIF
 # is the file most browsers take.
 mkdir -p "$WORK/encoded"
-for png in "$ROOT"/site/public/assets/shots/*.png; do
+for png in "$HERE"/captures/*.png; do
   [[ -e "$png" ]] || continue
   name="$(basename "${png%.png}")"
   convert "$png" -quality 82 -define webp:method=6 "$WORK/encoded/$name.webp"
   # -s 4 is the speed/size middle ground; -q 60 matches the WebP's weight
   # class, and these are pictures of text where banding shows first.
   avifenc --min 0 --max 63 -a end-usage=q -a cq-level=28 -s 4 "$png" "$WORK/encoded/$name.avif" >/dev/null
-  mv "$WORK/encoded/$name.webp" "$WORK/encoded/$name.avif" "$ROOT/site/public/assets/shots/"
+  mv "$WORK/encoded/$name.webp" "$WORK/encoded/$name.avif" "$HERE/captures/"
   rm -f "$png"
 done
 
 # What a wrong encoder produced silently until now.
-for avif in "$ROOT"/site/public/assets/shots/*.avif; do
+for avif in "$HERE"/captures/*.avif; do
   file "$avif" | grep -q "AVIF" || {
     echo "$avif is not an AVIF file" >&2
     exit 1
   }
 done
-ls -la "$ROOT/site/public/assets/shots"
+ls -la "$HERE/captures"

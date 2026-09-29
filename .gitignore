@@ -25,6 +25,7 @@ node_modules/
 # itself, so what is committed is the source, never the artefact.
 /site/dist
 /site/.astro
+/site/screenshots/captures
 /frontend/dist
 
 # Working documents, deliberately unpublished. Not build artefacts.

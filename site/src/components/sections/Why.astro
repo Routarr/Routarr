@@ -59,8 +59,8 @@ const reading = (value: Key | string) => (value.includes(' ') && !value.startsWi
                 <p>{t(step.note)}</p>
               </div>
               <p class="flow-k">
-                <span><i>{t('how.band.reads')}</i>{reading(step.reads)}</span>
-                <span class="flow-k-writes"><i>{t('how.band.writes')}</i>{t(step.writes)}</span>
+                <span><i>{t('how.band.reads')}</i>{' '}{reading(step.reads)}</span>{' '}
+                <span class="flow-k-writes"><i>{t('how.band.writes')}</i>{' '}{t(step.writes)}</span>
               </p>
             </li>
           ))

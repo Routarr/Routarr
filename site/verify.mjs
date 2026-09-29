@@ -62,17 +62,20 @@ const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 
+// On the context, not on the first page: every page the sweeps below open is
+// watched as well, so a component only `/how/` renders cannot break the CSP or
+// throw with every gate green.
 const problems = [];
-page.on('console', (message) => {
+context.on('console', (message) => {
   if (message.type() === 'error') problems.push(`console: ${message.text()}`);
 });
-page.on('pageerror', (error) => problems.push(`uncaught: ${error.message}`));
-page.on('requestfailed', (request) => problems.push(`failed request: ${request.url()}`));
+context.on('weberror', (error) => problems.push(`uncaught: ${error.error().message}`));
+context.on('requestfailed', (request) => problems.push(`failed request: ${request.url()}`));
 
 const hosts = new Set();
-page.on('request', (request) => hosts.add(new URL(request.url()).host));
+context.on('request', (request) => hosts.add(new URL(request.url()).host));
 
-await page.addInitScript(() => {
+await context.addInitScript(() => {
   window.__csp = [];
   document.addEventListener('securitypolicyviolation', (e) => {
     window.__csp.push(`${e.violatedDirective} blocked ${e.blockedURI}`);
@@ -124,13 +127,38 @@ for (const path of [...PAGES, '/404.html']) {
   for (const width of [1440, 375]) {
     const tab = await context.newPage();
     await tab.setViewportSize({ width, height: 900 });
+    const before = problems.length;
     await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-    const { violations } = await new AxeBuilder({ page: tab })
+    const blocked = await tab.evaluate(() => window.__csp);
+    for (const violation of blocked) fail(`${path} at ${width}px: content-security-policy ${violation}`);
+    for (const problem of problems.slice(before)) fail(`${path} at ${width}px: ${problem}`);
+    const { violations, incomplete } = await new AxeBuilder({ page: tab })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
       .analyze();
     for (const violation of violations) {
       const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
       fail(`${path} at ${width}px: ${violation.id} (${violation.impact}), ${where}`);
+    }
+    // A contrast axe could not measure is a contrast nobody checked: text over
+    // a layer it cannot see through reads as "incomplete", never as a failure.
+    // Two exceptions: a glyph that is no text (`nonBmp`), a decorative mark,
+    // and the hero's text over its grid (`pseudoContent`), which `check.mjs`
+    // measures on the tinted ground instead.
+    const reasons = (node) => node.any.map((check) => check.data?.messageKey);
+    const candidates = incomplete
+      .filter((result) => result.id === 'color-contrast')
+      .flatMap((result) => result.nodes)
+      .filter((node) => !reasons(node).every((key) => key === 'nonBmp'));
+    const inHero = await tab.evaluate(
+      (selectors) => selectors.map((selector) => Boolean(document.querySelector(selector)?.closest('.hero'))),
+      candidates.map((node) => node.target.join(' ')),
+    );
+    const unmeasured = candidates.filter(
+      (node, at) => !(inHero[at] && reasons(node).every((key) => key === 'pseudoContent')),
+    );
+    if (unmeasured.length) {
+      const where = unmeasured.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+      fail(`${path} at ${width}px: a contrast axe could not measure, ${where}`);
     }
     await tab.close();
   }
@@ -300,10 +328,73 @@ check(
   'the theme switch does not say which state it is in',
 );
 
+// The browser's bar takes the ground of the theme on screen, on the click and
+// again on the next load.
+const barMatches = () =>
+  page.evaluate(
+    () => document.querySelector('meta[name="theme-color"]').content === getComputedStyle(document.body).backgroundColor
+      .match(/\d+/g).slice(0, 3).reduce((hex, channel) => hex + Number(channel).toString(16).padStart(2, '0'), '#'),
+  );
+check(await barMatches(), 'theme-color does not follow the theme picked');
+
 const chosen = await page.evaluate(() => document.documentElement.dataset.theme);
 await page.reload({ waitUntil: 'networkidle' });
 const persisted = await page.evaluate(() => document.documentElement.dataset.theme);
 check(persisted === chosen, `the theme choice did not survive a reload (${chosen} became ${persisted})`);
+check(await barMatches(), 'theme-color does not follow the theme a reload restored');
+
+// ------------------------------------------------------------ copy
+// A second click inside the delay must not take "Copied" for the label to put
+// back, or the button says it for good.
+{
+  const tab = await context.newPage();
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const copy = tab.locator('.copy-btn').first();
+  const label = await copy.innerText();
+  await copy.click();
+  await copy.click();
+  await tab.waitForTimeout(1900);
+  const now = await copy.innerText();
+  check(now === label, `the Copy button reads "${now}" after two clicks, not "${label}"`);
+  await tab.close();
+}
+
+// ------------------------------------------------------------ focus rings
+// A scrolling region takes the focus so the keyboard can scroll it. Its ring,
+// drawn outside it, is cut off by a card that clips its overflow, and the
+// reader cannot see where the focus went. Walked with Tab, as a reader does.
+for (const width of [1440, 375]) {
+  const tab = await context.newPage();
+  await tab.setViewportSize({ width, height: 900 });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const cut = new Set();
+  let regions = 0;
+  for (let step = 0; step < 120; step++) {
+    await tab.keyboard.press('Tab');
+    const found = await tab.evaluate(() => {
+      const element = document.activeElement;
+      if (!element || element.getAttribute('tabindex') !== '0') return null;
+      const style = getComputedStyle(element);
+      const reach = parseFloat(style.outlineOffset) + parseFloat(style.outlineWidth);
+      const box = element.getBoundingClientRect();
+      for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+        if (getComputedStyle(parent).overflow === 'visible') continue;
+        const clip = parent.getBoundingClientRect();
+        if (box.left - reach < clip.left || box.right + reach > clip.right
+          || box.top - reach < clip.top || box.bottom + reach > clip.bottom) {
+          return { cut: element.className || element.tagName.toLowerCase() };
+        }
+      }
+      return { cut: null };
+    });
+    if (!found) continue;
+    regions++;
+    if (found.cut) cut.add(found.cut);
+  }
+  check(regions > 0, `at ${width}px the Tab walk reached no scrolling region, so the ring check read nothing`);
+  check(cut.size === 0, `at ${width}px a card cuts off the focus ring of: ${[...cut].join(', ')}`);
+  await tab.close();
+}
 
 // ------------------------------------------------------------ index panel
 // On a phone the destinations stack in one column: two columns of 136px fold
@@ -364,6 +455,9 @@ for (const [path, locale] of [['/', 'fr-FR'], ['/', 'de'], ['/how/', 'es-MX']]) 
   );
   check(shown, `${path} offers nothing to a ${locale} browser`);
   check(text === want, `${path} offered "${text}" to a ${locale} browser, expected "${want}"`);
+  // Read aloud with the rules of the language it is written in (WCAG 3.1.2).
+  const spoken = await tab.evaluate(() => document.querySelector('#lang-hint a')?.getAttribute('lang'));
+  check(spoken === locale.split('-')[0], `${path} offers its ${locale} link in lang "${spoken}"`);
   await ctx.close();
 }
 

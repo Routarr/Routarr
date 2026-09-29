@@ -16,7 +16,11 @@ const require = createRequire(`${FRONTEND}/package.json`);
 const { chromium } = require('@playwright/test');
 
 const BASE = process.env.ROUTARR_URL ?? 'http://127.0.0.1:9899';
-const OUT = process.env.SHOTS_DIR ?? new URL('../public/assets/shots/', import.meta.url).pathname;
+// Outside `public/` until a page shows them: the site ships what `public/`
+// holds, and `check.mjs` refuses a capture no page shows.
+const OUT = process.env.SHOTS_DIR ?? new URL('./captures/', import.meta.url).pathname;
+// The one image a page does use, as the card a shared link displays.
+const OG = new URL('../public/assets/og.png', import.meta.url).pathname;
 
 mkdirSync(OUT, { recursive: true });
 
@@ -100,7 +104,7 @@ if (await why.count()) {
 const card = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
 await card.goto(new URL('./og.html', import.meta.url).href);
 await card.waitForTimeout(300);
-await card.screenshot({ path: `${OUT}/../og.png` });
+await card.screenshot({ path: OG });
 console.log('captured og');
 
 await browser.close();
