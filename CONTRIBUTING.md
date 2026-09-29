@@ -77,6 +77,7 @@ npm audit --audit-level=high
 npm run build && node ../scripts/check-bundle-size.mjs   # the two bundles' ceilings
 npm run test:e2e       # builds the release binary; a few minutes
 npm run test:e2e:base  # the specs tagged @subpath, under ROUTARR_BASE_PATH=/routarr
+npm run test:e2e:auth  # the specs tagged @forms and @oidc, each against a server in that mode
 
 # site/
 npm run build && node check.mjs && node verify.mjs
@@ -86,7 +87,7 @@ npx astro check        # types over the components and the catalogue
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 ```
 
-Coverage has floors on both sides: 90 % of backend lines, and 88 / 78 / 86 / 88 for frontend
+Coverage has floors on both sides: 90 % of backend lines, and 89 / 79 / 87 / 90 for frontend
 statements, branches, functions and lines. **Raise one when the real figure moves up, never
 lower one to make a build pass.**
 

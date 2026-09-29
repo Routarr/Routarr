@@ -121,7 +121,9 @@ Components named without a path live in `frontend/src/components/`.
   lowers the figure the floors guard.
 - `npm run test:e2e` builds the release binary and the frontend, then drives Chromium against a
   fake Radarr. Specs are chosen by tag, never by file: one that needs a sub-path mount carries
-  `@subpath` in its title and runs under `npm run test:e2e:base`, every other spec by default.
+  `@subpath` in its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode
+  carries `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key,
+  every other spec by default.
 - A new journey queries by role and label, not by class. The suite runs serially against one
   server, so a spec restores any setting it changes beyond what the `instanceId` fixture resets.
 - A spec imports `test`, `expect` and `api` from `frontend/e2e/fixtures.ts`, which seeds the key

@@ -1476,15 +1476,33 @@ async fn a_sound_callback_opens_a_session_naming_the_subject() {
     idp.will_claim(serde_json::json!({ "nonce": flow.nonce, "preferred_username": "alice" }));
 
     let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
-    let response = callback(&app, Some(&flow.cookie), &path).await;
-    assert_eq!(response.status, StatusCode::SEE_OTHER);
-    assert_eq!(response.location().as_deref(), Some("/"), "a success lands on the application");
-
-    let subject: String = sqlx::query_scalar("SELECT subject FROM sessions WHERE source = 'oidc'")
-        .fetch_one(&app.state.pool)
-        .await
+    let request = Request::get(&path)
+        .header(axum::http::header::COOKIE, &flow.cookie)
+        .body(Body::empty())
         .unwrap();
+    let response = tower::ServiceExt::oneshot(app.router.clone(), request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::SEE_OTHER);
+    assert_eq!(response.headers()["location"], "/", "a success lands on the application");
+
+    let (id, subject): (String, String) =
+        sqlx::query_as("SELECT id, subject FROM sessions WHERE source = 'oidc'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
     assert_eq!(subject, "alice");
+    // A session the browser is never handed is a sign-in that lands back on the
+    // gate, and the attempt's cookie is cleared in the same answer.
+    let cookies: Vec<&str> = response
+        .headers()
+        .get_all(axum::http::header::SET_COOKIE)
+        .iter()
+        .map(|value| value.to_str().unwrap())
+        .collect();
+    assert!(
+        cookies.iter().any(|c| c.starts_with(&format!("routarr_session={id};"))),
+        "{cookies:?}"
+    );
+    assert!(cookies.iter().any(|c| c.starts_with("routarr_oidc=;")), "{cookies:?}");
 
     // The client proved the exchange with the verifier and its secret, and the
     // flow row is gone so the code cannot be presented twice.
