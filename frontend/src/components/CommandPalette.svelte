@@ -12,17 +12,18 @@
   /**
    * One field, from anywhere, for the question this product exists to answer.
    *
-   * "Why did Routarr put this film there?" took four steps from any screen:
-   * open the library, type, search, then find the row and press its button.
-   * The answer arrives here without leaving the page — the palette fetches the
-   * explanation itself rather than navigating to a screen that would show it,
-   * because neither the explanation nor the rule editor is addressable by URL
-   * and sending someone to `/media` would only be step one of the four again.
+   * "Why did Routarr put this film there?" otherwise takes four steps from any
+   * screen: open the library, type, search, then find the row and press its
+   * button. The answer arrives here without leaving the page. The palette
+   * fetches the explanation itself rather than navigating to a screen that would
+   * show it, because neither the explanation nor the rule editor is addressable
+   * by URL, and sending someone to `/media` would only be step one of the four
+   * again.
    *
    * Deliberately narrow. It carries no action that writes: applying a move,
    * reverting one and deleting a rule all have guardrails that live on the
-   * screen owning them — a confirmation threshold, a batch ceiling, a capacity
-   * check — and a palette exists to be fast, which is the opposite of what a
+   * screen owning them (a confirmation threshold, a batch ceiling, a capacity
+   * check), and a palette exists to be fast, which is the opposite of what a
    * write to somebody's library wants.
    */
   let { onClose }: { onClose: () => void } = $props();
@@ -98,8 +99,8 @@
     };
   });
 
-  // A new search is a new list; leaving the cursor where it was would leave it
-  // pointing at a row that is no longer there.
+  // A new search is a new list, and a cursor left where it was would point at a
+  // row that is no longer there.
   $effect(() => {
     void query;
     cursor = 0;
@@ -153,7 +154,7 @@
       <div class="palette-field">
         <Search size={16} aria-hidden="true" />
         <!-- The focus never leaves the field, so typing continues while the
-             arrows walk the list; `aria-activedescendant` is what tells a
+             arrows walk the list, and `aria-activedescendant` is what tells a
              screen reader which row that is. -->
         <input
           bind:this={input}
@@ -170,7 +171,7 @@
           aria-label={t('CommandPalette')}
           placeholder={t('CommandPalettePlaceholder')}
         />
-        <!-- The way out a pointer sees, as every other dialog has one;
+        <!-- The way out a pointer sees, as every other dialog has one.
              Escape is the keyboard's. -->
         <button
           type="button"
@@ -190,9 +191,9 @@
       </p>
 
       <!-- Beside the results, never instead of them. Only the library needs
-           the network; the destinations are in memory, and replacing them
-           with the failure left the field able to do nothing at all until it
-           was closed and opened again. -->
+           the network. The destinations are in memory, and replacing them
+           with the failure would leave the field able to do nothing at all
+           until it is closed and opened again. -->
       {#if error}
         <p class="palette-error" role="alert">{error}</p>
       {/if}
@@ -226,8 +227,8 @@
                 <!-- The keyboard path is the field's own: arrows move the cursor
                      and Enter opens what it points at, which is the combobox
                      pattern. Svelte's rule looks for a handler on this element and
-                     cannot see one three lines up, so a handler added here to
-                     satisfy it would be a second, unreachable path. -->
+                     cannot see the field's, so a handler added here to satisfy
+                     it would be a second, unreachable path. -->
                 <!-- svelte-ignore a11y_click_events_have_key_events -->
                 <div
                   id={row.id}

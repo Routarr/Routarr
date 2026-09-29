@@ -8,11 +8,12 @@ use crate::services::sync;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
-/// The client hanging up mid-apply — a browser navigating away, an Arr whose
-/// webhook timed out — must not leave a move done at the Arr and unknown here.
-/// Awaited in the request future, the work was dropped with the connection at
-/// its next await: the Arr had moved the item, the decision stayed `pending`,
-/// the row kept its old path, and the next pass proposed the move again.
+/// The client hanging up mid-apply (a browser navigating away, an Arr whose
+/// webhook timed out) must not leave a move done at the Arr and unknown here.
+/// Awaited in the request future, the work would be dropped with the connection
+/// at its next await: the Arr would have moved the item, the decision would
+/// stay `pending`, the row would keep its old path, and the next pass would
+/// propose the move again.
 #[tokio::test]
 async fn hanging_up_mid_apply_still_records_the_move() {
     use std::time::Duration;
@@ -23,8 +24,8 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
     let (app, decision_id) = ready(&arr).await;
 
-    // Driven until the Arr has the edit in hand, then dropped — which is what
-    // a request future undergoes when its connection goes away.
+    // Driven until the Arr has the edit in hand, then dropped, which is what a
+    // request future undergoes when its connection goes away.
     {
         let mut applying = Box::pin(app.post(
             "/api/v1/decisions/apply",
@@ -67,7 +68,7 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     // which is after `job.succeed`, itself after the status this test has just
     // observed. Asserting on it straight away asserts an ordering the executor
     // never promised, and only holds on a machine fast enough to lose the race
-    // by microseconds — which is why it passed everywhere but on a CI runner.
+    // by microseconds, which a busy CI runner is not.
     let released = tokio::time::timeout(Duration::from_secs(5), async {
         while app.state.jobs.try_lock("apply").is_none() {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -84,10 +85,10 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     assert_eq!(job, "success", "the Tasks screen must see the job end");
 }
 
-/// A library wired to a fake Radarr, with dry-run off and one pending move.
-/// A `?` between `start` and the outcome left the row `running` until the next
-/// restart failed it as an orphan: the Tasks screen showed a job in progress,
-/// with nothing to say why the apply had answered an error.
+/// An apply that cannot load its moves ends its job as failed. A `?` between
+/// `start` and the outcome would leave the row `running` until the next restart
+/// fails it as an orphan, and the Tasks screen would show a job in progress,
+/// with nothing to say why the apply answered an error.
 #[tokio::test]
 async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     let arr = FakeArr::start().await;
@@ -114,7 +115,7 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
 }
 
 /// A decision names the folder the item was in when it was proposed. Moved
-/// since — by hand in Radarr, or by an earlier apply the row already reflects —
+/// since, by hand in Radarr or by an earlier apply the row already reflects,
 /// the proposal describes an item that no longer exists, and sending it to the
 /// Arr again is a second write nobody asked for.
 #[tokio::test]
@@ -389,6 +390,7 @@ async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
     assert!(!newer, "the item's newer proposal was retired with the stale one");
 }
 
+/// A library wired to a fake Radarr, with dry-run off and one pending move.
 async fn ready(arr: &FakeArr) -> (TestApp, String) {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
@@ -997,7 +999,7 @@ async fn moves_to_the_same_folder_are_batched_into_one_call() {
 //
 // Everything above calls `executor::` directly. Reverting is the one operation
 // a user reaches for when something has already gone wrong, so it is worth
-// knowing the route itself is wired — a handler that never receives the ids it
+// knowing the route itself is wired: a handler that never receives the ids it
 // is given fails in exactly the moment nobody wants a surprise.
 
 #[tokio::test]
@@ -1039,13 +1041,13 @@ async fn the_revert_route_refuses_an_unknown_decision_without_a_panic() {
             serde_json::json!({ "decision_ids": ["nope"], "move_files": false }),
         )
         .await;
-    // A refusal that says so — not a 500, and not a success over nothing.
+    // A refusal that says so: not a 500, and not a success over nothing.
     assert_eq!(body.status, axum::http::StatusCode::BAD_REQUEST, "got {}", body.message());
     assert!(!body.message().is_empty(), "the refusal says nothing");
 }
 
 /// `apply` and `sync:{instance}` are different job locks, so an application and
-/// a synchronisation of the same instance can run at once — and both write
+/// a synchronisation of the same instance can run at once, and both write
 /// `current_root_folder`. The losing interleaving is a sync that read the Arr
 /// *before* the move landed and commits *after* it: it puts the old path back,
 /// and the next simulation reproposes a move that already happened.
@@ -1087,7 +1089,7 @@ async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
 
 /// The other half, and the one that stops the guard becoming a permanent veto:
 /// once a read is newer than the move, the Arr is authoritative again. Someone
-/// moving a film in Radarr's own interface must still be followed — Routarr
+/// moving a film in Radarr's own interface must still be followed: Routarr
 /// having moved it once is not a claim of ownership over it.
 #[tokio::test]
 async fn a_sync_that_read_after_the_move_still_follows_the_arr() {

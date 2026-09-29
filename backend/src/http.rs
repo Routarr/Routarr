@@ -17,14 +17,13 @@ use crate::error::{AppError, AppResult};
 ///
 /// **All three of scheme, host and port.** Host alone is not enough:
 /// self-hosted services commonly share one host on different ports, where
-/// host-only matching would carry the key between them. And scheme alone was
-/// missing here until this function was extracted — `port_or_known_default()`
-/// answers `Some(8080)` for both `https://arr:8080` and `http://arr:8080`, so a
-/// downgrade to cleartext on an explicit port read as the same origin and the
-/// key went out unencrypted. The one exception is an `http` → `https` upgrade
-/// that keeps the port, or goes from 80 to 443 — the two shapes an upgrade
-/// takes. Any other port change is another service on the same host, however
-/// the scheme reads.
+/// host-only matching would carry the key between them. The scheme counts too:
+/// `port_or_known_default()` answers `Some(8080)` for both `https://arr:8080`
+/// and `http://arr:8080`, so without it a downgrade to cleartext on an explicit
+/// port reads as the same origin and the key goes out unencrypted. The one
+/// exception is an `http` → `https` upgrade that keeps the port, or goes from
+/// 80 to 443, the two shapes an upgrade takes. Any other port change is another
+/// service on the same host, however the scheme reads.
 ///
 /// A free function rather than a closure so it can be tested without a TLS
 /// server: the property is about three fields of two URLs, and nothing else.
@@ -40,11 +39,11 @@ pub(crate) fn stays_on_origin(previous: &reqwest::Url, to: &reqwest::Url) -> boo
     let (from_port, to_port) = (previous.port_or_known_default(), to.port_or_known_default());
 
     // The exception, and only the two shapes it actually describes: the
-    // canonical 80 → 443, and the same explicit port served both ways. Written
-    // as "any http → any https" it let `http://nas:7878` reach
-    // `https://nas:8384` — a *different service on the same host*, which is
+    // canonical 80 → 443, and the same explicit port served both ways. Read as
+    // "any http → any https", it would let `http://nas:7878` reach
+    // `https://nas:8384`, a *different service on the same host*, which is
     // exactly the hazard the port comparison exists for, and which the word
-    // "upgrade" made look safe.
+    // "upgrade" makes look safe.
     let tls_upgrade = previous.scheme() == "http"
         && to.scheme() == "https"
         && (from_port == to_port || (from_port == Some(80) && to_port == Some(443)));
@@ -77,8 +76,8 @@ fn same_origin_only() -> reqwest::redirect::Policy {
 /// Bounded by `ROUTARR_HTTP_TIMEOUT_SECS`: an unresponsive Arr would otherwise
 /// hang a request handler, and with it the health page.
 ///
-/// Fails rather than falling back. `Client::new()` carries reqwest's defaults —
-/// follow up to ten redirects anywhere, and no timeout at all — so a fallback
+/// Fails rather than falling back. `Client::new()` carries reqwest's defaults
+/// (follow up to ten redirects anywhere, and no timeout at all), so a fallback
 /// would quietly discard both properties this function exists to set, on the
 /// one path that sends an Arr credential. A server that cannot build its HTTP
 /// client has nothing useful to do afterwards.
@@ -176,9 +175,9 @@ mod tests {
         stays_on_origin(&from.parse().expect("from"), &to.parse().expect("to"))
     }
 
-    /// The case this function was extracted for. `port_or_known_default()`
-    /// answers `Some(8080)` on both sides, so before the scheme was compared
-    /// this read as the same origin and `X-Api-Key` went out in cleartext.
+    /// `port_or_known_default()` answers `Some(8080)` on both sides, so only the
+    /// scheme tells them apart. Read as the same origin, the redirect sends
+    /// `X-Api-Key` in cleartext.
     #[test]
     fn a_downgrade_to_cleartext_on_the_same_port_is_refused() {
         assert!(!judge("https://arr:8080/a", "http://arr:8080/b"));
@@ -195,9 +194,9 @@ mod tests {
         assert!(judge("http://arr:8080/a", "https://arr:8080/b"));
     }
 
-    /// "Upgrade" is not a licence to change service. Written as any http → any
-    /// https, this carried `X-Api-Key` from an Arr on one port to whatever
-    /// answers on another — on the host where every homelab service lives.
+    /// "Upgrade" is not a licence to change service. Any http → any https would
+    /// carry `X-Api-Key` from an Arr on one port to whatever answers on another,
+    /// on the host where every homelab service lives.
     #[test]
     fn an_upgrade_to_another_port_is_not_an_upgrade() {
         assert!(!judge("http://nas:7878/a", "https://nas:8384/b"));

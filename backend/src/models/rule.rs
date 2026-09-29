@@ -40,7 +40,7 @@ pub enum MatchMode {
     /// Every condition must match (default, and the safest).
     #[default]
     All,
-    /// At least one condition must match — "musique OR keyword concert".
+    /// At least one condition must match, as in "genre Music OR keyword concert".
     Any,
 }
 
@@ -169,7 +169,7 @@ pub enum Condition {
     #[serde(rename = "title_contains")]
     TitleContains(Vec<String>),
 
-    /// Exception by external identifier — the "override by identifier" case.
+    /// Exception by external identifier, the "override by identifier" case.
     #[serde(rename = "tmdb_id_in")]
     TmdbIdIn(Vec<i64>),
 
@@ -179,7 +179,7 @@ pub enum Condition {
     #[serde(rename = "imdb_id_in")]
     ImdbIdIn(Vec<String>),
 
-    /// Media added to the Arr instance within the last N days — lets a rule
+    /// Media added to the Arr instance within the last N days, so a rule can
     /// target new additions without touching the existing library.
     #[serde(rename = "added_within_days")]
     AddedWithinDays(i64),
@@ -286,7 +286,7 @@ impl Condition {
             Condition::CertificationIn(_) => MetadataField::Certification,
             // Named rather than left to a wildcard: these read the media row,
             // and a condition added without a decision about which metadata
-            // field it needs would fall through to `None` — silently exempt
+            // field it needs would fall through to `None`, silently exempt
             // from the warning that tells the reader no enabled source can
             // answer it. Spelled out, the compiler asks.
             Condition::YearRange { .. }
@@ -401,7 +401,7 @@ pub struct ImportRulesRequest {
 /// A problem found while validating a rule before it is stored or enabled.
 ///
 /// Carries a translation key rather than prose so the validator stays free of
-/// wording; `message` is filled in at the API boundary.
+/// wording. `message` is filled in at the API boundary.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct ValidationIssue {
     /// `error` blocks the write, `warning` is advisory.

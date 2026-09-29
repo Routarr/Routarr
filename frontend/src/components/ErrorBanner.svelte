@@ -10,8 +10,8 @@
     message: string | null;
     onDismiss?: () => void;
     /**
-     * Offered when the failed request can simply be made again — a load, not
-     * a write — so a network blip does not cost a page reload.
+     * Offered when the failed request can simply be made again (a load, not
+     * a write), so a network blip does not cost a page reload.
      */
     onRetry?: () => void;
   } = $props();

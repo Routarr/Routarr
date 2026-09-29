@@ -9,7 +9,7 @@
 #
 # Usage: bash scripts/smoke-image.sh <image>
 # Needs Docker. CI runs it after the image job's build. The host port is
-# SMOKE_PORT, 9876 by default — set it when a development Routarr holds that one.
+# SMOKE_PORT, 9876 by default: set it when a development Routarr holds that one.
 set -euo pipefail
 
 IMAGE="${1:?usage: smoke-image.sh <image>}"
@@ -48,8 +48,8 @@ trap cleanup EXIT
 
 http_status() { curl -s --max-time 10 -o /dev/null -w '%{http_code}' "$@"; }
 
-# Polls a condition, giving up early if the container has already exited —
-# otherwise a crash on start reads as a slow start for the whole timeout.
+# Gives up as soon as the container has exited: otherwise a crash on start
+# reads as a slow start for the whole timeout.
 wait_for() {
   local seconds=$1 what=$2
   shift 2
@@ -152,8 +152,8 @@ done
 docker rm -fv "$SUBPATH_NAME" >/dev/null
 ok "the HEALTHCHECK follows ROUTARR_BASE_PATH=routarr"
 
-# PID 1 ignores a signal it installed no handler for, so a server that missed
-# SIGTERM is killed after ten seconds with 137 — skipping the checkpoint that
+# PID 1 ignores a signal it installed no handler for, so a server that misses
+# SIGTERM is killed after ten seconds with 137, and skips the checkpoint that
 # writes the WAL back into the database.
 docker stop "$NAME" >/dev/null
 code=$(docker inspect -f '{{.State.ExitCode}}' "$NAME")

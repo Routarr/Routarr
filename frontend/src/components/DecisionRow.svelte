@@ -69,8 +69,8 @@
     <div class="flex flex-col gap-1">
       {#each decision.reasons as reason, index (index)}
         <!-- Clamped, with the whole sentence on hover: a justification is
-             several lines of prose in a narrow column, and one row in three was
-             twice the height of its neighbours. -->
+             several lines of prose in a narrow column, and unclamped it
+             stretches its row far past the height of its neighbours. -->
         <span
           class="reason-line {reason.startsWith('✓') ? 'explain-match' : 'text-muted'}"
           title={reason}

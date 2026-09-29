@@ -91,7 +91,7 @@ test.describe('table cells stay on one line', () => {
 
   test('switching to a longer language does not fold the column', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
-    // Greek and German run long; if any language folds the cell it is one of them.
+    // Greek and German run long: if any language folds the cell it is one of them.
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_language: 'de' } }),
@@ -107,7 +107,7 @@ test.describe('table cells stay on one line', () => {
 /**
  * A phone. Below the drawer breakpoint the navigation leaves the flow, and a
  * table has to scroll inside its own region rather than drag the page with it.
- * Nothing in the unit tests computes layout; this is where a 375px screen is
+ * Nothing in the unit tests computes layout, so this is where a 375px screen is
  * seen at all.
  */
 test.describe('on a phone', () => {
@@ -126,7 +126,7 @@ test.describe('on a phone', () => {
       );
       expect(overflow, `${path} scrolls the page sideways by ${overflow}px`).toBeLessThanOrEqual(1);
 
-      // A table wider than the screen is expected; the region around it is what
+      // A table wider than the screen is expected. The region around it is what
       // scrolls, and it has to be reachable to do so.
       const regions = await page.evaluate(() =>
         [...document.querySelectorAll('.table-container')].map((el) => ({
@@ -143,12 +143,12 @@ test.describe('on a phone', () => {
   /**
    * A section the sweep above cannot reach.
    *
-   * `/settings` opens on its first tab, so no test had ever rendered the
-   * source list narrow. Holding its three lanes, the actions kept the 190px
-   * that aligns their right edges, the credential field beside them measured
-   * 51px — narrower than the word it holds — and "Disable" was clipped 50px
-   * outside its own row. The document never scrolled, so the check above
-   * passed throughout; nothing but a measurement inside the row shows it.
+   * `/settings` opens on its first tab, so the source list is drawn narrow
+   * only here. Held in three lanes, the actions keep the width that aligns
+   * their right edges, which squeezes the credential field beside them below
+   * the word it holds and clips a button outside its own row. The document
+   * does not scroll when that happens, so the check above passes, and nothing
+   * but a measurement inside the row shows it.
    */
   test('the source list stacks rather than squeezing its own field', async ({
     page,
@@ -188,12 +188,10 @@ test.describe('on a phone', () => {
   /**
    * The same screens at 360px with every counter set at once.
    *
-   * The test above has always been here and has always passed, because the
-   * fixture never reaches the worst case: the bar's width was a function of
-   * how many counts were non-zero *and* of how long the language writes them.
-   * Forced, it measured 168px of horizontal document overflow at 360px, with
-   * badges 80px tall inside a 64px bar. A fixture that cannot produce the
-   * failure is a test that cannot find it.
+   * The fixture alone never reaches the worst case: the bar's width is a
+   * function of how many counts are non-zero *and* of how long the language
+   * writes them, so the status is forced here. A fixture that cannot produce
+   * the failure is a test that cannot find it.
    */
   test('every screen fits 360px with every counter at once', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
@@ -222,7 +220,7 @@ test.describe('on a phone', () => {
         return {
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
           // Nothing in the bar may be taller than the bar: a wrapped label is
-          // how the chrome burst in the first place.
+          // what bursts the chrome.
           tallest: Math.max(
             0,
             ...[...(bar?.querySelectorAll('*') ?? [])].map(
@@ -265,7 +263,6 @@ test.describe('on a phone', () => {
   });
 });
 
-/** Every screen with a page title, which is how a sweep knows it has loaded. */
 test.describe('buttons are one size', () => {
   /**
    * Without a fixed height the same `btn btn-primary` renders at three sizes:
@@ -362,11 +359,10 @@ test('every select keeps the room its arrow is drawn in', async ({ page, instanc
 test.describe('the chrome draws one line', () => {
   /**
    * The sidebar header and the top bar sit side by side and each ends in a
-   * rule, so together they read as one line across the window — unless their
-   * heights differ, which puts a step in the middle of it. They did: 72px
-   * against 64px, because one was sized by its logo and the other was fixed.
-   *
-   * Only a browser can measure where a border actually lands.
+   * rule, so together they read as one line across the window, unless their
+   * heights differ, which puts a step in the middle of it. Both take
+   * `--chrome-height`, and only a browser can measure where a border actually
+   * lands.
    */
   test('the sidebar header and the top bar end at the same height', async ({ page }) => {
     await page.goto('/media');
@@ -414,7 +410,7 @@ test.describe('right-to-left', () => {
     await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
     const rtl = await sideOf();
 
-    // The sidebar crosses to the other edge, and the content is no longer
+    // The sidebar crosses to the other edge, and the content stops being
     // pushed away from the side the sidebar left.
     expect(rtl.sidebarLeft, 'the sidebar did not move to the right').toBeGreaterThan(500);
     expect(rtl.contentLeft, 'the content is still offset for a left sidebar').toBe(0);
@@ -458,7 +454,7 @@ test('selecting rows does not move the rows', async ({ page, instanceId }) => {
   const firstRow = page.locator('tbody tr').first();
 
   // The cell holding the box and nothing else. Measuring the whole head hides
-  // the defect wherever a longer heading is the taller thing in that row —
+  // the defect wherever a longer heading is the taller thing in that row,
   // which is most languages, and this fixture.
   const cell = () =>
     page.evaluate(() => {

@@ -89,21 +89,21 @@ pub struct Evaluation {
 pub struct EvalContext<'a> {
     pub media: &'a Media,
     pub metadata: Option<&'a MediaMetadata>,
-    /// Reference instant for time-relative conditions; injected for testability.
+    /// Reference instant for time-relative conditions, injected for testability.
     pub now: DateTime<Utc>,
 }
 
 /// Evaluate all rules against a single media item.
 ///
 /// Rules are considered in ascending `priority` order and the first one whose
-/// conditions hold wins; the rest are reported as alternatives so the UI can
+/// conditions hold wins. The rest are reported as alternatives so the UI can
 /// explain what was considered and discarded.
 pub fn evaluate_rules(
     ctx: EvalContext<'_>,
     rules: &[Rule],
     override_category: Option<&str>,
 ) -> Evaluation {
-    // An explicit human decision outranks the entire engine — automation
+    // An explicit human decision outranks the entire engine: automation
     // must never prevent an explicit manual decision.
     if let Some(cat) = override_category {
         return Evaluation {
@@ -129,8 +129,8 @@ pub fn evaluate_rules(
 
     // Lower priority number wins, ties break on name and then on id, so the
     // outcome does not depend on the order SQLite returns rows in. Name alone
-    // is not enough: nothing stops two rules sharing one — the interface
-    // accepts the same name twice and duplication only appends "(copy)" — and
+    // is not enough: nothing stops two rules sharing one (the interface
+    // accepts the same name twice and duplication only appends "(copy)"), and
     // two such rules can target different categories.
     applicable.sort_by(|a, b| {
         a.priority.cmp(&b.priority).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id))
@@ -179,7 +179,7 @@ pub fn evaluate_rules(
 
 /// Confidence heuristic: more agreeing signals means a more trustworthy call.
 ///
-/// `all` mode starts higher because every condition had to hold; `any` mode is
+/// `all` mode starts higher because every condition had to hold. `any` mode is
 /// intentionally capped lower since a single weak signal can carry it.
 fn confidence_for(evaluations: &[ConditionOutcome], mode: MatchMode) -> f32 {
     let agreeing = evaluations.iter().filter(|e| e.matched).count() as f32;
@@ -471,13 +471,11 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         ),
 
         Condition::TitleContains(values) => {
-            // Normalised on both sides, like every other string condition.
-            // `to_lowercase` alone folded case and left the accents, so
-            // `amelie` did not find "Amélie" while `Science-Fiction` did find
-            // "Science Fiction" — one rule in fifteen behaving differently,
-            // against what the engine's own contract says. Normalising also
-            // collapses punctuation to a space, so `spider man` now finds
-            // "Spider-Man", which is the same rule applied to the same place.
+            // Normalised on both sides, like every other string condition, so
+            // `amelie` finds "Amélie" and `spider man` finds "Spider-Man" as
+            // `Science-Fiction` finds "Science Fiction" in a genre. Compared
+            // with `to_lowercase` alone, a title would fold case, keep the
+            // accents, and be the one condition to break the engine's contract.
             let title = normalise_value(&media.title);
             ConditionOutcome::new(
                 kind,
@@ -544,7 +542,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 ///
 /// Sources disagree on case, accents and punctuation for what is the same
 /// value: `Science-Fiction` against `Science Fiction`, `Comédie` against
-/// `Comedie`. It normalises and never guesses — distinct values stay distinct
+/// `Comedie`. It normalises and never guesses: distinct values stay distinct
 /// and no synonym is invented, so `Sci-Fi` is still not `Science Fiction`.
 pub fn normalise_value(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
@@ -622,7 +620,7 @@ fn contains_all(haystack: &[String], needles: &[String]) -> bool {
 }
 
 /// Arr instances report paths with or without a trailing slash depending on how
-/// they were configured; compared raw, the same folder reads as both "already
+/// they were configured. Compared raw, the same folder reads as both "already
 /// correct" and "needs move".
 pub fn normalize_path(path: &str) -> String {
     let trimmed = path.trim().trim_end_matches(['/', '\\']);
@@ -715,7 +713,7 @@ pub const MAX_NAME_LENGTH: usize = 200;
 
 /// Validate a rule before it is stored or enabled.
 ///
-/// Errors block the write; warnings are surfaced in the UI but do not.
+/// Errors block the write. Warnings are surfaced in the UI but do not.
 pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<ValidationIssue> {
     let RuleDraft { name, media_type, match_mode, conditions, exclusions, target_category } = draft;
     let ValidationEnv { known_categories, mapped_categories, covered_fields, current_year } = env;
@@ -864,7 +862,7 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         (HasFiles(x), HasFiles(y))
         | (Monitored(x), Monitored(y))
         | (HasMetadata(x), HasMetadata(y)) => x != y,
-        // Requiring a value — any of them or all of them — and forbidding the
+        // Requiring a value (any of them or all of them) and forbidding the
         // same value can never both hold.
         (GenreContains(x), GenreNotContains(y))
         | (GenreNotContains(y), GenreContains(x))
@@ -1053,7 +1051,7 @@ mod tests {
     /// Nothing stops two rules sharing a name: the interface accepts the same
     /// one twice, and duplicating a rule only appends "(copy)". With the
     /// priority equal too, name leaves a genuine tie whose winner would be
-    /// whatever SQLite returns first — and these two send the same film to
+    /// whatever SQLite returns first, and these two send the same film to
     /// different folders.
     #[test]
     fn two_rules_with_the_same_name_and_priority_still_have_an_order() {
@@ -1108,9 +1106,10 @@ mod tests {
     // ------------------------------------------------- genres: OR and AND
     //
     // The one distinction the shape of a rule has to make unambiguous. Several
-    // values in one condition are alternatives; requiring several at once is
-    // several conditions under `MatchMode::All`. Nothing infers an AND from a
-    // separator, so a rule means the same thing however its values were typed.
+    // values in one condition are alternatives. Requiring several at once is
+    // the `_all` form of the condition, or several conditions under
+    // `MatchMode::All`. Nothing infers an AND from a separator, so a rule means
+    // the same thing however its values were typed.
 
     /// Evaluate one rule against the fixture, whose genres are Animation,
     /// Family and Fantasy.
@@ -1150,7 +1149,7 @@ mod tests {
             vec![Condition::GenreContainsAll(vec!["Animation".into(), "Family".into()])],
             MatchMode::All,
         ));
-        // Fantasy is carried, Western is not, so the pair cannot hold — where
+        // Fantasy is carried, Western is not, so the pair cannot hold, where
         // the `any` form would.
         let mixed = vec!["Fantasy".into(), "Western".into()];
         assert!(!genre_rule(vec![Condition::GenreContainsAll(mixed.clone())], MatchMode::All));
@@ -1207,7 +1206,7 @@ mod tests {
             ],
             MatchMode::All,
         ));
-        // Western is absent, so the pair cannot hold — where `any` would.
+        // Western is absent, so the pair cannot hold, where `any` would.
         let both_needed = vec![
             Condition::GenreContains(vec!["Animation".into()]),
             Condition::GenreContains(vec!["Western".into()]),
@@ -1259,7 +1258,7 @@ mod tests {
     #[test]
     fn spelling_does_not_have_to_match_the_source() {
         // Case, surrounding space and the separator inside the word are all
-        // folded; the accent is folded too, so a value typed without one still
+        // folded. The accent is folded too, so a value typed without one still
         // finds the genre that carries it.
         assert_eq!(normalise_value("  Science-Fiction "), "science fiction");
         assert_eq!(normalise_value("Science Fiction"), "science fiction");
@@ -1504,10 +1503,9 @@ mod tests {
         assert!(!matches(Condition::TitleContains(vec!["akira".into()])));
     }
 
-    /// The title was compared with `to_lowercase` while every other string
-    /// condition went through `normalise_value`, so this one rule in fifteen
-    /// folded case and kept the accents — against the contract the engine
-    /// states about itself.
+    /// A title goes through `normalise_value` like every other string
+    /// condition. Compared with `to_lowercase` alone, it would fold case and
+    /// keep the accents, against the contract the engine states about itself.
     #[test]
     fn a_title_is_matched_the_way_every_other_value_is() {
         let accented = |needle: &str| {
@@ -1838,7 +1836,7 @@ mod tests {
         assert!(!fine.iter().any(|i| i.key == "ValidationYearRangeInverted"));
     }
 
-    /// 12 and 200000 were storable, and a rule written that way matches nothing
+    /// A year such as 12 or 200000, stored, makes a rule that matches nothing
     /// while reading on screen exactly like one that correctly matches nothing.
     #[test]
     fn an_implausible_year_is_an_error_and_the_first_film_year_is_not() {
@@ -1868,7 +1866,7 @@ mod tests {
     }
 
     /// `added <= now` makes the day count non-negative, so a negative threshold
-    /// never matches — while zero means the last day and is a real answer.
+    /// never matches, while zero means the last day and is a real answer.
     #[test]
     fn a_negative_day_count_is_an_error_and_zero_is_not() {
         let issues = validate(vec![Condition::AddedWithinDays(-5)], vec![]);

@@ -1,21 +1,21 @@
 # syntax=docker/dockerfile:1
 
-# Every `FROM` is `image:tag@digest`. The digest is what Docker pulls — the tag
-# beside it is ignored for resolution — which is the pinning `ci.yml` already
-# applies to every `uses:`, for the reason stated there: a tag is a mutable
-# pointer its owner can move. It matters more here. An action contributes one
-# build step; a base image contributes the whole filesystem of what
-# `release.yml` pushes to GHCR under a signed provenance attestation, and an
-# attestation over a silently republished base certifies exactly that.
+# Every `FROM` is `image:tag@digest`. The digest is what Docker pulls, and the
+# tag beside it is ignored for resolution. That is the pinning `ci.yml` applies
+# to every `uses:`, for the reason stated there: a tag is a mutable pointer its
+# owner can move. It matters more here. An action contributes one build step,
+# while a base image contributes the whole filesystem of what `release.yml`
+# pushes to GHCR under a signed provenance attestation, and an attestation over
+# a silently republished base certifies exactly that.
 #
 # The tag stays for two readers. Dependabot tracks it and bumps tag and digest
-# in one change; a bare `image@digest` has no tag to follow and would receive no
-# pull request at all. And `scripts/check-versions.py` reads it. It cannot move
-# into a comment beside the `FROM`: Dockerfile has no trailing comments, and
-# anything after the image is parsed as arguments.
+# in one change, where a bare `image@digest` has no tag to follow and would
+# receive no pull request at all. And `scripts/check-versions.py` reads it. It
+# cannot move into a comment beside the `FROM`: Dockerfile has no trailing
+# comments, and anything after the image is parsed as arguments.
 #
-# The digests are the multi-architecture index, not one platform's manifest —
-# the image is built for amd64 and arm64.
+# The digests are the multi-architecture index, not one platform's manifest,
+# since the image is built for amd64 and arm64.
 
 # ---------------------------------------------------------------- frontend
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS frontend-builder
@@ -37,15 +37,15 @@ RUN apk add --no-cache musl-dev pkgconfig
 WORKDIR /app
 
 # Compile the dependency graph against a stub binary first: a source-only change
-# then reuses this layer instead of rebuilding ~200 crates.
+# then reuses this layer instead of rebuilding every dependency.
 COPY backend/Cargo.toml backend/Cargo.lock ./
 RUN mkdir src && echo 'fn main() {}' > src/main.rs \
     && cargo build --release --locked \
     && rm -rf src
 
 COPY backend/migrations ./migrations
-# The locale dictionaries are include_str!'d from src/localization.rs — without
-# them the compile fails, silently making i18n a host-only feature.
+# The locale dictionaries are include_str!'d from src/localization.rs, so the
+# compile fails without them.
 COPY backend/locales ./locales
 COPY backend/src ./src
 # Touch so cargo does not mistake the stub's mtime for an up-to-date build.
@@ -55,9 +55,9 @@ RUN touch src/main.rs && cargo build --release --locked
 FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS runner
 # `ca-certificates` is load-bearing, not hygiene: reqwest verifies TLS against
 # the *platform's* trust store, so without this package every call to TMDb,
-# OMDb, TheTVDB, AniList and Jikan fails certificate validation — and an Arr
-# reached over HTTPS with it. It is also what makes a homelab CA work: mount it
-# into /usr/local/share/ca-certificates and run update-ca-certificates.
+# OMDb, TheTVDB, AniList and Jikan fails certificate validation, and so does
+# every Arr reached over HTTPS. It is also what makes a homelab CA work: mount
+# it into /usr/local/share/ca-certificates and run update-ca-certificates.
 RUN apk add --no-cache ca-certificates tzdata
 
 # What the image is, in the vocabulary a registry reads. `licenses` is the one
@@ -84,7 +84,7 @@ COPY --from=backend-builder /app/target/release/routarr /app/routarr
 COPY --from=frontend-builder /app/frontend/dist /app/frontend/dist
 
 # GPLv3 §4 and §6: a copy of the licence travels with the program. The image is
-# how almost everyone will receive Routarr, so this is the copy that counts —
+# how almost everyone will receive Routarr, so this is the copy that counts:
 # the one in the repository reaches whoever already found the repository.
 COPY LICENSE /app/LICENSE
 

@@ -1,7 +1,7 @@
 //! Dynamic penetration tests against the real router.
 //!
-//! Every case drives the assembled `Router` — middleware, extractors and
-//! handlers included — through `oneshot`, exactly as a remote client would. The
+//! Every case drives the assembled `Router` (middleware, extractors and
+//! handlers included) through `oneshot`, exactly as a remote client would. The
 //! point is not to test a function in isolation but to prove the *deployed*
 //! surface holds: that authentication cannot be walked around, that user text
 //! is data and never SQL, that a guessed webhook token fails closed, and that
@@ -50,12 +50,11 @@ async fn delete_with_key(app: &TestApp, path: &str, key: &str) -> super::TestRes
 /// notices. What has to be pinned is the small set that answers without a key,
 /// so the check is "everything refuses except these", and moving a route out of
 /// the protected block fails here until somebody adds it to the list on
-/// purpose — which is the review this exists to force.
+/// purpose, which is the review this exists to force.
 ///
-/// A hand-written list of probes is the shape this repository has condemned
-/// twice: the e2e specs are selected by tag and the modal sweep is checked
-/// against the files rendering a `<Modal>`, both because a list kept by hand
-/// goes stale in silence.
+/// A list of probes kept by hand goes stale in silence, which is why the e2e
+/// specs are selected by tag and the modal sweep is checked against the files
+/// rendering a `<Modal>`.
 fn declared_routes() -> Vec<(&'static str, String)> {
     let block = route_block();
 
@@ -86,8 +85,8 @@ fn declared_routes() -> Vec<(&'static str, String)> {
             ("patch(", "PATCH"),
         ] {
             if handlers.contains(needle) {
-                // `{id}` is a real segment to axum; any value routes the same,
-                // and none of these is reached without a key anyway.
+                // `{id}` is a real segment to axum, so any value routes the
+                // same, and none of these is reached without a key anyway.
                 routes.push((method, format!("/api/v1{}", path.replace("{id}", "probe"))));
             }
         }
@@ -235,14 +234,14 @@ async fn no_near_miss_key_is_accepted() {
         "",        // empty
         " ",       // whitespace
         "s3cre",   // prefix
-        "s3cret ", // trailing space (trimmed, so this actually matches — see below)
+        "s3cret ", // trailing space, trimmed, so this one matches (see below)
         "s3crets", // suffix
         "S3CRET",  // wrong case
         "s3cret.", // trailing punctuation
         "0s3cret", // leading digit
     ] {
         let status = get_with_key(&app, "/api/v1/settings", wrong).await;
-        // "s3cret " trims to "s3cret" and is a legitimate accept; every other
+        // "s3cret " trims to "s3cret" and is a legitimate accept. Every other
         // entry must be rejected.
         if wrong.trim() == "s3cret" {
             assert_eq!(status, StatusCode::OK, "{wrong:?} should trim to a match");
@@ -252,8 +251,8 @@ async fn no_near_miss_key_is_accepted() {
     }
 }
 
-/// A `Bearer` token is accepted, but only under that exact scheme — `Basic`,
-/// a bare token, or a lowercased scheme must not slip through.
+/// A `Bearer` token is accepted, but only under that exact scheme: `Basic`, a
+/// bare token, or a lowercased scheme must not slip through.
 #[tokio::test]
 async fn only_the_bearer_scheme_is_honoured() {
     let app = TestApp::with_api_key("s3cret").await;
@@ -382,7 +381,7 @@ async fn rule_condition_values_are_inert() {
 // ------------------------------------------------------ secret leakage
 
 /// An instance's API key is encrypted at rest and must never appear in any
-/// response — not the list, not the detail, not an error.
+/// response: not the list, not the detail, not an error.
 #[tokio::test]
 async fn an_arr_key_never_appears_in_a_response() {
     let app = TestApp::new().await;
@@ -433,9 +432,9 @@ async fn an_oversized_body_is_refused() {
 
 // ------------------------------------------------------- modes
 
-/// The value this setting shipped with. An image people pull without reading
-/// release notes has to keep starting, and starting *open* is the one outcome
-/// a typo must never produce.
+/// `disabled` and `required` are spellings an existing deployment may still
+/// set. An image people pull without reading release notes has to keep
+/// starting, and starting *open* is the one outcome a typo must never produce.
 #[test]
 fn the_old_spelling_still_opts_out_and_a_typo_never_does() {
     use crate::config::AuthMode;
@@ -496,8 +495,9 @@ async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
     crate::services::accounts::ensure_account(&state.pool, &state.config.password_path())
         .await
         .unwrap();
-    // The generated password is written beside the database; the file is the
-    // only copy a test can read, as it is for an operator who missed the log.
+    // The generated password is written beside the database, and the file is
+    // the only copy a test can read, as it is for an operator who missed the
+    // log.
     (TestApp::around(state), dir)
 }
 
@@ -670,9 +670,9 @@ async fn forms_refuses_until_a_session_is_opened() {
 }
 
 /// A password shorter than the minimum cannot be the stored one, so hashing it
-/// would spend 355 ms proving what its length already says. The test writes a
-/// short password's hash straight into the table: refused anyway is what shows
-/// the check was skipped rather than merely failed.
+/// would spend a whole argon2 hash proving what its length already says. The
+/// test writes a short password's hash straight into the table: refused anyway
+/// is what shows the check was skipped rather than merely failed.
 #[tokio::test]
 async fn a_password_too_short_to_have_been_set_is_refused_without_hashing() {
     let (app, _dir) = forms_app("short").await;
@@ -692,9 +692,9 @@ async fn a_password_too_short_to_have_been_set_is_refused_without_hashing() {
 
 /// A flood of simultaneous sign-ins must not take the application down with it,
 /// and must not stop the operator signing in either. Unbounded, twenty at once
-/// ran twenty argon2 hashes in parallel — a core and about 19 MiB each — and a
-/// lockout would not have bounded them, since the failures it counts are
-/// recorded after the hashes they were meant to prevent.
+/// would run twenty argon2 hashes in parallel, a core and about 19 MiB each,
+/// and a lockout would not bound them, since the failures it counts are
+/// recorded after the hashes they are meant to prevent.
 #[tokio::test]
 async fn a_burst_of_sign_ins_is_bounded_and_still_lets_the_password_through() {
     use axum::body::Body;
@@ -733,7 +733,7 @@ async fn a_burst_of_sign_ins_is_bounded_and_still_lets_the_password_through() {
         );
     }
 
-    // And the operator still gets in — the property a lockout gives away.
+    // And the operator still gets in: the property a lockout gives away.
     let right = serde_json::json!({ "username": "admin", "password": password }).to_string();
     assert_eq!(attempt(right).await, StatusCode::OK, "the burst locked the account out");
 }
@@ -765,7 +765,7 @@ async fn a_session_cookie_is_httponly_lax_and_scoped() {
 }
 
 /// An operator who moves from `forms` to `oidc` does so to change who may enter,
-/// and the database — sessions included — survives the restart. A session the
+/// and the database, sessions included, survives the restart. A session the
 /// old mode opened and the new one still honours is the old door left open,
 /// sliding for as long as someone keeps using it.
 #[tokio::test]
@@ -808,7 +808,7 @@ async fn a_session_is_honoured_only_by_the_mode_that_opened_it() {
 
 /// A cookie travels on a cross-site request whether or not the page meant to
 /// send it. SameSite refuses the dangerous shapes and the JSON extractor
-/// refuses a form's content type; this is the third of the three.
+/// refuses a form's content type. This is the third of the three.
 #[tokio::test]
 async fn a_write_from_another_origin_is_refused_even_with_the_cookie() {
     use axum::body::Body;
@@ -888,7 +888,7 @@ async fn write_from(
 
 /// The mirror of the refusal above, without which "every write with an Origin
 /// is refused" would pass it. A browser on this application says so through
-/// `Origin`, and the write goes through — including behind the proxies people
+/// `Origin`, and the write goes through, including behind the proxies people
 /// actually run: nginx sends the upstream's name as `Host` and the public one
 /// as `X-Forwarded-Host`, and a browser omits the default port that a proxy
 /// may write out.
@@ -934,8 +934,8 @@ async fn a_foreign_or_opaque_origin_is_refused_through_a_proxy_too() {
 
 /// Behind a proxy that terminates TLS, a cookie without `Secure` also travels
 /// on a plain `http://` request to the same host. The proxy says which scheme
-/// the browser used through `X-Forwarded-Proto`, and the cookie follows it —
-/// on the way in and on the way out, since a browser will not let an insecure
+/// the browser used through `X-Forwarded-Proto`, and the cookie follows it, on
+/// the way in and on the way out, since a browser will not let an insecure
 /// response clear a secure cookie.
 #[tokio::test]
 async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
@@ -979,7 +979,7 @@ async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
 }
 
 /// A decision has to name whoever asked for it, or "who moved my files" has no
-/// answer past "somebody, manually" — which is the answer a session mode exists
+/// answer past "somebody, manually", which is the answer a session mode exists
 /// to improve on.
 #[tokio::test]
 async fn a_decision_names_the_account_that_asked_for_it() {
@@ -1030,7 +1030,7 @@ async fn a_mode_that_names_nobody_stores_nobody() {
 }
 
 /// A machine client cannot hold a cookie, so the key keeps working beside the
-/// session — which is also how Servarr separates the two.
+/// session, which is also how Servarr separates the two.
 #[tokio::test]
 async fn the_api_key_still_opens_the_door_in_forms_mode() {
     use crate::config::AuthMode;
@@ -1133,13 +1133,13 @@ async fn the_mode_says_whether_a_key_exists_at_all() {
 /// A handler that panics has to answer.
 ///
 /// Without a catch layer the connection is dropped: no status, no body, and no
-/// `X-Request-Id` — so the caller cannot tell a bug from a cut cable, and the
+/// `X-Request-Id`, so the caller cannot tell a bug from a cut cable, and the
 /// one identifier that ties a failure on screen to its line in the log never
-/// reaches them. The panic is still logged; what changes is that somebody is
-/// told.
+/// reaches them. The panic is still logged, and what changes is that somebody
+/// is told.
 ///
 /// The stack is rebuilt here rather than borrowed from `build_router`, because
-/// a `.layer()` wraps only the routes registered before it — a `/boom` added to
+/// a `.layer()` wraps only the routes registered before it: a `/boom` added to
 /// the assembled router would sit outside every layer and prove nothing. What
 /// this pins is the pair that matters: the catch layer *inside* the request-id
 /// layers, so the id still reaches a response the handler never produced.
@@ -1236,7 +1236,7 @@ async fn a_panicking_handler_is_logged_under_its_request_id() {
 // --------------------------------------------------- rotation
 
 /// An `apikey` installation whose key is the stored one rather than a pinned
-/// variable — which is the ordinary case, and the only one that can rotate.
+/// variable, which is the ordinary case, and the only one that can rotate.
 async fn stored_key_app(label: &str, key: &str) -> (TestApp, super::TempDir) {
     let dir = super::TempDir::new(&format!("key-{label}"));
 
@@ -1354,7 +1354,7 @@ async fn oidc_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
 /// Not verifying the token's signature rests on the exchange happening over
 /// TLS, so a provider that describes its token endpoint as plain `http://`
 /// pulls that assumption out from under the flow. The issuer is checked at
-/// startup; the endpoints are only known once the provider has been asked.
+/// startup, and the endpoints are only known once the provider has been asked.
 #[tokio::test]
 async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -1380,8 +1380,8 @@ async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
 
 /// Start a sign-in as a browser would, and keep what it would keep: the
 /// cookie that ties it to this browser, the `state` in the redirect, and the
-/// nonce the provider is to echo — read from the row, as the test's stand-in
-/// for what the provider learns from the authorization URL.
+/// nonce the provider is to echo, read from the row as the test's stand-in for
+/// what the provider learns from the authorization URL.
 struct Flow {
     cookie: String,
     state: String,
@@ -1412,7 +1412,7 @@ async fn start_flow(app: &TestApp) -> Flow {
     Flow { cookie, state, nonce, location }
 }
 
-/// Come back from the provider as the browser that left — or as another one.
+/// Come back from the provider as the browser that left, or as another one.
 async fn callback(app: &TestApp, cookie: Option<&str>, path: &str) -> super::TestResponse {
     let mut request = Request::get(path);
     if let Some(cookie) = cookie {
@@ -1438,16 +1438,15 @@ async fn a_sign_in_carries_pkce_and_the_nonce_to_the_provider() {
 
 /// The provider is asked to describe itself once, not once per request.
 ///
-/// `/auth/oidc/start` sits in the *public* router — a browser with no session
-/// cannot be asked for one to learn it needs one — so anyone who reaches the
+/// `/auth/oidc/start` sits in the *public* router (a browser with no session
+/// cannot be asked for one to learn it needs one), so anyone who reaches the
 /// port reaches this. Refetching the discovery document per call turns one
 /// cheap inbound request into one outbound request against the operator's own
 /// identity provider, which rate-limits by address: the flood locks them out
 /// of the thing they log in with, from their own host.
 ///
-/// The document is static by specification. `SignInThrottle` already states
-/// the rule this route was missing — a public endpoint that costs something
-/// carries a bound.
+/// The document is static by specification, and `SignInThrottle` states the
+/// same rule: a public endpoint that costs something carries a bound.
 #[tokio::test]
 async fn the_provider_is_asked_to_describe_itself_once_however_many_sign_ins_begin() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -1492,8 +1491,8 @@ async fn a_flood_of_sign_ins_is_bounded_without_denying_the_next_one() {
         .unwrap();
     assert!(rows <= 4096, "the table is not bounded: {rows} rows");
 
-    // Eighty anonymous requests must not have evicted the attempt somebody is
-    // answering their provider for: at a bound of sixty-four, they did.
+    // Eighty anonymous requests must not evict the attempt somebody is
+    // answering their provider for, which a bound of sixty-four would.
     idp.will_claim(serde_json::json!({ "nonce": mine.nonce, "preferred_username": "alice" }));
     let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", mine.state);
     let response = callback(&app, Some(&mine.cookie), &path).await;
@@ -1602,11 +1601,11 @@ async fn a_token_failing_any_claim_opens_nothing() {
     }
 }
 
-/// The callback used to accept any known `code` and `state` pair from whoever
-/// presented it: a link carrying somebody else's pair signed the reader in as
-/// that somebody — login CSRF, with the attribution on every write theirs.
 /// The browser that started the attempt carries its `state` in a cookie, and
-/// only that browser may finish it.
+/// only that browser may finish it. A callback accepting any known `code` and
+/// `state` pair from whoever presents it would let a link carrying somebody
+/// else's pair sign the reader in as that somebody: login CSRF, with the
+/// attribution on every write theirs.
 #[tokio::test]
 async fn a_callback_from_a_browser_that_did_not_start_the_attempt_opens_nothing() {
     let idp = crate::tests::fake_oidc::FakeOidc::start().await;
@@ -1661,8 +1660,8 @@ async fn a_replayed_callback_opens_nothing() {
 // ------------------------------------------------------- webhook auth
 
 /// The webhook token is the only guard on the one unauthenticated route. It is
-/// compared in constant time; an empty stored token, a wrong token, and a token
-/// for the wrong instance must all fail closed as a 404 — which also refuses to
+/// compared in constant time. An empty stored token, a wrong token, and a token
+/// for the wrong instance must all fail closed as a 404, which also refuses to
 /// confirm whether the instance exists.
 #[tokio::test]
 async fn a_webhook_token_fails_closed() {
@@ -1674,7 +1673,7 @@ async fn a_webhook_token_fails_closed() {
         ("inst-1", "wrong"),
         ("inst-1", ""),
         ("inst-1", "TOK"),      // wrong case
-        ("inst-1", "tok%20"),   // decodes to "tok " — a trailing space
+        ("inst-1", "tok%20"),   // decodes to "tok ", with a trailing space
         ("nonexistent", "tok"), // right token shape, unknown instance
     ] {
         let path = format!("/api/v1/webhook/{instance}/{token}");
@@ -1706,9 +1705,9 @@ fn urlencode(input: &str) -> String {
     out
 }
 
-/// A disabled instance is one the user switched off. The scheduler already skips
-/// it; the webhook must not be the back door that keeps syncing it, re-routing
-/// it and — with automatic application armed — writing to it.
+/// A disabled instance is one the user switched off. The scheduler already
+/// skips it, and the webhook must not be the back door that keeps syncing it,
+/// re-routing it and, with automatic application armed, writing to it.
 #[tokio::test]
 async fn a_webhook_for_a_disabled_instance_changes_nothing() {
     let arr = super::fake_arr::FakeArr::start().await;
@@ -1723,7 +1722,7 @@ async fn a_webhook_for_a_disabled_instance_changes_nothing() {
     let body = serde_json::json!({ "eventType": "Download", "movie": { "id": 10 } });
     let response = app.post("/api/v1/webhook/inst-1/tok", body).await;
 
-    // Acknowledged, so the Arr does not retry something it cannot fix — but
+    // Acknowledged, so the Arr does not retry something it cannot fix, but
     // acted on in no way whatsoever.
     response.assert_ok();
     assert_eq!(response.json["ignored"], "instance is disabled");
@@ -1767,7 +1766,7 @@ async fn every_response_carries_a_content_security_policy() {
 }
 
 /// A self-hosted application that fetches anything from a third party tells that
-/// third party the address of every homelab running it — and breaks on the
+/// third party the address of every homelab running it, and breaks on the
 /// air-gapped NAS a Servarr stack often lives on. `connect-src 'self'` is only
 /// honest if the interface really makes no outbound request.
 #[tokio::test]
@@ -1873,7 +1872,7 @@ async fn the_credentials_in_an_arr_address_never_reach_the_log() {
 }
 
 /// The token is the only credential of the only unauthenticated route, and the
-/// request span is on every line logged while a delivery is served — the error
+/// request span is on every line logged while a delivery is served, the error
 /// line an operator pastes into a ticket included. With it, anyone reading the
 /// log can trigger a sync, an enrichment and a simulation, and a write when
 /// auto-apply is armed.

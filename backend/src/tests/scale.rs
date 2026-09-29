@@ -52,7 +52,7 @@ async fn seed(pool: &SqlitePool, count: usize) {
     .await
     .unwrap();
 
-    // `standard` is seeded by the initial migration; only `anime` is new.
+    // The initial migration seeds `standard`, and only `anime` is new.
     for (id, name) in [("cat-anime", "anime"), ("cat-standard", "standard")] {
         sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES (?, ?)")
             .bind(id)
@@ -195,7 +195,7 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
 #[tokio::test]
 async fn a_simulation_stays_within_a_sane_time_at_scale() {
     // A loose ceiling, not a benchmark: this catches quadratic work that is not
-    // in the queries — a merge that rescans, an O(n²) lookup — which the count
+    // in the queries (a merge that rescans, an O(n²) lookup), which the count
     // above cannot see. Generous enough not to fail on a busy CI runner.
     let (_, elapsed) = queries_for(5000).await;
     println!("5000 items simulated in {elapsed:?}");
@@ -232,8 +232,8 @@ async fn seed_cache(pool: &SqlitePool, count: usize) {
 /// The two queries that join `media` to `metadata_cache` across every identifier
 /// namespace. Written as one OR over three cast columns they cannot use an
 /// index, and on a large library the facets take minutes and the hourly purge
-/// holds a connection for as long. The ceiling is loose — a busy runner must
-/// not fail it — and still an order of magnitude under what a scan costs.
+/// holds a connection for as long. The ceiling is loose, since a busy runner
+/// must not fail it, and still an order of magnitude under what a scan costs.
 #[tokio::test]
 async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {
     let app = TestApp::new().await;

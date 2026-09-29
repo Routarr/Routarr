@@ -9,8 +9,8 @@ use super::TestApp;
 async fn scrape(app: &TestApp) -> String {
     let response = app.get("/api/v1/metrics").await;
     assert!(response.status.is_success());
-    // The body is text, not JSON, so the harness leaves `json` null; read it
-    // through a second call that keeps the raw bytes.
+    // The body is text, not JSON, so the harness leaves `json` null. A second
+    // call keeps the raw bytes.
     app.text("/api/v1/metrics").await
 }
 
@@ -140,7 +140,7 @@ async fn a_category_name_with_a_quote_does_not_break_the_scrape() {
     app.seed_library().await;
 
     // Category names are free-form strings the user types. An unescaped quote
-    // would produce a line Prometheus rejects — and it discards the entire
+    // would produce a line Prometheus rejects, and it discards the entire
     // response, not just that line, so one bad name blinds every dashboard.
     sqlx::query(
         r#"INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,

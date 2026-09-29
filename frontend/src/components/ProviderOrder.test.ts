@@ -8,9 +8,9 @@ import ProviderOrder from './ProviderOrder.svelte';
 
 /**
  * A source's credential lives in the source's own row: a key is not a setting
- * of the application, it is a property of the source it unlocks. Stated three
- * blocks below the list, enabling TMDb meant scrolling past the whole thing,
- * saving, scrolling back and saving again.
+ * of the application, it is a property of the source it unlocks. Stated below
+ * the list, enabling TMDb would mean scrolling past the whole thing, saving,
+ * scrolling back and saving again.
  */
 
 const STRINGS = {
@@ -43,13 +43,12 @@ function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
 
 describe('a credential is edited in the row of the source it unlocks', () => {
   /**
-   * The row reports the edit; it does not reach into the parent's draft.
+   * The row reports the edit and does not reach into the parent's draft.
    *
    * `keys` is a plain record, not a `$bindable`, so writing through it is an
-   * ownership violation Svelte flags in development — and it worked only
-   * because the one caller happened to pass a `$state` proxy. A second caller
-   * passing an ordinary object would have written into nothing, silently, and
-   * the key would never have been saved.
+   * ownership violation Svelte flags in development, and it works only when
+   * the caller passes a `$state` proxy. A caller passing an ordinary object
+   * would write into nothing, silently, and the key would never be saved.
    */
   it('reports the key through its callback without writing the record it was given', async () => {
     const onKeyChange = vi.fn();
@@ -81,10 +80,10 @@ describe('a credential is edited in the row of the source it unlocks', () => {
   /**
    * A field is offered only where it can be written.
    *
-   * The row rendered on `keys` alone while the write went through an optional
-   * `onKeyChange?.(…)`, so a caller passing the record without the callback got
-   * a field that accepted a key and dropped it — the same silent loss the
-   * callback was introduced to remove, moved one step along.
+   * Rendered on `keys` alone, with the write going through an optional
+   * callback, the row would give a caller passing the record without
+   * `onKeyChange` a field that accepts a key and drops it: the silent loss the
+   * callback exists to remove, moved one step along.
    */
   it('offers no credential field it has no way to report', async () => {
     renderWithI18n(ProviderOrder, {

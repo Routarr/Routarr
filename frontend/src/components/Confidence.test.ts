@@ -6,11 +6,10 @@ import Confidence from './Confidence.svelte';
 /**
  * The figure is beside the meter, never on it.
  *
- * Centred over the bar, the value sat on the fill on one side of itself and on
- * the track on the other; its contrast measured 16:1 against the track and
- * 1.95:1 against the amber fill, and a text shadow was hiding the difference.
- * Outside, the background is the card, whose contrast the palette test already
- * measures — so these assertions are about *where* the number is, which is what
+ * Centred over the bar, the value would sit on the fill on one side of itself
+ * and on the track on the other, and its contrast would change with the value.
+ * Outside, the background is the card, whose contrast the palette test
+ * measures, so these assertions are about *where* the number is, which is what
  * makes that measurement true.
  */
 const show = (value: number, meter = false) =>
@@ -29,10 +28,10 @@ describe('Confidence', () => {
   });
 
   /**
-   * A ramp, not three bands. `confidence_for` scales differently per match
-   * mode — an `all` rule with one condition is 60%, an `any` rule with two is
-   * 53% — so no percentage threshold can order them, and the bands it replaced
-   * painted an ordinary two-condition rule as a warning.
+   * A ramp, not bands. `confidence_for` scales differently per match mode (an
+   * `all` rule with one condition is 60%, an `any` rule with two is 53%), so no
+   * percentage threshold can order them, and a band would paint an ordinary
+   * rule as a warning.
    */
   it('places each value on a continuous ramp rather than in a band', () => {
     const mix = (value: number) =>

@@ -2,11 +2,11 @@
 //!
 //! Written by hand rather than through a metrics crate. Everything worth
 //! exposing is already a row count, so a registry would add a dependency, a
-//! parallel source of truth and a drift risk, to serialise five queries.
+//! parallel source of truth and a drift risk, to serialise a few queries.
 //!
 //! Everything here is a **gauge**: the current state of the library, read at
 //! scrape time. Counters would require in-process accumulators that reset on
-//! restart and disagree with the database — the database is the truth, and it
+//! restart and disagree with the database. The database is the truth, and it
 //! survives restarts.
 
 use axum::extract::State;

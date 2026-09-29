@@ -33,9 +33,9 @@ function modalBearingFiles(): string[] {
  * Both checks below compare two lists, and a comparison against an empty list
  * passes. Neither search is safe on its own: `<Modal` stops matching if the
  * import is ever aliased, and `covers:` stops matching if the sweep renames its
- * field — and then the check that guarantees the sweep is complete reports
- * nothing rather than everything. Removing the `<Modal` match was tried, and
- * both tests went green over a search that found no file at all.
+ * field, and then the check that guarantees the sweep is complete reports
+ * nothing rather than everything. With the `<Modal` match removed, both tests
+ * go green over a search that finds no file at all.
  */
 const ANCHOR = 'components/ConfirmDialog.svelte';
 
@@ -60,8 +60,8 @@ describe('the modal accessibility sweep', () => {
     const named = [...sweep.matchAll(/covers: '([^']+)'/g)]
       .map((match) => match[1])
       .filter((file) => file !== undefined);
-    // Nothing named is not nothing wrong: the field was renamed, and this
-    // check then reads an empty list and reports it clean.
+    // Nothing named is not nothing wrong: it means the field was renamed, and
+    // this check would then read an empty list and report it clean.
     expect(named, 'the sweep declares no `covers:` at all').toContain(ANCHOR);
 
     const missing = named.filter((file) => !fs.existsSync(path.join(SRC, file)));

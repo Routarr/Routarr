@@ -1,13 +1,13 @@
 /**
  * One place for the icons, and for the ones Lucide renames between versions.
  *
- * `@lucide/svelte` exports no aliases, so importing a retired name simply
- * fails — loudly, which is fine. The dangerous one is `History`: the obvious
- * guess is `Clock`, and it is the wrong drawing. The right one is
- * `RotateCcwClock`, confirmed by comparing the path data.
+ * `@lucide/svelte` exports no aliases, so importing a retired name fails
+ * loudly, which is fine. The dangerous one is `History`: the obvious guess is
+ * `Clock`, and it is the wrong drawing. The right one is `RotateCcwClock`,
+ * whose path data draws the retired `History`.
  *
- * Re-exported under the names the screens use, so a rename is stated once
- * instead of forty times.
+ * Re-exported under the names the screens use, so a rename is stated here once
+ * instead of in every screen.
  */
 export {
   Activity,

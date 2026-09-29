@@ -8,7 +8,7 @@ import NotFound from './NotFound.svelte';
 
 /**
  * The screen a typed address or an old bookmark lands on. Its whole job is to
- * say where you are, since showing the dashboard said nothing at all.
+ * say where you are, which the dashboard shown in its place would not.
  */
 
 const STRINGS = {

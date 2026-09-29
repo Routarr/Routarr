@@ -11,8 +11,8 @@ import { statusRevision } from '../lib/status.svelte';
 
 /**
  * First match by ascending priority wins, so the order of this table *is* the
- * routing. Reordering it rewrites priorities on the server; nothing about it is
- * cosmetic.
+ * routing. Reordering it rewrites priorities on the server, and nothing about
+ * it is cosmetic.
  */
 
 const STRINGS = {
@@ -159,7 +159,7 @@ describe('Rules', () => {
 
   /**
    * Reordering sends the whole list in its new order, not a single moved id:
-   * `PUT /rules/reorder` rewrites every priority as `(index + 1) * 10`, so a
+   * `POST /rules/reorder` rewrites every priority as `(index + 1) * 10`, so a
    * partial list would renumber the rules it was not given.
    */
   it('sends the full new order when a rule moves', async () => {
@@ -174,9 +174,9 @@ describe('Rules', () => {
 
   /**
    * An action on a rule keeps the table on screen and the focus with the rule.
-   * Swapped for a skeleton at each reload, the rows took the focus to the page
-   * and a keyboard user started again from the top. The library facets are
-   * the screen's, read once: no action on a rule changes them.
+   * Swapped for a skeleton at each reload, the rows would take the focus to the
+   * page and a keyboard user would start again from the top. The library facets
+   * are the screen's, read once: no action on a rule changes them.
    */
   it("moving a rule keeps the table and the focus on the moved rule's button", async () => {
     const reorder = vi.spyOn(api, 'reorderRules').mockResolvedValue(undefined as never);
@@ -295,8 +295,8 @@ describe('Rules', () => {
   });
 
   /**
-   * The server refuses a value listed twice, but a rule stored before it did
-   * still opens here. Its chips are keyed by value, and a repeat takes the
+   * The server refuses a value listed twice, but a stored rule can still hold
+   * one and open here. Its chips are keyed by value, and a repeat takes the
    * screen down, so the editor starts from the list without it.
    */
   it('opens a rule stored with a repeated value, and saves it without the repeat', async () => {
@@ -430,7 +430,7 @@ describe('Rules', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New rule' }));
 
-    // Offered in both pickers — conditions and exclusions — which is itself the
+    // Offered in both pickers (conditions and exclusions), which is itself the
     // point: one catalogue drives both lists.
     expect((await screen.findAllByText('Genre contains')).length).toBeGreaterThan(0);
   });

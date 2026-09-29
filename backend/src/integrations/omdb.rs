@@ -2,8 +2,8 @@
 //!
 //! Keyed on the **IMDb** identifier, which is the reason to have it: it answers
 //! for an item TMDb does not know, or one the library carries without a TMDb id.
-//! A free key is required — the API rejects an unauthenticated request outright
-//! rather than degrading — so the source declares `needs_key`.
+//! A free key is required: the API rejects an unauthenticated request outright
+//! rather than degrading, so the source declares `needs_key`.
 //!
 //! Its vocabulary is prose: `"Japan, United States"` and `"Japanese, English"`
 //! where the rest of Routarr speaks ISO codes. `integrations::language` does the

@@ -2,8 +2,8 @@
 //!
 //! Settable from the screen that orders the sources, rather than from the
 //! environment alone: the screen that names a missing key is the one that
-//! should be able to supply it. Sealed exactly as an Arr key is — and an Arr
-//! key is the *more* dangerous of the two, since it writes to the library while
+//! should be able to supply it. Sealed exactly as an Arr key is, and an Arr key
+//! is the *more* dangerous of the two, since it writes to the library while
 //! these only read.
 
 use super::TestApp;

@@ -32,7 +32,7 @@
   let busy = $state(false);
 
   // The theme is a server setting behind the gate, so this one screen follows
-  // the operating system — the same choice `ApiKeyGate` makes, for the same
+  // the operating system. `ApiKeyGate` makes the same choice for the same
   // reason: guessing dark would look wrong on a light desktop.
   $effect(() => {
     delete document.documentElement.dataset.theme;

@@ -14,15 +14,15 @@
   /**
    * The actions a row has beyond the two it shows.
    *
-   * Seven buttons in one row overflow a 1440px screen, and the ones past the
-   * edge go off it with nothing saying so. No width fixes that; the number of
-   * actions does. Two stay visible, the rest live here.
+   * A row with every action as a button overflows the screen, and the ones
+   * past the edge go off it with nothing saying so. No width fixes that: the
+   * number of actions does. Two stay visible, the rest live here.
    *
    * Built rather than borrowed because the alternative is a dropdown library for
    * one menu, and the behaviour that matters is small: Escape closes it and
    * hands the focus back, a click outside closes it, the trigger says whether
-   * it is open, and the arrows walk it — a `role="menu"` announces a menu, and
-   * a screen reader user then reaches for the arrows, not for Tab.
+   * it is open, and the arrows walk it. A `role="menu"` announces a menu, and a
+   * screen reader user then reaches for the arrows, not for Tab.
    */
   let { actions, label }: { actions: Action[]; label?: string } = $props();
 
@@ -58,7 +58,7 @@
         move(entries.length - 1);
         break;
       case 'Tab':
-        // The menu is one tab stop; leaving it closes it.
+        // The menu is one tab stop, and leaving it closes it.
         open = false;
         break;
       default:

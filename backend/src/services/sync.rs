@@ -21,7 +21,7 @@ pub struct SyncReport {
     pub media: usize,
     /// Media rows that disappeared upstream and were removed locally.
     pub removed: u64,
-    /// Set when the sync failed — the caller of sync-all still gets one entry
+    /// Set when the sync failed, so the caller of sync-all still gets one entry
     /// per instance instead of the failure silently vanishing from the report.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -33,7 +33,7 @@ pub struct SyncReport {
 /// here is the waiting on someone else's network, but each sync still ends by
 /// holding a connection for its write transaction, and a pass that took every
 /// connection would stall the interface polling `/status` behind a 15-second
-/// acquire timeout — on the screen someone is watching precisely because a
+/// acquire timeout, on the screen someone is watching precisely because a
 /// sync is running.
 const SYNC_CONCURRENCY: usize = 4;
 
@@ -44,7 +44,7 @@ pub async fn sync_all_instances(state: &AppState, trigger: &str) -> AppResult<Ve
 
     // Concurrently. `do_sync` fetches root folders, media and tags *before* it
     // opens its transaction, so what overlaps is the network wait and not the
-    // writing — the transactions still land one at a time under SQLite's single
+    // writing: the transactions still land one at a time under SQLite's single
     // writer. `buffered` rather than `buffer_unordered`: the reports are what
     // the API returns and what the interface lists, and rows that shuffle
     // between two runs are a table nobody can read.
@@ -53,7 +53,7 @@ pub async fn sync_all_instances(state: &AppState, trigger: &str) -> AppResult<Ve
         match sync_instance_inner(state, &instance, trigger).await {
             Ok(report) => report,
             Err(e) => {
-                // One unreachable Radarr must not stop the Sonarr sync — but the
+                // One unreachable Radarr must not stop the Sonarr sync, but the
                 // caller still hears about it: last_sync_status alone only helps
                 // someone already looking at the instance list.
                 error!("Failed to sync instance '{}': {e}", instance.name);
@@ -88,7 +88,7 @@ async fn sync_instance_inner(
     instance: &Instance,
     trigger: &str,
 ) -> AppResult<SyncReport> {
-    // Refuse to pile up concurrent syncs of the same instance — the scheduler and
+    // Refuse to pile up concurrent syncs of the same instance: the scheduler and
     // a user clicking "Sync" would otherwise fight over the same rows.
     let Some(_lock) = state.jobs.try_lock(&format!("sync:{}", instance.id)) else {
         return Err(AppError::Conflict(format!(
@@ -109,7 +109,7 @@ async fn sync_instance_inner(
 
     // Read before writing: notifications fire on the transition, not on the
     // state. An Arr that has been down for a week must not produce a message on
-    // every scheduler tick — that is how a useful alert becomes noise the
+    // every scheduler tick. That is how a useful alert becomes noise the
     // operator mutes, which is worse than having none.
     let was_failing = instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with("error"));
 
@@ -185,7 +185,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     );
 
     // Every row written by this run is stamped with the same token, so the
-    // orphan cleanup below is exact rather than time-window based — a sync that
+    // orphan cleanup below is exact rather than time-window based: a sync that
     // takes longer than the window would otherwise delete its own early rows.
     let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
 
@@ -205,6 +205,10 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     .map(|(path, category)| (normalize_path(&path), category))
     .collect();
 
+    // Declared and Arr-reported folders share `root_folders`, told apart by
+    // `origin`: a second table would put a `UNION` in `routing::load_context`
+    // and in every executor join. So every statement here that drops what the
+    // Arr stopped reporting stays scoped to `origin = 'arr'`.
     for rf in &root_folders {
         // A row holding this id for another path is a folder the Arr no longer
         // reports under it. Kept, it would take this path's place, or break the
@@ -325,8 +329,8 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         let removed = retire_media(&mut tx, &gone).await?;
 
         // Only what the Arr owns. A declared destination is the operator's, and
-        // deleting it would take the category mapped onto it with it — on the
-        // first pass after it was typed.
+        // the first pass after it was typed would otherwise delete it, and the
+        // category mapped onto it with it.
         let stale_folders = sqlx::query(
             "DELETE FROM root_folders
              WHERE instance_id = ? AND last_synced_at IS NOT ? AND origin = 'arr'",
@@ -368,7 +372,7 @@ pub async fn sync_single_media(
     let adapter: ArrAdapter = state.adapter(instance)?;
     // Before the first request, as `do_sync` does: what the Arr answers is as
     // old as the moment it was asked, and a move applied while the read was
-    // in flight has to win over it — see `upsert_media`'s `moved_at` gate.
+    // in flight has to win over it (see the `moved_at` gate in `upsert_media`).
     let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
     let Some(item) = adapter.get_media_one(arr_id).await? else {
         return Ok(None);
@@ -396,9 +400,9 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
 
 /// Remove media rows and retire what pointed at them.
 ///
-/// Overrides go with the row (`ON DELETE CASCADE`); decisions do not reference
+/// Overrides go with the row (`ON DELETE CASCADE`). Decisions do not reference
 /// it, so a pending proposal for an item the Arr no longer has would stay in
-/// the list for ever — shown, and never applicable, since the executor joins
+/// the list for ever: shown, and never applicable, since the executor joins
 /// `media`. Superseded here, which is the state the list already hides. The
 /// one writer for both paths that lose a row: the full sync and a delete
 /// event.
@@ -410,7 +414,7 @@ pub async fn retire_media(
     crate::services::routing::supersede_pending(tx, &refs).await?;
 
     let mut removed = 0;
-    // Chunked like the statement above; a full sync can retire a whole
+    // Chunked like the statement above: a full sync can retire a whole
     // instance's worth of rows in one pass.
     for chunk in ids.chunks(crate::services::routing::BIND_CHUNK) {
         let placeholders = crate::db::placeholders(chunk.len());
@@ -428,7 +432,7 @@ pub async fn retire_media(
 ///
 /// Shared by the full sync and the single-item webhook path. Two copies of this
 /// column list means adding a column updates one of them, and a rule on an Arr
-/// tag then silently cannot match a freshly added item — the exact case
+/// tag then silently cannot match a freshly added item, the exact case
 /// automatic application exists for. One writer, one list.
 async fn upsert_media<'e, E>(
     executor: E,
@@ -507,7 +511,7 @@ where
     .bind(&item.certification)
     .bind(sync_token)
     // Twice, because the guard appears once per path column, and sqlx binds by
-    // the order the placeholders appear in the statement — the two in the
+    // the order the placeholders appear in the statement: the two in the
     // ON CONFLICT clause come after every one in VALUES.
     .bind(read_at)
     .bind(read_at)
@@ -519,7 +523,7 @@ where
 
 /// Record what this pass did.
 ///
-/// The attempt is always stamped; the success only on success. Writing
+/// The attempt is always stamped, the success only on success. Writing
 /// `last_sync_at` in both branches would let a failure refresh it exactly as a
 /// success does, and the instance list would read "synchronised 2 minutes ago"
 /// beside an error badge, describing data two days old. One column says the
@@ -560,7 +564,7 @@ async fn stored_tag_labels(
 /// A declared destination inherits from the folder it sits under.
 ///
 /// It is the whole point of allowing one: a path beneath a synced root is on
-/// that root's volume, so its free space and its reachability are known — which
+/// that root's volume, so its free space and its reachability are known, which
 /// is what keeps the capacity and reachability guards meaningful for a folder
 /// no Arr reports. The deepest matching parent wins, since /media/movies/anime
 /// belongs to /media/movies rather than to /media.
@@ -568,7 +572,7 @@ async fn stored_tag_labels(
 /// Compared by prefix arithmetic rather than with LIKE: a path holding `_` or
 /// `%` would otherwise match folders it has nothing to do with.
 ///
-/// Run by the sync and again the moment one is declared — waiting for the next
+/// Run by the sync and again the moment one is declared: waiting for the next
 /// pass would show a new destination with no figures for as long as the
 /// instance's sync interval.
 pub(crate) async fn inherit_declared<'e, E>(executor: E, instance_id: &str) -> AppResult<()>

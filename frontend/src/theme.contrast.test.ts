@@ -5,9 +5,9 @@ import { join } from 'node:path';
 /**
  * WCAG 2.1 AA contrast for the two palettes, measured rather than eyeballed.
  *
- * An accent at 4.06:1 looks perfectly fine in a screenshot, and the light theme
- * is where that margin is thinnest. Colours are chosen by a person; whether
- * they can be read is arithmetic.
+ * An accent just under 4.5:1 looks perfectly fine in a screenshot, and the
+ * light theme is where that margin is thinnest. Colours are chosen by a
+ * person, and whether they can be read is arithmetic.
  */
 // Resolved from the project root rather than from `import.meta.url`: the test
 // environment does not serve this file over a `file:` URL.
@@ -18,7 +18,7 @@ function tokensOf(pattern: RegExp): Record<string, string> {
   const body = CSS.match(pattern)?.[1] ?? '';
   const tokens: Record<string, string> = {};
   for (const [, name, value] of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) {
-    // Both groups are in the pattern, so a match always has them — but the
+    // Both groups are in the pattern, so a match always has them, but the
     // compiler only knows what the type says, and asserting with `!` would
     // trade a named failure for `undefined is not a function`.
     if (name === undefined || value === undefined) continue;
@@ -71,7 +71,7 @@ function contrast(a: string, b: string): number {
 }
 
 const dark = tokensOf(/^:root\s*\{([\s\S]*?)\n\}/m);
-// The light block only redefines what changes, so the rest is inherited — the
+// The light block only redefines what changes, so the rest is inherited. The
 // merge is what the browser actually resolves.
 const light = { ...dark, ...tokensOf(/^:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/m) };
 
@@ -100,7 +100,7 @@ const PAIRS: [string, string][] = [
   ['--accent-strong', '--bg-base'],
   // A navigation entry at rest, on the sidebar's own surface. Brighter than
   // `--text-secondary` so the group heading beside it reads as a heading and
-  // not as an entry that lost its icon — a distinction that is only worth
+  // not as an entry that lost its icon, a distinction that is only worth
   // making if both ends of it stay legible.
   ['--text-nav', '--bg-surface'],
   ['--text-muted', '--bg-surface'],
@@ -112,11 +112,11 @@ const PAIRS: [string, string][] = [
   // on a card, and under a field of a dialog, drawn on the surface.
   ['--status-danger', '--bg-card'],
   ['--status-danger', '--bg-surface'],
-  // Text on a filled button. White on the dark theme's light red read 2.85:1.
+  // Text on a filled button. White on the dark theme's light red falls short.
   ['--text-on-accent', '--accent-primary'],
   ['--text-on-danger', '--status-danger'],
   // The kind badges, whose label takes the kind's hue: the dark theme's pale
-  // blue and violet read 2.4:1 and 2.7:1 on a white card.
+  // blue and violet fall short on a white card.
   ['--kind-radarr', '--bg-card'],
   ['--kind-sonarr', '--bg-card'],
 ];
@@ -127,8 +127,8 @@ const BADGES = ['success', 'warning', 'danger', 'info'];
 /**
  * A token the palette must declare.
  *
- * The lookup can miss — a renamed custom property, a block this file's regex no
- * longer matches — and the useful failure names the token. Left to flow through
+ * The lookup can miss (a renamed custom property, a block this file's regex
+ * stops matching), and the useful failure names the token. Left to flow through
  * as `undefined`, it would surface as `unsupported colour: undefined` several
  * calls away, which says nothing about which one went missing.
  */
@@ -176,11 +176,11 @@ describe.each([
   /**
    * WCAG 1.4.11: the boundary that identifies a control needs 3:1, not 4.5.
    *
-   * `--border-subtle` measures 1.37:1 against `--bg-input` — a field frame
-   * that is a suggestion rather than an edge, and the reason fields were only
-   * identifiable by hovering them. `--border-strong` is what every input and
-   * secondary button wears instead; passive separations keep the subtle one,
-   * since a card edge identifies nothing.
+   * `--border-subtle` falls far short of it against `--bg-input`: a field frame
+   * drawn in it is a suggestion rather than an edge, and a field is then found
+   * only by hovering it. `--border-strong` is what every input and secondary
+   * button wears instead. Passive separations keep the subtle one, since a card
+   * edge identifies nothing.
    */
   it('draws the boundary of a control at 3:1', () => {
     const ratio = contrast(token(palette, '--border-strong'), token(palette, '--bg-input'));

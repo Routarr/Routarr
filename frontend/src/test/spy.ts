@@ -2,7 +2,7 @@
  * Reading a spy's calls without asserting they happened.
  *
  * `spy.mock.calls[0][1]` is the shape every assertion here wants, and when the
- * call was never made it fails as `cannot read properties of undefined` — which
+ * call was never made it fails as `cannot read properties of undefined`, which
  * names neither the call that was expected nor the one that was made. Going
  * through this instead turns the same mistake into a sentence, and satisfies
  * `noUncheckedIndexedAccess` without an assertion the compiler cannot check.

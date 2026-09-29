@@ -15,7 +15,7 @@
    * The archives on disk, and what can be done with them.
    *
    * Separate from the settings form because these are actions on existing
-   * files, not values to save — mixing them would make "Save" look as though it
+   * files, not values to save: mixing them would make "Save" look as though it
    * applied to the list.
    */
   let { outcome }: { outcome: Outcome } = $props();

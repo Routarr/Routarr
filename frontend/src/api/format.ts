@@ -133,7 +133,7 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 
 /** The words a condition is described with, all of them the reader's language. */
 export interface ConditionWords {
-  /** The condition's caption from the catalogue; its type where it has none. */
+  /** The condition's caption from the catalogue, or its type where it has none. */
   label?: string;
   /** Joins list values, as `t('ListSeparator')` writes it. */
   separator: string;
@@ -183,14 +183,14 @@ export function formatPercent(value: number | null | undefined, language: string
  * A timestamp the way the configured language writes it.
  *
  * The backend stores `YYYY-MM-DD HH:MM:SS` in UTC. Rendered raw it is nineteen
- * monospace characters — wide enough to push a table cell onto a second line —
+ * monospace characters, wide enough to push a table cell onto a second line,
  * and it reads like a log file rather than a date.
  *
  * `Intl` does the formatting, so this costs no translation keys: the app
  * language is the locale. Language codes are stored Servarr-style (`nb_NO`,
- * `zh_CN`); BCP-47 wants a hyphen. Seconds are dropped — nobody schedules a
- * sync to the second — and the value is returned unchanged if it cannot be
- * parsed, since a visibly odd string beats a silent "Invalid Date".
+ * `zh_CN`), where BCP-47 wants a hyphen. Seconds are dropped: nobody
+ * schedules a sync to the second. The value is returned unchanged if it
+ * cannot be parsed, since a visibly odd string beats a silent "Invalid Date".
  */
 export function formatTimestamp(
   value: string | null | undefined,
@@ -199,8 +199,8 @@ export function formatTimestamp(
 ): string {
   if (!value) return fallback;
 
-  // The stored form has no zone marker; it is UTC, and saying so avoids the
-  // browser reading it as local time and shifting it by the offset.
+  // The stored form has no zone marker. It is UTC, and saying so keeps the
+  // browser from reading it as local time and shifting it by the offset.
   const parsed = new Date(value.includes('T') ? value : `${value.replace(' ', 'T')}Z`);
   if (Number.isNaN(parsed.getTime())) return value;
 
@@ -220,7 +220,7 @@ export function formatTimestamp(
  *
  * A dashboard and a log are read to answer "is this fresh?", and an absolute
  * timestamp makes the reader do the subtraction. Past a week the relative form
- * stops helping — "3 months ago" is vaguer than the date — so it hands back.
+ * stops helping ("3 months ago" is vaguer than the date), so it hands back.
  *
  * `Intl.RelativeTimeFormat` does the wording, so this costs no translation
  * keys, exactly as `formatTimestamp` does for dates.

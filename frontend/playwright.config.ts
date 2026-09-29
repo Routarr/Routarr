@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * End-to-end tests drive the real thing: the Rust binary serving the built
  * frontend, against a fake Radarr. Nothing is mocked in the browser, so these
- * catch what the unit tests structurally cannot — a route that 404s, a button
+ * catch what the unit tests structurally cannot: a route that 404s, a button
  * wired to nothing, a table that renders empty because the payload shape moved.
  *
  * The server is started by `e2e/run.sh` rather than by `webServer` here: it
@@ -24,7 +24,7 @@ export default defineConfig({
   use: {
     // The origin only. `ROUTARR_E2E_URL` may carry a mount point (`/routarr`)
     // for the API helper, but an absolute `page.goto('/rules')` would discard a
-    // baseURL path anyway — so specs that need the prefix spell it out.
+    // baseURL path anyway, so specs that need the prefix spell it out.
     baseURL: new URL(process.env.ROUTARR_E2E_URL ?? 'http://127.0.0.1:9877').origin,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',

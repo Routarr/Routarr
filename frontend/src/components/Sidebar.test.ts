@@ -7,9 +7,9 @@ import { withBase } from '../test/base';
 import Sidebar from './Sidebar.svelte';
 
 /**
- * Thirteen destinations in five groups, and below the rail breakpoint the
- * labels are hidden. The name has to reach a screen reader — and a pointer —
- * some other way, or the navigation becomes thirteen unnamed icons.
+ * Below the rail breakpoint the labels are hidden. The name has to reach a
+ * screen reader, and a pointer, some other way, or the navigation becomes a
+ * column of unnamed icons.
  */
 
 const STRINGS = {
@@ -50,8 +50,8 @@ describe('Sidebar', () => {
     show();
 
     const links = await screen.findAllByRole('link');
-    // Bump this when a destination is added. It is not the claim — the loop
-    // below is — but without it the loop passes over an empty list and asserts
+    // Bump this when a destination is added. It is not the claim (the loop
+    // below is), but without it the loop passes over an empty list and asserts
     // nothing at all.
     expect(links).toHaveLength(13);
     for (const link of links) {
@@ -118,9 +118,9 @@ describe('Sidebar', () => {
   });
 
   /**
-   * A `<base href>` applies to relative URLs only. Left root-absolute, a link
-   * works on a left click, where the router prefixes the mount point, and sends
-   * a middle-click, a ctrl-click or a copied link to the proxy's root.
+   * A `<base href>` applies to relative URLs only. Left root-absolute without
+   * the mount point, a link sends a click, a middle-click, a ctrl-click or a
+   * copied link to the proxy's root.
    */
   it('prefixes every destination with the mount point a reverse proxy adds', () => {
     withBase('/routarr/');
@@ -142,8 +142,8 @@ describe('Sidebar', () => {
       counts: { jobs: 2, decisions: 5, failed: 1, warnings: 3 },
     });
 
-    // The sentence the top bar used to state, now part of the link's name —
-    // an `aria-label` on a generic span reached nobody reliably.
+    // The sentence is part of the link's name: an `aria-label` on a generic
+    // span reaches nobody reliably.
     const entry = (sentence: string) => screen.getByText(sentence).closest('a');
     const badge = (sentence: string) => entry(sentence)?.querySelector('.nav-badge');
     expect(screen.getByRole('link', { name: /Diagnostics 3 warnings/ })).toBeTruthy();

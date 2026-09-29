@@ -288,10 +288,10 @@ async fn a_condition_that_can_never_match_is_refused() {
     }
 }
 
-/// The import wrote straight to the table behind three ad-hoc checks, so a
-/// bundle could carry everything the editor refuses. A bad rule is named and
-/// skipped rather than failing the whole import: a bundle written elsewhere is
-/// expected to fit imperfectly.
+/// An import is validated as the editor validates, or a bundle could carry
+/// everything the editor refuses. A bad rule is named and skipped rather than
+/// failing the whole import: a bundle written elsewhere is expected to fit
+/// imperfectly.
 #[tokio::test]
 async fn an_imported_bundle_is_validated_like_anything_else() {
     let app = TestApp::new().await;
@@ -338,8 +338,8 @@ async fn an_imported_bundle_is_validated_like_anything_else() {
     assert_eq!(stored, vec!["Sound"]);
 }
 
-/// "Did the nightly sweep propose this, or did I" had no answer: `jobs` records
-/// its trigger and the two tables the history screen reads recorded nothing.
+/// A decision records its trigger, as `jobs` does, so the history screen can
+/// answer "did the nightly sweep propose this, or did I".
 #[tokio::test]
 async fn a_decision_records_what_caused_it() {
     let app = TestApp::new().await;
@@ -375,8 +375,8 @@ async fn a_reorder_must_name_every_rule() {
     app.post("/api/v1/rules/reorder", serde_json::json!({ "rule_ids": [first.clone()] }))
         .await
         .assert_status(StatusCode::BAD_REQUEST);
-    // Deduplicated before the comparison, `[a, a, b]` read as `[a, b]` and was
-    // written as 10, 20, 30 — with `a` ending at 20, beside `b` at 30.
+    // Deduplicated before the comparison, `[a, a, b]` would read as `[a, b]`
+    // and be written as 10, 20, 30, with `a` ending at 20, beside `b` at 30.
     app.post(
         "/api/v1/rules/reorder",
         serde_json::json!({ "rule_ids": [first.clone(), first.clone(), second.clone()] }),
@@ -389,7 +389,7 @@ async fn a_reorder_must_name_every_rule() {
 }
 
 /// The stock extractor answers a body it cannot parse in text/plain, outside
-/// the envelope every other failure uses; a client that unwraps `{error,
+/// the envelope every other failure uses. A client that unwraps `{error,
 /// message}` would show serde's sentence about a Rust field instead.
 #[tokio::test]
 async fn a_body_that_cannot_be_parsed_still_gets_the_error_envelope() {
@@ -491,7 +491,7 @@ async fn a_single_rule_can_be_fetched_back() {
     let fetched = app.get(&format!("/api/v1/rules/{id}")).await;
     assert_eq!(fetched.assert_ok()["name"], "Anime");
 
-    // Previously a 405, because the route had no GET at all.
+    // An unknown id is a 404, which a route with no GET would answer as a 405.
     app.get("/api/v1/rules/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
@@ -610,9 +610,9 @@ async fn a_replacing_import_that_keeps_nothing_deletes_nothing() {
 }
 
 /// A bundle brings a category with it, and the rules targeting it arrive too.
-/// The category was created and every rule was judged against a list read
-/// before it existed, so all of them were skipped as naming a category that
-/// does not exist — `imported: 0` beside a freshly created row.
+/// Judged against a list read before the category existed, every rule would be
+/// skipped as naming a category that does not exist, `imported: 0` beside a
+/// freshly created row.
 #[tokio::test]
 async fn importing_creates_missing_categories() {
     let app = TestApp::new().await;
@@ -651,8 +651,8 @@ async fn importing_creates_missing_categories() {
     assert_eq!(target.as_deref(), Some("concerts"), "the rule was not stored");
 }
 
-/// An export lists the categories its rules target; a bundle written by hand
-/// need not. The rule is then the only thing naming its category.
+/// An export lists the categories its rules target, and a bundle written by
+/// hand need not. The rule is then the only thing naming its category.
 #[tokio::test]
 async fn a_rule_whose_category_only_it_names_is_imported_with_it() {
     let app = TestApp::new().await;
@@ -687,8 +687,8 @@ async fn a_rule_whose_category_only_it_names_is_imported_with_it() {
 }
 
 /// The import creates categories through the gate `POST /categories` applies.
-/// Trimmed and lowercased alone, `Kids & Family` landed in the table as a name
-/// `rename` refuses to touch, with a rule stored against it.
+/// Trimmed and lowercased alone, `Kids & Family` would land in the table as a
+/// name `rename` refuses to touch, with a rule stored against it.
 #[tokio::test]
 async fn a_category_the_api_would_refuse_is_not_created_by_a_bundle() {
     let app = TestApp::new().await;
@@ -868,10 +868,10 @@ async fn conflicts_report_unmapped_categories() {
 }
 
 /// A movie-only rule cannot ever route anything into a Sonarr, so warning that
-/// Sonarr has no folder for its category is a warning nobody can act on. Found
-/// while building the showcase screenshots: a perfectly ordinary setup — movie
-/// categories on Radarr, series categories on Sonarr — filled the page with
-/// warnings that can never be cleared, which is how users learn to ignore them.
+/// Sonarr has no folder for its category is a warning nobody can act on. A
+/// perfectly ordinary setup, movie categories on Radarr and series categories
+/// on Sonarr, would fill the page with warnings that can never be cleared,
+/// which is how users learn to ignore them.
 #[tokio::test]
 async fn a_movie_rule_does_not_warn_about_a_sonarr_that_could_never_receive_it() {
     let app = TestApp::new().await;
@@ -944,8 +944,8 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
 }
 
 /// An override pins a title to a category, and that is all it does: it wins
-/// over every rule already. The lock it carried protected nothing, so it is
-/// gone from what the API answers. An older client still sending it is heard.
+/// over every rule already. A lock on it would protect nothing, so the API
+/// answers none, and an older client still sending one is heard.
 #[tokio::test]
 async fn an_override_carries_no_lock() {
     let app = TestApp::new().await;
@@ -1259,9 +1259,9 @@ async fn deleting_an_instance_retires_its_proposals_and_keeps_its_history() {
     assert_eq!(applied["pagination"]["total"], 1, "the history is kept: {applied}");
 }
 
-/// An instance deleted before deletion retired its proposals left them
-/// pending: the upgrade retires those, and leaves alone the proposals of an
-/// instance that exists and whatever was applied.
+/// An upgrade retires the pending proposals of an instance already deleted,
+/// which a database through migration 003 can hold, and leaves alone the
+/// proposals of an instance that exists and whatever was applied.
 #[tokio::test]
 async fn an_upgrade_retires_the_proposals_of_an_instance_already_deleted() {
     let pool = database_through("003_metadata_sources").await;
@@ -1361,15 +1361,15 @@ async fn pagination_is_clamped() {
 // ------------------------------------------------------------ webhooks
 
 /// The only route an unauthenticated party reaches, and each accepted call
-/// costs a request to the Arr, a metadata fetch, a simulation and — with
-/// automatic application armed — a write. The token travels in the URL, so it
-/// sits in the proxy's log and in Radarr's own; once read, nothing bounded what
-/// it could start.
+/// costs a request to the Arr, a metadata fetch, a simulation and, with
+/// automatic application armed, a write. The token travels in the URL, so it
+/// sits in the proxy's log and in Radarr's own, and once it is read, the lock
+/// each instance's deliveries share is what bounds what it can start.
 ///
 /// Serialised rather than dropped: an Arr does not retry a webhook it considers
-/// delivered, and the run this guards covers *one* media item — so a skipped
-/// delivery was that item left unsynced until the next sweep, or for ever with
-/// `auto_sync_enabled` off.
+/// delivered, and the run this guards covers *one* media item, so a skipped
+/// delivery would leave that item unsynced until the next sweep, or for ever
+/// with `auto_sync_enabled` off.
 #[tokio::test]
 async fn a_second_delivery_waits_for_the_first_rather_than_being_dropped() {
     let arr = FakeArr::start().await;
@@ -1377,7 +1377,7 @@ async fn a_second_delivery_waits_for_the_first_rather_than_being_dropped() {
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
     // Held the way a delivery in progress holds it, then released while the
-    // second is waiting — which is what an ordinary sequential import does.
+    // second is waiting, which is what an ordinary sequential import does.
     let held = app.state.jobs.try_lock("webhook:inst-1").expect("the key is free");
     let releasing = tokio::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -1446,8 +1446,8 @@ async fn a_delivery_past_the_queue_bound_is_acknowledged_without_waiting() {
 }
 
 /// Removing the last episode file flips `has_files`, and a rule reading it then
-/// routes the series elsewhere. Radarr's MovieFileDelete was handled and
-/// Sonarr's counterpart was not.
+/// routes the series elsewhere. Sonarr's `EpisodeFileDelete` is acted on as
+/// Radarr's `MovieFileDelete` is.
 #[tokio::test]
 async fn sonarr_deleting_an_episode_file_is_an_event_worth_acting_on() {
     let app = TestApp::new().await;
@@ -1460,15 +1460,15 @@ async fn sonarr_deleting_an_episode_file_is_an_event_worth_acting_on() {
         )
         .await;
 
-    // Not in the ignored list any more. The instance points nowhere, so the
-    // sync behind it fails — which is itself the proof the event got through.
+    // Not in the ignored list. The instance points nowhere, so the sync behind
+    // it fails, which is itself the proof the event got through.
     let ignored =
         response.json.get("ignored").and_then(|v| v.as_str()).unwrap_or_default().to_string();
     assert_ne!(ignored, "EpisodeFileDelete", "the event was still being skipped");
 }
 
 /// Rotating is only worth offering if it actually revokes: without this,
-/// nothing says the previous token stops being accepted — which is the entire
+/// nothing says the previous token stops being accepted, which is the entire
 /// point of the button.
 #[tokio::test]
 async fn rotating_the_webhook_token_revokes_the_previous_one() {
@@ -1565,7 +1565,7 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     .unwrap();
     app.list_tmdb().await;
 
-    // A second item that also needs a move; the webhook must leave it alone.
+    // A second item that also needs a move, which the webhook must leave alone.
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
          current_root_folder, monitored, has_files)
@@ -1610,7 +1610,7 @@ async fn irrelevant_webhook_events_are_ignored() {
 #[tokio::test]
 async fn webhooks_bypass_the_api_key_middleware() {
     // Radarr cannot send custom headers, so the token in the path is the only
-    // credential — this must keep working when ROUTARR_API_KEY is set.
+    // credential, and this must keep working when ROUTARR_API_KEY is set.
     let app = TestApp::with_api_key("s3cret").await;
     app.seed_library().await;
 
@@ -1639,9 +1639,9 @@ async fn an_unknown_job_is_a_404() {
     app.get("/api/v1/jobs/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
-/// The list is what the Logs screen reads, and nothing exercised it: a filter
-/// spelled wrong in `build_filters` would have shown every row, or none, on the
-/// one screen an operator opens because something failed.
+/// The list is what the Logs screen reads: a filter spelled wrong in
+/// `build_filters` would show every row, or none, on the one screen an operator
+/// opens because something failed.
 #[tokio::test]
 async fn logs_are_listed_newest_first_and_filtered_as_asked() {
     let app = TestApp::new().await;
@@ -1782,7 +1782,7 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
         );
     }
 
-    // And the instance with nothing mapped is among them — the finding a
+    // And the instance with nothing mapped is among them: the finding a
     // hand-built badge list misses entirely.
     assert!(
         from_badge.iter().any(|w| w.contains("Radarr")),
@@ -1790,14 +1790,14 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
     );
 }
 
-/// The other direction, and the one that had no test at all.
+/// The other direction.
 ///
 /// An unreachable Arr or metadata source is a finding only a probe can make,
-/// and `/status` may not probe — it is polled, and one dead host costs the
-/// full connect timeout. So the dashboard reported a source that had stopped
-/// answering while the navigation beside it, unable to know, counted zero. A
-/// probe now writes down what it saw, and the endpoint that cannot look reads
-/// it back.
+/// and `/status` may not probe: it is polled, and one dead host costs the full
+/// connect timeout. A probe writes down what it saw and the endpoint that
+/// cannot look reads it back, or the dashboard reports a source that has
+/// stopped answering while the navigation beside it, unable to know, counts
+/// zero.
 #[tokio::test]
 async fn the_badge_reports_what_the_last_probe_found() {
     let app = TestApp::new().await;
@@ -1842,8 +1842,7 @@ async fn a_subject_that_answers_again_stops_being_reported() {
 
 /// The dashboard opens `/health?probe=false`, and the difference is not
 /// cosmetic: probing an unreachable Arr costs the full connect timeout, and an
-/// unreachable Arr is exactly why somebody opens the dashboard. Measured at
-/// 5 042 ms against 4 ms on a development instance with one dead Arr.
+/// unreachable Arr is exactly why somebody opens the dashboard.
 #[tokio::test]
 async fn health_without_a_probe_answers_from_the_database_alone() {
     let app = TestApp::new().await;
@@ -1869,9 +1868,9 @@ async fn health_without_a_probe_answers_from_the_database_alone() {
     }
 }
 
-/// The default is unchanged: Diagnostics still probes, and that is what it is
-/// for. A parameter that silently became the default would turn the one screen
-/// that answers "is it connected" into one that never asks.
+/// By default Diagnostics probes, and that is what it is for. A parameter that
+/// silently became the default would turn the one screen that answers "is it
+/// connected" into one that never asks.
 #[tokio::test]
 async fn health_probes_by_default() {
     let app = TestApp::new().await;
@@ -1943,7 +1942,7 @@ async fn a_search_wildcard_is_matched_literally() {
     .await
     .unwrap();
 
-    // "100%" must find the film called "100% Wolf" and nothing else — an
+    // "100%" must find the film called "100% Wolf" and nothing else: an
     // unescaped LIKE would treat the percent as "anything after 100".
     let response = app.get("/api/v1/media?search=100%25").await;
     let items = response.assert_ok()["data"].as_array().unwrap().clone();
@@ -1960,8 +1959,8 @@ async fn a_search_wildcard_is_matched_literally() {
     );
 }
 
-/// The purge endpoint had no backend test at all: the e2e clicks the button, so
-/// it is not dead code, but nothing checked what it answers.
+/// The e2e clicks the purge button without checking what the endpoint answers,
+/// and this checks it.
 #[tokio::test]
 async fn purging_reports_what_it_removed() {
     let app = TestApp::new().await;
@@ -1979,7 +1978,7 @@ async fn purging_reports_what_it_removed() {
 /// The catalogue drives the rule builder, so a condition offered there is a
 /// condition a user can put on a rule. Radarr's payload carries no `tvdbId`,
 /// no `seriesType` and no season list, so `upsert_media` leaves those columns
-/// null for every film — offering them on a movie rule is offering something
+/// null for every film, and offering them on a movie rule is offering something
 /// that can only ever fail.
 #[tokio::test]
 async fn the_condition_catalogue_says_which_media_types_each_condition_applies_to() {
@@ -2020,9 +2019,9 @@ async fn the_condition_catalogue_says_which_media_types_each_condition_applies_t
 
 /// The Settings screen sends every field, so one value stored before its bound
 /// existed travels with whatever the operator changed and the whole save is
-/// refused — nothing written, the field they changed included — until a start
+/// refused (nothing written, the field they changed included) until a start
 /// converges the stale value. What each key converges to is the matrix test's
-/// claim, below; this one is the screen's.
+/// claim, below, and this one is the screen's.
 #[tokio::test]
 async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_value() {
     let app = TestApp::new().await;
@@ -2068,8 +2067,8 @@ async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_va
 }
 
 /// Every ranged key is raised to its floor at a start, and every `Bounded` key
-/// is lowered to its ceiling — no retention count is: lowering one removes
-/// what is beyond it, which is the operator's own act. Read off the table, so
+/// is lowered to its ceiling. No retention count is: lowering one removes what
+/// is beyond it, which is the operator's own act. Read off the table, so
 /// a key added to it is covered without being named here.
 #[tokio::test]
 async fn every_ranged_key_is_raised_and_only_a_bounded_one_is_lowered() {
@@ -2178,7 +2177,7 @@ async fn seed_akira_needing_a_move(app: &TestApp) {
     .unwrap();
 }
 
-/// `sync_single_media` answers `None` when the Arr no longer has the item —
+/// `sync_single_media` answers `None` when the Arr no longer has the item,
 /// which is exactly what a delete event reports. With no media filter the
 /// evaluation is the whole instance, persisted and automatically applied,
 /// outside the lock that exists to bound precisely that.
@@ -2213,7 +2212,7 @@ async fn a_delete_event_does_not_evaluate_the_whole_instance() {
 }
 
 /// `MovieDelete` reports that the item is gone. Acknowledged and left there,
-/// the row survives with its override and its pending proposal — the proposal
+/// the row survives with its override and its pending proposal, the proposal
 /// listed for ever and never applicable, since the executor joins `media`.
 #[tokio::test]
 async fn a_delete_event_retires_the_item_and_what_pointed_at_it() {
@@ -2310,11 +2309,11 @@ async fn a_delete_event_waits_for_a_running_sync_before_retiring() {
 }
 
 /// A 404 on any other event is not news of a deletion: a base URL pointing at
-/// something that is not an Arr answers 404 to everything, and the full sync —
-/// which reads the whole list and refuses to act on an empty one — is the
-/// safer judge of what is gone. Acknowledged rather than refused, since Radarr
-/// would retry a rejection it can do nothing about; and nothing is created
-/// for an id nobody has.
+/// something that is not an Arr answers 404 to everything, and the full sync,
+/// which reads the whole list and refuses to act on an empty one, is the safer
+/// judge of what is gone. Acknowledged rather than refused, since Radarr would
+/// retry a rejection it can do nothing about. And nothing is created for an id
+/// nobody has.
 #[tokio::test]
 async fn an_item_the_arr_does_not_know_is_kept_unless_the_event_says_it_is_gone() {
     let arr = FakeArr::start().await;
@@ -2342,7 +2341,7 @@ async fn an_item_the_arr_does_not_know_is_kept_unless_the_event_says_it_is_gone(
     assert_eq!(all, 1, "a row was created for an item the Arr does not have");
 }
 
-/// `instance_ids: []` on the API is the whole library — what the interface's
+/// `instance_ids: []` on the API is the whole library: what the interface's
 /// own request, which sends no list at all, and a rule scoped to no instance
 /// both mean by it.
 #[tokio::test]
@@ -2368,10 +2367,10 @@ async fn an_empty_instance_list_on_the_api_is_the_whole_library() {
     assert_eq!(preview["changed_total"], 1, "{preview}");
 }
 
-/// SQLite binds at most 32 766 parameters to one statement. A list from the
-/// request body that is longer reached the capacity guard's `IN (...)` before
-/// the batch limit — which would have refused it with a sentence — and came
-/// back as a 500. The limit is checked first, and it never exceeds 1 000.
+/// SQLite binds at most 32 766 parameters to one statement. The batch limit,
+/// which never exceeds 1 000, is checked before the capacity guard's
+/// `IN (...)`, so a longer list from the request body is refused with a
+/// sentence rather than failing there as a 500.
 #[tokio::test]
 async fn an_apply_naming_more_ids_than_one_statement_binds_is_refused_not_failed() {
     let app = TestApp::new().await;
@@ -2404,9 +2403,9 @@ async fn a_simulation_scoped_to_more_instances_than_one_statement_binds_is_refus
     assert_eq!(response.status, 400, "{}", response.json);
 }
 
-/// Every whole-library pass — a preview, a health report, a sweep — holds one
-/// of two permits while it runs, and the third waits for one to end rather
-/// than being refused. A wait is what a read can afford; a 409 on the rules
+/// Every whole-library pass (a preview, a health report, a sweep) holds one of
+/// two permits while it runs, and the third waits for one to end rather than
+/// being refused. A wait is what a read can afford, and a 409 on the rules
 /// page, which renders its health on every load, is not.
 #[tokio::test]
 async fn a_third_library_pass_waits_for_one_of_the_two_to_end() {
@@ -2420,8 +2419,8 @@ async fn a_third_library_pass_waits_for_one_of_the_two_to_end() {
 
     // Neither can complete while both permits are held, so the elapsed
     // timeouts below cannot be flaky in either direction: completion is
-    // impossible, and a response of any kind — a refusal included — would
-    // end the wait early and fail the check.
+    // impossible, and a response of any kind, a refusal included, would end
+    // the wait early and fail the check.
     let mut preview =
         Box::pin(app.post("/api/v1/simulate", serde_json::json!({ "persist": false })));
     assert!(

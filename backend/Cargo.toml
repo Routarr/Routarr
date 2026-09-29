@@ -6,7 +6,7 @@ rust-version = "1.98"
 description = "Smart media routing engine for Radarr and Sonarr"
 license = "GPL-3.0-only"
 # Routarr is a server, not a library, and it ships as one OCI image. A crate on
-# crates.io would be a second way to install it that nothing tests — and a
+# crates.io would be a second way to install it that nothing tests, and a
 # published version cannot be taken back.
 publish = false
 
@@ -19,13 +19,13 @@ tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite", "derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# No root-store feature: reqwest 0.13.2 removed `webpki-roots` and verifies
-# against the **platform's** trust store instead. That is a deliberate choice,
-# not a default we inherited. It means a homelab CA signing an internal Arr's
-# certificate is accepted, which the compiled-in Mozilla set refused; the price
-# is that the roots now come from the base image rather than from a Routarr
-# release, so `Dockerfile` installing `ca-certificates` is load-bearing — an
-# image without it fails every metadata call, not just the private ones.
+# No root-store feature: `rustls` verifies against the **platform's** trust
+# store. That is a deliberate choice, not a default we inherited. It means a
+# homelab CA signing an internal Arr's certificate is accepted, which a
+# compiled-in Mozilla set would refuse. The price is that the roots come from
+# the base image rather than from a Routarr release, so `Dockerfile` installing
+# `ca-certificates` is load-bearing: an image without it fails every metadata
+# call, not just the private ones.
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
 # Already built for axum and reqwest. Named here for one question reqwest does
 # not answer: whether what came back was HTTP at all (`hyper::Error::is_parse`).
@@ -40,7 +40,7 @@ tower-http = { version = "0.7", features = [
     "compression-gzip",
     "request-id",
     # A panicking handler must answer 500 rather than dropping the connection
-    # with no response at all — see the layer in main.rs.
+    # with no response at all (the layer in main.rs).
     "catch-panic",
 ]  }
 tracing = "0.1"

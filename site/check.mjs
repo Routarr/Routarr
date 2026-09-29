@@ -18,20 +18,20 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
 /**
  * Everything here is checked against `dist/`, which is what Cloudflare serves.
- * Checking the sources would test the intention; this tests the artefact — the
- * distinction that matters for a CSP hash, a fingerprinted stylesheet, or an
+ * Checking the sources would test the intention, and this tests the artefact:
+ * the distinction matters for a CSP hash, a fingerprinted stylesheet, or an
  * image that exists in `public/` and never reached the build.
  */
 const DIST = join(ROOT, 'dist');
 const read = (file) => readFileSync(join(DIST, file), 'utf-8');
 
 if (!existsSync(DIST)) {
-  console.error('site/dist is missing — run `npm run build` in site/ first.');
+  console.error('site/dist is missing: run `npm run build` in site/ first.');
   process.exit(1);
 }
 
 // The one list of languages, read from the source the pages are built from:
-// a copy here drifted the first time a language was added elsewhere.
+// a copy here would miss a language added there.
 const { LANGUAGES } = await import('./src/i18n/languages.ts');
 
 
@@ -56,7 +56,7 @@ function webpSize(file) {
 /**
  * Same, for an AVIF: from its `ispe` property box. The two formats are encoded
  * from one PNG, so a stale AVIF beside a fresh WebP is what a re-capture that
- * failed halfway leaves behind — and the AVIF is the file most browsers take.
+ * failed halfway leaves behind, and the AVIF is the file most browsers take.
  */
 function avifSize(file) {
   const buffer = readFileSync(file);
@@ -88,7 +88,7 @@ const llms = existsSync(join(DIST, 'llms.txt')) ? read('llms.txt') : null;
 
 // -------------------------------------------------------------- one origin
 // The canonical, the sitemap, robots.txt and llms.txt state the site's origin.
-// A partial rename — one updated, another forgotten — is the failure mode.
+// A partial rename, one updated and another forgotten, is the failure mode.
 const origins = new Set();
 const securityTxt = existsSync(join(DIST, '.well-known/security.txt')) ? read('.well-known/security.txt') : '';
 if (!securityTxt) fail('.well-known/security.txt is missing from the build');
@@ -99,7 +99,7 @@ for (const source of [index, notFound, headers, read('robots.txt'), read('sitema
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
 // `localhost` appears in the install instructions as prose, not as a host the
-// site talks to; the rest are well-known vocabulary and outbound links.
+// site talks to. The rest are well-known vocabulary and outbound links.
 const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1)/;
 const own = [...origins].filter((o) => !EXTERNAL.test(o));
 if (own.length > 1) fail(`several site origins in use, pick one: ${own.join(', ')}`);
@@ -107,7 +107,7 @@ const ORIGIN = own[0];
 
 // ------------------------------------------------------------ translations
 // Astro renders the four pages from one set of components, so a translation
-// cannot be *stale* — there is no second copy of the page to fall behind.
+// cannot be *stale*: there is no second copy of the page to fall behind.
 // What is possible is a catalogue that has drifted from the keys the
 // components ask for, so that is what this checks: same keys as English, none
 // empty, and a built page at the path the switcher and the sitemap promise.
@@ -137,17 +137,17 @@ for (const { code, path } of LANGUAGES) {
   }
 
   if (!existsSync(join(DIST, file))) {
-    fail(`${file} was not built — run \`npm run build\` in site/`);
+    fail(`${file} was not built: run \`npm run build\` in site/`);
     continue;
   }
   pages[file] = read(file);
 
   /* The detail page is checked exactly as the landing is. Left out, half the
-     site shipped with nothing looking at its links, its labels or the English
-     phrases that escape a catalogue. */
+     site would ship with nothing looking at its links, its labels or the
+     English phrases that escape a catalogue. */
   const detail = code === 'en' ? 'how/index.html' : `${code}/how/index.html`;
   if (!existsSync(join(DIST, detail))) {
-    fail(`${detail} was not built — run \`npm run build\` in site/`);
+    fail(`${detail} was not built: run \`npm run build\` in site/`);
   } else {
     pages[detail] = read(detail);
   }
@@ -176,12 +176,13 @@ for (const { code, path } of LANGUAGES) {
 // An `aria-label`, a `<b>` in a list, a `//` eyebrow: text written straight into
 // a component is invisible to the key parity above and ships in English on the
 // three other pages. Every label a translated page announces has to differ
-// from the English one, and the phrases that once escaped stay named.
+// from the English one, and no translated page carries a phrase of `ESCAPED`,
+// English text written outside a label.
 const labelsOf = (html) =>
   new Set([...html.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]));
 const englishLabels = labelsOf(index);
 if (englishLabels.size < 4) {
-  fail(`only ${englishLabels.size} aria-label(s) on the English page — the guard read nothing`);
+  fail(`only ${englishLabels.size} aria-label(s) on the English page: the guard read nothing`);
 }
 const ESCAPED = ['one compose up', 'Global dry-run', 'Batch cap', '// before', 'Press Ctrl+C', 'Not affiliated'];
 for (const { code } of LANGUAGES) {
@@ -202,7 +203,7 @@ for (const { code } of LANGUAGES) {
 // The `hreflang` set is declared twice by two different mechanisms: the pages
 // write it in their `<head>` from `pathFor`, and the sitemap integration
 // writes it from the routes. Google reads both, so they have to say the same
-// thing — and nothing but this compares them. A missing `x-default` on one
+// thing, and nothing but this compares them. A missing `x-default` on one
 // side is exactly the kind of drift that shows up months later in Search
 // Console and never in a build.
 const sitemapIndex = read('sitemap-index.xml');
@@ -243,7 +244,7 @@ for (const file of sitemapFiles) {
     if (missing.length) fail(`${file}: the sitemap omits hreflang ${missing.join(', ')}, which the page declares`);
     if (extra.length) fail(`${file}: the sitemap declares hreflang ${extra.join(', ')}, which the page does not`);
 
-    // One fallback, and it names a page that exists.
+    // Exactly one `x-default` per entry: it names the one fallback page.
     const defaults = [...rest.matchAll(/hreflang="x-default" href="([^"]+)"/g)].map((m) => m[1]);
     if (defaults.length !== 1) fail(`${file}: the sitemap declares ${defaults.length} x-default entries, expected one`);
   }
@@ -265,9 +266,8 @@ if (comparedPages < 8) {
 // -------------------------------------------- every page revalidates
 // Astro fingerprints what it builds and does not fingerprint the pages, so an
 // HTML file cached for any length of time is a page a deploy cannot take back.
-// The four landings each named their rule and the four `/how/` pages did not,
-// because they were added a day later and the file was not: this is what makes
-// the ninth page fail the build instead of going stale quietly.
+// Each built page needs its own rule in `_headers`, so a page added without one
+// fails the build instead of going stale quietly.
 for (const file of Object.keys(pages)) {
   const path = file === 'index.html' ? '/' : `/${file.replace(/index\.html$/, '')}`;
   const rule = new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n\\s+Cache-Control:[^\\n]*must-revalidate`, 'm');
@@ -279,8 +279,7 @@ for (const file of Object.keys(pages)) {
 // --------------------------------------------- markup that reached the page
 // A catalogue value carrying a tag has to be rendered with `set:html`. Slotted
 // as text it is escaped, and the page shows `<em>26 languages.</em>` in full.
-// Eight sections used `set:html` for their heading and the ninth did not, so
-// the fault was one component wide and invisible to every other check.
+// The mistake sits in a single component, and no other check sees it.
 for (const [file, page] of Object.entries(pages)) {
   // Attributes included: their quotes are escaped to `&quot;` as well.
   const escaped = page.match(/&lt;\/?(em|strong|code|span|br|a|kbd)\b(?:[^&]|&quot;|&#39;|&amp;){0,80}?&gt;/);
@@ -380,8 +379,7 @@ if (!readKey) {
 // ------------------------------------------------- entities in a catalogue
 // A catalogue value is a string, not markup. An `&amp;` written there is
 // double-escaped the moment it goes through a template that escapes, and the
-// page then shows the entity itself. Caught once on the hero's licence line,
-// where `amd64 &amp; arm64` rendered as written.
+// page then shows the entity itself: `amd64 &amp; arm64` renders as written.
 for (const { code } of LANGUAGES) {
   const dictionary = catalogue(code);
   for (const [key, value] of Object.entries(dictionary)) {
@@ -394,9 +392,9 @@ for (const { code } of LANGUAGES) {
 
 // ---------------------------------------------------------- words in CSS
 // A word a stylesheet prints through `content` never reaches a catalogue, so it
-// reads in English on all four pages — and the check above cannot see it,
-// since the key it would need does not exist. Symbols are fine there; letters
-// are not. CSS escapes are removed first: `\2212` is a minus sign, not text.
+// reads in English on all four pages. The check above cannot see it, since the
+// key it would need does not exist. Symbols are fine there, letters are not.
+// CSS escapes are removed first: `\2212` is a minus sign, not text.
 const stylesheets = readdirSync(join(DIST, '_astro')).filter((file) => file.endsWith('.css'));
 let printed = 0;
 for (const sheet of stylesheets) {
@@ -410,13 +408,14 @@ for (const sheet of stylesheets) {
 // The count is the guard on the guard: a pattern that stops matching minified
 // output would pass having read nothing.
 if (!stylesheets.length || printed < 3) {
-  fail(`read ${printed} CSS content string(s) in ${stylesheets.length} stylesheet(s) — the check is reading nothing`);
+  fail(`read ${printed} CSS content string(s) in ${stylesheets.length} stylesheet(s): the check is reading nothing`);
 }
 
 // ----------------------------------------------------------- version
-// The site states a version in two places and the application owns it in a
-// third. Unconnected, the badge sits a release behind and the page still passes
-// every other check here.
+// The page states which version it describes, anywhere a visitor reads it, and
+// that version is the one `backend/Cargo.toml` declares. The JSON-LD says the
+// same. The site reads Cargo.toml when it builds, so the comparison fails only
+// on a `dist` built before a version change.
 const cargo = readFileSync(join(ROOT, '../backend/Cargo.toml'), 'utf-8');
 const version = cargo.match(/^version = "([^"]+)"/m)?.[1];
 if (!version) fail('could not read the version from Cargo.toml');
@@ -424,10 +423,6 @@ else {
   if (!index.includes(`"softwareVersion": "${version}"`)) {
     fail(`index.html: softwareVersion is not ${version}, the version in Cargo.toml`);
   }
-  /* The version is stated on the page, not in one particular element: it moved
-     from a badge under the hero to the header beside the name when the badges
-     went. What matters is that a visitor can read which version the page
-     describes, and that it is the one Cargo.toml declares. */
   if (!index.includes(`v${version}`)) {
     fail(`index.html: the page states no version, and Cargo.toml declares ${version}`);
   }
@@ -453,7 +448,7 @@ for (const { code } of LANGUAGES) {
     }
   }
 }
-if (!index.includes('id="lang-hint"')) fail('index.html: #lang-hint is missing — site.js builds the banner into it');
+if (!index.includes('id="lang-hint"')) fail('index.html: #lang-hint is missing: site.js builds the banner into it');
 if (!siteScript.includes('lang-hint')) fail('assets/site.js never mentions #lang-hint');
 if (!/<div class="lang-hint" id="lang-hint"[^>]*\bhidden[^>]*>/.test(index)) {
   fail('index.html: the language banner must start hidden, or a reader without JavaScript sees an empty strip');
@@ -465,7 +460,7 @@ if (inline.length !== 1) fail(`expected exactly one inline <script> in index.htm
 for (const script of inline) {
   const digest = `sha256-${createHash('sha256').update(script).digest('base64')}`;
   if (!headers.includes(digest)) {
-    fail(`the inline script's hash is not in _headers — the page would render unstyled and dead.\n    expected: ${digest}`);
+    fail(`the inline script's hash is not in _headers: the page would render unstyled and dead.\n    expected: ${digest}`);
   }
 }
 // Every page, and every inline script whatever its `type`: a component's
@@ -567,7 +562,7 @@ for (const [name, source] of Object.entries(pages)) {
 
 const imagesOnPage = Object.values(pages).reduce((n, html) => n + (html.match(/<img /g) || []).length, 0);
 if (imagesOnPage && imagesChecked < imagesOnPage) {
-  fail(`${imagesOnPage} <img> on the pages and only ${imagesChecked} examined — the check read past some`);
+  fail(`${imagesOnPage} <img> on the pages and only ${imagesChecked} examined: the check read past some`);
 }
 
 // -------------------------------------------------------------- links
@@ -599,7 +594,7 @@ for (const [name, source] of Object.entries(pages)) {
   if (new Set(targets).size !== targets.length) fail(`${name}: the subjects of the "More" card share a destination`);
 }
 
-if (linksChecked < 20) fail(`only ${linksChecked} href examined across the pages — the check read nothing`);
+if (linksChecked < 20) fail(`only ${linksChecked} href examined across the pages: the check read nothing`);
 
 // -------------------------------------------------------------- no third party
 // The site must *fetch* nothing from outside: it is the cheapest privacy
@@ -650,7 +645,8 @@ if (llms === null) {
 
 // ------------------------------------------------------------- og:locale
 // A link preview states the page's language, and each translation names the
-// others; the English page said nothing and the others were English by default.
+// others. A page that omits `og:locale` is taken for `en_US`, whatever its
+// language.
 for (const { code } of LANGUAGES) {
   const file = code === 'en' ? 'index.html' : `${code}/index.html`;
   const page = pages[file];
@@ -664,10 +660,9 @@ for (const { code } of LANGUAGES) {
 }
 
 // -------------------------------------------------------------- assets
-// No page shows a screenshot at the moment: they were a quarter of its height,
-// and the sections draw what they are about. `screenshots/run.sh` writes its
-// captures outside `public/`, so the directory is empty until a page takes one
-// in. What must never happen is shipping one nothing shows.
+// `screenshots/run.sh` writes its captures outside `public/`, so the directory
+// holds only what a page takes in. What must never happen is shipping one
+// nothing shows.
 const shots = existsSync(join(DIST, 'assets/shots'))
   ? readdirSync(join(DIST, 'assets/shots'))
   : [];
@@ -677,39 +672,39 @@ for (const shot of shots) {
   }
 }
 
-// Every WebP has an AVIF beside it, and nothing the other way round. The two
-// are encoded from the same PNG in one pass, so a lone file means a run that
-// half-finished — and a missing AVIF is invisible in a browser that would have
-// taken it, which is the whole point of the `<source>`.
+// Every WebP has an AVIF beside it, and every AVIF a WebP. The two are encoded
+// from the same PNG in one pass, so a lone file means a run that half-finished.
+// A missing AVIF is invisible in a browser that would have taken it, and that
+// browser is the whole point of the `<source>`.
 for (const shot of shots.filter((s) => s.endsWith('.webp'))) {
   const avif = shot.replace(/\.webp$/, '.avif');
-  if (!shots.includes(avif)) fail(`assets/shots/${avif} is missing — re-run site/screenshots/run.sh`);
+  if (!shots.includes(avif)) fail(`assets/shots/${avif} is missing: re-run site/screenshots/run.sh`);
 }
 for (const shot of shots.filter((s) => s.endsWith('.avif'))) {
   const webp = shot.replace(/\.avif$/, '.webp');
   if (!shots.includes(webp)) {
-    fail(`assets/shots/${shot} has no webp fallback — re-run site/screenshots/run.sh`);
+    fail(`assets/shots/${shot} has no webp fallback: re-run site/screenshots/run.sh`);
   }
 }
 
 // And nothing is shipped that no page shows. The pairing checks above run both
-// ways between the two formats but never against the pages, so a capture the
-// harness produces and the layout never uses was deployed, counted against the
-// page weight of anyone who fetched it by URL, and kept current for nothing.
+// ways between the two formats but never against the pages. Without this, a
+// capture the harness produces and the layout never uses would ship, weigh on
+// anyone who fetches it by URL, and be kept current for nothing.
 const referenced = new Set();
 for (const source of Object.values(pages)) {
   for (const [, file] of source.matchAll(/assets\/shots\/([a-z0-9._-]+)/gi)) referenced.add(file);
 }
 for (const shot of shots) {
   if (!referenced.has(shot)) {
-    fail(`assets/shots/${shot} is shipped but no page shows it — use it or stop capturing it`);
+    fail(`assets/shots/${shot} is shipped but no page shows it: use it or stop capturing it`);
   }
 }
 
 // Every extension the site actually ships is one `serve.mjs` knows how to type.
 // A missing entry serves the file with no content-type, and a browser may then
-// refuse the `<source>` it would otherwise have taken — a difference visible
-// only in preview, which is the one thing that server exists to prevent.
+// refuse the `<source>` it would otherwise have taken. The preview then differs
+// from production, which is the one thing that server exists to prevent.
 {
   const types = readFileSync(join(ROOT, 'serve.mjs'), 'utf-8').match(/const TYPES = \{([\s\S]*?)\}/)?.[1] ?? '';
   const known = new Set([...types.matchAll(/'(\.[a-z0-9]+)'/g)].map((m) => m[1]));
@@ -728,18 +723,18 @@ for (const match of index.matchAll(/<source srcset="([^"]+)"/g)) {
 }
 const sourcesOnPage = (index.match(/<source /g) || []).length;
 if (sourcesOnPage && sourcesChecked < sourcesOnPage) {
-  fail(`${sourcesOnPage} <source> on the page and only ${sourcesChecked} examined — the check read past some`);
+  fail(`${sourcesOnPage} <source> on the page and only ${sourcesChecked} examined: the check read past some`);
 }
 
 // -------------------------------------------------------------- icons
 // The SVG favicon is the source of truth, but it is not enough on its own:
 // older Safari ignores `type="image/svg+xml"`, and crawlers and unfurlers ask
 // the origin root for /favicon.ico without reading the document at all. All
-// three are rendered from the SVG by `node site/icons.mjs`; this fails when one
-// was not regenerated, so the raster copies cannot silently fall behind the
-// drawing they came from.
+// three are rendered from the SVG by `node site/icons.mjs`. This fails when one
+// is missing or is not the format it claims, but it cannot see a copy older
+// than the drawing: an edit to the SVG reruns the script.
 for (const file of ['assets/favicon-32.png', 'assets/apple-touch-icon.png']) {
-  if (!existsSync(join(DIST, file))) fail(`${file} is missing — run node site/icons.mjs`);
+  if (!existsSync(join(DIST, file))) fail(`${file} is missing: run node site/icons.mjs`);
   else if (!pngSize(join(DIST, file))) fail(`${file} is not a PNG`);
 }
 
@@ -759,7 +754,7 @@ for (const [name, source] of Object.entries(pages)) {
     const href = tag.match(/\bhref="([^"]+)"/)?.[1];
     const declared = tag.match(/\bsizes="(\d+)x(\d+)"/);
     if (!href || !declared) continue;
-    // Under `dist`, where the built page's paths resolve — read from the
+    // Under `dist`, where the built page's paths resolve. Read from the
     // repository root instead, no icon exists and nothing is ever compared.
     const size = pngSize(join(DIST, href.slice(1)));
     if (!size) {
@@ -791,7 +786,7 @@ if (iconSizesChecked < Object.keys(pages).length) {
 }
 
 if (!existsSync(join(DIST, 'favicon.ico'))) {
-  fail('favicon.ico is missing from the site root — run node site/icons.mjs');
+  fail('favicon.ico is missing from the site root: run node site/icons.mjs');
 } else {
   const ico = readFileSync(join(DIST, 'favicon.ico'));
   // Reserved word, type 1 (icon), at least one image.
@@ -838,7 +833,7 @@ if (undefinedTokens.length) fail(`site.css reads tokens it never defines: ${unde
 
 // -------------------------------------------------------------- contrast
 // WCAG 2.1 AA for normal text is 4.5:1. Measured rather than eyeballed: an
-// accent at 4.06 looks perfectly fine.
+// accent just under the floor looks perfectly fine.
 function luminance(hex) {
   const channels = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16) / 255);
   const linear = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -850,13 +845,12 @@ function contrast(a, b) {
 }
 // The bare `:root` block is the light default, `explicit` the stamped dark one.
 const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
-// `--accent` is decorative only (borders, glows) and is exempt; the tokens that
+// `--accent` is decorative only (borders, glows) and is exempt. The tokens that
 // carry text are `--accent-text` (amber as text) and `--accent-ink` over both
-// button fills. Both, since the primary button was flattened: its rest and
-// hover states are now two flat colours rather than two stops of one gradient,
-// so checking the darker one is no longer checking the worst case. `--focus`
-// carries a state rather than text — the ring says where the keyboard is —
-// and WCAG 1.4.11 asks 3:1 of it against everything it can land on.
+// button fills: the primary button's rest and hover states are two flat
+// colours, and either can be the worst case. `--focus` carries a state rather
+// than text (the ring says where the keyboard is), and WCAG 1.4.11 asks 3:1 of
+// it against everything it can land on.
 const TEXT_PAIRS = [['--text', '--bg'], ['--text-soft', '--bg'], ['--text-muted', '--bg'], ['--text-muted', '--bg-card'], ['--accent-text', '--bg'], ['--accent-text', '--bg-card'], ['--accent-ink', '--accent-fill'], ['--accent-ink', '--accent-fill-hi']];
 const STATE_PAIRS = [['--focus', '--bg', 3], ['--focus', '--bg-card', 3]];
 for (const [label, palette] of [['light', light], ['dark', explicit]]) {
@@ -922,7 +916,8 @@ if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together ch
 
 // The browser's bar follows the page, never the system: one `theme-color`, the
 // light ground, and the dark ground `site.js` writes once a visitor picks it.
-// A pair switched by `prefers-color-scheme` drew a dark bar over a white page.
+// A pair switched by `prefers-color-scheme` draws a dark bar over a light page
+// whenever the system is dark.
 for (const [file, html] of Object.entries(pages)) {
   const colours = [...html.matchAll(/<meta name="theme-color"([^>]*)>/g)].map((m) => m[1]);
   if (colours.length !== 1 || !colours[0].includes(`content="${light['--bg']}"`) || colours[0].includes('media=')) {
@@ -934,7 +929,8 @@ for (const ground of [light['--bg'], explicit['--bg']]) {
 }
 
 // `--focus` is the one ring colour measured above. A ring drawn in another
-// colour is one nothing measures, and the accent reaches 2.15:1.
+// colour is one nothing measures, and the accent on the light ground is far
+// below 3:1.
 const unmeasuredRings = [...css.matchAll(/outline(?:-color)?:\s*([^;]+);/g)]
   .map((m) => m[1].trim())
   .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)'));
@@ -944,14 +940,14 @@ if (unmeasuredRings.length) {
 
 // ------------------------------------------------- immutable means fingerprinted
 // `immutable` for a year is a promise that the bytes at this URL never change.
-// Astro fingerprints what it builds, so `/_astro/*` can keep it; everything
-// under `/assets/` is hand-placed and keeps its name. `screenshots/run.sh`
-// overwrites `dashboard.avif` in place — four times in three days — and under
-// the blanket rule a corrected screenshot never reached a returning visitor.
+// Astro fingerprints what it builds, so `/_astro/*` can keep it. Everything
+// under `/assets/` is hand-placed and keeps its name, and a re-captured
+// screenshot replaces its file under the same name: cached as immutable, the
+// corrected file never reaches a returning visitor.
 //
-// The rule is the *name*, not the directory: a file added under `/assets/`
-// tomorrow inherits the blanket rule unless it is carved out, and nothing would
-// say so.
+// The rule is the *name*, not the directory: every file under `/assets/`
+// without a fingerprint needs a bounded rule of its own in `_headers`, so a
+// file added there fails the build until it is given one.
 {
   const immutable = new Set();
   const bounded = new Set();
@@ -965,7 +961,7 @@ if (unmeasuredRings.length) {
     if (!rule || !/cache-control/i.test(line)) continue;
     (/immutable/i.test(line) ? immutable : bounded).add(rule);
   }
-  if (!immutable.size) fail('no `immutable` rule in _headers — the parser read nothing');
+  if (!immutable.size) fail('no `immutable` rule in _headers: the parser read nothing');
 
   const fingerprinted = /[.-][0-9A-Za-z_-]{8,}\.[a-z0-9]+$/;
   const served = [];
@@ -977,7 +973,7 @@ if (unmeasuredRings.length) {
     }
   };
   walk('assets');
-  if (served.length < 5) fail(`only ${served.length} file(s) found under /assets — the walk is wrong`);
+  if (served.length < 5) fail(`only ${served.length} file(s) found under /assets: the walk is wrong`);
 
   for (const file of served) {
     const url = `/${file}`;
@@ -987,8 +983,8 @@ if (unmeasuredRings.length) {
     );
     if (!covered) {
       fail(
-        `${url} carries no fingerprint and no bounded Cache-Control, so it inherits ` +
-          '`immutable` for a year — replacing it in place would reach nobody',
+        `${url} carries no fingerprint and no bounded Cache-Control rule in _headers: ` +
+          'every unfingerprinted file under /assets needs one, or a replacement in place stays unseen',
       );
     }
   }

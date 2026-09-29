@@ -12,10 +12,10 @@ import CommandPalette from './CommandPalette.svelte';
 /**
  * One field, from anywhere, for the question this product exists to answer.
  *
- * "Why did Routarr put this film there?" took four steps from any screen: open
- * the library, type, search, then find the row and press its button. What is
- * asserted here is that it now takes one — and that the palette carries
- * nothing that writes.
+ * "Why did Routarr put this film there?" otherwise takes four steps from any
+ * screen: open the library, type, search, then find the row and press its
+ * button. What is asserted here is that it takes one, and that the palette
+ * carries nothing that writes.
  */
 
 const STRINGS = {
@@ -70,13 +70,13 @@ describe('CommandPalette', () => {
     show();
 
     const options = await screen.findAllByRole('option');
-    // Thirteen screens, and nothing else: an empty field proposes where to go
+    // Every screen, and nothing else: an empty field proposes where to go
     // rather than an empty box.
     expect(options).toHaveLength(13);
     expect(options[0]).toHaveTextContent('Dashboard');
   });
 
-  /** A few words beside each name, so a list of thirteen reads as what each is for. */
+  /** A few words beside each name, so the list of screens reads as what each is for. */
   it('describes each destination beside its name', async () => {
     show();
 
@@ -162,7 +162,7 @@ describe('CommandPalette', () => {
     expect(field.getAttribute('aria-activedescendant')).toBe(options[options.length - 1]?.id);
 
     // And nothing in the list is a tab stop, or it would take the focus the
-    // field has to keep — an `option` must not hold interactive content
+    // field has to keep. An `option` must not hold interactive content
     // either, which is why the row carries its own click.
     for (const option of options) {
       expect(option.querySelector('a, button, input, select, [tabindex]')).toBeNull();
@@ -219,9 +219,9 @@ describe('CommandPalette', () => {
   });
 
   /**
-   * Only the library needs the network. Rendering the failure in place of the
-   * list took the thirteen destinations with it, and since the error was never
-   * cleared the field could do nothing at all until it was closed and
+   * Only the library needs the network. Rendered in place of the list, the
+   * failure would take the destinations with it, and an error never cleared
+   * would leave the field able to do nothing at all until it is closed and
    * reopened.
    */
   it('keeps the destinations when the library cannot be reached', async () => {
@@ -242,7 +242,7 @@ describe('CommandPalette', () => {
 
   /**
    * `aria-expanded` describes what is rendered. Hard-coded true, the field
-   * claimed to control a listbox that the empty branch had removed, which is a
+   * would claim to control a listbox that the empty branch removes, which is a
    * dangling `aria-controls` and an axe failure at WCAG 2.1 A.
    */
   it('stops claiming a list once there is none', async () => {

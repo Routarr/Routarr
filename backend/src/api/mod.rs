@@ -32,7 +32,7 @@ use serde::Serialize;
 ///
 /// The stock extractor answers a body it cannot parse with a `text/plain`
 /// 400, 415 or 422 of its own, outside the `{ error, message }` envelope
-/// every other failure uses — and the message is serde's, which names the
+/// every other failure uses, and the message is serde's, which names the
 /// Rust field it choked on. Every handler takes and returns this one instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Json<T>(pub T);
@@ -77,7 +77,7 @@ where
 
 /// The `{ error, message }` body every failure carries, for a status the
 /// error type has no variant for. A body over the cap stays a 413 and a wrong
-/// content type a 415; the two shapes of "cannot parse this" are one 400.
+/// content type a 415, and the two shapes of "cannot parse this" are one 400.
 fn envelope(status: StatusCode, message: String) -> Response {
     let (status, error) = match status {
         StatusCode::PAYLOAD_TOO_LARGE => (status, "payload_too_large"),
@@ -128,10 +128,9 @@ impl<T> Page<T> {
 /// Returns `(page, per_page, offset)`. Without the cap, `per_page=1000000`
 /// turns any list endpoint into a memory amplifier.
 pub fn paginate(page: Option<u32>, per_page: Option<u32>) -> (u32, u32, u32) {
-    // Both ends bounded, and `page` for the same reason `per_page` already
-    // was. `(page - 1) * per_page` overflows a u32 long before that ceiling,
-    // and the two profiles fail differently: debug panics — which, with no
-    // panic layer, dropped the connection with no response at all — while
+    // Both ends bounded, `page` for the same reason as `per_page`.
+    // `(page - 1) * per_page` overflows a u32 long before `page` reaches its
+    // own maximum, and the two profiles fail differently: debug panics, while
     // release wraps and answers 200 with an offset that is not the one asked
     // for. A page nobody can reach is not worth either.
     const MAX_PAGE: u32 = 100_000;
@@ -155,9 +154,9 @@ mod tests {
         assert_eq!(paginate(Some(3), Some(0)), (3, 1, 2));
     }
 
-    /// `per_page` was clamped and `page` was not, so the multiplication
-    /// overflowed: a panic in debug and, in the binary that ships, a 200
-    /// carrying whatever page the wrapped offset landed on.
+    /// With `per_page` clamped and `page` not, the multiplication overflows: a
+    /// panic in debug and, in the binary that ships, a 200 carrying whatever
+    /// page the wrapped offset lands on.
     #[test]
     fn a_page_number_past_every_library_cannot_overflow_the_offset() {
         let (page, per_page, offset) = paginate(Some(u32::MAX), Some(200));

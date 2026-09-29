@@ -80,8 +80,8 @@ impl FakeOidc {
         Self { issuer, claims, exchanges, discoveries, endpoints, shutdown: Some(tx) }
     }
 
-    /// Describe the endpoints as living at `base` rather than at the issuer —
-    /// what a provider whose token endpoint is served in the clear looks like.
+    /// Describe the endpoints as living at `base` rather than at the issuer, as
+    /// a provider whose token endpoint is served in the clear does.
     pub fn advertise_endpoints_at(&self, base: &str) {
         *self.endpoints.lock().expect("endpoints") = Some(base.to_string());
     }

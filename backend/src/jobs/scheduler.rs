@@ -16,7 +16,7 @@ use crate::state::AppState;
 /// How long the loop waits: before its first pass, and at least between two.
 ///
 /// Stated apart from the loop so a test can drive `start` itself in
-/// milliseconds; the application never changes them.
+/// milliseconds. The application never changes them.
 pub struct Timings {
     /// Before the first pass, so the server finishes binding first.
     pub settle: Duration,
@@ -41,7 +41,7 @@ impl Default for Timings {
 // panic and say so, and nothing else in the code base can be made to panic on
 // demand. Thread-local, because the tests share one process and a
 // `#[tokio::test]` runs its tasks on its own thread: global, the flag one test
-// raised was consumed by another test's pass.
+// raises would be consumed by another test's pass.
 #[cfg(test)]
 thread_local! {
     pub(crate) static PANIC_NEXT_TICK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -55,7 +55,7 @@ thread_local! {
 ///
 /// **Stopping has to be waited for.** `main` closes the pool afterwards, and
 /// `wal_checkpoint(TRUNCATE)` cannot truncate while another connection is
-/// writing — which is what a mid-flight pass is doing.
+/// writing, as a mid-flight pass is.
 pub fn start(state: AppState, shutdown: watch::Receiver<bool>) -> JoinHandle<()> {
     start_with(state, shutdown, Timings::default())
 }
@@ -75,7 +75,7 @@ pub fn start_with(
         let mut last_sync: HashMap<String, tokio::time::Instant> = HashMap::new();
         let mut last_maintenance: Option<tokio::time::Instant> = None;
         let mut last_backup: Option<tokio::time::Instant> = None;
-        // The work a pass hands off — enrichment, simulation, auto-apply —
+        // The work a pass hands off (enrichment, simulation, auto-apply),
         // running while the loop goes on syncing on time. Kept here so a
         // shutdown waits for it rather than closing the pool under it.
         let mut chain: Option<JoinHandle<()>> = None;
@@ -135,12 +135,11 @@ pub(crate) async fn record_panic(state: &AppState, cause: &str) {
     }
 }
 
-/// Wait for a finished or finishing chain, and say so if it panicked: a
-/// spawned task's panic ends in its `JoinHandle` and nowhere else.
-/// A shutdown's wait for the post-sync chain, for `grace` at most. Past it, the
-/// chain is dropped at its next await rather than left writing into the pool
-/// `main` closes next, and the job it leaves running is marked interrupted at
-/// the next start (`JobRegistry::recover_orphans`).
+/// A shutdown's wait for the post-sync chain, for `grace` at most, saying so
+/// if the chain panicked, as `reap` does. Past the grace, the chain is dropped
+/// at its next await rather than left writing into the pool `main` closes
+/// next, and the job it leaves running is marked interrupted at the next start
+/// (`JobRegistry::recover_orphans`).
 async fn reap_within(state: &AppState, mut chain: JoinHandle<()>, grace: Duration) {
     match tokio::time::timeout(grace, &mut chain).await {
         Ok(Err(e)) if e.is_panic() => {
@@ -155,6 +154,8 @@ async fn reap_within(state: &AppState, mut chain: JoinHandle<()>, grace: Duratio
     }
 }
 
+/// Wait for a finished chain, and say so if it panicked: a spawned task's
+/// panic ends in its `JoinHandle` and nowhere else.
 async fn reap(state: &AppState, chain: JoinHandle<()>) {
     if let Err(e) = chain.await
         && e.is_panic()
@@ -164,7 +165,8 @@ async fn reap(state: &AppState, chain: JoinHandle<()>) {
 }
 
 /// What follows a sync: enrich what is new, simulate, and apply what the
-/// unattended guardrails allow. On a task of its own — see `tick`.
+/// unattended guardrails allow. On a task of its own, for the reason `tick`
+/// gives.
 fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
     tokio::spawn(async move {
         if let Err(e) = enrichment::enrich_all_media(&state, TRIGGER_SCHEDULE).await {
@@ -190,7 +192,7 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
             };
             match routing::run_simulation(&state.pool, options).await {
                 Ok(result) => {
-                    // Catches what the webhook missed — an instance without a
+                    // Catches what the webhook missed: an instance without a
                     // webhook configured, or an item added while Routarr was
                     // down. Same guardrails: only file-free media, capped, and
                     // nothing at all if the sweep is too large.
@@ -259,7 +261,7 @@ pub(crate) async fn tick(
                 last_sync.insert(instance.id.clone(), now);
                 synced_any = true;
             }
-            // A conflict means a manual sync is already running — not an error.
+            // A conflict means a manual sync is already running, not an error.
             Err(crate::error::AppError::Conflict(_)) => {}
             // Stamped on the attempt, as the backup below is: an instance that
             // is down waits its own interval, rather than costing a full
@@ -273,10 +275,10 @@ pub(crate) async fn tick(
 
     if synced_any {
         // Handed off, not awaited: the enrichment drains a whole backlog at a
-        // paced source — hours, on a large anime library — and while the tick
-        // waited for it no other instance synced on time, no backup ran and no
-        // purge did. A chain still running from the last pass is left to
-        // finish; it reads the library when it starts, so what this pass
+        // paced source (hours, on a large anime library), and while the tick
+        // waits for it no other instance syncs on time, no backup runs and no
+        // purge does. A chain still running from the last pass is left to
+        // finish. It reads the library when it starts, so what this pass
         // synced is picked up by the next one.
         match chain {
             Some(running) if !running.is_finished() => {
@@ -301,12 +303,12 @@ pub(crate) async fn tick(
         if due {
             match backup::create(state, TRIGGER_SCHEDULE).await {
                 // Stamped on an attempt that happened, not on one that worked.
-                // Recorded on success alone, a backup failing on a full disk is
-                // retried every tick — ninety-six `VACUUM INTO` a day against
-                // SQLite's single writer, and ninety-six failed jobs on the
-                // screen meant to show what needs attention. `sync` already
-                // draws this line, with `last_sync_attempt_at` beside
-                // `last_sync_at`.
+                // Recorded on success alone, a backup failing on a full disk
+                // would be retried every tick: at the default interval,
+                // ninety-six `VACUUM INTO` a day against SQLite's single
+                // writer, and ninety-six failed jobs on the screen meant to
+                // show what needs attention. `sync` draws the same line, with
+                // `last_sync_attempt_at` beside `last_sync_at`.
                 Ok(_) => *last_backup = Some(tokio::time::Instant::now()),
                 // A conflict means one is already running: nothing was
                 // attempted, so nothing is recorded and the next tick tries.
@@ -320,8 +322,8 @@ pub(crate) async fn tick(
     }
 
     // Housekeeping is cheap but pointless every tick. Measured in wall time,
-    // not ticks: with a long scheduler interval, "every 4th tick" silently
-    // became "every few days".
+    // not ticks: with a long scheduler interval, "every 4th tick" would
+    // silently mean "every few days".
     let now = tokio::time::Instant::now();
     let maintenance_due =
         last_maintenance.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(3600));
@@ -343,9 +345,9 @@ pub(crate) async fn tick(
 /// Whether an instance is due for a scheduled sync.
 ///
 /// Pure so the per-instance interval contract is testable without spinning up
-/// the polling loop: never synced → due; otherwise due once its own
-/// `sync_interval_minutes` (clamped to [1, `MAX_SYNC_INTERVAL_MINUTES`]) has
-/// elapsed.
+/// the polling loop. An instance never synced is due, and any other once its
+/// own `sync_interval_minutes` (clamped to [1, `MAX_SYNC_INTERVAL_MINUTES`])
+/// has elapsed.
 fn is_due(
     interval_minutes: i64,
     last: Option<tokio::time::Instant>,
@@ -389,7 +391,7 @@ mod tests {
         let two_minutes_ago = now - Duration::from_secs(120);
 
         // Synced two minutes ago: the 1-minute instance is due again, the
-        // 60-minute one is not — the column must actually drive the cadence.
+        // 60-minute one is not. The column must actually drive the cadence.
         assert!(is_due(1, Some(two_minutes_ago), now));
         assert!(!is_due(60, Some(two_minutes_ago), now));
     }

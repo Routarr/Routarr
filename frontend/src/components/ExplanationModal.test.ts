@@ -9,7 +9,7 @@ import ExplanationModal from './ExplanationModal.svelte';
 
 /**
  * The explainability contract, made visible. Every condition reports what was
- * expected and what was observed *even when it failed* — that is the whole
+ * expected and what was observed *even when it failed*. That is the whole
  * point, and it is what `/media/{id}/explain` exists to serve.
  */
 
@@ -58,8 +58,9 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('ExplanationModal', () => {
   /**
-   * A refused pin was a red box with no role: sighted users saw it, a screen
-   * reader heard nothing and the button simply came back.
+   * A refused pin has to be announced. Drawn as a red box with no role, it is
+   * seen by sighted users, heard by no screen reader, and the button simply
+   * comes back.
    */
   it('announces a pin that was refused', async () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
@@ -102,7 +103,7 @@ describe('ExplanationModal', () => {
 
   /**
    * Which sources contributed, in priority order. With one source this is
-   * obvious; with several it is the only way to know whether a genre came from
+   * obvious. With several it is the only way to know whether a genre came from
    * the library or from TMDb.
    */
   it('names the sources that contributed, in order', () => {

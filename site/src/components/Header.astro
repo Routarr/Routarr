@@ -8,13 +8,12 @@ const { locale, page = 'landing' } = Astro.props;
 const t = useTranslations(locale);
 
 /**
- * One row, at every width. The language switch and the theme used to sit on
- * the bar beside the Index control: six chips and two buttons, which on a
- * 390px phone wrapped onto a second row and took 118px of an 844px screen
- * before a word of the page. They are settings, they are consulted once, and
- * the panel is where a thing consulted once belongs. `site.js` still offers
- * the reader's own language unprompted, so nothing depends on finding the
- * switch first.
+ * One row, at every width. The language switch and the theme sit in the Index
+ * panel rather than on the bar, where their chips and buttons would wrap onto
+ * a second row on a phone before a word of the page. They are settings, they
+ * are consulted once, and the panel is where a thing consulted once belongs.
+ * `site.js` offers the reader's own language unprompted, so nothing depends on
+ * finding the switch first.
  *
  * Each page lists its own sections. A panel naming anchors that are not on the
  * page scrolls nowhere, which is worse than not offering them.
@@ -88,7 +87,7 @@ const crossLink = page === 'how'
 
           {/* Both states are named rather than left to an icon. Which one is
                lit comes from `data-theme` in CSS, so it is right on the first
-               paint; `aria-pressed` is site.js's, since without it the buttons
+               paint. `aria-pressed` is site.js's, since without it the buttons
                do nothing anyway. */}
           <div class="seg theme-nav" role="group" aria-label={t('header.theme')}>
             <button type="button" data-theme-set="dark">{t('header.theme.dark')}</button>

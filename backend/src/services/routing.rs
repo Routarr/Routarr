@@ -1,10 +1,10 @@
 //! Simulation: turn the current library state into explainable routing decisions.
 //!
-//! The whole run is built around preloading. The first implementation issued a
+//! The whole run is built around preloading. Everything is fetched in a fixed
+//! number of queries and the decisions are written in a single transaction: a
 //! handful of queries *per media item* (metadata, instance name, default
-//! category, then one INSERT); on a 5 000-item library that is >20 000 round
-//! trips. Everything is now fetched in a fixed number of queries and the
-//! decisions are written in a single transaction.
+//! category, one INSERT) multiplies the round trips by the size of the
+//! library, and `tests/scale.rs` fails on it.
 
 use chrono::Utc;
 use sqlx::{AssertSqlSafe, SqlitePool};
@@ -26,8 +26,8 @@ pub struct SimulationOptions {
     /// What caused this run, stored on every decision it writes.
     ///
     /// One of the `TRIGGER_*` constants. It is the history screen's answer to
-    /// "did the nightly sweep propose this, or did I"; `subject` is its answer
-    /// to which "I".
+    /// "did the nightly sweep propose this, or did I", and `subject` is its
+    /// answer to which "I".
     pub trigger: String,
     /// The name the authentication mode vouched for, when it vouched for one.
     ///
@@ -234,10 +234,10 @@ pub async fn simulate_loaded(
 
                     // Weigh the plan as it is built. A move between two folders
                     // that report the *same* free space is a rename on one
-                    // filesystem and consumes nothing; only what crosses one
+                    // filesystem and consumes nothing. Only what crosses one
                     // has to fit. Identical byte-level figures are strong
-                    // evidence of the same volume, and the alternative — asking
-                    // the Arr, which does not tell us — is no alternative.
+                    // evidence of the same volume, and the alternative (asking
+                    // the Arr, which does not tell us) is no alternative.
                     let free_of = |path: &str| -> Option<i64> {
                         ctx.free_space
                             .get(&(media.instance_id.clone(), normalize_path(path)))
@@ -303,7 +303,7 @@ pub async fn simulate_loaded(
             decisions.iter().filter(|d| options.persist_unchanged || d.action != "none").collect();
         // Supersede over every media the run *evaluated*, not only those whose
         // decision is stored: an item that became "nothing to do" drops out of
-        // the batch, and its previous proposal would otherwise stay pending —
+        // the batch, and its previous proposal would otherwise stay pending,
         // and remain applicable long after the rules stopped justifying it.
         let evaluated: Vec<&str> = media_list.iter().map(|m| m.id.as_str()).collect();
         store_decisions(pool, &evaluated, &to_store).await?;
@@ -458,8 +458,8 @@ fn to_alternative(m: &RuleMatch, localizer: &Localizer) -> AlternativeDecision {
 
 /// What the engine decided about one item, in rule ids alone.
 ///
-/// The decision rows carry rule *names*, which are not unique — the engine
-/// breaks ties on name precisely because two rules may share one — so anything
+/// The decision rows carry rule *names*, which are not unique (the engine
+/// breaks ties on name precisely because two rules may share one), so anything
 /// counting per rule has to work from ids.
 pub struct LibraryOutcome {
     pub winner: Option<String>,
@@ -529,11 +529,11 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
         sqlx::query_as::<_, (String, String, String)>(
             // Every mapped folder, reachable or not. An Arr reports a folder
             // on a sleeping NAS as inaccessible, and reading that as *absent*
-            // unmapped its category: everything bound for it became "skip",
-            // indistinguishable on screen from a category nobody mapped, and
-            // the rerun then superseded the plan built while the disk was
-            // awake. Unknown is not gone — whether the destination can be
-            // written to is asked at apply time, where it can be answered.
+            // would unmap its category: everything bound for it would become
+            // "skip", indistinguishable on screen from a category nobody
+            // mapped, and the rerun would supersede the plan built while the
+            // disk was awake. Unknown is not gone: whether the destination can
+            // be written to is asked at apply time, where it can be answered.
             "SELECT instance_id, category, path FROM root_folders
              WHERE category IS NOT NULL AND category != ''",
         )
@@ -560,6 +560,11 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
             .into_iter()
             .collect();
 
+    // The configured order (`metadata_order`), never the subset able to answer
+    // today (`metadata_providers`): removing a key stops new fetches, and a
+    // cached answer from that source keeps counting. Filtered by the keys, the
+    // same library would route one way before a key is removed and another
+    // way after, with nothing fetched in between.
     let providers_setting: Option<String> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
             .fetch_optional(pool)
@@ -586,9 +591,9 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
 
 /// Collapse every enabled source's answer for one item.
 ///
-/// The order is the user's; per field the first source that has a value keeps
-/// it. `arr` is answered from the row itself — it is the only source that never
-/// costs a request — and a fetched source only contributes when the item
+/// The order is the user's, and per field the first source that has a value
+/// keeps it. `arr` is answered from the row itself (it is the only source that
+/// never costs a request), and a fetched source only contributes when the item
 /// carries an identifier in that source's namespace *and* the cache holds it.
 fn resolve_metadata(
     media: &Media,
@@ -638,7 +643,7 @@ pub const RULE_COLUMNS: &str = "id, name, description, priority, enabled, media_
 /// Every column `Media` expects, in one place.
 ///
 /// `FromRow` maps by name, so a query that forgets a column fails at *runtime*,
-/// not at compile time — and only on the code path that runs it. Spelled out at
+/// not at compile time, and only on the code path that runs it. Spelled out at
 /// each call site, adding a column is one such failure per site missed.
 pub const MEDIA_COLUMNS: &str = "id, instance_id, arr_id, media_type, title, sort_title, year,
      tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
@@ -731,9 +736,9 @@ async fn load_media(
         sql.push_str(&crate::db::placeholders(instance_filter.len()));
         sql.push(')');
     }
-    // Read as no filter, an empty media list had a webhook whose item had
-    // just been deleted evaluate — and persist, and automatically apply — the
-    // whole instance.
+    // An empty media list selects nothing. Read as no filter, it would have a
+    // webhook whose item has just been deleted evaluate, persist and
+    // automatically apply the whole instance.
     let media_filter: &[String] = match media_ids {
         None => &[],
         Some([]) => {
@@ -765,7 +770,7 @@ async fn load_media(
 /// A pass holds the rules, the overrides, the mappings, the metadata cache and
 /// every media row for as long as it runs, and no lock bounds that: a preview
 /// is not refused for a sweep, a health report is refused for nothing. Two at
-/// once is one sweep and one reader; the third waits. A wait is what a read
+/// once is one sweep and one reader, and the third waits. A wait is what a read
 /// can afford, where a refusal is a 409 on a page that only wanted to render.
 pub const MAX_CONCURRENT_LIBRARY_PASSES: usize = 2;
 
@@ -779,8 +784,8 @@ pub async fn library_pass() -> tokio::sync::SemaphorePermit<'static> {
     LIBRARY_PASSES.acquire().await.expect("the library-pass semaphore is never closed")
 }
 
-/// How many ids one statement binds. SQLite caps bound parameters at 32 766;
-/// this stays far under it so a library-sized list is a few statements, not
+/// How many ids one statement binds. SQLite caps bound parameters at 32 766,
+/// and this stays far under it so a library-sized list is a few statements, not
 /// an error on the one path that runs it.
 pub const BIND_CHUNK: usize = 400;
 
@@ -842,8 +847,8 @@ async fn retire_pending(
 
 /// Persist a run: obsolete the previous proposals, then write the new ones.
 ///
-/// `evaluated` is every media the run looked at; `decisions` is the subset worth
-/// storing. The two differ on purpose — see the call site.
+/// `evaluated` is every media the run looked at, and `decisions` the subset
+/// worth storing. The two differ on purpose (see the call site).
 async fn store_decisions(
     pool: &SqlitePool,
     evaluated: &[&str],

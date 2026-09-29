@@ -71,8 +71,8 @@ impl SonarrSeries {
 
     /// Seasons excluding specials.
     ///
-    /// Season 0 holds bonus material; counting it would make "more than five
-    /// seasons" true for a four-season show with extras.
+    /// Season 0 holds bonus material, and counting it would make "more than
+    /// five seasons" true for a five-season show with extras.
     pub fn season_count(&self) -> i64 {
         self.seasons.iter().filter(|s| s.season_number > 0).count() as i64
     }
@@ -159,10 +159,10 @@ impl SonarrClient {
     /// Move one series to a new root folder.
     ///
     /// Sonarr has no bulk editor equivalent to Radarr's, so the full series
-    /// object is read back, patched and re-sent — anything else drops fields the
-    /// PUT expects. The existing folder name is preserved: deriving it from
-    /// `titleSlug` would silently *rename* the on-disk directory during what
-    /// was asked to be a move.
+    /// object is read back, patched and re-sent, since anything less drops
+    /// fields the PUT expects. The existing folder name is preserved: deriving
+    /// it from `titleSlug` would silently *rename* the on-disk directory during
+    /// what was asked to be a move.
     pub async fn update_series_path(
         &self,
         series_id: i64,
@@ -172,11 +172,11 @@ impl SonarrClient {
         let mut series: serde_json::Value =
             send_json(SERVICE, self.get(&format!("/api/v3/series/{series_id}"))).await?;
 
-        // Indexing a `Value` that is not an object panics, and the two lines
-        // below do exactly that. A proxy answering 200 with a cached `[]`, or a
-        // base URL pointing at another service on the same host, is enough —
-        // and the apply then aborted on a 500 naming nothing instead of a 502
-        // naming Sonarr.
+        // Assigning a key of a `Value` that is not an object panics, and the two
+        // assignments below do that. A proxy answering 200 with a cached `[]`,
+        // or a base URL pointing at another service on the same host, is enough
+        // to get one, and the apply would abort on a 500 naming nothing instead
+        // of a 502 naming Sonarr.
         if !series.is_object() {
             return Err(AppError::ExternalApi {
                 service: SERVICE.to_string(),

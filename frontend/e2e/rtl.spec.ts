@@ -3,13 +3,12 @@ import { test, expect, api } from './fixtures';
 /**
  * The interface in a right-to-left language.
  *
- * The shell is written in logical properties, so it mirrors on its own — that
- * part only needed looking at once. What does not follow from the stylesheet is
- * the second half: a table column mixes our translated headings with values we
- * did not write, and laid out in the page's paragraph direction a path loses
- * its leading slash to the right edge and a date swaps its halves around the
- * space between them. The characters stay right, their order does not, and no
- * amount of translation fixes it.
+ * The shell is written in logical properties, so it mirrors on its own. What
+ * does not follow from the stylesheet is the second half: a table column mixes
+ * our translated headings with values we did not write, and laid out in the
+ * page's paragraph direction a path loses its leading slash to the right edge
+ * and a date swaps its halves around the space between them. The characters
+ * stay right, their order does not, and no amount of translation fixes it.
  *
  * Geometry is the only way to catch that: the text content is identical either
  * way, so a DOM assertion sees nothing. jsdom computes no layout, which is
@@ -29,8 +28,8 @@ async function setLanguage(code: string): Promise<void> {
 test.describe('right to left', () => {
   // Not `beforeAll`: the `instanceId` fixture resets the library before every
   // test, and its reset puts `ui_language` back to English. Set ahead of it,
-  // the language is undone before the first navigation and every assertion
-  // below measures a left-to-right page while passing.
+  // the language is undone before the first navigation and every test below
+  // measures a left-to-right page.
   test.afterAll(async () => {
     await setLanguage('en');
   });
@@ -92,10 +91,11 @@ test.describe('right to left', () => {
       );
     }
 
-    // `.mono` holds machine formats — paths, ids, condition summaries, raw
+    // `.mono` holds machine formats: paths, ids, condition summaries, raw
     // timestamps. Some carry no strongly-directional character at all, and for
-    // those the cell rule below is not enough: with nothing to resolve, the
-    // paragraph direction wins and `2026-08-26 14:02:30` comes out reversed.
+    // those the `unicode-bidi: plaintext` rule on table cells is not enough:
+    // with nothing to resolve, the paragraph direction wins and
+    // `2026-08-26 14:02:30` comes out reversed.
     // Asserted as a style rather than as geometry because the case that needs
     // it is precisely the one with no letters to measure.
     await page.goto('/root-folders');
@@ -106,11 +106,11 @@ test.describe('right to left', () => {
   });
 
   test('a Latin sentence keeps its full stop at its end', async ({ page, instanceId }) => {
-    // The defect this guards, seen on the rules table in Arabic: a description
-    // written in English rendered as `.aimed at small children`. A full stop is
-    // direction-neutral, so laid out in the page's paragraph direction it is
-    // pulled to the leading edge — which in a right-to-left page is the left.
-    // The characters are identical either way, so only geometry sees it.
+    // On the rules table in Arabic, a description written in English must not
+    // render as `.aimed at small children`. A full stop is direction-neutral,
+    // so laid out in the page's paragraph direction it lands at the left end of
+    // the line, where the English sentence begins. The characters are
+    // identical either way, so only geometry sees it.
     const description = 'Anime, unless it is clearly aimed at small children.';
     await api('/rules', {
       method: 'POST',

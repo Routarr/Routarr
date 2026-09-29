@@ -11,7 +11,7 @@
    * Routarr generates an API key at first start, so this is the *normal* first
    * visit, not an error state. Mounting the pages behind it instead reads as a
    * broken install: a failing request per page, every page empty, and a small
-   * "Unauthorized" badge whose remedy — open Settings, paste the key — the user
+   * "Unauthorized" badge whose remedy (open Settings, paste the key) the user
    * would have to already know.
    *
    * It says where the key is, because "enter your API key" is useless to someone
@@ -33,7 +33,7 @@
   const rejected = getApiKey().trim().length > 0;
 
   // The theme is a server setting, and the server will not answer until there
-  // is a key — so this one screen follows the operating system instead. It is
+  // is a key, so this one screen follows the operating system instead. It is
   // the only honest option: guessing dark would look wrong on a light desktop,
   // and the preference this reads is the user's own.
   $effect(() => {

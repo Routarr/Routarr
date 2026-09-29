@@ -1,9 +1,10 @@
-//! In-process stand-ins for the four sources added after TMDb.
+//! In-process stand-ins for AniList, Jikan, OMDb and TheTVDB.
 //!
-//! One server, four shapes: they are exercised together — a library enriched by
-//! several sources at once is the whole point — and one listener keeps the test
-//! setup to a single line. Everything is recorded, so a test can assert on what
-//! actually went over the wire rather than on what the client meant to send.
+//! One server, four shapes: they are exercised together, since a library
+//! enriched by several sources at once is the whole point, and one listener
+//! keeps the test setup to a single line. Everything is recorded, so a test can
+//! assert on what actually went over the wire rather than on what the client
+//! meant to send.
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -28,15 +29,15 @@ struct FakeState {
     recorded: Arc<Mutex<Recorded>>,
     /// When false, the search answers with a work whose year does not match.
     matching_year: bool,
-    /// When set, every route answers with this status instead of a payload —
-    /// the "the source is down" case the real Jikan produces whenever
-    /// MyAnimeList is unavailable.
+    /// When set, every route answers with this status instead of a payload, the
+    /// "the source is down" case the real Jikan produces whenever MyAnimeList is
+    /// unavailable.
     fail_with: Option<u16>,
     /// When set, AniList answers 200 with `data: null` and an `errors` list,
     /// which is how GraphQL reports a failure.
     graphql_error: bool,
-    /// The generation of the TheTVDB token. A login answers the current one;
-    /// a read presenting an older one is refused, as TheTVDB refuses a token
+    /// The generation of the TheTVDB token. A login answers the current one,
+    /// and a read presenting an older one is refused, as TheTVDB refuses a token
     /// past its month.
     tvdb_token: Arc<Mutex<u32>>,
     /// Whether TheTVDB has revoked the key: a login with it is refused.
@@ -91,7 +92,6 @@ impl FakeSources {
         let app = Router::new()
             // AniList speaks GraphQL over a single endpoint.
             .route("/anilist", post(anilist))
-            // Jikan.
             .route("/jikan/anime", get(jikan_search))
             .route("/jikan/anime/{id}/full", get(jikan_details))
             .route("/jikan/anime/{id}", get(jikan_details))
@@ -192,7 +192,7 @@ async fn anilist(
             "data": { "Page": { "media": [{
                 "id": 523,
                 "startDate": { "year": year },
-                // The library says "My Neighbor Totoro"; AniList indexes the
+                // The library says "My Neighbor Totoro", and AniList indexes the
                 // romaji first. Matching has to survive that.
                 "title": {
                     "romaji": "Tonari no Totoro",
@@ -292,7 +292,7 @@ async fn omdb(
     Json(serde_json::json!({
         "Response": "True",
         "Genre": "Animation, Family, Fantasy",
-        // Names, not codes — the whole reason the client normalises.
+        // Names, not codes: the whole reason the client normalises.
         "Language": "Japanese, English",
         "Country": "Japan",
         "Rated": "G",

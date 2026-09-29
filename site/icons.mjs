@@ -11,8 +11,8 @@
 // that announces it.
 //
 // Chromium does the rasterising because it is already installed for the
-// screenshots and the CSP verification — no image library enters the
-// dependency tree for three files that change once a year.
+// screenshots and the CSP verification, so no image library enters the
+// dependency tree for three files that rarely change.
 
 import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -61,7 +61,7 @@ writeFileSync(
 //
 // Read back as raw pixels rather than by decoding a PNG: the canvas already
 // holds exactly what we drew. The payload is an uncompressed 32-bit BMP, not an
-// embedded PNG — a PNG inside an ICO is only understood from Windows Vista on,
+// embedded PNG: a PNG inside an ICO is only understood from Windows Vista on,
 // and this file exists precisely for the clients that understand the least.
 const pixels = await page.evaluate(async (src) => {
   const image = new Image();

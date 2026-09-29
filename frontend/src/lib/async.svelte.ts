@@ -9,8 +9,8 @@ export function describeError(err: unknown): string {
     if (err.status === 401) return t('Unauthorized');
     if (err.kind === 'timeout') return t('RequestTimedOut');
     if (err.kind === 'unreachable') return t('ServerUnreachable');
-    // A server-side failure is one the operator will look for in the log; the
-    // id is what finds it. A refusal (4xx) already says what to change.
+    // A server-side failure is one the operator will look for in the log, and
+    // the id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {
       return `${err.message} (${t('RequestId', { id: err.requestId })})`;
     }
@@ -43,7 +43,7 @@ export interface Async<T> {
  *
  * `loader` is read when it is called and nothing here is memoised, so there is
  * no identity to key an effect on and nothing to hold in a ref. What the
- * implementation does carry is a generation counter — a response that arrives
+ * implementation does carry is a generation counter: a response that arrives
  * after the inputs moved on must not overwrite the result of a newer one.
  *
  * It is handed an `AbortSignal`, aborted when a newer run supersedes it and
@@ -118,7 +118,7 @@ export function createAsync<T>(
   }
 
   // Reading `deps()` inside the effect is what subscribes to it, so a filter
-  // change re-runs the loader — a dependency contract without a dependency
+  // change re-runs the loader: a dependency contract without a dependency
   // array. With no `deps` the effect runs once, which is the load-on-mount
   // case.
   $effect(() => {

@@ -112,8 +112,8 @@ async fn upstream_errors_carry_the_status_and_are_truncated() {
 #[tokio::test]
 async fn an_unreachable_host_is_a_transport_error_not_a_panic() {
     // Port 1 on the loopback: nothing listens, so the connection is refused at
-    // once. A black-hole address (TEST-NET-1) waits the full timeout instead —
-    // one to five seconds per test, depending on the host's routes.
+    // once. A black-hole address (TEST-NET-1) waits the full timeout instead,
+    // on every test.
     let radarr = RadarrClient::new(client(), "http://127.0.0.1:1", "k");
 
     match radarr.test_connection().await.unwrap_err() {
@@ -217,11 +217,11 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
 ///
 /// `update_series_path` reads the series back, patches two fields and re-sends
 /// it, because Sonarr has no bulk editor. Indexing a `serde_json::Value` that
-/// is not an object *panics* — `[]`, a string and a number all do — so a
-/// reverse proxy answering 200 with a cached empty array, or a base URL
-/// pointing at some other service on the same host, aborted the apply with a
-/// 500 that named nothing. There is a `CatchPanicLayer`, which is why it was a
-/// 500 and not a dropped connection; it is not a reason to panic.
+/// is not an object *panics* (`[]`, a string and a number all do), so a reverse
+/// proxy answering 200 with a cached empty array, or a base URL pointing at
+/// some other service on the same host, would abort the apply with a 500 that
+/// names nothing. The `CatchPanicLayer` makes a panic that 500 rather than a
+/// dropped connection, which is no reason to panic.
 #[tokio::test]
 async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched() {
     for body in [serde_json::json!([]), serde_json::json!("error"), serde_json::json!(12)] {

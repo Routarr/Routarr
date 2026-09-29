@@ -106,7 +106,7 @@ async fn a_movie_never_matches_a_series_type_condition() {
     let arr = FakeArr::start().await;
     let app = synced("radarr", &arr).await;
     // Radarr has no series type, and an absent value must not satisfy a
-    // condition — otherwise every film would match "not standard".
+    // condition, or every film would match "not standard".
     seed_rule(&app, serde_json::json!({ "type": "series_type_is", "value": ["anime"] })).await;
 
     assert_eq!(decided_category(&app).await, "standard");
@@ -190,7 +190,7 @@ async fn the_new_signals_are_offered_by_the_condition_catalogue() {
         assert!(types.contains(&expected), "{expected} missing from the catalogue");
     }
 
-    // None of them needs TMDb — that is the point of using what the Arr knows.
+    // None of them needs TMDb: that is the point of using what the Arr knows.
     for condition in conditions {
         if condition["type"] == "tag_in" || condition["type"] == "series_type_is" {
             assert_eq!(condition["needs_metadata"], false);

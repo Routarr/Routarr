@@ -52,14 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Say where the data is, absolutely. `ROUTARR_DB_PATH` defaults to a
     // *relative* path, so the working directory decides which library the
-    // server opens — start it from two places and you get two installations,
-    // each with its own key and its own backups, and nothing on screen says
-    // which one you are looking at.
+    // server opens. Started from two places, it makes two installations, each
+    // with its own key and its own backups, and nothing on screen says which
+    // one is in use.
     info!(
         "Data directory: {}",
-        // `canonicalize` fails while the directory is still to be created —
-        // which is the first start, the one where this line matters most — so
-        // fall back to `absolute`, which only needs the working directory.
+        // `canonicalize` fails until the directory exists, which is the first
+        // start, the one where this line matters most. `absolute` answers
+        // then, since it only needs the working directory.
         std::fs::canonicalize(&config.data_dir)
             .or_else(|_| std::path::absolute(&config.data_dir))
             .unwrap_or_else(|_| config.data_dir.clone())
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ROUTARR_API_KEY in their compose file after a first start would otherwise
     // find the value they declared silently ignored in favour of a file they
     // never wrote. Declared configuration outranks generated state, and that is
-    // also why a rotation is refused while the variable is set — it could not
+    // also why a rotation is refused while the variable is set: it could not
     // survive the next restart.
     // The other modes need no key, but one minted from the interface for a
     // script has to survive a restart: they read the stored one, never make one.
@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let path = config.api_key_path();
         let (key, generated) = crypto::load_or_generate_api_key(&path)?;
         if generated {
+            // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
             info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
         }
         Some(key)
@@ -161,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     db::checkpoint_and_close(&pool).await;
 
+    // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
     info!("Routarr stopped cleanly");
     Ok(())
 }
@@ -274,18 +276,18 @@ fn build_router(state: AppState) -> Router {
         .route("/rules/preview", post(api::rules::preview))
         .route("/rules/validate", post(api::rules::validate))
         .route("/rules/conditions", get(api::conditions::condition_catalog))
-        // Pinned expectations. The preview says what a change *would* do; these
-        // say what it must not do — with first-match-by-priority, inserting one
-        // rule rebalances every rule below it.
+        // Pinned expectations. The preview says what a change *would* do, and
+        // these say what it must not do: with first-match-by-priority, inserting
+        // one rule rebalances every rule below it.
         .route("/rule-tests", get(api::rule_tests::list).post(api::rule_tests::create))
         .route("/rule-tests/run", post(api::rule_tests::run))
-        // Which rules never win. Validation looks inside a rule; this is the
+        // Which rules never win. Validation looks inside a rule. This is the
         // only thing that looks between them, which is where first-match-by-
         // priority puts its one trap.
         .route("/rules/health", get(api::rules::health))
-        // What the library actually holds, per axis a condition reads. There
-        // was no `GROUP BY` over `media` anywhere, so writing a rule meant
-        // guessing what was present and finding out by trial.
+        // What the library actually holds, per axis a condition reads. Nothing
+        // else groups `media`, and without it writing a rule means guessing
+        // what is present and finding out by trial.
         .route("/media/facets", get(api::media::facets))
         .route("/rule-tests/{id}", delete(api::rule_tests::delete))
         .route("/rules/reorder", post(api::rules::reorder))
@@ -327,8 +329,8 @@ fn build_router(state: AppState) -> Router {
     let webhooks = Router::new().route(WEBHOOK_ROUTE, post(api::webhook::receive));
 
     // A miss under the API prefix is a JSON 404, whatever the method: left to
-    // the application's fallback it answered `index.html` with a 200, and a
-    // script with a typo in its path parsed HTML as JSON.
+    // the application's fallback it would answer `index.html` with a 200, and
+    // a script with a typo in its path would parse HTML as JSON.
     let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
 
     let app = Router::new()
@@ -340,8 +342,8 @@ fn build_router(state: AppState) -> Router {
         // trace layer inside already sees it.
         .layer(TraceLayer::new_for_http().make_span_with(request_span))
         // Inside the request-id layers, so a panic still answers with the
-        // `X-Request-Id` the trace span recorded — which is the whole point of
-        // having one. Without this layer a panicking handler dropped the
+        // `X-Request-Id` the trace span recorded, which is the whole point of
+        // having one. Without this layer a panicking handler drops the
         // connection: no status, no body, nothing to match against the log, and
         // a client that cannot tell a bug from a cut cable.
         //
@@ -350,14 +352,15 @@ fn build_router(state: AppState) -> Router {
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-        // Rules and import bundles are the only large bodies; 2 MiB is generous
-        // and stops an unauthenticated request from buffering unbounded input.
+        // Rules and import bundles are the only large bodies. 2 MiB is generous
+        // for them and stops an unauthenticated request from buffering
+        // unbounded input.
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer(&config))
         .with_state(state);
 
     // Compression wraps the finished router so it also covers the static
-    // frontend bundle attach_frontend adds — a layer attached earlier only
+    // frontend bundle attach_frontend adds: a layer attached earlier only
     // applies to the routes registered before it. The security headers go
     // outermost for the same reason: they have to reach the served HTML, not
     // just the API.
@@ -510,8 +513,8 @@ fn attach_frontend(app: Router, config: &Config) -> Router {
 ///
 /// The frontend is built with `base: './'`, so it asks for `./assets/…`. Loaded
 /// from `/routarr/` that resolves correctly, but a deep link like
-/// `/routarr/rules` would resolve it to `/routarr/rules/assets/…` and 404 — the
-/// page would come up blank behind the proxy and only there. A `<base href>`
+/// `/routarr/rules` would resolve it to `/routarr/rules/assets/…` and 404, and
+/// the page would come up blank behind the proxy and only there. A `<base href>`
 /// pins the resolution to the mount point whatever the URL depth, and doubles
 /// as how the frontend discovers where it is mounted (`document.baseURI`).
 fn index_html(config: &Config) -> String {
@@ -524,7 +527,7 @@ fn index_html(config: &Config) -> String {
     let href = format!("{}/", config.base_path);
     match raw.split_once("<head>") {
         Some((head, tail)) => format!("{head}<head>\n    <base href=\"{href}\">{tail}"),
-        // No <head> means a file we do not recognise; serving it untouched is
+        // No <head> means a file we do not recognise. Serving it untouched is
         // better than serving a mangled one.
         None => raw,
     }
@@ -532,9 +535,9 @@ fn index_html(config: &Config) -> String {
 
 /// CORS is opt-in.
 ///
-/// The original build allowed any origin with any header — combined with the
-/// absence of authentication, any page the user visited could drive the API.
-/// Same-origin by default. `ROUTARR_CORS_ORIGINS` names any other origin allowed.
+/// Any origin allowed with any header, on an API without authentication, lets
+/// any page the user visits drive the API. Same-origin by default.
+/// `ROUTARR_CORS_ORIGINS` names any other origin allowed.
 fn cors_layer(config: &Config) -> CorsLayer {
     if config.cors_origins.is_empty() {
         return CorsLayer::new();

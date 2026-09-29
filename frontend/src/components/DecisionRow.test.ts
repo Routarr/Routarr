@@ -63,7 +63,7 @@ describe('DecisionRow', () => {
 
   /**
    * A category with no root folder behind it is the single most common reason
-   * nothing moves, and the row is where it has to be said — not only in a
+   * nothing moves, and the row is where it has to be said, not only in a
    * warning above a table the user scrolled past.
    */
   it('says which category has no folder rather than leaving the cell empty', () => {

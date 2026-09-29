@@ -62,12 +62,12 @@ pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
 /// A bound added to a setting is retroactive in one direction and not the
 /// other: `PUT /settings` validates the whole payload, and the Settings screen
 /// always sends every field, so a value stored before the bound existed makes
-/// *every* save fail — naming a key in a tab the operator never opened. The
+/// *every* save fail, naming a key in a tab the operator never opened. The
 /// converged value is the one that runs from then on, and the log says so.
 ///
 /// A retention count is raised to its floor like any other and never lowered:
 /// lowering it removes what is beyond it, and nothing but the operator's own
-/// save may do that — `settings::bounds` answers no ceiling for one, and
+/// save may do that. `settings::bounds` answers no ceiling for one, and
 /// `offline_warnings` names a stored value above it.
 ///
 /// Converged at startup rather than in a migration, so the ranges stay stated
@@ -146,6 +146,11 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
     // leaves them unreadable after a rotation, and unlike an Arr, a setting
     // that fails to open shows up only as conditions that quietly stop
     // matching or notifications that stop arriving.
+    //
+    // A source's key among them is named `<id>_api_key`, the one name
+    // `AppState::provider_key_from` builds to read it back. Stored under any
+    // other name, a key is resealed here and never opened, and its source
+    // answers nothing.
     let keys = crate::api::settings::sealed_keys();
     let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(format!(
         "SELECT key, value FROM settings WHERE key IN ({})",
@@ -253,10 +258,11 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
         //
         // Every delete also spares a decision that carries an execution log.
         // `revert` sets a decision back to `skipped`, so a move that was really
-        // written and then undone looks exactly like a stale proposal — and
+        // written and then undone looks exactly like a stale proposal. And
         // `execution_logs.decision_id` has no `ON DELETE` clause, so SQLite
-        // rejects the delete and the *whole* maintenance run fails, hourly and
-        // for ever. A decision that caused a write is history, not a proposal.
+        // would reject the delete and the *whole* maintenance run would fail,
+        // hourly and for ever. A decision that caused a write is history, not a
+        // proposal.
         report.decisions_removed = delete_older_than(
             pool,
             "DELETE FROM decisions WHERE decided_at < datetime('now', ?)
@@ -310,13 +316,15 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
         // Matched across every identifier namespace: a source keyed on `imdb_id`
         // is as much a reason to keep a row as one keyed on `tmdb_id`, and an
         // id that collides across namespaces only means a row is kept slightly
-        // too long — the harmless direction for a cache.
+        // too long, the harmless direction for a cache.
         // One NOT EXISTS per namespace, each an indexed seek on `media`: the same
-        // test as a single OR, at 15 ms instead of 65 s on 20 000 titles.
+        // test as a single OR, without the scan of `media` per cache row that
+        // the OR costs on a large library.
         // A source addressed by search caches under *its own* identifier, which
         // no column of `media` holds: the fourth clause is what keeps AniList's
-        // and Jikan's rows, and without it the purge re-fetched the whole anime
-        // library every hour and every simulation in between ran blind.
+        // and Jikan's rows. Without it the purge deletes them every hour, the
+        // next pass fetches the whole anime library again, and every simulation
+        // in between runs blind.
         "DELETE FROM metadata_cache
           WHERE NOT EXISTS (SELECT 1 FROM media m WHERE m.media_type = metadata_cache.media_type
                               AND m.tmdb_id = CAST(metadata_cache.external_id AS INTEGER)
@@ -417,9 +425,9 @@ mod tests {
     /// Reverting sets a decision to `skipped` (executor.rs), and a reverted
     /// decision necessarily carries the `move` and `revert` execution logs. The
     /// purge targets `skipped`, `execution_logs.decision_id` has no `ON DELETE`
-    /// clause, and `foreign_keys` is ON — so the delete is rejected and the
-    /// **whole** maintenance run fails. Every hour, for ever: retention stops
-    /// working entirely.
+    /// clause, and `foreign_keys` is ON, so deleting that decision is rejected
+    /// and fails the **whole** maintenance run, every hour, for ever. The purge
+    /// has to keep it, or retention stops working entirely.
     #[tokio::test]
     async fn a_decision_that_caused_a_write_does_not_break_the_purge() {
         let state = crate::state::AppState::for_tests().await;
@@ -540,7 +548,7 @@ mod tests {
     #[tokio::test]
     async fn superseded_pending_decisions_are_purged_immediately() {
         let state = AppState::for_tests().await;
-        // A decision always points at a real media row; without one the orphan
+        // A decision always points at a real media row. Without one, the orphan
         // purge would claim these before the superseded rule is exercised.
         seed_media(&state, "m1").await;
 
@@ -655,11 +663,11 @@ mod tests {
     }
 
     /// A source addressed by search caches under *its own* identifier, which
-    /// matches no column of `media`; `source_identifiers` is the only thing
-    /// tying that row to the library. Purging it re-searched and re-read the
-    /// whole anime library every hour, and every simulation in between ran
-    /// without those fields. The orphan beside it is the control: a purge that
-    /// keeps everything would pass without it.
+    /// matches no column of `media`. `source_identifiers` is the only thing
+    /// tying that row to the library. Purging the row would re-search and
+    /// re-read the whole anime library every hour, and every simulation in
+    /// between would run without those fields. The orphan beside it is the
+    /// control: a purge that keeps everything would pass without it.
     #[tokio::test]
     async fn metadata_resolved_by_search_survives_the_purge() {
         let state = AppState::for_tests().await;
@@ -743,7 +751,7 @@ mod tests {
     }
 
     /// Deleting an instance takes its media with it, but `decisions` has no
-    /// foreign key — so its unresolved proposals would otherwise sit in the
+    /// foreign key, so its unresolved proposals would otherwise sit in the
     /// pending count for ever, un-appliable and never superseded.
     #[tokio::test]
     async fn a_proposal_for_media_that_no_longer_exists_is_dropped() {

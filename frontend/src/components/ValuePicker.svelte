@@ -9,7 +9,7 @@
    * Several values for one condition, picked from what the library holds.
    *
    * The values are the strings the engine compares, so typing one by hand means
-   * knowing its exact spelling — the list is what removes that. Free entry stays
+   * knowing its exact spelling, and the list is what removes that. Free entry stays
    * available for a value no source has answered with yet, which is why this is
    * a combo box over a text input rather than a `<select multiple>`.
    */
@@ -177,7 +177,7 @@
     aria-label={option.label ?? option.value}
     onclick={() => add(option.value)}
   >
-    <!-- Under its meaning a code needs no repeat of it; the name stays on the
+    <!-- Under its meaning a code needs no repeat of it. The name stays on the
          chip once chosen, where no heading stands above it. -->
     <span>{grouped ? option.value : (option.label ?? option.value)}</span>
     <!-- A vocabulary entry is not an observation, so it carries no figure: a

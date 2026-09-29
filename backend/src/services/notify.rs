@@ -7,8 +7,8 @@
 //!
 //! One mechanism, not a gallery of connectors: a POST of JSON to a URL the user
 //! configures. The payload carries the same text under the field names the usual
-//! receivers read — `content` for Discord, `message` for Gotify and ntfy, `body`
-//! for Apprise — alongside Routarr's own structured fields for anything that
+//! receivers read (`content` for Discord, `message` for Gotify and ntfy, `body`
+//! for Apprise), alongside Routarr's own structured fields for anything that
 //! parses properly.
 
 use serde_json::json;
@@ -20,7 +20,7 @@ use crate::state::AppState;
 /// Something worth interrupting someone for.
 ///
 /// Deliberately short. Every variant is a failure that will not resolve itself
-/// and that the operator has to act on; a state the interface already shows is
+/// and that the operator has to act on. A state the interface already shows is
 /// not an event.
 #[derive(Debug, Clone)]
 pub enum Event {

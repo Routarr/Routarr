@@ -112,7 +112,7 @@ describe('Tasks', () => {
 
     // `userEvent`, not a synthetic `change`: setting `.value` on a `<select>`
     // moves the DOM but not `selectedIndex`, so Svelte's binding never fires
-    // and the filter silently does nothing — in the test only.
+    // and the filter silently does nothing, in the test only.
     await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'failed');
 
     await waitFor(() =>

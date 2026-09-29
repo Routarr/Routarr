@@ -105,8 +105,8 @@
         return;
       }
 
-      // http:// on a LAN is a plausible way to read this page; select the text
-      // so the keyboard shortcut still works.
+      // http:// on a LAN is a plausible way to read this page, and there the
+      // text is selected so the keyboard shortcut still works.
       var range = document.createRange();
       range.selectNodeContents(code);
       var selection = window.getSelection();
@@ -183,8 +183,9 @@
     offers[a.getAttribute('hreflang')] = a;
   });
 
-  // `navigator.languages` is in preference order; the first one the site speaks
-  // wins. A regional tag counts for its base language: fr-CA asks for French.
+  // `navigator.languages` is in preference order, and the first one the site
+  // speaks wins. A regional tag counts for its base language: fr-CA asks for
+  // French.
   var wanted = navigator.languages && navigator.languages.length
     ? navigator.languages
     : [navigator.language || ''];

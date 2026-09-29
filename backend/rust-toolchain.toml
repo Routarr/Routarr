@@ -1,10 +1,10 @@
 # The single source of truth for the compiler version.
 #
-# Both Dockerfiles pin the same version. Letting CI run on `stable` instead
-# would let code relying on anything stabilised later pass every gate and then
-# fail the release build — the one build nobody watches interactively. rustup
-# reads this file in CI, in the dev container and locally, so the four
-# environments cannot drift apart.
+# Letting CI run on `stable` instead would let code relying on anything
+# stabilised later pass every gate and then fail the release build, the one
+# build nobody watches interactively. rustup reads this file in CI, in the dev
+# container and locally, and both Dockerfiles pin the same version, which
+# `scripts/check-versions.py` holds to it.
 [toolchain]
 channel = "1.98.1"
 # rust-analyzer is listed here as well: the VS Code extension ships its own

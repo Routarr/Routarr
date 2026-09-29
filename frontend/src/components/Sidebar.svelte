@@ -4,7 +4,7 @@
   import { GROUPS, type Counts } from '../lib/navigation';
 
   /** Amber asks for attention, red says something failed, the rest is just a
-      number — so a count is never louder than what it counts. */
+      number, so a count is never louder than what it counts. */
   const TONE: Record<keyof Counts, string> = {
     jobs: '',
     decisions: '',
@@ -55,7 +55,7 @@
 
   <nav class="sidebar-nav" aria-label={t('MainNavigation')}>
     {#each GROUPS as group, index (group.key ?? 'home')}
-      <!-- The label is hidden in the rail, where 68px fits no word; the rule
+      <!-- The label is hidden in the rail, where 68px fits no word. The rule
            above the group is what survives, so the grouping still reads. -->
       {#if group.key}
         <p class="nav-group" id="nav-group-{index}">{t(group.key)}</p>
@@ -72,13 +72,13 @@
               title={t(item.key)}
             >
               <!-- The rail hides the label, so the name has to reach a screen
-                   reader — and a pointer — some other way. -->
+                   reader, and a pointer, some other way. -->
               <item.icon size={18} />
               <span class="nav-label">{t(item.key)}</span>
-              <!-- The count the top bar used to state as a sentence. In the
-                   rail, where the label is hidden, the badge is the only thing
-                   that says something is waiting — so it carries the sentence
-                   as its accessible name. -->
+              <!-- The count of what waits behind this entry. In the rail,
+                   where the label is hidden, the badge is the only thing that
+                   says something is waiting, so it carries the sentence as its
+                   accessible name. -->
               {#if item.badge && counts[item.badge] > 0}
                 {@const count = counts[item.badge]}
                 <!-- The figure for the eye, the sentence for the reader. An
@@ -95,9 +95,9 @@
   </nav>
 
   <!-- The foot of the navigation, which is where an operations tool puts its
-       version. In the bar it sat beside the two things that say what a click
-       will do, and it answers no question anyone asks while working — and it
-       was hidden outright below 900px, so a phone could not see it at all. -->
+       version. It answers no question anyone asks while working, so it stays
+       out of the bar, where the two things that say what a click will do
+       sit. -->
   {#if version}
     <p class="sidebar-foot">
       <!-- The name goes where the labels go: 68px of rail fits the number and

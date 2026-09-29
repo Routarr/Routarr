@@ -106,12 +106,10 @@ impl RadarrClient {
         self.client.get(format!("{}{path}", self.base_url)).header("X-Api-Key", &self.api_key)
     }
 
-    /// Test the connection to Radarr.
     pub async fn test_connection(&self) -> AppResult<RadarrStatus> {
         send_json(SERVICE, self.get("/api/v3/system/status")).await
     }
 
-    /// Get all movies from Radarr.
     pub async fn get_movies(&self) -> AppResult<Vec<RadarrMovie>> {
         debug!("Fetching movies from {}", crate::http::masked(&self.base_url));
         send_json(SERVICE, self.get("/api/v3/movie")).await
@@ -127,7 +125,6 @@ impl RadarrClient {
         send_json(SERVICE, self.get("/api/v3/tag")).await
     }
 
-    /// Get all root folders from Radarr.
     pub async fn get_root_folders(&self) -> AppResult<Vec<RadarrRootFolder>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
     }

@@ -2,7 +2,7 @@ import { test as base, expect } from '@playwright/test';
 
 const API = `${process.env.ROUTARR_E2E_URL ?? 'http://127.0.0.1:9877'}/api/v1`;
 
-/** The key the harness starts the server with; empty when it runs open. */
+/** The key the harness starts the server with, empty in a sign-in mode. */
 const API_KEY = process.env.ROUTARR_E2E_KEY ?? '';
 
 /** Where the frontend keeps the key it sends with every request. */
@@ -27,7 +27,7 @@ async function api(path: string, init?: RequestInit): Promise<unknown> {
 
 /**
  * Put the instance back the way every test expects to find it: one Radarr, its
- * root folders mapped, no rules, no decisions, dry-run on.
+ * root folders mapped, no rules, no pending decision, dry-run on.
  *
  * Done through the API rather than against the database, so a reset that the
  * API cannot express is a reset the product cannot express either.

@@ -19,7 +19,7 @@ pub struct Media {
     pub has_files: bool,
     pub status: Option<String>,
     pub added_at: Option<String>,
-    /// Sonarr's own classification (`standard` / `anime` / `daily`); `None` for
+    /// Sonarr's own classification (`standard` / `anime` / `daily`), `None` for
     /// movies.
     pub series_type: Option<String>,
     pub size_on_disk: Option<i64>,
@@ -29,7 +29,7 @@ pub struct Media {
     /// every rule evaluation and by the library's tag facet.
     pub tags: Option<String>,
     /// Genres as a JSON array, straight from Radarr or Sonarr. The `arr`
-    /// metadata source reads these three columns; they cost no request and go
+    /// metadata source reads these three columns, which cost no request and go
     /// stale only when the library does.
     pub genres: Option<String>,
     /// ISO 639-1, normalised from the Arr's language *name* at sync time.
@@ -71,7 +71,7 @@ pub struct MediaQuery {
     /// Filter on the category currently proposed by the engine.
     pub category: Option<String>,
     pub search: Option<String>,
-    /// Only media that no rule matched — the "unclassified" view.
+    /// Only media that no rule matched, for the "unclassified" view.
     pub unmatched: Option<bool>,
     pub page: Option<u32>,
     pub per_page: Option<u32>,

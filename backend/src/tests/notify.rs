@@ -1,7 +1,7 @@
 //! Outbound notifications.
 //!
-//! The property that matters most is not that a message is sent — it is that
-//! the same failure is not sent over and over. An alert that fires every
+//! The property that matters most is not that a message is sent but that the
+//! same failure is not sent over and over. An alert that fires every
 //! fifteen minutes for a week is an alert the operator mutes, which leaves them
 //! worse off than with no notifications at all.
 
@@ -127,7 +127,7 @@ async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
 async fn an_instance_going_down_notifies_once_not_on_every_tick() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
-    // Port 1 on the loopback refuses the connection at once — unreachable,
+    // Port 1 on the loopback refuses the connection at once: unreachable,
     // without the timeout a black-hole address costs on every test.
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     set(&app, "notification_webhook_url", &receiver.url).await;
@@ -192,7 +192,7 @@ async fn nothing_is_sent_when_no_webhook_is_configured() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    // Deliberately not configured — the default.
+    // Deliberately not configured, which is the default.
 
     let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
 
@@ -248,7 +248,7 @@ async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
         )
         .await;
 
-    // A typo here fails silently in the background, where nobody sees it —
+    // A typo here fails silently in the background, where nobody sees it,
     // which is exactly what this feature exists to prevent.
     assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST);
 

@@ -4,7 +4,7 @@
     python3 scripts/add-locale.py de < translations.json
 
 Refuses to write when a translation drops or invents a `{placeholder}`, carries a
-key English does not have, or is empty — the three ways a locale silently
+key English does not have, or is empty: the three ways a locale silently
 degrades the interface.
 
 The Radarr and Sonarr menu paths a string cites ("Settings → General → Security

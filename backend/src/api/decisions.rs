@@ -116,7 +116,7 @@ pub async fn list(
 pub async fn apply(
     State(state): State<AppState>,
     // Who is moving files. The middleware puts an identity on every protected
-    // request, so this cannot fail — and this is the write worth attributing.
+    // request, so this cannot fail, and this is the write worth attributing.
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<ApplyDecisionsRequest>,
 ) -> AppResult<Json<executor::ApplyReport>> {

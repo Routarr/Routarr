@@ -131,7 +131,7 @@ impl TestApp {
 
     /// The raw response, for anything that is not JSON.
     ///
-    /// `send` parses the body and discards it; a metrics scrape or a CSV export
+    /// `send` parses the body and discards it. A metrics scrape or a CSV export
     /// needs the bytes and the headers.
     pub async fn raw(&self, path: &str) -> axum::response::Response {
         self.router

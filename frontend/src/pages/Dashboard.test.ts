@@ -10,10 +10,10 @@ import { withBase } from '../test/base';
 import Dashboard from './Dashboard.svelte';
 
 /**
- * The dashboard answers one question — is there anything waiting for me — and
- * everything else on it is context. Six cards of equal weight, some with a
- * coloured icon tile and some colouring their *number* by sentiment, are two
- * encoding systems on one row with nothing saying where to look.
+ * The dashboard answers one question (is there anything waiting for me?), and
+ * everything else on it is context. Cards of equal weight, some with a
+ * coloured icon tile and some colouring their *number* by sentiment, would be
+ * two encoding systems on one row with nothing saying where to look.
  */
 
 const STRINGS = {
@@ -97,7 +97,7 @@ describe('Dashboard', () => {
   });
 
   /**
-   * Warnings are capped at three. The page is a summary; a diagnostics run that
+   * Warnings are capped at three. The page is a summary: a diagnostics run that
    * finds nine problems must not push the numbers off the screen, and the link
    * to the full list is what makes the cap honest.
    */
@@ -108,8 +108,8 @@ describe('Dashboard', () => {
     const { container } = show();
 
     await screen.findByText('one');
-    // One block, not one banner each: three stacked tinted bars said the same
-    // thing three times and each carried its own copy of the same button.
+    // One block, not one banner each: stacked bars would say the same thing
+    // once per warning, each with its own copy of the same button.
     expect(container.querySelectorAll('.banner-warning')).toHaveLength(1);
     expect(container.querySelectorAll('.banner-list li')).toHaveLength(3);
     expect(screen.queryByText('four')).toBeNull();
@@ -135,9 +135,9 @@ describe('Dashboard', () => {
   /**
    * Two requests: one that answers from the database in milliseconds, one that
    * probes every Arr over the network. Probing an unreachable Arr costs the
-   * full connect timeout — five seconds, on the screen somebody opens *because*
-   * an Arr is unreachable. The page renders on the first and upgrades on the
-   * second.
+   * full connect timeout, up to five seconds, on the screen somebody opens
+   * *because* an Arr is unreachable. The page renders on the first and upgrades
+   * on the second.
    */
   describe('the two-phase load', () => {
     it('asks for the cheap answer and the probed one', async () => {

@@ -46,7 +46,7 @@ pub struct Instance {
     pub sync_interval_minutes: i64,
     /// When a sync last *succeeded*. Null while none ever has.
     pub last_sync_at: Option<String>,
-    /// When one was last attempted, successful or not — the figure that says
+    /// When one was last attempted, successful or not: the figure that says
     /// whether the scheduler is running at all.
     pub last_sync_attempt_at: Option<String>,
     pub last_sync_status: Option<String>,
@@ -82,7 +82,7 @@ pub struct InstanceResponse {
     pub sync_interval_minutes: i64,
     /// When a sync last *succeeded*. Null while none ever has.
     pub last_sync_at: Option<String>,
-    /// When one was last attempted, successful or not — the figure that says
+    /// When one was last attempted, successful or not: the figure that says
     /// whether the scheduler is running at all.
     pub last_sync_attempt_at: Option<String>,
     pub last_sync_status: Option<String>,
@@ -97,12 +97,12 @@ pub struct InstanceResponse {
 impl InstanceResponse {
     /// Build the response, given where Routarr is mounted.
     ///
-    /// Not a `From` impl on purpose: the webhook URL is handed to Radarr to call
+    /// Not a `From` impl on purpose: the webhook URL is handed to the Arr to call
     /// back, so it has to carry the sub-path Routarr is served under. A
     /// conversion that cannot see the configuration would silently produce a URL
-    /// that 404s behind a reverse proxy — and only there.
+    /// that 404s behind a reverse proxy, and only there.
     pub fn from_instance(i: Instance, base_path: &str) -> Self {
-        // The stored value may be ciphertext; never expose a prefix of it.
+        // The stored value may be ciphertext, and a prefix of it is never shown.
         let encrypted = crate::crypto::SecretBox::is_sealed(&i.api_key);
         let masked = if encrypted {
             "\u{2022}\u{2022}\u{2022}\u{2022} (encrypted)".to_string()

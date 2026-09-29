@@ -2,8 +2,8 @@
 # Bound the caches that otherwise only grow: the extension download caches and
 # the Rust build tree.
 #
-# The rule is not "delete caches". One that regenerates for free is cleared; one
-# that costs compute is given a ceiling; one that costs a download is left
+# The rule is not "delete caches". One that regenerates for free is cleared, one
+# that costs compute is given a ceiling, and one that costs a download is left
 # alone. Four categories, and nothing here blurs them:
 #
 #   ramdisk        nothing preserved. Only kept from *filling*, since a full
@@ -11,18 +11,18 @@
 #   stale on disk  `backend/target` once CARGO_TARGET_DIR points elsewhere.
 #                  Removed on evidence, never on assumption.
 #   worth keeping  /cargo, /playwright, node_modules, credentials. Untouched.
-#   sources        the checkout and .git. Untouched; the root check below is
-#                  what stops a wrong guess reaching them.
+#   sources        the checkout and .git. Untouched, and the root check below
+#                  is what stops a wrong guess reaching them.
 #
 # Armed by `postStartCommand` and `postAttachCommand` with `--daemon`. Safe to
-# run by hand; `--status` reports without changing anything.
+# run by hand, and `--status` reports without changing anything.
 set -euo pipefail
 
 # Checked against a file only this repository has: a root resolved wrongly would
 # match no directories and report a clean pass having done nothing.
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ ! -f "$root/backend/Cargo.toml" ]; then
-  echo "prune: $root does not look like the Routarr checkout — skipping the Rust tree" >&2
+  echo "prune: $root does not look like the Routarr checkout, skipping the Rust tree" >&2
   root=""
 fi
 RAMDISK="${ROUTARR_RAMDISK:-/ramdisk}"
@@ -48,14 +48,14 @@ drop() {
   [ -n "$path" ] && [ -d "$path" ] || return 0
   freed=$((freed + $(size_kb "$path")))
   rm -rf "${path:?}"
-  note "removed ${path#"${root:-}"/} — $why"
+  note "removed ${path#"${root:-}"/}: $why"
 }
 
 prune_once() {
   freed=0
 
   # --- Extension download caches ---------------------------------------------
-  # Downloaded VSIX files only; the extensions live in their own volume.
+  # Downloaded VSIX files only: the extensions live in their own volume.
   for cache in /vscode/vscode-server/extensionsCache "$HOME/.vscode-server/extensionsCache"; do
     if [ -d "$cache" ]; then
       kb="$(size_kb "$cache")"
@@ -106,7 +106,7 @@ prune_once() {
     fi
   fi
 
-  # --- The build tree the ramdisk replaced -----------------------------------
+  # --- A build tree left on disk ---------------------------------------------
   # With `CARGO_TARGET_DIR` elsewhere, `backend/target` is gigabytes nothing
   # will read again. Three conditions, all required: the root really is this
   # repository, the path is not the tree in use, and it carries the
@@ -128,7 +128,7 @@ prune_once() {
 # `--daemon` prunes inline and arms a loop on top. The hooks are events, not a
 # clock: a container left running with no window attaching fires neither again,
 # which is when the ramdisk grows. Every pass is appended to LOG.
-INTERVAL=1800                       # thirty minutes: one coverage pass adds ~2 GB
+INTERVAL=1800                       # thirty minutes: a coverage pass adds gigabytes
 LOCK=/tmp/routarr-prune.lock
 LOG=/tmp/routarr-prune.log
 
@@ -139,7 +139,7 @@ case "${1:-}" in
       df -h "$RAMDISK" | tail -1 | awk '{print "ramdisk: " $2 " total, " $3 " used, " $4 " free (" $5 ")"}'
       du -sh "$RAMDISK"/* 2>/dev/null | sort -rh | head -5 | sed 's/^/  /'
     else
-      echo "ramdisk: $RAMDISK is not a tmpfs — see .devcontainer/ramdisk.sh" >&2
+      echo "ramdisk: $RAMDISK is not a tmpfs, see .devcontainer/ramdisk.sh" >&2
     fi
     for keep in /cargo /playwright /vscode "${root:+$root/frontend/node_modules}" "${root:+$root/site/node_modules}"; do
       [ -n "$keep" ] && [ -d "$keep" ] && printf 'kept: %-28s %s\n' "$keep" "$(du -sh "$keep" 2>/dev/null | cut -f1)"
@@ -156,7 +156,7 @@ case "${1:-}" in
     exec 9>"$LOCK"
     # Already running: leave the incumbent alone and say nothing.
     flock -n 9 || exit 0
-    echo "prune: loop armed, every $((INTERVAL / 60)) min, pid $$ — $(date -Is)"
+    echo "prune: loop armed, every $((INTERVAL / 60)) min, pid $$, $(date -Is)"
     # Waits first: the caller has just pruned inline, so a pass now would only
     # repeat it.
     while true; do

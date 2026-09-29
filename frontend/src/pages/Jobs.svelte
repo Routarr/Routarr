@@ -11,7 +11,7 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
 
-  /** Backend enum values are lower-case; the dictionary keys are PascalCase. */
+  /** Backend enum values are lower-case, and the dictionary keys are PascalCase. */
   const jobKindKey = (kind: string) => `Job${capitalize(kind)}`;
 
   const STATUS_BADGE: Record<Job['status'], string> = {
@@ -30,7 +30,6 @@
   const jobs = $derived(jobsPage.data?.data ?? []);
   const hasRunning = $derived(jobs.some((job) => job.status === 'running'));
 
-  // Poll only while something is in flight, and only while the tab is in front.
   poll(
     () => void jobsPage.reload(),
     () => 3000,

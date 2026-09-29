@@ -2,15 +2,15 @@
 //!
 //! A first-match-by-priority engine invites exactly one mistake: a rule placed
 //! below a broader one can never fire. Validation catches contradictions
-//! *within* a rule — an empty condition, one no source can answer, two that
-//! cannot both hold — and nothing looks between rules at all.
+//! *within* a rule (an empty condition, one no source can answer, two that
+//! cannot both hold) and never looks between rules.
 //!
 //! The preview reports such a rule as "0 changes", which is the same thing it
 //! reports for a rule that correctly changes nothing. This says which rule took
 //! the items instead, which is the part a user can act on.
 //!
 //! Cheap, because the engine already computes it: `Evaluation.alternatives` is
-//! the list of rules that matched and lost, per item. Nothing aggregated it.
+//! the list of rules that matched and lost, per item, and this only counts it.
 
 use std::collections::HashMap;
 
@@ -35,13 +35,13 @@ pub struct RuleHealth {
     pub vetoed: usize,
     /// The rule that took the most of what this one matched, when it never won.
     pub shadowed_by: Option<String>,
-    /// It matched nothing at all — a different problem from being shadowed, and
-    /// usually a condition that is too narrow rather than a priority that is
-    /// too low.
+    /// It matched nothing at all. That is a different problem from being
+    /// shadowed, and usually a condition that is too narrow rather than a
+    /// priority that is too low.
     pub matched_nothing: bool,
     /// Another rule this one cannot be told apart from by the ordering.
     ///
-    /// The engine breaks ties on priority, then name, then id — the last step
+    /// The engine breaks ties on priority, then name, then id. The last step
     /// exists because names are not unique here. Two rules sharing both leave
     /// the winner to whichever id SQLite returns first, which is not a
     /// decision anybody made, and they may target different categories.
@@ -148,7 +148,7 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
 
 /// Order-insensitive equality of two condition lists: the same conditions
 /// decide the same thing whatever order they were typed in, and compared as
-/// lists a reordered twin went unreported.
+/// lists a reordered twin goes unreported.
 fn same_set<T: serde::Serialize>(a: &[T], b: &[T]) -> bool {
     let key = |items: &[T]| -> Vec<String> {
         let mut keys: Vec<String> =
@@ -160,8 +160,8 @@ fn same_set<T: serde::Serialize>(a: &[T], b: &[T]) -> bool {
 }
 
 /// Two rules restricted to different instances decide different things, and
-/// only one of them may be restricted at all; compared without this, twins
-/// limited to two instances were called duplicates of each other.
+/// so do a restricted rule and an unrestricted one. Compared without the
+/// scope, twins limited to two different instances pass for duplicates.
 fn same_scope(a: &Option<Vec<String>>, b: &Option<Vec<String>>) -> bool {
     match (a, b) {
         (None, None) => true,

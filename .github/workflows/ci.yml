@@ -53,7 +53,8 @@ jobs:
       # A pull request is compared with its base. A push to main is compared
       # with the last commit of main whose run succeeded, not with the one
       # before it: a failed run tested nothing, and the release guard reads only
-      # the tagged commit's own runs, so the areas it left behind are tested now.
+      # the tagged commit's own runs, so the areas it left behind are tested in
+      # this run.
       - id: filter
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,20 +71,21 @@ jobs:
           fi
           bash scripts/changed-areas.sh "$base" "$HEAD" | tee -a "$GITHUB_OUTPUT"
 
-      # In this job because it is the only one with no path filter: a commit
-      # touching just `Dockerfile` matches none of the three above, so every
-      # other job would skip and a partial version bump would land green.
+      # `changes` and `repository` are the two jobs with no path filter, and a
+      # check that must see every commit goes in one of them: a commit touching
+      # just `Dockerfile` matches none of the three areas, so every filtered job
+      # skips and a partial version bump would land green.
       - name: Check the toolchain versions agree
         run: python3 scripts/check-versions.py
 
   # What no deliverable's job reads: the workflows, the shell harnesses, the
-  # Dockerfiles, the memory files Claude Code loads and the history. Unfiltered
-  # for the same reason as `changes`, and needed by no other job, so a failure
-  # here skips nothing else.
+  # Dockerfiles, the memory files Claude Code loads, the history, and the
+  # punctuation of every deliverable at once. Unfiltered for the same reason as
+  # `changes`, and needed by no other job, so a failure here skips nothing else.
   #
   # The three binaries are fetched from their releases and checked against the
   # sums recorded here, so a moved tag or a replaced asset fails the step
-  # rather than running; shellcheck ships with the runner image.
+  # rather than running. The runner image ships shellcheck.
   repository:
     name: Repository lint
     runs-on: ubuntu-latest
@@ -269,8 +271,9 @@ jobs:
 
       # Same reason: the dictionaries live in `backend/`, the keys that read
       # them in `frontend/src`. A pull request touching only a component never
-      # runs the backend job, so a key with no dictionary entry — rendered raw
-      # on screen — passed here and failed on the next person's backend change.
+      # runs the backend job, so without this step a key with no dictionary
+      # entry, rendered raw on screen, would pass here and fail on the next
+      # person's backend change.
       - name: Check locales
         working-directory: .
         run: python3 scripts/check-locales.py
@@ -330,7 +333,7 @@ jobs:
         working-directory: frontend
 
       # Mounted under a sub-path, the case that only ever breaks behind a
-      # reverse proxy — where it is hardest to diagnose.
+      # reverse proxy, where it is hardest to diagnose.
       - name: End-to-end behind a sub-path
         run: npm run test:e2e:base
         working-directory: frontend
@@ -368,7 +371,7 @@ jobs:
         working-directory: site
 
       # Everything below reads `site/dist`, which is what Cloudflare serves.
-      # Checking the sources would test the intention; this tests the artefact.
+      # Checking the sources would test the intention. This tests the artefact.
       - name: Build
         run: npm run build
         working-directory: site

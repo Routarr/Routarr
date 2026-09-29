@@ -10,8 +10,8 @@
 //!   database at one point in time, WAL included.
 //! * **Self-sufficient.** Database, master key and API key travel together,
 //!   which makes the archive as sensitive as the master key itself.
-//! * **A restore never half-applies.** The bundle is validated and *staged*;
-//!   the swap happens at the next startup, before the pool opens. Replacing a
+//! * **A restore never half-applies.** The bundle is validated and *staged*,
+//!   and the swap happens at the next startup, before the pool opens. Replacing a
 //!   database under an open pool is how a restore destroys what it recovers.
 //!   Nothing is marked pending until every file is written and the database
 //!   has been opened and checked, and the start checks it again.
@@ -217,7 +217,7 @@ async fn vacuum_into(state: &AppState, target: &Path) -> AppResult<()> {
         )));
     }
     // `VACUUM INTO` creates the file under the umask, and it is the whole
-    // database — sealed credentials included — until the zip is written and
+    // database, sealed credentials included, until the zip is written and
     // it is removed.
     crate::crypto::restrict_permissions(target);
 
@@ -226,7 +226,7 @@ async fn vacuum_into(state: &AppState, target: &Path) -> AppResult<()> {
 
 /// Write the archive, streaming the database rather than holding it.
 ///
-/// Synchronous on purpose — the caller runs it on a blocking thread. Nothing
+/// Synchronous on purpose: the caller runs it on a blocking thread. Nothing
 /// here may read a file whose size follows the library into memory:
 /// `api/backup.rs` streams the download for exactly that reason, and an
 /// archive is the whole database.
@@ -280,8 +280,8 @@ fn build_zip(
         .map_err(|e| AppError::Internal(format!("cannot write {DB_ENTRY}: {e}")))?;
 
     // Without the master key the restored database still opens, but every Arr
-    // credential in it is undecryptable — a restore that silently loses them
-    // is worse than one that refuses.
+    // credential in it is undecryptable, and a restore that silently loses
+    // them is worse than one that refuses.
     // These two are a handful of bytes each, so reading them whole is not the
     // same question as the database above.
     for (entry, source) in [MASTER_KEY_ENTRY, API_KEY_ENTRY].iter().zip(keys) {
@@ -347,8 +347,8 @@ pub fn list(state: &AppState) -> Vec<BackupFile> {
 /// Delete everything past the retention count, oldest first.
 pub async fn prune(state: &AppState) -> AppResult<usize> {
     // Read as stored, a value above the ceiling included: lowering a retention
-    // count removes archives, so only the operator's own save does — see
-    // `settings::Kind::Retention`.
+    // count removes archives, so only the operator's own save does (see
+    // `settings::Kind::Retention`).
     let keep: usize = state.setting("backup_retention_count", 7usize).await.max(1);
     let files = list(state);
     if files.len() <= keep {
@@ -492,7 +492,7 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
 
 /// Copy the three known entries beside their targets, under the staging suffix.
 ///
-/// Synchronous on purpose — the caller runs it on a blocking thread. The entry
+/// Synchronous on purpose: the caller runs it on a blocking thread. The entry
 /// names are literals and the destinations are computed here, so no name out of
 /// the archive ever reaches a path. The files come back as a scaffold, removed
 /// unless the caller keeps them.
@@ -688,7 +688,7 @@ async fn check_database(path: &Path) -> Result<(), String> {
 ///
 /// Called from `main` **before** the pool is opened. Each file is moved into
 /// place with a rename, which is atomic within a filesystem, so an interruption
-/// leaves either the old file or the new one — never half of either. The
+/// leaves either the old file or the new one, never half of either. The
 /// database goes last, as it was staged last: a pending database means its keys
 /// are pending or applied, and keys pending without one are an interrupted
 /// staging.
@@ -821,13 +821,13 @@ mod archive_shape {
     /// Neither property is visible to a behavioural test: a backup of the
     /// two-page database a test seeds blocks for microseconds and fits in a
     /// cache line, so the suite is green whichever way this is written. What
-    /// makes it matter is the machine this runs on — the commentary through
-    /// this crate designs for a two-core NAS — and the cadence, since
+    /// makes it matter is the machine this runs on (the commentary through
+    /// this crate designs for a two-core NAS) and the cadence, since
     /// `backup_enabled` defaults to true and the scheduler takes one a day.
     ///
-    /// `api/backup.rs` already streams the *download* and says why: "reading it
-    /// into memory first doubles the process's footprint". The write path is
-    /// the same file, and it is the one nobody asks for.
+    /// `api/backup.rs` streams the *download*, since reading an archive into
+    /// memory first doubles the process's footprint. The write path is the
+    /// same file, and it is the one nobody asks for.
     #[test]
     fn the_database_is_never_read_whole_and_never_deflated_on_the_runtime() {
         const SOURCE: &str = include_str!("backup.rs");

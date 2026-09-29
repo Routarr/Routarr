@@ -16,8 +16,8 @@
   /**
    * Pinned expectations, replayed against the rules as they stand.
    *
-   * The rule preview answers "what would this change"; this answers what it must
-   * *not* change. Rules are first-match-by-priority, so inserting one rebalances
+   * The rule preview answers "what would this change", and this answers what it
+   * must *not* change. Rules are first-match-by-priority, so inserting one rebalances
    * every rule below it, and the routing that quietly moves is the one nobody
    * was watching.
    */

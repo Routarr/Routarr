@@ -3,9 +3,9 @@
  * Ceilings on the two bundles every visit downloads.
  *
  * Each screen is its own chunk, so opening the dashboard does not download the
- * rule builder with it — a property nothing measured, and the kind that drifts
- * one import at a time. The entry carries the shell and the router; the shared
- * runtime carries Svelte and the icons. Both measured raw, the way the
+ * rule builder with it. That property drifts one import at a time, and only a
+ * ceiling notices. The entry carries the shell and the router, the shared
+ * runtime carries Svelte and the icons. Both are measured raw, the way the
  * fingerprinted files sit in `dist/assets`.
  *
  *   node scripts/check-bundle-size.mjs      # after `npm run build` in frontend/
@@ -24,14 +24,14 @@ let files;
 try {
   files = readdirSync(ASSETS);
 } catch {
-  console.error(`check-bundle-size: ${ASSETS} does not exist — run \`npm run build\` in frontend/ first`);
+  console.error(`check-bundle-size: ${ASSETS} does not exist: run \`npm run build\` in frontend/ first`);
   process.exit(1);
 }
 
 const failures = [];
 for (const { name, pattern, ceiling } of CEILINGS) {
   const matches = files.filter((file) => pattern.test(file));
-  // A pattern that matches nothing would pass without measuring; that is not a pass.
+  // A pattern that matches nothing would pass without measuring anything.
   if (matches.length !== 1) {
     failures.push(`${name}: expected one file matching ${pattern}, found ${matches.length}`);
     continue;

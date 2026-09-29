@@ -31,6 +31,9 @@ function substitute(template: string, params?: Params): string {
  * Look a key up. Falls back to the key itself, which is the production
  * behaviour too: a dictionary that failed to load leaves an interface that is
  * ugly but navigable, rather than blank.
+ *
+ * It substitutes `{placeholder}` from `params` and knows no plural, so a count
+ * is written `Label: {count}`, never `{count} item(s)`.
  */
 export function t(key: string, params?: Params): string {
   return substitute(state.strings[key] ?? key, params);
@@ -63,7 +66,7 @@ export async function loadDictionary(): Promise<void> {
   }
 }
 
-/** Seed the dictionary directly. Tests only — nothing else should write it. */
+/** Seed the dictionary directly. Tests only: nothing else may write it. */
 export function seedDictionary(strings: Dictionary, language = 'en'): void {
   state.strings = strings;
   state.language = language;
@@ -74,7 +77,7 @@ export function seedDictionary(strings: Dictionary, language = 'en'): void {
  *
  * `auto` sets no attribute at all, which is what lets the
  * `prefers-color-scheme` block in the stylesheet apply. An explicit choice
- * stamps the attribute and outranks it — the same three-state arrangement the
+ * stamps the attribute and outranks it, the same three-state arrangement the
  * showcase site uses.
  */
 export function applyTheme(theme: string | undefined): void {

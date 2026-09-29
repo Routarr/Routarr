@@ -3,7 +3,7 @@
 //! Every call to a Radarr, a Sonarr or TMDb carries a credential in a *custom*
 //! header (`X-Api-Key`). reqwest strips `Authorization` and `Cookie` when a
 //! redirect crosses to another host, but it has no way to know a custom header
-//! is sensitive — so a redirect would forward the key verbatim.
+//! is sensitive, so a redirect would forward the key verbatim.
 
 use axum::Router;
 use axum::http::{HeaderMap, StatusCode};

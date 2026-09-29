@@ -2,7 +2,7 @@
 """An OpenID Connect provider stand-in for the end-to-end suite.
 
 A real server the release binary can reach, as fake_arr.py is, beside the
-in-process one of src/tests/fake_oidc.rs. It signs in whoever reaches its
+in-process one of backend/src/tests/fake_oidc.rs. It signs in whoever reaches its
 authorization endpoint, as a provider signs in the person at the keyboard, and
 gives a token only for a code it issued, to the client it was issued for, with
 the verifier its challenge was made from.

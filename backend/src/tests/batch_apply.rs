@@ -141,8 +141,8 @@ async fn global_dry_run_still_outranks_it() {
 
 #[tokio::test]
 async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
-    // The Arr rejects every write. The first slice fails; the rest must not be
-    // attempted, because an Arr that just refused five moves will refuse five
+    // The Arr rejects every write. The first slice fails, and the rest must not
+    // be attempted, because an Arr that just refused five moves will refuse five
     // hundred.
     let arr = FakeArr::failing(500).await;
     let app = library(&arr, 12).await;

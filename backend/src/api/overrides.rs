@@ -1,4 +1,4 @@
-//! Manual overrides — the human veto over the rule engine.
+//! Manual overrides: the human veto over the rule engine.
 
 use super::Json;
 use axum::extract::{Path, State};
@@ -82,7 +82,7 @@ pub async fn create(
     crate::services::routing::supersede_pending(&mut tx, &[&req.media_id]).await?;
     tx.commit().await?;
 
-    // Read back so the response carries the row that actually exists — on an
+    // Read back so the response carries the row that actually exists: on an
     // upsert the stored id is the original one, not the one just generated.
     let row: OverrideRow = sqlx::query_as(
         "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at,

@@ -9,16 +9,16 @@ files, and nothing else joins them: a bump that misses one leaves an environment
 behind, and the gap only shows as a build that fails in one place and passes
 everywhere else.
 
-That gap became a certainty the day Dependabot started watching the `docker`
-ecosystem: it moves the `FROM` line and *only* the `FROM` line. This turns the
-drift it would otherwise introduce into a failed check that names the files
-still holding the old value.
+Dependabot watches the `docker` ecosystem and moves the `FROM` line and *only*
+the `FROM` line, so every one of its image bumps opens that gap. This check
+turns the drift into a failure that names the files still holding the old
+value.
 
 The product version has the same shape of problem for a different reason. The
-release reads `Cargo.toml` — the tag names that value and `site/check.mjs`
-asserts the showcase page states it — while the two `package.json` files carry
-it as well and nothing read them. A release could ship a front end announcing
-the version before it.
+release reads `Cargo.toml` (the tag names that value, and `site/check.mjs`
+asserts the showcase page states it), while the two `package.json` files carry
+it as well and nothing else reads them. Without this check, a release could
+ship a front end announcing the version before it.
 
 Run from anywhere: it resolves its own paths. Exits non-zero on a mismatch.
 """
@@ -37,7 +37,7 @@ def read(relative: str) -> str:
 
 
 # The Dockerfiles pin their base images as `image:tag@digest`. The digest is what
-# Docker pulls; the tag is what these patterns read, and what Dependabot tracks —
+# Docker pulls. The tag is what these patterns read, and what Dependabot tracks:
 # it updates the two together. A digest alone would be invisible to Dependabot,
 # which has no tag to follow, and the `docker` pull requests this script exists
 # to catch would simply stop arriving. The tag cannot live in a comment beside
@@ -59,11 +59,10 @@ def from_lines_parse() -> list[str]:
     where Docker accepts one or three, and the build fails on its first line.
 
     It is checked here because this script already reads both Dockerfiles, and
-    because nothing else in the repository parses them without a Docker daemon —
-    the dev container has none, so the first place this failure surfaced was the
-    image build in CI, on a push, after every other gate had passed. The
-    devcontainer's own Dockerfile is not built by CI at all, so there it would
-    have surfaced as a container that refuses to rebuild.
+    because nothing in the dev container parses them: it has no Docker daemon
+    and no hadolint. Without this check the failure first shows in CI, after
+    the push. CI never builds the dev container's own Dockerfile, so there it
+    can show first as a container that refuses to rebuild.
     """
     problems: list[str] = []
     for relative in ("Dockerfile", ".devcontainer/Dockerfile"):
@@ -71,7 +70,6 @@ def from_lines_parse() -> list[str]:
             if not line.startswith("FROM "):
                 continue
             arguments = line.split()[1:]
-            # `FROM image` or `FROM image AS stage`.
             well_formed = len(arguments) == 1 or (
                 len(arguments) == 3 and arguments[1].upper() == "AS"
             )
@@ -80,8 +78,8 @@ def from_lines_parse() -> list[str]:
                 problems.append(
                     f"{relative}:{number}: FROM must be `image` or `image AS stage`"
                     + (
-                        " — this line carries a trailing comment, which Dockerfile "
-                        "reads as arguments; put the tag on the line above"
+                        ": this line carries a trailing comment, which Dockerfile "
+                        "reads as arguments. Put the tag on the line above"
                         if trailing
                         else f", and this one has {len(arguments)} arguments"
                     )
@@ -92,7 +90,7 @@ def from_lines_parse() -> list[str]:
 def agree(what: str, sightings: list[tuple[str, str] | None]) -> list[str]:
     """Every sighting must carry the same value. Returns the failures."""
     missing = [
-        f"{what}: a pattern matched nothing — the file moved or its shape changed"
+        f"{what}: a pattern matched nothing: the file moved or its shape changed"
         for sighting in sightings
         if sighting is None
     ]
@@ -117,8 +115,8 @@ def main() -> int:
     # --- Rust ---------------------------------------------------------------
     # `rust-toolchain.toml` is what rustup reads, so it is the value the others
     # have to match. `Cargo.toml` states the MSRV as `x.y` rather than `x.y.z`,
-    # which is not a disagreement — it is the same version, less precisely — so
-    # it is compared against the channel's own prefix.
+    # which is not a disagreement but the same version stated less precisely,
+    # so it is compared against the channel's own prefix.
     channel = find("backend/rust-toolchain.toml", r'^channel\s*=\s*"([\d.]+)"')
     failures += agree(
         "The Rust version",
@@ -135,12 +133,13 @@ def main() -> int:
         if msrv[1] != wanted:
             failures.append(
                 f"The MSRV in {msrv[0]} is {msrv[1]}, but the pinned toolchain is "
-                f"{channel[1]} — it should read {wanted}"
+                f"{channel[1]}: it should read {wanted}"
             )
 
     # --- Node ---------------------------------------------------------------
-    # Major only, everywhere: nothing here pins a minor, and CI resolves the
-    # latest of the line. The CI workflow holds several sightings on its own.
+    # Major only, everywhere: the dev container pins a full release to verify
+    # its tarball, but every other copy names the major alone. The CI workflow
+    # holds several sightings on its own.
     ci = read(".github/workflows/ci.yml")
     # Quoted or not, as YAML reads both alike. A line read as nothing would
     # leave CI out of the comparison while the check still passed.

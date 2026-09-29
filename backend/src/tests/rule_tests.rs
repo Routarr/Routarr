@@ -2,8 +2,7 @@
 //!
 //! The point of the feature is that editing one rule cannot silently change
 //! what another rule routes. So the tests here are mostly about a case
-//! *failing* when it should — a suite that only ever goes green is a suite that
-//! proves nothing.
+//! *failing* when it should. A suite that only ever goes green proves nothing.
 
 use super::TestApp;
 
@@ -59,8 +58,8 @@ async fn deleting_the_rule_a_case_depends_on_fails_that_case() {
 }
 
 /// A case survives the library. `sync` deletes rows the Arr stops returning and
-/// that cascades to overrides — a case referencing `media_id` would vanish with
-/// the film it was written to protect.
+/// that cascades to overrides, so a case referencing `media_id` would vanish
+/// with the film it was written to protect.
 #[tokio::test]
 async fn a_case_still_runs_after_its_media_row_is_gone() {
     let app = TestApp::new().await;

@@ -3,9 +3,9 @@ import { ROUTE_GROUPS, SCREENS, screenKey } from './routes';
 import { DESTINATIONS, GROUPS } from './navigation';
 
 /**
- * The route table is data so the e2e sweeps can read it; the icons are looked
- * up beside it. The two have to agree, or a destination renders without a
- * glyph — or throws on the first render, which this catches first.
+ * The route table is data so the e2e sweeps can read it, and the icons are
+ * looked up beside it. The two have to agree, or a destination renders without
+ * a glyph, or throws on the first render, which this catches first.
  */
 describe('the route table', () => {
   it('names thirteen distinct screens, the dashboard first', () => {

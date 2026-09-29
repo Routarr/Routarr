@@ -10,9 +10,9 @@ const t = useTranslations(Astro.props.locale);
  * demonstration above and the specifics below. The heading and its sentence
  * state the gap, and the explanation section that follows shows it.
  *
- * The steps keep `id="how"` so the index's own entry still resolves. A
- * heading is not an anchor, and an index that points at a section the page no
- * longer has is a fault this header has already shipped once.
+ * The steps carry `id="how"`, which the index's own entry points at. A heading
+ * is not an anchor, and `check.mjs` fails a link to an id the page does not
+ * have.
  */
 
 const STEPS: { number: string; name: Key; note: Key; reads: Key | string; writes: Key }[] = [
@@ -31,9 +31,8 @@ const reading = (value: Key | string) => (value.includes(' ') && !value.startsWi
       <h2 set:html={t('why.h2')} />
       {/* The gap, then the answer to it, in that order and as two paragraphs.
           The heading asserts that the Arrs know and do not choose, and the
-          answer below used to follow it directly: what they actually carry
-          and what becomes of it was shown by a ledger of five films, not
-          said, so removing the ledger left the claim with nothing under it. */}
+          second paragraph says what they actually carry and what becomes of
+          it, so the claim has something under it. */}
       <p>{t('why.p')}</p>
       <p set:html={t('why.p.2')} />
     </div>
@@ -47,8 +46,8 @@ const reading = (value: Key | string) => (value.includes(' ') && !value.startsWi
       {/* A flow, not a table. A sequence is not a grid: its rows have an
           order and only two of its cells are alike, so the ordering is the
           number and the pair is labelled per step rather than by a heading
-          three rows up. It is also the page's answer to carrying six framed
-          grids with banded headers where the landing carries one. */}
+          three rows up. It also spares this page one more framed grid with a
+          banded header, where the landing carries one. */}
       <ol class="flow">
         {
           STEPS.map((step, index) => (

@@ -1,9 +1,8 @@
 /**
  * Save a blob under `filename` through a transient object URL.
  *
- * A blob download keeps the API key out of the URL, unlike a plain link — and
- * four screens each wrote these six lines. Stated once, so the next export
- * cannot forget to revoke the URL it created.
+ * A blob download keeps the API key out of the URL, unlike a plain link.
+ * Stated once, so no export can forget to revoke the URL it created.
  */
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

@@ -2,7 +2,7 @@
 //!
 //! The two properties worth defending: a library with **no TMDb key at all**
 //! still routes on genre, language and certification, because Radarr and Sonarr
-//! carry those in the payload the sync already reads; and when two sources
+//! carry those in the payload the sync already reads. And when two sources
 //! disagree, the order the user set decides, field by field, with the loser
 //! still filling in what the winner had nothing to say about.
 
@@ -85,7 +85,7 @@ async fn sync_stores_the_metadata_radarr_already_carries() {
             .unwrap();
 
     assert_eq!(row.0.as_deref(), Some(r#"["Animation","Family"]"#));
-    // Radarr answers "Japanese"; a rule is written against `ja`.
+    // Radarr answers "Japanese", and a rule is written against `ja`.
     assert_eq!(row.1.as_deref(), Some("ja"));
     assert_eq!(row.2.as_deref(), Some("G"));
 }
@@ -152,16 +152,16 @@ async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
     let app = synced("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
-    // Radarr wins the genres above; keywords exist only in TMDb's answer and
+    // Radarr wins the genres above. Keywords exist only in TMDb's answer and
     // must still be reachable.
     seed_rule(&app, serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
 
     assert_eq!(decided_category(&app).await, "anime");
 }
 
-/// The Arr's own metadata is always read. A list saved without it — by an
-/// older version, or by hand in the database — must not leave a library whose
-/// genre rules silently stop matching, and the API refuses to save one.
+/// The Arr's own metadata is always read. A list saved without it, by an older
+/// version or by hand in the database, must not leave a library whose genre
+/// rules silently stop matching, and the API refuses to save one.
 #[tokio::test]
 async fn the_arr_source_cannot_be_turned_off() {
     let arr = FakeArr::start().await;
@@ -208,7 +208,7 @@ async fn the_explanation_names_the_source_that_answered() {
     let condition = &explanation["rule_traces"][0]["conditions"][0];
 
     assert_eq!(condition["matched"], true);
-    // Two sources hold genres and they disagree; without this the explanation
+    // Two sources hold genres and they disagree. Without this the explanation
     // cannot be checked against either of them.
     assert_eq!(condition["source"], "arr");
 }
@@ -241,7 +241,7 @@ async fn the_provider_catalogue_reports_what_each_source_needs() {
     let arr = &response["providers"][0];
     assert_eq!(arr["id"], "arr");
     assert_eq!(arr["needs_key"], false);
-    // Usable with no configuration at all — the whole point of it.
+    // Usable with no configuration at all: the whole point of it.
     assert_eq!(arr["configured"], true);
 
     let tmdb = &response["providers"][1];
@@ -249,7 +249,7 @@ async fn the_provider_catalogue_reports_what_each_source_needs() {
     assert_eq!(tmdb["needs_key"], true);
     assert_eq!(tmdb["configured"], false);
     // Named, so the interface can say what to set rather than "a key is
-    // missing" — which nobody can act on.
+    // missing", which nobody can act on.
     assert_eq!(tmdb["key_env"], "TMDB_API_KEY");
 
     assert_eq!(response["order"][0], "arr");
@@ -298,9 +298,9 @@ async fn listed_has_metadata(app: &TestApp) -> bool {
 
 /// A source switched off stops speaking for an item.
 ///
-/// The predicate filtered on nothing, so a row cached by a source the operator
-/// disabled yesterday still made the column promise metadata — while the engine,
-/// which reads the enabled order, treated the same item as undescribed.
+/// The engine reads the enabled order. A predicate filtering on nothing would
+/// let a row cached by a source the operator disabled yesterday make the column
+/// promise metadata, while the engine treats the same item as undescribed.
 #[tokio::test]
 async fn a_disabled_source_no_longer_answers_for_an_item() {
     let arr = FakeArr::start().await;
@@ -327,9 +327,9 @@ async fn a_disabled_source_no_longer_answers_for_an_item() {
 
 /// A series TheTVDB describes counts, though it carries no TMDb id.
 ///
-/// The predicate looked only in the `tmdb_id` namespace, so a series enriched by
-/// a source that addresses by `tvdb_id` read as undescribed for ever — on the
-/// one screen somebody opens to find out why a rule matches nothing.
+/// A predicate looking only in the `tmdb_id` namespace would read a series
+/// enriched by a source that addresses by `tvdb_id` as undescribed for ever, on
+/// the one screen somebody opens to find out why a rule matches nothing.
 #[tokio::test]
 async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     let arr = FakeArr::start().await;
@@ -363,7 +363,7 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
 /// The column, the diagnostics count and the warning beside it are one question.
 ///
 /// Three spellings of it is how a badge ends up contradicting the number above
-/// it, and each of the three had its own.
+/// it.
 #[tokio::test]
 async fn the_three_metadata_counters_agree_on_one_library() {
     let arr = FakeArr::start().await;

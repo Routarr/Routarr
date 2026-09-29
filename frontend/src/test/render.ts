@@ -7,7 +7,7 @@ type Render = typeof testingLibraryRender;
  * Render with a seeded dictionary.
  *
  * The dictionary is a module-level rune, so seeding is a call rather than a
- * wrapper around every component under test — but it has to happen *before* the
+ * wrapper around every component under test, but it has to happen *before* the
  * component renders, since `t()` is read synchronously during the first pass.
  *
  * Only the strings a test asserts on are seeded. Anything absent renders as its

@@ -3,24 +3,24 @@
 
 Checks, in order of how much a failure would hurt:
 
-1. every key referenced in the code exists in `locales/en.json`
-   (a missing key renders as a raw identifier in the UI);
-2. placeholders match across languages, so a translation cannot drop the very
-   value the sentence is about;
-3. no language carries a key English does not have (a rename left behind);
-4. no key is left behind once its last use is deleted;
-5. no language falls below MIN_COMPLETION;
-6. every dictionary keeps the English key order, which `add-locale.py` writes:
-   a file out of order has every line moved by the next run of it;
-7. a core term reads one way inside each language (`scripts/glossary.json`):
+1. Every key referenced in the code exists in `locales/en.json`
+   (a missing key renders as a raw identifier in the UI).
+2. Placeholders match across languages, so a translation cannot drop the very
+   value the sentence is about.
+3. No language carries a key English does not have (a rename left behind).
+4. No key is left behind once its last use is deleted.
+5. No language falls below MIN_COMPLETION.
+6. Every dictionary keeps the English key order, which `add-locale.py` writes:
+   a file out of order has every line moved by the next run of it.
+7. A core term reads one way inside each language (`scripts/glossary.json`):
    a reader who meets two words for "apply" cannot tell they are one act.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
-completion, so the picker states the truth rather than hiding it. Gating at 90%
-would have blocked every translation on its way in, which is the opposite of
-what a translation workflow needs. What the floor still catches is a file that
-is broken rather than merely incomplete.
+completion, so the picker states the truth rather than hiding it. A floor near
+full completion would block every translation on its way in, which is the
+opposite of what a translation workflow needs. What the floor catches is a file
+that is broken rather than merely incomplete.
 
 Run from the repository root: `python3 scripts/check-locales.py`
 """
@@ -218,7 +218,7 @@ def main() -> int:
             problems.append(
                 f"{language}.json is only {completion[language]:.0%} translated "
                 f"({len(missing)} keys missing, minimum {MIN_COMPLETION:.0%}). "
-                f"A partial translation is fine — this looks like a broken file."
+                f"A partial translation is fine, but this looks like a broken file."
             )
 
     # 4. Defined but never used.

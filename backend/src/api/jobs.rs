@@ -1,4 +1,4 @@
-//! Tasks feed — the running and recent background jobs.
+//! Tasks feed: the running and recent background jobs.
 
 use super::{Json, Query};
 use axum::extract::{Path, State};

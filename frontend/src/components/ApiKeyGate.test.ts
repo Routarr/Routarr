@@ -24,7 +24,7 @@ const STRINGS = {
 const reload = vi.fn();
 
 beforeEach(() => {
-  // `location.reload` would navigate for real; the assertion is that it is
+  // `location.reload` would navigate for real. The assertion is that it is
   // called, not what it does.
   Object.defineProperty(window, 'location', {
     value: { ...window.location, reload },
@@ -58,8 +58,8 @@ describe('ApiKeyGate', () => {
     await fireEvent.submit(field.closest('form') as HTMLFormElement);
 
     expect(localStorage.getItem('routarr.apiKey')).toBe('a-real-key');
-    // Every page in the tree has already fetched and failed; re-mounting them
-    // all is exactly what a reload does.
+    // Every page in the tree has already fetched and failed, and re-mounting
+    // them all is exactly what a reload does.
     expect(reload).toHaveBeenCalled();
   });
 

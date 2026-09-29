@@ -27,7 +27,7 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
  * The form two spellings of one value share, mirroring `normalise_value` in the
  * rule engine.
  *
- * Only used to tell values apart in the interface — to keep a chip from being
+ * Only used to tell values apart in the interface: to keep a chip from being
  * added twice under `Science-Fiction` and `Science Fiction`, and to filter the
  * list without demanding the exact case or accent. What is stored and sent is
  * always the value as the library spells it.
@@ -56,7 +56,7 @@ export function removeValue(values: string[], value: string): string[] {
 
 /**
  * The same condition with each value once, as matching compares them. The
- * server refuses a repeat, but a rule stored before it did still arrives with
+ * server refuses a repeat on a write, but a stored rule can still arrive with
  * one, and the editor keys each chip by its value.
  */
 export function withoutRepeats(condition: Condition): Condition {
@@ -71,8 +71,8 @@ export function withoutRepeats(condition: Condition): Condition {
 /**
  * Split a comma-separated input, dropping blanks and equivalent repeats.
  *
- * The free-text path, kept for the axes the library cannot enumerate — a
- * keyword, a title fragment. A comma separates values and never means "and":
+ * The free-text path, kept for the axes the library cannot enumerate (a
+ * keyword, a title fragment). A comma separates values and never means "and":
  * every value in one condition is an alternative to the others.
  */
 export function parseStringList(input: string): string[] {
@@ -117,7 +117,7 @@ export function parseYearBound(input: string): number | null {
  * Whether a condition can be offered on a rule of this media type.
  *
  * A rule scoped to `both` is evaluated against films *and* series, so a
- * condition that only one of them carries can never hold for the other — the
+ * condition that only one of them carries can never hold for the other. The
  * answer there is the intersection, not the union. Scoping the rule to the
  * type the condition needs is what expresses "series only".
  */
@@ -132,14 +132,14 @@ export function conditionAppliesTo(spec: ConditionSpec, mediaType: string): bool
  * Name what the library holds from the vocabulary that defines it.
  *
  * The library counts values and the closed vocabulary names them, and a value
- * in both needs both. Read from the counts alone, the five language codes
- * actually synced were the only ones shown bare — `en` and `fr` above a list of
+ * in both needs both. Read from the counts alone, the codes the library holds
+ * would be the only ones shown bare, `en` and `fr` above a list of
  * `Afrikaans (af)`, which reads as the known ones being the ones nobody
  * bothered to name.
  *
  * Stated here rather than at each call site: two screens read these axes, the
- * rule builder's picker and the panel above the rule table, and only one of
- * them had it.
+ * rule builder's picker and the panel above the rule table, and a copy in each
+ * would let one of them show the codes bare.
  */
 export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
   if (!vocabulary.length) return held;

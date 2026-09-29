@@ -5,8 +5,8 @@ interface Props { locale: Locale }
 const { locale } = Astro.props;
 const t = useTranslations(locale);
 
-/* The second button leaves the page: what it offers is the whole detail page,
-   which is where the sections this one dropped now live. */
+/* The second button leaves the page: it offers the whole detail page, where
+   the sections the landing leaves out live. */
 const detail = pathFor(locale, 'how');
 
 /**
@@ -95,8 +95,8 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
 
       {/* A region that scrolls has to be reachable from the keyboard, or the
           rows past the edge belong to the mouse alone. axe names it
-          `scrollable-region-focusable`; the application reconciles the same
-          rule in `TableRegion`. */}
+          `scrollable-region-focusable`, and the application reconciles the
+          same rule in `TableRegion`. */}
       <div class="table-scroll" role="region" aria-label={t('hero.plan')} tabindex="0">
         <table class="plan-table">
           <caption class="sr-only">{t('hero.caption')}</caption>

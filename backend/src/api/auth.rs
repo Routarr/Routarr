@@ -1,11 +1,11 @@
 //! Authentication, one mode at a time.
 //!
 //! Routarr sits in a homelab, often behind a reverse proxy, but its API can
-//! move files on disk — so a protected call carries a credential unless the
+//! move files on disk, so a protected call carries a credential unless the
 //! operator asked for none. Every mode ends at the same place: an [`Identity`]
 //! in the request's extensions, which is what the rest of the application
 //! reads. Nothing downstream knows which mode produced it, and that is the
-//! point — adding a mode is one arm here, not a change everywhere.
+//! point: adding a mode is one arm here, not a change everywhere.
 //!
 //! There are no roles. The Servarr applications have none either: their `User`
 //! model carries a name and a password hash and nothing else, and a single
@@ -31,15 +31,15 @@ pub const SESSION_COOKIE: &str = "routarr_session";
 /// Carries an OIDC attempt's `state` from the browser that left to the
 /// browser that comes back. The callback accepts a `code` for the attempt it
 /// names only from that browser: without it, a link carrying someone else's
-/// `code` and `state` signed the reader in as that someone (login CSRF).
+/// `code` and `state` would sign the reader in as that someone (login CSRF).
 pub const OIDC_COOKIE: &str = "routarr_oidc";
 
 /// Who is making a request, once a mode has decided.
 ///
 /// It carries no role on purpose: there is one level of access, and the mode
 /// decides who reaches it. The subject is what the `subject` column of
-/// `decisions` and `execution_logs` records, when the mode names anybody —
-/// see [`Identity::actor`].
+/// `decisions` and `execution_logs` records, when the mode names anybody (see
+/// [`Identity::actor`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub subject: String,
@@ -55,8 +55,8 @@ impl Identity {
     /// The name worth recording on a write, if the mode vouched for one.
     ///
     /// `none` and `external` let everybody through under one shared subject, so
-    /// storing it would fill an audit column with a word that names nobody —
-    /// and reads, on the History screen, exactly like an attribution.
+    /// storing it would fill an audit column with a word that names nobody,
+    /// and that reads, on the History screen, exactly like an attribution.
     pub fn actor(&self) -> Option<&str> {
         match self.source {
             AuthMode::None | AuthMode::External => None,
@@ -68,7 +68,7 @@ impl Identity {
 /// Resolve an identity for the request, or refuse it.
 ///
 /// The one place a mode is consulted. A handler that needs to know who called
-/// reads `Extension<Identity>`; nothing needs to ask how they proved it.
+/// reads `Extension<Identity>`, and nothing needs to ask how they proved it.
 pub async fn authenticate(
     State(state): State<AppState>,
     mut request: Request<Body>,
@@ -195,7 +195,7 @@ pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 /// "This one" is the host the browser addressed, which behind a reverse proxy
 /// is `X-Forwarded-Host` rather than `Host`: nginx sends the upstream's own
 /// name as `Host` unless told otherwise, and compared against that, every
-/// write of every session behind it was refused.
+/// write of every session behind it would be refused.
 fn same_origin(request: &Request<Body>) -> bool {
     if !matches!(*request.method(), Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
         return true;
@@ -314,7 +314,7 @@ pub async fn rotate_api_key(
 pub async fn delete_api_key(State(state): State<AppState>) -> AppResult<StatusCode> {
     refuse_if_pinned(&state)?;
     // In `apikey` mode it is the only credential there is, and the middleware
-    // refuses every request once it is gone — including the one that would put
+    // refuses every request once it is gone, including the one that would put
     // it back.
     if state.config.auth_mode == AuthMode::ApiKey {
         return Err(AppError::Conflict(
@@ -432,15 +432,16 @@ pub async fn login(
     };
 
     // One cheap refusal before the expensive one. A password shorter than the
-    // minimum cannot be the stored one — `change_password` refuses to set one —
-    // so hashing it would spend 355 ms proving what its length already says.
-    // The minimum is public: the refusal above states it.
+    // minimum cannot be the stored one, since `change_password` refuses to set
+    // one, so hashing it would spend a whole argon2 check proving what its
+    // length already says. The minimum is public: the refusal above states it.
     if credentials.password.chars().count() < MIN_PASSWORD_LENGTH {
         return refuse();
     }
     // The username is *not* checked first: answering at once on a wrong name
-    // and 355 ms later on the right one tells a caller which name exists. The
-    // hash is verified either way and the name is required to match too.
+    // and only after a hash on the right one tells a caller which name
+    // exists. The hash is verified either way and the name is required to
+    // match too.
     let name_matches = username == credentials.username.trim();
 
     // Bounded, and off the runtime. See `SignInThrottle`: argon2id is what
@@ -624,7 +625,7 @@ pub struct PasswordChange {
 
 /// Replace the password, having proved the old one.
 ///
-/// Behind the middleware, so a session already opened it — and still asking for
+/// Behind the middleware, so a session already opened it, and still asking for
 /// the current password, because a session left open on a shared machine is
 /// exactly the case a password change must not be free in.
 pub async fn change_password(
@@ -636,9 +637,9 @@ pub async fn change_password(
         return forbidden("This installation has no account to change");
     };
     // Through the throttle like a sign-in: this route is behind the middleware,
-    // so the queue is not the point — keeping argon2 off the runtime is. A
-    // check left there holds a worker for 355 ms, and on a small machine that
-    // is every other request waiting.
+    // so the queue is not the point, and keeping argon2 off the runtime is. A
+    // check left there holds a worker for the whole hash, and on a small
+    // machine that is every other request waiting.
     // Busy reads as "not this password": the caller retries, and a change that
     // proceeded on a check that never ran would be the one bug here worth
     // fearing.
@@ -703,7 +704,7 @@ fn cookie_header(
 
 /// Whether the browser reached this request over TLS.
 ///
-/// Routarr itself serves plain HTTP; the proxy that terminates TLS says so
+/// Routarr itself serves plain HTTP, and the proxy that terminates TLS says so
 /// through `X-Forwarded-Proto`. An OIDC redirect registered as `https://` is
 /// the same fact stated in the configuration, for a proxy that forwards
 /// nothing.
@@ -727,8 +728,8 @@ mod tests {
         let named = Identity { subject: "alice".to_string(), source: AuthMode::Forms };
         assert_eq!(named.actor(), Some("alice"));
 
-        // `none` and `external` share one subject that names nobody; storing it
-        // would read on the History screen exactly like an attribution.
+        // `none` and `external` share one subject that names nobody, and storing
+        // it would read on the History screen exactly like an attribution.
         for source in [AuthMode::None, AuthMode::External] {
             assert_eq!(Identity::anonymous(source).actor(), None);
         }

@@ -100,9 +100,9 @@ describe('RuleEditor', () => {
   });
 
   /**
-   * A priority is a whole number. `1.5` reached the server, which refused it in
-   * English inside a 422 the live check swallows, and Save stayed lit on a rule
-   * that could not be saved.
+   * A priority is a whole number. Sent to the server, `1.5` is refused in
+   * English inside a 422 the live check swallows, and Save would stay lit on a
+   * rule that cannot be saved.
    */
   it('holds Save on a fractional priority and says why', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
@@ -148,7 +148,7 @@ describe('RuleEditor', () => {
     await waitFor(() => expect(validate).toHaveBeenCalledTimes(1));
 
     // Four keystrokes in a row. Without the debounce each one asks, so the
-    // count is what pins it — a test that never types cannot fail for the
+    // count is what pins it: a test that never types cannot fail for the
     // reason its name gives.
     await userEvent.type(await screen.findByLabelText('Rule name'), 'four');
 
@@ -209,7 +209,7 @@ describe('RuleEditor', () => {
     });
     render();
 
-    // The question is still asked — the answer is simply not thrown at anyone.
+    // The question is still asked, and the answer is simply not thrown at anyone.
     await waitFor(() => expect(validate).toHaveBeenCalled());
     expect(screen.queryByText('A rule needs a name')).toBeNull();
     // And Save is not dead: a button disabled by a reason nobody is shown is
@@ -222,7 +222,7 @@ describe('RuleEditor', () => {
 
   /**
    * An existing rule was saved once, so an issue on it is news about something
-   * that changed underneath — a category deleted since, say — and it is said
+   * that changed underneath (a category deleted since, say), and it is said
    * on open.
    */
   it('speaks immediately about a rule that already exists', async () => {
@@ -348,8 +348,8 @@ describe('RuleEditor', () => {
 });
 
 /**
- * `Rules` already holds the facets for its panel; the editor asking again
- * aggregated the whole library a second time every time it opened.
+ * `Rules` already holds the facets for its panel, and the editor asking again
+ * would aggregate the whole library a second time every time it opens.
  */
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {

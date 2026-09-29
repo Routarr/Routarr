@@ -120,9 +120,9 @@ describe('LoginGate', () => {
 
     const button = screen.getByRole('button', { name: 'Sign in' });
     expect(button).toBeDisabled();
-    // And not only the button: a submit that reaches the handler anyway — a
+    // And not only the button: a submit that reaches the handler anyway (a
     // form driven by a script, or a browser that ignores a disabled default
-    // button — sends nothing either.
+    // button) sends nothing either.
     await fireEvent.submit(button.closest('form') as HTMLFormElement);
     expect(login).not.toHaveBeenCalled();
   });

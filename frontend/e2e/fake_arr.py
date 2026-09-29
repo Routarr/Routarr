@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A Radarr stand-in for the end-to-end suite.
 
-Deliberately separate from src/tests/fake_arr.rs: that one lives inside the Rust
-test process, this one has to be a real server the release binary can reach.
+Deliberately separate from backend/src/tests/fake_arr.rs: that one lives inside
+the Rust test process, this one has to be a real server the release binary can
+reach.
 
 State is in memory and mutated by the bulk editor, so a test can assert that a
 move really reached "Radarr" rather than only that Routarr thinks it did.
@@ -44,7 +45,7 @@ def movie(
         "hasFile": has_file,
         "status": "released",
         "added": "2026-08-19T10:00:00Z",
-        # Radarr reports these itself; they are what lets Routarr classify with
+        # Radarr reports these itself. They are what lets Routarr classify with
         # no TMDb key, which is how the end-to-end stack runs.
         "genres": genres if genres is not None else ["Drama"],
         "originalLanguage": {"id": 1, "name": "English"},

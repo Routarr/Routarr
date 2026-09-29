@@ -92,8 +92,8 @@
   }
 
   // Shown inside the dialog: the page banner sits under a modal that makes
-  // the page inert, dimmed at 85 % with a Dismiss nobody can press, so a 400
-  // on the URL looked like a Save button that did nothing.
+  // the page inert, dimmed, with a Dismiss nobody can press, and a 400 on the
+  // URL would look like a Save button that did nothing.
   let formError = $state<string | null>(null);
 
   // What the typed values answered, a success or a failure, kept with the
@@ -443,8 +443,8 @@
                 </td>
                 <td>
                   <!-- Encrypted is a property of the stored value, not an
-                       outcome — the last green that meant something other than
-                       "this went well". -->
+                       outcome, so it is not green: green means "this went
+                       well". -->
                   <span
                     class="badge {instance.api_key_encrypted
                       ? 'badge-value muted'
@@ -470,7 +470,7 @@
                   </span>
                   {#if instance.last_sync_attempt_at && instance.last_sync_attempt_at !== instance.last_sync_at}
                     <!-- Only when they differ, which is exactly when a later
-                         attempt failed — and the useful thing to say is when
+                         attempt failed. The useful thing to say then is when
                          that was, or the badge looks stale. -->
                     <span
                       class="text-muted text-xs"
@@ -498,8 +498,9 @@
                 </td>
                 <td>
                   <div class="row-actions">
-                    <!-- Two visible, the rest behind the menu: six buttons
-                         across two columns push the row off a 1440px screen. -->
+                    <!-- Two visible, the rest behind the menu: every action as
+                         a button, across two columns, pushes the row off a
+                         desktop screen. -->
                     <button
                       class="btn btn-secondary btn-sm"
                       disabled={busyId !== null}
@@ -614,7 +615,7 @@
       />
       <!-- `novalidate`: the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
-       handler. Nothing is traded away for it — Save is held until the required
+       handler. Nothing is traded away for it: Save is held until the required
        fields are filled, so the constraint is enforced before the press rather
        than complained about after it. -->
       <form novalidate onsubmit={submit}>

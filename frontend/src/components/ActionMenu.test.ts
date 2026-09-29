@@ -5,8 +5,8 @@ import { renderWithI18n } from '../test/render';
 import ActionMenu from './ActionMenu.svelte';
 
 /**
- * The overflow menu exists because seven buttons in one row run past a 1440px
- * screen, and the ones past the edge go off it with nothing saying so.
+ * The overflow menu exists because a row with every action as a button runs
+ * past the screen, and the ones past the edge go off it with nothing saying so.
  */
 
 const STRINGS = { Actions: 'Actions' };
@@ -76,8 +76,8 @@ describe('ActionMenu', () => {
 
   /**
    * `role="menu"` announces a menu, and a screen reader user then reaches for
-   * the arrows: a menu that only answered clicks was announced as something it
-   * was not.
+   * the arrows: a menu that only answers clicks is announced as something it
+   * is not.
    */
   it('moves the focus in on opening and walks the items with the arrows', async () => {
     show([

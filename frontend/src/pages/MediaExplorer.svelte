@@ -152,9 +152,9 @@
                     {:else}
                       <Tv size={16} class="text-sonarr" />
                     {/if}
-                    <!-- One line, the whole title on hover. A long title wrapped
-                         and took its row to twice the height of its neighbours,
-                         and the year drifted off on its own. -->
+                    <!-- One line, the whole title on hover. A long title that
+                         wraps takes its row to twice the height of its
+                         neighbours, and the year drifts off on its own. -->
                     <strong class="cell-title" title={media.title}>{media.title}</strong>
                     {#if media.year}<span class="text-muted">({media.year})</span>{/if}
                   </div>
@@ -175,13 +175,14 @@
                     <span class="badge badge-value">{media.computed_category}</span>
                   {:else}
                     <!-- A pill either way. One value as a pill and the next as
-                         grey prose read as two kinds of data in one column. -->
+                         grey prose would read as two kinds of data in one
+                         column. -->
                     <span class="badge badge-value muted">{t('NotEvaluated')}</span>
                   {/if}
                 </td>
                 <td>
                   <!-- Having metadata is not an outcome, so it carries no status
-                       colour; missing it stops genre and keyword rules from
+                       colour. Missing it stops genre and keyword rules from
                        matching, which is a warning. -->
                   <span class="badge {media.has_metadata ? 'badge-value muted' : 'badge-warning'}">
                     {t(media.has_metadata ? 'MetadataCached' : 'MetadataMissing')}

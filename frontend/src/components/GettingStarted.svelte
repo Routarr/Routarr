@@ -78,7 +78,7 @@
         {@const current = step.id === progress.current}
         <li class="guide-step" class:is-done={step.done} class:is-current={current}>
           <!-- Numbered like the banners count, required steps only: an optional
-               step never holds the guide back, so it takes no place in "of 4". -->
+               step never holds the guide back, so it takes no place in the total. -->
           <span class="guide-step-mark" aria-hidden="true">
             {#if step.done}
               <CheckCircle2 size={20} />

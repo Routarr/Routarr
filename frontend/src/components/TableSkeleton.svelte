@@ -4,8 +4,8 @@
   /**
    * Placeholder rows while a table loads.
    *
-   * A spinner in the middle of an empty card says "wait"; it does not say what
-   * is coming or how tall it will be, so the page jumps when the data lands.
+   * A spinner in the middle of an empty card says "wait", but not what is
+   * coming or how tall it will be, so the page jumps when the data lands.
    * These hold the shape. `aria-hidden` because a screen reader is told the
    * table is busy, not shown grey rectangles.
    */

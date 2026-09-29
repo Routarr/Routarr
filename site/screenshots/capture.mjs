@@ -95,7 +95,7 @@ if (await why.count()) {
 } else {
   // The differentiator missing from the site is not a shot to skip: the run
   // ends here, and the pair on disk stays what it was.
-  throw new Error('no "Why?" button found — the library has no decision to explain');
+  throw new Error('no "Why?" button found: the library has no decision to explain');
 }
 
 // --- the Open Graph card -------------------------------------------------

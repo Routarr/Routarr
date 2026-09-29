@@ -39,17 +39,15 @@ pub struct Decision {
     /// Set when the move was rolled back through `POST /decisions/revert`.
     #[serde(default)]
     pub reverted_at: Option<String>,
-    /// What caused this decision: `manual`, `schedule` or `webhook`.
-    ///
-    /// Null on rows written before the column existed — attributing them after
-    /// the fact would be a guess, and a guess here reads as a fact.
+    /// What caused this decision: `manual`, `schedule` or `webhook`. Every
+    /// writer sets it. The column is nullable, and a guess at a missing one
+    /// would read as a fact.
     #[serde(default)]
     pub actor: Option<String>,
     /// Who asked, when the mode vouched for a name.
     ///
-    /// Null for the scheduler, which nobody asked; for the modes that let
-    /// everyone through under one anonymous subject; and for rows written
-    /// before the column existed.
+    /// Null when nobody asked (the scheduler or a webhook), and under a mode
+    /// that lets everyone through under one shared subject.
     #[serde(default)]
     pub subject: Option<String>,
 }
@@ -73,8 +71,8 @@ pub struct ApplyDecisionsRequest {
     pub decision_ids: Vec<String>,
     #[serde(default)]
     pub move_files: bool,
-    /// The guardrails the caller has looked at, by name. Three of them ask,
-    /// and a boolean here meant answering one answered all three.
+    /// The guardrails the caller has looked at, by name, so that answering
+    /// one question answers no other.
     #[serde(default)]
     pub confirm: crate::services::executor::Confirmed,
 }
@@ -117,7 +115,7 @@ pub struct SimulationRequest {
     /// Also keep decisions for media already in the right place.
     #[serde(default)]
     pub persist_unchanged: bool,
-    /// Cap the payload size; the counters always reflect the full library.
+    /// Cap the payload size. The counters always reflect the full library.
     #[serde(default)]
     pub max_returned: Option<usize>,
 }
@@ -153,12 +151,12 @@ pub struct CapacityForecast {
     pub instance_name: Option<String>,
     pub path: String,
     /// Bytes arriving from a *different* filesystem, which is the only traffic
-    /// that consumes space — see `fits`.
+    /// that consumes space (see `fits`).
     pub incoming_bytes: i64,
     /// Bytes arriving from a folder that reports the same free space, and so
     /// almost certainly sits on the same filesystem. A move there is a rename
-    /// and costs nothing; counted separately rather than dropped, because a
-    /// figure the user cannot see is a figure they cannot check.
+    /// and costs nothing. It is counted separately rather than dropped, because
+    /// a figure the user cannot see is a figure they cannot check.
     pub same_filesystem_bytes: i64,
     pub free_bytes: i64,
     pub items: usize,

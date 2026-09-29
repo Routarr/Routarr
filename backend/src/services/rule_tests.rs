@@ -1,8 +1,8 @@
 //! Pinned expectations for the rule engine, and the runner that replays them.
 //!
-//! The rule preview answers "what would this change". Nothing answered "what
-//! must this *not* change" — and with first-match-by-priority, inserting one
-//! rule rebalances every rule below it. The routing that quietly moves is
+//! The rule preview answers "what would this change". A pinned case answers
+//! "what must this *not* change". With first-match-by-priority, inserting one
+//! rule rebalances every rule below it, and the routing that quietly moves is
 //! always the one nobody was looking at.
 //!
 //! This is cheap because `rule_engine` is pure: no I/O, no clock of its own,
@@ -25,7 +25,7 @@ pub struct RuleTest {
     pub name: String,
     pub media_type: String,
     /// The pinned `EvalContext`: the serialised `Media` and the merged
-    /// metadata. Read when a case is *run*, never sent to a client — the list
+    /// metadata. Read when a case is *run*, never sent to a client: the list
     /// endpoint returns every case, and the interface shows a name and a
     /// category. Skipped rather than trimmed at the handler so the struct stays
     /// the one thing that decides what a case is.
@@ -45,7 +45,7 @@ pub struct RuleTestResult {
     pub id: String,
     pub name: String,
     pub expected_category: String,
-    /// What the engine says today. `None` when the fixture no longer parses.
+    /// What the engine says today. `None` when the stored fixture fails to parse.
     pub actual_category: Option<String>,
     pub passed: bool,
     /// The rule that won, so a failure names what took the decision.
@@ -118,7 +118,7 @@ fn run_one(
 
     let media: Media = match serde_json::from_str(&case.media_json) {
         Ok(media) => media,
-        // A fixture that no longer parses is a failure, never a skip: a case
+        // A fixture that fails to parse is a failure, never a skip: a case
         // that stops running is a case that stops protecting anything.
         Err(e) => return fail(format!("the stored media snapshot no longer parses: {e}")),
     };

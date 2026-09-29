@@ -16,9 +16,9 @@
   /**
    * Pinning is one click because the panel already holds the whole answer.
    *
-   * Everything a regression case needs — the item, the metadata that was
-   * merged, the category the engine chose — was resolved to render this. Asking
-   * the user to retype any of it is asking them not to bother.
+   * Everything a regression case needs (the item, the metadata that was
+   * merged, the category the engine chose) is already resolved to render this.
+   * Asking the user to retype any of it is asking them not to bother.
    */
   let pinning = $state(false);
   let pinned = $state(false);
@@ -128,7 +128,7 @@
         {/each}
       </div>
       <!-- Which sources actually contributed, in priority order. With one
-           source this is obvious; with several it is the only way to know
+           source this is obvious. With several it is the only way to know
            whether a genre came from the library or from TMDb. -->
       <p class="text-muted text-sm mt-2">
         {t('MetadataSources')}:

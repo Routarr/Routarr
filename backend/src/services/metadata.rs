@@ -6,7 +6,7 @@
 //!
 //! Two kinds of source:
 //!
-//! * `arr` costs nothing — Radarr and Sonarr return genres, original language
+//! * `arr` costs nothing: Radarr and Sonarr return genres, original language
 //!   and certification in the payload the sync already reads, so it is never
 //!   fetched, rate-limited or stale, and needs no key. It is what makes the
 //!   others optional.
@@ -44,8 +44,9 @@ pub enum Addressing {
     /// Answered from the `media` row. Nothing to look up, nothing to cache, no
     /// request: this is what `arr` is.
     Local,
-    /// The identifier is a column of `media` — interpolated into SQL, so it must
-    /// stay a literal from this file and never anything a user can influence.
+    /// The identifier is a column of `media`. It is interpolated into SQL, so it
+    /// must stay a literal from this file and never anything a user can
+    /// influence.
     Column(&'static str),
     /// The source knows none of our identifiers, so the item has to be found by
     /// title and year and the answer remembered in `source_identifiers`.
@@ -67,14 +68,14 @@ pub struct ProviderInfo {
     /// The environment variable that credential is read from.
     ///
     /// Named here so the interface can say *which* variable to set rather than
-    /// "an API key is missing" — a message the user cannot act on. `None` for a
+    /// "an API key is missing", a message the user cannot act on. `None` for a
     /// source that authenticates nothing.
     pub key_env: Option<&'static str>,
     pub addressing: Addressing,
     pub fields: &'static [MetadataField],
 }
 
-/// Every source this build knows about, in no particular order — priority is
+/// Every source this build knows about, in no particular order: priority is
 /// the user's, held in the `metadata_providers` setting.
 pub const PROVIDERS: &[ProviderInfo] = &[
     ProviderInfo {
@@ -182,7 +183,8 @@ pub fn info(id: &str) -> Option<&'static ProviderInfo> {
 /// Parse the `metadata_providers` setting into an order.
 ///
 /// An unknown id is dropped rather than refused: a database written by a newer
-/// build that knew `anilist` must still route on this one, minus that source.
+/// build that knows a source this one lacks must still route on this one,
+/// minus that source.
 /// A duplicate keeps only its first, highest, position.
 pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
     let mut seen: Vec<&'static ProviderInfo> = Vec::new();
@@ -193,8 +195,9 @@ pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
             seen.push(provider);
         }
     }
-    // `arr` is always read, last if nowhere else: a value saved before the
-    // validator required it must not leave a library with no source at all.
+    // `arr` is always read, last if nowhere else: the validator refuses a list
+    // without it, and a stored value written around the validator must not
+    // leave a library with no source at all.
     if !seen.iter().any(|p| p.id == "arr")
         && let Some(arr) = info("arr")
     {
@@ -206,9 +209,9 @@ pub fn parse_order(raw: &str) -> Vec<&'static ProviderInfo> {
 /// Metadata sources as the user ordered them, highest priority first, from the
 /// `metadata_providers` setting.
 ///
-/// An absent setting is the shipped default. A setting set to the empty string
-/// means the user disabled every source, which is a legitimate choice for a
-/// library routed on paths and titles alone.
+/// An absent setting is the shipped default. Any stored value, the empty
+/// string included, still yields `arr` (see `parse_order`), so turning every
+/// fetched source off leaves the library routed on what the Arr reports.
 pub fn configured_order(setting: Option<&str>) -> Vec<&'static ProviderInfo> {
     match setting {
         Some(value) => parse_order(value),
@@ -232,7 +235,7 @@ pub fn covered_fields(providers: &[&'static ProviderInfo]) -> Vec<MetadataField>
 /// The `arr` source: what Radarr or Sonarr already told us about this item.
 ///
 /// Reads the row, never the network. A malformed `genres` payload yields no
-/// genres rather than an error, like `tag_labels` — one signal must not be able
+/// genres rather than an error, like `tag_labels`: one signal must not be able
 /// to break an evaluation.
 pub fn from_media(media: &Media) -> ProviderMetadata {
     ProviderMetadata {
@@ -251,6 +254,14 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
 }
 
 /// A source that has to be asked over the network.
+///
+/// A new source adds a variant here, and the compiler finds every exhaustive
+/// match on it. It does not find the arms that fall through to a default when
+/// the source is missing from them: `resolve` for a `Search` source (the source
+/// resolves nothing and is never fetched), `rate` for a paced public endpoint
+/// (it goes unpaced), `AppState::metadata_sources` (no client is ever built),
+/// and for a keyed source `provider_key_from` and `provider_keys_from` (its
+/// environment key is never read, and the source never counts as usable).
 #[derive(Debug, Clone)]
 pub enum FetchingSource {
     Tmdb(TmdbClient),
@@ -278,12 +289,12 @@ impl FetchingSource {
     /// The sustained ceiling, in requests per minute, and the burst an idle
     /// bucket holds.
     ///
-    /// Concurrency bounds how many requests are *open*; this bounds how many are
+    /// Concurrency bounds how many requests are *open*. This bounds how many are
     /// *made*. Four in flight against a fast source is forty a second, which is
     /// how a pass earns a 429 while never exceeding its concurrency cap.
     /// These are the *published* limits of the *public* endpoints, so they only
     /// apply while a source is pointed at one. A base URL the operator changed
-    /// is a mirror, a caching proxy or a local instance — it has its own limits,
+    /// is a mirror, a caching proxy or a local instance. It has its own limits,
     /// usually none, and pacing it to a third party's ceiling would be a delay
     /// bought for nothing.
     pub fn rate(&self) -> Option<(u32, u32)> {
@@ -295,7 +306,7 @@ impl FetchingSource {
             {
                 Some((90, 5))
             }
-            // Jikan documents three a second *and* sixty a minute; the minute is
+            // Jikan documents three a second *and* sixty a minute. The minute is
             // the binding one, and it is unofficial infrastructure that deserves
             // the politeness.
             Self::Jikan(client)
@@ -310,8 +321,9 @@ impl FetchingSource {
             {
                 Some((300, 10))
             }
-            // TMDb withdrew its published rate limit and TheTVDB never had one;
-            // concurrency is the only bound worth applying to them.
+            // TMDb and TheTVDB publish no rate limit, so concurrency is the only
+            // bound worth applying to them. A new source on a paced public
+            // endpoint lands here too until it has its own arm, and goes unpaced.
             _ => None,
         }
     }
@@ -329,7 +341,7 @@ impl FetchingSource {
     /// How many of this source's requests may be in flight at once.
     ///
     /// Jikan is an unofficial service with a documented handful of requests per
-    /// second; the shared setting is a ceiling, not a target, and exceeding it
+    /// second. The shared setting is a ceiling, not a target, and exceeding it
     /// here would only earn the 429 that stops the whole pass.
     pub fn concurrency(&self, configured: usize) -> usize {
         match self {
@@ -350,8 +362,9 @@ impl FetchingSource {
 
     /// Find this source's identifier for an item it has no shared id with.
     ///
-    /// Returns `None` when nothing matched — an answer in its own right, and the
-    /// one that stops the next pass from searching again for the same item.
+    /// Returns `None` when nothing matched. That is an answer in its own right,
+    /// and the one that stops the next pass from searching again for the same
+    /// item.
     pub async fn resolve(
         &self,
         title: &str,
@@ -376,6 +389,8 @@ impl FetchingSource {
                 ))
             }
             // Every other source is addressed by an id the library already has.
+            // A new `Search` source without its own arm lands here as well, and
+            // silently resolves nothing, so it is never fetched either.
             _ => Ok(None),
         }
     }
@@ -456,7 +471,7 @@ fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
 ///
 /// Deliberately strict. A search is the one place where a source can attach the
 /// *wrong* work to a media item, and a wrong genre routes a film into the wrong
-/// folder — which is the failure this whole application exists to avoid. Better
+/// folder, which is the failure this whole application exists to avoid. Better
 /// to resolve nothing and let the source below answer.
 fn pick_candidate<I>(title: &str, year: Option<i64>, candidates: I) -> Option<String>
 where
@@ -470,11 +485,11 @@ where
     for (id, candidate_year, titles) in candidates {
         let title_matches = titles.iter().any(|t| normalise_title(t) == wanted);
         // A release year drifts by one between databases (a December film is a
-        // January release elsewhere), so one year of tolerance — no more.
+        // January release elsewhere), so one year of tolerance and no more.
         let year_matches = match (year, candidate_year) {
             (Some(wanted), Some(found)) => (wanted - found).abs() <= 1,
-            // The library not knowing the year is not the candidate's fault; an
-            // exact title match alone still has to carry it.
+            // The library not knowing the year is not the candidate's fault, so
+            // an exact title match alone has to carry it.
             (None, _) => true,
             // The candidate not knowing its own year, when we know ours, is too
             // little to go on.
@@ -492,8 +507,8 @@ where
 /// Lowercase, strip punctuation, collapse whitespace.
 ///
 /// `"My Neighbor Totoro"`, `"my neighbour totoro"` and `"My Neighbor Totoro!"`
-/// are the same work; the spelling of the second is not handled and is not
-/// meant to be — this normalises, it does not guess.
+/// are the same work. The spelling of the second is not handled and is not
+/// meant to be: this normalises, it does not guess.
 pub fn normalise_title(title: &str) -> String {
     let mut out = String::with_capacity(title.len());
     let mut space = false;
@@ -519,7 +534,7 @@ pub fn local_key(media: &Media) -> String {
     local_key_of(media.tmdb_id, media.tvdb_id, media.imdb_id.as_deref(), &media.title, media.year)
 }
 
-/// The same, from loose columns — the enrichment pass reads six columns rather
+/// The same, from loose columns: the enrichment pass reads six columns rather
 /// than whole `Media` rows, and the two must agree or nothing would ever match.
 pub fn local_key_of(
     tmdb_id: Option<i64>,
@@ -654,10 +669,10 @@ pub struct CacheRow {
 ///
 /// `MetadataField` names five: genres, keywords, original language, origin
 /// countries, certification. The status, the synopsis and the poster are
-/// matchable by no condition, and the routing pass never opens them — yet
-/// `load_cache` read the whole row, and on a development library those three
-/// are 53% of it. A TMDb overview runs several times longer than an AniList
-/// one, so the share grows with the sources an operator adds.
+/// matchable by no condition, and the routing pass never opens them. A TMDb
+/// overview runs several times longer than an AniList one, so reading them in
+/// `load_cache` would load, for nothing, a share of the cache that grows with
+/// every source an operator adds.
 ///
 /// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows all
 /// three, and one row is not worth a second query to trim.
@@ -689,7 +704,7 @@ impl CacheRow {
 /// Every cached answer, keyed by `(source, external id, media type)`.
 ///
 /// Loaded whole, once per simulation: the alternative is one query per item and
-/// per source, which is the shape this project has already paid for once.
+/// per source, which the query count in `tests/scale.rs` refuses.
 pub async fn load_cache(
     pool: &SqlitePool,
 ) -> AppResult<std::collections::HashMap<(String, String, String), ProviderMetadata>> {

@@ -52,7 +52,7 @@ const RULES = [
   },
   {
     name: 'Concert films',
-    description: 'A music genre alone is not enough — Whiplash is not a concert.',
+    description: 'A music genre alone is not enough: Whiplash is not a concert.',
     target_category: 'concerts',
     media_type: 'movie',
     match_mode: 'all',
