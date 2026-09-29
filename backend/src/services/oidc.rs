@@ -1,7 +1,7 @@
 //! OpenID Connect, authorization code flow with PKCE.
 //!
 //! One level of access: whoever the provider lets through gets in. Routarr
-//! reads no group claim and keeps no user table — the subject is stored beside
+//! reads no group claim and keeps no user table. The subject is stored beside
 //! every decision and every write it causes, and that is the whole of what an
 //! identity buys here.
 //!
@@ -11,10 +11,10 @@
 //! authenticated with the client secret. OpenID Connect Core §3.1.3.7 says that
 //! in exactly this case "the TLS server validation MAY be used to validate the
 //! issuer in place of checking the token signature". The claims are still
-//! checked — issuer, audience, expiry and the nonce this flow generated — and
-//! what is skipped is JWKS fetching, key rotation and a JWT crypto dependency,
-//! none of which would add anything a compromised TLS channel had not already
-//! taken away.
+//! checked (issuer, audience, expiry and the nonce this flow generated). What
+//! is skipped is JWKS fetching, key rotation and a JWT crypto dependency, none
+//! of which would add anything a compromised TLS channel had not already taken
+//! away.
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
@@ -33,18 +33,18 @@ pub const FLOW_MINUTES: i64 = 10;
 /// How many sign-in attempts may sit unfinished at once.
 ///
 /// `/auth/oidc/start` is public, so anyone who reaches the port can insert
-/// rows, and nothing but the hourly maintenance pass removed them. Bounding it
-/// here rather than refusing past a threshold is deliberate: a cap that turns
-/// callers away hands an attacker a way to deny sign-in to the one account
-/// there is — the objection `SignInThrottle` already raises against lockouts.
-/// The *oldest* attempts are dropped instead, and a browser that has just
-/// started one is always among the newest.
+/// rows, and without this bound only the hourly maintenance pass removes them.
+/// Bounding it here rather than refusing past a threshold is deliberate: a cap
+/// that turns callers away hands an attacker a way to deny sign-in to the one
+/// account there is, the objection `SignInThrottle` already raises against
+/// lockouts. The *oldest* attempts are dropped instead, and a browser that has
+/// just started one is always among the newest.
 ///
 /// Wide, because the rows are the only thing between an anonymous flood and
-/// the operator's own attempt: at sixty-four, sixty-five requests in ten
-/// minutes evicted the flow of somebody answering their provider, and the
-/// rows cost a few hundred bytes each. Four thousand is a megabyte of disk
-/// for ten minutes against a flood nobody ever sees on a homelab port.
+/// the operator's own attempt: under a narrow cap, a few dozen requests in ten
+/// minutes evict the flow of somebody answering their provider. A row costs a
+/// few hundred bytes, so four thousand is a megabyte of disk for ten minutes
+/// against a flood nobody ever sees on a homelab port.
 const MAX_PENDING_FLOWS: i64 = 4096;
 
 /// The two endpoints a sign-in needs, as the provider states them.

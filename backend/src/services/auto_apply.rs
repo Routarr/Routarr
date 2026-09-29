@@ -5,13 +5,13 @@
 //!
 //! The case it exists for: Radarr fires `MovieAdded` the moment a film enters
 //! the library, before anything has been downloaded. The webhook syncs it,
-//! enriches it and evaluates the rules — and the right root folder is known
+//! enriches it and evaluates the rules, so the right root folder is known
 //! while the folder is still empty. Correcting it *then* costs one API call and
 //! moves no bytes. Waiting for a human means the file lands in the wrong place
 //! first and has to be moved afterwards.
 //!
-//! Everything here follows from that: if there is a file to move, this is no
-//! longer the cheap pre-download correction, and the decision goes back to the
+//! Everything here follows from that: if there is a file to move, the move is
+//! not the cheap pre-download correction, and the decision goes back to the
 //! human queue.
 
 use tracing::{debug, info, warn};
@@ -41,7 +41,7 @@ pub enum AutoApplyOutcome {
 ///
 /// `simulation_id` scopes the run: only decisions this very simulation wrote are
 /// eligible, so a background pass can never pick up a proposal the user has been
-/// sitting on. Errors are returned rather than swallowed; callers on a background
+/// sitting on. Errors are returned rather than swallowed. Callers on a background
 /// path log them and carry on, since a failed auto-apply must not fail the sync
 /// or the webhook that triggered it.
 pub async fn apply_simulation(
@@ -152,7 +152,7 @@ struct Candidate {
 /// with nothing to move, changing the root folder is a metadata edit that Radarr
 /// applies instantly and that `POST /decisions/revert` undoes just as cheaply.
 /// The moment files exist, the same edit either strands them at the old path or
-/// starts a real disk move — neither belongs in an unattended pass.
+/// starts a real disk move, and neither belongs in an unattended pass.
 async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<Vec<Candidate>> {
     let candidates = sqlx::query_as(
         "SELECT d.id AS decision_id, d.instance_id, m.arr_id, d.media_title

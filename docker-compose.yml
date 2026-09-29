@@ -12,8 +12,9 @@ services:
       - "9876:9876"
     volumes:
       # The container runs as uid 1000, and Docker creates a missing bind-mount
-      # directory owned by root — which it then cannot write. `mkdir -p data &&
-      # chown 1000:1000 data` before the first start, or use a named volume.
+      # directory owned by root, which the container then cannot write. Run
+      # `mkdir -p data && chown 1000:1000 data` before the first start, or use a
+      # named volume.
       - ./data:/data
     environment:
       - ROUTARR_PORT=9876
@@ -27,29 +28,29 @@ services:
       # changing the key then means changing this line and restarting.
       - ROUTARR_API_KEY=${ROUTARR_API_KEY:-}
       # `external` delegates to a reverse proxy and asks for nothing, so bind
-      # the port to that proxy alone. `none` turns authentication off entirely —
-      # only on a network where anything that can reach Routarr may also move
-      # your files.
+      # the port to that proxy alone. `none` turns authentication off entirely:
+      # use it only on a network where anything that can reach Routarr may also
+      # move your files.
       - ROUTARR_AUTH=${ROUTARR_AUTH:-apikey}
       # Encrypts the stored Arr API keys. Generated into /data/routarr.key when
-      # unset — back that file up with the database.
+      # unset: back that file up with the database.
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
-      # Only while rotating ROUTARR_SECRET_KEY; remove afterwards.
+      # Only while rotating ROUTARR_SECRET_KEY. Remove it afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
       # Optional. Set before the metadata sources are first saved, it lists TMDb
       # after Radarr and Sonarr. Afterwards, TMDb is turned on in the interface.
       - TMDB_API_KEY=${TMDB_API_KEY:-}
     restart: unless-stopped
     # Routarr opens a socket, reads and writes /data, and makes outbound HTTPS
-    # calls. None of that needs a Linux capability, so it drops all of them —
-    # the image already runs as uid 1000, and this is what stops a future
+    # calls. None of that needs a Linux capability, so it drops all of them.
+    # The image already runs as uid 1000, and this is what stops a future
     # dependency from quietly using one. `no-new-privileges` closes the other
     # half: no setuid binary in the image can raise what this line lowered.
     #
     # Not `read_only: true`. SQLite writes its `-wal` and `-shm` beside the
     # database, backups land in /data/backups, and the master key is generated
-    # there on first start — a read-only root filesystem would need /data and
-    # /tmp carved out again and buys nothing this does not already.
+    # there on first start. A read-only root filesystem would need /data and
+    # /tmp carved out again, and buys nothing this does not already.
     cap_drop:
       - ALL
     security_opt:

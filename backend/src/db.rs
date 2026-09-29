@@ -9,7 +9,7 @@ use crate::crypto;
 
 /// Migrations embedded in the binary, applied in order, exactly once.
 ///
-/// Adding a `.sql` file to `migrations/` is not enough — it must be listed here.
+/// Adding a `.sql` file to `migrations/` is not enough: it must be listed here.
 const MIGRATIONS: &[(&str, &str)] = &[
     ("001_initial_schema", include_str!("../migrations/001_initial_schema.sql")),
     ("002_onboarding", include_str!("../migrations/002_onboarding.sql")),
@@ -75,7 +75,7 @@ pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
 ///
 /// A backup taken on a newer Routarr carries a schema this binary has no
 /// migration for. Restoring it would leave the database ahead of the code that
-/// has to read it — and migrations only ever go forward, so there is no way
+/// has to read it, and migrations only ever go forward, so there is no way
 /// back. Refusing is the only honest answer.
 pub fn is_newer_schema(name: &str) -> bool {
     // "unknown" comes from a database with no migration recorded at all, which
@@ -89,7 +89,7 @@ pub fn is_newer_schema(name: &str) -> bool {
 /// Fold the write-ahead log back into the database file, then close the pool.
 ///
 /// In WAL mode a commit lands in `routarr.db-wal`, and SQLite only checkpoints
-/// when the *last* connection closes — which dropping the pool does not do.
+/// when the *last* connection closes, which dropping the pool does not do.
 /// Without this, a stopped Routarr leaves an almost-empty `routarr.db` beside a
 /// WAL holding everything, and the documented "copy the database" backup takes
 /// a file with no tables in it.
@@ -235,8 +235,8 @@ fn push_statement(statements: &mut Vec<String>, current: &mut String) {
 
 /// The `?, ?, ?` an `IN (...)` binds `n` values through.
 ///
-/// Written once because nine sites spelled it, and the bind ceiling behind
-/// it — see `routing::BIND_CHUNK` — is only stated where a list is chunked.
+/// One spelling for every `IN` list. The bind ceiling behind it is stated only
+/// where a list is chunked, in `routing::BIND_CHUNK`.
 /// Every caller keeps `AssertSqlSafe` at its own site: the fragment is made
 /// of `?` alone, and the values it stands for are bound, never spliced.
 pub fn placeholders(n: usize) -> String {
@@ -310,11 +310,11 @@ mod tests {
 
     /// A stopped Routarr must leave a database file that is complete on its own.
     ///
-    /// In WAL mode it did not: `routarr.db` stayed at 4 KB while `routarr.db-wal`
-    /// held every table, so the backup the README described — stop, copy the
-    /// `.db` — restored a database with **no tables at all**. This asserts the
-    /// property the documentation now relies on, against a real file rather than
-    /// the in-memory pool the rest of the suite uses.
+    /// In WAL mode an unfolded `routarr.db-wal` holds every table, so the backup
+    /// the README describes (stop, copy the `.db`) would restore a database with
+    /// **no tables at all**. The documentation relies on this property, checked
+    /// against a real file rather than the in-memory pool the rest of the suite
+    /// uses.
     #[tokio::test]
     async fn a_closed_database_needs_no_sidecar_files_to_be_complete() {
         let dir = crate::tests::TempDir::new("wal");
@@ -338,8 +338,8 @@ mod tests {
         checkpoint_and_close(&pool).await;
 
         // The WAL must no longer carry anything. SQLite removes the file when the
-        // process exits; within a test the pool close leaves it truncated to
-        // zero, which contributes exactly as much — nothing.
+        // process exits, and within a test the pool close leaves it truncated to
+        // zero, which contributes exactly as much: nothing.
         let wal = path.with_extension("db-wal");
         let leftover = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
         assert_eq!(leftover, 0, "the WAL still holds {leftover} bytes after closing");

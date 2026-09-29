@@ -39,15 +39,15 @@ const KNOWN: &[(&str, Kind)] = &[
     ("metadata_providers", Kind::ProviderList),
     ("backup_enabled", Kind::Bool),
     // A week, which is what `jobs::scheduler` clamps this to when it reads it.
-    // Bounded at a year, the interface accepted a number that was silently not
-    // the one running — the same defect the line below was written to fix.
+    // A wider bound would let the interface accept a number that is silently
+    // not the one running.
     ("backup_interval_hours", Kind::Bounded(1, 24 * 7)),
     ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT)),
     ("decision_retention_days", Kind::NonNegativeInt),
     ("log_retention_days", Kind::NonNegativeInt),
-    // The same bounds the scheduler already clamps to when it reads this. The
-    // clamp stays — it is the guard — but refusing here means the number on
-    // screen is the number that runs, instead of one silently ignored.
+    // The same bounds the scheduler clamps to when it reads this. The clamp
+    // stays (it is the guard), but refusing here means the number on screen is
+    // the number that runs, instead of one silently ignored.
     ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60)),
     ("certification_regions", Kind::CountryList),
     ("notification_webhook_url", Kind::WebhookUrl),
@@ -57,8 +57,13 @@ const KNOWN: &[(&str, Kind)] = &[
     // `PUT /onboarding`, listed here so a configuration bundle carries it.
     ("onboarding", Kind::Onboarding),
     // The metadata credentials. Sealed on the way in and never returned, the
-    // same posture as an Arr's key — which is the *more* dangerous of the two,
+    // same posture as an Arr's key, which is the *more* dangerous of the two,
     // since it writes to the library while these only read.
+    //
+    // Each is named `<id>_api_key` after its source's id in
+    // `metadata::PROVIDERS`: `AppState::provider_key_from` and the check that
+    // refuses a source without its key build that name, so a key stored under
+    // any other is never read.
     ("tmdb_api_key", Kind::Secret),
     ("omdb_api_key", Kind::Secret),
     ("tvdb_api_key", Kind::Secret),
@@ -79,13 +84,13 @@ enum Kind {
     WebhookUrl,
     /// A whole number within an inclusive range, both ends stated at the table
     /// above so the reason for each ceiling sits beside the setting it bounds.
-    /// Converged at startup when stored outside the range — see
+    /// Converged at startup when stored outside the range, by
     /// `maintenance::converge_setting_bounds`.
     Bounded(i64, i64),
     /// A count of things kept: bounded on save like `Bounded`, raised to its
     /// floor at startup like `Bounded`, and never lowered by one. Lowering it
-    /// removes what is beyond it, so nothing but the operator's own save may;
-    /// `offline_warnings` names a stored value above the ceiling until then.
+    /// removes what is beyond it, so nothing but the operator's own save may,
+    /// and `offline_warnings` names a stored value above the ceiling until then.
     Retention(i64, i64),
     NonNegativeInt,
     Category,
@@ -114,7 +119,7 @@ impl Kind {
     }
 
     /// Whether a start may *lower* a stored value into its range. Raising is
-    /// always safe — a floor of one keeps more, not less — while lowering a
+    /// always safe (a floor of one keeps more, not less), while lowering a
     /// retention count removes what is beyond it.
     fn lowered_at_startup(self) -> bool {
         matches!(self, Kind::Bounded(..))
@@ -159,7 +164,7 @@ pub struct UpdateSettingsRequest {
 ///
 /// Public because the settings table has a second writer: `POST /config/import`
 /// writes it from a bundle. Both go through this, or the bundle becomes a way
-/// to store what the API refuses — a `default_category` naming a category that
+/// to store what the API refuses: a `default_category` naming a category that
 /// does not exist, a source list without `arr`, a theme nothing renders.
 pub fn check(key: &str, value: &str, categories: &[String]) -> AppResult<()> {
     let kind = KNOWN
@@ -172,10 +177,10 @@ pub fn check(key: &str, value: &str, categories: &[String]) -> AppResult<()> {
 
 /// The range a `Bounded` key is converged into, if it is one.
 ///
-/// Read by the startup sweep that converges values stored before a bound
-/// existed: `PUT /settings` validates the whole payload and the Settings screen
-/// always sends every field, so one out-of-range value left in the table blocks
-/// *every* save — with an error naming a field in a tab the operator never
+/// Read by the startup sweep that converges values stored outside their bound:
+/// `PUT /settings` validates the whole payload and the Settings screen always
+/// sends every field, so one out-of-range value left in the table blocks
+/// *every* save, with an error naming a field in a tab the operator never
 /// opened. A `Retention` count answers its floor and no ceiling: raised like
 /// any other, never lowered by a start.
 pub fn bounds(key: &str) -> Option<(i64, i64)> {
@@ -258,7 +263,7 @@ pub async fn update(
     tx.commit().await?;
 
     // Pruning only after a backup is taken would leave every archive above the
-    // new retention on disk — and on screen — until the next scheduled run.
+    // new retention on disk, and on screen, until the next scheduled run.
     // The number takes effect when it is set.
     if req.settings.contains_key("backup_retention_count")
         && let Err(e) = crate::services::backup::prune(&state).await
@@ -306,14 +311,14 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
         // Nothing to check beyond a shape nobody can predict: TMDb accepts a v3
         // key or a v4 token, OMDb an eight-character string, TheTVDB a UUID.
         // A pattern guessed here would reject a credential the provider accepts,
-        // which is worse than letting the source report that it cannot connect —
+        // which is worse than letting the source report that it cannot connect,
         // and the diagnostics screen already probes each one.
         Kind::Secret => {}
         Kind::WebhookUrl => {
             // Empty means "no notifications", which is the default and not an
             // error. Anything else has to be a URL we could actually POST to:
             // a typo here fails silently in the background, where nobody sees
-            // it — which is precisely what this feature exists to prevent.
+            // it, which is precisely what this feature exists to prevent.
             let usable =
                 value.is_empty() || value.starts_with("http://") || value.starts_with("https://");
             if !usable {
@@ -327,7 +332,7 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
         }
         // Bounded on both sides. A floor alone accepts "keep 10 000 backups",
         // whose card grows without end and whose disk fills with the very thing
-        // meant to protect it — and accepts a backup interval of a million
+        // meant to protect it, and accepts a backup interval of a million
         // hours, which reads as configured and never runs.
         Kind::Bounded(min, max) | Kind::Retention(min, max) => {
             let n: i64 =
@@ -422,7 +427,7 @@ mod tests {
 
     /// A ceiling on every count, not only on the one that grows a list. Without
     /// it each of these has a value that reads as configured and behaves as
-    /// off — a backup every million hours, a cache that never expires.
+    /// off: a backup every million hours, a cache that never expires.
     #[test]
     fn every_count_is_bounded_at_both_ends() {
         for key in [
@@ -470,7 +475,7 @@ mod tests {
     fn the_theme_is_one_of_three_states() {
         assert!(validate("ui_theme", "dark", Kind::Theme, &[]).is_ok());
         assert!(validate("ui_theme", "light", Kind::Theme, &[]).is_ok());
-        // `auto` follows the operating system; an explicit choice overrides it.
+        // `auto` follows the operating system, and an explicit choice overrides it.
         assert!(validate("ui_theme", "auto", Kind::Theme, &[]).is_ok());
         assert!(validate("ui_theme", "midnight", Kind::Theme, &[]).is_err());
         assert!(validate("ui_theme", "", Kind::Theme, &[]).is_err());

@@ -1,7 +1,7 @@
 //! Serving Routarr under a sub-path.
 //!
 //! The Servarr "URL base" convention: `https://host/routarr` behind the family
-//! reverse proxy. Everything here is about one failure mode — a mount point that
+//! reverse proxy. Everything here is about one failure mode: a mount point that
 //! works on the developer's `/` and breaks behind the proxy, which is the one
 //! place it cannot be debugged comfortably.
 
@@ -23,10 +23,10 @@ async fn mounted_at(base: &str) -> (axum::Router, AppState) {
     (crate::build_router(state.clone()), state)
 }
 
-/// A typo in an API path answered `index.html` with a 200: a script then
-/// parsed HTML as JSON, and the message it got named neither the route nor the
-/// mistake. Under the API prefix every miss is a JSON 404, whatever the method
-/// and wherever the application is mounted.
+/// Under the API prefix every miss is a JSON 404, whatever the method and
+/// wherever the application is mounted. Answered with `index.html` and a 200,
+/// a typo in an API path leaves a script parsing HTML as JSON, with a message
+/// that names neither the route nor the mistake.
 #[tokio::test]
 async fn an_unknown_api_path_is_a_json_404_not_the_index() {
     use axum::body::Body;
@@ -75,7 +75,7 @@ fn every_way_a_person_writes_a_sub_path_means_the_same_thing() {
         assert_eq!(normalise_base_path(written), "/routarr", "for {written:?}");
     }
 
-    // Nested mount points survive; empty stays empty.
+    // Nested mount points survive, and empty stays empty.
     assert_eq!(normalise_base_path("/media/routarr/"), "/media/routarr");
     for nothing in ["", "/", "   ", "//"] {
         assert_eq!(normalise_base_path(nothing), "", "for {nothing:?}");
@@ -93,7 +93,7 @@ async fn the_api_answers_under_the_mount_point() {
 async fn nothing_answers_outside_the_mount_point() {
     let (router, _state) = mounted_at("/routarr").await;
 
-    // A proxy strips its own prefix or it does not; if it does not, answering at
+    // A proxy strips its own prefix or it does not. If it does not, answering at
     // the root anyway would hide the misconfiguration until something subtler
     // broke.
     assert_eq!(status_of(&router, "/api/v1/ping").await, StatusCode::NOT_FOUND);
@@ -141,7 +141,7 @@ async fn a_webhook_url_is_advertised_relative_to_the_mount_point() {
 /// The index must carry a `<base href>` pointing at the mount point.
 ///
 /// Without it a deep link like `/routarr/rules` resolves the relative asset URLs
-/// against `/routarr/rules/` and the page comes up blank — behind the proxy, and
+/// against `/routarr/rules/` and the page comes up blank, behind the proxy and
 /// only there.
 #[tokio::test]
 async fn the_index_pins_asset_resolution_to_the_mount_point() {

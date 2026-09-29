@@ -5,7 +5,7 @@ interface FakeResponse {
   ok?: boolean;
   status?: number;
   statusText?: string;
-  /** Decoded payload; a string is returned verbatim by `text()`. */
+  /** Decoded payload. A string is returned verbatim by `text()`. */
   body?: unknown;
   headers?: Record<string, string>;
 }
@@ -29,7 +29,7 @@ function mockFetch(response: FakeResponse) {
  * The URL and options of the nth `fetch`, or a failure that says so.
  *
  * Every assertion below reaches into `spy.mock.calls[0][1]`, and when the call
- * never happened that reads as `cannot read properties of undefined` — which
+ * never happened that reads as `cannot read properties of undefined`, which
  * names neither the call that was expected nor the one that was made. Asserting
  * here turns the same mistake into "fetch was not called".
  */
@@ -237,7 +237,7 @@ describe('request bodies', () => {
 
   /**
    * A name, not a yes. Several guardrails can refuse the same apply, and a
-   * boolean answered every one of them at once.
+   * boolean would answer every one of them at once.
    */
   it('names the guardrails already answered', async () => {
     const spy = mockFetch({ body: {} });
@@ -309,7 +309,7 @@ describe('every endpoint', () => {
     // still start at this API.
     for (const name of URL_BUILDERS) {
       const build = (api as unknown as Record<string, () => string>)[name];
-      // Named here and absent from the client, the loop skipped it silently.
+      // A name listed here and absent from the client fails under its own name.
       expect(typeof build, `${name} is not a URL builder on the client`).toBe('function');
       const url = (build as () => string)();
       expect(url, name).toContain('/api/v1/');
@@ -498,7 +498,7 @@ describe('a failing response', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   /**
-   * The id is what an operator greps the log for; it has to survive the trip
+   * The id is what an operator greps the log for. It has to survive the trip
    * from the header to the error the screen shows.
    */
   it('carries the request id the server answered with', async () => {

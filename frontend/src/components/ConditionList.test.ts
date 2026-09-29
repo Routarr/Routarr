@@ -7,7 +7,7 @@ import type { Condition, ConditionSpec } from '../api/types';
 import ConditionList from './ConditionList.svelte';
 
 /**
- * The picker offers what the rule can use; the list renders what the rule
+ * The picker offers what the rule can use, and the list renders what the rule
  * already has. Those are two different sets, and conflating them is how a
  * saved condition disappears the next time somebody opens the rule.
  */
@@ -83,7 +83,7 @@ function render(
 describe('ConditionList', () => {
   /**
    * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * adding on `change` added a condition at every arrow. Choosing is free,
+   * adding on `change` would add a condition at every arrow. Choosing is free,
    * Add adds.
    */
   it('adds the condition chosen only when Add is pressed', async () => {
@@ -109,8 +109,8 @@ describe('ConditionList', () => {
 
   it('still renders a condition the rule already carries but could not add today', () => {
     // A rule saved as `series` and later narrowed to `movie` keeps its season
-    // condition. Hiding it would drop it from the payload on the next save —
-    // the user would never see what they lost.
+    // condition. Hiding it would drop it from the payload on the next save,
+    // and the user would never see what they lost.
     render([{ type: 'season_count_over', value: 3 } as unknown as Condition], [GENRE]);
 
     expect(screen.getByText('Season count over')).toBeTruthy();
@@ -187,8 +187,8 @@ describe('ConditionList', () => {
    * The library counts values, the closed vocabulary names them, and a value in
    * both needs both.
    *
-   * Appended rather than merged, the five codes actually synced were the only
-   * ones shown bare — `en` and `fr` above a list of `Afrikaans (af)` — which
+   * Appended rather than merged, the codes actually synced would be the only
+   * ones shown bare (`en` and `fr` above a list of `Afrikaans (af)`), which
    * reads as the known languages being the ones nobody bothered to name.
    */
   it('names a value the library holds from the vocabulary that defines it', async () => {

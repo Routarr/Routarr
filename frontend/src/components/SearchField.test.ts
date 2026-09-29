@@ -5,7 +5,7 @@ import SearchFieldHarness from '../test/SearchFieldHarness.svelte';
 
 /**
  * A screen whose `deps` read the bound value fetches on every change of it,
- * so typing "anime" was five `LIKE` queries against a homelab server. The
+ * so typing "anime" would be five `LIKE` queries against a homelab server. The
  * field owns the keystrokes and hands the value over once the typing stops.
  */
 

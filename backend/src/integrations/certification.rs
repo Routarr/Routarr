@@ -1,20 +1,20 @@
 //! What a certification code means, where that is not in dispute.
 //!
-//! `U`, `TP` and `TV-PG` say nothing to most readers, and the panel that exists
-//! to show what the library holds was listing them bare. Beside `language.rs`
-//! because it answers the same kind of question — what does this code stand for
-//! — and for the same reason: the rule is written against the code, and the
-//! name is only ever what is shown.
+//! `U`, `TP` and `TV-PG` say nothing to most readers, and the panel that shows
+//! what the library holds would list them bare. It sits beside `language.rs`
+//! because it answers the same kind of question (what a code stands for) and
+//! for the same reason: the rule is written against the code, and the name is
+//! only ever what is shown.
 //!
 //! Only codes whose meaning agrees across the systems that use them are named.
 //! `12` is twelve-and-over for the BBFC, the FSK and the CNC alike, so it is
-//! safe; `M` is fifteen-and-over in Australia and something else in the United
+//! safe. `M` is fifteen-and-over in Australia and something else in the United
 //! States, so it is left bare. A wrong name on a right value is worse than no
 //! name: the value is what the engine matches, and the reader would trust the
 //! name.
 //!
 //! The media row carries the certification and not the system that issued it,
-//! so nothing here can disambiguate — which is precisely why the list is
+//! so nothing here can disambiguate, which is precisely why the list is
 //! restricted to what needs no disambiguation.
 
 /// What a code stands for, as a dictionary key and its parameter.

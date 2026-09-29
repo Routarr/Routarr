@@ -2,9 +2,10 @@
 //!
 //! Its own module rather than another section of `rules.rs`: this is not a
 //! handler over the `rules` table, it is a static description of what a
-//! condition can be — its value shape, the metadata field it reads, and the
-//! media types it can ever match on. Kept there, `rules.rs` is four unrelated
-//! things in one file: CRUD, preview, the import/export bundle, and this.
+//! condition can be: its value shape, the metadata field it reads, and the
+//! media types it can ever match on. Kept there, `rules.rs` would be four
+//! unrelated things in one file: CRUD, preview, the import/export bundle, and
+//! this.
 
 use super::Json;
 use axum::extract::State;
@@ -22,7 +23,7 @@ struct Spec {
     media_types: &'static [&'static str],
     /// The `GET /media/facets` axis its values are drawn from, so the builder
     /// offers what the library holds instead of asking for an exact spelling.
-    /// Empty where the values are not a closed set — a keyword, a title
+    /// Empty where the values are not a closed set: a keyword, a title
     /// fragment, an external id.
     suggestions: &'static str,
     /// How the values of this condition combine, and the kind that asks the
@@ -261,7 +262,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<serde_json
             quantifier: "",
             counterpart: "",
         },
-        // Signals the Arr already reports; none of them reads a source.
+        // Signals the Arr already reports: none of them reads a source.
         Spec {
             kind: "tag_in",
             value_type: "string_list",
@@ -439,12 +440,12 @@ mod tests {
     ///
     /// `suggestions` is what selects a picker over the library's own values
     /// instead of a free-text field, and the interface reads it by indexing the
-    /// facets payload — through a cast, because the key arrives at run time.
+    /// facets payload, through a cast, because the key arrives at run time.
     /// The cast erases the check and the `?? []` behind it turns a miss into an
     /// empty list, so an axis renamed on one side leaves the rule builder
     /// silently offering nothing, and the operator types values by hand. A rule
     /// written against a value the library does not hold matches nothing and
-    /// reads on screen exactly like a rule that correctly matches nothing —
+    /// reads on screen exactly like a rule that correctly matches nothing,
     /// which is the thing facets exist to prevent.
     ///
     /// `check-api-types.py` cannot see this: it compares field *names*, and

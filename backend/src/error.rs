@@ -12,10 +12,10 @@ pub enum AppError {
     // There is deliberately **no** variant carrying a `reqwest::Error`, and in
     // particular no `#[from]` for one. Its `Display` is
     // `"… for url (<the full URL>)"` with the query string, and the TMDb URL
-    // carries `?api_key=` — a `From` impl would put that key in a 502 body from
+    // carries `?api_key=`: a `From` impl would put that key in a 502 body from
     // a single `?`, silently. Every outbound failure goes through
     // `integrations::send_json`, which builds `ExternalApi` from the error's
-    // source chain; without the impl, the shortcut does not compile.
+    // source chain. Without the impl, the shortcut does not compile.
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 
@@ -35,10 +35,10 @@ pub enum AppError {
     /// and on every translation.
     ///
     /// `kind` names *which* guardrail asked, and the caller sends that name
-    /// back. Three of them ask through this variant, and a single boolean meant
-    /// answering one answered all three: confirming "the destination is asleep"
-    /// also waved through "there is not enough room", silently, because only
-    /// the first to fire is ever read.
+    /// back. Several ask through this variant, and with a single boolean
+    /// answering one would answer them all: confirming "the destination is
+    /// asleep" would also wave through "there is not enough room", silently,
+    /// because only the first to fire is ever read.
     #[error("Confirmation required: {message}")]
     ConfirmationRequired { kind: &'static str, message: String },
 
@@ -57,7 +57,7 @@ pub enum AppError {
         /// Carried structurally rather than left in `message`: a rate limiter
         /// that had to parse prose to learn how long to wait would break on the
         /// first rewording, which is the mistake `ConfirmationRequired` above
-        /// exists to remember.
+        /// exists to avoid.
         retry_after: Option<u64>,
     },
 
@@ -120,8 +120,8 @@ impl IntoResponse for AppError {
         };
 
         // The `error` field already carries the machine-readable kind, so the
-        // message is the human sentence alone. Prefixing it with "Bad request:"
-        // both duplicated that and pinned an English word in front of an
+        // message is the human sentence alone. A prefix such as "Bad request:"
+        // would duplicate that and pin an English word in front of an
         // otherwise translated message.
         let message = match &self {
             AppError::NotFound(message)
@@ -131,10 +131,10 @@ impl IntoResponse for AppError {
             | AppError::ConfirmationRequired { message, .. } => message.clone(),
 
             // The underlying text is logged, never returned. `sqlx::Error`
-            // names constraints, columns and sometimes the statement;
+            // names constraints, columns and sometimes the statement, and
             // `serde_json::Error` quotes the input it choked on. None of that
             // helps whoever made the call, and the webhook is reachable without
-            // a key — so a database failure there would describe the schema to
+            // a key, so a database failure there would describe the schema to
             // an anonymous caller. The kind is in the `error` field, and the
             // detail is one `docker compose logs` away for the operator.
             internal @ (AppError::Database(_)
@@ -219,7 +219,7 @@ mod tests {
         }
     }
 
-    /// A user-facing refusal keeps its sentence — the rule above must not
+    /// A user-facing refusal keeps its sentence: the rule above must not
     /// swallow the messages the interface actually renders.
     #[tokio::test]
     async fn a_refusal_still_carries_its_reason() {

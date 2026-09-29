@@ -2,17 +2,19 @@
  * Where the shell can go, without the icons.
  *
  * The icons are Svelte components, and a module that imports them cannot be
- * read by anything without a Svelte runtime — which is what kept the e2e
- * sweeps on lists of their own, kept by hand, one of them missing a screen.
- * This file is plain data: `navigation.ts` dresses it in icons for the
- * sidebar and the palette, and `e2e/screens.ts` reads it as it is.
+ * read by anything without a Svelte runtime, such as the e2e sweeps. This file
+ * is plain data: `navigation.ts` dresses it in icons for the sidebar and the
+ * palette, and `e2e/screens.ts` reads it as it is, so no sweep keeps a list of
+ * screens by hand.
+ *
+ * A new screen also needs its lazy import in `ROUTES` (`App.svelte`) and its
+ * icon in `ICONS` (`lib/navigation.ts`), which `test/layout.test.ts` and
+ * `lib/routes.test.ts` hold together.
  */
 
 /**
- * What the shell counts, and therefore what an entry may carry.
- *
- * The top bar stated these as four translated sentences; each now sits on the
- * destination that answers it, where it can be acted on.
+ * What the shell counts, and therefore what an entry may carry. Each count sits
+ * on the destination that answers it, where it can be acted on.
  */
 export interface Counts {
   jobs: number;
@@ -34,13 +36,12 @@ export interface Route {
 }
 
 /**
- * Thirteen destinations, grouped by what someone came to do.
+ * The destinations, grouped by what someone came to do.
  *
- * Flat, they sat in the order they were built: the two screens configured once
- * at install held the best positions and the rules — the screen the product
- * exists for — came fourth. Grouped, the order says what the application is
- * for, and a group of two or three is read at a glance where a list of
- * thirteen is scanned every time.
+ * The order says what the application is for: the rules, the screen the
+ * product exists for, follow the dashboard, and the screens configured once at
+ * install come last. A group of two or three is read at a glance where a flat
+ * list is scanned every time.
  *
  * The group heading is a label, never a heading level: the accessibility sweep
  * checks that no screen skips one, and a navigation is not an outline.

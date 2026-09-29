@@ -66,11 +66,11 @@ pub struct Instance {
     pub base_url: String,
     pub enabled: bool,
     pub sync_interval_minutes: i64,
-    /// Always false today, and present so the restorer knows to ask.
+    /// Always false, and present so the restorer knows to ask.
     ///
     /// API keys are sealed with a master key held by one installation. Exporting
     /// them would either leak them in plaintext or produce ciphertext the
-    /// destination cannot open — so they are simply absent, and the instance
+    /// destination cannot open, so they are simply absent, and the instance
     /// arrives disabled until someone supplies one.
     #[serde(default)]
     pub has_api_key: bool,
@@ -87,7 +87,7 @@ pub struct RootFolderMapping {
 /// A human decision about one media, keyed by its external identity.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Override {
-    /// Kept for the human reading the bundle; matching goes by external id.
+    /// Kept for the human reading the bundle: matching goes by external id.
     pub media_title: String,
     pub media_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,9 +104,9 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
 
     // Sealed values are left behind. They are ciphertext under a master key
     // this installation holds alone, so carrying them would put an opaque blob
-    // in the destination's table that nothing there can ever open — while
-    // `<key>_configured` reported the source as ready. The same reasoning that
-    // keeps an Arr's key out of a bundle applies to a metadata source's.
+    // in the destination's table that nothing there can ever open, while
+    // `<key>_configured` would report the source as ready. The same reasoning
+    // that keeps an Arr's key out of a bundle applies to a metadata source's.
     let settings: Vec<Setting> =
         sqlx::query_as::<_, (String, String)>("SELECT key, value FROM settings ORDER BY key")
             .fetch_all(pool)
@@ -227,7 +227,7 @@ pub async fn import(
     // categories already here *plus* the ones this bundle is about to create.
     // Settings are written first because everything after can depend on them,
     // so validating against the table alone would reject every bundle that
-    // brings its own categories — which is every bundle from another
+    // brings its own categories, which is every bundle from another
     // installation.
     let mut categories: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
@@ -245,10 +245,10 @@ pub async fn import(
 
     // Settings first: everything after can depend on them.
     for setting in &bundle.settings {
-        // `tmdb_cache_ttl_days` is the former name of `metadata_cache_ttl_days`,
-        // from when the cache was TMDb's alone. A bundle exported under that
-        // name carries a perfectly valid value; refusing it would lose the one
-        // setting the user had bothered to change.
+        // `tmdb_cache_ttl_days` is an alias of `metadata_cache_ttl_days` that
+        // bundles in circulation carry. The value under it is valid, and
+        // refusing it would lose the one setting the user had bothered to
+        // change.
         let key = match setting.key.as_str() {
             "tmdb_cache_ttl_days" => "metadata_cache_ttl_days",
             other => other,
@@ -257,7 +257,7 @@ pub async fn import(
         // A credential never arrives through a bundle: sealed elsewhere it
         // opens with nothing here, and in the clear it came through a file
         // people share. The export writes none, but a bundle edited by hand, or
-        // exported before the setting was sealed, can carry one.
+        // exported by a build that kept the setting in the clear, can carry one.
         if crate::api::settings::is_secret(key) {
             report.skipped.push(format!(
                 "setting '{key}' is a credential a bundle does not carry. Set it again"
@@ -267,8 +267,8 @@ pub async fn import(
 
         // The same gate `PUT /settings` applies. A key this build does not know
         // would sit in the table for ever, unreachable and unremovable through
-        // the API; a value it does know but refuses is worse, because it looks
-        // applied. Reported rather than fatal: a bundle is restored as far as it
+        // the API, and a value it does know but refuses is worse, because it
+        // looks applied. Reported rather than fatal: a bundle is restored as far as it
         // can be, and `skipped` is what says how far.
         if let Err(e) = crate::api::settings::check(key, &setting.value, &categories) {
             report.skipped.push(format!("setting {:?}: {e}", setting.key));
@@ -281,8 +281,8 @@ pub async fn import(
         )
         .bind(key)
         // Trimmed, as `PUT /settings` stores it. The gate above validates the
-        // trimmed value, so binding the raw one let `"anime "` pass a check
-        // that `"anime"` had answered and land as a name no category holds.
+        // trimmed value, so binding the raw one would let `"anime "` pass a
+        // check that `"anime"` answered and land as a name no category holds.
         .bind(setting.value.trim())
         .execute(&mut *tx)
         .await?;
@@ -291,9 +291,10 @@ pub async fn import(
 
     for category in &bundle.categories {
         // The same gate `POST /categories` applies. Trimming and lowercasing
-        // was only half of it: a name with a space or an ampersand, or one five
-        // hundred characters long, was written and then unreachable — `rename`
-        // runs this check, so it could never be corrected through the API.
+        // is only half of it: a name with a space or an ampersand, or one five
+        // hundred characters long, would be written and then unreachable, since
+        // `rename` runs this check and it could never be corrected through the
+        // API.
         let name = match crate::api::categories::normalise(&category.name) {
             Ok(name) => name,
             Err(e) => {
@@ -319,7 +320,7 @@ pub async fn import(
     for instance in &bundle.instances {
         // The same three checks `POST /instances` applies. Written into the
         // table unchecked, a type no adapter knows or a URL with no scheme
-        // produces a row the create endpoint would have refused — and one the
+        // produces a row the create endpoint would have refused, and one the
         // edit screen cannot save without fixing first.
         if instance.instance_type.parse::<crate::models::InstanceType>().is_err() {
             report.skipped.push(format!(
@@ -342,10 +343,10 @@ pub async fn import(
         }
 
         // Stored as `POST /instances` stores it: the name trimmed, the interval
-        // within the day the scheduler clamps it to when it reads it — so the
+        // within the day the scheduler clamps it to when it reads it, so the
         // number on screen is the one running. Matched trimmed on both sides,
-        // or a stray space — in the bundle, or in a row an earlier build wrote
-        // as it came — is a second instance the check cannot see.
+        // or a stray space (in the bundle, or in a row stored untrimmed) is a
+        // second instance the check cannot see.
         let name = instance.name.trim();
         let existing: Option<String> =
             sqlx::query_scalar("SELECT id FROM instances WHERE TRIM(name) = ?")
@@ -378,7 +379,7 @@ pub async fn import(
     }
 
     // Mappings are matched on (instance name, path). Both are meaningful on the
-    // destination; ids are not.
+    // destination, and ids are not.
     for mapping in &bundle.root_folders {
         // Lowercased like the category rows themselves, which the loop above
         // writes that way: a bundle carrying `Anime` would otherwise create
@@ -386,7 +387,7 @@ pub async fn import(
         let category = mapping.category.trim().to_lowercase();
 
         // Categories are joined by value with no foreign key, so nothing in the
-        // database would stop a mapping naming one that does not exist — it
+        // database would stop a mapping naming one that does not exist. It
         // would simply route nowhere, and the unmapped-category warning could
         // not fire either, since there is no category row to count.
         if !categories.contains(&category) {
@@ -468,7 +469,7 @@ pub async fn import(
 
         // The same two checks `POST /overrides` applies. An override
         // short-circuits the engine entirely, so one naming a category this
-        // installation does not have routes its item nowhere — silently, and
+        // installation does not have routes its item nowhere, silently, and
         // without appearing in `skipped`, which is the one place a partial
         // restore is supposed to be visible.
         let category = over.target_category.trim().to_lowercase();

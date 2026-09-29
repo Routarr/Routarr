@@ -129,8 +129,8 @@ pub async fn list(
 
     // "Something is known about this item", counted over the *enabled* sources
     // only. Reading it off any cached row would contradict `has_metadata` in the
-    // engine, which honours the order — a list saying "metadata" next to a rule
-    // saying there is none is the kind of disagreement nobody debugs twice.
+    // engine, which honours the order, and a list saying "metadata" next to a
+    // rule saying there is none is the kind of disagreement nobody debugs twice.
     let has_metadata = metadata_predicate(&state.metadata_order().await);
 
     // The correlated sub-selects keep this to two queries instead of the
@@ -397,8 +397,8 @@ pub struct LibraryFacets {
     /// Genres, certifications and tags mean what the library says they mean, so
     /// what it carries is the whole answer. A language or a country does not:
     /// the rule is written against an ISO code, the vocabulary is fixed
-    /// elsewhere, and offering only the five languages that happen to be synced
-    /// would hide the other forty-eight — and leave the code to be guessed.
+    /// elsewhere, and offering only the few languages that happen to be synced
+    /// would hide the rest of the vocabulary, and leave the code to be guessed.
     pub vocabularies: Vocabularies,
     /// Described by no enabled source, so invisible to every condition that
     /// reads metadata: the failure that looks like a broken rule.
@@ -416,7 +416,7 @@ pub struct LibraryFacets {
 }
 
 /// A fixed table as the picker consumes it: the value a rule stores, labelled
-/// with the spelling a reader recognises. `count` is 0 throughout — these are
+/// with the spelling a reader recognises. `count` is 0 throughout: these are
 /// not observations, and the picker renders no figure for them.
 fn vocabulary(table: &[(&str, &[&str])]) -> Vec<Facet> {
     let mut out: Vec<Facet> = table
@@ -445,7 +445,7 @@ fn capitalise(word: &str) -> String {
 /// Count the distinct values of one column, commonest first.
 async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
     // `column` is interpolated, so it must stay a literal from this file and
-    // never anything a caller can influence — the same rule the metadata
+    // never anything a caller can influence, the same rule the metadata
     // addressing follows.
     let sql = format!(
         "SELECT {column} AS value, COUNT(*) AS n FROM media
@@ -550,7 +550,7 @@ async fn metadata_facets(
     }
 
     // Each branch yields (media id, raw value). A JSON column is expanded with
-    // `json_each`, a scalar one read directly; every fragment below is a literal
+    // `json_each`, a scalar one read directly. Every fragment below is a literal
     // from this file and every value is bound.
     let unnest = |alias: &str, column: &str| {
         if json { format!(", json_each({alias}.{column}) j") } else { String::new() }
@@ -571,9 +571,8 @@ async fn metadata_facets(
     if !fetched.is_empty() {
         // One equality per identifier namespace, each served by an index on
         // `media`. An OR across the three, with the cast on the media side, is
-        // a scan of the library for every cache row — 130 s on 20 000 titles.
-        // The GLOB guards keep `CAST('tt0111161' AS INTEGER)`, which is 0, from
-        // meeting a real id.
+        // a scan of the library for every cache row. The GLOB guards keep
+        // `CAST('tt0111161' AS INTEGER)`, which is 0, from meeting a real id.
         let holes = crate::db::placeholders(fetched.len());
         for (on, guard) in [
             ("m.tmdb_id = CAST(c.external_id AS INTEGER)", "c.external_id GLOB '[0-9]*'"),

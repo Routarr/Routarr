@@ -34,16 +34,16 @@ pub struct ArrWebhookMedia {
 /// How long a delivery waits for the one before it.
 ///
 /// Comfortably under the timeout an Arr gives a notification, so a delivery is
-/// answered rather than left to time out at the other end — and long enough
+/// answered rather than left to time out at the other end, and long enough
 /// that a season import, which arrives sequentially anyway, never reaches it.
 pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 
 /// How many deliveries may wait behind the one in progress, per instance.
 ///
 /// An Arr delivers sequentially and waits for each response, so a second
-/// waiter is already unusual; four leaves room for a proxy that retries. The
-/// wait is what bounds this route's cost to an unauthenticated caller, and a
-/// queue of waiters with no bound of its own hands that cost straight back —
+/// waiter is already unusual, and four leaves room for a proxy that retries.
+/// The wait is what bounds this route's cost to an unauthenticated caller, and
+/// a queue of waiters with no bound of its own hands that cost straight back:
 /// each one a connection and a task for as long as the wait lasts. Past the
 /// bound a delivery is acknowledged without work.
 pub const MAX_WAITING_DELIVERIES: usize = 4;
@@ -70,11 +70,11 @@ pub async fn receive(
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
 
-    // A disabled instance is one the user switched off; the scheduler already
-    // skips it, and a webhook must not be the back door that keeps syncing it,
-    // re-evaluating it, and — with automatic application armed — writing to it.
-    // Acknowledged rather than refused: the Arr is configured correctly and
-    // would only retry a rejection it can do nothing about.
+    // A disabled instance is one the user switched off. The scheduler skips
+    // it, and a webhook must not be the back door that keeps syncing it,
+    // re-evaluating it, and (with automatic application armed) writing to it.
+    // Acknowledged rather than refused: the Arr is configured correctly, and a
+    // refusal would only put an error in its log that nobody there can act on.
     if !instance.enabled {
         info!(instance = %instance.name, "Ignored a webhook for a disabled instance");
         return Ok(Json(serde_json::json!({ "ok": true, "ignored": "instance is disabled" })));
@@ -95,9 +95,9 @@ pub async fn receive(
             | "SeriesAdd"
             | "Rename"
             | "MovieFileDelete"
-            // Sonarr's counterpart of MovieFileDelete, which was handled while
-            // this was not: removing the last episode file flips `has_files`,
-            // and a rule reading it then routes the series somewhere else.
+            // Sonarr's counterpart of MovieFileDelete: removing the last
+            // episode file flips `has_files`, and a rule reading it then
+            // routes the series somewhere else.
             | "EpisodeFileDelete"
     ) && !DELETE_EVENTS.contains(&event.as_str())
     {
@@ -120,23 +120,24 @@ pub async fn receive(
 
     // One delivery at a time per instance. This route is the only one an
     // unauthenticated party reaches, and each accepted call costs a request to
-    // the Arr, a metadata fetch, a simulation and — with automatic application
-    // armed — a write. The token travels in the URL, so it is in the proxy's
-    // log and in Radarr's own; once read, nothing bounded what it could start.
+    // the Arr, a metadata fetch, a simulation and, with automatic application
+    // armed, a write. The token travels in the URL, so it is in the proxy's
+    // log and in Radarr's own, and once it is read, nothing else bounds what
+    // it can start.
     //
     // Waited for, not skipped. An Arr does not retry a webhook it considers
-    // delivered, and the run this guards is scoped to *one* media item — so a
+    // delivered, and the run this guards is scoped to *one* media item, so a
     // delivery dropped here is that item left unsynced and unevaluated until
     // the next scheduled sweep, or for ever where `auto_sync_enabled` is off.
-    // The cost of waiting is a timer; the cost of the work is what stays
+    // The cost of waiting is a timer, and the cost of the work is what stays
     // serialised, which is the whole point of the bound. The queue of timers
-    // has a bound of its own — see `MAX_WAITING_DELIVERIES`.
+    // has a bound of its own, `MAX_WAITING_DELIVERIES`.
     let key = format!("webhook:{}", instance.id);
     let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
 
     // A place in the queue first, whether or not the lock turns out to be
     // free: the place is what bounds the queue, and it goes back the moment
-    // the lock is held or the wait given up. Then the lock, in arrival order —
+    // the lock is held or the wait given up. Then the lock, in arrival order:
     // a newcomer never passes a delivery already waiting.
     let Some(place) = state.jobs.try_wait(&key, MAX_WAITING_DELIVERIES) else {
         warn!(
@@ -163,11 +164,10 @@ pub async fn receive(
 
     let media_id = sync::sync_single_media(&state, &instance, arr_id).await?;
 
-    // Read from the row the sync just wrote rather than from the payload. The
-    // comment below has always said metadata must exist before the rules run,
-    // but the identifier was taken from the delivery — and an Arr that omits
-    // `tmdbId`, as older Sonarr does, skipped enrichment in silence. The row
-    // carries what the Arr's own API returned, which is the fuller answer.
+    // Read from the row the sync just wrote rather than from the payload: a
+    // delivery may omit `tmdbId`, as older Sonarr does, and enrichment would
+    // then be skipped in silence. The row carries what the Arr's own API
+    // returned, which is the fuller answer.
     if let Some(id) = media_id.as_deref() {
         let identity: Option<(Option<i64>, String)> =
             sqlx::query_as("SELECT tmdb_id, media_type FROM media WHERE id = ?")
@@ -186,20 +186,20 @@ pub async fn receive(
 
     // Nothing to evaluate: `sync_single_media` answers `None` when the Arr no
     // longer has the item. Evaluated with no media filter, that is the whole
-    // instance — persisted and automatically applied — outside the lock that
+    // instance, persisted and automatically applied, outside the lock that
     // bounds exactly that.
     //
     // On a delete event the absence is the news itself, and the row goes the
     // way the full sync takes it: with its override, and with its pending
     // proposal retired. On any other event the row is left alone. A 404 there
     // can be a base URL pointing at something that is not an Arr, and the
-    // full sync — which reads the whole list and refuses to act on an empty
-    // one — is the safer judge of what is gone.
+    // full sync (which reads the whole list and refuses to act on an empty
+    // one) is the safer judge of what is gone.
     let Some(only) = media_id.clone() else {
         let retired = if DELETE_EVENTS.contains(&event.as_str()) {
             // After any synchronisation in flight. One that read the Arr
             // before the deletion writes the row back, stamped current, and
-            // keeps it until the next full pass; retired once it has
+            // keeps it until the next full pass. Retired once it has
             // committed, the row goes whatever the order of the reads. The
             // sync key is held for one transaction, so a scheduled sync that
             // lands in that instant is skipped for a tick and no more. Waited
@@ -261,8 +261,9 @@ pub async fn receive(
     {
         Ok(AutoApplyOutcome::Applied(report)) => report.applied,
         Ok(_) => 0,
-        // A failed auto-apply must not fail the webhook: Radarr would retry the
-        // event, and the decision is still pending for the user to apply.
+        // A failed auto-apply does not fail the webhook. The Arr logs a failed
+        // notification and never sends it again, and the decision is stored
+        // here, pending, for the user to apply.
         Err(e) => {
             warn!("Auto-apply after webhook failed: {e}");
             0

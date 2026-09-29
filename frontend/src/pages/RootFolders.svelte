@@ -46,7 +46,7 @@
   /**
    * The select must show the instance the declaration will use.
    *
-   * Bound to an empty string it matches no option, so it renders blank — and a
+   * Bound to an empty string it matches no option, so it renders blank, and a
    * blank select beside a fallback to `instances[0]` means that with two Arrs a
    * destination is declared against one the operator never chose and the screen
    * never named.
@@ -61,7 +61,8 @@
   /**
    * The category picked for each folder, by folder id, until Save writes it.
    * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * writing on `change` sent every category passed on the way to the server.
+   * writing on `change` would send every category passed on the way to the
+   * server.
    */
   const picked = $state<Record<string, string>>({});
   const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
@@ -218,7 +219,7 @@
                        that spins down is reported unreachable every night, and
                        an error badge for a disk that is merely asleep is how a
                        diagnostic gets ignored. No threshold decides which is
-                       which — "20 minutes ago" reads as a nap and "3 days ago"
+                       which: "20 minutes ago" reads as a nap and "3 days ago"
                        as a fault, and the reader knows their own hardware. -->
                   <span class="badge {folder.accessible ? 'badge-success' : 'badge-warning'}">
                     {t(folder.accessible ? 'Accessible' : 'Inaccessible')}
@@ -483,7 +484,7 @@
       <ErrorBanner message={dialogError} onDismiss={() => (dialogError = null)} />
       <!-- `novalidate`: the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
-       handler. Nothing is traded away for it — Save is held until the required
+       handler. Nothing is traded away for it: Save is held until the required
        fields are filled, so the constraint is enforced before the press rather
        than complained about after it. -->
       <form novalidate onsubmit={createCategory}>

@@ -29,7 +29,7 @@ const description = page === 'how' ? t('head.description.how') : t('head.descrip
 const origin = Astro.site!;
 const canonical = new URL(pathFor(locale, page), origin).href;
 
-/** What Open Graph calls each language; the page itself says `lang`. */
+/** What Open Graph calls each language. The page's `lang` is the bare code. */
 const OG_LOCALE: Record<Locale, string> = { en: 'en_US', fr: 'fr_FR', de: 'de_DE', es: 'es_ES' };
 
 const schema = {
@@ -98,7 +98,7 @@ const schema = {
     <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
 
     {/* `is:inline` on purpose: this has to run before first paint to avoid a
-        flash of the wrong theme, so it cannot be bundled and deferred — and
+        flash of the wrong theme, so it cannot be bundled and deferred, and
         its hash is what `_headers` allows through the CSP. */}
     <script is:inline set:html={themeBootstrap} />
 
@@ -121,7 +121,7 @@ const schema = {
     <Footer locale={locale} />
 
     {/* Served as a file, not bundled. Astro would inline a script this small,
-        and an inline script needs its own `sha256-` in `_headers` — the policy
+        and an inline script needs its own `sha256-` in `_headers`. The policy
         allows exactly one, the theme bootstrap above, so that there is never a
         hash to recompute for an ordinary edit. Deferred and optional: the site
         reads and navigates without it. */}

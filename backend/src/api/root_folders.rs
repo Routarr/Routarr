@@ -102,7 +102,7 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     // Stated as what it is and when, rather than as a mapping conflict: a NAS
     // that spins down is reported inaccessible every night, and an error badge
     // for a disk that is merely asleep is how a diagnostic gets ignored. No
-    // threshold decides which is which — "twenty minutes ago" reads as a nap
+    // threshold decides which is which: "twenty minutes ago" reads as a nap
     // and "three days ago" as a fault, and the operator is the one who knows
     // their hardware.
     let unreachable: Vec<(String, String, Option<String>)> = sqlx::query_as(
@@ -135,8 +135,8 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
     // Only instances the rule could actually reach: a `movie` rule can never
     // route anything into a Sonarr, so telling the user that Sonarr lacks a
     // folder for `concerts` is a warning they cannot act on. An ordinary setup
-    // — movie categories on Radarr, series categories on Sonarr — otherwise
-    // fills this page with warnings that never clear, which is exactly how a
+    // (movie categories on Radarr, series categories on Sonarr) would otherwise
+    // fill this page with warnings that never clear, which is exactly how a
     // warning stops being read.
     let unmapped: Vec<(String, String)> = sqlx::query_as(
         "SELECT DISTINCT r.target_category, i.name FROM rules r
@@ -189,16 +189,16 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
 
 /// Declare a destination the Arr does not report.
 ///
-/// A target used to have to be a root folder in Radarr or Sonarr already, so
-/// routing into `/media/movies/anime` meant declaring it *there* first. What an
-/// operator wants is one root folder per Arr and the targets beneath it
+/// Without it, a target has to be a root folder in Radarr or Sonarr already,
+/// and routing into `/media/movies/anime` means declaring it *there* first. What
+/// an operator wants is one root folder per Arr and the targets beneath it
 /// declared here.
 ///
 /// The path is checked against the **Arr's** filesystem, not against Routarr's:
 /// the two run in different containers as often as not, and a path that exists
 /// here says nothing about the process that will do the writing. An Arr that
-/// cannot be asked does not block the save — refusing on an unavailable probe
-/// would lock the operator out of configuring at the worst moment — but the
+/// cannot be asked does not block the save (refusing on an unavailable probe
+/// would lock the operator out of configuring at the worst moment), but the
 /// answer is reported.
 pub async fn create(
     State(state): State<AppState>,
@@ -242,6 +242,10 @@ pub async fn create(
     }
 
     let id = format!("rf-declared-{}", uuid::Uuid::new_v4());
+    // A declared folder shares `root_folders` with the ones the Arrs report,
+    // told apart by `origin`: a table of its own would put a `UNION` in
+    // `routing::load_context` and in every executor join.
+    //
     // `/x` and `/x/` are one folder, so the guard is on the trimmed path and
     // the statement is its own check: nothing between the two can slip in.
     let inserted = sqlx::query(

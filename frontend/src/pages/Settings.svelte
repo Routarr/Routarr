@@ -41,10 +41,10 @@
     const { values, sealed } = splitStored(answer);
     // An unstored source list is the shipped default, which only the server
     // knows. Seeded from a copy kept here instead, the first save of any
-    // setting would store that copy, since a save sends every field. Blank
-    // counts as unstored, as an older server answers a key it never stored. A
-    // repeat keeps its first place: the server refuses a list that repeats a
-    // source, and one stored before it did would hold back every save.
+    // setting would store that copy, since a save sends every field. A missing
+    // or blank list counts as unstored. A repeat keeps its first place: the
+    // server refuses a list that repeats a source, so a stored list holding one
+    // would hold back every save.
     const listed = (values.metadata_providers ?? '').split(',').map((id) => id.trim());
     const settings: SettingsMap = {
       ...values,
@@ -64,10 +64,10 @@
   /**
    * What is actually stored, so the draft can be diffed against it.
    *
-   * Saving covers every field of every section — the payload is built from all
-   * of `FIELDS` — so the save bar has to say so, and has to say when there are
+   * Saving covers every field of every section (the payload is built from all
+   * of `FIELDS`), so the save bar has to say so, and has to say when there are
    * unsaved changes at all. Otherwise Routing is edited, Metadata is opened,
-   * Save is pressed, and nothing on screen said what was written.
+   * Save is pressed, and nothing on screen says what was written.
    */
   let saved = $state<SettingsMap>({});
   /** The sealed settings holding a value, which no field can show. */
@@ -85,7 +85,7 @@
    * Whether this browser has any use for a key, and what to say about it.
    *
    * The middleware reads one in `apikey`, `forms` and `oidc` and in no other
-   * mode — `none` and `external` resolve an identity before they ever look at
+   * mode: `none` and `external` resolve an identity before they ever look at
    * the header, so a field there stores a string nothing will read. And in the
    * two session modes a key exists only if somebody set one, which is why the
    * server says so rather than the interface assuming it.
@@ -118,7 +118,7 @@
       const { api_key } = await api.rotateApiKey();
       minted = api_key;
       // This browser is a client too, and in `apikey` mode it is holding the
-      // key that just stopped working — the next request would 401 and drop the
+      // key that just stopped working. The next request would 401 and drop the
       // screen behind the gate.
       setApiKey(api_key);
       key = api_key;
@@ -233,7 +233,7 @@
   }
 
   // `SECTIONS[0]` is `| undefined` to the compiler even though the array is a
-  // `const` with five entries, so the fallback is named rather than indexed.
+  // non-empty `const`, so the fallback is named rather than indexed.
   const GENERAL = SECTIONS[0];
   const active = $derived(SECTIONS.find((entry) => entry.id === section) ?? GENERAL);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
@@ -459,10 +459,9 @@
       <WarningBanner message={t('AutoApplyWarning')} />
     {/if}
 
-    <!-- One column for the strip and the panel together. The strip's rule ran
-         the full width of the page while the card under it stopped at 720px and
-         hugged the left edge — a full-width line over a narrow block, which is
-         what made this screen read as broken rather than as deliberate. -->
+    <!-- One column for the strip and the panel together. A strip whose rule
+         runs the full width of the page, over a narrower card hugging the left
+         edge, reads as broken rather than as deliberate. -->
     <div class="settings-column">
       <!-- A real tab strip: `aria-selected` says which one is open, and the
            arrow keys move between them, because a `role="tab"` that only
@@ -575,12 +574,12 @@
         {/if}
 
         <form novalidate onsubmit={save}>
-          <!-- The source list is a subject, not a field: rendered inside the
-               loop it took a field's caption, so the card title, that caption
-               and the "active / available" group labels competed at the same
-               weight — and the sentence governing the whole thing sat under the
-               rows it was meant to introduce. Its own card puts the sentence
-               where it governs and drops the level that was doing nothing. -->
+          <!-- The source list is a subject, not a field. Rendered inside the
+               loop it would take a field's caption, and the card title, that
+               caption and the "active / available" group labels would compete
+               at the same weight, with the sentence governing the whole thing
+               under the rows it introduces. Its own card puts the sentence
+               where it governs, with no level between. -->
           {#if section === 'metadata'}
             {@const sources = FIELDS.find((field) => field.key === 'metadata_providers')}
             {#if sources}
@@ -612,9 +611,9 @@
 
             <!-- The three metadata credentials are rendered by the source list
                rather than here: a key is not a setting of the application, it
-               is a property of the source it unlocks, and stated apart it left
-               "enable TMDb" as a round trip past the whole list and back, with
-               a save at each end. -->
+               is a property of the source it unlocks, and stated apart it would
+               make "enable TMDb" a round trip past the whole list and back,
+               with a save at each end. -->
             {#each FIELDS.filter((field) => (active.keys as readonly string[]).includes(field.key) && !SELF_RENDERED.has(field.key)) as field (field.key)}
               <div class="form-group">
                 <!-- `for`/`id` rather than a bare sibling: without the pairing a
@@ -642,7 +641,7 @@
                     onchange={(event) => (draft[field.key] = event.currentTarget.value)}
                   >
                     {#each languages as language (language.code)}
-                      <!-- A partial translation is allowed; saying so is what
+                      <!-- A partial translation is allowed, and saying so is what
                          keeps the picker honest. Complete ones stay unadorned. -->
                       <option value={language.code}>
                         {language.completion >= 100
@@ -769,7 +768,8 @@
                     {t('DiscardChanges')}
                   </button>
                   <!-- Held while the settings could not be read: the draft
-                       then holds values the server may no longer store. -->
+                       then holds values that may not match what the server
+                       stores. -->
                   <button
                     type="submit"
                     class="btn btn-primary"

@@ -2,8 +2,8 @@
 //!
 //! TMDb reports `original_language` as a code (`ja`), the Arrs as a word
 //! (`Japanese`). One field, two vocabularies: untranslated, a rule matching
-//! through TMDb stops matching the day the Arr answers first — silently, which
-//! is the worst failure a routing rule has.
+//! through TMDb silently stops matching the day the Arr answers first, the
+//! worst failure a routing rule has.
 //!
 //! The list is the `Language` enum Radarr and Sonarr share. A name outside it
 //! keeps its own spelling, lowercased, so a rule still has something to compare
@@ -156,9 +156,10 @@ pub fn from_tmdb(code: &str) -> Option<String> {
 
 /// ISO 639-1 from a three-letter code.
 ///
-/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every code
-/// is listed, the bibliographic form beside the terminological one where they
-/// differ (`fre` and `fra`), and a code outside the list answers `None`.
+/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every
+/// language of [`LANGUAGES`] but Romansh (`roh`) is listed, the bibliographic
+/// form beside the terminological one where they differ (`fre` and `fra`), and
+/// a code outside the list answers `None`.
 pub fn from_iso_639_3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {
@@ -240,7 +241,7 @@ fn country_code(name: &str) -> Option<String> {
 
 /// ISO 3166-1 alpha-2 from an alpha-3 code.
 ///
-/// TheTVDB answers `usa` and `jpn`; a rule reads `US` and `JP`.
+/// TheTVDB answers `usa` and `jpn`, where a rule reads `US` and `JP`.
 pub fn country_from_alpha3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {
@@ -304,7 +305,7 @@ pub fn country_codes(list: &str) -> Vec<String> {
 
 /// The first language of a comma-separated list of names, as a code.
 ///
-/// OMDb's `Language` is "Japanese, English" — the first is the original one.
+/// OMDb's `Language` is "Japanese, English", the original one first.
 pub fn first_language(list: &str) -> Option<String> {
     list.split(',').find_map(normalise)
 }
@@ -364,8 +365,8 @@ mod tests {
     // rather than a plausible one. That matters because of what happens next: a
     // dropped field lets the source below the current one answer, while a wrong
     // one is accepted and silently routes a title into the wrong folder. The
-    // failure is invisible either way — nothing logs "this rule stopped
-    // matching" — so these are the tests standing in for a symptom.
+    // failure is invisible either way, since nothing logs "this rule stopped
+    // matching", so these tests stand in for a symptom.
 
     /// TheTVDB answers in three-letter codes and not all of them are ones we
     /// map. The unmappable one has to disappear, not become a neighbour.
@@ -385,8 +386,8 @@ mod tests {
     }
 
     /// OMDb returns prose: "Japan, United States". One unrecognised entry must
-    /// not cost the others — a partial answer is still an answer, an empty one
-    /// makes every country condition stop matching.
+    /// not cost the others: a partial answer is still an answer, and an empty
+    /// one makes every country condition stop matching.
     #[test]
     fn an_unknown_entry_does_not_discard_the_countries_beside_it() {
         assert_eq!(country_codes("Japan, Atlantis, France"), vec!["JP", "FR"]);
@@ -404,8 +405,8 @@ mod tests {
     }
 
     /// The asymmetry between the two entry points is deliberate and worth
-    /// pinning: a *name* we do not know is kept as itself, because it is still
-    /// a value a user can write a rule against; a *code* we do not know is
+    /// pinning. A *name* we do not know is kept as itself, because it is still
+    /// a value a user can write a rule against. A *code* we do not know is
     /// dropped, because "tlh" means nothing to anyone reading the interface.
     #[test]
     fn an_unknown_name_is_kept_while_an_unknown_code_is_dropped() {

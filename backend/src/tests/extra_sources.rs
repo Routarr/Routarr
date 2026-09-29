@@ -1,6 +1,6 @@
-//! The four sources added after TMDb, each through its own client.
+//! AniList, Jikan, OMDb and TheTVDB, each through its own client.
 //!
-//! Two of them — AniList and Jikan — know none of Routarr's identifiers, so
+//! Two of them, AniList and Jikan, know none of Routarr's identifiers, so
 //! they have to *find* an item before they can describe it. That search is the
 //! only place in the application where a source can attach the wrong work to a
 //! media item, and a wrong genre routes a film into the wrong folder. Most of
@@ -16,8 +16,8 @@ use super::{TestApp, warning_messages};
 
 /// A one-film library pointed at every fake source.
 ///
-/// `title`/`year` are what the resolution has to work with; `imdb`/`tvdb` are
-/// what the directly-addressed sources read.
+/// `title`/`year` are what the resolution has to work with, and `imdb`/`tvdb`
+/// are what the directly-addressed sources read.
 async fn library(sources: &FakeSources, order: &str) -> TestApp {
     let app = TestApp::new().await;
 
@@ -109,7 +109,7 @@ async fn omdb_language_names_become_the_code_a_rule_matches() {
             .await
             .unwrap();
 
-    // "Japanese, English" — the first is the original one, as `ja`.
+    // "Japanese, English": the first is the original one, as `ja`.
     assert_eq!(language.as_deref(), Some("ja"));
 }
 
@@ -186,7 +186,7 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
 
     assert_eq!(row.0.as_deref(), Some("ja"), "jpn -> ja");
     assert_eq!(row.1, r#"["JP"]"#, "jpn -> JP");
-    // Two ratings offered; the configured region order decides, and the default
+    // Two ratings offered: the configured region order decides, and the default
     // is US.
     assert_eq!(row.2.as_deref(), Some("TV-14"));
 }
@@ -256,8 +256,8 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
 }
 
 /// Jikan leaves `year` null for a film and dates it by `aired`. Read from
-/// `year`, every film whose library knows its year was refused, and the
-/// refusal was remembered for good.
+/// `year`, every film whose library knows its year would be refused, and the
+/// refusal remembered for good.
 #[tokio::test]
 async fn a_jikan_film_is_resolved_by_its_aired_year() {
     let sources = FakeSources::start().await;
@@ -273,8 +273,9 @@ async fn a_jikan_film_is_resolved_by_its_aired_year() {
     assert_eq!(resolved.as_deref(), Some("523"));
 }
 
-/// An upgrade forgets the films Jikan "found nothing" for, and nothing else:
-/// read from the wrong field, that answer was never Jikan's.
+/// An upgrade forgets the films Jikan "found nothing" for, and nothing else. A
+/// database through migration 004 holds those answers as read from `year`,
+/// which Jikan leaves null for a film, so none of them is Jikan's.
 #[tokio::test]
 async fn an_upgrade_searches_jikan_again_for_the_films_it_misread() {
     let pool = super::database_through("004_orphaned_proposals").await;
@@ -338,7 +339,8 @@ async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
 }
 
 /// GraphQL reports a failure as `data: null` beside an `errors` list, with a
-/// 200. Read as an empty answer, the failure was remembered as "nothing found".
+/// 200. Read as an empty answer, the failure would be remembered as "nothing
+/// found".
 #[tokio::test]
 async fn an_anilist_error_is_not_remembered_as_nothing_found() {
     let sources = FakeSources::with_graphql_errors().await;
@@ -383,14 +385,14 @@ async fn every_source_contributes_what_only_it_has() {
     let media = media.assert_ok();
     let field_sources = &media["metadata"]["field_sources"];
 
-    // The Arr row is empty here, so AniList — the next in the order — wins the
+    // The Arr row is empty here, so AniList, the next in the order, wins the
     // genres, and each later source only fills what is still missing.
     assert_eq!(field_sources["genres"], "anilist");
     assert_eq!(field_sources["keywords"], "anilist");
     assert_eq!(field_sources["origin_countries"], "anilist");
-    // AniList has no certification at all; Jikan is the first that does.
+    // AniList has no certification at all, and Jikan is the first that does.
     assert_eq!(field_sources["certification"], "jikan");
-    // Neither anime source reports a language; OMDb is the first that does.
+    // Neither anime source reports a language, and OMDb is the first that does.
     assert_eq!(field_sources["original_language"], "omdb");
 }
 
@@ -423,7 +425,7 @@ async fn tvdb_connected(app: &TestApp) -> serde_json::Value {
 }
 
 /// A revoked key is what the probe is for. Answered from the token the last
-/// login left, it read as connected until that token expired, a month on.
+/// login left, it would read as connected until that token expires, a month on.
 #[tokio::test]
 async fn a_revoked_tvdb_key_is_reported_by_the_next_probe() {
     let sources = FakeSources::start().await;
@@ -435,8 +437,8 @@ async fn a_revoked_tvdb_key_is_reported_by_the_next_probe() {
     assert_eq!(tvdb_connected(&app).await, false, "the revoked key still reads as connected");
 }
 
-/// A token belongs to the key that obtained it. Kept across a new key, it went
-/// on answering for the old one until it expired.
+/// A token belongs to the key that obtained it. Kept across a new key, it would
+/// go on answering for the old one until it expires.
 #[tokio::test]
 async fn a_new_tvdb_key_logs_in_rather_than_reuse_the_old_token() {
     let sources = FakeSources::start().await;
@@ -538,8 +540,8 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
 /// Jikan answers `504` for *every* request whenever MyAnimeList is down.
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
-/// next pass. A source that has refused five times in one pass is down — stop
-/// asking.
+/// next pass. A source that has refused five times in one pass is down, so
+/// Routarr stops asking.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
     let sources = FakeSources::failing(504).await;
@@ -547,7 +549,7 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
 
     let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
-    // Nothing was enriched, which is expected — but the point is *how* it
+    // Nothing was enriched, which is expected, but the point is *how* it
     // failed: the requests that went out are a handful, not one per item. For a
     // searching source the storm happens in the resolution stage, so that is
     // where the count is taken.
@@ -578,7 +580,7 @@ async fn a_working_source_is_never_cut_off_by_the_breaker() {
 async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let sources = FakeSources::start().await;
 
-    // Pointed at the fake — which is what a mirror or a proxy looks like — no
+    // Pointed at the fake, which is what a mirror or a proxy looks like, no
     // published limit applies, and pacing it would buy a delay for nothing.
     // This is also why the test suite does not spend a second per request.
     let app = library(&sources, "anilist,jikan,omdb").await;
@@ -613,10 +615,10 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
 
 /// A verdict must not outlive its subject.
 ///
-/// `record_probe` writes nothing for a source it did not probe — one switched
-/// off is not probed at all — so its last failure was reported for ever, on
-/// every `/status` poll, with no screen able to clear it. Nothing expires the
-/// table, so the probe prunes what it no longer looks at.
+/// `record_probe` writes nothing for a source it did not probe, and one
+/// switched off is not probed at all. Nothing expires the table either, so the
+/// probe prunes what it no longer looks at, or the source's last failure is
+/// reported for ever, on every `/status` poll, with no screen able to clear it.
 #[tokio::test]
 async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     let sources = FakeSources::start().await;
@@ -637,7 +639,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         "the probe recorded nothing about a source that failed: {warned:?}"
     );
 
-    // Switched off, it is no longer probed — and no longer has anything to say.
+    // Switched off, it is no longer probed, and no longer has anything to say.
     sqlx::query("UPDATE settings SET value = 'arr' WHERE key = 'metadata_providers'")
         .execute(&app.state.pool)
         .await

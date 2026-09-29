@@ -30,9 +30,9 @@ fn random_bytes(buffer: &mut [u8]) -> AppResult<()> {
 
 /// The nonce type, taken from the cipher rather than restated.
 ///
-/// `Nonce` became generic over its size in aes-gcm 0.11. Naming the size here
-/// would be a second place to keep in step with `NONCE_LEN` below; asking the
-/// cipher removes the question.
+/// `Nonce` is generic over its size. Naming the size here would be a second
+/// place to keep in step with `NONCE_LEN` below, and asking the cipher removes
+/// the question.
 type GcmNonce = Nonce<<Aes256Gcm as AeadCore>::NonceSize>;
 
 const PREFIX: &str = "enc:v1:";
@@ -61,7 +61,7 @@ impl SecretBox {
     /// The key file is written with `0600` so the secrets are no more readable
     /// than the database file itself.
     ///
-    /// `previous` is a superseded key kept readable during a rotation; values
+    /// `previous` is a superseded key kept readable during a rotation. Values
     /// are opened with either key but always re-sealed with the current one.
     pub fn load(
         configured: Option<&str>,
@@ -137,7 +137,7 @@ impl SecretBox {
 
         let (nonce_bytes, ciphertext) = payload.split_at(NONCE_LEN);
         // `split_at(NONCE_LEN)` after the length check above, so this cannot
-        // fail — but the call it replaces would have panicked if it ever could.
+        // fail, and if it ever could, it answers an error rather than a panic.
         let nonce = <&GcmNonce>::try_from(nonce_bytes)
             .map_err(|_| AppError::Internal("stored secret has a malformed nonce".into()))?;
 
@@ -239,10 +239,10 @@ pub fn write_api_key(path: &Path, key: &str) -> AppResult<()> {
 
 /// Write a file that holds a secret, private from the moment it exists.
 ///
-/// `std::fs::write` then `chmod` opens it under the umask first — 0644 under
-/// the usual 022 — and the chmod that follows only warns when the filesystem
+/// `std::fs::write` then `chmod` opens it under the umask first (0644 under
+/// the usual 022), and the chmod that follows only warns when the filesystem
 /// refuses it, which a bind mount from SMB or NFS does. Created with the mode
-/// instead, there is no window and nothing to warn about; where modes are not
+/// instead, there is no window and nothing to warn about. Where modes are not
 /// honoured the file is exactly as private as it can be there.
 pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
@@ -254,7 +254,7 @@ pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     file.flush()
 }
 
-/// Open a file for writing with mode 0600, created if absent — refused if
+/// Open a file for writing with mode 0600, created if absent, and refused if
 /// present when `exclusive` is set, so an archive is never written over.
 pub fn create_private(path: &Path, exclusive: bool) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
@@ -270,7 +270,7 @@ pub fn create_private(path: &Path, exclusive: bool) -> std::io::Result<std::fs::
         options.mode(0o600);
     }
     let file = options.open(path)?;
-    // A file that already existed keeps the mode it had; say what it should be.
+    // A file that already exists keeps its mode until it is set here.
     restrict_permissions(path);
     Ok(file)
 }

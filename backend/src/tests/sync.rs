@@ -1,7 +1,7 @@
 //! Synchronization against a live fake Arr.
 //!
 //! This is the code path that deletes rows, and deleting a media row cascades to
-//! the user's overrides — so the orphan-cleanup guardrails get the most attention
+//! the user's overrides, so the orphan-cleanup guardrails get the most attention
 //! here.
 
 use crate::services::sync;
@@ -9,10 +9,10 @@ use crate::services::sync;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
-/// The webhook path stamped its `read_at` *after* reading the Arr, where the
-/// full sync stamps it before its first request. A move applied while that
-/// read was in flight was then older than the stamp, and the path the Arr had
-/// answered with — the one from before the move — was written back over it.
+/// The webhook path stamps its `read_at` *before* reading the Arr, as the full
+/// sync does before its first request. Stamped after, a move applied while that
+/// read is in flight would be older than the stamp, and the path the Arr
+/// answered with, the one from before the move, would be written back over it.
 #[tokio::test]
 async fn a_webhook_read_started_before_a_move_does_not_put_the_old_path_back() {
     let arr = FakeArr::holding_edits(std::time::Duration::from_millis(2500)).await;
@@ -314,7 +314,7 @@ impl Drop for EmptyArr {
 // ------------------------------------------------- the routes, not the service
 //
 // Everything above drives `sync::` directly. These go through the router, so
-// the middleware, the extractors and the error mapping are exercised too — a
+// the middleware, the extractors and the error mapping are exercised too: a
 // handler can be perfect and still be unreachable, or return the right thing
 // with the wrong status.
 
@@ -338,7 +338,7 @@ async fn the_sync_all_route_covers_every_enabled_instance() {
     app.seed_instance_at("inst-2", "sonarr", &arr.base_url).await;
 
     let body = app.post("/api/v1/instances/sync", serde_json::json!({})).await;
-    // One report per instance, in a list — the shape the Instances screen reads.
+    // One report per instance, in a list: the shape the Instances screen reads.
     let reports = body.assert_ok().as_array().unwrap().clone();
     assert_eq!(reports.len(), 2, "got {reports:?}");
 }
@@ -357,8 +357,8 @@ async fn the_connectivity_route_answers_with_the_version_it_found() {
 }
 
 /// A `for` loop with an `.await` in it syncs instances one after another. The
-/// cost is not the database — `do_sync` fetches everything before it opens its
-/// transaction — it is the waiting: an unreachable Arr costs the full HTTP
+/// cost is not the database (`do_sync` fetches everything before it opens its
+/// transaction) but the waiting: an unreachable Arr costs the full HTTP
 /// timeout, and two of them make the button look dead for twice that.
 ///
 /// The fake counts how many listings it ever had open at once. A sequential
@@ -386,8 +386,8 @@ async fn syncing_every_instance_does_them_at_the_same_time() {
 /// Concurrency must not reach the caller as reordering: the reports are what
 /// the API returns and what the interface lists, and a set of rows that shuffle
 /// between two runs is a table nobody can read. `buffered` overlaps the work
-/// and still yields in the order the instances were listed — `buffer_unordered`
-/// would not.
+/// and still yields in the order the instances were listed, which
+/// `buffer_unordered` would not.
 #[tokio::test]
 async fn the_reports_keep_the_order_the_instances_were_listed_in() {
     let arr = FakeArr::observing_concurrency().await;
@@ -409,10 +409,9 @@ async fn the_reports_keep_the_order_the_instances_were_listed_in() {
 
 // ------------------------------------------------- declared destinations
 
-/// A target used to have to be a root folder in Radarr or Sonarr already, so
-/// routing into `/movies/anime/kids` meant declaring it *there* first. What an
-/// operator wants is one root folder per Arr and the targets beneath it
-/// declared here.
+/// A target need not be a root folder in Radarr or Sonarr, or routing into
+/// `/movies/anime/kids` would mean declaring it *there* first. What an operator
+/// wants is one root folder per Arr and the targets beneath it declared here.
 #[tokio::test]
 async fn a_declared_destination_survives_the_sync_that_does_not_report_it() {
     let arr = FakeArr::start().await;
@@ -441,7 +440,7 @@ async fn a_declared_destination_survives_the_sync_that_does_not_report_it() {
 }
 
 /// The whole point of allowing one: a path beneath a synced root is on that
-/// root's volume, so its free space and its reachability are known — which is
+/// root's volume, so its free space and its reachability are known, which is
 /// what keeps the capacity and reachability guards meaningful for a folder no
 /// Arr reports.
 #[tokio::test]
@@ -455,7 +454,7 @@ async fn a_declared_destination_inherits_from_the_folder_it_sits_under() {
     app.post(
         "/api/v1/root-folders",
         // Under `/movies/anime`, which the fake reports inaccessible with
-        // 2048 bytes free — the deepest match, not `/movies`.
+        // 2048 bytes free: the deepest match, not `/movies`.
         serde_json::json!({ "instance_id": "i-1", "path": "/movies/anime/films" }),
     )
     .await
@@ -497,10 +496,10 @@ async fn a_path_the_instance_cannot_see_is_refused_when_it_is_typed() {
 /// A folder removed and re-added in Radarr keeps its path and changes its id.
 ///
 /// The upsert conflicts on `(instance, arr_id)`, so the new id inserts a second
-/// row carrying the same path — and the orphan cleanup that removes the old one
+/// row carrying the same path, and the orphan cleanup that removes the old one
 /// runs after the loop, in the same transaction. Under a unique index on the
-/// path the insert failed, the transaction rolled back, and that instance never
-/// synchronised again.
+/// path the insert would fail, the transaction roll back, and that instance
+/// never synchronise again.
 #[tokio::test]
 async fn a_root_folder_renumbered_by_the_arr_does_not_break_the_sync() {
     let arr = FakeArr::start().await;
@@ -601,8 +600,8 @@ async fn a_category_follows_its_folder_through_a_renumbering() {
 }
 
 /// A declared path the Arr adopts is promoted to the id the Arr gives it. A
-/// stale row still holding that id made the promotion break the unique id,
-/// and the instance's whole sync failed on every pass.
+/// stale row still holding that id would make the promotion break the unique
+/// id, and the instance's whole sync fail on every pass.
 #[tokio::test]
 async fn a_declared_path_adopted_under_a_taken_id_does_not_fail_the_sync() {
     let arr = FakeArr::start().await;
@@ -659,9 +658,9 @@ async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
 
 /// A declared folder has no id in the Arr, and must not publish one.
 ///
-/// `arr_id` is nullable since the row can be Routarr's own; typed as `i64` sqlx
-/// decodes the NULL to `0`, and every declared destination went out over the
-/// wire carrying a fabricated Arr id.
+/// `arr_id` is nullable since the row can be Routarr's own. Typed as `i64`,
+/// sqlx decodes the NULL to `0`, and every declared destination would go out
+/// over the wire carrying a fabricated Arr id.
 #[tokio::test]
 async fn a_declared_folder_publishes_no_arr_id() {
     let arr = FakeArr::start().await;
@@ -695,7 +694,7 @@ async fn a_typo_in_the_last_segment_is_not_verified() {
     let app = TestApp::new().await;
     app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
 
-    // `/movies/anime` exists; `/movies/anmie` does not.
+    // `/movies/anime` exists, and `/movies/anmie` does not.
     let refused = app
         .post(
             "/api/v1/root-folders",

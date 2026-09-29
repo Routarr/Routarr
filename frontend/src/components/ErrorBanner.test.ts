@@ -38,7 +38,7 @@ describe('ErrorBanner', () => {
   });
 
   /**
-   * A write that failed must not grow a button that does it again; retry is
+   * A write that failed must not grow a button that does it again. Retry is
    * the caller's to offer, never the banner's to assume.
    */
   it('shows no retry when none was offered', () => {

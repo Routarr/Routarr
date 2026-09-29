@@ -18,8 +18,8 @@ const { chromium } = require('@playwright/test');
 const { AxeBuilder } = require('@axe-core/playwright');
 
 /**
- * A port nothing else holds: a fixed one collided with a second checkout
- * verifying at the same time, and the failure read as a broken page.
+ * A port nothing else holds: a fixed one collides with a second checkout
+ * verifying at the same time, and the failure reads as a broken page.
  */
 async function freePort() {
   const { createServer } = await import('node:net');
@@ -96,7 +96,7 @@ check(external.length === 0, `the page contacts external hosts: ${external.join(
 // ------------------------------------------------------------ images
 // Force every image to load rather than relying on the scroll position to
 // trigger `loading="lazy"`: the point here is that each URL resolves and
-// decodes, and depending on lazy heuristics made the check intermittent.
+// decodes, and lazy heuristics make the check intermittent.
 await page.evaluate(() => {
   for (const image of document.images) image.loading = 'eager';
 });
@@ -107,9 +107,8 @@ await page.waitForFunction(() => [...document.images].every((i) => i.complete), 
 const images = await page.evaluate(() =>
   [...document.images].map((i) => ({ src: i.currentSrc || i.src, ok: i.naturalWidth > 0 })),
 );
-// No assertion that the page carries an image: it carries none since the
-// screenshots came out of it. The loop below is the one that matters, and it
-// holds whatever the count.
+// No assertion that the page carries an image: it may carry none. The loop
+// below is the one that matters, and it holds whatever the count.
 for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 
 // ----------------------------------------------------------- accessibility
@@ -292,15 +291,13 @@ for (const path of PAGES) {
 // selector that stops matching would compare nothing and pass.
 check(headerControls >= 1100, `measured ${headerControls} header control(s), expected at least 1100`);
 
-// ------------------------------------------------------------ board
-// The plan is a table of translated strings in columns that do not wrap: a
-// rule name one word longer in German, or a status that grew, pushes its cell
-// past the card and nothing else notices. Every cell and every chip is
-// measured against the box it sits in, on the four landing pages, in the three
-// layouts. The plan is the hero, so it is on those and nowhere else.
-//
-// It replaced a split-flap board, whose probe this is: the object changed, the
-// failure it guards against did not.
+// ------------------------------------------------------------- plan
+// The hero's plan is a table of translated strings in columns that do not
+// wrap: a rule name one word longer in German, or a longer status, pushes its
+// cell past the card and nothing else notices. Every cell and every chip is
+// measured against its own box, on the four landing pages, in the three
+// layouts, and any text it clips fails. The plan is the hero, so it is on those
+// and nowhere else.
 let planCells = 0;
 for (const path of LANDINGS) {
   const tab = await context.newPage();
@@ -311,8 +308,8 @@ for (const path of LANDINGS) {
       const plan = document.querySelector('.plan');
       if (!plan) return null;
       // Only clipping counts. The table scrolls sideways on a phone, so a cell
-      // sitting past the visible frame is the scroller working, not a fault —
-      // measuring against that edge reported every row on every narrow page.
+      // sitting past the visible frame is the scroller working, not a fault.
+      // Measured against that edge, every row on every narrow page would fail.
       return [...plan.querySelectorAll('td, .chip')]
         .filter((el) => el.checkVisibility())
         .map((el) => ({
@@ -355,13 +352,12 @@ check(
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
 // Nothing is stamped on the default, which is light, so the question is
-// whether dark was chosen — not whether light was.
+// whether dark was chosen, not whether light was.
 const other = await page.evaluate(() =>
   document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
 );
-// The switch lives inside the Index panel now, so it has to be opened first.
-// Both settings moved off the bar: eight controls beside the brand wrapped it
-// onto a second row on a phone.
+// The switch sits inside the Index panel, off the bar, so the panel is opened
+// first.
 await page.click('.index > summary');
 await page.click(`[data-theme-set="${other}"]`);
 await page.waitForTimeout(120);
@@ -441,7 +437,7 @@ for (const width of [1440, 375]) {
 }
 
 // ------------------------------------------------------------ index panel
-// On a phone the destinations stack in one column: two columns of 136px fold
+// On a phone the destinations stack in one column: two narrow columns fold
 // every title and every description.
 {
   const tab = await context.newPage();
@@ -472,7 +468,7 @@ check(firstStop.includes('skip'), `the first tab stop should be the skip link, g
 // --------------------------------------------------- the language offer
 // `site.js` reads `navigator.languages` and offers the reader's own language in
 // a banner. Nothing else exercises it: the pages render identically whether it
-// works or not, so it survived two reworks of this site unmeasured.
+// works or not, so a broken offer goes unseen.
 //
 // Each case takes a context of its own. The offer writes the choice to
 // `localStorage` and returns early when it finds one, so a reused context makes

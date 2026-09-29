@@ -1,15 +1,15 @@
 import { basePath } from '../api/basePath';
 
 /**
- * The whole router. Thirteen flat routes, no nesting, no parameters.
+ * The whole router. Flat routes, no nesting, no parameters.
  *
  * Written rather than installed, for one reason that is specific to this
  * application: the mount point is discovered at *runtime* from the `<base href>`
  * the backend injects, because a single Docker image has to serve any sub-path.
  * Every SPA router worth taking wants its base at build time, which would mean
- * one image per mount point — the opposite of what this project ships.
+ * one image per mount point, the opposite of what this project ships.
  *
- * Fifty lines is also less than the cost of tracking a routing dependency's
+ * A router this small also costs less than tracking a routing dependency's
  * position on Svelte 5.
  */
 
@@ -27,11 +27,11 @@ export const router = $state({ path: strip(window.location.pathname) });
  * The `href` of a route: the mount point and the path.
  *
  * A `<base href>` applies to relative URLs only, and these anchors are
- * root-absolute. Written as `/rules`, the left click worked because the
- * interception below prefixed the mount point — and everything else a native
- * link offers (middle-click, ctrl-click, the status bar, a copied address)
- * went to the proxy's root and a 404. Every anchor to a route goes through
- * this, so the attribute says where the click will actually go.
+ * root-absolute. A bare `/rules` lies outside the mount point, so the
+ * interception below leaves it to the browser, and every way of following it
+ * (a click, middle-click, ctrl-click, a copied address) reaches the proxy's
+ * root and a 404. Every anchor to a route goes through this, so the attribute
+ * says where the click will actually go.
  */
 export const href = (to: string) => `${basePath()}${to}`;
 
@@ -58,7 +58,7 @@ export function navigate(to: string, options: { replace?: boolean } = {}) {
 /**
  * One delegated listener rather than a `<Link>` component.
  *
- * The markup stays plain `<a href="/rules">`, which is what makes a link a link:
+ * The markup stays a plain `<a href>`, which is what makes a link a link:
  * middle-click opens a tab, ctrl-click too, the status bar shows a destination,
  * and a screen reader announces it as a link with a name. A component that
  * renders a `<div role="link">` gets none of that, and the accessibility sweep

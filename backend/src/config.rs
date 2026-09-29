@@ -7,10 +7,9 @@ pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 
 /// The directory a database file lives in.
 ///
-/// One place rather than three: the same `parent()` expression was spelled out
-/// at each call site, and `Path::new(":memory:").parent()` is `Some("")` — an
-/// *empty* path, which `unwrap_or` never catches and which `join` turns into a
-/// path relative to the working directory.
+/// One place for every caller: `Path::new(":memory:").parent()` is `Some("")`,
+/// an *empty* path, which `unwrap_or` never catches and which `join` turns into
+/// a path relative to the working directory.
 fn data_dir_for(db_path: &Path) -> PathBuf {
     match db_path.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => dir.to_path_buf(),
@@ -38,7 +37,7 @@ pub enum AuthMode {
     ///
     /// One level of access: whoever the provider lets through gets in, and
     /// Routarr does not decide again. There is no group claim to read and no
-    /// user table to keep — what it records is the subject, as the actor on
+    /// user table to keep: what it records is the subject, as the actor on
     /// every decision and write.
     Oidc,
     /// A reverse proxy authenticates, and Routarr asks for nothing.
@@ -67,15 +66,15 @@ impl AuthMode {
         }
     }
 
-    /// Read `ROUTARR_AUTH`, tolerating the spelling this setting shipped with.
+    /// Read `ROUTARR_AUTH`, with the aliases a deployed compose file may carry.
     ///
     /// Anything unrecognised falls back to the API key rather than to nothing:
     /// a typo must not be the way an installation ends up open.
     pub fn from_env(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
             "none" => Self::None,
-            // The value documented until now. An image people pull without
-            // reading release notes has to keep starting.
+            // An alias deployed compose files carry. An image people pull
+            // without reading release notes has to keep starting on it.
             "disabled" => {
                 tracing::warn!(
                     "ROUTARR_AUTH=disabled is the old spelling of `none` and still works. \
@@ -83,7 +82,8 @@ impl AuthMode {
                 );
                 Self::None
             }
-            // `required` is the value that shipped for the API key.
+            // `required` is an alias for the API key that deployed compose
+            // files carry.
             "oidc" | "openid" => Self::Oidc,
             "forms" | "form" => Self::Forms,
             "external" | "proxy" => Self::External,
@@ -99,7 +99,7 @@ impl AuthMode {
     }
 }
 
-/// Whether a URL is reached over TLS — or on this machine, where no wire is
+/// Whether a URL is reached over TLS, or on this machine, where no wire is
 /// involved and a provider under test or beside the container is plain http.
 pub fn reaches_over_tls(url: &str) -> bool {
     let Ok(url) = reqwest::Url::parse(url) else {
@@ -116,14 +116,14 @@ pub fn reaches_over_tls(url: &str) -> bool {
 ///
 /// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
 /// tower-http compares the header against these values verbatim. So anything
-/// that is not exactly that shape can never match — and used to be accepted in
-/// silence, counted in the startup line, and left the operator with CORS that
-/// looked configured and did nothing.
+/// that is not exactly that shape can never match. Accepted in silence, it
+/// would be counted in the startup line and leave the operator with CORS that
+/// looks configured and does nothing.
 ///
 /// `*` is refused outright rather than translated: this layer sends
 /// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
 /// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
-/// panic — so an installation that set it never started at all.
+/// panic, so an installation that set it would never start at all.
 fn validate_origin(origin: &str) -> AppResult<()> {
     // Named through a constant rather than inline: the sample-env check scans
     // this file for a quoted `ROUTARR_*` and reads the whole literal as a
@@ -230,7 +230,7 @@ pub struct Config {
 /// People write `routarr`, `/routarr`, `/routarr/` and `routarr/` and expect all
 /// four to work. Getting this wrong produces a double slash or a missing one in
 /// every generated URL, which is the kind of bug that only shows up behind the
-/// proxy — the one place it cannot be debugged comfortably.
+/// proxy, the one place it cannot be debugged comfortably.
 pub fn normalise_base_path(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches('/');
     if trimmed.is_empty() { String::new() } else { format!("/{trimmed}") }
@@ -261,8 +261,8 @@ impl Config {
     /// Load configuration from environment variables with sensible defaults.
     ///
     /// A value that cannot be read is an error naming the variable, never the
-    /// default in its place: `ROUTARR_PORT=987 6` ran on 9876 while the
-    /// operator believed their port was in force.
+    /// default in its place: with the default, `ROUTARR_PORT=987 6` would run
+    /// on 9876 while the operator believes their port is in force.
     pub fn from_env() -> AppResult<Self> {
         let db_path = std::env::var("ROUTARR_DB_PATH")
             .map(PathBuf::from)
@@ -296,7 +296,7 @@ impl Config {
             http_timeout: Duration::from_secs(env_parse("ROUTARR_HTTP_TIMEOUT_SECS", 20)?),
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
-            // Bounds how many requests are *open* per source; `rate_limit`
+            // Bounds how many requests are *open* per source, and `rate_limit`
             // bounds how many are made.
             metadata_concurrency: env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?.clamp(1, 16),
             tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
@@ -355,7 +355,7 @@ impl Config {
     ///
     /// The two are one setting expressed as two fields, so assigning `db_path`
     /// alone leaves the key files and the backups behind at the old location.
-    /// Production sets both in `from_env`; only tests relocate a live config.
+    /// Production sets both in `from_env`, and only tests relocate a live config.
     #[cfg(test)]
     pub fn set_db_path(&mut self, path: PathBuf) {
         self.data_dir = data_dir_for(&path);
@@ -378,7 +378,7 @@ impl Config {
     /// Refuse a configuration the server cannot honour, before it serves.
     ///
     /// Called once by `main`, so a value that would fail later fails at the
-    /// start with a sentence naming the variable — rather than as a panic from
+    /// start with a sentence naming the variable, rather than as a panic from
     /// a dependency, or as a feature that silently does nothing.
     pub fn validate(&self) -> AppResult<()> {
         for origin in &self.cors_origins {
@@ -402,7 +402,7 @@ impl Config {
     /// The four an OIDC sign-in needs, and its two URLs over TLS.
     ///
     /// The flow does not verify the ID token's signature (see
-    /// `services::oidc`) because the exchange happens over TLS; a provider
+    /// `services::oidc`) because the exchange happens over TLS. A provider
     /// reached in the clear voids that, so it is refused here rather than
     /// trusted at sign-in. Missing values are refused here too: each of the
     /// four is needed before anyone can sign in, and a start that names the
@@ -450,9 +450,9 @@ impl Config {
             port: 0,
             db_path: PathBuf::from(":memory:"),
             // `:memory:` is not a file, so there is no directory beside it.
-            // Deriving one anyway yielded a *relative* path, and the scheduler
-            // test that reaches the backup stage created `backups/` in
-            // whatever directory `cargo test` was run from.
+            // Deriving one anyway yields a *relative* path, and a test that
+            // reaches the backup stage would create `backups/` in whatever
+            // directory `cargo test` runs from.
             data_dir: std::env::temp_dir().join(format!("routarr-tests-{}", std::process::id())),
             log_level: "error".into(),
             log_format: "text".into(),
@@ -460,7 +460,7 @@ impl Config {
             tmdb_api_key: None,
             api_key: None,
             // Tests drive the middleware directly and set a key when they mean
-            // to; generating one here would make every unauthenticated case
+            // to. Generating one here would make every unauthenticated case
             // untestable.
             auth_mode: AuthMode::None,
             oidc_issuer: None,
@@ -496,7 +496,7 @@ fn env_parse<T: std::str::FromStr>(key: &str, default: T) -> AppResult<T> {
     parse_setting(key, std::env::var(key).ok(), default)
 }
 
-/// The value of a variable, or its default when unset or blank — and a
+/// The value of a variable, or its default when unset or blank, and a
 /// refusal naming the variable when it is set to something unreadable.
 fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: T) -> AppResult<T> {
     match raw.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) {
@@ -514,8 +514,8 @@ mod tests {
     use super::*;
 
     /// The image's probe reads this address. Written raw from the variable,
-    /// `routarr` gave `:9876routarr` and a container unhealthy for ever, and
-    /// `/routarr/` a double slash the interface's fallback page answered.
+    /// `routarr` would give `:9876routarr` and a container unhealthy for ever,
+    /// and `/routarr/` a double slash the interface's fallback page answers.
     #[test]
     fn the_probe_asks_the_address_the_server_serves_however_the_mount_point_is_written() {
         let mut config = Config::for_tests();
@@ -533,9 +533,9 @@ mod tests {
     }
 
     /// `.env.example` is the only place most people will ever read the list of
-    /// knobs, so a variable the code honours but the sample omits is invisible.
-    /// `ROUTARR_BASE_PATH` was exactly that, and it is the one people need when
-    /// the app misbehaves behind a reverse proxy — the hardest place to guess.
+    /// knobs, so a variable the code honours but the sample omits is invisible,
+    /// `ROUTARR_BASE_PATH` among them, the one people need when the app
+    /// misbehaves behind a reverse proxy, the hardest place to guess.
     ///
     /// Read at run time rather than `include_str!`'d: the Docker build copies
     /// only `src`, `migrations` and `locales`, so embedding the sample would
@@ -548,7 +548,8 @@ mod tests {
 
         let mut read: Vec<String> = Vec::new();
         for line in source.lines() {
-            // Only the `env_or("NAME", …)` / `non_empty("NAME")` call sites.
+            // Every quoted name with a known prefix, the `env_or("NAME", …)` and
+            // `non_empty("NAME")` call sites among them.
             for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_"] {
                 let Some(at) = line.find(&format!("\"{prefix}")) else { continue };
                 let rest = &line[at + 1..];
@@ -566,16 +567,16 @@ mod tests {
         assert!(missing.is_empty(), "undocumented in .env.example: {missing:?}");
     }
 
-    /// And nothing is documented that the code stopped reading.
+    /// And nothing is documented that the code does not read.
     ///
     /// The other direction, and it fails differently: an operator sets a
     /// variable the sample still advertises, nothing happens, and nothing says
     /// so. A setting that silently does nothing is worse than one that is
     /// missing, because the sample is where people look for what exists.
     ///
-    /// `config.rs` is the only file in the crate that reads the environment —
-    /// `grep 'env::var'` finds nothing elsewhere — which is what makes scanning
-    /// this one file enough.
+    /// `config.rs` is the only file outside the tests that reads the
+    /// environment (`grep 'env::var'` finds only `tests/live_sources.rs`
+    /// elsewhere), which is what makes scanning this one file enough.
     #[test]
     fn every_variable_the_sample_env_advertises_is_one_the_code_reads() {
         let root = env!("CARGO_MANIFEST_DIR");
@@ -610,9 +611,8 @@ mod tests {
     fn an_in_memory_database_never_derives_a_relative_data_directory() {
         // `Path::new(":memory:").parent()` is `Some("")`, so the obvious
         // derivation yields `backups`, `routarr.key` and `routarr.api_key`
-        // relative to the working directory. The scheduler test that reaches
-        // the backup stage did exactly that and left a directory in the
-        // source tree.
+        // relative to the working directory, and a test that reaches the
+        // backup stage would leave a directory in the source tree.
         assert_eq!(data_dir_for(Path::new(":memory:")), PathBuf::from("."));
 
         let config = Config::for_tests();
@@ -638,7 +638,7 @@ mod tests {
 
     /// Everything on disk hangs off `data_dir`, and `set_db_path` is the only
     /// thing that moves it. Assigning `db_path` alone would leave the master
-    /// key and the backups at the previous location — where the next start
+    /// key and the backups at the previous location, where the next start
     /// would not find them, and would generate a *new* key that opens none of
     /// the stored Arr credentials.
     #[test]
@@ -664,9 +664,9 @@ mod tests {
     }
 
     /// A browser sends `scheme://host[:port]` and tower-http compares the
-    /// header verbatim, so anything else can never match. Accepted in silence
-    /// it left CORS looking configured and doing nothing — while the startup
-    /// line still counted it.
+    /// header verbatim, so anything else can never match. Accepted in silence,
+    /// it would leave CORS looking configured and doing nothing, while the
+    /// startup line still counts it.
     #[test]
     fn an_origin_that_could_never_match_is_refused() {
         for bad in ["example.com", "//example.com", "ftp://example.com", "https://", "not a url"] {
@@ -690,8 +690,8 @@ mod tests {
         assert!(Config::for_tests().validate().is_ok());
     }
 
-    /// `unwrap_or(default)` on a failed parse ran the server on the default
-    /// while the operator believed their value was in force.
+    /// `unwrap_or(default)` on a failed parse would run the server on the
+    /// default while the operator believes their value is in force.
     #[test]
     fn an_unreadable_variable_is_refused_by_name_rather_than_replaced_by_its_default() {
         assert_eq!(parse_setting("ROUTARR_PORT", None, 9876u16).unwrap(), 9876);
@@ -741,7 +741,7 @@ mod tests {
     }
 
     /// The flow does not verify the token's signature because the exchange
-    /// happens over TLS; a provider reached in the clear voids that. The
+    /// happens over TLS, and a provider reached in the clear voids that. The
     /// machine itself is the one exception, since nothing else is on the wire.
     #[test]
     fn oidc_mode_refuses_a_provider_or_a_redirect_reached_in_the_clear() {
@@ -772,7 +772,7 @@ mod tests {
         assert!(config.validate().is_ok());
     }
 
-    /// `bind_address` is what the listener is given; a mistake here is a server
+    /// `bind_address` is what the listener is given. A mistake here is a server
     /// that answers on an address nobody documented.
     #[test]
     fn the_bind_address_joins_the_configured_host_and_port() {

@@ -32,7 +32,7 @@ export default defineConfig({
   },
 
   // The page is content. Nothing here is worth a client-side framework, and the
-  // one script is deferred and optional — the site reads and navigates with
+  // one script is deferred and optional: the site reads and navigates with
   // JavaScript switched off.
   //
   // The sitemap is the exception, and it earns its place. Kept by hand in
@@ -42,8 +42,8 @@ export default defineConfig({
   // with them.
   integrations: [
     sitemap({
-      // `/404` is `noindex`; a sitemap that lists it invites a crawl of the one
-      // page telling crawlers to go away.
+      // `/404` is `noindex`, and a sitemap that lists it invites a crawl of the
+      // one page telling crawlers to go away.
       filter: (page) => !page.includes('/404'),
       // Each entry names its translations, as the pages' `hreflang` block
       // does: a crawler reading the sitemap alone otherwise sees four

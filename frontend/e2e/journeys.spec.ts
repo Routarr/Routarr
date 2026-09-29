@@ -51,8 +51,8 @@ test.describe('navigation', () => {
   /**
    * The same index fallback that makes a deep link work also means the server
    * answers 200 for *any* path, so telling somebody they mistyped is the
-   * client's job. It used to render the dashboard instead — a screen nobody
-   * asked for, with no menu entry active and nothing saying why.
+   * client's job. The dashboard in its place would be a screen nobody asked
+   * for, with no menu entry active and nothing saying why.
    */
   test('a path that does not exist says so, and keeps the address', async ({ page }) => {
     await page.goto('/typo');
@@ -157,9 +157,9 @@ test.describe('picking a condition value', () => {
   });
 
   /**
-   * OR and AND on one condition. It is the distinction the form could not make
-   * before without asking for a second condition, and only a browser shows that
-   * turning the selector keeps the values that were already chosen.
+   * OR and AND on one condition, with no second condition needed for the AND.
+   * Only a browser shows that turning the selector keeps the values that were
+   * already chosen.
    */
   test('one condition can ask for either genre or for both', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
@@ -231,7 +231,6 @@ test.describe('the routing journey', () => {
     await field('Rule name').locator('input').fill('Japanese animation');
     await field('Target category').locator('select').selectOption('anime');
 
-    // A condition is added by picking its kind, then pressing Add.
     await field('Conditions (all of)').locator('select').selectOption('title_contains');
     await field('Conditions (all of)')
       .getByRole('button', { name: /^Add – / })
@@ -395,7 +394,7 @@ test.describe('reclassifying a whole library', () => {
     await page.getByRole('button', { name: /apply all/i }).click();
     await page.locator('dialog[open]').getByRole('button', { name: 'Apply' }).click();
 
-    // One banner, naming how many batches it took — not one dialog per batch.
+    // One banner, naming how many batches it took, not one dialog per batch.
     const banner = page.locator('.banner-success');
     await expect(banner).toBeVisible();
     await expect(banner).toContainText('3');

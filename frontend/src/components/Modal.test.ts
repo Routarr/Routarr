@@ -81,7 +81,7 @@ describe('Modal', () => {
 
   /**
    * Escape is `cancel`, and letting the browser act on it would close the
-   * element while the caller still believed the modal was showing — after which
+   * element while the caller still believes the modal is showing, after which
    * nothing reopens it.
    */
   it('turns Escape into a close the caller controls', async () => {
@@ -123,8 +123,8 @@ describe('Modal', () => {
 
   /**
    * Svelte removes the block's DOM before the teardown runs, so `close()` acts
-   * on a detached element and the browser's own restoration never happens: a
-   * keyboard user closed a dialog and found themselves on `<body>`.
+   * on a detached element and the browser's own restoration never happens, so
+   * a keyboard user who closes a dialog lands on `<body>`.
    */
   it('gives the focus back to the control that opened it', () => {
     const opener = document.createElement('button');

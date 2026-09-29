@@ -152,7 +152,7 @@ impl JikanClient {
         let raw = response.data;
 
         // Themes and demographics are what an anime library is actually sorted
-        // by; as genres they would collide with TMDb's much coarser list, so
+        // by. As genres they would collide with TMDb's much coarser list, so
         // they land in the keywords where a rule can name them precisely.
         let mut keywords: Vec<String> = raw
             .themes
@@ -228,7 +228,7 @@ mod tests {
         let raw = response.data;
 
         assert_eq!(raw.mal_id, 523);
-        // A null year must not break the row; resolution simply cannot use it.
+        // A null year must not break the row. Resolution simply cannot use it.
         assert_eq!(raw.year, None);
         assert!(titles_of(&raw).contains(&"My Neighbor Totoro".to_string()));
         assert_eq!(raw.genres.len(), 1);

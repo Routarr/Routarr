@@ -113,7 +113,7 @@ async fn a_media_that_already_has_files_is_left_to_a_human() {
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
 
-    // The move is still proposed — it is just not applied unattended, because
+    // The move is still proposed. It is just not applied unattended, because
     // applying it would strand the file or start a real disk move.
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply));
     assert!(arr.recorded().writes.is_empty());
@@ -408,8 +408,8 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
     assert_eq!(root, "/movies/anime");
 }
 
-/// The same event with auto-apply left off must change nothing upstream — the
-/// webhook still does its job of proposing.
+/// The same event with auto-apply left off must change nothing upstream, while
+/// the webhook still does its job of proposing.
 #[tokio::test]
 async fn the_same_event_only_proposes_when_auto_apply_is_off() {
     let arr = FakeArr::with_unimported_movie().await;

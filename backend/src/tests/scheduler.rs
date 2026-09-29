@@ -1,7 +1,7 @@
 //! What the scheduler decides to run, and what it declines to.
 //!
 //! This is the code that acts with nobody watching: every fifteen minutes it
-//! syncs, enriches, simulates, **applies** — which writes to Radarr — backs up
+//! syncs, enriches, simulates, **applies** (which writes to Radarr), backs up
 //! and purges. A defect here is the one a user cannot see happening.
 //!
 //! Each test asserts on the `jobs` table, because every stage records itself
@@ -17,7 +17,7 @@ use super::fake_arr::FakeArr;
 use super::{TestApp, warning_messages};
 
 /// Run one tick with fresh cadence state, as the loop does on its first pass,
-/// and wait for the work it handed off — what the loop does before stopping.
+/// and wait for the work it handed off, as the loop does before stopping.
 async fn tick(app: &TestApp) {
     if let Some(chain) = tick_only(app).await {
         chain.await.expect("the post-sync chain must not panic");
@@ -109,8 +109,8 @@ async fn nothing_downstream_runs_when_nothing_synced() {
 
     tick(&app).await;
 
-    // Enrichment and simulation are work proportional to the library; running
-    // them on an unchanged one every quarter of an hour is pure waste.
+    // Enrichment and simulation are work proportional to the library, and
+    // running them on an unchanged one every quarter of an hour is pure waste.
     let kinds = scheduled_jobs(&app).await;
     assert!(!kinds.contains(&"enrich".to_string()), "enriched for nothing: {kinds:?}");
     let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
@@ -164,7 +164,7 @@ async fn a_failing_instance_waits_its_interval_before_the_next_attempt() {
     assert_eq!(attempts, 1, "the instance that is down was tried on every tick");
 }
 
-/// An unreachable Arr is the ordinary case — a NAS asleep, a container
+/// An unreachable Arr is the ordinary case: a NAS asleep, a container
 /// restarting. The tick has to survive it and still do the rest, or one dead
 /// instance quietly stops the backups and the purges for everybody.
 #[tokio::test]
@@ -208,8 +208,8 @@ async fn a_disabled_instance_is_left_alone() {
 /// A library where a move is genuinely possible: an unimported film, a rule that
 /// matches it, and a mapped destination that is not where it already sits.
 ///
-/// Without this, "nothing was written" is true of any tick — there was never
-/// anything to write — and the guardrail tests below would pass whatever the
+/// Without this, "nothing was written" is true of any tick, since there would
+/// be nothing to write, and the guardrail tests below would pass whatever the
 /// guardrails did.
 async fn ready_to_apply(arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
@@ -259,7 +259,7 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
 }
 
 /// The scheduler is the path that can write without anyone asking, so the
-/// guardrail that stops it has to hold from here too — not only from the button.
+/// guardrail that stops it has to hold from here too, not only from the button.
 #[tokio::test]
 async fn the_scheduler_writes_nothing_while_dry_run_holds() {
     let arr = FakeArr::with_unimported_movie().await;
@@ -269,8 +269,8 @@ async fn the_scheduler_writes_nothing_while_dry_run_holds() {
 
     tick(&app).await;
 
-    // A move *was* proposed — the same fixture writes one when allowed to —
-    // and dry-run is the only thing that stopped it.
+    // A move *was* proposed (the same fixture writes one when allowed to), and
+    // dry-run is the only thing that stopped it.
     let proposed: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE action = 'move'")
         .fetch_one(&app.state.pool)
         .await
@@ -336,7 +336,7 @@ async fn backups_disabled_means_none_is_attempted() {
 // ------------------------------------------------------------- the loop itself
 //
 // The tests above exercise one `tick`. These two are about the loop around it,
-// which is what actually runs unattended — and whose two failure modes are both
+// which is what actually runs unattended, and whose two failure modes are both
 // silent: a panic that ends every future sweep, and a task still writing when
 // the pool closes.
 
@@ -346,7 +346,7 @@ async fn backups_disabled_means_none_is_attempted() {
 /// syncs, backups and retention purges stop for good while the HTTP server
 /// keeps answering. Nothing in the interface would say so. Driven through
 /// `start` itself, with the waits shortened: a test of `catch_unwind` alone
-/// proved a standard library function and nothing about this loop.
+/// would prove a standard library function and nothing about this loop.
 #[tokio::test]
 async fn a_panicking_sweep_does_not_end_the_scheduler() {
     let arr = FakeArr::start().await;
@@ -393,11 +393,12 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
         .expect("the scheduler task panicked");
 }
 
-/// The enrichment drains a whole backlog at a paced source — on a large anime
-/// library, hours — and the tick awaited it, so no other instance synced, no
-/// backup and no purge ran, and `sync_interval_minutes` meant nothing. The
-/// chain runs on a task of its own, which the tick hands back and the loop
-/// keeps, so shutdown still waits for it.
+/// The enrichment drains a whole backlog at a paced source, which on a large
+/// anime library takes hours. Awaited by the tick, it would keep every other
+/// instance from syncing, hold back the backup and the purge, and make
+/// `sync_interval_minutes` mean nothing. The chain runs on a task of its own,
+/// which the tick hands back and the loop keeps, so shutdown still waits for
+/// it.
 #[tokio::test]
 async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     let arr = FakeArr::start().await;
@@ -446,9 +447,9 @@ async fn the_scheduler_stops_when_asked() {
 
 /// A panicked pass has to leave evidence where somebody will find it.
 ///
-/// The loop carries on, which is right — stopping would end every sync, backup
-/// and purge — but carrying on quietly is its own failure. The incident lands
-/// in the `jobs` table, where the Tasks screen reads, and the diagnostics
+/// The loop carries on, which is right, since stopping would end every sync,
+/// backup and purge. But carrying on quietly is its own failure. The incident
+/// lands in the `jobs` table, where the Tasks screen reads, and the diagnostics
 /// badge counts it.
 #[tokio::test]
 async fn a_panicked_pass_is_visible_without_reading_the_log() {

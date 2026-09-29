@@ -240,9 +240,9 @@ fn merge_keywords(block: KeywordsBlock) -> Vec<String> {
     all
 }
 
-/// `origin_country` is only populated on some TMDb records; fall back to the
-/// production countries so `origin_country` conditions still have data to work
-/// with.
+/// `origin_country` is only populated on some TMDb records. The production
+/// countries stand in for it, so `origin_country` conditions still have data to
+/// work with.
 fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<String> {
     if !origin.is_empty() {
         return origin;

@@ -12,8 +12,8 @@ import History from './History.svelte';
 /**
  * The audit trail, and the only screen that can undo a move.
  *
- * Reverting asks once, through one dialog. Chaining two — "revert?", then "move
- * the files too?" — gives the second no context, and cancelling it would mean
+ * Reverting asks once, through one dialog. Chaining two ("revert?", then "move
+ * the files too?") gives the second no context, and cancelling it would mean
  * "revert without moving files" rather than "stop": a Cancel button that does
  * not cancel.
  */
@@ -251,9 +251,8 @@ describe('History', () => {
   });
 
   /**
-   * The screen could not say whether the nightly sweep proposed a move or a
-   * person did; the row now carries it, and says nothing when the row predates
-   * the column rather than guessing.
+   * The row says whether the nightly sweep proposed a move or a person did,
+   * and says nothing, rather than guessing, when the row recorded no cause.
    */
   it('names what caused a decision, and stays silent when nothing recorded it', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(

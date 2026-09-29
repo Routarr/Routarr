@@ -44,13 +44,13 @@
     //
     // Size in bytes because `16g` is the unit the two runtimes have read
     // differently. It is declared *here* and nowhere else: `ramdisk.sh` reads
-    // this line rather than restating the figure, so the assertion cannot go on
-    // passing against a size nobody mounts any more.
+    // this line rather than restating the figure, so its size check cannot
+    // drift from the mount and warn about one that is exactly what was asked.
     //
     // A tmpfs occupies only what is written to it, so the figure is a ceiling
-    // and not a reservation — what it has to clear is one coverage pass, one
-    // test build and one `--release` build coexisting, which is what made 8 GiB
-    // tight enough for `prune.sh` to be the mechanism rather than the spare.
+    // and not a reservation. It has to clear one coverage pass, one test build
+    // and one `--release` build coexisting, with room enough that `prune.sh` is
+    // the spare rather than the mechanism.
     //
     // The contents are gone on stop, rebuild or recreate. That is the trade:
     // the Rust build tree is gigabytes of small files rewritten constantly,
@@ -84,14 +84,14 @@
   "mounts": [
     "source=routarr-cargo,target=/cargo,type=volume",
     "source=routarr-playwright,target=/playwright,type=volume",
-    // Credentials and history that nothing else reconstructs; a rebuild would
-    // otherwise wipe them.
+    // Credentials and history that nothing else reconstructs, which a rebuild
+    // would otherwise wipe.
     "source=routarr-claude,target=/root/.claude,type=volume",
     // Same reason: a rebuild would silently sign `gh` out.
     "source=routarr-gh,target=/root/.config/gh,type=volume",
-    // The largest thing in the container filesystem, otherwise re-downloaded
-    // on every rebuild — after the devcontainer CLI has printed its last line,
-    // so the wait reads as a rebuild that stopped.
+    // The largest thing in the container filesystem, otherwise downloaded again
+    // on every rebuild after the devcontainer CLI has printed its last line, so
+    // the wait reads as a rebuild that stopped.
     //
     // `extensions` only, not the whole `.vscode-server`: `bin` and `data` are
     // bound to the server build in the /vscode volume, and persisting

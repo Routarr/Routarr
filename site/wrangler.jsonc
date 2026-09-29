@@ -1,6 +1,6 @@
 /**
- * The showcase site as a Worker serving static assets, which is what replaced
- * Pages. No `main`: there is no Worker code, only the files Astro builds.
+ * The showcase site as a Worker serving static assets. No `main`: there is no
+ * Worker code, only the files Astro builds.
  *
  * `dist/_headers` is what carries the CSP, the security headers and the
  * caching rules, and Astro copies it there from `public/`. Cloudflare applies it

@@ -210,8 +210,9 @@
                 <tr class:row-selected={selected?.id === media.id}>
                   <!-- A button, not a clickable row: a row has no tab stop, no
                        role and no key, and Svelte warns about that on a div but
-                       not on a tr. Named `action — subject`, the convention the
-                       accessibility sweep enforces on row actions. -->
+                       not on a tr. Named `action – subject` with an en dash, the
+                       convention the accessibility sweep enforces on row
+                       actions. -->
                   <td>
                     <button
                       type="button"

@@ -33,7 +33,7 @@
    *
    * The top bar counts them, so this screen has to show them. Showing only the
    * result of a run made in this browser session lands a user following
-   * "12 decisions awaiting review" on "run a simulation" — for the same twelve,
+   * "12 decisions awaiting review" on "run a simulation", for the same twelve,
    * already persisted.
    */
   let pending = $state<Decision[] | null>(null);
@@ -74,7 +74,6 @@
     try {
       const data = await api.runSimulation({ persist: true });
       result = data;
-      // Pre-select the actionable proposals only.
       select(
         data.decisions
           .filter((d) => d.action === 'move' && d.status === 'pending')
@@ -111,7 +110,7 @@
     else outcome.succeed(message);
   }
 
-  /** A destination is one folder on one instance; neither alone is unique. */
+  /** A destination is one folder on one instance, and neither alone is unique. */
   const c_key = (c: { instance_id: string; path: string }) => `${c.instance_id}:${c.path}`;
 
   /**
@@ -252,9 +251,9 @@
     {/if}
 
     <!-- What the plan weighs, before anything is written. `free_space` is
-           synced on every pass and `size_on_disk` sits on every row, and until
-           now nothing compared them: a batch that overruns its destination
-           fails partway at the Arr and leaves the library half-moved. -->
+           synced on every pass and `size_on_disk` sits on every row, and the
+           plan compares the two: a batch that overruns its destination fails
+           partway at the Arr and leaves the library half-moved. -->
     {#if result.capacity.length > 0}
       {#each result.capacity.filter((c) => !c.fits) as short (c_key(short))}
         <WarningBanner

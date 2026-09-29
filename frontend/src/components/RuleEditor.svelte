@@ -43,10 +43,10 @@
 
   // What the library holds, so each condition can offer its values rather than
   // ask for an exact spelling. Fetched here rather than by the picker: both
-  // condition lists want the same answer, and one editor is one request —
-  // or none: `Rules` already holds the facets for its panel, and the editor
-  // asking again aggregated the whole library a second time every time it
-  // opened. Fetched here only when the parent has nothing to hand over.
+  // condition lists want the same answer, and one editor is one request at
+  // most. `Rules` already holds the facets for its panel, and the editor asking
+  // again would aggregate the whole library a second time every time it opens,
+  // so it fetches only when the parent has nothing to hand over.
   // svelte-ignore state_referenced_locally
   let facets = $state<LibraryFacets | null>(knownFacets);
   // svelte-ignore state_referenced_locally
@@ -77,7 +77,7 @@
   /**
    * Nothing is said about a form nobody has touched.
    *
-   * Both complaints a new rule draws on open — no name, no condition — are
+   * Both complaints a new rule draws on open (no name, no condition) are
    * about a form that is merely empty, and the empty fields say so already.
    * From the first edit onwards it speaks, which is what this validation is
    * for: a value that cannot match, a condition its media type does not allow,
@@ -122,14 +122,15 @@
   // shown is a dead control, which is worse than the premature complaint.
   const blocking = $derived(shown.some((issue) => issue.severity === 'error'));
   // Checked here: a fraction never reaches the live validation, since the
-  // server refuses the draft before reading it, and Save stayed lit.
+  // server refuses the draft before reading it, and Save would stay lit.
   const wholePriority = $derived(Number.isInteger(draft.priority));
 
   const specs = $derived(new Map(catalog.conditions.map((spec) => [spec.type, spec])));
 
   // Narrowed by the rule's own media type, and recomputed when it changes: an
-  // unnarrowed picker offers `season_count_over` on a movie rule — a condition
-  // that cannot match, on a screen whose whole job is to say what will.
+  // unnarrowed picker would offer `season_count_over` on a movie rule, a
+  // condition that cannot match, on a screen whose whole job is to say what
+  // will.
   const addable = $derived(
     catalog.conditions.filter((spec) => conditionAppliesTo(spec, draft.media_type)),
   );
@@ -186,7 +187,7 @@
     event.preventDefault();
     // Pressing Save on an untouched form is also asking. The answer is fetched
     // rather than read from `issues`, which is empty for the first few hundred
-    // milliseconds after mount and stays empty if the debounced call failed —
+    // milliseconds after mount and stays empty if the debounced call failed,
     // and falling through then would send a draft the server only refuses.
     // An empty condition held back until now is asked about again: the value
     // may have been picked within the last debounce.
@@ -242,9 +243,9 @@
 
   <!-- `novalidate` because the browser's own bubble renders in the *browser's*
        language whatever `ui_language` says, and fires before the submit
-       handler — so it speaks over the editor's translated verdict rather than
+       handler, so it speaks over the editor's translated verdict rather than
        instead of it. `required` stays: it is the semantics, not the bubble.
-       Same reasoning as `window.confirm`, which this codebase replaced. -->
+       The same reasoning keeps `window.confirm` out of this codebase. -->
   <form onsubmit={save} novalidate>
     <div class="form-group">
       <label class="form-label" for="rules-rule-name">{t('RuleName')}</label>
@@ -392,7 +393,7 @@
     {/if}
 
     <!-- The region is always here so that filling it is a *change* a live
-         region reports; added at the same time as its content, it announces
+         region reports. Added at the same time as its content, it announces
          nothing. That matters on the Save press, whose only other visible
          effect is the button going quiet. -->
     <div aria-live="polite">

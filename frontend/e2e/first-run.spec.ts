@@ -5,7 +5,7 @@ import { test, expect } from './fixtures';
  * browser that has never been given one is the **ordinary** first visit, not an
  * error state.
  *
- * Mounting the shell behind it instead looks like a broken install — a failing
+ * Mounting the shell behind it instead looks like a broken install: a failing
  * request per page, every page empty, and a small "Unauthorized" badge whose
  * remedy the user has to already know. These tests are the guard on that.
  */
@@ -26,10 +26,10 @@ test.describe('a browser with no API key', () => {
     await expect(page.locator('.sidebar-nav')).toHaveCount(0);
 
     // And it says where to find the key, because "enter your API key" helps
-    // nobody who has never seen one — with the real dictionary, so a placeholder
-    // left unsubstituted shows here as `{file}` and fails.
-    // The log line that printed the key goes with the container; the file on
-    // the volume is what survives, so the screen names it, the command that
+    // nobody who has never seen one. Read with the real dictionary, so a
+    // placeholder left unsubstituted shows here as `{file}` and fails.
+    // The log line that printed the key goes with the container, and the file
+    // on the volume is what survives, so the screen names it, the command that
     // reads it, and the variable for whoever would rather choose the key.
     await expect(page.getByText('saved it as routarr.api_key next to the database')).toBeVisible();
     await expect(

@@ -55,21 +55,21 @@
     onRemove: (index: number) => void;
   } = $props();
 
-  // The catalogue names the axis; this reads it off the payload. Indexed rather
-  // than switched on the condition kind, so a condition added in Rust needs no
-  // change here.
+  // The catalogue names the axis, and this reads it off the payload. Indexed
+  // rather than switched on the condition kind, so a condition added in Rust
+  // needs no change here.
   const named = $derived(facets ? localFacets(facets, i18n.language) : null);
   function facetOf(spec?: ConditionSpec): Facet[] {
     if (!spec?.suggestions || !named) return [];
     // Narrowed, not widened: the name arrives from the backend so this is an
-    // assertion either way, but `Record<string, Facet[]>` erased every later
-    // check as well. A test vouches for the name itself.
+    // assertion either way, but `Record<string, Facet[]>` would erase every
+    // later check as well. A test vouches for the name itself.
     const axis = spec.suggestions as FacetAxis;
     const held = named[axis] ?? [];
     // A closed vocabulary is offered whole, the library's own values first so
-    // the common answer stays at the top. Without it a language rule offers the
-    // five codes that happen to be synced, and the other forty-eight have to be
-    // guessed — as codes, which nobody would.
+    // the common answer stays at the top. Without it a language rule offers only
+    // the codes that happen to be synced, and every other one has to be guessed,
+    // as a code, which nobody would.
     // Only two axes have a closed vocabulary, so this indexing is partial by
     // design and the key may legitimately miss.
     const vocabulary = named.vocabularies[axis as keyof Vocabularies] ?? [];
@@ -97,8 +97,8 @@
 
   /**
    * The condition picked to add. On Windows and Linux an arrow key on a closed
-   * select fires `change`, so adding on `change` added a condition at each
-   * arrow: picking is free, and Add adds.
+   * select fires `change`, so adding on `change` would add a condition at each
+   * arrow. Picking is free, and Add adds.
    */
   let chosen = $state('');
 
@@ -124,11 +124,11 @@
 
 <!-- A caption over a *list* of controls is a group heading, not a label: a
      `<label>` must point at exactly one control, and this component renders
-     twice (conditions and exclusions), so a fixed `for` would also have
-     duplicated the id. -->
+     twice (conditions and exclusions), so a fixed `for` would also duplicate
+     the id. -->
 <div class="form-group" role="group" aria-labelledby="rules-{list}-caption">
   <span class="form-label" id="rules-{list}-caption">{title}</span>
-  <!-- How the values inside a condition combine is the selector's business; the
+  <!-- How the values inside a condition combine is the selector's business. The
        match mode above combines the conditions themselves. -->
   {#if list === 'conditions'}
     <p class="text-muted text-sm mt-1">{t('ConditionValuesHelp')}</p>

@@ -8,9 +8,9 @@ import LibraryFacets from './LibraryFacets.svelte';
  * Reference data, on the screen whose subject is something else.
  *
  * The panel answers "what does my library actually hold" while a rule is being
- * written, and it sat open above the rule table: 428px of a 1440px screen, 76%
- * of a 768px one, and a screen and a half of a phone — so the rules screen
- * opened on everything except the rules.
+ * written. Open above the rule table, it takes most of a laptop screen and more
+ * than a phone's, so the rules screen would open on everything except the
+ * rules.
  */
 
 const STRINGS = {

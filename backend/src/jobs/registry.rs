@@ -1,4 +1,4 @@
-//! Background job tracking — the queue behind the Tasks screen.
+//! Background job tracking, the queue behind the Tasks screen.
 //!
 //! Jobs are recorded in SQLite so the UI can show history across restarts, and
 //! one in-memory permit per key prevents the same long task (a full sync, an
@@ -104,7 +104,7 @@ pub struct JobRegistry {
     pool: SqlitePool,
     /// One permit per key, created on first use and never removed: the keys
     /// are a handful of task names and instance ids. Held by whoever runs the
-    /// task; the semaphore's own queue is what makes a wait first come first
+    /// task. The semaphore's own queue is what makes a wait first come first
     /// served.
     locks: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     /// How many callers are waiting for each key, so a wait can be bounded.
@@ -134,7 +134,7 @@ impl JobRegistry {
     /// Wait for the lock on `key` for at most `budget`, in arrival order.
     ///
     /// `None` past the budget, with nothing taken. A caller that hangs up
-    /// while waiting leaves the queue — the future is dropped, and its place
+    /// while waiting leaves the queue: the future is dropped, and its place
     /// in the semaphore's queue with it.
     pub async fn lock_within(&self, key: &str, budget: Duration) -> Option<JobLock> {
         let permit = self.permit_for(key);
@@ -147,9 +147,9 @@ impl JobRegistry {
     ///
     /// A lock a caller *waits* for costs a connection and a task for as long
     /// as the wait lasts, and `try_lock` alone bounds the work, not the queue
-    /// behind it. The place is given back when the returned guard drops —
-    /// which a cancelled future does too, so a caller that hangs up while
-    /// waiting does not keep its place.
+    /// behind it. The place is given back when the returned guard drops, as it
+    /// does with a cancelled future, so a caller that hangs up while waiting
+    /// does not keep its place.
     pub fn try_wait(&self, key: &str, max_waiting: usize) -> Option<WaitingPlace> {
         let mut waiting = self.waiting.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         let count = waiting.entry(key.to_string()).or_insert(0);
@@ -169,8 +169,9 @@ impl JobRegistry {
 
     /// Mark jobs left `running` by a previous process as failed.
     ///
-    /// Without this, a crash mid-sync leaves a job spinning forever in the UI
-    /// and its lock key is never released.
+    /// Without this, a crash mid-sync leaves a job spinning forever in the UI.
+    /// Its lock needs no release: the permits live in memory and die with the
+    /// process.
     pub async fn recover_orphans(&self) -> AppResult<u64> {
         let interrupted = Detail::new("JobDetailInterrupted");
         let result = sqlx::query(
@@ -316,8 +317,8 @@ impl JobHandle {
 }
 
 /// A handle dropped before an outcome was recorded is a job that ended
-/// without saying how — a `?` between `start` and the outcome, or a panic on
-/// the task — and the row would otherwise sit `running` until the next restart
+/// without saying how (a `?` between `start` and the outcome, or a panic on
+/// the task), and the row would otherwise sit `running` until the next restart
 /// failed it as an orphan, with the Tasks screen showing work in progress.
 impl Drop for JobHandle {
     fn drop(&mut self) {
@@ -366,8 +367,9 @@ mod tests {
     }
 
     /// A handle dropped before an outcome was recorded is a job that ended
-    /// without saying how — a `?` on the way, or a panic on the task — and the
-    /// row sat `running` until the next restart failed it as an orphan.
+    /// without saying how (a `?` on the way, or a panic on the task). Its row
+    /// fails at once rather than sitting `running` until the next restart
+    /// fails it as an orphan.
     #[tokio::test]
     async fn a_handle_dropped_without_an_outcome_fails_its_job() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
@@ -464,7 +466,7 @@ mod tests {
     }
 
     /// The queue behind a key is bounded like the key itself, and a place
-    /// comes back when its holder drops — cancelled or not.
+    /// comes back when its holder drops, cancelled or not.
     #[tokio::test]
     async fn a_place_in_the_queue_is_refused_past_the_bound_and_returned_on_drop() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
@@ -527,7 +529,8 @@ mod tests {
         );
     }
 
-    /// A row written before the key columns reads as it was written.
+    /// A row without a detail key, which an upgraded database holds, reads as
+    /// it was written.
     #[test]
     fn a_detail_without_a_key_keeps_its_text() {
         let french = Localizer::new("fr");

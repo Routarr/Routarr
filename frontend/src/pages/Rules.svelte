@@ -71,10 +71,9 @@
       api.getConditionCatalog(signal),
       // Which rules are actually deciding anything. Validation looks inside one
       // rule and nothing else looks between them, which is where
-      // first-match-by-priority puts its one trap — a rule under a broader one
-      // can never fire, and
-      // the preview reports that as "0 changes", the same as a rule that
-      // correctly changes nothing.
+      // first-match-by-priority puts its one trap: a rule under a broader one
+      // can never fire, and the preview reports that as "0 changes", the same
+      // as a rule that correctly changes nothing.
       //
       // Tolerated rather than awaited hard: the report evaluates the whole
       // library, and a rule list that refuses to render because a diagnostic
@@ -181,7 +180,7 @@
     const reordered = [...rules];
     const from = reordered[index];
     const to = reordered[target];
-    // The bounds check above is not what makes this safe — a sparse array would
+    // The bounds check above is not what makes this safe: a sparse array would
     // pass it and still hand back `undefined`. Reading both first is.
     if (!from || !to) return;
     reordered[index] = to;
@@ -281,8 +280,8 @@
           </tr>
         </thead>
         <tbody>
-          <!-- The skeleton on the first load only: over a reload it took the
-               rows, and the focus with them, after every action on a rule. -->
+          <!-- The skeleton on the first load only: over a reload it would take
+               the rows, and the focus with them, after every action on a rule. -->
           {#if bundle.loading && rules.length === 0}
             <TableSkeleton columns={7} />
           {:else if rules.length === 0}

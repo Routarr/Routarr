@@ -3,8 +3,8 @@
 //! The webhook is the one route an unauthenticated party reaches: the Arrs
 //! cannot send a custom header, so it is guarded by a token in the path and its
 //! body is whatever the caller posted. The property proved here is that **no
-//! input produces a panic or a 5xx** — a panic aborts the worker and a 500
-//! leaks an error string, both worse than the "ignored" it should return.
+//! input produces a panic or a 5xx**. Either one means an input reached code
+//! that could not cope with it, where a refusal or an "ignored" belongs.
 //!
 //! Not `cargo-fuzz`, which needs nightly: a seeded xorshift generator, so a
 //! failure reproduces from its seed, feeding hand-picked hostile shapes and
@@ -22,10 +22,9 @@ use super::TestApp;
 /// real outbound sync, which then fails with a mapped `Bad Gateway`. That is an
 /// honest upstream error, not the failure this module hunts. The webhook tests
 /// of `tests::api` hold the counterpart: pointed at an Arr that answers, a
-/// legitimate event runs the whole handler to a 200. What must never
-/// appear is a `500` — `Database`, `Serialization` or `Internal`, all of which
-/// mean an input reached code that could not cope with it and leaked a Rust
-/// error string in the process.
+/// legitimate event runs the whole handler to a 200. What must never appear is
+/// a `500`, from a panic or from a `Database`, `Serialization` or `Internal`
+/// error, all of which mean an input reached code that could not cope with it.
 fn is_controlled(status: StatusCode) -> bool {
     matches!(
         status.as_u16(),
@@ -41,7 +40,7 @@ async fn post_raw(app: &TestApp, path: &str, body: Vec<u8>, content_type: &str) 
     app.send(request).await.status
 }
 
-/// A hostile body must never 5xx, whatever the token — a valid token exercises
+/// A hostile body must never 5xx, whatever the token: a valid token exercises
 /// the deserialiser and the whole handler, a bogus one the auth path.
 async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, note: &str) {
     for token in ["tok", "wrong-token", ""] {
@@ -56,9 +55,9 @@ async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, not
 
 // --------------------------------------------------------------- corpus
 
-/// Shapes chosen because each once broke, or plausibly could break, a naive
-/// handler: a non-object root, right key with the wrong type, absurd nesting,
-/// numbers that overflow the target integer, and so on.
+/// Shapes that can break a naive handler: a non-object root, right key with the
+/// wrong type, absurd nesting, numbers that overflow the target integer, and so
+/// on.
 fn adversarial_corpus() -> Vec<(&'static str, Vec<u8>)> {
     let deep_array = format!("{}{}", "[".repeat(2000), "]".repeat(2000));
     let deep_object = {

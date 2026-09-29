@@ -6,8 +6,8 @@ pub struct RootFolder {
     pub id: String,
     pub instance_id: String,
     /// `None` for a folder Routarr declares: it has no id in the Arr, and
-    /// typed as `i64` sqlx decoded the NULL to `0` — a fabricated id on the
-    /// wire, harmless only until something believes it.
+    /// typed as `i64` sqlx would decode the NULL to `0`, a fabricated id on
+    /// the wire, harmless only until something believes it.
     pub arr_id: Option<i64>,
     pub path: String,
     pub free_space: Option<i64>,

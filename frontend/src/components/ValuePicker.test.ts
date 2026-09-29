@@ -279,8 +279,8 @@ describe('ValuePicker', () => {
   });
 
   /**
-   * A vocabulary entry the library does not carry is offered all the same —
-   * that is what lets a rule be written before the first Korean film arrives —
+   * A vocabulary entry the library does not carry is offered all the same
+   * (that is what lets a rule be written before the first Korean film arrives),
    * and it carries no figure, which would otherwise read as "absent".
    */
   it('offers a value the library has never seen, without a count', async () => {

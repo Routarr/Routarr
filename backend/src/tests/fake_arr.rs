@@ -1,6 +1,6 @@
 //! An in-process Radarr/Sonarr stand-in.
 //!
-//! Pure helpers cover none of what an integration client does over the wire —
+//! Pure helpers cover none of what an integration client does over the wire:
 //! the auth header, the error mapping, the timeouts, the read-patch-write dance
 //! Sonarr needs. Pointing the clients at a real socket exercises all of it
 //! without reaching the network, and lets webhook tests run against a reachable
@@ -42,11 +42,11 @@ struct FakeState {
     /// A body to answer `GET /api/v3/series/{id}` with, instead of a series.
     ///
     /// A reverse proxy, or a base URL pointing at the wrong service, answers
-    /// 2xx with something that is not a series object — and the move path
-    /// patches two fields into whatever came back.
+    /// 2xx with something that is not a series object, and the move path must
+    /// refuse it rather than patch two fields into whatever came back.
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     /// Whether the movie has been downloaded yet. `false` is what Radarr reports
-    /// between `MovieAdded` and the first import — the window auto-apply exists
+    /// between `MovieAdded` and the first import, the window auto-apply exists
     /// for.
     movie_has_file: bool,
     /// How long the library listing, a one-movie read and a movie edit are
@@ -115,14 +115,14 @@ impl FakeArr {
         Self::build(None, "/tv/standard/Cowboy Bebop (1998)", true, hold).await
     }
 
-    /// The most requests this fake ever had open at the same moment.
-    ///
-    /// One means the caller was sequential — not slow, sequential.
     /// From now on the tag catalogue answers a 500.
     pub fn break_tag_endpoint(&self) {
         self.tags_broken.store(true, Ordering::SeqCst);
     }
 
+    /// The most requests this fake ever had open at the same moment.
+    ///
+    /// One means the caller was sequential: not slow, sequential.
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)
     }
@@ -233,8 +233,8 @@ async fn root_folders(
         { "id": 1, "path": "/movies/standard", "freeSpace": 1024, "accessible": true },
         { "id": 2, "path": "/movies/anime", "freeSpace": 2048, "accessible": false },
         // A second *usable* destination. Without one, no test can produce a
-        // move at all — the library sits in the only folder it could go to —
-        // and an assertion that "nothing was written" passes for the wrong
+        // move at all, since the library sits in the only folder it could go
+        // to, and an assertion that "nothing was written" passes for the wrong
         // reason.
         { "id": 3, "path": "/movies/kids", "freeSpace": 4096, "accessible": true },
     ]))
@@ -360,7 +360,7 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "sizeOnDisk": 8_589_934_592i64,
         "tags": [1],
         // Metadata Radarr carries itself. The language arrives as a *name*,
-        // never a code — the sync is what turns it into the `ja` a rule is
+        // never a code: the sync is what turns it into the `ja` a rule is
         // written against.
         "genres": ["Animation", "Family"],
         "originalLanguage": { "id": 8, "name": "Japanese" },

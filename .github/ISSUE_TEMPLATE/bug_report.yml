@@ -5,8 +5,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        If this is a security problem, please do **not** file it here — see
-        [SECURITY.md](https://github.com/Routarr/Routarr/blob/main/SECURITY.md).
+        If this is a security problem, please do **not** file it here. Follow
+        [SECURITY.md](https://github.com/Routarr/Routarr/blob/main/SECURITY.md)
+        instead.
 
   - type: textarea
     id: what
@@ -21,7 +22,7 @@ body:
     attributes:
       label: How to get there
       description: |
-        The rule, the media item, the folders — enough to reproduce it. If a
+        The rule, the media item, the folders: enough to reproduce it. If a
         decision is involved, the "why" panel on the Library screen explains it
         condition by condition and that text is exactly what is needed here.
     validations:

@@ -147,7 +147,7 @@ describe('Overrides', () => {
   /**
    * The pin button is disabled until an item is chosen. Without that, saving
    * sends `media_id: undefined` and the backend answers with a validation error
-   * for something the user never filled in — they searched and forgot to click.
+   * for something the user never filled in: they searched and forgot to click.
    */
   it('will not pin until an item has actually been chosen', async () => {
     const create = vi.spyOn(api, 'createOverride');
@@ -162,8 +162,8 @@ describe('Overrides', () => {
   });
 
   /**
-   * The result row was a `<tr onclick>`: no tab stop, no role, no key. Creating
-   * an exception was impossible from the keyboard or a screen reader — and
+   * A result row as a `<tr onclick>` has no tab stop, no role and no key, so an
+   * exception could not be created from the keyboard or a screen reader, and
    * Svelte warns about that on a `<div>`, not on a `<tr>`.
    */
   it('lets the keyboard pick an item, through a control that says what it picks', async () => {

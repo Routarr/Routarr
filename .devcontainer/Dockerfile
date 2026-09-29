@@ -6,15 +6,15 @@
 # rust-toolchain.toml, Node 24 (CI and the production image) and python3
 # (scripts/check-locales.py, which CI runs).
 FROM rust:1.98.1@sha256:a8a5f0a1e5fe7dfe1d352591e4a1c7dd2c08fd70475cae872cf3458ba0df0546
-# Every RUN below pipes; without this the right-hand side's exit code masks a
-# failing download on the left.
+# The RUN steps below pipe, and without this the right-hand side's exit code
+# masks a failing download on the left.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Node 24 from the official tarball, pinned to a version and to its checksum:
 # the Debian package is older and ships without npm, while CI and the
-# production Dockerfile are on Node 24 — a dev/CI gap of that kind is only ever
-# discovered by the first broken build. NodeSource's setup script was a
-# `curl | bash` of unpinned code run as root in an image that pins every other
-# tool it installs.
+# production Dockerfile are on Node 24, and a dev/CI gap of that kind is only
+# ever discovered by the first broken build. NodeSource's setup script would be
+# a `curl | bash` of unpinned code run as root, in an image that pins every
+# other tool it installs.
 #
 # psmisc provides `fuser`, which frontend/e2e/run.sh uses to free its ports
 # before starting. A run killed before its trap fires leaves a server holding
@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # `scripts/check-versions.py` reads the major out of NODE_VERSION, against CI
 # and the production image. The sums are the two lines of the release's
-# SHASUMS256.txt this image can run; a bumped version without bumped sums
+# SHASUMS256.txt this image can run. A bumped version without bumped sums
 # fails the build, which is the point.
 ARG NODE_VERSION=24.21.0
 ARG NODE_SHA256_X64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
@@ -62,11 +62,11 @@ RUN arch="$(dpkg --print-architecture)" \
      --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md' \
   && rm /tmp/node.tar.xz \
   && node --version && npm --version && npx --version
-# Neither libssl-dev (reqwest uses rustls; there is no openssl in Cargo.lock)
-# nor libsqlite3-dev (libsqlite3-sys is built in bundled mode).
+# Neither libssl-dev (reqwest uses rustls, and there is no openssl-sys in
+# Cargo.lock) nor libsqlite3-dev (libsqlite3-sys is built in bundled mode).
 
-# cargo-audit is a blocking CI gate: the prebuilt binary avoids the ~5 minutes
-# `cargo install` would cost on every container rebuild.
+# cargo-audit is a blocking CI gate: the prebuilt binary avoids the minutes
+# `cargo install` would spend compiling it on every container rebuild.
 # The release publishes no checksum file, so the sums are recorded here from
 # the archives themselves: a replaced asset under the same name fails the
 # build instead of running.
@@ -114,11 +114,11 @@ RUN arch="$(dpkg --print-architecture)" \
   && cargo llvm-cov --version
 
 # The base image ships a bare toolchain (no rustfmt, no clippy, no rust-analyzer),
-# so the first `cargo fmt` — or the first rust-analyzer start, which is worse
-# because nothing reports it — stalls on a rustup download in a fresh
-# container. `rustup show` inside a directory holding the toolchain file
+# so in a fresh container the first `cargo fmt` stalls on a rustup download,
+# and so does the first rust-analyzer start, which is worse because nothing
+# reports it. `rustup show` inside a directory holding the toolchain file
 # installs exactly what that file declares, which keeps rust-toolchain.toml the
-# only place a component is named; the grep turns a missing one into a failed
+# only place a component is named. The grep turns a missing one into a failed
 # build instead of a slow editor.
 #
 # This runs *before* CARGO_HOME is repointed: rustup writes its proxies into
@@ -137,14 +137,14 @@ RUN cd /tmp/toolchain \
 
 # RTK (Rust Token Killer): a CLI proxy that compresses command output before an
 # AI coding agent reads it. Installed here rather than by `cargo install` for the
-# same reason as cargo-audit — the prebuilt binary costs seconds instead of
+# same reason as cargo-audit: the prebuilt binary costs seconds instead of
 # minutes on every rebuild.
 #
 # Two things are deliberate. The download is verified against the checksum
 # published with the release and **pinned here**, not fetched alongside the
 # archive: a checksum that travels with the file it vouches for proves only that
 # the download completed. And the source is the GitHub release, never
-# `cargo install rtk` — the `rtk` name on crates.io belongs to an unrelated
+# `cargo install rtk`: the `rtk` name on crates.io belongs to an unrelated
 # project ("Rust Type Kit"), which the upstream README warns about.
 ARG RTK_VERSION=0.46.0
 ARG RTK_SHA256_AMD64=79aa5b89c69566bbfeceb66c8a27cfbe52237fc7ee3e683115f43745a3262d21
@@ -168,7 +168,7 @@ RUN arch="$(dpkg --print-architecture)" \
 # which would add a signing key and a second package index to every build.
 #
 # Its credentials live in ~/.config/gh, which devcontainer.json mounts as a
-# volume. Without it every rebuild would demand a fresh `gh auth login` — the
+# volume. Without it every rebuild would demand a fresh `gh auth login`, the
 # same friction the /cargo and /playwright volumes exist to avoid.
 ARG GH_VERSION=2.98.0
 ARG GH_SHA256_AMD64=3b8ac6b30336802fc1a858d7c084e11cdf24ac1a761ca90b68022d7d729208de
@@ -190,7 +190,7 @@ RUN arch="$(dpkg --print-architecture)" \
 # Playwright's system libraries, installed here rather than by
 # `playwright install --with-deps` in postCreateCommand, which would re-run
 # apt-get on every rebuild. Keep in step with @playwright/test in
-# frontend/package.json; only the browser download stays a create step.
+# frontend/package.json. Only the browser download stays a create step.
 ARG PLAYWRIGHT_VERSION=1.63.0
 RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium \
   && rm -rf /root/.npm /var/lib/apt/lists/*
@@ -200,7 +200,7 @@ ENV CARGO_HOME=/cargo
 RUN mkdir -p /cargo
 
 # Playwright browsers live here rather than under the (non-persisted) home
-# directory, so a rebuilt container does not re-download 115 MB of Chromium.
+# directory, so a rebuilt container does not download Chromium again.
 ENV PLAYWRIGHT_BROWSERS_PATH=/playwright
 RUN mkdir -p /playwright
 

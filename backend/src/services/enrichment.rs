@@ -35,6 +35,10 @@ pub struct EnrichmentReport {
 /// Enrich every media item whose metadata is missing or expired, source by
 /// source, in the user's priority order.
 pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<EnrichmentReport> {
+    // Built on `metadata_providers`, the sources able to answer today: a source
+    // with no key would fail every request of the pass. Evaluation reads the
+    // whole `metadata_order` instead, so what a source answered before its key
+    // was removed keeps counting.
     let sources = state.metadata_sources().await;
     if sources.is_empty() {
         debug!("No fetched metadata source is enabled, skipping enrichment");
@@ -88,8 +92,8 @@ async fn run_enrichment(
     job: &JobHandle,
 ) -> AppResult<EnrichmentReport> {
     // A source that knows none of our identifiers has to find its own first.
-    // The answers are permanent — including the ones that found nothing — so
-    // this is a first-pass cost, not a per-run one.
+    // A found identifier is kept, and a miss for `MISS_LIFETIME`, so this is
+    // a first-pass cost, not a per-run one.
     let limiter = source.limiter();
 
     if source.addressing() == Addressing::Search {
@@ -107,7 +111,7 @@ async fn run_enrichment(
     let total = targets.len();
 
     // `buffer_unordered` keeps N requests in flight without spawning a task per
-    // item; the providers tolerate a handful of parallel calls and this is the
+    // item. The providers tolerate a handful of parallel calls, and this is the
     // main driver of how fast a cold library becomes classifiable.
     //
     // Each future carries its own (external_id, media_type) back out: results
@@ -174,7 +178,7 @@ async fn run_enrichment(
             }
         }
 
-        // Progress is only interesting at a coarse grain; one UPDATE per item
+        // Progress is only interesting at a coarse grain: one UPDATE per item
         // would cost more than the work it reports on.
         if index % 25 == 0 {
             job.progress(index + 1, total).await;
@@ -209,7 +213,7 @@ async fn run_enrichment(
 
 /// Stops a pass from hammering a source that is plainly down.
 ///
-/// Shared by both stages that issue requests — resolution and fetching — because
+/// Shared by both stages that issue requests (resolution and fetching), because
 /// a search storm against an unavailable source costs exactly as much as a fetch
 /// storm, and for a searching source it is the one that happens first.
 #[derive(Clone)]
@@ -242,7 +246,7 @@ impl Breaker {
 /// Hold the limiter back when a source states how long it wants to be left
 /// alone.
 ///
-/// Pacing is a guess about someone else's limit; `Retry-After` is that someone
+/// Pacing is a guess about someone else's limit. `Retry-After` is that someone
 /// telling us. When it arrives, the rest of the pass slows to match instead of
 /// spending its remaining breaker budget discovering the same thing four more
 /// times.
@@ -260,7 +264,7 @@ async fn honour_retry_after<T>(limiter: &RateLimiter, outcome: &AppResult<T>) {
 ///
 /// A 404 means "this source does not have that item" and says nothing about the
 /// next one. A 429, a 5xx or a transport failure means asking again right now is
-/// pointless — those are the ones that trip the breaker.
+/// pointless, and those are the ones that trip the breaker.
 fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
     matches!(
         outcome,
@@ -432,7 +436,7 @@ pub async fn enrich_one(state: &AppState, tmdb_id: i64, media_type: &str) -> App
 
     for source in state.metadata_sources().await {
         // The webhook only carries a TMDb id, so a source addressed by anything
-        // else — another id, or a search — is left to the next full pass rather
+        // else (another id, or a search) is left to the next full pass rather
         // than guessed at.
         if source.addressing() != Addressing::Column("tmdb_id") {
             continue;
@@ -508,7 +512,7 @@ async fn store_metadata(
 }
 
 /// Everything known about one item, every enabled source collapsed in priority
-/// order — what a single media page needs, without loading the whole cache.
+/// order: what a single media page needs, without loading the whole cache.
 pub async fn resolve_for_media(
     state: &AppState,
     media: &crate::models::Media,
@@ -518,8 +522,9 @@ pub async fn resolve_for_media(
 
     // The configured order, *not* the usable subset: a key that has been
     // removed stops new fetches, it does not un-know what is already cached.
-    // Reading and fetching must not disagree, or the explanation screen would
-    // contradict the simulation that produced the decision it explains.
+    // This read and the simulation's must not disagree, or the explanation
+    // screen would contradict the simulation that produced the decision it
+    // explains.
     for provider in state.metadata_order().await {
         if provider.id == metadata::ARR {
             parts.push((provider.id, metadata::from_media(media)));

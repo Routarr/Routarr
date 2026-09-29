@@ -13,8 +13,8 @@ import { statusRevision } from '../lib/status.svelte';
 /**
  * The screen that writes.
  *
- * Everything the executor guards against — applying nothing, applying past the
- * confirmation threshold, applying a proposal the user never looked at — is
+ * Everything the executor guards against (applying nothing, applying past the
+ * confirmation threshold, applying a proposal the user never looked at) is
  * enforced again here, in the browser, before a request is made at all. The
  * end-to-end journeys drive the happy path, which is the one case where a
  * missing guard cannot be seen.
@@ -225,7 +225,7 @@ describe('what the screen refuses to do', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
 
     // The refusal's own message is carried into the question rather than
-    // discarded — it is the only place the threshold is named.
+    // discarded: it is the only place the threshold is named.
     expect(await answerConfirmation()).toContain('Above the threshold');
 
     // Asked once, then applied again naming the guardrail that was answered,

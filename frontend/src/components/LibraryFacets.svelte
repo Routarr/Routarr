@@ -7,7 +7,7 @@
    * What the library actually holds, beside the rules that read it.
    *
    * Without it, writing a rule means guessing which genres and languages the
-   * library holds — and a rule written against a value it does not carry matches
+   * library holds, and a rule written against a value it does not carry matches
    * nothing, which reads on screen exactly like a rule that correctly matches
    * nothing.
    *
@@ -32,11 +32,11 @@
   /**
    * Folded by default, and it remembers.
    *
-   * This is reference data consulted *while* writing a rule, and it sat above
-   * the rule table taking 428px of a 1440px screen, 76% of a 768px one and a
-   * screen and a half of a phone — so the screen whose subject is the rule
-   * list opened on something else. Folded it is one click away, and the
-   * summary still says how much library it is counting.
+   * This is reference data consulted *while* writing a rule. Open above the
+   * rule table, it takes most of a laptop screen and more than a phone's, so
+   * the screen whose subject is the rule list would open on something else.
+   * Folded it is one click away, and the summary still says how much library it
+   * is counting.
    */
   const STORE = 'routarr.facetsOpen';
   let open = $state(read());
@@ -80,9 +80,9 @@
     AXES.map((axis) => {
       // Named from the closed vocabulary where there is one: the counts say
       // `ja`, and only the vocabulary knows that is Japanese.
-      // Two of the seven axes have a closed vocabulary; the index is partial
-      // by design. `facets[axis.key]` needs no assertion at all now that
-      // `AXES` is typed by the payload.
+      // Only two axes have a closed vocabulary, so the index is partial by
+      // design. `facets[axis.key]` needs no assertion, since `AXES` is typed by
+      // the payload.
       const vocabulary = named.vocabularies[axis.key as keyof Vocabularies];
       const values = nameFacets(named[axis.key], vocabulary ?? []);
       return {
@@ -104,9 +104,9 @@
        approximations. -->
   <summary class="card-header">
     <!-- The count belongs to the heading, not beside it: two elements for one
-         phrase left a bureaucratic caption floating next to a title. A bare
+         phrase leave a bureaucratic caption floating next to a title. A bare
          figure in parentheses because the number would otherwise have to agree
-         with a noun — wrong at one, in every language that inflects. -->
+         with a noun, which is wrong at one in every language that inflects. -->
     <h2 class="card-title">{t('InYourLibrary', { count: facets.total_media })}</h2>
   </summary>
 
@@ -140,7 +140,7 @@
                 aria-hidden="true"
               ></span>
               <!-- The title carries whichever text is on screen, since that is
-                   the one being truncated — and a name always contains the raw
+                   the one being truncated, and a name always contains the raw
                    value, which is what a rule is written against. -->
               <span class="facet-value" title={facet.label ?? facet.value}>
                 {facet.label ?? facet.value}

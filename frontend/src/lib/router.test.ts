@@ -100,9 +100,8 @@ describe('navigation', () => {
 describe('the href of a route', () => {
   /**
    * A `<base href>` applies to relative URLs only, and every anchor here is
-   * root-absolute. Left as `/rules`, the left click worked because the
-   * interception prefixed the mount point — and everything else a native link
-   * offers (middle-click, ctrl-click, the status bar, copy link) went to the
+   * root-absolute. Without the mount point, every way of following a link (a
+   * click, middle-click, ctrl-click, the status bar, copy link) reaches the
    * proxy's root and a 404.
    */
   it('carries the mount point, so every affordance of a link lands here', () => {

@@ -11,8 +11,8 @@ import ConditionValueHarness from '../test/ConditionValueHarness.svelte';
  * One editor per value type, and every one of them named.
  *
  * The caption that identifies a condition is the text to its left, which is not
- * a `<label>` and cannot be: the list renders twice — conditions and exclusions
- * — so a fixed `for` would duplicate an id. The name travels on the control
+ * a `<label>` and cannot be: the list renders twice (conditions and
+ * exclusions), so a fixed `for` would duplicate an id. The name travels on the control
  * instead, and without it a screen reader announces a bare textbox.
  */
 
@@ -93,7 +93,8 @@ describe('ConditionValue', () => {
 
   /**
    * The field holds what is typed. Rewritten from the parsed list, a list typed
-   * without spaces came back spaced under the cursor, which jumped to the end.
+   * without spaces would come back spaced under the cursor, which would jump to
+   * the end.
    */
   it.each([
     ['number_list', 'Years', '2019,2020', '[2019,2020]'],
@@ -116,7 +117,7 @@ describe('ConditionValue', () => {
 
   /**
    * An id added mid-list stays where it is typed. With the cursor sent to the
-   * end at each rewrite, its digits ran into the last id of the list.
+   * end at each rewrite, its digits would run into the last id of the list.
    */
   it('a corrected id list keeps its separator', async () => {
     renderWithI18n(ConditionValueHarness, {
@@ -142,7 +143,7 @@ describe('ConditionValue', () => {
 
   /**
    * Two controls for one condition, so the caption alone would name them
-   * identically — and a screen reader would offer two spin buttons called
+   * identically, and a screen reader would offer two spin buttons called
    * "Year between" with no way to tell which end is which.
    */
   it('tells the two ends of a year range apart', async () => {
@@ -178,7 +179,7 @@ describe('ConditionValue', () => {
   });
 
   /**
-   * The engine refuses anything outside these; the field says so before the
+   * The engine refuses anything outside these. The field says so before the
    * server has to, and the browser's own stepper stops at them.
    */
   it('bounds both year fields to what the engine accepts', () => {

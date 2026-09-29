@@ -9,7 +9,7 @@ import AsyncHarness from '../test/AsyncHarness.svelte';
 /**
  * The one function every failure is worded by. What reaches the banner has to
  * be translated, has to say when the server was never reached, and has to hand
- * the operator the id that finds a server-side failure in the log — and only
+ * the operator the id that finds a server-side failure in the log, and only
  * then, since a refusal already says what to change.
  */
 
@@ -67,9 +67,9 @@ function deferred<T>() {
 describe('createAsync', () => {
   /**
    * The generation counter is the one thing here that is not a bare
-   * try/catch, and nothing exercised it: a response arriving after the inputs
-   * moved on must not overwrite the result of the newer request. Two loads,
-   * the first answering last — the screen must show the second.
+   * try/catch: a response arriving after the inputs moved on must not
+   * overwrite the result of the newer request. Of two loads answering in
+   * reverse order, the screen must show the second.
    */
   it('drops a response that arrives after the inputs moved on', async () => {
     const first = deferred<string>();

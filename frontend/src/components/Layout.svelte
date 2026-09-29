@@ -78,11 +78,11 @@
       .catch(() => {});
   });
 
-  // Keep the chrome honest. Polling only while a job runs leaves the dry-run
-  // badge — the one thing this bar exists to answer — stale indefinitely when
-  // the setting changes anywhere else: another tab, a script, a restore. Idle
-  // refreshes are a minute apart, which costs one cheap query and removes the
-  // possibility of the bar saying "dry run" while the next click writes — and
+  // Keep the chrome honest. Polling only while a job runs would leave the
+  // dry-run badge, the one thing this bar exists to answer, stale indefinitely
+  // when the setting changes anywhere else: another tab, a script, a restore.
+  // Idle refreshes are a minute apart, which costs one cheap query, removes the
+  // possibility of the bar saying "dry run" while the next click writes, and
   // costs nothing at all while the tab is in the background.
   const busy = $derived((status.data?.running_jobs ?? 0) > 0);
   poll(
@@ -125,8 +125,8 @@
   function onShortcut(event: KeyboardEvent) {
     // Guarded on the shell, not only on the combination: the palette is
     // rendered in the authenticated branch, so on the sign-in and key screens
-    // this would swallow the keystroke — Firefox's own search bar included —
-    // and open nothing at all.
+    // this would swallow the keystroke (Firefox's own search bar included) and
+    // open nothing at all.
     if (unauthorized) return;
     // A drawer that covers the page is left the way a dialog is, the focus
     // going back to the button that opened it. An open dialog answers Escape
@@ -155,7 +155,7 @@
    * The one thing in the bar that is worth interrupting for, or nothing.
    *
    * A failed move and a diagnostic warning are the two counts an operator has
-   * to act on; a running task and a pending decision are work in progress and
+   * to act on. A running task and a pending decision are work in progress and
    * belong on the entry that shows them. The figure is the total and the
    * accessible name enumerates, so the colour is never the only carrier.
    */
@@ -174,8 +174,8 @@
       // carries the same figures on their own entries, and two controls
       // answering to one accessible name is a control nobody can address.
       // The separator is a dictionary entry because Arabic writes `،` and
-      // Japanese `、`; `Intl.ListFormat` is the wrong tool here, its narrow
-      // unit form joining two clauses with nothing at all in both.
+      // Japanese `、`. `Intl.ListFormat` is the wrong tool here: its narrow
+      // unit form joins two clauses with nothing at all in both.
       label: t('AttentionRequired', { detail: parts.join(t('ListSeparator')) }),
     };
   });
@@ -248,7 +248,7 @@
     }}>{t('SkipToContent')}</a
   >
   <div class="app-container">
-    <!-- Each count on the entry that answers it, rather than four sentences
+    <!-- Each count on the entry that answers it, rather than as a sentence
          in the chrome. The drawer carries them on a phone, where the bar has
          no room for any of them. -->
     <Sidebar
@@ -285,11 +285,11 @@
           </button>
 
           <!-- A mode, not an alert. `LiveModeActive` is the state this
-               application is meant to run in, and it was painted in the danger
-               colour permanently — the palette's most urgent signal spent on
-               "nothing is wrong". The dot carries the state, the short word
-               names it, and the full sentence is the accessible name, so the
-               chrome no longer changes width with the language. -->
+               application is meant to run in, and the danger colour on it
+               would spend the palette's most urgent signal on "nothing is
+               wrong". The dot carries the state, the short word names it, and
+               the full sentence is the accessible name, so the chrome keeps
+               its width in every language. -->
           {#if status.data}
             {@const held = status.data.dry_run}
             <!-- `role="status"`, as the unreachable-backend badge beside it
@@ -316,8 +316,8 @@
         </div>
 
         <div class="flex items-center gap-2">
-          <!-- The one thing the bar gained: a field for the question this
-               product exists to answer, reachable from every screen. -->
+          <!-- A field for the question this product exists to answer,
+               reachable from every screen. -->
           <button
             type="button"
             class="palette-trigger"

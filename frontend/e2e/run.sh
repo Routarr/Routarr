@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Resolved, not assumed. The dev container points `CARGO_TARGET_DIR` at a
 # ramdisk, so the binary this harness starts is not always under
-# `backend/target` — and a hard-coded path fails with "no such file" on a
+# `backend/target`, and a hard-coded path fails with "no such file" on a
 # machine where the build it depends on has just succeeded. Unset everywhere
 # else (CI, a laptop), where the default is the right answer.
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/backend/target}"
@@ -44,8 +44,8 @@ cleanup() {
 trap cleanup EXIT
 
 # A run killed before its trap fires leaves a server holding the port. The next
-# run then binds nothing, talks to the stale process instead — whose database
-# has just been deleted — and fails in ways that look like application bugs.
+# run then binds nothing, talks to the stale process instead (whose database
+# has just been deleted), and fails in ways that look like application bugs.
 free_port() {
   local port=$1 pid
   for pid in $(fuser -n tcp "$port" 2>/dev/null || true); do
@@ -72,12 +72,12 @@ echo "==> building"
 # resolves `rust-toolchain.toml` from the *working directory*, and this script
 # runs in `frontend/`: pointing cargo at the manifest compiles the backend with
 # whatever the default toolchain happens to be, which is the one thing that file
-# exists to prevent. The subshell is safe — unlike the server below, this is
+# exists to prevent. The subshell is safe: unlike the server below, it is
 # waited on rather than backgrounded.
 (cd "$ROOT/backend" && cargo build --release >/dev/null)
 (cd "$ROOT/frontend" && npm run build >/dev/null)
 # A release build lands beside the debug tree and a coverage tree in the dev
-# container's tmpfs; the sweep is what keeps the next build from ENOSPC.
+# container's tmpfs. The sweep is what keeps the next build from ENOSPC.
 # `CARGO_TARGET_DIR` is set only there, so CI never runs this.
 if [[ -n "${CARGO_TARGET_DIR:-}" && -f "$ROOT/.devcontainer/prune.sh" ]]; then
   bash "$ROOT/.devcontainer/prune.sh" >/dev/null 2>&1 || true
@@ -87,19 +87,10 @@ echo "==> fake Radarr on :$ARR_PORT"
 ARR_PORT="$ARR_PORT" python3 "$ROOT/frontend/e2e/fake_arr.py" &
 ARR_PID=$!
 
-# Started directly rather than inside a `( cd … ) &` subshell: there `$!` is the
-# subshell's pid, so the trap kills the wrapper and leaves the real server alive,
-# holding the port with a database that has just been deleted — exactly the
-# stale process `free_port` exists to survive. The frontend directory is
-# therefore passed explicitly instead of relying on the `./frontend/dist`
-# default resolving against a working directory.
-#
-# ROUTARR_E2E_BASE lets one spec exercise the reverse-proxy sub-path against the
-# same harness, rather than needing a second one.
 # Authenticated, because that is the shipped posture: with no key set, Routarr
-# generates one at first start. Running the suite open would leave the
-# shipped configuration — every request carrying a key from the browser's
-# storage — the one path nothing exercises end to end.
+# generates one at first start. Running the suite open would leave the shipped
+# configuration (every request carrying a key from the browser's storage) the
+# one path nothing exercises end to end.
 API_KEY="e2e-key-not-a-secret"
 BROWSER_KEY=""
 case "$AUTH" in
@@ -139,8 +130,16 @@ case "$AUTH" in
 esac
 
 echo "==> Routarr on :$PORT"
-# Through `env`, which replaces itself with the server: `$!` stays the pid the
-# trap has to kill.
+# Started directly rather than inside a `( cd … ) &` subshell: there `$!` is the
+# subshell's pid, so the trap kills the wrapper and leaves the real server alive,
+# holding the port with a database that has just been deleted, which is exactly
+# the stale process `free_port` exists to survive. The frontend directory is
+# therefore passed explicitly instead of relying on the `./frontend/dist`
+# default resolving against a working directory. Through `env`, which replaces
+# itself with the server, `$!` stays the pid the trap has to kill.
+#
+# ROUTARR_E2E_BASE lets the specs tagged @subpath exercise the reverse-proxy
+# sub-path against the same harness, rather than needing a second one.
 env \
   ROUTARR_DB_PATH="$WORK/routarr.db" \
   ROUTARR_PORT="$PORT" \

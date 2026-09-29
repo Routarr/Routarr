@@ -1,9 +1,9 @@
 //! Backups: taking one, keeping the right number, and restoring safely.
 //!
 //! The property that matters most is not that a zip appears. It is that the
-//! archive is **self-sufficient** — a database restored without `routarr.key`
-//! opens fine and has no readable Arr credential in it, which is the failure a
-//! backup exists to prevent — and that a restore never half-applies.
+//! archive is **self-sufficient**, and that a restore never half-applies. A
+//! database restored without `routarr.key` opens fine and has no readable Arr
+//! credential in it, which is the failure a backup exists to prevent.
 
 use std::sync::Arc;
 
@@ -15,8 +15,8 @@ use super::{TempDir, TestApp, warning_messages};
 /// A harness backed by a real database file in a throwaway directory.
 ///
 /// Not the usual in-memory pool: a backup is a *file* operation, and
-/// `VACUUM INTO` — the whole point of taking a consistent copy without stopping
-/// the server — does nothing at all against `:memory:`. Testing it there would
+/// `VACUUM INTO`, the whole point of taking a consistent copy without stopping
+/// the server, does nothing at all against `:memory:`. Testing it there would
 /// prove something that cannot happen in production.
 async fn app_with_files(label: &str) -> (TestApp, TempDir) {
     let dir = TempDir::new(&format!("backup-{label}"));
@@ -162,7 +162,7 @@ async fn only_the_retained_count_survives_a_prune() {
         .unwrap();
 
     // The name carries a second-resolution timestamp, so three in the same
-    // second would collide; they are written directly instead.
+    // second would collide. They are written directly instead.
     let backups = dir.join("backups");
     std::fs::create_dir_all(&backups).unwrap();
     for stamp in ["20260101-000000", "20260102-000000", "20260103-000000"] {
@@ -672,8 +672,8 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert_eq!(body["backups"].as_array().unwrap().len(), 1);
     assert_eq!(body["retention_count"], 7);
 
-    // The download is the point of the route, and only its refusals were
-    // exercised: the bytes have to be the archive, typed as one.
+    // The download is the point of the route, beyond its refusals: the bytes
+    // have to be the archive, typed as one.
     use http_body_util::BodyExt;
     let response = app.raw(&format!("/api/v1/backups/{name}")).await;
     assert_eq!(response.status(), axum::http::StatusCode::OK);
@@ -745,8 +745,8 @@ async fn the_retention_count_is_bounded_on_both_sides() {
 }
 
 /// Pruning only after a backup is taken would leave every archive above the new
-/// retention on disk — and on screen — until the next scheduled run, which with
-/// a 24-hour interval is the next day.
+/// retention on disk, and on screen, until the next scheduled run, which with a
+/// 24-hour interval is the next day.
 #[tokio::test]
 async fn lowering_the_retention_takes_effect_immediately() {
     let (app, dir) = app_with_files("retention-now").await;
@@ -804,7 +804,7 @@ async fn the_restore_route_stages_and_asks_for_a_restart() {
 
 /// An installation whose master key lives in `ROUTARR_SECRET_KEY` has no key
 /// file, so its archives carry none. Restoring one elsewhere leaves every
-/// sealed Arr credential unreadable — and the manifest is the only thing that
+/// sealed Arr credential unreadable, and the manifest is the only thing that
 /// can say so before the restart makes it visible.
 #[tokio::test]
 async fn an_archive_without_the_master_key_says_so() {
@@ -827,9 +827,9 @@ async fn an_archive_without_the_master_key_says_so() {
 
 /// A backup that fails is retried on its own cadence, not on every tick.
 ///
-/// `last_backup` was stamped on success alone, so a backup failing for a reason
-/// that will not resolve itself — a full disk, a directory it cannot write —
-/// came due again at the very next tick. With the default fifteen-minute
+/// Stamped on success alone, `last_backup` would bring a backup failing for a
+/// reason that will not resolve itself (a full disk, a directory it cannot
+/// write) due again at the very next tick. With the default fifteen-minute
 /// interval that is ninety-six `VACUUM INTO` a day against SQLite's single
 /// writer, and ninety-six failed rows on the screen an operator opens to find
 /// out what needs attention.

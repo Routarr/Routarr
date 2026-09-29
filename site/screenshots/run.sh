@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Render the showcase's captured images from the real application.
 #
-# No page shows a screenshot yet, so what reaches the site is the Open Graph
-# card. The captures go to screenshots/captures/, outside what the site ships,
-# until a page shows them. Everything is disposable: its own database, its own
-# fake Radarr, Sonarr and TMDb, its own ports. A development instance is never
-# touched, and no real library or API key can end up in a published image.
+# The Open Graph card goes straight into the site. The captures go to
+# screenshots/captures/, outside what the site ships, until a page shows them.
+# Everything is disposable: its own database, its own fake Radarr, Sonarr and
+# TMDb, its own ports. A development instance is never touched, and no real
+# library or API key can end up in a published image.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -25,8 +25,8 @@ WORK="$(mktemp -d -t routarr-shots-XXXXXX)"
 # Throwaway, and never shown: the interface masks stored keys.
 DEMO_API_KEY="showcase-only-api-key"
 # Generated per run: the instance is thrown away with its database, so a key
-# written into this file was a secret in the repository that guarded nothing —
-# and the one thing a secret scanner is right to refuse.
+# written into this file would be a secret in the repository that guards
+# nothing, and the one thing a secret scanner is right to refuse.
 DEMO_SECRET_KEY="$(openssl rand -base64 32)"
 
 PIDS=()
@@ -119,8 +119,8 @@ FRONTEND_DIR="$ROOT/frontend" ROUTARR_URL="http://127.0.0.1:$PORT" \
 # are screenshots of text, where that shows first.
 #
 # `avifenc` rather than ImageMagick for the AVIF: an ImageMagick without the
-# delegate does not fail, it writes a PNG under the .avif name — a file the
-# browser refuses and nothing downstream notices, since the name is right and
+# delegate does not fail, it writes a PNG under the .avif name. The browser
+# refuses that file and nothing downstream notices, since the name is right and
 # the pair is complete. Encoding through the tool that only does AVIF removes
 # the possibility.
 echo "==> encoding to avif and webp"
@@ -129,21 +129,23 @@ command -v avifenc >/dev/null || {
   exit 1
 }
 # Encoded in the work directory and moved in as a pair: written in place, a
-# failure between the two left a fresh WebP beside a stale AVIF, and the AVIF
+# failure between the two leaves a fresh WebP beside a stale AVIF, and the AVIF
 # is the file most browsers take.
 mkdir -p "$WORK/encoded"
 for png in "$HERE"/captures/*.png; do
   [[ -e "$png" ]] || continue
   name="$(basename "${png%.png}")"
   convert "$png" -quality 82 -define webp:method=6 "$WORK/encoded/$name.webp"
-  # -s 4 is the speed/size middle ground; -q 60 matches the WebP's weight
-  # class, and these are pictures of text where banding shows first.
+  # -s 4 is the speed and size middle ground. cq-level=28 holds the AVIF in
+  # the WebP's weight class, and these are pictures of text where banding
+  # shows first.
   avifenc --min 0 --max 63 -a end-usage=q -a cq-level=28 -s 4 "$png" "$WORK/encoded/$name.avif" >/dev/null
   mv "$WORK/encoded/$name.webp" "$WORK/encoded/$name.avif" "$HERE/captures/"
   rm -f "$png"
 done
 
-# What a wrong encoder produced silently until now.
+# `file` reads the content, not the name: a wrong encoder writes a PNG named
+# .avif without a word.
 for avif in "$HERE"/captures/*.avif; do
   file "$avif" | grep -q "AVIF" || {
     echo "$avif is not an AVIF file" >&2

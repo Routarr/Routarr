@@ -1,9 +1,8 @@
 //! A single façade over Radarr and Sonarr.
 //!
-//! One common model with an adapter per media type, so the logic is not
-//! duplicated: nothing outside this module branches on the instance type.
-//! Sync, health and the executor all talk to this enum instead of branching on
-//! `instance_type` and repeating the same code twice.
+//! One common model with an adapter per media type. Sync, health and the
+//! executor all talk to this enum, so none of them branches on
+//! `instance_type` and repeats the same code for each Arr.
 
 use reqwest::Client;
 
@@ -40,7 +39,7 @@ pub struct ArrMedia {
     /// Seasons excluding specials, so "more than five seasons" means what the
     /// user means. `None` for movies.
     pub season_count: Option<i64>,
-    /// Tag ids as the Arr reports them; resolved to labels at sync time.
+    /// Tag ids as the Arr reports them, resolved to labels at sync time.
     pub tag_ids: Vec<i64>,
     /// Metadata the Arr already carries. It makes the `arr` source of
     /// `services::metadata` answer without a single extra request, which is
@@ -83,7 +82,8 @@ pub enum ArrAdapter {
 }
 
 impl ArrAdapter {
-    /// Build the adapter for a stored instance, decrypting its API key.
+    /// Build the adapter for a stored instance, given its API key already
+    /// decrypted (`AppState::adapter` opens it).
     pub fn for_instance(client: Client, instance: &Instance, api_key: &str) -> AppResult<Self> {
         Self::new(client, &instance.instance_type, &instance.base_url, api_key)
     }
@@ -152,9 +152,9 @@ impl ArrAdapter {
         }
     }
 
-    /// One item by its Arr id, `None` when the Arr no longer has it.
+    /// One item by its Arr id, `None` when the Arr answers 404 for it.
     ///
-    /// The webhook path reads one item per event, and Radarr sends one event
+    /// The webhook path reads one item per event, and an Arr sends one event
     /// per imported file: listing the whole library there would cost a full
     /// download per episode of a season.
     pub async fn get_media_one(&self, arr_id: i64) -> AppResult<Option<ArrMedia>> {
@@ -179,9 +179,9 @@ impl ArrAdapter {
 
     /// Move a batch of items to a root folder.
     ///
-    /// Radarr accepts the whole batch in one call; Sonarr has no bulk editor, so
-    /// each series is patched individually and per-item failures are reported
-    /// rather than aborting the rest of the batch.
+    /// Radarr accepts the whole batch in one call. Sonarr has no bulk editor, so
+    /// each series is patched individually and a failure is reported for its
+    /// item rather than aborting the rest of the batch.
     pub async fn move_to_root_folder(
         &self,
         arr_ids: &[i64],

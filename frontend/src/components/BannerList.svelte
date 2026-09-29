@@ -5,7 +5,7 @@
   /**
    * Findings of one severity as one banner: the count leads, the list follows,
    * and an action, where there is one, sits once beside the count. One banner
-   * a finding said the severity once per line, each with its own stripe.
+   * per finding would say the severity once per line, each with its own stripe.
    */
   let {
     tone,

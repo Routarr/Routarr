@@ -54,10 +54,10 @@ describe('formatBytes', () => {
   });
 
   /**
-   * The short form spaces the unit the way the language does; the narrow form
-   * holds the abbreviation. Short alone writes the byte unit as `byte` in
-   * English and `Byte` in German — a wart on the one value that reaches it,
-   * an exact zero — and narrow alone drops the space French puts before it.
+   * The short form spaces the unit the way the language does, and the narrow
+   * form holds the abbreviation. Short alone writes the byte unit as `byte` in
+   * English and `Byte` in German (a wart on the one value that reaches it, an
+   * exact zero), and narrow alone drops the space French puts before it.
    */
   it("abbreviates the byte unit without losing the language's spacing", () => {
     expect(plain(formatBytes(0))).toBe('0 B');
@@ -69,12 +69,12 @@ describe('formatBytes', () => {
   /**
    * The byte symbol, where `Intl` has no abbreviation for it.
    *
-   * The narrow form was taken to be the abbreviation, and for most of the
-   * shipped set it is — but Dutch, Greek, Turkish, Korean and Traditional
-   * Chinese answer with a *word*, so every size under 1 KiB read `512 byte` in
-   * five languages. The symbol is derived from the kilobyte's instead, which is
-   * the same symbol with an SI prefix in front of it, and that agrees with
-   * `Intl` everywhere it does abbreviate.
+   * The narrow form is the abbreviation for most of the shipped set, but
+   * Dutch, Greek, Turkish, Korean and Traditional Chinese answer with a *word*,
+   * and taken as it is, every size under 1 KiB reads `512 byte` in those five
+   * languages. The symbol is derived from the kilobyte's instead, which is the
+   * same symbol with an SI prefix in front of it, and that agrees with `Intl`
+   * everywhere it does abbreviate.
    */
   it('abbreviates the byte unit even where Intl spells it out', () => {
     expect(plain(formatBytes(512, 'nl'))).toBe('512 B');
@@ -95,8 +95,8 @@ describe('formatBytes', () => {
 
   /**
    * The unit follows `ui_language`, not the source. French writes `o`, `ko`,
-   * `Go`; every screen showing a size said `B`, `KB`, `GB` whatever the
-   * interface language was. `Intl` knows the whole shipped set, so a language
+   * `Go`, and a fixed `B`, `KB`, `GB` would print English units whatever the
+   * interface language. `Intl` knows the whole shipped set, so a language
    * added later is right without a translation of its own.
    */
   it("writes the unit in the reader's language", () => {
@@ -108,7 +108,7 @@ describe('formatBytes', () => {
   });
 
   /**
-   * The settings store `zh_CN`; BCP-47 wants a hyphen, and an unfixed
+   * The settings store `zh_CN` where BCP-47 wants a hyphen, and an unfixed
    * underscore makes `Intl` throw rather than fall back.
    */
   it('accepts the stored locale form', () => {
@@ -199,7 +199,7 @@ describe('formatTimestamp', () => {
   });
 
   it('maps a Servarr language code onto a BCP-47 locale', () => {
-    // nb_NO would throw as a locale; the underscore has to become a hyphen.
+    // nb_NO would throw as a locale: the underscore has to become a hyphen.
     expect(() => formatTimestamp('2026-08-22 14:05:57', 'nb_NO')).not.toThrow();
     expect(formatTimestamp('2026-08-22 14:05:57', 'nb_NO')).toContain('22');
   });
@@ -225,8 +225,8 @@ describe('formatPercent', () => {
   });
 
   /**
-   * The underscore form is what the settings store; BCP-47 wants a hyphen,
-   * and an unfixed `zh_CN` throws rather than falling back.
+   * The underscore form is what the settings store, where BCP-47 wants a
+   * hyphen, and an unfixed `zh_CN` throws rather than falling back.
    */
   it('accepts the stored locale form', () => {
     expect(formatPercent(0.45, 'zh_CN')).toBe('45%');

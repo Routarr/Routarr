@@ -50,7 +50,7 @@ pub async fn create(
     .bind(req.name.trim())
     .bind(req.instance_type.to_lowercase())
     .bind(&base_url)
-    // Stored encrypted; the plaintext never touches the database.
+    // Stored encrypted: the plaintext never touches the database.
     .bind(state.secrets.seal(req.api_key.trim())?)
     .bind(req.enabled)
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))

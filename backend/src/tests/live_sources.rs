@@ -2,13 +2,13 @@
 //!
 //! The rest of the suite is offline, which keeps it fast and hermetic but
 //! shares one blind spot: a fake written to match the client drifts with it,
-//! agreeing forever while the real API moves. Captured payloads narrow that;
-//! only a real request closes it.
+//! agreeing forever while the real API moves. Captured payloads narrow that,
+//! and only a real request closes it.
 //!
 //! Ignored by default and opt-in:
 //!
 //! ```bash
-//! cargo test --test-threads=1 live_sources -- --ignored --nocapture   # keyless only
+//! cargo test live_sources -- --ignored --nocapture --test-threads=1   # keyless only
 //! OMDB_API_KEY=… TVDB_API_KEY=… cargo test live_sources -- --ignored  # everything
 //! ```
 //!
@@ -45,7 +45,7 @@ async fn anilist_answers_the_shape_the_client_expects() {
 
     // The resolution contract: at least one candidate must carry a title that
     // matches once normalised, and a year that agrees. If AniList ever stops
-    // returning `startDate.year`, resolution silently stops working — and this
+    // returning `startDate.year`, resolution silently stops working, and this
     // is the only test that would notice.
     let matched = candidates.iter().find(|c| {
         c.titles.iter().any(|t| {
@@ -191,7 +191,7 @@ async fn jikan_survives_a_burst_at_the_configured_concurrency() {
         match outcome {
             Ok(_) => {}
             Err(crate::error::AppError::ExternalApi { status: 429, .. }) => throttled += 1,
-            // MAL being down is not a Routarr defect; say so and stop.
+            // MAL being down is not a Routarr defect, so say so and stop.
             Err(e) if upstream_is_down(e) => {
                 eprintln!("skipped: Jikan or MyAnimeList is unavailable ({e})");
                 return;

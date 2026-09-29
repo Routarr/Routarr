@@ -32,13 +32,13 @@ fn rule<'a>(body: &'a serde_json::Value, name: &str) -> &'a serde_json::Value {
 }
 
 /// The trap this exists for: a rule below a broader one can never fire, and
-/// the preview reports that as "0 changes" — the same thing it reports for a
+/// the preview reports that as "0 changes", the same thing it reports for a
 /// rule that correctly changes nothing.
 #[tokio::test]
 async fn a_rule_that_never_wins_names_the_rule_taking_its_items() {
     let app = TestApp::new().await;
     app.seed_library().await;
-    // Both match the same film; the lower priority number wins.
+    // Both match the same film, and the lower priority number wins.
     add_rule(&app, "r-wide", "Everything", 10, "totoro", "standard").await;
     add_rule(&app, "r-narrow", "Anime", 50, "totoro", "anime").await;
 
@@ -83,8 +83,8 @@ async fn a_rule_that_wins_sometimes_is_not_reported_as_shadowed() {
     assert!(totoro["shadowed_by"].is_null(), "{totoro}");
 }
 
-/// Matching nothing is a different fault from being shadowed — a condition too
-/// narrow rather than a priority too low — and the two want different fixes.
+/// Matching nothing is a different fault from being shadowed (a condition too
+/// narrow rather than a priority too low), and the two want different fixes.
 #[tokio::test]
 async fn a_rule_matching_nothing_is_reported_apart_from_a_shadowed_one() {
     let app = TestApp::new().await;
@@ -208,7 +208,7 @@ async fn a_move_that_leaves_its_files_asks_nothing_about_free_space() {
 /// A destination the Arr cannot reach is asked about, not silently written to.
 ///
 /// The routing map keeps a sleeping folder on purpose, so the question of
-/// whether it can be written to has to be asked here — and asked rather than
+/// whether it can be written to has to be asked here, and asked rather than
 /// refused, because a NAS that wakes on access cannot be told from a dead disk.
 #[tokio::test]
 async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
@@ -231,17 +231,17 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     // a fault, and the operator is the one who knows their hardware.
     assert!(message.contains("2026-09-05"), "and say when it last answered: {message}");
 
-    // Answered, it gets out of the way — and answers only itself.
+    // Answered, it gets out of the way, and answers only itself.
     let allowed = apply(&app, &["unreachable"]).await;
     assert_ne!(allowed.status, 409, "confirming did not get past the guard: {}", allowed.json);
 }
 
 /// Answering one question must not answer the others.
 ///
-/// Three guardrails ask through the same mechanism, and they used to read a
-/// single boolean: confirming a capacity shortfall lifted the batch threshold
-/// as well, silently, and the operator was never shown the second fact. Each
-/// asks under its own name now, and lifts only that name.
+/// Three guardrails ask through the same mechanism, and each asks under its own
+/// name and lifts only that name. Read as a single boolean, confirming a
+/// capacity shortfall would lift the batch threshold as well, silently, and the
+/// operator would never be shown the second fact.
 #[tokio::test]
 async fn confirming_one_guardrail_does_not_lift_another() {
     let app = TestApp::new().await;
@@ -261,7 +261,8 @@ async fn confirming_one_guardrail_does_not_lift_another() {
         first.json
     );
 
-    // The capacity question is answered; the threshold has not been asked yet.
+    // The capacity question is answered, and the threshold has not been asked
+    // yet.
     let second = apply(&app, &["capacity"]).await;
     assert_eq!(second.status, 409, "confirming capacity applied the plan: {}", second.json);
     assert_eq!(
@@ -301,7 +302,7 @@ async fn a_whole_simulation_is_weighed_against_its_destination_too() {
     assert!(message.contains("/movies/anime"), "the shortfall must be carried in: {message}");
 }
 
-/// Evidence, not proof — so being wrong costs a click and never a block.
+/// Evidence, not proof, so being wrong costs a click and never a block.
 #[tokio::test]
 async fn the_refusal_can_be_confirmed_through() {
     let app = TestApp::new().await;
@@ -309,8 +310,8 @@ async fn the_refusal_can_be_confirmed_through() {
 
     assert_eq!(apply(&app, &[]).await.status, 409);
     // Past the guard the move reaches the Arr, which is unreachable here: the
-    // apply answers, and reports the one move as failed. Anything else — a
-    // refusal, or a success against a host that does not exist — is not the
+    // apply answers, and reports the one move as failed. Anything else (a
+    // refusal, or a success against a host that does not exist) is not the
     // guard letting go.
     let confirmed = apply(&app, &["capacity"]).await;
     assert_eq!(confirmed.status, 200, "confirming did not get past the guard: {}", confirmed.json);
@@ -353,7 +354,7 @@ async fn a_destination_reporting_no_free_space_is_not_guessed_at() {
 // ----------------------------------------------------------------- collisions
 
 /// Two rules with one name and one priority leave the winner to whichever id
-/// SQLite returns first — the engine breaks ties on priority, then name, then
+/// SQLite returns first: the engine breaks ties on priority, then name, then
 /// id, and that last step exists precisely because this happens.
 #[tokio::test]
 async fn two_rules_sharing_a_name_and_a_priority_are_reported() {
@@ -404,7 +405,7 @@ async fn rules_differing_in_target_or_conditions_are_not_called_duplicates() {
 }
 
 /// Two rules alike in every respect but the instances they apply to decide
-/// different things; two alike in every respect but the order of their
+/// different things, and two alike in every respect but the order of their
 /// conditions decide the same thing. The comparison has to see both.
 #[tokio::test]
 async fn twins_on_different_instances_are_not_duplicates_and_reordered_conditions_are() {
@@ -446,11 +447,11 @@ async fn twins_on_different_instances_are_not_duplicates_and_reordered_condition
 /// `U` and `TV-PG` say nothing to most readers, and this panel exists to show
 /// what the library holds.
 ///
-/// The code stays the value — it is what a rule matches on — and the meaning is
-/// added beside it. Only where the systems agree: `12` is twelve-and-over for
-/// the BBFC, the FSK and the CNC alike, while `M` is fifteen-and-over in
-/// Australia and something else in the United States, so `M` is left bare. A
-/// wrong name on a right value is worse than no name.
+/// The code stays the value, since it is what a rule matches on, and the
+/// meaning is added beside it. Only where the systems agree: `12` is
+/// twelve-and-over for the BBFC, the FSK and the CNC alike, while `M` is
+/// fifteen-and-over in Australia and something else in the United States, so
+/// `M` is left bare. A wrong name on a right value is worse than no name.
 #[tokio::test]
 async fn a_certification_is_shown_with_what_it_means() {
     let app = TestApp::new().await;
@@ -597,7 +598,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
 }
 
 /// A language rule is written against an ISO code, and the library holds five
-/// of them at most. Offering only those would hide the rest of the table — and
+/// of them at most. Offering only those would hide the rest of the table, and
 /// leave the code, which nobody guesses from a name, to be typed blind.
 #[tokio::test]
 async fn a_coded_axis_offers_its_whole_vocabulary_not_the_synced_part() {
@@ -610,8 +611,8 @@ async fn a_coded_axis_offers_its_whole_vocabulary_not_the_synced_part() {
     let languages = body["vocabularies"]["original_languages"].as_array().unwrap();
     assert!(languages.len() > 40, "got {} entries", languages.len());
 
-    // The value is the code the engine compares; the label is the only part a
-    // reader recognises, and neither is derivable from the other.
+    // The value is the code the engine compares, and the label is the only part
+    // a reader recognises. Neither is derivable from the other.
     let korean = languages
         .iter()
         .find(|entry| entry["value"] == "ko")

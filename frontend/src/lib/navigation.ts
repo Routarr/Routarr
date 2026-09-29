@@ -27,8 +27,8 @@ export interface NavItem extends Route {
 
 /**
  * The icon each destination is drawn with. Keyed by path rather than written
- * into the route table so the table stays readable without a Svelte runtime;
- * a route without an icon fails the module's test, not the first render.
+ * into the route table so the table stays readable without a Svelte runtime.
+ * A route without an icon fails the module's test, not the first render.
  */
 const ICONS: Record<string, Component<LucideProps>> = {
   '/': LayoutDashboard,
@@ -63,5 +63,5 @@ export const GROUPS: { key: string | null; items: NavItem[] }[] = ROUTE_GROUPS.m
   items: group.items.map((route) => ({ ...route, icon: iconFor(route) })),
 }));
 
-/** Every destination, flat — what a search over the navigation reads. */
+/** Every destination, flat: what a search over the navigation reads. */
 export const DESTINATIONS: NavItem[] = GROUPS.flatMap((group) => group.items);

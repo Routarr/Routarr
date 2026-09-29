@@ -23,9 +23,9 @@
    * Two requests, on purpose.
    *
    * The first answers from the database and lands in milliseconds. The second
-   * probes every Arr over the network, which takes five seconds when one is
-   * down — and an Arr being down is exactly why somebody opens this page. So
-   * the page renders on the first and upgrades to the second when it arrives:
+   * probes every Arr over the network, which waits out a connect timeout when
+   * one is down, and an Arr being down is exactly why somebody opens this page.
+   * So the page renders on the first and upgrades to the second when it arrives:
    * the instance table shows what is known immediately and fills its status
    * column in behind.
    */
@@ -78,11 +78,10 @@
       <GettingStarted status={onboarding.current} {outcome} />
     {/if}
 
-    <!-- One block, not one banner per warning. Three stacked tinted bars said
-         the same thing three times, each with its own copy of the same button,
-         and a fourth warning was invisible because the list was capped at
-         three without saying so. The count leads, the list follows, and the
-         one action sits once. -->
+    <!-- One block, not one banner per warning: stacked bars would say the same
+         thing once per warning, each with its own copy of the same button. The
+         count leads, so the warnings past the three listed are still counted,
+         and the one action sits once. -->
     <BannerList
       tone="warning"
       title={t('DiagnosticWarnings', { count: warnings.length })}
@@ -94,10 +93,10 @@
     </BannerList>
 
     {#if stats && health}
-      <!-- A dashboard answers one question first. Six cards of equal weight,
-           some with a coloured icon tile and some colouring their *number* by
-           sentiment, are two encoding systems on one row with nothing saying
-           where to look. -->
+      <!-- A dashboard answers one question first. Cards of equal weight, some
+           with a coloured icon tile and some colouring their *number* by
+           sentiment, would be two encoding systems on one row with nothing
+           saying where to look. -->
       <div class="headline">
         <div>
           <div class="headline-value">{stats.pending_decisions}</div>
@@ -115,7 +114,7 @@
       </div>
 
       <!-- Everything else is context, so it reads as one line of facts rather
-           than as six competing cards. -->
+           than as competing cards. -->
       <div class="metrics">
         <Stat label={t('MoviesManaged')} value={stats.total_movies} />
         <Stat label={t('SeriesManaged')} value={stats.total_series} />
@@ -126,8 +125,8 @@
         <Stat label={t('FailedMovesLabel')} value={stats.failed_decisions} tone="danger" />
       </div>
 
-      <!-- A sentence does not need a card and a heading: that spends 100px of
-           vertical space on one line, between two blocks that carry actual
+      <!-- A sentence does not need a card and a heading: that spends a card's
+           height on one line, between two blocks that carry actual
            structure. -->
       <p class="page-note">
         {t('MetadataEnrichedCount', { count: health.metadata.cached_items })}

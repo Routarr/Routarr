@@ -3,7 +3,7 @@
 //! The circuit breaker in `enrichment` stops a pass hammering a source that is
 //! *down*. It does nothing about a source that is up and simply has a limit:
 //! AniList allows roughly 90 requests a minute and Jikan 60, and a concurrency
-//! cap is not a rate — four requests in flight can still mean forty a second if
+//! cap is not a rate: four requests in flight can still mean forty a second if
 //! each one is fast.
 //!
 //! Without pacing, a first pass over a large library trips its own breaker,
@@ -12,7 +12,7 @@
 //!
 //! A **reservation** token bucket: a caller takes its token under the lock, then
 //! sleeps outside it. Letting the balance go negative is what makes the queue
-//! fair — each waiter is told a different instant to wake at, in the order it
+//! fair: each waiter is told a different instant to wake at, in the order it
 //! arrived, instead of every waiter racing for the same moment.
 
 use std::sync::Arc;
@@ -44,7 +44,7 @@ pub struct RateLimiter {
 }
 
 impl RateLimiter {
-    /// `per_minute` is the sustained ceiling; `burst` what an idle bucket holds.
+    /// `per_minute` is the sustained ceiling, `burst` what an idle bucket holds.
     pub fn new(per_minute: u32, burst: u32) -> Self {
         let capacity = burst.max(1) as f64;
         Self {
@@ -165,7 +165,7 @@ mod tests {
 
         tokio::time::advance(Duration::from_secs(5)).await;
 
-        // Refilled — and capped at the burst, not five seconds' worth.
+        // Refilled, but capped at the burst rather than five seconds' worth.
         assert_eq!(limiter.reserve().await, Duration::ZERO);
         assert_eq!(limiter.reserve().await, Duration::ZERO);
         assert!(limiter.reserve().await > Duration::ZERO);

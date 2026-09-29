@@ -123,10 +123,10 @@ describe('Instances', () => {
   });
 
   /**
-   * Never log or return a decrypted key. The row says the value is sealed; it
-   * does not say what the value is, not even partially — only a plaintext key
-   * left by an older version gets a partial mask, and that is a prompt to
-   * re-save rather than information.
+   * Never log or return a decrypted key. The row says the value is sealed, and
+   * not what the value is, not even partially. Only a key stored in plain text
+   * gets a partial mask, and that is a prompt to re-save rather than
+   * information.
    */
   it('says the key is sealed without showing any of it', async () => {
     show([instance({ api_key_encrypted: true, api_key_masked: 'abc•••••xyz' })]);
@@ -187,8 +187,8 @@ describe('Instances', () => {
 
   /**
    * `showModal()` makes the page inert and the overlay dims it: a refusal put
-   * in the page banner sat behind the dialog, faded, with a Dismiss nobody
-   * could press, and a 400 on the URL looked like a Save button doing nothing.
+   * in the page banner would sit behind the dialog, faded, with a Dismiss nobody
+   * can press, and a 400 on the URL would look like a Save button doing nothing.
    */
   it('shows a refused save inside the dialog, where it can be read', async () => {
     vi.spyOn(api, 'updateInstance').mockRejectedValue(
@@ -207,8 +207,8 @@ describe('Instances', () => {
   });
 
   /**
-   * A number field emptied binds `null`, and the server wants an integer: the
-   * save came back 422 from serde, in English, behind the dialog. Not sent.
+   * A number field emptied binds `null`, and the server wants an integer. Sent,
+   * the save would come back 422 from serde, in English, behind the dialog.
    */
   it('will not save an instance whose sync interval was emptied', async () => {
     show([instance()]);
@@ -822,7 +822,7 @@ describe('Instances', () => {
     expect(screen.getByRole('link', { name: /fd00::10/ })).toBeTruthy();
   });
 
-  /** The backend refuses any other scheme; the table does not rely on it. */
+  /** The backend refuses any other scheme, and the table does not rely on it. */
   it('links only an http or https address', async () => {
     show([instance({ base_url: 'javascript:alert(1)' })]);
 

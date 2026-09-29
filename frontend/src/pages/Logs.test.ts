@@ -85,9 +85,9 @@ describe('Activity log', () => {
   });
 
   /**
-   * The export is a `fetch` rather than a link precisely so the key travels. If
-   * it ever went back to an `<a href>` the download would 401 and the only
-   * symptom would be an empty file.
+   * The export is a `fetch` rather than a link precisely so the key travels. As
+   * an `<a href>` the download would 401, and the only symptom would be an
+   * empty file.
    */
   it('carries the API key when exporting, which a plain link could not', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
@@ -114,7 +114,7 @@ describe('Activity log', () => {
 
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
 
-    // The screen speaks in outcomes; the API takes a boolean.
+    // The screen speaks in outcomes, and the API takes a boolean.
     await waitFor(() =>
       expect(getLogs).toHaveBeenCalledWith(
         expect.objectContaining({ success: true }),

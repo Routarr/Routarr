@@ -40,9 +40,9 @@
   /**
    * A free list as the reader typed it, kept while it still reads as the value.
    * Rewritten from the parsed list at each keystroke, a list typed without
-   * spaces came back spaced, and the browser sent the cursor to the end, where
-   * the next digits ran into the last id. A value that stops matching the text,
-   * as when the condition is reset, replaces it.
+   * spaces would come back spaced, and the browser would send the cursor to the
+   * end, where the next digits run into the last id. A value that stops
+   * matching the text, as when the condition is reset, replaces it.
    */
   let typed = $state<string | null>(null);
   const parseList = (text: string): unknown[] =>

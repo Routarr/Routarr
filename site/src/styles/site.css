@@ -1,11 +1,11 @@
-/* Routarr showcase — one stylesheet, no framework, no external request.
+/* Routarr showcase: one stylesheet, no framework, no external request.
  *
  * The palette is the application's own (frontend/src/index.css). The accent is
- * three tokens, not one: `--accent` decorates (borders, glows — contrast rules
- * do not apply), `--accent-text` is amber that passes AA *as text* on the page,
- * and `--accent-fill`/`--accent-ink` are the button pair. One token doing all
- * three jobs turns the light theme's brand colour brown, because the AA fix for
- * text lands on the fills too. */
+ * three tokens, not one: `--accent` decorates (borders and glows, where
+ * contrast rules do not apply), `--accent-text` is amber that passes AA *as
+ * text* on the page, and `--accent-fill`/`--accent-ink` are the button pair.
+ * One token doing all three jobs turns the light theme's brand colour brown,
+ * because the AA fix for text lands on the fills too. */
 
 /* Light is the theme, not a preference the system gets to make. Dark is reached
    only by stamping `data-theme="dark"`, which the toggle does and the bootstrap
@@ -42,7 +42,7 @@
   /* 3 for a badge, 6 for anything that takes a click, 12 for a surface that
      holds rows. The application keeps its own 2 / 3 / 4: it is dense, this is
      not, and the two are read months apart. Two deliberate exceptions stay
-     circular — the terminal's window dots and the numbered markers — because
+     circular (the terminal's window dots and the numbered markers), because
      a round mark is what they are, not a rounded rectangle. */
   --radius-xs: 3px;
   --radius-sm: 6px;
@@ -116,10 +116,8 @@ a:hover { opacity: 0.85; }
 :focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 3px;
-  /* The one radius still written as a number after the scale was named, so the
-     only one that would not follow if the scale moved. The ring lands on links,
-     buttons and cards alike, which is why it takes the surface value rather
-     than each element's own. */
+  /* The ring lands on links, buttons and cards alike, which is why it takes
+     the surface value rather than each element's own. */
   border-radius: var(--radius-md);
 }
 /* A scrolling region draws its ring inside itself: the card around it clips
@@ -221,10 +219,10 @@ img { max-width: 100%; height: auto; }
    as one set of objects rather than three kinds of thing.
 
    Plain links for the languages, because the CSP allows exactly one inline
-   script and it is the theme bootstrap — a <select> would need a handler. Two
-   letters keep the group the width of one control rather than four, and the
-   current language is marked rather than hidden, so a reader who landed on the
-   wrong one can see which they are on. */
+   script and it is the theme bootstrap, and a <select> would need a handler.
+   Two letters keep the group the width of one control rather than four, and
+   the current language is marked rather than hidden, so a reader who landed
+   on the wrong one can see which they are on. */
 .seg {
   display: inline-flex;
   height: 38px;
@@ -265,10 +263,9 @@ img { max-width: 100%; height: auto; }
 /* A <details>: it opens and closes with no JavaScript, which is the property
    the rest of the page keeps. site.js adds Ctrl K, Escape and closing on a
    click elsewhere, and nothing essential depends on any of the three. */
-/* The bar is the brand at one edge and the controls at the other. The gap
-   used to be opened by the language switch, which has moved into the panel,
-   and without it everything clustered against the brand with the whole right
-   half of a 1440px window empty. */
+/* The bar is the brand at one edge and the controls at the other. The auto
+   margin opens the gap between them: without it everything clusters against
+   the brand and leaves the right half of a wide window empty. */
 .index { flex: none; margin-inline-start: auto; }
 .index > summary {
   display: inline-flex;
@@ -314,22 +311,20 @@ img { max-width: 100%; height: auto; }
   border-radius: var(--radius-sm);
   box-shadow: 0 18px 44px rgb(0 0 0 / 0.38);
 }
-/* The destinations, then the two settings. Both used to sit on the bar, where
-   six language chips and two theme buttons wrapped it onto a second row on a
-   phone and took 118px before a word of the page. */
+/* The destinations, then the two settings. On the bar, the language chips and
+   the theme buttons would wrap it onto a second row on a phone before a word
+   of the page. */
 /* Named, not `nav`: the language switch is a `<nav>` too, and a type
-   selector here gave it this two-column grid, folded its four chips onto two
-   rows and let the segment's own height clip them. Two of the four languages
-   simply were not there. */
+   selector here would give it this two-column grid, fold its four chips onto
+   two rows and let the segment's own height clip two of them away. */
 .index-panel .index-nav {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 28px;
 }
 /* Scoped to the navigation, not to every link in the panel: the language
-   chips are anchors too, and they took this grid, folded onto two rows and
-   were clipped by the segment's own height. Two of the four languages simply
-   were not there. */
+   chips are anchors too, and under this grid they would fold onto two rows and
+   be clipped by the segment's own height. */
 .index-panel .index-nav > a {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
@@ -353,12 +348,12 @@ img { max-width: 100%; height: auto; }
 .index-panel .index-nav > a:hover { opacity: 1; }
 .index-panel .index-nav > a:hover b { color: var(--accent-text); }
 .index-panel .index-nav > a.cross i { color: var(--accent-text); }
-/* Scroll-spy: set by site.js, styled here, absent without JS — all fine. */
+/* Scroll-spy: set by site.js, styled here, and harmlessly absent without JS. */
 .index-panel .index-nav > a[aria-current='true'] i,
 .index-panel .index-nav > a[aria-current='true'] b { color: var(--accent-text); }
 
 /* The languages at one end, the theme at the other. Side by side they read as
-   one row of eight cells and the eye has to find where the meaning changes. */
+   one row of six cells and the eye has to find where the meaning changes. */
 .index-settings {
   display: flex;
   flex-wrap: wrap;
@@ -421,8 +416,8 @@ img { max-width: 100%; height: auto; }
 }
 .btn svg { width: 18px; height: 18px; flex: none; }
 /* Flat, like the application's own: one fill at rest, a lighter one on hover.
-   The gradient, the bevel, the drop shadow and the lift said "raised" four
-   times over for a control that is simply the page's one action. */
+   A gradient, a bevel, a drop shadow and a lift would say "raised" four times
+   over for a control that is simply the page's one action. */
 .btn-primary {
   background: var(--accent-fill);
   color: var(--accent-ink);
@@ -443,31 +438,30 @@ img { max-width: 100%; height: auto; }
 
 section { padding: clamp(56px, 7vw, 96px) 0; }
 /* The gap between two sections is their padding and nothing else. A trailing
-   margin on the last element inside made that gap 210px after one section and
-   214px after another where every other pair measured 180, which the eye reads
-   as an irregularity without being able to name it. Three levels, because the
-   last thing in a section is sometimes the last thing inside its last block,
-   inside the wrap. */
+   margin on the last element inside would widen that gap after some sections
+   and not others, which the eye reads as an irregularity without being able
+   to name it. Three levels, because the last thing in a section is sometimes
+   the last thing inside its last block, inside the wrap. */
 main > section > :last-child,
 main > section > :last-child > :last-child,
 main > section > :last-child > :last-child > :last-child { margin-block-end: 0; }
 /* Alternating grounds break the single-flat-field monotony. */
 /* Every other section, counted by the page rather than marked by hand. Placed
-   by a class it drifted: the landing banded its last two and the detail page
-   banded three in a row then none, which is not a rhythm, it is an accident
-   that looks like one. The first section is never banded, so the hero and the
-   detail page's own heading keep the page's ground. */
+   by a class, the banding drifts as sections are added or moved, and an
+   irregular banding is not a rhythm but an accident that looks like one. The
+   first section is never banded, so the hero and the detail page's own
+   heading keep the page's ground. */
 main > section:nth-of-type(even) {
   background: var(--bg-raised);
   border-block: 1px solid var(--border);
 }
-/* The heading and its sentence both run the width of the section. Capped at
-   62ch and stacked on the left they left 469px of nothing down the right of
-   every section. Beside each other they fill it, but a 535px column cannot
-   hold a 35-character line at this size, and the heading then broke into four
-   lines where it wants two. The heading takes no cap at all: the longest
-   clause of the four languages measures 982px, so anything narrower than the
-   wrap breaks one of them onto a third line. */
+/* The heading and its sentence both run the width of the section. Capped and
+   stacked on the left, they would leave an empty column down the right of
+   every section. Beside each other they would fill it, but half the width
+   cannot hold a heading line at this size, and the heading would break into
+   four lines where it wants two. The heading takes no cap at all: the longest
+   clause of the four languages needs nearly the whole wrap, so anything
+   narrower breaks one of them onto a third line. */
 .section-head { margin-bottom: 40px; }
 .section-head h2 { max-width: none; }
 .section-head > p { max-width: none; margin-top: 1.1rem; font-size: 1.06rem; }
@@ -484,8 +478,8 @@ main > section:nth-of-type(even) {
 .half-head > p { max-width: none; margin: 0; font-size: 1.02rem; }
 
 /* The claim takes a line of its own only where the width forces it. On a
-   desktop a heading reads better whole, and the break was making short ones
-   look padded; below 900 it is the difference between two lines and four. */
+   desktop a heading reads better whole, and the break makes short ones look
+   padded. Below 900px it is the difference between two lines and four. */
 @media (max-width: 899px) {
   .section-head h2 em,
   .more-say h2 em,
@@ -536,15 +530,15 @@ main > section:nth-of-type(even) {
 }
 .hero > .wrap { position: relative; }
 
-/* The hero is centred and the headline is light, not heavy. At 780 the weight
-   made a 46px line shout; the size carries the claim now and the weight steps
-   up only for the clause that matters. The break before that clause is markup,
-   not a wrap: left to the line box it fell differently in each of the four
+/* The hero is centred and the headline is light, not heavy: a heavy weight at
+   this size shouts, so the size carries the claim and the weight steps up
+   only for the clause that matters. The break before that clause is markup,
+   not a wrap: left to the line box it falls differently in each of the four
    languages. */
 .hero-head { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
 .hero h1 {
-  /* The floor is set by the longest of the four headlines, not by taste:
-     "Der richtige Ordner," takes a third line above 2.3rem on a 390px phone. */
+  /* The floor is set by the longest of the four headlines, not by taste: any
+     larger, "Der richtige Ordner," takes a third line on a phone. */
   font-size: clamp(2.25rem, 0.9rem + 5vw, 6rem);
   font-weight: 300;
   line-height: 1;
@@ -563,9 +557,9 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .hero-cta { display: flex; gap: 12px; flex-wrap: wrap; }
 /* Below the base rule on purpose: same specificity, and the later one wins.
    The column is as wide as the pair of buttons, which is the one thing in it
-   that may not break, 387px in English and 452px in German. The note is kept
-   out of that measurement, or it sets the width itself at 675px in French and
-   the buttons stack. Zero width contributes nothing to the column, and the
+   that may not break, whatever the language. The note is kept out of that
+   measurement, or its longer translations set the width themselves and the
+   buttons stack. Zero width contributes nothing to the column, and the
    percentage then fills whatever the buttons settled on. */
 @media (min-width: 900px) {
   .hero-cta { flex-wrap: nowrap; }
@@ -573,8 +567,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 /* `.btn` never wraps, which is right for a label the author chose and wrong
    for one a translator did: the German call to action is wider than a 360px
-   phone and pushed the whole page sideways. Below 480 the pair stacks and the
-   label is allowed to break. */
+   phone and would push the whole page sideways. Below 480px the pair stacks
+   and the label is allowed to break. */
 @media (max-width: 480px) {
   .hero-cta { flex-direction: column; align-items: stretch; }
   .hero-cta .btn { white-space: normal; justify-content: center; text-align: center; }
@@ -664,8 +658,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    labelled per step, so nothing depends on a column heading three rows up. */
 .flow { list-style: none; margin: 0 0 26px; padding: 0; display: grid; gap: 22px; }
 /* The pair sits in the third column rather than under the note. Stacked, a
-   note capped at its measure left 400px of nothing down the right of every
-   step, which is the same emptiness the section heads were widened to close. */
+   note capped at its measure would leave an empty column down the right of
+   every step, the same emptiness the full-width section heads avoid. */
 .flow-step {
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) 290px;
@@ -725,7 +719,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .flow-foot b { color: var(--accent-text); }
 
 /* A flow needs one breakpoint, not two: the number moves above the step
-   rather than beside it, because a 42px gutter out of 358px is a tenth of the
+   rather than beside it, because the 42px gutter takes a tenth of a phone's
    line and the notes then break every fourth word. */
 @media (max-width: 899px) {
   .flow-step { grid-template-columns: 42px minmax(0, 1fr); }
@@ -748,8 +742,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* -------------------------------------------------------------- install */
 
 /* Four commands in the order you type them. The sequence is strictly linear,
-   so it is one column: two terminals side by side asked the reader to follow
-   it in a zigzag. */
+   so it is one column: two terminals side by side would ask the reader to
+   follow it in a zigzag. */
 .install {
   margin-top: 32px;
   display: grid;
@@ -784,8 +778,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .install-cmd.url { color: var(--accent); }
 .install-prompt { color: var(--accent); margin-inline-end: 9px; }
-/* The reason sits under the command it explains. It used to be a comment
-   inside the other terminal, two columns away from the line it was about. */
+/* The reason sits under the command it explains, not in a terminal two
+   columns away from it. */
 .install-note { margin: 7px 0 0; font-size: 0.93rem; }
 .install-aside { display: flex; flex-direction: column; gap: 16px; }
 /* Full width, under the two columns rather than inside one of them. */
@@ -821,7 +815,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   font-size: 0.92rem;
   color: var(--accent-text);
 }
-/* The name is what the feature is called; it is the smaller of the two here
+/* The name is what the feature is called. It is the smaller of the two here
    because it is the one you can guess from the fact and not the other way
    round. */
 .spec-fact span {
@@ -834,8 +828,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .spec dd p:last-child { margin: 0; font-size: 0.95rem; }
 
-/* One column below 860px: two 380px columns break a mono fact every second
-   word, and the fact is the line that carries the entry. */
+/* One column below 860px: two columns that narrow break a mono fact every
+   second word, and the fact is the line that carries the entry. */
 @media (max-width: 859px) {
   .spec { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .spec-item:nth-child(2) { border-top: 1px solid var(--border); padding-top: 18px; }
@@ -918,8 +912,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   color: var(--text-muted);
 }
 /* The sentence closing a section runs the width of the block above it, as
-   the one introducing it does. Capped, it left the same empty right-hand
-   column the section heads used to. */
+   the one introducing it does. Capped, it would leave the same empty
+   right-hand column a capped section head leaves. */
 .folders-note { margin: 22px 0 30px; max-width: none; }
 
 /* Five columns need about 860px. Below that the path takes a line of its own
@@ -1110,8 +1104,9 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .rule-group .rule-cond:first-of-type { border-top: 0; padding-top: 2px; }
 /* Three columns need a 240px field beside the operator and the values, which a
-   phone's card cannot give: the values ran out of the card and were cut off.
-   The field takes a line of its own, the operator and the values the next. */
+   phone's card cannot give without the values running out of the card and
+   being cut off. The field takes a line of its own, the operator and the
+   values the next. */
 @media (max-width: 599px) {
   .rule-cond { grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; }
   .rule-field { grid-column: 1 / -1; }
@@ -1142,10 +1137,10 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* Six gates in the order the executor runs them. The number is not
    decoration: the first one to object stops the rest, which is the only
    reason the order is worth drawing. */
-/* One list, not six cards. Six bordered boxes with a paragraph each measured
-   1944px on a 390px phone, two and a third screens for a list of six things,
-   and the gaps and the padding were most of it. A row states the same three
-   facts in the space of a line. */
+/* One list, not six cards. Six bordered boxes with a paragraph each take more
+   than two phone screens for a list of six things, and the gaps and the
+   padding are most of it. A row states the same three facts in the space of a
+   line. */
 .gates {
   list-style: none;
   margin: 0;
@@ -1214,7 +1209,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* ---------------------------------------------------------------- faq */
 
 /* Not questions, objections: what somebody weighs before letting software
-   touch their library. Six of the seven answers are no, and they have to be
+   touch their library. Five of the seven answers are no, and they have to be
    read together to be an argument, so the row itself never folds. */
 .objections {
   margin-top: 30px;
@@ -1264,10 +1259,10 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* The third column is the point: every answer is a property of something in
    the product, not a promise made on a landing page. */
 .objection-mechanism { margin: 0; font-family: var(--mono); font-size: 0.82rem; color: var(--accent-text); }
-/* The mechanism is the guarantee and stays in the open; this is the prose
-   under it. Folded, because on a 390px phone the seven of them measured 1055px
-   of a 2247px section, and the marker is left to the browser: it is the only
-   thing saying the control opens. */
+/* The mechanism is the guarantee and stays in the open. This is the prose
+   under it, folded because on a phone the seven of them make up nearly half
+   the section. The marker is left to the browser: it is the only thing saying
+   the control opens. */
 .objection-why { margin-top: 6px; }
 /* Not the mono capitals of the bands around it. Seven of those down one
    column read as seven more headers on a page that already carries more
@@ -1293,13 +1288,13 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* ---------------------------------------------------------------- cta */
 
 /* A close that sums up rather than exhorts: every line is something the page
-   proved a few screens above, so the slogan stops carrying the section on its
+   proved a few screens above, so the slogan does not carry the section on its
    own and the last thing a hesitant reader sees is the three facts that
    answer the three reasons not to install it. */
 /* The close is one centred column, and the three facts sit underneath it in a
-   row. Beside the heading they were a card of three stacked paragraphs, tall
-   where the column next to it was short, and the section read as two unequal
-   halves rather than as one ending. */
+   row. Beside the heading they would stack into a tall card next to a short
+   column, and the section would read as two unequal halves rather than as
+   one ending. */
 .cta-close {
   display: flex;
   flex-direction: column;
@@ -1309,12 +1304,13 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   padding-top: 8px;
 }
 .cta-say { display: flex; flex-direction: column; align-items: center; }
-/* No measure: 16ch broke a six-word heading onto two lines in every
+/* No measure: a narrow cap breaks a six-word heading onto two lines in every
    language, which is a cap doing the work of a line break. */
 .cta-say h2 { margin-bottom: 0.5em; }
-/* One closing line, not a paragraph: 52ch left «rest.» alone on a second
-   line, and a single centred sentence tolerates a longer measure than body
-   copy does. Sized by the longest of the four, which is the German. */
+/* One closing line, not a paragraph: a body-copy measure leaves its last word
+   alone on a second line, and a single centred sentence tolerates a longer
+   measure than body copy does. Sized by the longest of the four, which is the
+   German. */
 .cta-say > p { margin-bottom: 26px; max-width: 82ch; font-size: 1.06rem; }
 
 .cta-recap {
@@ -1325,8 +1321,9 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .cta-recap-band {
   grid-column: 1 / -1;
-  /* Left of the row and clear of it: centred with a 4px margin it sat at the
-     height of the columns' rules, wedged between the first and the second. */
+  /* Left of the row and clear of it: centred with a small margin it would sit
+     at the height of the columns' rules, wedged between the first and the
+     second. */
   margin: 0 0 16px;
   text-align: start;
   font-family: var(--mono);
@@ -1348,7 +1345,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .cta-line b { display: block; font-size: 1rem; font-weight: 650; }
 .cta-line p { margin: 4px 0 0; font-size: 0.92rem; color: var(--text-soft); }
 
-/* Three columns need three usable widths; below this they stack. */
+/* Three columns need three usable widths, and below this they stack. */
 @media (max-width: 899px) {
   .cta-recap { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .cta-recap-band { margin-bottom: 8px; }
@@ -1389,7 +1386,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 
 .error-page { min-height: 70vh; display: grid; place-items: center; text-align: center; }
 
-/* The 404 page centres its two buttons; the rule lives here because the
+/* The 404 page centres its two buttons. The rule lives here because the
    page's CSP allows no inline style. */
 .hero-cta-center { justify-content: center; }
 
@@ -1403,13 +1400,13 @@ h2 em { font-style: normal; color: var(--accent-text); }
   grid-template-columns: minmax(0, 1fr);
   gap: 28px;
 }
-/* No measure on a heading of six words: the cap, not the language, is what
-   broke it onto a second line in three of the four. */
+/* No measure on a heading of six words: a cap, not the language, would break
+   it onto a second line. */
 .more-say h2 { margin: 0.2em 0 0; }
 .more-say > p { margin: 1rem 0 0; max-width: 62ch; color: var(--text-soft); }
 /* The same shape as every other object on the page: a card with a header
-   band, then rows. As bare rows with hairlines it read a tone below the rest,
-   which was never about the contents list being the wrong thing to show. */
+   band, then rows. As bare rows with hairlines it would read a tone below the
+   rest, though a contents list is the right thing to show. */
 .more-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1452,7 +1449,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 .more-list a:hover { color: var(--accent-text); }
 .more-say .btn { margin-top: 26px; }
 
-/* One column on a phone: two leave a German subject about 150px. */
+/* One column on a phone: two leave a German subject too narrow to read. */
 @media (max-width: 559px) {
   .more-list { grid-template-columns: minmax(0, 1fr); }
   .more-list li:nth-child(odd) { border-inline-end: 0; }
@@ -1460,7 +1457,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 }
 
 @media (min-width: 900px) {
-  /* The heading column keeps enough width that no language breaks it; the
+  /* The heading column keeps enough width that no language breaks it. The
      card holds two columns of six short words in the rest. */
   .more { grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0 56px; align-items: center; }
 }
@@ -1521,15 +1518,16 @@ h2 em { font-style: normal; color: var(--accent-text); }
   white-space: nowrap;
 }
 /* Every cell refuses to wrap. A rule name broken over two lines turns a row
-   into a paragraph, and the column that did it was always the same one. */
+   into a paragraph. */
 .plan-table td { padding: 15px 24px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .plan-table tr:last-child td { border-bottom: 0; }
-/* The same size as everything else in the row. It read as a headline when
-   the titles were still set in capitals. */
+/* The same size as everything else in the row, so a title does not read as a
+   headline. */
 .plan-name { font-size: 0.94rem; font-weight: 600; }
 .plan-rule { font-size: 0.94rem; color: var(--text-soft); }
-/* The number sits beside the rule, not above it: stacked, every row was two
-   lines tall for a value that reads as one thing, "#10 Japanese animation". */
+/* The number sits beside the rule, not above it: stacked, every row would be
+   two lines tall for a value that reads as one thing,
+   "#10 Japanese animation". */
 .plan-rule b { margin-inline-end: 7px; color: var(--accent-text); }
 .plan-rule i { color: var(--text-muted); font-style: italic; }
 .plan-dest .mono { font-family: var(--mono); font-size: 0.94rem; }
@@ -1538,7 +1536,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 .plan-dest .arrow { padding: 0 10px; color: var(--border-strong); }
 .plan-instance { font-size: 0.9rem; color: var(--text-soft); }
 
-/* One line, in four languages. Four pairs across 1092px leave about twenty
+/* One line, in four languages. Four pairs across the card leave about twenty
    characters per note, so the notes are two words and the row may not wrap:
    a legend on four lines is a paragraph pretending to be a key. */
 .plan-legend {
@@ -1553,17 +1551,16 @@ h2 em { font-style: normal; color: var(--accent-text); }
   color: var(--text-muted);
 }
 .plan-legend > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-/* Below 1000 the row stops being a row rather than bursting its card: the
-   French notes need 852px on the desktop and 19px more than the card has
-   here. One line is the goal where the card is wide, not a rule to keep at
-   the cost of overflow. */
+/* Below 1000px the row stops being a row rather than bursting its card: the
+   French notes need more than the card has at this width. One line is the
+   goal where the card is wide, not a rule to keep at the cost of overflow. */
 @media (max-width: 999px) {
   .plan-legend { flex-wrap: wrap; justify-content: flex-start; gap: 10px 24px; }
 }
 
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
-   the table and the legend. Three states, and the middle one
-   is bordered rather than filled because asking is not the same answer as
+   the table and the legend. Three states, and the middle one carries a
+   border the first lacks, because asking is not the same answer as
    proposing. */
 .chip {
   display: inline-flex;

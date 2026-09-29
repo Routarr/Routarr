@@ -133,7 +133,7 @@ impl TvdbClient {
                 .await?;
 
         // A login that answers without a token is a refusal in the shape of a
-        // success; cached, it would send an empty bearer with every read.
+        // success. Cached, it would send an empty bearer with every read.
         let token = response.data.map(|data| data.token).filter(|token| !token.is_empty());
         let Some(token) = token else {
             return Err(crate::error::AppError::ExternalApi {
@@ -155,9 +155,9 @@ impl TvdbClient {
     /// A read, logged in again once if the token has expired.
     ///
     /// TheTVDB documents a month's validity and the token lives for the life
-    /// of the process, so past the month every read answered 401 — one per
+    /// of the process, so past the month every read would answer 401, one per
     /// pending title per pass, with nothing naming the cause. A 401 drops the
-    /// cached token and the read is made once more with a fresh one; a second
+    /// cached token and the read is made once more with a fresh one. A second
     /// 401 is the key's problem, and is reported as such.
     async fn read<T: serde::de::DeserializeOwned>(&self, path: &str) -> AppResult<T> {
         match send_json(SERVICE, self.get(path).await?).await {
@@ -246,7 +246,7 @@ mod tests {
     /// A captured-shape TheTVDB v4 `/series/{id}/extended` response through the
     /// real types. The v4 API wraps everything in `data`, names country and
     /// language in three letters, and returns dozens of fields the client does
-    /// not read — all three are what this pins down.
+    /// not read. This pins down all three.
     #[test]
     fn a_real_shape_extended_record_deserialises_and_normalises() {
         let json = r#"{

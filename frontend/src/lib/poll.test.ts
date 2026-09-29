@@ -4,10 +4,10 @@ import { render } from '@testing-library/svelte';
 import PollHarness from '../test/PollHarness.svelte';
 
 /**
- * The Tasks screen refreshes every three seconds while a job runs. Left in
- * a background tab that is exactly twelve hundred requests an hour against a
- * machine that is usually also running Radarr, Sonarr and everything the
- * household points at it — for a screen nobody is looking at.
+ * The Tasks screen refreshes every few seconds while a job runs. Left in a
+ * background tab, it would keep asking all day, against a machine that is
+ * usually also running Radarr, Sonarr and everything the household points at
+ * it, for a screen nobody is looking at.
  */
 
 /** Put the tab in front or behind, and tell the page it moved. */

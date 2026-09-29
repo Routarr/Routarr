@@ -82,16 +82,16 @@ pub mod confirm {
     /// written twice, a guardrail added to the module and forgotten in the list
     /// refuses a caller that answered every question, and says nothing about
     /// why. Test-only, because in the application answering everything at once
-    /// is the blanket flag `Confirmed` replaced.
+    /// would be the blanket flag `Confirmed` exists to prevent.
     #[cfg(test)]
     pub const ALL: &[&str] = &[CAPACITY, THRESHOLD, BATCH, UNREACHABLE];
 }
 
 /// Which refusals the caller has looked at and accepted.
 ///
-/// A boolean here meant answering one question answered every question: the
-/// three guardrails that ask all read the same flag, so confirming a capacity
-/// shortfall silently waved the batch threshold through as well.
+/// A list of names, never a boolean: with one flag read by every guardrail
+/// that asks, answering one question answers them all, and confirming a
+/// capacity shortfall silently waves the batch threshold through as well.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(transparent)]
 pub struct Confirmed(Vec<String>);
@@ -106,9 +106,9 @@ impl Confirmed {
         self.0.iter().any(|answered| answered == kind)
     }
 
-    /// Every question answered — for tests, which assert what happens *after*
-    /// the asking. Not available to the application, or it would be the
-    /// blanket flag this type replaced.
+    /// Every question answered, for tests, which assert what happens *after*
+    /// the asking. Not available to the application, where it would be the
+    /// blanket flag this type exists to prevent.
     #[cfg(test)]
     pub fn all() -> Self {
         Self(confirm::ALL.iter().map(|kind| (*kind).to_string()).collect())
@@ -148,7 +148,7 @@ pub struct BatchApplyReport {
     pub applied: usize,
     pub failed: usize,
     pub skipped: usize,
-    /// Slices actually attempted — fewer than planned when one of them failed.
+    /// Slices actually attempted, fewer than planned when one of them failed.
     pub batches_run: usize,
     pub batches_planned: usize,
     /// True when a slice failed and the remaining ones were abandoned.
@@ -313,9 +313,9 @@ async fn applicable_from_simulation(
 /// Apply decisions a background run selected, with nobody watching.
 ///
 /// Same writer, different gate. The confirmation threshold exists to make a
-/// *person* stop and look; it means nothing here, and [`auto_apply`] has already
+/// *person* stop and look. It means nothing here, and [`auto_apply`] has already
 /// established that the set is small, in scope and file-free. The dry-run guard
-/// still applies — it is the one switch that must override everything.
+/// still applies: it is the one switch that must override everything.
 ///
 /// Never moves files on disk: see [`auto_apply`] for why that is a property of
 /// the feature rather than an option.
@@ -332,8 +332,8 @@ pub async fn apply_unattended(
 
 /// Run the writing part of an apply on a task of its own, and wait for it.
 ///
-/// The request future is dropped the moment the client hangs up — a browser
-/// navigating away, an Arr whose webhook timed out — and it is dropped at its
+/// The request future is dropped the moment the client hangs up (a browser
+/// navigating away, an Arr whose webhook timed out), and it is dropped at its
 /// next await, which can be the one between the Arr performing a move and
 /// this recording it. A move the Arr has performed must be recorded whatever
 /// the caller does next. Spawned, the work runs to its end holding the lock
@@ -623,9 +623,9 @@ async fn record_success(
     let pool = &state.pool;
 
     // Rewrite the local path so it reflects reality until the next sync.
-    // Computed in Rust rather than SQL: doing the substring arithmetic in SQLite
-    // silently produced `/movies/animeTitle` whenever the stored root folder
-    // carried a trailing slash.
+    // Computed in Rust rather than SQL: the substring arithmetic in SQLite
+    // silently produces `/movies/animeTitle` whenever the stored root folder
+    // carries a trailing slash.
     let new_path = mv.current_path.as_deref().map(|path| relocate(path, target));
 
     // The decision and the media row in one transaction: an `applied` decision
@@ -726,7 +726,7 @@ async fn guard_dry_run(state: &AppState) -> AppResult<()> {
 
 /// Enforce the batch ceiling: nothing, and never more than `batch_limit`.
 ///
-/// A count, so it runs before any guard that spells the ids out in a query —
+/// A count, so it runs before any guard that spells the ids out in a query:
 /// `batch_limit` is capped at a thousand, and SQLite binds 32 766 parameters
 /// at most, so a list this has passed always fits one statement.
 async fn guard_batch_limit(state: &AppState, count: usize) -> AppResult<()> {
@@ -772,7 +772,7 @@ async fn guard_confirmation(
 /// A root folder on a NAS that spins down is reported inaccessible, and the
 /// routing map deliberately keeps it: unknown is not gone, and a plan built
 /// while the disk was awake must survive the nap. The question is asked here
-/// instead, at the one moment it can be answered — and asked rather than
+/// instead, at the one moment it can be answered. It is asked rather than
 /// refused, because a NAS that wakes on access cannot be told from a dead disk,
 /// and refusing outright would make the product unusable for those
 /// installations.
@@ -879,13 +879,13 @@ impl CapacityScope<'_> {
 /// Refuse a plan a destination cannot hold.
 ///
 /// A batch that overruns its destination fails partway through at the Arr and
-/// leaves the library half-moved — and hard to notice, since the Arr records
+/// leaves the library half-moved, and hard to notice, since the Arr records
 /// the new path whether or not the file arrived.
 ///
 /// Only bytes that cross a filesystem count: two folders reporting the same
 /// free space are almost certainly one volume, where a move is a rename. Two
-/// *different* volumes that happen to report the same figure — two full disks,
-/// say — read as one and are waved through; the same-volume test is evidence,
+/// *different* volumes that happen to report the same figure (two full disks,
+/// say) read as one and are waved through. The same-volume test is evidence,
 /// not proof, which is what the confirmation below is for.
 ///
 /// The figure is `root_folders.free_space` as the last sync stored it, not as
@@ -978,12 +978,11 @@ async fn guard_capacity(
 
 /// Bytes as an operator reads them, in the vocabulary the interface uses.
 ///
-/// Binary steps, because the figure is compared with what a file manager shows
-/// — and the symbol and the decimal mark come from `localization`, not from
-/// here. Spelled locally this printed `2.2 TiB` where the root-folders table
-/// printed `2,2 To` off the same division: one figure, two vocabularies, on two
-/// screens an operator reads together. `frontend/src/api/format.ts` is the
-/// other half of that agreement.
+/// Binary steps, because the figure is compared with what a file manager shows.
+/// The symbol and the decimal mark come from `localization`, not from here:
+/// spelled locally, they would name one figure in two vocabularies, here and in
+/// the root-folders table, on two screens an operator reads together.
+/// `frontend/src/api/format.ts` is the other half of that agreement.
 fn human_bytes(bytes: i64, localizer: &crate::localization::Localizer) -> String {
     let units = crate::localization::byte_units(localizer.language());
     let mut value = bytes.max(0) as f64;
@@ -1026,8 +1025,8 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
            AND m.current_root_folder IS d.current_root_folder"
     );
     // The last clause is the revalidation: a decision names the folder the
-    // item was in when it was proposed, and an item moved since — by hand, or
-    // by an apply the row already reflects — is not the item it describes.
+    // item was in when it was proposed, and an item moved since (by hand, or
+    // by an apply the row already reflects) is not the item it describes.
     // `IS`, so two nulls compare equal.
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
     for id in ids {
@@ -1092,7 +1091,7 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
 
 /// Re-root a media path under a new root folder, keeping its own folder name.
 ///
-/// The folder name is whatever the Arr already uses; only the prefix changes.
+/// The folder name is whatever the Arr already uses, and only the prefix changes.
 fn relocate(current_path: &str, new_root: &str) -> String {
     let trimmed = current_path.trim_end_matches(['/', '\\']);
     let separator = if trimmed.contains('\\') && !trimmed.contains('/') { '\\' } else { '/' };
@@ -1104,6 +1103,12 @@ fn relocate(current_path: &str, new_root: &str) -> String {
     if name.is_empty() { root.to_string() } else { format!("{root}{separator}{name}") }
 }
 
+/// One line of the audit trail for a move or a revert.
+///
+/// Mind the column names: `actor` holds the trigger (`manual`, `schedule`,
+/// `webhook`), and `subject` the person the authentication mode named, which
+/// `Identity::actor()` supplies. `NULL` in `subject` means nobody asked, or the
+/// mode names nobody.
 async fn log_execution(
     pool: &SqlitePool,
     by: &Attribution,
@@ -1143,12 +1148,11 @@ mod tests {
 
     /// The two halves of the application name a size the same way.
     ///
-    /// This helper printed IEC symbols — `2.2 TiB` — while the interface's
-    /// `formatBytes` printed the reader's own, `2.2 TB` in English and
-    /// `2,2 To` in French, off the same division by 1024. The number agreed and
-    /// the label did not, so a capacity refusal and the root-folders table
-    /// described one figure in two vocabularies. The unit comes from the
-    /// dictionary now, and `frontend/src/api/format.test.ts` pins the other
+    /// The interface's `formatBytes` prints the reader's own symbols (`2.2 TB`
+    /// in English, `2,2 To` in French) off a division by 1024. A capacity
+    /// refusal and the root-folders table name the same figure, so a label that
+    /// differs describes one figure in two vocabularies. The unit comes from
+    /// the dictionary, and `frontend/src/api/format.test.ts` pins the other
     /// side of the same claim.
     #[test]
     fn a_size_is_named_as_the_interface_names_it() {
@@ -1156,8 +1160,8 @@ mod tests {
         assert_eq!(human_bytes(2_400_000_000_000, &Localizer::new("fr")), "2,2 To");
         assert_eq!(human_bytes(5_368_709_120, &Localizer::new("ru")), "5,0 ГБ");
         assert_eq!(human_bytes(512, &Localizer::new("fr")), "512 o");
-        // Where `Intl` answers with a word, the symbol is derived — the same
-        // rule the interface applies, so neither side says `512 byte`.
+        // Where `Intl` answers with a word, the symbol is derived. The interface
+        // applies the same rule, so neither side says `512 byte`.
         assert_eq!(human_bytes(512, &Localizer::new("nl")), "512 B");
     }
 
@@ -1165,9 +1169,7 @@ mod tests {
     ///
     /// Read out of this file rather than listed again: a name added to the
     /// module and forgotten in the slice refuses a caller that answered every
-    /// question, which is how `UNREACHABLE` was missed — the edit meant to add
-    /// it targeted a literal `cargo fmt` had reflowed, so it did nothing and
-    /// said nothing.
+    /// question, and nothing else in the build says so.
     #[test]
     fn every_guardrail_name_is_in_the_list() {
         const SOURCE: &str = include_str!("executor.rs");
@@ -1215,7 +1217,8 @@ mod tests {
 
     #[test]
     fn tolerates_trailing_slashes_on_either_side() {
-        // The SQL version this replaced produced "/movies/animeTotoro (1988)".
+        // A trailing slash must not glue the root to the name, as in
+        // "/movies/animeTotoro (1988)".
         assert_eq!(
             relocate("/movies/standard/Totoro (1988)/", "/movies/anime/"),
             "/movies/anime/Totoro (1988)"

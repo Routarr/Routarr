@@ -12,8 +12,8 @@ import { onboarding, publishOnboarding, publishOnboardingFailure } from '../lib/
 import { navigate } from '../lib/router.svelte';
 
 /**
- * The chrome. It answers one question above all others — will the next click
- * write to Radarr — and it must answer it even when the backend does not.
+ * The chrome. It answers one question above all others (will the next click
+ * write to Radarr?) and it must answer it even when the backend does not.
  *
  * It reads `/status`, never `/health`: the latter probes every Arr over the
  * network, which would hold the whole shell behind an unreachable server.
@@ -89,9 +89,9 @@ describe('Layout', () => {
 
   /**
    * A mode is not an alert. `LiveModeActive` is the state this application is
-   * meant to run in, and it was painted `badge-danger` permanently — the most
-   * urgent colour in the palette spent on "nothing is wrong", which is how a
-   * red badge stops meaning anything at all.
+   * meant to run in, and `badge-danger` on it would spend the most urgent
+   * colour in the palette on "nothing is wrong", which is how a red badge stops
+   * meaning anything at all.
    */
   it('states the writing mode without spending the danger colour on the normal one', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status({ dry_run: false }));
@@ -106,7 +106,7 @@ describe('Layout', () => {
   /**
    * An unreachable backend must not render as an absent warning. Whether
    * writing is possible is the one thing this bar exists to answer, and silence
-   * reads as "nothing to worry about" — the opposite of what is true.
+   * reads as "nothing to worry about", the opposite of what is true.
    */
   it('says the state is unknown rather than showing nothing at all', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new Error('connection refused'));
@@ -164,10 +164,10 @@ describe('Layout', () => {
   });
 
   /**
-   * The counts were four translated sentences in the bar, which measured
-   * 878px on a 1280px laptop in French and pushed the document 168px wide at
-   * 360px. Each now sits on the destination that answers it, where it can be
-   * acted on, and the bar keeps one control for what actually wants a person.
+   * Each count sits on the destination that answers it, where it can be acted
+   * on, and the bar keeps one control for what actually wants a person. A
+   * sentence per count would outgrow the bar in a long language and widen the
+   * document on a phone.
    */
   it('turns each status figure into a count on the navigation', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(
@@ -203,8 +203,8 @@ describe('Layout', () => {
   });
 
   /**
-   * `signOut` awaited the request and reloaded; a failure was an unhandled
-   * rejection, the button looked dead, and the session stayed open.
+   * A sign-out that fails unsaid is an unhandled rejection: the button looks
+   * dead, and the session stays open on a shared machine.
    */
   it('says when signing out failed instead of pretending it worked', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(status());
@@ -326,9 +326,9 @@ describe('Layout', () => {
    * The scenario the counters exist for: a screen fixes a warning, and the two
    * places that count them have to agree with it at once.
    *
-   * They share one request, so they never disagree with each other — they
-   * disagreed with the page, for as long as a minute, because nothing told the
-   * shell that a mapping had been made or a key saved.
+   * They share one request, so they never disagree with each other, only with
+   * the page, for as long as a minute, unless the screen tells the shell that a
+   * mapping was made or a key saved.
    */
   it('corrects the bar and the navigation the moment a screen says so', async () => {
     const getStatus = vi

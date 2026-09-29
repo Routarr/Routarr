@@ -1,8 +1,8 @@
 //! Pinned expectations: list, pin, delete, replay.
 //!
-//! CRUD queries from the handler, as every other resource here does; the replay
-//! is in `services::rule_tests`, because evaluating rules would still be logic
-//! without HTTP.
+//! CRUD queries from the handler, as every other resource here does. The
+//! replay is in `services::rule_tests`, because evaluating rules would still be
+//! logic without HTTP.
 
 use super::Json;
 use axum::extract::{Path, State};
@@ -26,7 +26,7 @@ pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> 
 /// Snapshot a library item and pin the category it must keep producing.
 ///
 /// The metadata is resolved the same way `/media/{id}/explain` resolves it, so
-/// what is stored is what the engine actually saw — not the raw row, which
+/// what is stored is what the engine actually saw, not the raw row, which
 /// carries none of the enrichment the conditions read.
 pub async fn create(
     State(state): State<AppState>,
@@ -37,8 +37,8 @@ pub async fn create(
     let media = crate::api::media::load_media(&state, &body.media_id).await?;
     let metadata = enrichment::resolve_for_media(&state, &media).await?;
 
-    // The instant is pinned with the fixture: `now` is an input — it is what
-    // `added_within_days` compares against — so a case borrowing the wall clock
+    // The instant is pinned with the fixture: `now` is an input (it is what
+    // `added_within_days` compares against), so a case borrowing the wall clock
     // would answer a different question every day and eventually fail alone.
     let now = chrono::Utc::now();
     let evaluated_at = routing::format_timestamp(now);

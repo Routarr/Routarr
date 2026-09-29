@@ -1,7 +1,7 @@
 //! End-to-end behaviour of the translation layer.
 //!
-//! The interesting property is not that the interface shows French words — it is that
-//! everything Routarr *produces* (justifications, diagnostics, guardrail
+//! The interesting property is not that the interface shows French words but
+//! that everything Routarr *produces* (justifications, diagnostics, guardrail
 //! refusals) follows the same setting.
 
 use axum::http::StatusCode;
@@ -222,7 +222,7 @@ async fn diagnostics_warnings_are_translated() {
 /// A refusal that names something the operator typed and says what to change is
 /// content produced for them, and reads under the field that produced it. An
 /// id the interface itself sent is a client fault and stays English, as it does
-/// in Radarr and Sonarr — translating those would put the whole dictionary
+/// in Radarr and Sonarr. Translating those would put the whole dictionary
 /// behind every 404.
 #[tokio::test]
 async fn a_refusal_about_what_was_typed_is_translated() {

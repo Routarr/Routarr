@@ -5,11 +5,10 @@ interface Props { locale: Locale }
 const t = useTranslations(Astro.props.locale);
 
 /**
- * The four commands in the order you type them. Two terminals side by side
- * asked the reader to zigzag through a sequence that is strictly linear, and
- * the reason for the first command, which is the one people get wrong, was a
- * comment inside the second terminal rather than a line under the command it
- * explains.
+ * The four commands in the order you type them, as one list, because the
+ * sequence is strictly linear. The reason for the first command, which is the
+ * one people get wrong, is a line under the command it explains rather than a
+ * comment in a terminal beside it.
  */
 const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] = [
   { number: '01', command: 'mkdir -p data && sudo chown 1000:1000 data', prompt: true, note: 'start.step' },
@@ -74,8 +73,8 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
     </div>
 
     {/* Out of the right column and under both: it is the one sentence here
-        that is not about a step, and squeezed beside the compose file it read
-        as a footnote to the file rather than as the warning it is. */}
+        that is not about a step, and squeezed beside the compose file it would
+        read as a footnote to the file rather than as the warning it is. */}
     <div class="callout callout-key">
       <p set:html={t('start.p.3')} />
     </div>

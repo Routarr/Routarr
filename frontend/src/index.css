@@ -1,5 +1,11 @@
 /* Servarr-inspired Modern Dark Theme Design System */
 
+/* Colours are tokens, never literals: `theme.contrast.test.ts` measures the
+   pairs in its `PAIRS` list against WCAG AA, and `layout.test.ts` refuses a
+   literal colour outside a token declaration. A light value is written twice,
+   under `[data-theme='light']` and again in the `prefers-color-scheme: light`
+   block that serves `auto`, and the contrast test fails when the two blocks
+   declare different tokens. */
 :root {
   /* What the browser paints for itself: the `<select>` popup list, the caret,
      the spin buttons, the focus rings. Without it the option list a select
@@ -17,57 +23,57 @@
   --border-subtle: #2d323e;
   /* The border of anything that takes a click or a keystroke. WCAG 1.4.11
      asks 3:1 of the boundary that identifies a control, and `--border-subtle`
-     reads 1.37:1 against `--bg-input` — a field whose frame is a suggestion.
-     This one measures 3.22:1; see theme.contrast.test.ts. Passive separations
-     (card edges, table rules) keep the subtle one, which identifies nothing. */
+     falls far short of it against `--bg-input`, a field whose frame is a
+     suggestion. This one clears it, as theme.contrast.test.ts measures. Passive
+     separations (card edges, table rules) keep the subtle one, which
+     identifies nothing. */
   --border-strong: #616a79;
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4d5566;
 
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
-  /* A navigation entry at rest. Brighter than `--text-secondary` so the gap
-     with the group heading — which stays at `--text-muted` — is a step rather
-     than the 5% of luminance that had a heading read as an entry missing its
+  /* A navigation entry at rest. Brighter than `--text-secondary`, so the gap
+     with the group heading, which stays at `--text-muted`, is a step. A few
+     percent of luminance apart, a heading reads as an entry missing its
      icon. */
   --text-nav: #b9bec8;
-  /* #6b7280 sat at 3.17:1 on a card — below WCAG AA, and this token carries
-     timestamps and hints at 12–13px, where legibility matters most. The values
-     here are the smallest step that clears 4.5:1; see theme.contrast.test.ts. */
+  /* This token carries timestamps and hints at 12–13px, where legibility
+     matters most, so it has to clear WCAG AA on a card. The values here are
+     the smallest step that clears 4.5:1, as theme.contrast.test.ts measures. */
   --text-muted: #888e99;
 
   --accent-primary: #ffa500;
   /* The fill behind a distribution row. Neutral on purpose: the accent is this
      interface's *action* colour, and spending it on passive reference data
-     claims an emphasis the panel does not have — at 16% over #131519 it also
-     came out a muddy brown that read as a stain rather than a measure. Defined
-     per theme because a light tint on a dark ground has to invert. */
+     claims an emphasis the panel does not have. Tinted over the dark ground it
+     also comes out a muddy brown that reads as a stain rather than a measure.
+     Defined per theme because a light tint on a dark ground has to invert. */
   --facet-bar: rgba(255, 255, 255, 0.08);
   --accent-primary-hover: #ffb733;
-  /* The accent as text or border. Identical to the fill on a dark background;
-     the light theme darkens it, because #ffa500 on white is about 1.9:1 and
-     unreadable. */
+  /* The accent as text or border. Identical to the fill on a dark background.
+     The light theme darkens it, because #ffa500 on white is unreadable. */
   --accent-strong: #ffa500;
 
   --status-success: #10b981;
   --status-success-bg: rgba(16, 185, 129, 0.15);
   --status-warning: #f59e0b;
   --status-warning-bg: rgba(245, 158, 11, 0.15);
-  /* Both were unreadable *on their own badge*: the tint darkens the background
-     the text sits on, which the eye forgives and the arithmetic does not. */
+  /* Both have to be readable *on their own badge*: the tint darkens the
+     background the text sits on, which the eye forgives and the arithmetic
+     does not. */
   --status-danger: #f37070;
   --status-danger-bg: rgba(239, 68, 68, 0.15);
   --status-info: #649cf8;
   --status-info-bg: rgba(59, 130, 246, 0.15);
 
   /* The sidebar header and the top bar draw one continuous rule across the
-     window, so their heights are the same number stated once. They were 72px
-     and 64px, which put a nine-pixel step in the middle of the chrome. */
+     window, so their heights are the same number stated once. Two numbers
+     would put a step in the middle of the chrome. */
   --chrome-height: 64px;
 
-  /* A 4px scale, stated once. Spacing was the only part of the system still
-     written as bare numbers — colours, radii and fonts were already tokens,
-     while margins lived inline in the JSX. */
+  /* A 4px scale, stated once, as colours, radii and fonts are, rather than as
+     bare numbers in each rule. */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -76,8 +82,9 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* The shell's own measurements. The sidebar width was written twice — here
-     and in `.main-content`'s margin — which is how the two drift apart. */
+  /* The shell's own measurements. The sidebar width is read in two places, the
+     sidebar and `.main-content`'s margin, and two literals would drift
+     apart. */
   --sidebar-width: 250px;
   --sidebar-rail: 68px;
 
@@ -85,8 +92,8 @@
      never to be waited for. */
   --transition: 140ms ease;
 
-  /* The angle is what separates; colour signals and weight ranks. A 10px
-     radius on a 36px button is 28% of its height — the proportion of a
+  /* The angle is what separates, colour signals and weight ranks. A 10px
+     radius on a 36px button is 28% of its height, the proportion of a
      consumer application rather than of an operations tool.
 
      `--radius-full` is a closed list: the kind, mode and confidence dots, the
@@ -133,10 +140,10 @@
 
 /* Light theme.
  *
- * Only the colours are redefined; every radius, shadow and font token is shared,
- * so the two themes cannot drift into different layouts. `auto` follows the
- * operating system, and an explicit choice wins over it — the same three-state
- * arrangement the showcase site uses.
+ * Only the colours are redefined. Every radius, shadow and font token is
+ * shared, so the two themes cannot drift into different layouts. `auto` follows
+ * the operating system, and an explicit choice wins over it, the same
+ * three-state arrangement the showcase site uses.
  */
 :root[data-theme='light'] {
   color-scheme: light;
@@ -157,7 +164,7 @@
   --text-muted: #686f7d;
   --text-nav: #3f4653;
 
-  /* The fill keeps its orange — `.btn-primary` writes #111 on it either way.
+  /* The fill keeps its orange: `.btn-primary` writes #111 on it either way.
      The text form darkens to stay legible on white. */
   --accent-strong: #b45309;
   --facet-bar: rgba(17, 20, 26, 0.07);
@@ -186,8 +193,8 @@
    `auto` resolves through the system rather than through an attribute, so no
    selector can be shared with the block above and every token has to be
    restated. A token added there and forgotten here keeps its *dark* value on a
-   white ground — 1.86:1 for the navigation, and only for the readers who never
-   opened the setting, which is most of them. `theme.contrast.test.ts` measures
+   white ground, unreadable for the navigation, and only for the readers who
+   never opened the setting, which is most of them. `theme.contrast.test.ts` measures
    this block and compares the two token sets for that reason. */
 @media (prefers-color-scheme: light) {
   :root:not([data-theme='dark']) {
@@ -259,9 +266,11 @@ a {
   min-height: 100vh;
 }
 
-/* Logical rather than physical throughout the shell: `inline-start` is the left
-   edge in English and the right edge in Arabic, so the sidebar changes sides
-   with the language and nothing has to be restated per direction. */
+/* The stylesheet uses logical properties rather than physical ones because
+   Arabic ships, and it reads right to left. `inline-start` is the left edge in
+   English and the right edge in Arabic, so the sidebar changes sides with the
+   language and nothing has to be restated per direction. A value with no
+   logical form takes a `[dir='rtl']` override. */
 .sidebar {
   width: var(--sidebar-width);
   background-color: var(--bg-surface);
@@ -320,16 +329,14 @@ a {
 /* The group's name, and the space above it. Not a heading element: the
    accessibility sweep refuses a skipped level and a navigation is not an
    outline, so the grouping is carried by aria-labelledby instead. */
-/* A heading, and it has to be unmistakably not an entry.
+/* A heading, and it has to be unmistakably not an entry, or a group title
+ * reads as an entry that has lost its icon.
  *
- * It was 11px muted against 14px secondary — about 5% of luminance apart — set
- * on the icon column with 16px above and 6px below. A group title therefore
- * read as an entry that had lost its icon. Four things separate them now: the
- * entry is brighter (`--text-nav`), the heading is smaller and tracked wider,
- * the space above is five times the space below so the title binds to what it
- * titles, and a hairline runs from the words to the edge — a rule no entry
- * ever carries. In the rail that hairline is all that survives, which is the
- * same device reduced rather than a second one. */
+ * Four things separate them: the entry is brighter (`--text-nav`), the heading
+ * is smaller and tracked wider, the space above is five times the space below
+ * so the title binds to what it titles, and a hairline runs from the words to
+ * the edge, a rule no entry ever carries. In the rail that hairline is all
+ * that survives, which is the same device reduced rather than a second one. */
 .nav-group {
   display: flex;
   align-items: center;
@@ -354,7 +361,7 @@ a {
 /* What the top bar already counts, on the entry that answers it. */
 /* A count pastille keeps its pill: it is a small round thing holding a
    number, which is the one shape that reads as a count. Neutral unless it is
-   asking for something — four amber badges in a column would say everything
+   asking for something: four amber badges in a column would say everything
    is urgent, which is how nothing is. */
 .nav-badge {
   margin-inline-start: auto;
@@ -386,7 +393,7 @@ a {
   padding: 8px 12px;
   border-radius: var(--radius-sm);
   /* Reserved on every entry and coloured on the active one, so nothing shifts
-     by two pixels when the page changes — and logical, so it moves to the
+     by two pixels when the page changes, and logical, so it moves to the
      right-hand edge in Arabic without a second rule. */
   border-inline-start: 2px solid transparent;
   color: var(--text-nav);
@@ -394,7 +401,7 @@ a {
   transition: all 0.15s ease;
 }
 
-/* Icons keep their size whatever the label length; the label may wrap. */
+/* Icons keep their size whatever the label length, and the label may wrap. */
 .nav-item > svg,
 .btn > svg {
   flex-shrink: 0;
@@ -406,7 +413,7 @@ a {
 }
 
 /* A mark in the margin rather than a rounded pill: it says "you are here" in
-   a tree, where the pill said "this is a tag". */
+   a tree, where a pill would say "this is a tag". */
 .nav-item.active {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
@@ -415,7 +422,7 @@ a {
 }
 
 /* The version, at the foot of the navigation. Quiet, one line, and it keeps
-   its place in the rail — where the label column is gone, the number alone
+   its place in the rail: where the label column is gone, the number alone
    still fits 68px. */
 .sidebar-foot {
   margin: 0;
@@ -464,10 +471,9 @@ a {
   flex-wrap: wrap;
 }
 
-/* The header is `flex-wrap: wrap`, but its action group was not: fourteen
-   pages put their buttons in a bare `.flex`, so on a narrow screen the last
-   one was simply cut off at the edge. Stated here rather than in fourteen
-   markups. */
+/* The header wraps, and its action group has to as well: the pages put their
+   buttons in a bare `.flex`, and on a narrow screen the last one would be cut
+   off at the edge. Stated here rather than in every page's markup. */
 .page-header > * {
   min-width: 0;
 }
@@ -532,20 +538,21 @@ a {
   display: inline-flex;
   align-items: center;
   /* A flex row defaults to `stretch`, so a button grouped next to a taller
-     sibling — a file-input label, a text field — grew to match it. The same
-     `.btn btn-primary` measured 34px on one page and 41px on another. A button
-     is sized by what it is, never by what it stands beside. */
+     sibling (a file-input label, a text field) would grow to match it, and the
+     same `.btn btn-primary` would measure differently from page to page. A
+     button is sized by what it is, never by what it stands beside. */
   align-self: center;
-  /* And never by what it contains either. A minimum was not enough: a text
-     label produced a taller line box than a 16px icon, so buttons with words
-     stood a pixel above buttons with only a glyph. A fixed height with the
-     content centred inside it is the only version that cannot drift — and
+  /* And never by what it contains either. A minimum is not enough: a text
+     label makes a taller line box than a 16px icon, so buttons with words
+     would stand a pixel above buttons with only a glyph. A fixed height with
+     the content centred inside it is the only version that cannot drift, and
      `white-space: nowrap` below guarantees a single line to centre. */
   height: 36px;
   /* Stated, not inherited. A <button> gets a normalised line-height from the
-     user agent and a <label class="btn"> does not, so the import label stood 5px
-     taller than the buttons beside it; and a 13px text line is a pixel taller
-     than a 16px icon, which split the small buttons into two sizes. */
+     user agent and a <label class="btn"> does not, so the import label would
+     stand taller than the buttons beside it. A 13px text line is also a pixel
+     taller than a 16px icon, which would split the small buttons into two
+     sizes. */
   line-height: 1.2;
   gap: 8px;
   /* A translated label is often much longer than the English one. Keep it on
@@ -555,8 +562,8 @@ a {
   padding: 9px 16px;
   border-radius: var(--radius-sm);
   font-size: 14px;
-  /* 500, not 600. Titles, buttons, badges and table headings were all
-     semibold, which left the weight axis no range to rank anything with. Only
+  /* 500, not 600. With titles, buttons, badges and table headings all
+     semibold, the weight axis has no range to rank anything with. Only
      the primary action keeps 600, and it is then the heaviest thing in its row
      rather than one heavy thing among several. */
   font-weight: 500;
@@ -583,7 +590,7 @@ a {
   font-weight: 600;
 }
 
-/* A shift of fill, not a halo. The glow said nothing the colour change does
+/* A shift of fill, not a halo. A glow says nothing the colour change does
    not, and it is the kind of effect that dates a screenshot to a year. */
 .btn-primary:hover:not(:disabled) {
   background-color: var(--accent-primary-hover);
@@ -593,7 +600,7 @@ a {
   background-color: transparent;
   color: var(--text-primary);
   /* The border at rest is what says "this is a control" without a pointer
-     hovering it — which is the only way a finger can tell. */
+     hovering it, which is the only way a finger can tell. */
   border-color: var(--border-strong);
 }
 
@@ -603,7 +610,7 @@ a {
 
 /* Outlined where it *asks*, filled where it *acts*. A row of solid red
    buttons that only open a confirmation spends the strongest colour in the
-   palette on a question; the dialog is where the answer is given. */
+   palette on a question. The dialog is where the answer is given. */
 .btn-danger {
   background-color: transparent;
   color: var(--status-danger);
@@ -646,9 +653,9 @@ a {
 
   .btn-sm,
   .chip-remove,
-  /* A badge that is a link is a control, and eighty-four of them measured
-     under 40px on the library in a tablet. The padding grows, not the font,
-     so a row keeps its rhythm. */
+  /* A badge that is a link is a control, and at its resting size it is under
+     a thumb's target on a tablet. The padding grows, not the font, so a row
+     keeps its rhythm. */
   a.badge,
   .attention,
   .nav-item,
@@ -664,15 +671,13 @@ a {
 
 /* ─────────────────────────────────────────────── the top bar's two controls
  *
- * The bar carried up to five badges, each a translated sentence: 878px of
- * chrome on a 1280px laptop in French, and 168px of horizontal *document*
- * overflow at 360px, where they wrapped to three lines and burst out of a
- * 64px bar. Their width was a function of the language.
+ * Two objects, both of locale-independent width. A badge per state, each a
+ * translated sentence, would make the bar's width a function of the language,
+ * and on a phone they would wrap and burst out of the bar.
  *
- * Two objects replace them, both of locale-independent width. A mode is not
- * an alert: it says what a click will do, and the state the application is
- * meant to run in is never painted in the danger colour. The four counts
- * moved to the navigation, onto the entry that answers each of them.
+ * A mode is not an alert: it says what a click will do, and the state the
+ * application is meant to run in is never painted in the danger colour. The
+ * counts live in the navigation, on the entry that answers each of them.
  */
 .mode-chip {
   display: inline-flex;
@@ -691,19 +696,19 @@ a {
   /* Measured, not assumed. Centring a fixed-height box on its line box leaves
      the ink half a pixel high, because ascenders reach further above the
      x-height than the baseline sits below it. A pixel of padding on one side
-     moves the content half of one, which is what the eye was catching. */
+     moves the content half of one, which is what the eye catches. */
   padding-block: 1px 0;
 }
 
 /* The dot carries the state, the word names it, and neither is the only
-   carrier — the full sentence is the accessible name. */
+   carrier: the full sentence is the accessible name. */
 .mode-dot {
   width: 6px;
   height: 6px;
   border-radius: var(--radius-full);
   flex: none;
   /* Optical, not geometric. A round mark beside lowercase text aligns to the
-     middle of the x-height; centred on the line box it reads a pixel high,
+     middle of the x-height. Centred on the line box it reads a pixel high,
      because the ink of "Simulation" runs from the cap to the baseline while
      the box also reserves room for a descender the word never uses. Nudged
      rather than derived: the face is whatever the fallback stack resolves to,
@@ -718,7 +723,7 @@ a {
 }
 
 /* One control for everything that wants attention, and none at all when
-   nothing does. The figure is a total; the accessible name enumerates. */
+   nothing does. The figure is a total, and the accessible name enumerates. */
 .attention {
   display: inline-flex;
   align-items: center;
@@ -741,12 +746,12 @@ a {
 
 /* Two alignments, and they are not the same one.
  *
- * A triangle hangs lower than a digit — its base sits well under the baseline
- * while its apex barely clears the cap — so centring the pair inside the box
- * still leaves the glyph reading 0.8px low against the number it labels, which
- * is the alignment the eye actually judges. The glyph is lifted onto the
- * digit, and the pair is then pushed back to the middle of the box. Both
- * figures were measured off a 10x capture, not derived. */
+ * A triangle hangs lower than a digit (its base sits well under the baseline
+ * while its apex barely clears the cap), so centring the pair inside the box
+ * still leaves the glyph reading low against the number it labels, which is
+ * the alignment the eye actually judges. The glyph is lifted onto the digit,
+ * and the pair is then pushed back to the middle of the box. Both offsets are
+ * read off a magnified capture, not derived. */
 .attention > svg {
   transform: translateY(-0.3px);
 }
@@ -925,9 +930,9 @@ a {
 /* ─────────────────────────────────────────────────── the command palette
  *
  * "Why did Routarr put this film there?" is the question this product exists
- * to answer, and from any screen it took four steps: open the library, type,
- * search, then find the row and press its button. The palette answers it in
- * one, and it is the only thing the bar gained back after the five badges left.
+ * to answer. Through the library it takes four steps from any screen: open the
+ * library, type, search, then find the row and press its button. The palette
+ * answers it in one, which is what earns it a place in the bar.
  */
 .palette-trigger {
   display: inline-flex;
@@ -1035,7 +1040,7 @@ a {
 }
 
 /* The mark the navigation uses for "you are here", reused for "this is what
-   Enter opens" — one shape, one meaning. */
+   Enter opens": one shape, one meaning. */
 .palette-row.is-current {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
@@ -1124,9 +1129,9 @@ a {
  * would mean "Sonarr", "connected" and "category" at once, and one category
  * could come out green on one screen and blue on another.
  *
- *   .badge-success/warning/danger/info  filled, saturated  — a STATE
- *   .badge-kind                         outlined + dot     — WHAT a thing is
- *   .badge-value / .num                 neutral            — a value you typed
+ *   .badge-success/warning/danger/info  a STATE             filled, saturated
+ *   .badge-kind                         WHAT a thing is     outlined + dot
+ *   .badge-value / .num                 a value you typed   neutral
  *
  * The label and the dot take the kind's own hue (`.kind-radarr`,
  * `.kind-sonarr`), so Radarr and Sonarr stay recognisable without the fill of
@@ -1151,15 +1156,15 @@ a {
 .kind-radarr {
   color: var(--kind-radarr);
 }
-/* Violet rather than Sonarr's green: the identity dot sat two shades from the
-   `connected` badge beside it, which is the confusion this whole vocabulary
-   exists to end. None of the four status hues is free, so the kind takes one
+/* Violet rather than Sonarr's green: a green identity dot would sit two
+   shades from the `connected` badge beside it, which is the confusion this
+   whole vocabulary exists to end. None of the four status hues is free, so the kind takes one
    that is. */
 .kind-sonarr {
   color: var(--kind-sonarr);
 }
 
-/* A value the user chose — a category, a scope, a match mode. Vocabulary, not
+/* A value the user chose (a category, a scope, a match mode). Vocabulary, not
    judgement, so it carries no semantic hue. */
 .badge-value {
   background-color: var(--bg-card-hover);
@@ -1198,7 +1203,7 @@ a {
   color: var(--status-info);
 }
 
-/* A list of sources with their state — a list, because the state is a phrase
+/* A list of sources with their state: a list, because the state is a phrase
    and not a figure. Laid out as counts, the phrase takes the place a number
    would and the source name reads as its caption. */
 .source-list {
@@ -1296,7 +1301,7 @@ a {
 /* A timestamp column. The value and whatever qualifies it (a sync outcome, a
    status badge) belong on one line: stacked, they make every row in the table
    twice as tall for no added meaning. `nowrap` keeps a long locale format from
-   folding — the column is scrollable via .table-container if it ever has to be. */
+   folding, and the column scrolls in .table-container if it ever has to. */
 /* One look for a date on every screen: muted, proportional, one line. */
 .cell-timestamp {
   white-space: nowrap;
@@ -1312,10 +1317,10 @@ a {
    overflow region nothing can reach is unreachable content. */
 .table-container {
   overflow-x: auto;
-  /* The containing block for anything positioned inside a table — the
-     visually-hidden name of an icon-only column, for one. Unpositioned, an
+  /* The containing block for anything positioned inside a table, the
+     visually-hidden name of an icon-only column for one. Unpositioned, an
      absolutely placed descendant escapes this box's scroll and lands at its
-     static position in the page: 600px into a 375px phone, and the page
+     static position in the page, past the edge of a phone, and the page
      scrolls sideways for a word nobody sees. */
   position: relative;
   border-radius: var(--radius-md);
@@ -1332,9 +1337,9 @@ table {
 th {
   background-color: var(--bg-surface);
   /* The browser's own sheet sets `th { text-align: center }`, and a declaration
-     beats the `start` inherited from `table` — so every heading sat centred
-     over values aligned to the start. Invisible on a narrow column, glaring on
-     a wide one. */
+     beats the `start` inherited from `table`, so every heading would sit
+     centred over values aligned to the start. Invisible on a narrow column,
+     glaring on a wide one. */
   text-align: start;
   padding: 9px 14px;
   font-size: 11px;
@@ -1376,7 +1381,7 @@ tr:hover td {
 }
 
 /* A row of fields sitting side by side. Labels translate to wildly different
-   lengths — «Type» is one line, «Synchroniser toutes les (min)» is two — so the
+   lengths («Type» is one line, «Synchroniser toutes les (min)» is two), so the
    controls are bottom-aligned rather than top-aligned: whatever the label does,
    the inputs stay on the same line. */
 .form-row {
@@ -1390,15 +1395,13 @@ tr:hover td {
   min-width: 0;
 }
 
-/* The frame every field shares. This body was lost when a rule believed dead
-   was deleted: the removal took the shared base with it and merged its
-   selectors into the focus rule below, so every input and select fell back to
-   the user agent — a white box with the operating system's own chrome — while
-   wearing the accent border permanently, as though always focused. Nothing
-   caught it because no test asserts that a text field has a background. One
-   does now. */
+/* The frame every field shares. Removing this body merges its selectors into
+   the focus rule below, so every input and select falls back to the user agent
+   (a white box with the operating system's own chrome) while wearing the
+   accent border permanently, as though always focused. `layout.test.ts`
+   asserts that a text field has a background for that reason. */
 /* `.form-textarea` is a provision, not an oversight: no `<textarea>` exists
-   yet, and the day one does it must be drawn here rather than by the browser —
+   yet, and the day one does it must be drawn here rather than by the browser,
    which is what `layout.test.ts` refuses for every other field. Two selector
    entries are cheaper than the field that ships unstyled. */
 .form-input,
@@ -1436,16 +1439,15 @@ tr:hover td {
   color: var(--status-danger);
 }
 
-/* The checkbox was the one control still drawn entirely by the browser: a 13px
-   pale box that no palette reaches, beside 14px text. `accent-color` alone only
-   reaches the *checked* fill, so the box itself is drawn here.
+/* Left to the browser, the checkbox is a 13px pale box that no palette
+   reaches, beside 14px text. `accent-color` alone only reaches the *checked*
+   fill, so the box itself is drawn here.
    
    Unlike the dialog, this is worth taking over. A checkbox has three states and
-   all three are visual — checked, focused, disabled — with no focus trap, no
+   all three are visual (checked, focused, disabled), with no focus trap, no
    top layer and no restoration behind them. There is no indeterminate state
    anywhere in this interface, and no radio button at all, so neither is styled:
-   a rule for a control nobody renders is the dead CSS this file has already
-   been pruned of once. */
+   a rule for a control nobody renders is dead CSS. */
 input[type='checkbox'] {
   appearance: none;
   flex-shrink: 0;
@@ -1460,10 +1462,9 @@ input[type='checkbox'] {
   /* Out of baseline alignment, which is not cosmetic here: an inline-grid with
      no in-flow child synthesises its baseline from the bottom of its margin
      box, and the tick only exists when the box is checked. The two states
-     therefore made line boxes of different heights — the table head measured
-     39px unchecked and 35px checked, so ticking "select all" lifted every row
-     below it by 4px. Only a head is sensitive to it: a body row is as tall as
-     its text. */
+     would therefore make line boxes of different heights, and ticking "select
+     all" would lift every row below it by a few pixels. Only a head is
+     sensitive to it: a body row is as tall as its text. */
   vertical-align: middle;
   cursor: pointer;
   transition:
@@ -1488,8 +1489,9 @@ input[type='checkbox']:checked::after {
   transform: translateY(-1px) rotate(-45deg);
 }
 
-/* `:focus-visible`, not `:focus` — the ring belongs to keyboard navigation, and
-   on a mouse click it reads as a control stuck in an error state. */
+/* `:focus-visible` rather than `:focus`, since the ring belongs to keyboard
+   navigation, and on a mouse click it reads as a control stuck in an error
+   state. */
 input[type='checkbox']:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
@@ -1518,8 +1520,8 @@ input[type='checkbox']:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* A margin at every width: the dialog was `width: 100%` inside a full-bleed
-     overlay, so on a phone it touched both edges. */
+  /* A margin at every width: the dialog is `width: 100%` inside a full-bleed
+     overlay, and without this it would touch both edges of a phone. */
   padding: var(--space-6);
   z-index: var(--z-modal);
 }
@@ -1538,11 +1540,10 @@ input[type='checkbox']:disabled {
   border-radius: var(--radius-md);
   width: 100%;
   max-width: 560px;
-  /* The rule that styles this element's scrollbar has always been in this
-     file; nothing ever made it scroll. The rule editor is the longest form in
-     the application and it ran off the bottom of the viewport with no way
-     down. `svh` rather than `vh`, so a phone's collapsing address bar cannot
-     put the footer out of reach. */
+  /* The rule editor is the longest form in the application, and without a
+     bound it runs off the bottom of the viewport with no way down. `svh`
+     rather than `vh`, so a phone's collapsing address bar cannot put the
+     footer out of reach. */
   max-height: calc(100svh - 2 * var(--space-6));
   overflow-y: auto;
   padding: var(--space-6);
@@ -1586,9 +1587,9 @@ input[type='checkbox']:disabled {
   font-size: 13px;
   /* Paths, ids, condition summaries and raw timestamps read left to right in
      every language. Without this they are laid out in the page's paragraph
-     direction, which in Arabic turned `2026-08-26 14:02:30` into
+     direction, which in Arabic turns `2026-08-26 14:02:30` into
      `14:02:30 2026-08-26`: the digits are direction-neutral, so the two runs
-     swapped around the space between them. `isolate` keeps the reordering from
+     swap around the space between them. `isolate` keeps the reordering from
      leaking into the text around it. */
   direction: ltr;
   unicode-bidi: isolate;
@@ -1598,7 +1599,7 @@ input[type='checkbox']:disabled {
    A table column mixes our translated headings with values we did not write:
    a rule name, a media title, a category. Laid out in the page's direction,
    an English sentence in an Arabic interface loses its full stop to the left
-   edge — the characters are right, the order is not, and no translation fixes
+   edge: the characters are right, the order is not, and no translation fixes
    it.
 
    `plaintext` resolves each cell by its own first strong character, so an
@@ -1698,8 +1699,8 @@ td * {
 
 /* A stripe and an icon, not a wash.
  *
- * Three stacked full-width tinted blocks with a saturated border on every side
- * read as a wall, and a wall is what makes the fourth one invisible. The
+ * Stacked full-width tinted blocks with a saturated border on every side
+ * would read as a wall, and a wall is what makes the last one invisible. The
  * surface stays quiet, the colour is spent on a 3px edge and the glyph, and
  * the severity is still carried by two channels rather than by hue alone. */
 .banner {
@@ -1785,12 +1786,12 @@ td * {
 }
 
 /* ------------------------------------------------------------ confidence */
-/* The figure, then the meter — never the figure *on* the meter.
+/* The figure, then the meter, never the figure *on* the meter.
  *
- * Centred over the bar, the value sat on the fill on one side and the track on
- * the other, and between 50 and 70% the boundary ran under the digits. Its
- * contrast measured 16:1 against the track and 1.95:1 against the amber fill,
- * which is what the text shadow was hiding. Outside, it is always on the card.
+ * Centred over the bar, the value would sit on the fill on one side and the
+ * track on the other, with the boundary running under the digits at mid-range
+ * values, and digits over the amber fill are unreadable. Outside, it is always
+ * on the card.
  */
 .confidence {
   display: flex;
@@ -1809,8 +1810,8 @@ td * {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   /* Five, not four: an override is 1.0 and French writes `100 %` with a
-     narrow space, so a four-character reserve let the meter beside it shift on
-     exactly the rows somebody pinned by hand. */
+     narrow space, so a four-character reserve would let the meter beside it
+     shift on exactly the rows somebody pinned by hand. */
   min-width: 5ch;
   text-align: end;
   color: var(--text-primary);
@@ -1935,20 +1936,19 @@ td * {
   min-width: 160px;
 }
 
-/* The search box holds its width; the spare space collects at the end of the
-   row instead.
+/* The search box holds its width, and the spare space collects at the end of
+   the row instead.
  *
- * As `flex: 1 1 240px` it absorbed every spare pixel of the toolbar, so
- * revealing "clear filters" took that width straight back out of it and shifted
- * everything between them to the left — on the first keystroke, and by however
- * wide that label happens to be in the language being read. Anchored, the row
- * no longer moves when a control appears at its end.
+ * As `flex: 1 1 240px` it would absorb every spare pixel of the toolbar, so
+ * revealing "clear filters" would take that width straight back out of it and
+ * shift everything between them to the left, on the first keystroke, and by
+ * however wide that label happens to be in the language being read. Anchored,
+ * the row does not move when a control appears at its end.
  *
  * Not scoped to `.toolbar`: the same box sits inside a form on the overrides
- * screen, and scoped, three of the four screens that search kept a different
- * width from the one this rule was written for. It sits after the toolbar's
- * own sizing on purpose — the two selectors weigh the same, so order is what
- * decides. */
+ * screen, and scoped, the screens that search would not share one width. It
+ * sits after the toolbar's own sizing on purpose: the two selectors weigh the
+ * same, so order is what decides. */
 .search-field {
   display: flex;
   align-items: center;
@@ -2012,12 +2012,12 @@ td * {
   user-select: all;
 }
 
-/* Settings sections. A strip of tabs rather than one long column: twenty
-   settings in a row meant scrolling past automation to reach a retention
+/* Settings sections. A strip of tabs rather than one long column: every
+   setting in a row would mean scrolling past automation to reach a retention
    count. */
 
 /* The measure for the whole screen, strip included.
-   Every other page is a table and wants the window; this one is a form, and a
+   Every other page is a table and wants the window. This one is a form, and a
    caption stretched across 1400px stops reading as the label of the field
    under it. The strip is capped with the cards: a full-width rule over a narrow
    block is a mismatch, and the mismatch is what reads as broken, not the width. */
@@ -2102,8 +2102,8 @@ td * {
     opacity var(--transition);
 }
 
-/* Movement is decoration; the information never depends on it. Anyone who has
-   asked their system for less gets none. */
+/* Movement is decoration, and the information never depends on it. Anyone who
+   has asked their system for less gets none. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -2196,7 +2196,7 @@ td * {
  * tables, and horizontal scrolling for anyone under a wide desktop.
  *
  * Two steps. The rail loses its labels first, which buys 180px without moving
- * anything else. Then it leaves the flow entirely and returns as a drawer —
+ * anything else. Then it leaves the flow entirely and returns as a drawer,
  * because below that width the choice is not "narrower navigation", it is
  * "navigation or content".
  */
@@ -2270,11 +2270,10 @@ td * {
     display: revert;
   }
   /* The drawer is the full 250px, so the group gets its name back. The rail's
-     rule above applies at every width below 1200px, and nothing here undid
-     it: on a phone the navigation showed four unlabelled hairlines where its
-     four section titles should be. The text was in the DOM the whole time —
-     a screen reader had it through `aria-labelledby`, and nobody looking at
-     the screen did. */
+     rule above applies at every width below 1200px, and undone nowhere else,
+     it would leave the navigation on a phone with unlabelled hairlines where
+     its section titles should be: a screen reader would have the text through
+     `aria-labelledby`, and nobody looking at the screen would. */
   .sidebar .nav-group {
     display: flex;
     height: auto;
@@ -2329,10 +2328,9 @@ td * {
     flex: 1 1 auto;
     justify-content: center;
   }
-  /* A card used as one flex row — a label on one side, its actions on the
-     other — puts each half on a line of its own rather than pushing the
-     second off the screen. Measured: the apply bar of the simulation ran
-     11px past a 360px viewport. */
+  /* A card used as one flex row (a label on one side, its actions on the
+     other, as the simulation's apply bar is) puts each half on a line of its
+     own rather than pushing the second off the screen. */
   .card.flex {
     flex-wrap: wrap;
   }
@@ -2344,12 +2342,12 @@ td * {
     padding: var(--space-4);
   }
   /* The source row is three lanes on a laptop and a stack on a phone. Holding
-     its shape, the actions kept the 190px that aligns their right edges and
-     the credential field beside them measured 51px — narrower than the word
-     it holds — while "Disable" was clipped 50px outside its own row. The
-     document never scrolled, so nothing but a measurement showed it. */
-  /* Rows with a rank only: a row without one, as Diagnostics draws them, put
-     its name in the 24px lane and wrapped it over three lines. */
+     its shape, the actions would keep the 190px that aligns their right edges,
+     the credential field beside them would shrink narrower than the word it
+     holds, and "Disable" would be clipped outside its own row. The document
+     does not scroll, so nothing but a measurement shows it. */
+  /* Rows with a rank only: a row without one, as Diagnostics draws them, would
+     put its name in the 24px lane and wrap it over three lines. */
   .source-list .source-row:has(.source-rank) {
     grid-template-columns: 24px 1fr;
   }
@@ -2399,8 +2397,8 @@ td * {
   }
 }
 
-/* Two lines, then an ellipsis and the full sentence in the tooltip. Rows kept
-   a rhythm of their own otherwise: a three-line justification made its row
+/* Two lines, then an ellipsis and the full sentence in the tooltip. Otherwise
+   rows keep a rhythm of their own: a three-line justification makes its row
    twice the height of the one above. */
 .reason-line {
   font-size: 12px;
@@ -2438,8 +2436,9 @@ td * {
 
 /* ---------------------------------------------------------------- utilities
  *
- * The handful of adjustments the screens kept writing as `style="…"`. Named
- * once here, they are the reason `style-src` can one day lose 'unsafe-inline'.
+ * The handful of adjustments a screen would otherwise write as `style="…"`.
+ * Named once here, they are the reason `style-src` can one day lose
+ * 'unsafe-inline'.
  */
 .text-xs {
   font-size: 11px;
@@ -2520,7 +2519,7 @@ td * {
 .flex-fixed-120 {
   flex: 0 0 120px;
 }
-/* As wide as its caption, never narrower than 160px: a fixed width folded
+/* As wide as its caption, never narrower than 160px: a fixed width would fold
    the caption in every language longer than English. */
 .flex-fit {
   flex: 0 0 auto;
@@ -2603,7 +2602,7 @@ td * {
 }
 
 /* A title is one line. Anything longer is cut, and the whole of it is one hover
-   away — a row that grows to fit its longest value breaks the rhythm of every
+   away: a row that grows to fit its longest value breaks the rhythm of every
    row around it. */
 .cell-title {
   display: inline-block;
@@ -2619,7 +2618,7 @@ td * {
 
 /* The overflow menu of a table row. Anchored to its trigger and drawn above the
    rows below it, on the trailing edge because that is where the actions column
-   sits — and `inset-inline-end` so it stays on that edge in Arabic. */
+   sits, and `inset-inline-end` so it stays on that edge in Arabic. */
 .action-menu {
   position: relative;
   display: inline-flex;
@@ -2661,7 +2660,7 @@ td * {
 }
 
 /* A row's menu has to escape the cell it lives in. `.table-container` scrolls,
-   which clips it — so the row that owns an open menu lifts out of the clip. */
+   which clips it, so the row that owns an open menu lifts out of the clip. */
 .table-container:has(.action-menu-list) {
   overflow: visible;
   max-height: none;
@@ -2697,8 +2696,8 @@ td * {
 
 /* A table that scrolls says so.
  *
- * Below a certain width a dense table has to scroll — the mistake was doing it
- * in silence, so a row simply ended mid-word. These are two shadows painted on
+ * Below a certain width a dense table has to scroll, and scrolling in silence
+ * leaves a row that simply ends mid-word. These are two shadows painted on
  * the scroll container itself: `background-attachment: local` pins one pair to
  * the content and `scroll` pins the other to the frame, so each shadow is only
  * visible while there is something in that direction. No JavaScript, and no
@@ -2706,10 +2705,10 @@ td * {
  */
 .table-container {
   /* The cover has to be *opaque* for at least the width of the shadow it
-     hides, then fade. Fading from the first pixel left the shadow showing
-     through at around half strength for its whole 14px — a permanent dark
-     band down both edges of every table that had nothing to scroll, which is
-     most of them. Measured, not guessed: #21252e against #1e212a at x=6. */
+     hides, then fade. Faded from the first pixel, it lets the shadow show
+     through at around half strength for its whole width, a permanent dark
+     band down both edges of every table that has nothing to scroll, which is
+     most of them. */
   background-image:
     linear-gradient(to right, var(--bg-card) 16px, transparent 32px),
     linear-gradient(to left, var(--bg-card) 16px, transparent 32px),
@@ -2732,12 +2731,12 @@ td * {
 /* ============================================================ scrollbars
  *
  * The platform's own bar is a grey slab sized for a document, and a table that
- * scrolls a little got a control that looked like a browser chrome fitting
+ * scrolls a little would get a control that looks like a browser chrome fitting
  * borrowed into the card. Styled to the theme instead: a thin pill, inset from
  * the edge, that darkens on hover.
  *
  * `scrollbar-width`/`scrollbar-color` is the standard property and is what
- * Firefox honours; the `::-webkit-` block is what Chromium and Safari read.
+ * Firefox honours. The `::-webkit-` block is what Chromium and Safari read.
  * Both are declared because neither covers the browsers a self-hosted app is
  * opened in. The colours are tokens, so the light theme gets its own rather
  * than a dark pill on a white card.
@@ -2789,7 +2788,7 @@ td * {
 /* ============================================================ the headline
  *
  * The one thing a dashboard is for. Everything under it is context, and reads
- * as one line of facts rather than six cards of equal weight.
+ * as one line of facts rather than cards of equal weight.
  */
 .headline {
   display: flex;
@@ -2883,10 +2882,10 @@ td * {
   margin-top: 2px;
 }
 
-/* Native selects carry the operating system's own chrome and sat oddly against
-   fields drawn entirely here. The element stays native — so it keeps its
-   keyboard behaviour and its platform picker on a phone — and only the frame
-   is ours. */
+/* Native selects carry the operating system's own chrome, which sits oddly
+   against fields drawn entirely here. The element stays native, so it keeps its
+   keyboard behaviour and its platform picker on a phone, and only the frame is
+   ours. */
 select.form-input,
 select.form-select {
   appearance: none;
@@ -2909,15 +2908,15 @@ select.form-select {
     13px 50%;
 }
 
-/* Distribution panels — what the library carries, per axis a condition reads.
+/* Distribution panels: what the library carries, per axis a condition reads.
  *
- * Small multiples rather than a wall of pills. Five rows of identical chips
- * gave "Adventure 27" and "Thriller 1" the same visual weight across a 27×
+ * Small multiples rather than a wall of pills. Rows of identical chips would
+ * give "Adventure 27" and "Thriller 1" the same visual weight across a 27×
  * difference, and put the only number that matters in the smallest element on
- * screen. A chip also promises a filter you can click; this is data.
+ * screen. A chip also promises a filter you can click, and this is data.
  *
  * The bar carries the proportion, the figure carries the value, and the figure
- * is what a screen reader gets — the bar is decorative and says so.
+ * is what a screen reader gets: the bar is decorative and says so.
  */
 /* The disclosure that holds the library's facets.
  *
@@ -3001,8 +3000,8 @@ select.form-select {
 /* Logical inset, so the fill grows from the reading edge in Arabic too. */
 .facet-bar {
   position: absolute;
-  /* Inset, so it does not touch the row's edges: filling the full height made
-     it read as a selected row rather than as a quantity. */
+  /* Inset, so it does not touch the row's edges: filling the full height would
+     make it read as a selected row rather than as a quantity. */
   inset-block: 3px;
   inset-inline-start: 0;
   background-color: var(--facet-bar);
@@ -3039,8 +3038,8 @@ select.form-select {
  *
  * A combo box for a condition's values: chips for what is chosen, a filtered
  * list of what the library holds below the field. The list is positioned out of
- * flow so opening it does not push the rest of the form down — inside a dialog
- * that reads as the form jumping under the pointer.
+ * flow so opening it does not push the rest of the form down, which inside a
+ * dialog reads as the form jumping under the pointer.
  */
 .value-picker {
   position: relative;

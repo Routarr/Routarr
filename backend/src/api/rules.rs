@@ -22,7 +22,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Rule>>> {
 /// Fetch one rule.
 ///
 /// The list endpoint covers the UI, but an external script that just created a
-/// rule needs to read it back; without this route, `GET /rules/{id}` is a 405.
+/// rule needs to read it back. Without this route, `GET /rules/{id}` is a 405.
 pub async fn get_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -122,9 +122,9 @@ pub async fn reorder(
     let mut known: Vec<String> =
         sqlx::query_scalar("SELECT id FROM rules").fetch_all(&state.pool).await?;
     known.sort();
-    // Compared *before* deduplication as well: folded first, `[a, a, b]` read
-    // as `[a, b]`, and the loop below then wrote `a` twice — ending at 20,
-    // beside `b` at 30 — and answered `reordered: 3`.
+    // Compared *before* deduplication as well: folded first, `[a, a, b]` would
+    // read as `[a, b]`, and the loop below would write `a` twice (ending at 20,
+    // beside `b` at 30) and answer `reordered: 3`.
     let mut given = req.rule_ids.clone();
     given.sort();
     let listed = given.len();
@@ -300,7 +300,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<RuleBundle>
     Ok(Json(RuleBundle {
         version: 1,
         exported_at: Some(routing::format_timestamp(chrono::Utc::now())),
-        // Instance ids are host-specific; a bundle imported elsewhere would
+        // Instance ids are host-specific: a bundle imported elsewhere would
         // silently scope its rules to instances that do not exist there.
         rules: rules
             .into_iter()
@@ -351,9 +351,9 @@ pub async fn import(
         }
     }
 
-    // The same validator every other write path runs. Three ad-hoc checks stood
-    // in the loop below, so a bundle could carry what the editor refuses: an
-    // inverted year range, a negative day count, a condition with no operand.
+    // The same validator every other write path runs, so a bundle cannot carry
+    // what the editor refuses: an inverted year range, a negative day count, a
+    // condition with no operand.
     // Read before the transaction opens: a pool of one connection, which is
     // what the tests run on, cannot serve a query while a transaction holds it.
     let mut env = environment(&state).await?;
@@ -361,7 +361,7 @@ pub async fn import(
     // Judged against the table as it will be once this commits, not as it was
     // read: a rule targeting a category the bundle brings is otherwise refused
     // as naming one that does not exist. Only the names the table lacks are
-    // written — a round-trip import names every category it already has.
+    // written: a round-trip import names every category it already has.
     let created: Vec<String> =
         creating.into_iter().filter(|name| !env.known.contains(name)).collect();
     env.known.extend(created.iter().cloned());
@@ -557,8 +557,8 @@ async fn fetch_rule(state: &AppState, id: &str) -> AppResult<Rule> {
         .ok_or_else(|| AppError::NotFound(format!("Rule {id} not found")))
 }
 
-/// `None` and `Some([])` both mean "all instances"; store NULL for both so the
-/// loader does not have to special-case an empty array.
+/// `None` and `Some([])` both mean "all instances". NULL is stored for both so
+/// the loader does not have to special-case an empty array.
 fn encode_instance_ids(ids: &Option<Vec<String>>) -> AppResult<Option<String>> {
     match ids {
         Some(ids) if !ids.is_empty() => Ok(Some(serde_json::to_string(ids)?)),

@@ -43,7 +43,7 @@ impl FakeTmdb {
         Self::with(vec![], vec![]).await
     }
 
-    /// `failing` answer 404; `slow` answer after a delay.
+    /// `failing` answer 404 and `slow` answer after a delay.
     pub async fn with(failing: Vec<i64>, slow: Vec<i64>) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let state = FakeState {
@@ -112,8 +112,8 @@ async fn movie(
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
         "original_language": language,
-        // Deliberately absent from the movie payload: the client must fall back
-        // to production_countries.
+        // `origin_country` is absent from the movie payload, so the client must
+        // fall back to `production_countries`.
         "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],
         "status": "Released",
         "overview": "Un film.",

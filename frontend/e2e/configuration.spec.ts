@@ -1,11 +1,11 @@
 import { test, expect, api } from './fixtures';
 
 /**
- * The screens the first suite left uncovered: root folders, overrides, and the
- * rule bundle round-trip.
+ * The screens that configure the routing: root folders, exceptions, the rule
+ * bundle round-trip, the settings and the instance form.
  *
  * Each is a place where the interface writes something the user cannot easily
- * redo — a mapping, a human decision about one film, a whole rule set — so a
+ * redo (a mapping, a human decision about one film, a whole rule set), so a
  * control wired to nothing costs more here than elsewhere.
  */
 
@@ -15,8 +15,8 @@ test.describe('root folders', () => {
     await page.goto('/root-folders');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    // The fixture maps both folders through the API; unmap one through the UI
-    // and check the change survives a reload rather than only re-rendering.
+    // The fixture maps both folders through the API. One is unmapped through the
+    // UI, and the change has to survive a reload rather than only re-render.
     const row = page.locator('tbody tr').filter({ hasText: '/movies/anime' });
     await expect(row).toHaveCount(1);
     await row.locator('select').selectOption('');
@@ -39,9 +39,9 @@ test.describe('root folders', () => {
     expect(instanceId).toBeTruthy();
 
     // A rule pointing at `anime`, so the rename has something to carry. The
-    // backend transaction is covered by src/tests/categories.rs; what only a
-    // browser can establish is that the control is wired to it at all, and that
-    // the two screens agree afterwards.
+    // backend transaction is covered by backend/src/tests/categories.rs. What
+    // only a browser can establish is that the control is wired to it at all,
+    // and that the two screens agree afterwards.
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -75,8 +75,8 @@ test.describe('root folders', () => {
       page.locator('tr').filter({ hasText: '/movies/anime' }).locator('select'),
     ).toHaveValue('japanese');
 
-    // And so did the rule, on another screen — the half a single-page
-    // re-render could have faked.
+    // And so did the rule, on another screen: the half a single-page re-render
+    // could have faked.
     await page.goto('/rules');
     const rule = page.locator('tr').filter({ hasText: 'Japanese animation' });
     await expect(rule).toContainText('japanese');
@@ -93,7 +93,7 @@ test.describe('root folders', () => {
 
     await page.goto('/health');
     // Nothing points at `concerts`, and a rule targeting it would silently skip
-    // every match — so diagnostics has to say so.
+    // every match, so diagnostics has to say so.
     await expect(page.getByText(/not mapped to any root folder/i).first()).toBeVisible();
   });
 });
@@ -195,7 +195,7 @@ test.describe('rule bundles', () => {
     expect(roundTrip).toBeDefined();
     expect(roundTrip?.instance_ids ?? null).toBeNull();
 
-    // Wipe and restore through the interface.
+    // Wiped through the API, restored through the interface.
     const rules = (await api('/rules')) as { id: string }[];
     for (const rule of rules) await api(`/rules/${rule.id}`, { method: 'DELETE' });
 
@@ -326,10 +326,10 @@ test.describe('metadata sources without a key', () => {
     const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
     await expect(tmdb.locator('.badge-warning')).toHaveText('inactive');
 
-    // OMDb is not in the list and cannot be put in it until a key is given —
-    // and the field that accepts one is in its own row, naming the variable
-    // that is the other way to supply it. Stated three blocks further down,
-    // this took a scroll, a save, a scroll back and a second save.
+    // OMDb is not in the list and cannot be put in it until a key is given.
+    // The field that accepts one is in its own row, so no scroll and no save
+    // stand between the key and the button, and it names the variable that is
+    // the other way to supply it.
     const omdb = sources.locator('.source-row').filter({ hasText: 'OMDb' });
     const enable = omdb.getByRole('button', { name: 'Enable' });
     await expect(enable).toBeDisabled();
@@ -349,8 +349,8 @@ test.describe('metadata sources without a key', () => {
 test.describe('backups', () => {
   /**
    * A backup is the one feature whose failure is invisible until the day it
-   * matters. This drives the whole loop in a real browser — take one, see it
-   * listed, delete it — against the real binary writing a real archive.
+   * matters. This drives the whole loop in a real browser (take one, see it
+   * listed, delete it) against the real binary writing a real archive.
    */
   test('taking a backup produces one that is listed and removable', async ({ page }) => {
     await page.goto('/settings#maintenance');
@@ -374,10 +374,10 @@ test.describe('backups', () => {
 test.describe('theme', () => {
   /**
    * The palette is a set of CSS custom properties, so "the light theme works"
-   * means the browser actually resolved different values — something no unit
-   * test can see. It also guards the split between the accent used as a *fill*
+   * means the browser actually resolved different values, which no unit test
+   * can see. It also guards the split between the accent used as a *fill*
    * (unchanged, dark text on orange) and as *text*, which has to darken or it
-   * reads at about 1.9:1 on white.
+   * falls short of AA contrast on white.
    */
   test('choosing the light theme repaints the interface', async ({ page }) => {
     const read = () =>
@@ -397,7 +397,7 @@ test.describe('theme', () => {
 
     /**
      * The save bar only exists while the draft differs from what is stored, so
-     * saving a value that is already the stored one is not possible — and does
+     * saving a value that is already the stored one is not possible, and does
      * not need to be. `save` handles both: it presses the button when there is
      * something to press, and otherwise leaves the settings as they already
      * are, which is what was wanted anyway.
@@ -426,7 +426,7 @@ test.describe('theme', () => {
     expect(light.marker).toBe('light');
     expect(light.background).not.toBe(dark.background);
     expect(light.text).not.toBe(dark.text);
-    // The fill is shared between the two themes; only the text form darkens.
+    // The fill is shared between the two themes, and only the text form darkens.
     expect(light.accentFill).toBe(dark.accentFill);
     expect(light.accentText).not.toBe(dark.accentText);
 
@@ -442,10 +442,10 @@ test.describe('rule tests', () => {
    * The feature's whole claim in one journey: pin a decision, change the rules
    * under it, and be told.
    *
-   * The preview answers "what would this change". Nothing answered "what must
-   * it not change" — and rules are first-match-by-priority, so inserting one
-   * rebalances every rule below it. A pinned case is the only thing that
-   * notices when the routing nobody was watching moves.
+   * The preview answers "what would this change", not "what must it not
+   * change". Rules are first-match-by-priority, so inserting one rebalances
+   * every rule below it, and a pinned case is the only thing that notices when
+   * the routing nobody was watching moves.
    */
   test('a pinned decision fails once a rule stops producing it', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
@@ -464,7 +464,7 @@ test.describe('rule tests', () => {
       }),
     });
 
-    // Pinned from the explanation panel, which already holds the whole answer —
+    // Pinned from the explanation panel, which already holds the whole answer:
     // that is what makes it one click rather than a form.
     await page.goto('/media');
     await page

@@ -10,9 +10,10 @@
    * value. Beside the bar it is always on the card, whose contrast is measured.
    *
    * The meter is the guide's progress bar, for the explanation panel, where it
-   * has 150px to be read in: its length is the value, and one colour claims no
-   * good or bad. A table column gives it 28px after the figure, a stub that
-   * measures nothing, so there it is a dot whose intensity carries the value.
+   * has room to be read in: its length is the value, and one colour claims no
+   * good or bad. A table column leaves it its minimum width after the figure, a
+   * stub that measures nothing, so there it is a dot whose intensity carries the
+   * value.
    * No band or threshold: `confidence_for` scales differently per match mode,
    * an `all` rule with one condition is 60% and an `any` rule with two is 53%,
    * so no percentage can order them.

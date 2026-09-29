@@ -1,7 +1,7 @@
 //! Renaming a category, and the six places its name lives.
 //!
 //! Categories are joined by value with no foreign key, so nothing in the
-//! database carries a rename along — the transaction in `api::categories` is
+//! database carries a rename along. The transaction in `api::categories` is
 //! the only thing that does. These tests are the counterweight: they check the
 //! result rather than the statements, so a seventh place to update fails here
 //! instead of leaving one screen quietly pointing at a name nobody holds.
@@ -14,8 +14,8 @@ use crate::services::routing::{self, SimulationOptions};
 use super::TestApp;
 
 /// Seed a library where the `anime` category is referenced from every table
-/// that can hold one: a rule, a root-folder mapping, an override, and a
-/// decision produced by an actual simulation.
+/// that can hold one: a rule, a root-folder mapping, an override, a decision
+/// produced by an actual simulation, and a pinned expectation.
 async fn seed_every_reference(app: &TestApp) {
     app.seed_library().await;
     app.seed_anime_rule().await;
@@ -36,7 +36,7 @@ async fn seed_every_reference(app: &TestApp) {
     .unwrap();
 
     // A pinned expectation names a category too, and its snapshot columns are
-    // deliberately opaque JSON — so only `expected_category` has to follow a
+    // deliberately opaque JSON, so only `expected_category` has to follow a
     // rename.
     sqlx::query(
         "INSERT INTO rule_tests (id, name, media_type, media_json, evaluated_at,
@@ -131,7 +131,7 @@ async fn renaming_the_default_category_moves_the_setting_with_it() {
         .await
         .assert_ok();
 
-    // Left behind, this setting names a category that no longer exists — and
+    // Left behind, this setting names a category that no longer exists, and
     // `settings::validate` refuses it, so the next save of any setting fails.
     let setting: String =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'default_category'")
@@ -237,7 +237,7 @@ async fn the_category_the_engine_falls_back_to_cannot_be_deleted() {
         .unwrap();
     app.delete(&format!("/api/v1/categories/{id}")).await.assert_status(StatusCode::BAD_REQUEST);
 
-    // And the one that is merely a category, not the fallback, is deletable —
+    // And the one that is merely a category, not the fallback, is deletable:
     // the other half of the same claim.
     app.delete("/api/v1/categories/cat-standard").await.assert_ok();
 }
@@ -262,22 +262,21 @@ async fn creating_a_category_whose_name_is_taken_is_a_conflict() {
     let app = TestApp::new().await;
     app.post("/api/v1/categories", serde_json::json!({ "name": "kids" })).await.assert_ok();
 
-    // The uniqueness is the database's to enforce — there is no check before
-    // the write to race against any more — so what matters is that its refusal
-    // arrives as a 409 rather than as a raw sqlx error and a 500.
+    // The uniqueness is the database's to enforce, with no check before the
+    // write to race against, so what matters is that its refusal arrives as a
+    // 409 rather than as a raw sqlx error and a 500.
     let response = app.post("/api/v1/categories", serde_json::json!({ "name": "kids" })).await;
     response.assert_status(StatusCode::CONFLICT);
     assert!(response.message().contains("already exists"), "got {}", response.message());
 }
 
-/// The fallback category is one fact. Spelled at three sites it acquires two
-/// different answers: `standard` in the engine and in the explanation endpoint,
-/// the empty string in the screen that guards against deleting it.
+/// The fallback category is one fact: the engine, the categories screen and
+/// the delete guard read the same answer. With no setting row, a guard holding
+/// a fallback of its own compares a name against `""`, never matches, and
+/// leaves deletable the category routing actually lands in.
 ///
-/// The setting is seeded by migration 001 and nothing removes it, so the
-/// divergence stays latent — but with the row gone the guard compares a name
-/// against `""`, never matches, and the category routing actually lands in
-/// becomes deletable.
+/// Migration 001 seeds the setting and nothing removes it, so only a database
+/// without the row shows the difference.
 #[tokio::test]
 async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting() {
     let app = TestApp::new().await;

@@ -16,7 +16,7 @@ use crate::state::AppState;
 #[derive(Debug, Serialize)]
 pub struct ProviderDescription {
     pub id: String,
-    /// A proper noun, never translated — as with "Radarr" and "Sonarr".
+    /// A proper noun, never translated, like "Radarr" and "Sonarr".
     pub display_name: String,
     /// False for a source whose data arrives with the library sync.
     pub fetched: bool,

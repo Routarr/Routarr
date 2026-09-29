@@ -94,11 +94,10 @@ async fn a_category_without_a_root_folder_is_skipped_not_moved() {
 
 /// The library pass loads what a rule can match on, and nothing else.
 ///
-/// `MetadataField` names five fields; the status, the synopsis and the poster
-/// are matchable by no condition and the pass never opens them. Read whole they
-/// were 53% of a cache row on a development library, held in memory for the
-/// duration of every simulation — and a TMDb overview is several times longer
-/// than the ones measured.
+/// `MetadataField` names five fields. The status, the synopsis and the poster
+/// are matchable by no condition and the pass never opens them. Read whole,
+/// they would make up much of every cache row, held in memory for the duration
+/// of every simulation.
 #[tokio::test]
 async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     let app = TestApp::new().await;
@@ -134,10 +133,11 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
 /// A root folder on a NAS that has spun down is reported inaccessible, and
 /// that is *unknown*, not gone.
 ///
-/// Read as absent it left the category unmapped, so everything bound for it
-/// became "skip" — indistinguishable on screen from a category nobody mapped —
-/// and the rerun then superseded a plan built while the disk was awake. The
-/// question of whether the destination can be written to is asked at apply
+/// Read as absent, it would leave the category unmapped, so everything bound
+/// for it would become "skip", indistinguishable on screen from a category
+/// nobody mapped, and the rerun would supersede a plan built while the disk was
+/// awake.
+/// The question of whether the destination can be written to is asked at apply
 /// time instead, where it can be answered.
 #[tokio::test]
 async fn a_root_folder_that_is_asleep_still_routes() {
@@ -162,9 +162,9 @@ async fn a_root_folder_that_is_asleep_still_routes() {
 /// The plan built while the disk was awake has to survive the nap.
 ///
 /// Rerunning marks prior `pending` decisions `superseded`, which is what stops
-/// two contradictory proposals both being applied. When the destination
-/// vanished from the map, that guard destroyed the good plan instead of
-/// replacing it.
+/// two contradictory proposals both being applied. A destination that vanishes
+/// from the map would turn that guard into one that destroys the good plan
+/// instead of replacing it.
 #[tokio::test]
 async fn a_pass_run_while_the_disk_sleeps_keeps_the_plan() {
     let app = TestApp::new().await;
@@ -325,7 +325,7 @@ async fn filtering_by_instance_happens_in_sql() {
 
 /// An empty instance list is every instance, the way `Rule::covers_instance`
 /// reads the same shape. Read as "these zero instances", `POST /simulate` with
-/// `instance_ids: []` evaluated nothing and reported a green run.
+/// `instance_ids: []` would evaluate nothing and report a green run.
 #[tokio::test]
 async fn an_empty_instance_list_evaluates_every_instance() {
     let app = TestApp::new().await;
@@ -337,8 +337,8 @@ async fn an_empty_instance_list_evaluates_every_instance() {
 }
 
 /// An empty media list is these zero items, not no filter. Read as no filter,
-/// a webhook whose item had just been deleted evaluated — and persisted, and
-/// automatically applied — the whole instance.
+/// a webhook whose item has just been deleted would evaluate, persist and
+/// automatically apply the whole instance.
 #[tokio::test]
 async fn an_empty_media_list_evaluates_nothing() {
     let app = TestApp::new().await;
@@ -533,7 +533,7 @@ async fn an_unreadable_instance_list_scopes_the_rule_to_nothing() {
 }
 
 /// Two library-wide passes both supersede the other's pending decisions, and
-/// the later commit wins — so the survivor may have been computed from a rule
+/// the later commit wins, so the survivor may have been computed from a rule
 /// set that changed in between. The webhook's single-item run must *not* queue
 /// behind a sweep: `store_decisions` supersedes only what it evaluated, and a
 /// season import arrives as one delivery per episode.

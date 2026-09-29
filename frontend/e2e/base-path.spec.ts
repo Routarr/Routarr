@@ -4,8 +4,8 @@ import { test, expect } from './fixtures';
  * Routarr mounted under a sub-path, the Servarr "URL base" convention.
  *
  * Run by `npm run test:e2e:base`, which starts the same server with
- * `ROUTARR_BASE_PATH=/routarr`. Everything here fails in exactly one place — a
- * reverse proxy — so a browser is the only witness that counts.
+ * `ROUTARR_BASE_PATH=/routarr`. Everything here fails in exactly one place,
+ * behind a reverse proxy, so a browser is the only witness that counts.
  */
 const BASE = '/routarr';
 
@@ -40,12 +40,11 @@ test('navigation keeps the prefix @subpath', async ({ page, instanceId }) => {
 });
 
 /**
- * The left click worked before this did, because the router prefixed the mount
- * point on interception. A `<base href>` applies to relative URLs only, so a
- * root-absolute `href="/rules"` sent every other affordance of a link — a
- * middle-click, a ctrl-click, the status bar, a copied address — to the
- * proxy's root and a 404. The attribute is what the browser reads, so the
- * attribute is what is checked, on every link the shell draws.
+ * A `<base href>` applies to relative URLs only, so a root-absolute
+ * `href="/rules"` sends every affordance of a link (a click, a middle-click, a
+ * ctrl-click, the status bar, a copied address) to the proxy's root and a 404.
+ * The attribute is what the browser reads, so the attribute is what is
+ * checked, on every link the shell draws.
  */
 test('every link carries the prefix, and a ctrl-click stays under it @subpath', async ({
   page,
@@ -100,7 +99,7 @@ test('the webhook URL it hands to Radarr carries the prefix @subpath', async ({
   expect(instanceId).toBeTruthy();
   await page.goto(`${BASE}/instances`);
 
-  // Radarr calls this back; missing the prefix, every event would 404 at the
+  // Radarr calls this back. Missing the prefix, every event would 404 at the
   // proxy and the user would see nothing at all.
   const url = await page.evaluate(async () => {
     // Reads the key where the application reads it, so this raw call is

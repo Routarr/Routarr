@@ -23,8 +23,8 @@
      * Read and not written: the row reports an edit through `onKeyChange`, the
      * way it reports a reordering through `onChange`. Writing into the record
      * instead is an ownership violation Svelte flags in development, and it
-     * worked only because the one caller passed a `$state` proxy — handed an
-     * ordinary object it would have written into nothing, silently.
+     * works only when the caller passes a `$state` proxy: handed an ordinary
+     * object, it writes into nothing, silently.
      */
     keys?: Record<string, string>;
     /**
@@ -117,8 +117,8 @@
 
 {#snippet describe(provider: MetadataProvider)}
   {#if provider.needs_key && !provider.configured}
-    <!-- The variable is named once, by the field below that accepts it — it
-         was written here as well, so every keyless source said it twice. -->
+    <!-- The variable is named once, by the field below that accepts it, so
+         a keyless source does not say it twice. -->
     {t('ProviderNeedsKey')}
   {:else}
     {provider.needs_key ? '' : `${t('ProviderNoKeyNeeded')} · `}{provider.fields.join(', ')}
@@ -127,7 +127,7 @@
 
 <div {id}>
   <!-- Two named groups. Run together as one list, nothing says where "active,
-       in priority order" ends and "available" begins — and the available rows
+       in priority order" ends and "available" begins, and the available rows
        carry no number, which breaks the column. -->
   <p class="source-group">{t('SourcesActive')}</p>
   <div class="source-list">
@@ -197,9 +197,9 @@
     {/each}
   </div>
 
-  <!-- "Available" named exactly the sources that are not: a keyless one can do
-       nothing at all. What the group holds is everything switched off, some of
-       it waiting for a credential. -->
+  <!-- Not captioned "Available", which would name exactly the sources that are
+       not: a keyless one can do nothing at all. What the group holds is
+       everything switched off, some of it waiting for a credential. -->
   <p class="source-group">{t('SourcesInactive')}</p>
   <div class="source-list">
     {#each disabled as provider (provider.id)}

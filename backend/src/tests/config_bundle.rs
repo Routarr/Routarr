@@ -2,7 +2,7 @@
 //!
 //! The value is in what cannot be regenerated: rules, folder mappings and above
 //! all the manual overrides, which are human judgements no resync brings back.
-//! The risk is in what must *not* travel — ids that mean nothing on another
+//! The risk is in what must *not* travel: ids that mean nothing on another
 //! machine, and API keys sealed with a master key that exists on one.
 
 use super::TestApp;
@@ -25,9 +25,9 @@ async fn configured() -> TestApp {
     .unwrap();
 
     // A sealed setting, so `no_api_key_leaves_the_installation` has something
-    // to prove. Without one the assertion on `enc:v1:` passed over a bundle
-    // that could not have contained it — a test that reported a property it
-    // never exercised.
+    // to prove. Without one, the assertion on `enc:v1:` would pass over a bundle
+    // that could not contain it, a test reporting a property it never
+    // exercised.
     sqlx::query(
         "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', ?)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -384,7 +384,7 @@ async fn a_bundle_cannot_write_a_setting_the_api_refuses() {
                     // the delete guard compares against a category nobody holds
                     // and stops protecting the one routing actually uses.
                     { "key": "default_category", "value": "ghost" },
-                    // The engine reads the Arr's own metadata at no cost; a
+                    // The engine reads the Arr's own metadata at no cost, and a
                     // list without it makes every metadata rule dead.
                     { "key": "metadata_providers", "value": "tmdb" },
                     { "key": "ui_theme", "value": "banana" },
@@ -474,10 +474,11 @@ async fn a_bundle_cannot_write_an_instance_the_api_refuses() {
     assert_eq!(written, 0, "an instance the API would refuse was written anyway");
 }
 
-/// `POST /instances` trims the name and clamps the interval to a day; a bundle
-/// stored both raw. The scheduler clamps the interval when it reads it, so the
-/// number on screen was not the one running — and a name with a stray space
-/// was a second instance the existence check could not see.
+/// `POST /instances` trims the name and clamps the interval to a day, and a
+/// bundle stores both the same way. The scheduler clamps the interval when it
+/// reads it, so a raw number on screen would not be the one running, and a
+/// name with a stray space would be a second instance the existence check
+/// cannot see.
 #[tokio::test]
 async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
     let app = configured().await;
@@ -522,9 +523,10 @@ async fn an_imported_instance_is_stored_as_the_api_would_store_it() {
     assert_eq!(sonarrs, 1, "a name with a stray space became a second instance");
 }
 
-/// A row written by an earlier build can still carry the space the import now
+/// A row written by an earlier build can still carry the space the import
 /// trims, and it must count as the instance it is: matched raw, the bundle's
-/// trimmed name found nothing and a second `Radarr` was created beside it.
+/// trimmed name would find nothing and a second `Radarr` would be created
+/// beside it.
 #[tokio::test]
 async fn an_instance_stored_with_a_stray_space_still_counts_as_existing() {
     let app = TestApp::new().await;
@@ -562,9 +564,6 @@ async fn an_instance_stored_with_a_stray_space_still_counts_as_existing() {
     assert_eq!(radarrs, 1, "the legacy row was not seen and a second instance was created");
 }
 
-/// Categories are joined by value with no foreign key, so the database would
-/// not stop a mapping naming one that does not exist — it would route nowhere,
-/// and no warning could count it, there being no category row.
 /// One category, one folder per instance, as `PUT /root-folders/{id}/category`
 /// insists: two folders answering to one category leave the target ambiguous,
 /// and the simulation and the explanation each pick their own.
@@ -594,6 +593,9 @@ async fn a_bundle_cannot_map_one_category_to_two_folders_of_an_instance() {
     assert!(report["skipped"].to_string().contains("/movies/anime"), "{}", report["skipped"]);
 }
 
+/// Categories are joined by value with no foreign key, so the database would
+/// not stop a mapping naming one that does not exist: it would route nowhere,
+/// and no warning could count it, there being no category row.
 #[tokio::test]
 async fn a_bundle_cannot_map_a_folder_to_a_category_that_does_not_exist() {
     let app = configured().await;
@@ -625,8 +627,8 @@ async fn a_bundle_cannot_map_a_folder_to_a_category_that_does_not_exist() {
     );
 }
 
-/// The categories loop lowercases, and so must the mapping loop: a bundle
-/// carrying `Kids` pointed the folder at a name no row holds.
+/// The categories loop lowercases, and so must the mapping loop, or a bundle
+/// carrying `Kids` would point the folder at a name no row holds.
 #[tokio::test]
 async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
     let app = configured().await;
@@ -657,8 +659,8 @@ async fn a_mapping_is_matched_to_a_category_whatever_its_case() {
 
 /// `POST /categories` refuses a name with a space, an ampersand or five hundred
 /// characters, because it reaches paths, rule payloads and query strings. A
-/// bundle wrote one anyway — and then it could never be corrected, since
-/// `rename` runs the check the import skipped.
+/// bundle that wrote one anyway would leave a name that could never be
+/// corrected, since `rename` runs the check such an import skips.
 #[tokio::test]
 async fn a_bundle_cannot_create_a_category_the_api_would_refuse() {
     let app = configured().await;
@@ -714,8 +716,9 @@ async fn a_category_the_bundle_could_not_create_is_not_a_valid_default() {
 }
 
 /// An override short-circuits the engine entirely, so one naming a category
-/// this installation does not have routes its item nowhere — and did so without
-/// appearing in `skipped`, which is the one place a partial restore is visible.
+/// this installation does not have would route its item nowhere. It is refused
+/// and reported in `skipped`, which is the one place a partial restore is
+/// visible.
 #[tokio::test]
 async fn a_bundle_cannot_pin_media_to_a_category_that_does_not_exist() {
     let app = configured().await;
@@ -749,8 +752,9 @@ async fn a_bundle_cannot_pin_media_to_a_category_that_does_not_exist() {
     );
 }
 
-/// The gate validates the trimmed value, so binding the raw one let `"kids "`
-/// pass a check that `"kids"` had answered and land as a name no category holds.
+/// The gate validates the trimmed value, so binding the raw one would let
+/// `"kids "` pass a check that `"kids"` answered and land as a name no category
+/// holds.
 #[tokio::test]
 async fn a_setting_is_stored_as_it_was_validated() {
     let app = configured().await;

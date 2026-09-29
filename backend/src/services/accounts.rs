@@ -6,7 +6,7 @@
 //! mode granted it is [`crate::api::auth`]'s business, not this module's.
 //!
 //! Sessions are opaque random ids in a table, never signed tokens. A token that
-//! carries its own validity cannot be revoked before it expires; a row can be
+//! carries its own validity cannot be revoked before it expires. A row can be
 //! deleted, which is what "log out everywhere" means and what a changed
 //! password has to do.
 
@@ -33,13 +33,12 @@ pub const SESSION_DAYS: i64 = 7;
 
 /// How many password checks may run at once.
 ///
-/// Two, not one, so a second person signing in is not queued behind the first —
-/// and not more, because each one costs a core and about 19 MiB for the length
-/// of a hash. Measured on this code: **355 ms per verification**, against 1 ms
-/// for `/ping`.
+/// Two, not one, so a second person signing in is not queued behind the first.
+/// And not more, because each one costs a core and about 19 MiB for the length
+/// of a hash, which dwarfs any other request Routarr answers.
 const CONCURRENT_CHECKS: usize = 2;
 
-/// How many requests may be inside the check at once — hashing *and* waiting.
+/// How many requests may be inside the check at once, hashing *and* waiting.
 ///
 /// Past this they are refused immediately rather than held: a queue that grows
 /// with the flood is the flood, moved from the processor to the socket table.
@@ -59,24 +58,23 @@ pub struct Busy;
 ///
 /// `/auth/login` is public and argon2id is deliberately expensive, so the cost
 /// that makes a password hard to guess also makes the endpoint expensive to
-/// serve. What that threatens is not the password — the generated one is 256
-/// bits — but the machine: unbounded, N simultaneous requests take N cores and
+/// serve. What that threatens is not the password (the generated one is 256
+/// bits) but the machine: unbounded, N simultaneous requests take N cores and
 /// N × 19 MiB, and on a two-core NAS the whole application stops answering.
 ///
 /// **Concurrency, not a count.** A lockout after N failures bounds the
 /// sustained rate and not the burst, because the failures are recorded after
-/// the hashes they were meant to prevent: thirty simultaneous attempts all hash
-/// before any of them closes the door — measured, thirty out of thirty. And it
-/// buys that with a way to deny sign-in to the one account there is. A permit
-/// bounds the resource itself and can refuse service to nobody: whoever waits,
-/// waits for one hash.
+/// the hashes they were meant to prevent: simultaneous attempts all hash
+/// before any of them closes the door. And it buys that with a way to deny
+/// sign-in to the one account there is. A permit bounds the resource itself
+/// and can refuse service to nobody: whoever waits, waits for one hash.
 ///
 /// The hash runs on `spawn_blocking`. Left on the runtime it holds a worker for
-/// 355 ms, so on a small machine two sign-ins stall every other request —
-/// the interface, the scheduler, the webhooks.
+/// the length of a hash, so on a small machine two sign-ins stall every other
+/// request: the interface, the scheduler, the webhooks.
 pub struct SignInThrottle {
     // Behind `Arc` so a permit and a queue slot can be *moved into* the
-    // blocking task rather than held by the request future — see `verify`.
+    // blocking task rather than held by the request future (see `verify`).
     permits: Arc<tokio::sync::Semaphore>,
     in_flight: Arc<AtomicUsize>,
     by_client: Arc<Mutex<HashMap<IpAddr, usize>>>,
@@ -108,7 +106,7 @@ impl SignInThrottle {
     /// Check a password, waiting for a permit and hashing off the runtime.
     ///
     /// `Err(Busy)` means the queue is full, which the caller answers with a
-    /// `503` and a `Retry-After` — a wait of milliseconds, not a lockout.
+    /// `503` and a `Retry-After` of one second: a short wait, not a lockout.
     pub async fn verify(
         &self,
         password: &str,
@@ -135,7 +133,7 @@ impl SignInThrottle {
         let (password, hash) = (password.to_string(), hash.to_string());
         // Both guards travel *into* the blocking task, and that is the whole
         // point. A client that hangs up drops this future, but a blocking task
-        // cannot be cancelled — the hash runs to the end regardless. Held by the
+        // cannot be cancelled: the hash runs to the end regardless. Held by the
         // future, the permit and the queue slot would come back the moment the
         // connection did, and a flood of abandoned requests would start one
         // argon2 per connection up to the size of the blocking pool: the very
@@ -160,7 +158,7 @@ impl SignInThrottle {
     }
 }
 
-/// Decrements the count however the caller leaves — early return, error or
+/// Decrements the count however the caller leaves: early return, error or
 /// panic. A counter that only goes down on the happy path drifts up until the
 /// endpoint refuses everything.
 struct Leaving(Arc<AtomicUsize>);
@@ -234,7 +232,7 @@ pub async fn account(pool: &SqlitePool) -> AppResult<Option<(String, String)>> {
 /// Create the account on first start, printing its password exactly once.
 ///
 /// The same shape as the API key: generated, written to a 0600 file beside the
-/// database, and logged once. Nothing is left open while it does not exist —
+/// database, and logged once. Nothing is left open while it does not exist:
 /// a first-run route that anyone may call is a race for the account, and the
 /// installation that loses it has no way back in.
 pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) -> AppResult<()> {
@@ -270,7 +268,7 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
 /// the sessions it opened alive would change nothing an attacker holds.
 pub async fn set_password(pool: &SqlitePool, password: &str) -> AppResult<()> {
     // Hashing costs the same as verifying, so it belongs off the runtime for
-    // the same reason — even on a route only the signed-in operator reaches.
+    // the same reason, even on a route only the signed-in operator reaches.
     let owned = password.to_string();
     let hash = tokio::task::spawn_blocking(move || hash_password(&owned))
         .await
@@ -337,10 +335,11 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
     };
 
     // Sliding, like Radarr's: use is what keeps a session alive. Extended only
-    // once it has less than a day to run, rather than on every request: this
-    // runs on each authenticated call, SQLite takes one writer at a time, and
-    // the Tasks screen polls every three seconds while a job runs. A window
-    // that slides a day early slides just as well, at a fraction of the writes.
+    // once it has less than `SESSION_DAYS - 1` days to run, so at most once a
+    // day, rather than on every request: this runs on each authenticated call,
+    // SQLite takes one writer at a time, and the Tasks screen polls every three
+    // seconds while a job runs. A window that slides once a day slides just as
+    // well, at a fraction of the writes.
     let renewed = sqlx::query(
         "UPDATE sessions SET last_used_at = datetime('now'),
          expires_at = datetime('now', ?)
@@ -385,7 +384,7 @@ mod tests {
         let hash = hash_password("correct horse battery").unwrap();
 
         // `join_all` polls each future once before any can finish, and the
-        // count is taken before the first await — so exactly MAX_IN_FLIGHT get
+        // count is taken before the first await, so exactly MAX_IN_FLIGHT get
         // in and the next one does not, whatever the scheduler does after.
         let filling = futures::future::join_all(
             (0..MAX_IN_FLIGHT).map(|_| throttle.verify("correct horse battery", &hash, None)),
@@ -420,8 +419,8 @@ mod tests {
             .map(|_| Arc::clone(&throttle.permits).try_acquire_owned().expect("a free permit"))
             .collect();
 
-        // Poll once — far enough to take the slot, take the permit and spawn
-        // the hash — then drop the future, which is what a client hanging up
+        // Poll once (far enough to take the slot, take the permit and spawn
+        // the hash), then drop the future, which is what a client hanging up
         // does to it.
         {
             let checking = throttle.verify("correct horse battery", &hash, None);
@@ -434,7 +433,7 @@ mod tests {
             );
         }
 
-        // The hash takes hundreds of milliseconds; this runs in microseconds.
+        // The hash takes hundreds of milliseconds, and this runs in microseconds.
         assert_eq!(throttle.in_flight(), 1, "the abandoned check gave its slot back");
         assert_eq!(
             throttle.free_permits(),
@@ -444,8 +443,8 @@ mod tests {
 
         // The one permit the check after it can get is the abandoned hash's,
         // so its completing *is* the proof that the hash finished and gave the
-        // permit back — no budget to tune and nothing to go flaky under a
-        // slower build, since no other permit exists to recycle.
+        // permit back. There is no budget to tune and nothing to go flaky under
+        // a slower build, since no other permit exists to recycle.
         assert!(matches!(throttle.verify("correct horse battery", &hash, None).await, Ok(true)));
 
         assert_eq!(throttle.in_flight(), 0, "the slot never came back");
@@ -517,8 +516,8 @@ mod tests {
         assert!(!verify_password("", ""));
     }
 
-    /// The window has to keep sliding — a session in daily use must not expire
-    /// on the seventh day — while costing a write only when it is close.
+    /// The window has to keep sliding (a session in daily use must not expire
+    /// on the seventh day) while costing a write only when it is close.
     #[tokio::test]
     async fn a_session_is_extended_only_once_it_is_close_to_expiring() {
         let pool = crate::db::test_pool().await;
@@ -623,7 +622,7 @@ mod tests {
         assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
     }
 
-    /// A password is changed because the old one is no longer trusted; the
+    /// A password is changed because the old one is no longer trusted. The
     /// sessions it opened are exactly what an attacker would still be holding.
     #[tokio::test]
     async fn changing_the_password_ends_the_sessions_it_opened() {

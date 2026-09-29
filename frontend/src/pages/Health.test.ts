@@ -65,7 +65,7 @@ describe('Diagnostics', () => {
     const { container } = show();
 
     await screen.findByText('one');
-    // The dashboard caps at three because it is a summary; this page is the
+    // The dashboard caps at three because it is a summary. This page is the
     // full list, and a cap here would hide the problem it exists to report.
     expect(container.querySelectorAll('.banner-warning')).toHaveLength(1);
     expect(container.querySelectorAll('.banner-warning li')).toHaveLength(5);
@@ -142,7 +142,7 @@ describe('Diagnostics', () => {
   /**
    * Zero mapped folders is already in the warnings above. Painting the number
    * red as well makes the table look like it has found a second, different
-   * problem — it is a count, not a verdict.
+   * problem. It is a count, not a verdict.
    */
   it('reports mapped folders as a count, without a verdict of its own', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(

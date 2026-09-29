@@ -47,8 +47,8 @@
   const decisions = $derived(history.data?.data ?? []);
   const pagination = $derived(history.data?.pagination);
 
-  // One dialog asks both questions. Chaining two — "revert?", then "move the
-  // files too?" — gives the second no context, and cancelling it would mean
+  // One dialog asks both questions. Chaining two ("revert?", then "move the
+  // files too?") gives the second no context, and cancelling it would mean
   // "revert without moving files" rather than "stop": a Cancel button that does
   // not cancel. Here Cancel means cancel.
   let reverting = $state<Decision | null>(null);
@@ -167,8 +167,8 @@
               <tr class:row-muted={decision.superseded}>
                 <td class="cell-timestamp" title={decision.decided_at}>
                   {formatTimestamp(decision.decided_at, i18n.language)}
-                  <!-- Null on rows written before the column existed, and a
-                       guess there would read as a fact. -->
+                  <!-- Null on a row stored without one, and a guess there
+                       would read as a fact. -->
                   {#if decision.actor}
                     <span class="text-xs" title={t('TriggeredBy')}
                       >{t(triggerKey(decision.actor))}</span
@@ -219,8 +219,8 @@
                       aria-label="{t('Revert')} – {decision.media_title}"
                     >
                       <!-- Icon only: one action, on every row, in a table that
-                           already overflowed a desktop screen. The name travels
-                           in the label rather than in the column. -->
+                           already fills a desktop screen. The name travels in
+                           the label rather than in the column. -->
                       <Undo2 size={14} aria-hidden="true" />
                     </button>
                   {/if}

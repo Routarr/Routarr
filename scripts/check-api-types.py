@@ -4,7 +4,7 @@
 The API contract is written twice: once as `#[derive(Serialize)]` structs in
 `backend/src/`, once as interfaces in `frontend/src/api/types.ts`. Nothing joins
 them. Rename a field in Rust and everything still compiles, `cargo test` passes,
-`svelte-check` passes, and the interface renders `undefined` — the only layer
+`svelte-check` passes, and the interface renders `undefined`. The only layer
 that could notice is an end-to-end journey that happens to read that field.
 
 This closes the common half of that gap: for each pair declared in `PAIRS`
@@ -15,7 +15,7 @@ What it does *not* do, stated plainly so nobody trusts it further than it goes:
 * It compares **names**, not types. `count: number` against `count: String`
   passes here and breaks at run time.
 * `PAIRS` is hand-written. A response struct with no entry is reported, not
-  compared — the list at the end of a run is the honest measure of coverage.
+  compared: the list at the end of a run is the honest measure of coverage.
 * It reads declarations, not traffic. A handler that assembles a payload with
   `serde_json::json!` instead of a struct is invisible to it.
 
@@ -36,8 +36,8 @@ TYPES = ROOT / "frontend" / "src" / "api" / "types.ts"
 #
 # The names differ on purpose: Rust says `InstanceResponse` because it is what a
 # handler returns, TypeScript says `Instance` because it is what a component
-# holds. Adding a response type means adding a line here — which is the point,
-# since the alternative is a type nobody notices is unmirrored.
+# holds. Adding a response type means adding a line here, which is the point:
+# the alternative is a type nobody notices is unmirrored.
 PAIRS: dict[str, str] = {
     "InstanceResponse": "Instance",
     "RootFolderWithInstance": "RootFolder",
@@ -142,14 +142,14 @@ def rust_structs(root: Path) -> dict[str, set[str]]:
                 r"((?:#\[[^\]]*\]\s*)*)pub (\w+)\s*:", body
             ):
                 field_attrs, field_name = field.groups()
-                # `skip_serializing` drops the field; `skip_serializing_if`
+                # `skip_serializing` drops the field. `skip_serializing_if`
                 # keeps it and only omits it when the predicate holds, so it is
                 # still part of the contract. The two differ by a suffix, which
                 # is why this is a regex and not a substring test.
                 if re.search(r"\bskip(_serializing)?\b(?!_if)", field_attrs):
                     continue
                 # `flatten` splices another struct's fields in. The type is
-                # recorded and spliced once every struct is known — resolved
+                # recorded and spliced once every struct is known: resolved
                 # here, a struct defined later in the walk would be missing.
                 if "flatten" in field_attrs:
                     flattened = re.search(
@@ -170,16 +170,16 @@ def rust_structs(root: Path) -> dict[str, set[str]]:
 def resolve_flattened(structs: dict[str, set[str]]) -> dict[str, set[str]]:
     """Splice each `#[serde(flatten)]` field into its own struct's field set.
 
-    The three composite responses are exactly the ones a reader is most likely
-    to get wrong (`.claude/rules/frontend.md` warns that one arrives flat), and they
-    were the three the check gave up on, while its summary still counted them
-    as agreeing. A flattened field is not unresolvable: the struct it names is
-    in this same map.
+    The composite responses are exactly the ones a reader is most likely to
+    get wrong (`.claude/rules/frontend.md` warns that one arrives flat), so
+    they are the ones the check must compare rather than skip. A flattened
+    field is not unresolvable: the struct it names is in this same map.
 
     A type the walk never saw (one outside `backend/src`, or a generic) leaves
     the marker in place, so the caller still skips rather than comparing a set
-    it knows to be short. Nesting resolves by repeating until nothing moves;
-    a cycle cannot exist, since serde would not compile it.
+    it knows to be short. Nesting resolves by repeating until nothing moves.
+    A cycle cannot exist, since a struct that holds itself by value does not
+    compile.
     """
     for _ in range(len(structs) + 1):
         moved = False
@@ -200,11 +200,11 @@ def ts_interfaces(path: Path) -> dict[str, set[str]]:
     """Top-level field names of every exported interface, by interface name.
 
     Depth matters. Several interfaces inline their nested shapes rather than
-    naming them — `instances: { id: string; name: string; … }[]` in `Health` —
-    and a line-by-line read would collect `id` and `name` as if the response
-    carried them at the top. The Rust side has one field there, so every child
-    would be reported as missing and the check would cry wolf on a contract that
-    agrees.
+    naming them, and a line-by-line read of `Health`, whose `instances` is
+    `{ id: string; name: string; … }[]`, would collect `id` and `name` as if
+    the response carried them at the top. The Rust side has one field there, so
+    every child would be reported as missing and the check would cry wolf on a
+    contract that agrees.
     """
     source = strip_comments(path.read_text())
     found: dict[str, set[str]] = {}
@@ -299,10 +299,8 @@ def main() -> int:
             print(f"  {failure}", file=sys.stderr)
         return 1
 
-    # Compared, not declared. Saying "19 pairs agree" while three of them were
-    # skipped is how a check comes to be trusted for work it did not do — and
-    # the ones it gives up on are the composite responses, the hardest to get
-    # right by reading.
+    # Compared, not declared. A summary that counts a skipped pair as agreeing
+    # is how a check comes to be trusted for work it did not do.
     compared = len(PAIRS) - len(skipped)
     tail = f", {len(skipped)} skipped ({', '.join(skipped)})" if skipped else ""
     print(f"check-api-types: {compared} pair(s) compared and agreeing{tail}")

@@ -3,7 +3,7 @@ import { FIELDS, SECTIONS } from './settings';
 
 /**
  * The tab strip is the only way to reach a setting, and the payload is built
- * from *all* of `FIELDS` — so a field in no section would be unreachable and
+ * from *all* of `FIELDS`, so a field in no section would be unreachable and
  * saved with its fallback, silently, on every save anyone ever made.
  */
 describe('the settings grouping', () => {
@@ -34,7 +34,7 @@ describe('the settings grouping', () => {
   });
 
   /**
-   * The backend bounds every number; a field without its bounds sends `0` or
+   * The backend bounds every number. A field without its bounds sends `0` or
    * `-5` and gets the refusal back after Save, naming a key in a tab the
    * operator may never have opened.
    */

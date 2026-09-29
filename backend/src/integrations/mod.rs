@@ -137,8 +137,8 @@ async fn check_status(
         service: service.to_string(),
         status,
         retry_after,
-        // Upstream bodies can be huge HTML error pages; keep the log and the API
-        // response readable and avoid echoing an unbounded payload back.
+        // Upstream bodies can be huge HTML error pages. The cap keeps the log and
+        // the API response readable and never echoes an unbounded payload back.
         message: said_beyond_the_status.unwrap_or_else(|| truncate(&body, 500)),
     })
 }
@@ -177,7 +177,7 @@ fn challenged_in_front(response: &reqwest::Response, service: &str) -> bool {
 /// `Retry-After` as seconds.
 ///
 /// Only the delta-seconds form is honoured. The HTTP-date form is legal but
-/// rare, and getting it wrong would mean waiting for a date in the past — no
+/// rare, and getting it wrong would mean waiting for a date in the past. No
 /// answer is better than a wrong one, since the caller already has a sane
 /// default to fall back on.
 fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
@@ -189,7 +189,7 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
         .parse::<u64>()
         .ok()
         // A source asking for an hour is either broken or telling us to go away
-        // for longer than any pass should last; the caller's own backoff covers
+        // for longer than any pass should last. The caller's own backoff covers
         // that case better than a sleep nobody can interrupt.
         .filter(|seconds| *seconds <= 300)
 }
@@ -197,7 +197,7 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 /// Describe a transport failure **without echoing the URL**.
 ///
 /// `reqwest::Error`'s `Display` is `"... for url (<the full URL>)"`, query string
-/// included — and the TMDb URL carries `?api_key=`. That message is both logged
+/// included, and the TMDb URL carries `?api_key=`. That message is both logged
 /// and returned to the caller, so using it verbatim would publish the key on an
 /// ordinary network hiccup. The source chain carries the useful part ("dns
 /// error", "connection reset") and never the URL, so report that instead.
@@ -262,7 +262,7 @@ fn in_chain(e: &reqwest::Error, test: &dyn Fn(&(dyn std::error::Error + 'static)
 /// Deserialize a byte count that is only ever displayed.
 ///
 /// Radarr and Sonarr document `freeSpace` as an integer, but a proxy, a fork or
-/// a future version returning `9.0e11` — or omitting the field — must not break
+/// a future version returning `9.0e11`, or omitting the field, must not break
 /// the whole synchronization over a number nobody routes on. Anything that is
 /// not a usable integer becomes `None`.
 ///

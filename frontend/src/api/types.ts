@@ -1,5 +1,7 @@
-// Shapes returned by the Routarr API. Kept in one place so a backend rename
-// surfaces as a type error rather than an `undefined` in the UI.
+// Shapes returned by the Routarr API, written by hand. Nothing generates them,
+// so a backend rename raises no type error: `scripts/check-api-types.py`
+// compares the field names of each interface with the backend response struct
+// it is paired with, and a new response type needs a line in its `PAIRS`.
 
 export interface Paginated<T> {
   data: T[];
@@ -69,7 +71,7 @@ export interface Category {
   root_folder_count: number;
 }
 
-/** Discriminated by `type`; `value` shape follows the condition catalog. */
+/** Discriminated by `type`. The shape of `value` follows the condition catalog. */
 export interface Condition {
   type: string;
   value?: unknown;
@@ -124,11 +126,11 @@ export interface ConditionSpec {
   media_types: string[];
   /**
    * The `LibraryFacets` axis its values are drawn from, empty when the library
-   * cannot enumerate them — a keyword or a title fragment is not a closed set.
+   * cannot enumerate them: a keyword or a title fragment is not a closed set.
    */
   suggestions: string;
   /**
-   * How this condition's values combine — `any` or `all` — and the kind asking
+   * How this condition's values combine (`any` or `all`), and the kind asking
    * the same question the other way. Both empty where the media side is a
    * single value, which cannot be asked for "all of".
    */
@@ -209,7 +211,7 @@ export interface MetadataProvider {
 
 export interface MetadataProviders {
   providers: MetadataProvider[];
-  /** Enabled sources, highest priority first; anything absent is off. */
+  /** Enabled sources, highest priority first. Anything absent is off. */
   order: string[];
 }
 
@@ -293,11 +295,11 @@ export interface Decision {
   decided_at: string;
   applied_at: string | null;
   reverted_at: string | null;
-  /** What caused this decision: `manual`, `schedule` or `webhook`. Null on rows
-   * written before the column existed. */
+  /** What caused this decision: `manual`, `schedule` or `webhook`. Null on a
+   * row stored without one, which stays unattributed rather than guessed. */
   actor: string | null;
-  /** Who asked. Null for the scheduler, for the modes that name nobody, and for
-   * rows written before the column existed. */
+  /** Who asked. Null for the scheduler, for the modes that name nobody, and on
+   * a row stored without one. */
   subject: string | null;
 }
 
@@ -582,7 +584,7 @@ export interface RuleTestResult {
   id: string;
   name: string;
   expected_category: string;
-  /** Where the engine puts it today. Null only when the snapshot stopped parsing. */
+  /** Where the engine puts it on this run. Null when the stored case cannot be read. */
   actual_category: string | null;
   passed: boolean;
   matched_rule: string | null;
@@ -601,7 +603,7 @@ export interface CapacityForecast {
   instance_id: string;
   instance_name: string | null;
   path: string;
-  /** Bytes crossing from another filesystem — the only traffic that consumes space. */
+  /** Bytes crossing from another filesystem, the only traffic that consumes space. */
   incoming_bytes: number;
   /** Bytes moving within one filesystem, where a move is a rename and costs nothing. */
   same_filesystem_bytes: number;
@@ -636,7 +638,7 @@ export interface RuleHealthReport {
 /** One value present in the library, and how many items carry it. */
 export interface Facet {
   /**
-   * What a rule stores and the engine compares — never the displayed text: a
+   * What a rule stores and the engine compares, never the displayed text: a
    * language is matched on `ja`, however it is shown.
    */
   value: string;
@@ -655,7 +657,7 @@ export interface Facet {
 
 /**
  * Values a condition may hold that the library does not define. A genre means
- * what the library says it means; a language is an ISO code from a fixed table,
+ * what the library says it means. A language is an ISO code from a fixed table,
  * and offering only the ones already synced would hide the rest.
  */
 export interface Vocabularies {
@@ -668,7 +670,7 @@ export interface LibraryFacets {
   total_media: number;
   vocabularies: Vocabularies;
   /**
-   * Carrying neither a genre nor an original language — invisible to every
+   * Carrying neither a genre nor an original language, so invisible to every
    * condition that reads metadata.
    */
   without_metadata: number;
@@ -686,11 +688,11 @@ export interface LibraryFacets {
  *
  * Derived rather than listed, so adding an axis to the interface above adds it
  * here too. What it buys is that indexing the payload is checked: the axis name
- * itself arrives from the backend at run time and only a test can vouch for it
- * — `every_axis_a_spec_names_is_one_the_facets_payload_answers`, in
- * `api/conditions.rs` — but everything after the narrowing is the compiler's
- * again. Widened to `Record<string, Facet[]>`, a renamed axis produced an empty
- * picker and no error anywhere.
+ * itself arrives from the backend at run time, and only a test can vouch for it
+ * (`every_axis_a_spec_names_is_one_the_facets_payload_answers`, in
+ * `api/conditions.rs`), but everything after the narrowing is the compiler's
+ * again. Widened to `Record<string, Facet[]>`, a renamed axis would produce an
+ * empty picker and no error anywhere.
  */
 export type FacetAxis = {
   [K in keyof LibraryFacets]: LibraryFacets[K] extends Facet[] ? K : never;

@@ -2,18 +2,19 @@
 """Hold the text a reader sees to plain punctuation.
 
 No em dash, no semicolon in running text and no curly quotes: in the
-interface's dictionaries, the showcase site's catalogues, the README, and the
-strings the frontend, the backend and the site's templates write themselves. The en dash, the
-ellipsis, arrows, check marks, the middle dot, angle quotes and corner
-brackets are all fine.
+interface's dictionaries, the showcase site's catalogues, the Markdown
+documents a contributor reads, and every source file, comments and messages
+included. The en dash, the ellipsis, arrows, check marks, the middle dot,
+angle quotes and corner brackets are all fine.
 
 Two exceptions belong to the text itself. Greek writes its question mark as
 `;`, so that dictionary is read for the Arabic and full-width semicolons alone,
 and for its own semicolon, the raised dot, which a middle dot passes for: in
 Greek a middle dot is accepted only as a spaced separator. Catalan writes a
 middle dot inside a word (col·lecció), so no other language is read for it.
-In source code a semicolon is syntax (SQL, a cookie header, CSS), so code is
-read for the em dash and curly quotes only. Comments are not read.
+In a source file a semicolon is syntax (Rust, TypeScript, SQL, CSS, a cookie
+header), so a source file is read for the em dash and curly quotes only, and
+the semicolons of its comments are left to review.
 
 Run from anywhere: the paths resolve from this file.
 """
@@ -24,12 +25,14 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EM_DASHES = "—⸺"
-CURLY_QUOTES = "“”‘’„‚‟‛"
-SEMICOLONS = ";؛；"
+# Written as escapes, since this file is read too.
+EM_DASHES = "\u2014\u2e3a"
+CURLY_QUOTES = "\u201c\u201d\u2018\u2019\u201e\u201a\u201f\u201b"
+SEMICOLONS = ";\u061b\uff1b"
 GREEK_QUESTION_MARK = ";"
 GREEK_SEMICOLON = re.compile(r"\u0387|(?<! )\u00b7|\u00b7(?! )")
 FENCE = re.compile(r"^```.*?^```", re.M | re.S)
+MARKDOWN = ("README.md", "SECURITY.md", "CONTRIBUTING.md")
 
 
 def found(text: str, semicolons: str) -> list[str]:
@@ -60,85 +63,24 @@ def catalogues(folder: Path, problems: list[str]) -> int:
     return len(files)
 
 
-def readme(problems: list[str]) -> None:
-    path = ROOT / "README.md"
-    text = path.read_text(encoding="utf-8")
-    prose = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
-    for number, (line, prose_line) in enumerate(zip(text.split("\n"), prose.split("\n")), 1):
-        names = found(line, "") + (["a semicolon"] if ";" in prose_line else [])
-        for name in names:
-            problems.append(f"README.md:{number} carries {name}")
-
-
-def blank(match: re.Match) -> str:
-    return re.sub(r"[^\n]", " ", match.group(0))
-
-
-def without_comments(source: str, markup: bool) -> str:
-    if markup:
-        source = re.sub(r"<!--.*?-->", blank, source, flags=re.S)
-    source = re.sub(r"/\*.*?\*/", blank, source, flags=re.S)
-    return re.sub(r"(?<![:'\"`\\])//[^\n]*", blank, source)
+def markdown(problems: list[str]) -> int:
+    """Prose outside a fenced block is read for semicolons too."""
+    for name in MARKDOWN:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        prose = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+        for number, (line, prose_line) in enumerate(zip(text.split("\n"), prose.split("\n")), 1):
+            names = found(line, "") + (["a semicolon"] if ";" in prose_line else [])
+            for problem in names:
+                problems.append(f"{name}:{number} carries {problem}")
+    return len(MARKDOWN)
 
 
 def sources(folder: str, patterns: tuple[str, ...], problems: list[str]) -> int:
-    files = sorted(path for pattern in patterns for path in (ROOT / folder).glob(pattern))
+    base = ROOT / folder
+    files = sorted({path for pattern in patterns for path in base.glob(pattern) if path.is_file()})
     for path in files:
-        markup = path.suffix in (".svelte", ".astro", ".html")
-        code = without_comments(path.read_text(encoding="utf-8"), markup)
-        for number, line in enumerate(code.split("\n"), 1):
+        for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             for name in found(line, ""):
-                problems.append(f"{path.relative_to(ROOT)}:{number} carries {name}")
-    return len(files)
-
-
-def rust_literals(source: str):
-    """Yield (line, text) for every string literal outside a comment."""
-    i, line, size = 0, 1, len(source)
-    while i < size:
-        if source.startswith("//", i):
-            end = source.find("\n", i)
-            i = size if end < 0 else end
-            continue
-        if source.startswith("/*", i):
-            end = source.find("*/", i + 2)
-            line += source.count("\n", i, end)
-            i = end + 2
-            continue
-        raw = re.match(r'b?r(#*)"', source[i:])
-        if raw and (i == 0 or not (source[i - 1].isalnum() or source[i - 1] == "_")):
-            close = '"' + raw.group(1)
-            end = source.find(close, i + raw.end())
-            yield line, source[i + raw.end() : end]
-            line += source.count("\n", i, end)
-            i = end + len(close)
-            continue
-        if source[i] == "'":
-            char = re.match(r"'(\\.|[^\\'])'", source[i:])
-            if char:
-                i += char.end()
-                continue
-        if source[i] == '"':
-            end, start = i + 1, line
-            while source[end] != '"':
-                if source[end] == "\\":
-                    end += 1
-                if source[end] == "\n":
-                    line += 1
-                end += 1
-            yield start, source[i + 1 : end]
-            i = end + 1
-            continue
-        if source[i] == "\n":
-            line += 1
-        i += 1
-
-
-def backend(problems: list[str]) -> int:
-    files = sorted((ROOT / "backend" / "src").glob("**/*.rs"))
-    for path in files:
-        for number, literal in rust_literals(path.read_text(encoding="utf-8")):
-            for name in found(literal, ""):
                 problems.append(f"{path.relative_to(ROOT)}:{number} carries {name}")
     return len(files)
 
@@ -148,15 +90,33 @@ def main() -> int:
     counts = {
         "dictionaries": catalogues(ROOT / "backend" / "locales", problems),
         "site catalogues": catalogues(ROOT / "site" / "src" / "i18n", problems),
-        # `index.html` holds the title a tab shows before the shell names the
-        # screen, and a template's text and labels reach the site's reader.
-        "frontend files": sources(
-            "frontend", ("index.html", "src/**/*.svelte", "src/**/*.ts", "e2e/**/*.ts"), problems
+        "documents": markdown(problems),
+        "backend files": sources(
+            "backend",
+            ("src/**/*.rs", "migrations/*.sql", "Cargo.toml", "rust-toolchain.toml", ".env.example"),
+            problems,
         ),
-        "site templates": sources("site", ("src/**/*.astro", "src/**/*.ts"), problems),
-        "backend files": backend(problems),
+        # `index.html` holds the title a tab shows before the shell names the
+        # screen.
+        "frontend files": sources(
+            "frontend",
+            ("index.html", "*.config.ts", "src/**/*.svelte", "src/**/*.ts", "src/**/*.css",
+             "e2e/*.ts", "e2e/*.py", "e2e/*.sh"),
+            problems,
+        ),
+        "site files": sources(
+            "site",
+            ("*.mjs", "wrangler.jsonc", "public/_headers", "public/assets/*.js", "screenshots/*.*",
+             "src/**/*.astro", "src/**/*.ts", "src/**/*.css"),
+            problems,
+        ),
+        "repository files": sources(
+            ".",
+            ("scripts/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
+             "Dockerfile", "docker-compose.yml"),
+            problems,
+        ),
     }
-    readme(problems)
     # A pattern that matches nothing would pass having read nothing.
     empty = [name for name, count in counts.items() if count == 0]
     if empty:
@@ -167,7 +127,7 @@ def main() -> int:
         print(f"check-typography: {len(problems)} problem(s)", file=sys.stderr)
         return 1
     summary = ", ".join(f"{count} {name}" for name, count in counts.items())
-    print(f"check-typography: {summary} and the README use plain punctuation")
+    print(f"check-typography: {summary} use plain punctuation")
     return 0
 
 

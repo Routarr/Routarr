@@ -110,7 +110,7 @@ function mount(
     default: 'en',
     languages: [{ code: 'en', name: 'English', completion: 100, direction: 'ltr' }],
   });
-  // The backups card loads on mount; unmocked it would reach the network.
+  // The backups card loads on mount, and unmocked it would reach the network.
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
   vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({
     providers: [
@@ -337,10 +337,10 @@ describe('the metadata sources', () => {
   });
 
   /**
-   * The field is empty on every load — the backend never returns a sealed
-   * value — so sending it would write that emptiness. Saving an unrelated
-   * setting deleted all three credentials, and nothing on screen said so:
-   * the sources simply stopped answering on the next pass.
+   * The field is empty on every load (the backend never returns a sealed
+   * value), so sending it would write that emptiness. Saving an unrelated
+   * setting would delete all three credentials with nothing on screen saying
+   * so: the sources would simply stop answering on the next pass.
    */
   it('does not delete a stored key when an unrelated setting is saved', async () => {
     mount({ global_dry_run: 'true', metadata_providers: 'arr,tmdb' }, APIKEY_MODE, {
@@ -370,9 +370,9 @@ describe('the metadata sources', () => {
    * "Blank means leave the stored value alone" exists for one reason: the
    * backend never returns a sealed credential, so that field is empty on every
    * load and sending the emptiness would delete the key. The rule holds for a
-   * secret and for nothing else — applied to the source list it dropped the one
-   * setting whose empty value means something, showed "Settings saved", and
-   * left the sources answering exactly as before.
+   * secret and for nothing else. Applied to the source list, it would drop the
+   * one setting whose empty value means something, show "Settings saved", and
+   * leave the sources answering exactly as before.
    *
    * An empty list is refused by the backend, which is the point: the operator
    * is told the list is invalid instead of being told it was saved.
@@ -392,9 +392,8 @@ describe('the metadata sources', () => {
   /**
    * The shipped order is the backend's to state. A copy kept here drifts from
    * it, and since a save sends every field, the first save of anything at all
-   * would store the copy.
+   * would store the copy. Absent or empty, a list nobody chose is the server's.
    */
-  /** Absent, or empty as an older server answers it, a list nobody chose is the server's. */
   it.each([
     ['absent', {}],
     ['empty', { metadata_providers: '' }],
@@ -410,9 +409,9 @@ describe('the metadata sources', () => {
   });
 
   /**
-   * The server refuses a source listed twice, but a list stored before it did
-   * still arrives here. Each row is keyed by its source, and a save sends every
-   * field, so the list is read without the repeat and saved that way.
+   * The server refuses a source listed twice, but a stored list can still
+   * arrive here with one. Each row is keyed by its source, and a save sends
+   * every field, so the list is read without the repeat and saved that way.
    */
   it('reads a stored list without its repeated source, and saves it that way', async () => {
     mount({ global_dry_run: 'true', metadata_providers: 'tmdb,arr,tmdb' }, APIKEY_MODE, {
@@ -432,8 +431,8 @@ describe('the metadata sources', () => {
     await openSection('Metadata');
 
     expect(await screen.findByText('Active, in priority order')).toBeTruthy();
-    // "Available" named exactly the sources that are not: a keyless one can
-    // answer nothing at all.
+    // Not "Available", which would name exactly the sources that are not: a
+    // keyless one can answer nothing at all.
     expect(screen.getByText('Inactive')).toBeTruthy();
   });
 
@@ -495,8 +494,8 @@ describe('the notification webhook', () => {
 
 describe('housekeeping', () => {
   /**
-   * The purge is not undoable and its button sits beside two that are — export
-   * and import. It asks first, and the question is the guard.
+   * The purge is not undoable and its button sits beside two that are (export
+   * and import). It asks first, and the question is the guard.
    */
   it('asks before purging, and purges nothing when refused', async () => {
     const purge = vi.spyOn(api, 'purge');
@@ -608,14 +607,14 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     // Without this the draft still holds the pre-import values, and the payload
-    // a save sends is built from all of FIELDS — so the next save undoes the
+    // a save sends is built from all of FIELDS, so the next save undoes the
     // import for every setting at once.
     await waitFor(() => expect(getSettings.mock.calls.length).toBeGreaterThan(before));
   });
 
   /**
    * An import is a save of every setting at once, and a save applies the
-   * theme; left to the next reload, the screen kept the old one.
+   * theme. Left to the next reload, the screen would keep the old one.
    */
   it('applies the imported theme at once', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
@@ -749,8 +748,8 @@ describe('importing a configuration', () => {
 /**
  * The card belongs on the screen only where the middleware reads a key. `none`
  * and `external` resolve an identity before they ever look at the header, so a
- * field there writes a string nothing will read — and where a key can be
- * rotated, the card is also where one is minted.
+ * field there writes a string nothing will read. Where a key can be rotated,
+ * the card is also where one is minted.
  */
 describe('the API key card', () => {
   it('is offered in the mode whose only credential it is', async () => {
@@ -772,8 +771,8 @@ describe('the API key card', () => {
 
   /**
    * The middleware tries the key before the session, so it still opens the
-   * door — and the wording has to stop claiming the key is generated, which in
-   * these modes it is not.
+   * door, and the wording must not claim the key is generated, which in these
+   * modes it is not.
    */
   it('is offered in a session mode that has a key, and says what it is for', async () => {
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
@@ -815,7 +814,7 @@ describe('the API key card', () => {
     expect(await answerConfirmation()).toBe('Regenerate the key?');
 
     await waitFor(() => expect(rotate).toHaveBeenCalled());
-    // Shown once, and kept where the next request will find it — in `apikey`
+    // Shown once, and kept where the next request will find it: in `apikey`
     // mode the browser was holding the key that just stopped working.
     expect(await screen.findByText('the-new-one')).toBeInTheDocument();
     expect(localStorage.getItem('routarr.apiKey')).toBe('the-new-one');
@@ -833,7 +832,7 @@ describe('the API key card', () => {
 
   /**
    * Removing it in `apikey` mode would lock everybody out, so the control is
-   * not there at all — the backend refuses too, and neither relies on the other.
+   * not there at all. The backend refuses too, and neither relies on the other.
    */
   it('offers removal only where another way in remains', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
@@ -847,9 +846,9 @@ describe('the API key card', () => {
 });
 
 /**
- * The backend bounds every number and refuses a payload outside them — after
- * Save, naming a key in a tab the operator may never have opened. The field
- * says so first, and Save waits.
+ * The backend bounds every number and refuses a payload outside them, but only
+ * after Save, naming a key in a tab the operator may never have opened. The
+ * field says so first, and Save waits.
  */
 describe('a number outside its bounds', () => {
   it('disables Save and marks the field, until it is back in range', async () => {

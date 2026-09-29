@@ -11,7 +11,7 @@ import MediaExplorer from './MediaExplorer.svelte';
 /**
  * The library, and the one place a user can ask *why* an item lands where it
  * does. The explanation is the whole explainability contract made visible, so
- * the button that opens it has to be reachable — and named — on every row.
+ * the button that opens it has to be reachable, and named, on every row.
  */
 
 const STRINGS = {
@@ -82,7 +82,7 @@ describe('Media explorer', () => {
 
   /**
    * Missing metadata is a warning because it stops genre and keyword rules from
-   * matching at all — the item will route on nothing and the user will not know
+   * matching at all: the item will route on nothing and the user will not know
    * why. Having it is not an achievement and carries no colour.
    */
   it('warns about missing metadata', async () => {

@@ -1,9 +1,9 @@
 name: Release
 
-# Tags only. `docker.yml` already builds the image on every push to main and
-# every pull request with `push: false`, which proves the Dockerfile works; this is the one place an
-# image leaves the runner, and it should happen because someone tagged a
-# release rather than because someone merged.
+# Tags only. `docker.yml` builds the image with `push: false` on every push to
+# main and every pull request that reaches it, which proves the Dockerfile
+# works. This is the one place an image leaves the runner, and it should happen
+# because someone tagged a release rather than because someone merged.
 on:
   push:
     tags: ['v*']
@@ -13,7 +13,7 @@ on:
 # owner calls v7 the next time this runs", and one of these workflows holds
 # `packages: write` and pushes an image to GHCR. A commit id cannot be moved.
 # Dependabot updates both the id and the comment, so this costs nothing to keep
-# current — it only changes who decides when the code changes.
+# current. It only changes who decides when the code changes.
 
 jobs:
   # A tag triggers the publish directly, whatever commit it was pushed onto.
@@ -38,13 +38,10 @@ jobs:
 
   # One job per architecture, each on a runner of that architecture.
   #
-  # The arm64 leg used to be emulated beside the other on an amd64 runner,
-  # which for a Rust release build means QEMU: it measured 115 minutes, then
-  # outgrew the three-hour ceiling and was killed with nothing published. The
-  # comment that stood here said a tag read a warm cache written by the default
-  # branch, and that was never true — `docker.yml` builds `linux/amd64` alone,
-  # so no arm64 layer has ever been in that cache and every release paid for a
-  # cold emulated build.
+  # On an amd64 runner the arm64 leg of a Rust release build runs under QEMU,
+  # for hours, and a leg killed at its ceiling publishes nothing. No warm cache
+  # shortens it: `docker.yml` builds `linux/amd64` alone, so the cache the
+  # default branch writes holds no arm64 layer.
   image:
     name: Build ${{ matrix.arch }}
     needs: guard
@@ -81,7 +78,7 @@ jobs:
 
       # A registry path holding a capital letter is rejected, and the
       # repository is `Routarr/Routarr`. metadata-action lower-cases what it
-      # writes; the name handed to `outputs` below is ours to lower-case.
+      # writes, but the name handed to `outputs` below is ours to lower-case.
       - id: image
         env:
           REPOSITORY: ${{ github.repository }}
@@ -89,8 +86,9 @@ jobs:
 
       # What only a release knows, the version and the commit. The rest is the
       # Dockerfile's, which metadata-action's own set would replace with the
-      # repository's: a licence read `GPL-3.0` and a version read `v0.1.2`. No
-      # tag here: the tags name the manifest list, assembled by the next job.
+      # repository's: a licence of `GPL-3.0` rather than `GPL-3.0-only`, and a
+      # version that keeps the tag's `v`. No tag here: the tags name the
+      # manifest list, assembled by the next job.
       - id: labels
         env:
           TAG: ${{ github.ref_name }}
@@ -142,8 +140,8 @@ jobs:
           retention-days: 1
 
   # What makes `:0.1.0` mean both architectures. Each is in the registry by
-  # now, reachable only by its own digest; this assembles the manifest list
-  # that carries the tags, and attests that one digest.
+  # now, reachable only by its own digest. This job assembles the manifest list
+  # that carries the tags, and attests that list's one digest.
   manifest:
     name: Publish the image
     needs: image
@@ -222,7 +220,7 @@ jobs:
           echo "value=$value" >> "$GITHUB_OUTPUT"
 
       # Signed evidence of which workflow, on which commit, built this exact
-      # digest — attached to the image in the registry, so `gh attestation
+      # digest, attached to the image in the registry so that `gh attestation
       # verify` answers it without trusting this repository's own word for it.
       # An image people pull onto machines holding their media library is worth
       # the three lines.
@@ -236,8 +234,8 @@ jobs:
           # not use, and it asks for a permission the job does not hold.
           create-storage-record: false
 
-  # The release itself. Publishing it by hand — `gh release create` from a
-  # laptop — is the kind of step that gets forgotten or done differently each
+  # The release itself. Publishing it by hand, with `gh release create` from a
+  # laptop, is the kind of step that gets forgotten or done differently each
   # time, so it happens here. Notes are generated from the commits since the
   # last tag, which is what the log is written for.
   release:
@@ -252,9 +250,7 @@ jobs:
       # is in, so it needs one to stand in even though nothing here reads a
       # file: without it the step fails with "not a git repository" before it
       # reaches the API. The default shallow fetch is enough, since the notes
-      # are generated server-side. This job had never run to the end before —
-      # the image job was cancelled at its ceiling every time — so the fault
-      # shipped unseen.
+      # are generated server-side.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Create it
@@ -263,15 +259,16 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          # `--generate-notes` finds the previous tag on its own; naming one
+          # `--generate-notes` finds the previous tag on its own, and naming one
           # explicitly only creates a way to name the wrong one. `--verify-tag`
-          # refuses to invent a tag that does not exist, which it cannot here —
-          # but the day someone runs this by hand it can.
+          # refuses to invent a tag that does not exist. None can be missing
+          # here, but one can when someone runs this by hand.
           #
           # A draft, because generated notes are a list of every commit since the
           # last tag and most of them are internal. The release is announced once
-          # somebody has written what changed for a user; the image is on GHCR
+          # somebody has written what changed for a user. The image is on GHCR
           # either way, so nothing waits on that. See CONTRIBUTING.md.
+          #
           # A hyphen after the version is what semver calls a pre-release, and
           # it is the same rule metadata-action applies when it declines to move
           # `latest`. Without this the image would treat v1.0.0-rc1 as a

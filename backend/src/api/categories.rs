@@ -61,7 +61,7 @@ fn name_conflict(error: sqlx::Error, name: &str) -> AppError {
     }
 }
 
-/// A category name is a folder mapping, a badge and a filter value; a
+/// A category name is a folder mapping, a badge and a filter value, and a
 /// paragraph in any of them breaks the screen that shows it.
 const MAX_CATEGORY_NAME_LENGTH: usize = 64;
 
@@ -70,7 +70,7 @@ const MAX_CATEGORY_NAME_LENGTH: usize = 64;
 /// Every writer of the `categories` table runs it: `create`, `rename`,
 /// `POST /config/import` and `POST /rules/import`. A name that skipped it
 /// lands in the table and can never be renamed back, since `rename` runs the
-/// gate the writer did not — and it reaches paths, rule payloads and query
+/// gate the writer did not, and it reaches paths, rule payloads and query
 /// strings on the way.
 pub fn normalise(raw: &str) -> AppResult<String> {
     let name = raw.trim().to_lowercase();
@@ -82,7 +82,7 @@ pub fn normalise(raw: &str) -> AppResult<String> {
             "Category names are limited to {MAX_CATEGORY_NAME_LENGTH} characters"
         )));
     }
-    // The name ends up in paths, rule payloads and query strings; keep it boring.
+    // The name ends up in paths, rule payloads and query strings: keep it boring.
     if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return Err(AppError::BadRequest(
             "Category names may only contain letters, digits, '-' and '_'".into(),
@@ -144,7 +144,8 @@ pub async fn create(
 /// is the same thing under a new name, and leaving old rows pointing at a name
 /// that no longer exists would put ghosts in the history screen and break its
 /// category filter. Justifications already rendered keep the old word, as they
-/// keep the language they were written in; the next simulation replaces them.
+/// keep the language they were written in, and the next simulation replaces
+/// them.
 pub async fn rename(
     State(state): State<AppState>,
     Path(id): Path<String>,

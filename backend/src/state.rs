@@ -34,16 +34,17 @@ pub(crate) fn resolve_api_key(config: &Config) -> Option<String> {
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: Arc<Config>,
-    /// Shared outbound HTTP client (connection pool + timeouts).
+    /// The outbound client every call clones: it carries the connection pool, the
+    /// timeout and the same-origin redirect policy `http::build_client` sets.
     pub http: reqwest::Client,
     pub secrets: SecretBox,
     pub jobs: JobRegistry,
     /// TheTVDB's bearer token, shared across every client this state builds.
     ///
     /// It is valid for about a month, but the clients are rebuilt on every call
-    /// that needs a source — a health page, an enrichment pass — so holding the
-    /// token inside the client meant logging in again each time. TheTVDB counts
-    /// logins; this is the only source that has any.
+    /// that needs a source (a health page, an enrichment pass), so a token held
+    /// inside the client would mean logging in again each time. TheTVDB counts
+    /// logins, and it is the only source that has any.
     pub tvdb_token: crate::integrations::tvdb::TokenCache,
     /// The API key as it stands right now.
     ///
@@ -51,7 +52,7 @@ pub struct AppState {
     /// process runs: a rotation has to take effect on the next request, not on
     /// the next restart, or a leaked key stays valid until somebody stops the
     /// service. Read on every protected request, so it is a lock and not a
-    /// query — the value is resolved once at startup and written only by a
+    /// query: the value is resolved once at startup and written only by a
     /// rotation.
     pub api_key: Arc<std::sync::RwLock<Option<String>>>,
     /// What `/auth/login` may spend at once. See
@@ -63,13 +64,13 @@ pub struct AppState {
     /// Here for the reason `tvdb_token` is: `/auth/oidc/start` is public and
     /// unauthenticated, and fetching the discovery document on every call turns
     /// one cheap inbound request into one outbound request against the
-    /// operator's identity provider — which rate-limits by address and would
-    /// lock them out of their own login. It is a static document; providers
+    /// operator's identity provider, which rate-limits by address and would
+    /// lock them out of their own login. It is a static document, and providers
     /// expect it to be cached.
     pub oidc_provider: Arc<tokio::sync::RwLock<Option<(crate::services::oidc::Provider, Instant)>>>,
 }
 
-/// The settings table as it stood when it was read — see [`AppState::settings`].
+/// The settings table as it stood when it was read, by [`AppState::settings`].
 ///
 /// Parsed the way the single-key readers parse, so an answer is the same
 /// whichever of the two a caller asked.
@@ -149,9 +150,9 @@ impl AppState {
 
     /// Every setting as stored, read in one statement.
     ///
-    /// A screen that asks about several — `/status` asks about the language,
+    /// A screen that asks about several (`/status` asks about the language,
     /// the dry-run switch, the metadata order, three credentials and the
-    /// retention counts — reads the table once and answers from this rather
+    /// retention counts) reads the table once and answers from this rather
     /// than once per key. An error reads as an empty table, the posture every
     /// single-key reader takes.
     pub async fn settings(&self) -> Settings {
@@ -165,7 +166,7 @@ impl AppState {
     /// The credential for a metadata source: what the interface saved, else the
     /// environment variable.
     ///
-    /// The saved value is sealed with the master key, exactly as an Arr's is —
+    /// The saved value is sealed with the master key, exactly as an Arr's is:
     /// an Arr key writes to the library while a metadata key only reads, so the
     /// more dangerous of the two already goes through this machinery.
     ///
@@ -198,6 +199,8 @@ impl AppState {
     /// The key a source takes from the environment, as its `key_env` in the
     /// catalogue names it.
     pub fn environment_key(&self, provider: &str) -> Option<&String> {
+        // A source with a `key_env` needs its arm here. The compiler does not
+        // ask for one, and without it the `_` arm leaves that variable unread.
         match provider {
             metadata::TMDB => self.config.tmdb_api_key.as_ref(),
             metadata::OMDB => self.config.omdb_api_key.as_ref(),
@@ -213,6 +216,9 @@ impl AppState {
         settings: &Settings,
     ) -> std::collections::HashMap<&'static str, String> {
         let mut keys = std::collections::HashMap::new();
+        // A keyed source needs its id in this list. The compiler does not ask
+        // for it, and `metadata::is_usable` looks the key up in this map, so a
+        // source missing here is never usable, whatever key it holds.
         for id in [metadata::TMDB, metadata::OMDB, metadata::TVDB] {
             if let Some(key) = self.provider_key_from(settings, id) {
                 keys.insert(id, key);
@@ -238,8 +244,8 @@ impl AppState {
         metadata::configured_order(settings.raw("metadata_providers"))
     }
 
-    /// The same list minus the sources that cannot answer today — one that
-    /// needs a key and has none. What a rule can actually rely on.
+    /// The same list minus the sources that cannot answer today, those that
+    /// need a key and have none. What a rule can actually rely on.
     pub async fn metadata_providers(&self) -> Vec<&'static ProviderInfo> {
         self.metadata_providers_from(&self.settings().await)
     }
@@ -261,8 +267,8 @@ impl AppState {
     /// key that disappeared between the setting and here simply yields no
     /// client, and the sources below it answer instead.
     pub async fn metadata_sources(&self) -> Vec<FetchingSource> {
-        // One read for the order, the keys and the regions: five reads had
-        // five chances to see a save land between them.
+        // One read for the order, the keys and the regions: each separate read
+        // would be one more chance for a save to land between them.
         let settings = self.settings().await;
         let regions = Self::certification_regions_from(&settings);
         let mut sources = Vec::new();
@@ -272,6 +278,9 @@ impl AppState {
                 continue;
             }
 
+            // A fetched source needs its arm here. The compiler does not ask for
+            // one, and a source without it falls to the last arm: listed,
+            // enabled, and never asked.
             let source = match provider.id {
                 metadata::TMDB => self.tmdb_from(&settings).map(FetchingSource::Tmdb),
                 metadata::ANILIST => Some(FetchingSource::AniList(AniListClient::new(
@@ -362,11 +371,11 @@ impl AppState {
     /// The category the engine falls back to when no rule matched.
     ///
     /// Takes a pool rather than `&self` because `routing.rs` holds one and not
-    /// an `AppState`. Spelled at its call sites instead, it acquires a fallback
-    /// per site — `"standard"` in the engine, the empty string in the category
-    /// screen — and with no setting row the delete guard then compares a name
-    /// against `""`, never fires, and leaves the category routing actually
-    /// lands in deletable.
+    /// an `AppState`. Spelled at each call site, the fallback would differ per
+    /// site (`"standard"` in the engine, the empty string in the category
+    /// screen), and with no setting row the delete guard would compare a name
+    /// against `""`, never fire, and leave deletable the category routing
+    /// actually lands in.
     ///
     /// One spelling, one fallback. The default lives in `DEFAULT_CATEGORY`.
     pub async fn default_category(pool: &sqlx::SqlitePool) -> String {
@@ -378,7 +387,7 @@ impl AppState {
             .unwrap_or_else(|| DEFAULT_CATEGORY.to_string())
     }
 
-    /// Read a boolean setting stored as `"true"` or `"false"`.
+    /// Read a boolean setting: `true` in any case, or `1`, is on.
     pub async fn bool_setting(&self, key: &str, default: bool) -> bool {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)

@@ -6,9 +6,8 @@ import { SCREENS, SETTINGS_SECTIONS } from './screens';
 import { screenKey } from '../src/lib/routes';
 
 /**
- * Every field was captioned by a `.form-label` sitting *next* to it with no
- * `htmlFor`, so the caption was decorative: the control had no accessible name
- * and clicking the caption did not focus it.
+ * A `.form-label` sitting *next* to a field with no `htmlFor` is decorative: the
+ * control has no accessible name and clicking the caption does not focus it.
  *
  * `getByLabel` resolves through the browser's real accessible-name computation,
  * which is why this belongs here and not in a jsdom test: it is the only
@@ -37,9 +36,9 @@ test.describe('form fields carry a programmatic label', () => {
     await page.goto('/instances');
     await page.getByRole('button', { name: 'Add instance' }).click();
 
-    // The usability half of the same fix: an unassociated caption is inert.
-    // Scoped to the caption element — the page behind the modal has a column
-    // header with the same words.
+    // The usability half of a programmatic label: an unassociated caption is
+    // inert. Scoped to the caption element, since the page behind the modal has a
+    // column header with the same words.
     await page.locator('label[for="instances-base-url"]').click();
     await expect(page.getByLabel('Base URL', { exact: true })).toBeFocused();
   });
@@ -47,13 +46,12 @@ test.describe('form fields carry a programmatic label', () => {
   test('the settings page names every control and links its help text', async ({ page }) => {
     await page.goto('/settings');
 
-    // Every section, not just the one that opens: grouping the settings into
-    // tabs made it possible for a field to be correct on screen and unlabelled
-    // two tabs away.
+    // Every section, not just the one that opens: with the settings grouped
+    // into tabs, a field can be correct on screen and unlabelled two tabs away.
     //
     // The wait matters: the page renders a spinner until its settings,
     // categories and languages have all arrived, and `count()` does not
-    // retry — asking too early returned zero and failed the run at random.
+    // retry, so asked too early it returns zero and fails the run at random.
     await expect(page.getByRole('tab').first()).toBeVisible();
     const tabs = await page.getByRole('tab').count();
     expect(tabs).toBeGreaterThan(1);
@@ -97,14 +95,14 @@ test.describe('modal dialogs', () => {
   /**
    * With a plain <div> as the overlay, assistive technology keeps announcing
    * the page behind it, Tab walks straight out, and Escape does nothing. Only a
-   * real browser can tell whether the native <dialog> is genuinely modal —
+   * real browser can tell whether the native <dialog> is genuinely modal:
    * jsdom implements neither the top layer nor the focus trap.
    */
   test('a modal is announced as a dialog and closes on Escape', async ({ page }) => {
     await page.goto('/instances');
     await page.getByRole('button', { name: /add instance/i }).click();
 
-    // Announced as a dialog, and named — without the name a screen reader says
+    // Announced as a dialog, and named: without the name a screen reader says
     // only "dialog".
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -152,8 +150,8 @@ async function ready(page: Page, path: string) {
 
 /**
  * Swept rather than sampled: the named tests above check the two editors, which
- * leaves the controls nobody thinks of as a form — and catches the one added
- * later on a screen this file has never heard of.
+ * leaves the controls nobody thinks of as a form. The sweep also catches one
+ * added later on a screen this file has never heard of.
  */
 test('every control on every screen has an accessible name', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
@@ -208,8 +206,8 @@ test('every control on every screen has an accessible name', async ({ page, inst
 /**
  * An `id` names one element. Two controls answering to the same one leave
  * `aria-controls`, `aria-labelledby` and `<label for>` pointing at whichever
- * rendered first — the failure a component with a hard-coded id produces the
- * moment it is used twice on a page.
+ * rendered first. A component with a hard-coded id fails that way the moment
+ * it is used twice on a page.
  */
 test('no screen renders the same id twice', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
@@ -255,9 +253,9 @@ test('every table on every screen carries a caption', async ({ page, instanceId 
 });
 
 /**
- * The checks above are the ones this interface taught us to write. axe-core is
- * the referential nobody here wrote: WCAG 2.1 A and AA, every screen, so a
- * failure names a rule and not an opinion.
+ * The checks above are written for this interface. axe-core is the reference
+ * nobody here wrote: WCAG 2.1 A and AA, every screen, so a failure names a rule
+ * and not an opinion.
  */
 test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
@@ -267,8 +265,8 @@ test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
     await ready(page, path);
     const results = await new AxeBuilder({ page })
       // `best-practice` on top of the standard: it is the tag that carries
-      // `empty-table-header`, which the WCAG tags do not, and an unnamed
-      // column header was exactly what shipped under them.
+      // `empty-table-header`, which the WCAG tags do not, so an unnamed
+      // column header passes under them alone.
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'])
       .analyze();
     for (const v of results.violations) {
@@ -279,11 +277,6 @@ test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
   expect(violations).toEqual([]);
 });
 
-/**
- * A dozen navigation links stand between the top of the page and its content.
- * The first Tab has to offer a way past them, and taking it has to land focus
- * where the content starts.
- */
 /**
  * A field says it has the focus by its border colour, and forced colours paint
  * every border in one system colour. An outline is drawn in a colour of its
@@ -306,6 +299,11 @@ test('a focused field is outlined when the system forces its colours', async ({ 
   expect(outline.color).not.toBe('rgba(0, 0, 0, 0)');
 });
 
+/**
+ * A dozen navigation links stand between the top of the page and its content.
+ * The first Tab has to offer a way past them, and taking it has to land focus
+ * where the content starts.
+ */
 test('the first tab stop skips to the content', async ({ page, instanceId }) => {
   expect(instanceId).toBeTruthy();
   await ready(page, '/rules');
@@ -477,8 +475,7 @@ test('every screen nests its headings without skipping a level', async ({ page, 
 
   // A screen reader offers the headings as the outline of the page. An h1
   // followed by an h3 says a level is missing and leaves the reader looking for
-  // the section that was skipped — four screens put their first card straight
-  // under the page title, three levels deep in markup and two in the outline.
+  // the section that was skipped.
   const jumps: string[] = [];
 
   for (const path of SCREENS) {
@@ -513,11 +510,10 @@ test('every screen nests its headings without skipping a level', async ({ page, 
 /**
  * Two buttons that do different things must not answer to the same name.
  *
- * Every row of the overrides table carried a delete button announced as
- * "Delete", and nothing else — a destructive action, repeated, with no way to
- * tell one from another except by looking. History had already been fixed to
- * say "Revert — Akira"; the other three tables had not, and no test could see
- * it because each button did have *a* name.
+ * A delete button announced as "Delete" on every row, and nothing else, is a
+ * destructive action repeated with no way to tell one from another except by
+ * looking. Every other check here passes it, because each button does have *a*
+ * name.
  *
  * Scoped to table bodies: "Previous" and "Next" appearing once per paginated
  * card is not the same defect, and a rule broad enough to catch that would be
@@ -527,8 +523,8 @@ test('no two row actions in a table answer to the same name', async ({ page, ins
   expect(instanceId).toBeTruthy();
 
   // Two rows, or this proves nothing: a one-row table cannot hold a clash, and
-  // the seeded library has exactly one rule and no overrides. The names differ
-  // on purpose — two rows called the same thing are ambiguous however they are
+  // the reset library has no rule and no override. The names differ on
+  // purpose: two rows called the same thing are ambiguous however they are
   // labelled, and that is a different defect from labelling them all "Delete".
   for (const name of ['Japanese animation', 'Everything else']) {
     await api('/rules', {
@@ -593,7 +589,7 @@ const MODALS: {
   },
   {
     // Reachable from every screen, so the screen it is opened from does not
-    // matter; the rules page is simply the one already loaded above.
+    // matter. The rules page is simply the one already loaded above.
     path: '/rules',
     covers: 'components/CommandPalette.svelte',
     open: (p) => p.getByRole('button', { name: 'Quick search' }).click(),
@@ -624,7 +620,7 @@ const MODALS: {
   },
   {
     // The explanation panel, which is the longest of them and the only one
-    // built entirely out of backend prose.
+    // built entirely out of what the rule engine returns.
     path: '/media',
     covers: 'components/ExplanationModal.svelte',
     open: (p) =>
@@ -634,8 +630,7 @@ const MODALS: {
         .click(),
   },
   {
-    // A confirmation, which is the newest of them and the one a destructive
-    // action puts in front of everybody.
+    // A confirmation, the one a destructive action puts in front of everybody.
     path: '/rules',
     covers: 'components/ConfirmDialog.svelte',
     open: (p) =>
@@ -651,7 +646,7 @@ const MODALS: {
     covers: 'pages/History.svelte',
     prepare: async (p) => {
       // Writing is refused while the global dry run is on, which is the
-      // shipped default and the reason nothing reached history at first.
+      // shipped default, and history stays empty until something is written.
       await api('/settings', {
         method: 'PUT',
         body: JSON.stringify({ settings: { global_dry_run: 'false' } }),

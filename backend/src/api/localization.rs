@@ -23,8 +23,8 @@ pub struct LocalizationResponse {
 /// The dictionary for the configured language.
 ///
 /// The language is read back from the resolved `Localizer`, so the frontend is
-/// told which language it actually got — English, if the stored value turned out
-/// to be one this build does not ship.
+/// told which language it actually got: English, if the stored value is one this
+/// build does not ship.
 pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<LocalizationResponse>> {
     let language = state.localizer().await.language().to_string();
     Ok(Json(LocalizationResponse {

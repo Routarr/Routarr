@@ -4,8 +4,8 @@ import { LANGUAGES, type Locale } from '../../i18n';
 
 /**
  * The three translated routes. English is not among them: `prefixDefaultLocale`
- * is false, so it is served from `/` by `src/pages/index.astro` — the path the
- * sitemap, every `hreflang` and the published links already use.
+ * is false, so it is served from `/` by `src/pages/index.astro`, which is the
+ * path the sitemap, every `hreflang` and the published links already use.
  */
 export function getStaticPaths() {
   return LANGUAGES.filter((language) => language.code !== 'en').map((language) => ({

@@ -3,11 +3,17 @@ import type { Settings, StoredSettings } from '../api/types';
 /**
  * What the Settings screen shows, as data.
  *
- * `FIELDS` is every setting the backend accepts, with the dictionary keys for
- * its caption and its help text and the fallback used when the server has no
- * value. `SECTIONS` groups them into the tab strip. Kept apart from the markup
- * because a test asserts the grouping covers `FIELDS` exactly once: a field in
- * neither list would be unreachable and saved with its fallback, silently.
+ * `FIELDS` is every setting the screen edits, with the dictionary keys for its
+ * caption and its help text and the fallback used when the server has no
+ * value. The server accepts settings no field shows, such as `onboarding`,
+ * which the guide writes. `SECTIONS` groups the fields into the tab strip. Kept
+ * apart from the markup because a test asserts the grouping covers `FIELDS`
+ * exactly once: a field in no section would be unreachable and saved with its
+ * fallback, silently.
+ *
+ * A new setting needs its `KNOWN` entry in `backend/src/api/settings.rs`, which
+ * refuses an unknown key, and a `FIELDS` entry listed in exactly one `SECTIONS`
+ * group.
  */
 export interface Field {
   key: string;
@@ -29,10 +35,10 @@ export interface Field {
     | 'secret';
   fallback: string;
   /**
-   * The interval a `number` accepts — the bounds `api/settings.rs` enforces,
+   * The interval a `number` accepts: the bounds `api/settings.rs` enforces,
    * stated here so the field refuses a value before a save instead of after
    * it, in a refusal naming a key in a tab the operator never opened. `null`
-   * is no upper bound: a retention has none.
+   * is no upper bound: a retention in days has none.
    */
   range?: [number, number | null];
 }
@@ -254,13 +260,13 @@ export const FIELDS: Field[] = [
 /**
  * The settings, grouped.
  *
- * Twenty of them in one column means scrolling past automation to reach a
- * retention count. The grouping follows what a person is *doing* — setting the
+ * Every setting in one column means scrolling past automation to reach a
+ * retention count. The grouping follows what a person is *doing* (setting the
  * thing up, deciding where media goes, letting it run unattended, choosing what
- * describes it, keeping it healthy — rather than the order the fields are
+ * describes it, keeping it healthy) rather than the order the fields are
  * declared in.
  *
- * `keys` is the source of truth for what appears where; a field missing from
+ * `keys` is the source of truth for what appears where. A field missing from
  * every section is caught by a test rather than silently unreachable.
  */
 export const SECTIONS = [

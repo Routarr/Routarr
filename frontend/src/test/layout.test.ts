@@ -44,7 +44,7 @@ describe('a row of fields survives labels of different lengths', () => {
       const lines = read(file).split('\n');
       lines.forEach((line, index) => {
         if (!/\bclass="flex gap-\d"/.test(line)) return;
-        // A bare flex row is fine for buttons or badges; it is only wrong when
+        // A bare flex row is fine for buttons or badges. It is only wrong when
         // it carries labelled fields, whose labels wrap independently.
         const block = lines.slice(index + 1, index + 12).join('\n');
         if (block.includes('form-label')) {
@@ -60,11 +60,11 @@ describe('a row of fields survives labels of different lengths', () => {
    * Split each `<button>` into its attributes and its body.
    *
    * Not a regular expression: `onclick={() => run()}` carries a `>` inside a
-   * brace and `<button\b([^>]*?)>` stopped there, so the arrow landed in the
-   * captured body and satisfied the "has visible text" test below. Every
-   * icon-only button with an arrow handler — which is all of them — was exempt
-   * from the check that names them. Tracking brace depth is what tells a `>`
-   * closing the tag from a `>` inside an expression.
+   * brace, and `<button\b([^>]*?)>` stops there, so the arrow lands in the
+   * captured body and satisfies the "has visible text" test below. Every
+   * icon-only button with an arrow handler, which is all of them, would be
+   * exempt from the check that names them. Tracking brace depth is what tells a
+   * `>` closing the tag from a `>` inside an expression.
    */
   function buttons(source: string): { attributes: string; body: string }[] {
     const found: { attributes: string; body: string }[] = [];
@@ -91,15 +91,15 @@ describe('a row of fields survives labels of different lengths', () => {
   }
 
   it('no button is left without an accessible name', () => {
-    // An icon-only button announces nothing to a screen reader, and two of
-    // these were destructive actions.
+    // An icon-only button announces nothing to a screen reader, a destructive
+    // one included.
     const offenders: string[] = [];
 
     for (const file of pages()) {
       for (const { attributes, body } of buttons(read(file))) {
         // Control and render blocks are markup, not words: `{#if icon}` and
         // `{@render icon()}` name nobody. What is left is the button's text,
-        // which may be a literal or an expression — `<span>{action.label}</span>`
+        // which may be a literal or an expression: `<span>{action.label}</span>`
         // is as much a name as `<span>{t('Save')}</span>`.
         const text = body.replace(/\{[#:/@][^}]*\}/g, '');
         // `\bt\(` and not `t(`: the latter is a substring of `split(` and of
@@ -118,7 +118,7 @@ describe('a row of fields survives labels of different lengths', () => {
   it('every form label points at the control it describes', () => {
     // A `.form-label` sitting next to its input, with no `htmlFor`, looks right
     // and announces nothing: the field reads as unlabelled, and clicking the
-    // caption does not focus it. Every one of them was in that state.
+    // caption does not focus it.
     const offenders: string[] = [];
 
     for (const file of pages()) {
@@ -161,10 +161,9 @@ describe('a row of fields survives labels of different lengths', () => {
   });
 
   /**
-   * A disabled button had no styling at all: full opacity, a pointer cursor,
-   * and its hover fill still lighting up. Thirty controls looked clickable
-   * while doing nothing, and every test that touched one asserted the
-   * `disabled` attribute was set — none that anybody could tell.
+   * A disabled button left unstyled keeps full opacity, a pointer cursor and
+   * its hover fill, so it looks clickable while doing nothing. A test asserting
+   * the `disabled` attribute cannot tell whether anybody could see it.
    */
   it('a disabled button looks disabled', () => {
     const css = read('index.css');
@@ -184,8 +183,8 @@ describe('a row of fields survives labels of different lengths', () => {
    * The form controls are drawn here, not by the browser.
    *
    * Removing the shared base rule merges its selectors into the focus rule
-   * below, so every input falls back to the user agent — the platform's own
-   * chrome — while wearing the accent border permanently. Nothing else asserts
+   * below, so every input falls back to the user agent (the platform's own
+   * chrome) while wearing the accent border permanently. Nothing else asserts
    * that a text field has a background.
    */
   it('every field is drawn by this stylesheet rather than by the browser', () => {
@@ -197,7 +196,7 @@ describe('a row of fields survives labels of different lengths', () => {
     }
 
     // And the accent border belongs to focus alone: on the base rule it makes
-    // every field look permanently focused, which is how the regression looked.
+    // every field look permanently focused.
     expect(base).not.toContain('--accent-strong');
 
     // The two controls the browser would otherwise draw itself.
@@ -244,7 +243,7 @@ describe('a row of fields survives labels of different lengths', () => {
  * The application's own voice, not the browser's.
  *
  * A native constraint bubble renders in the *browser's* language whatever
- * `ui_language` says, and fires before the submit handler — so it speaks over
+ * `ui_language` says, and fires before the submit handler, so it speaks over
  * whatever the form was going to say. Every form carrying one is `novalidate`
  * and holds its submit until the field is filled, which enforces the constraint
  * before the press instead of complaining about it after. jsdom runs no
@@ -298,7 +297,7 @@ describe('every screen searches through the same box', () => {
         "from '../components/SearchField.svelte'",
       );
       // A bare `<input>` carrying a search placeholder is the divergence
-      // itself: it is what had no magnifier and no anchored width. The
+      // itself: it is what has no magnifier and no anchored width. The
       // magnifier on the overrides screen's submit button is a button's icon
       // and stays.
       expect(source, `${file} searches from a bare input`).not.toMatch(
@@ -313,16 +312,16 @@ describe('every screen searches through the same box', () => {
  *
  * Nothing else joins them: a route added to `App.svelte` with no entry in the
  * sidebar is a screen only a typed URL reaches, and an entry pointing at no
- * route lands on the dashboard without a word. Both have to be deliberate, and
+ * route leads from the menu to the not-found screen. Both have to be deliberate, and
  * this is what makes them so.
  */
 describe('the navigation covers the route table', () => {
   const routes = () =>
     [...read('App.svelte').matchAll(/^\s*'(\/[^']*)':/gm)].map((match) => match[1] as string);
 
-  // The list moved out of the sidebar when a second reader appeared — the
-  // command palette searches the same destinations the navigation draws — and
-  // out of `navigation.ts` when a third did: the e2e sweeps read it as data.
+  // The list lives in `lib/routes.ts` because three readers share it: the
+  // navigation draws it, the command palette searches the same destinations,
+  // and the e2e sweeps read it as data.
   const navigable = () =>
     [...read('lib/routes.ts').matchAll(/to: '(\/[^']*)'/g)].map((match) => match[1] as string);
 
@@ -343,12 +342,11 @@ describe('the navigation covers the route table', () => {
  *
  * It is silent in every other check: the markup is valid, the component
  * renders, `svelte-check` types it and no test asserts a colour. What the
- * reader gets is the element with none of the styling it was written for —
- * `.stat-label` survived the deletion of the `.stat-card` block it belonged
- * to, so the explanation panel's two captions lost their muted 13px and were
- * set at body weight beside the values they name.
+ * reader gets is the element with none of the styling it was written for: a
+ * caption whose block is deleted is set at body weight beside the value it
+ * names.
  *
- * jsdom applies no stylesheet, so nothing rendered can see this; only the
+ * jsdom applies no stylesheet, so nothing rendered can see this. Only the
  * source can. Composed names (`is-{tone}`, `{active ? ' waiting' : ''}`) sit
  * inside an expression and are skipped, since the fragments they build are
  * static strings in the same file, and a scoped `<style>` block counts as a
@@ -552,15 +550,14 @@ const stylesheet = () =>
 
 /**
  * One look for one thing, on every screen: a difference nobody chose reads as
- * a bug, and each rule below was broken on at least one screen when it was
- * written.
+ * a bug, and each rule below is one a single screen can break on its own.
  */
 describe('every screen draws a shared thing the same way', () => {
   it('reads the markup it sweeps', () => {
     expect(markup(read('pages/Instances.svelte')).some((e) => e.tag === 'table')).toBe(true);
   });
 
-  /** A variant declared before the base is overridden by it, as the guide's stripe was. */
+  /** A variant declared before the base is overridden by it. */
   it('declares every banner variant after the banner itself', () => {
     const css = stylesheet();
     const base = css.search(/^\.banner\s*\{/m);
@@ -582,7 +579,7 @@ describe('every screen draws a shared thing the same way', () => {
     expect(literal).toEqual([]);
   });
 
-  /** The fill accent is 1.7:1 on a light ground: a mark drawn in it goes unseen. */
+  /** The fill accent is too faint on a light ground: a mark drawn in it goes unseen. */
   it('draws no border or outline in the fill accent', () => {
     const fill = stylesheet()
       .split('\n')

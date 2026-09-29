@@ -14,7 +14,7 @@ import RootFolders from './RootFolders.svelte';
  * Categories are free-form strings joined by name, with no foreign key, so this
  * screen is where the names in four tables are kept in step. Deleting one that
  * is in use is refused by the API precisely because the database would not stop
- * it — and the *default* category cannot be deleted at all, since an unmatched
+ * it, and the *default* category cannot be deleted at all, since an unmatched
  * item has to land somewhere.
  */
 
@@ -93,7 +93,7 @@ function show(
   categories: Category[],
   conflicts: MappingConflict[] = [],
   // The declaration form needs somewhere to send a path. One instance is the
-  // ordinary install; the second is what makes the choice observable.
+  // ordinary install, and a second is what makes the choice observable.
   instances = [instance('i1', 'Radarr')],
 ) {
   vi.spyOn(api, 'getRootFolders').mockResolvedValue(folders);
@@ -139,7 +139,7 @@ describe('Root folders', () => {
    * screen's job is to send the new name and then re-read everything.
    *
    * `{@const}` is reactive, so clearing the dialog's state before reading the id
-   * reads it as null and the rename never leaves the browser — which no compiler
+   * reads it as null and the rename never leaves the browser, which no compiler
    * sees.
    */
   it('renames through the API and re-reads what the rename touched', async () => {
@@ -158,8 +158,8 @@ describe('Root folders', () => {
 
   /**
    * On Windows and Linux an arrow key on a closed select fires `change`, and
-   * writing on `change` sent every category passed on the way to the server.
-   * Choosing is free, Save writes.
+   * writing on `change` would send every category passed on the way to the
+   * server. Choosing is free, Save writes.
    */
   it('writes the category chosen only when Save is pressed', async () => {
     const update = vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
@@ -178,7 +178,7 @@ describe('Root folders', () => {
   /**
    * Mapping a category is what clears the "categories mapped to nothing"
    * warning, and the shell counts that warning in two places. It owns the
-   * request; this screen's job is to say that the answer changed.
+   * request, and this screen's job is to say that the answer changed.
    */
   it('tells the shell its counters are out of date', async () => {
     vi.spyOn(api, 'updateRootFolderCategory').mockResolvedValue(undefined as never);
@@ -217,10 +217,10 @@ describe('Root folders', () => {
   });
 
   /**
-   * A target used to have to be a root folder in Radarr or Sonarr already, so
-   * routing into `/media/movies/anime` meant declaring it there first. What an
-   * operator wants is one root folder per Arr and the targets beneath it named
-   * here.
+   * A target need not be a root folder in Radarr or Sonarr already: routing
+   * into `/media/movies/anime` would otherwise mean declaring it there first.
+   * What an operator wants is one root folder per Arr and the targets beneath
+   * it named here.
    */
   it('declares a destination the instance does not report', async () => {
     const declare = vi
@@ -237,11 +237,11 @@ describe('Root folders', () => {
   /**
    * The instance shown is the instance written to.
    *
-   * The select was bound to an empty string, which matches no option: it
-   * rendered blank while `declare` fell back to whichever instance loaded
-   * first. With one Arr that fallback is always right and the blank reads as a
-   * cosmetic nothing; with two, a destination lands on the wrong one and the
-   * screen showed nothing to contradict it.
+   * Bound to an empty string, the select would match no option and render
+   * blank while `declare` fell back to whichever instance loaded first. With
+   * one Arr that fallback is always right and the blank reads as a cosmetic
+   * nothing. With two, a destination would land on the wrong one with nothing
+   * on screen to contradict it.
    */
   it('declares against the instance the form is showing', async () => {
     const declare = vi
@@ -263,7 +263,7 @@ describe('Root folders', () => {
 
   /**
    * Only what Routarr owns. A folder the instance reports would come back on
-   * the next sync, without the category mapped onto it — so the interface does
+   * the next sync, without the category mapped onto it, so the interface does
    * not offer to remove it at all.
    */
   it('offers to remove only what it declared', async () => {
@@ -329,7 +329,8 @@ describe('Root folders', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     expect(await screen.findByText(/cannot see it/)).toBeInTheDocument();
-    // Once the screen has read the folders again, which is when it cleared.
+    // Once the screen has read the folders again, which is when a success
+    // clears the field.
     await waitFor(() => expect(api.getRootFolders).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(field.value).toBe('/mnt/typo');

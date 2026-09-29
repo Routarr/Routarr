@@ -3,11 +3,11 @@
  *
  * The one list: `check.mjs` walks it to open every built page and
  * `astro.config.mjs` derives its locales from it, so a fifth language added
- * here is built, offered and checked — added to two copies out of three, it
- * built a page nothing opened.
+ * here is built, offered and checked. A second copy of the list, left behind,
+ * builds a page nothing opens.
  *
  * `offer` and `dismiss` are the wording of the "this page exists in your
- * language" hint, each in the language it offers — a French visitor is
+ * language" hint, each in the language it offers: a French visitor is
  * addressed in French, not in the language of the page they happened to land
  * on. They travel on the switcher links as data attributes because `site.js`
  * reads them from there, which is what keeps the hint out of the four

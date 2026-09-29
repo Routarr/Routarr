@@ -125,7 +125,7 @@ pub struct MetadataProviderHealth {
     pub needs_key: bool,
     /// A source that needs a key and has one, or that needs none.
     pub configured: bool,
-    /// Probed only for a fetched, configured source; `None` for the Arr, which
+    /// Probed only for a fetched, configured source. `None` for the Arr, which
     /// is reached through the instance probes above.
     pub connected: Option<bool>,
 }
@@ -149,7 +149,7 @@ pub struct AppStats {
 /// Whether to reach out to the Arrs and the metadata sources.
 ///
 /// The dashboard asks for `probe=false` and gets what the database can answer
-/// immediately; the probe costs a full connect timeout per unreachable Arr,
+/// immediately. The probe costs a full connect timeout per unreachable Arr,
 /// which is exactly when somebody is looking at the dashboard to find out why.
 #[derive(Debug, Deserialize, Default)]
 pub struct HealthQuery {
@@ -187,7 +187,7 @@ pub async fn health_check(
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache").fetch_one(pool).await?;
     // "Nothing at all is known about this item": no genres from its Arr and no
     // fetched answer either. An item the `arr` source alone describes is not
-    // missing metadata any more, which is the whole point of that source.
+    // missing metadata, which is the whole point of that source.
     let known = crate::api::media::metadata_predicate(&state.metadata_order().await);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
@@ -200,9 +200,9 @@ pub async fn health_check(
     // A probe writes down what it found before anything is reported, so the
     // two findings it alone can make survive into the answer `/status` gives.
     // That endpoint is polled and must never probe: an unreachable host costs a
-    // full connect timeout. Without this the dashboard reported a source that
-    // had stopped answering while the navigation beside it, unable to know,
-    // counted zero.
+    // full connect timeout. Without this the dashboard would report a source
+    // that stopped answering while the navigation beside it, unable to know,
+    // counts zero.
     if probe {
         record_probe(&state, &providers, &instance_health).await?;
     }
@@ -271,7 +271,7 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
 /// Replaces rather than accumulates: the question is what the last look saw,
 /// and a source that answers again has to stop being reported. A verdict is
 /// only as fresh as the last probe, and the dashboard is the default route, so
-/// in practice it is rewritten on every visit — but nothing here expires it,
+/// in practice it is rewritten on every visit, but nothing here expires it,
 /// which is why the diagnostics page states its own findings from a live probe
 /// rather than from this table.
 async fn record_probe(
@@ -293,9 +293,9 @@ async fn record_probe(
 
     let mut tx = state.pool.begin().await?;
     // A verdict outlives its subject otherwise. A source switched off, or one
-    // whose key was cleared, is no longer probed — `connected` is `None` and
-    // nothing above writes a row for it — so its last failure would be reported
-    // for ever, with no screen able to clear it.
+    // whose key was cleared, is not probed (`connected` is `None` and nothing
+    // above writes a row for it), so its last failure would be reported for
+    // ever, with no screen able to clear it.
     let live: Vec<String> = rows.iter().map(|(subject, _, _)| subject.clone()).collect();
     let keep = crate::db::placeholders(live.len().max(1));
     let mut prune = sqlx::query(AssertSqlSafe(
@@ -331,8 +331,8 @@ async fn record_probe(
 /// Reachability of every fetched source that is enabled and configured.
 ///
 /// Probed concurrently and bounded by the shared HTTP timeout, like the Arr
-/// instances: five sources probed one after another would make this page as
-/// slow as the slowest sum, which is what the instance probes were fixed for.
+/// instances: probed one after another, the sources would make this page as
+/// slow as the sum of their timeouts.
 async fn probe_sources(state: &AppState) -> HashMap<String, bool> {
     let sources = state.metadata_sources().await;
     let probes = sources.iter().map(|source| async move {
@@ -433,8 +433,8 @@ async fn offline_warnings(
         ));
     }
 
-    // An unattended pass that panicked. The loop catches it and carries on —
-    // stopping would silently end every sync, backup and purge — but carrying
+    // An unattended pass that panicked. The loop catches it and carries on
+    // (stopping would silently end every sync, backup and purge), but carrying
     // on quietly is its own failure, because nothing gives an operator a reason
     // to open the log of an application that looks well. Counted over 24 hours
     // rather than since startup: what matters is whether it is still happening,
@@ -455,7 +455,7 @@ async fn offline_warnings(
     // A retention count stored above its ceiling is honoured as it is:
     // lowering it removes what is beyond it, and nothing but the operator's
     // own save may do that. Named here so the operator is the one who lowers
-    // it — the screen refuses to save it as it stands, and this says why.
+    // it: the screen refuses to save it as it stands, and this says why.
     for (key, max) in crate::api::settings::retention_counts() {
         let stored: i64 = settings.get(key, 0i64);
         if stored > max {
@@ -493,7 +493,7 @@ async fn offline_warnings(
 /// What is wrong with the metadata configuration, in the user's language.
 ///
 /// Deliberately not "no TMDb key": with the Arr enabled, genre, language and
-/// certification rules match perfectly well without one — only keywords and
+/// certification rules match perfectly well without one. Only keywords and
 /// origin countries do not.
 fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<Warning> {
     let mut warnings = Vec::new();
@@ -539,7 +539,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
 ///
 /// `status` is `unchecked` rather than a guess. Reporting the last sync's
 /// outcome here would read as a live connection state and be wrong the moment
-/// an Arr goes down between two syncs; saying nothing is the honest answer, and
+/// an Arr goes down between two syncs. Saying nothing is the honest answer, and
 /// the interface asks for the real one in the background.
 async fn describe_instances(state: &AppState, instances: &[Instance]) -> Vec<InstanceHealth> {
     join_all(instances.iter().map(|instance| describe_instance(state, instance))).await
@@ -555,8 +555,8 @@ async fn probe_instances(state: &AppState, instances: &[Instance]) -> Vec<Instan
     join_all(instances.iter().map(|instance| probe_instance(state, instance))).await
 }
 
-/// The counts a database can answer for one instance. Both paths want these;
-/// only the probe adds a network call on top.
+/// The counts a database can answer for one instance. Both paths want these,
+/// and only the probe adds a network call on top.
 async fn counts_for(state: &AppState, instance: &Instance) -> InstanceHealth {
     let media_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media WHERE instance_id = ?")
         .bind(&instance.id)

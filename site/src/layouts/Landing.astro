@@ -13,13 +13,12 @@ import More from '../components/sections/More.astro';
  * is what stops the translations drifting from the markup: there is only one
  * markup.
  *
- * Four blocks, and the choice of which four is the whole point. On a 390px
- * phone the ten-section page measured 17905px, twenty-one screens, because
- * every section was a device built for a wide window that unfolds into a list
- * when it cannot be wide — and a comparison laid out as a list compares
- * nothing. The hero is already the demonstration, so nothing below it repeats
- * it: what decides, what refuses to write, how to run it, and a door to the
- * rest.
+ * Four blocks, and the choice of which four is the whole point. A section built
+ * for a wide window unfolds into a list on a phone, and a comparison laid out
+ * as a list compares nothing, so every section added here costs screens of
+ * scrolling. The hero is already the demonstration, so nothing below it
+ * repeats it: what decides, what refuses to write, how to run it, and a door
+ * to the rest.
  */
 interface Props {
   locale: Locale;

@@ -6,7 +6,7 @@
 //! keywords than TMDb's sparse ones.
 //!
 //! It has no TMDb, TVDB or IMDb identifier, so an item has to be found by title
-//! and year first — see `services::metadata`, which remembers the answer.
+//! and year first, which `services::metadata` does once and remembers.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -275,7 +275,7 @@ mod tests {
 
     /// A captured-shape AniList search response, deserialised through the real
     /// client types. This is what guards against the wire format drifting from
-    /// what the mapping expects — the one thing an in-process fake cannot,
+    /// what the mapping expects, the one thing an in-process fake cannot do,
     /// because the fake is written to match the mapping rather than the API.
     ///
     /// The realistic edges are deliberate: `english` is `null` (common for a
@@ -300,14 +300,13 @@ mod tests {
         let media = response.data.unwrap().page.media;
         assert_eq!(media.len(), 1);
         assert_eq!(media[0].id, 523);
-        // `null` english drops out; the two present spellings survive.
+        // A `null` english drops out, and the spellings present survive.
         let titles = titles_of(media[0].title.clone(), media[0].synonyms.clone());
         assert!(titles.contains(&"Tonari no Totoro".to_string()));
         assert!(titles.contains(&"Totoro".to_string()));
     }
 
-    /// The details half of the same capture, with real `tags` (rank included)
-    /// and the HTML-in-description AniList returns even with `asHtml: false`.
+    /// The details half of the same capture, with real `tags`, rank included.
     #[test]
     fn a_real_shape_details_payload_maps_to_metadata() {
         let json = r#"{

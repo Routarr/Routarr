@@ -2,18 +2,14 @@
   import { Search } from '../lib/icons';
 
   /**
-   * One search box, wherever a screen filters by typing.
-   *
-   * Four screens had three treatments: the library wrapped its input with a
-   * magnifier and an anchored width, the logs used a different icon size and
-   * no anchor, and the history had neither icon nor anchor — so the same
-   * gesture looked like a different control on each, and only one of them held
-   * its width when a button appeared beside it.
+   * One search box, wherever a screen filters by typing, so the same gesture
+   * never looks like a different control, and every box holds its width when a
+   * button appears beside it.
    *
    * The anchor is the part worth stating once. As `flex: 1 1 auto` the box
    * absorbs every spare pixel of its row, so revealing "clear filters" takes
    * that width straight back out of it and shifts everything between them
-   * sideways — on the first keystroke, and by however wide that label happens
+   * sideways, on the first keystroke, and by however wide that label happens
    * to be in the language being read.
    */
   let {
@@ -30,18 +26,19 @@
     placeholder: string;
     /** The accessible name, which the placeholder is not: it disappears on the first keystroke. */
     label: string;
-    /** Fired after the value has changed — where a screen resets its paging. */
+    /** Fired after the value has changed, where a screen resets its paging. */
     oninput?: () => void;
     /**
      * Milliseconds of quiet before the bound value follows the field. A screen
-     * whose `deps` read the value fetches on every change, and typing "anime"
-     * was five `LIKE` queries against a homelab server; with a delay it is
-     * one. Zero binds on every keystroke, for a screen that submits instead.
+     * whose `deps` read the value fetches on every change, so without a delay
+     * typing "anime" is five `LIKE` queries against a homelab server, and with
+     * one it is a single query. Zero binds on every keystroke, for a screen
+     * that submits instead.
      */
     debounce?: number;
   } = $props();
 
-  // The field's own text; `value` follows it, at once or after the quiet, and
+  // The field's own text. `value` follows it, at once or after the quiet, and
   // a value the parent resets (clear filters) comes back down into it.
   let draft = $derived(value);
 

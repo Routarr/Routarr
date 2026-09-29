@@ -2,10 +2,10 @@ name: Docker image
 
 # Its own workflow, and that is the whole point.
 #
-# As a job in `ci.yml`, which cancels in progress on a new push, it would take
-# several minutes where everything else takes one — so on any active day it
-# would be killed before finishing, and the only thing that checks the
-# Dockerfile would almost never run to the end.
+# As a job in `ci.yml`, which cancels a pull request's run when a new push
+# supersedes it, a build as long as the image's would be killed before
+# finishing on any active day, and the only thing that checks the Dockerfile
+# would almost never run to the end.
 #
 # So: a group that queues rather than cancels. At most one build in flight, at
 # most one waiting, and the one in flight finishes.
@@ -13,15 +13,15 @@ name: Docker image
 # Only when something that reaches the image changes. A site or a
 # documentation commit cannot break a build that never sees them.
 #
-# On a pull request as well as on `main`, because `ci.yml` cannot see this file:
-# a commit touching only the Dockerfile matches none of its three path filters,
-# so a broken base image passes every check a pull request runs and breaks
-# `main` on merge — found by whoever merged, not by whoever wrote it. Not
-# hypothetical: 59375eb raised the Rust version, passed CI, and failed the image
-# build on `rust:1.98.1-alpine: not found`.
+# On a pull request as well as on `main`, because nothing in `ci.yml` builds
+# the image: a commit touching only the Dockerfile matches none of its three
+# path filters, so without this workflow a broken base image would pass every
+# check a pull request runs and break `main` on merge, found by whoever merged
+# rather than by whoever wrote it. A Rust version whose `-alpine` image is not
+# published yet passes every job in `ci.yml` and fails only here.
 #
 # The two lists are written twice because GitHub Actions does not read YAML
-# anchors; an alias here is silently not the list it names.
+# anchors: an alias here is silently not the list it names.
 on:
   push:
     branches: [main]
@@ -45,29 +45,29 @@ on:
       - 'LICENSE'
       - '.github/workflows/docker.yml'
 
-# The job runs a pull request's Dockerfile; the token it holds reads and
+# The job runs a pull request's Dockerfile, so the token it holds reads and
 # nothing more.
 permissions:
   contents: read
 
-# Queues rather than cancels — see above. Keyed on the head branch so a pull
-# request and the branch it targets never wait on each other.
+# Queues rather than cancels, as the header says. Keyed on the head branch so
+# a pull request and the branch it targets never wait on each other.
 concurrency:
   group: docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
-  # Does the image still build and start — native, one architecture.
+  # Does the image still build and start: natively, on one architecture.
   #
-  # Building linux/arm64 here as well would compile it under QEMU: 100 to 150
-  # minutes per run, against 8 for every other job put together — enough to
-  # exhaust the account's free Actions tier in two days.
+  # Building linux/arm64 here as well would compile it under QEMU, many times
+  # longer than every other job put together, on every push that reaches the
+  # image.
   #
-  # What it actually buys is the answer to "does the Dockerfile still work", and
+  # What this job buys is the answer to "does the Dockerfile still work", and
   # one architecture answers that: an arm64-specific break would have to come
-  # from a base image or a dependency, not from this repository's code. Both
-  # architectures are still built by `release.yml`, where the cost is paid once
-  # per tag rather than once per push.
+  # from a base image or a dependency, not from this repository's code.
+  # `release.yml` builds both architectures, where the cost is paid once per tag
+  # rather than once per push.
   image:
     name: Docker image (amd64)
     runs-on: ubuntu-latest
@@ -92,10 +92,10 @@ jobs:
           load: true
           tags: routarr:smoke
           cache-from: type=gha
-          # Written from `main` only. The cache is 10 GB for the repository and
-          # evicted oldest-first; every pull request writing its own layers
-          # pushed the arm64 layers `release.yml` needs out, and a tag then
-          # built cold.
+          # Written from `main` only. The cache holds 10 GB for the whole
+          # repository and evicts the oldest first, so every pull request
+          # writing its own layers would push out the layers `release.yml`
+          # reads, and a tag would build cold.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
 
       # A build that succeeds says the Dockerfile compiles, not that the image

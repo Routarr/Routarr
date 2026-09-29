@@ -1,4 +1,8 @@
-// REST client for the Routarr backend.
+// REST client for the Routarr backend. Every request goes through `api` below.
+//
+// Nothing in `frontend/src/api/` imports Svelte or `frontend/src/lib/`. `lib/`
+// builds on these modules, and they stay plain TypeScript that a test runs
+// without rendering anything.
 
 import { basePath } from './basePath';
 
@@ -53,10 +57,9 @@ const API_KEY_STORAGE = 'routarr.apiKey';
 /** Thrown for any non-2xx response, carrying the backend's message. */
 export class ApiError extends Error {
   // Declared and assigned rather than written as constructor parameter
-  // properties: those are the one piece of TypeScript that cannot be erased,
-  // since they compile to assignments. Vite strips types per file and emits
-  // nothing else, so `erasableSyntaxOnly` holds the source to what that
-  // pipeline can actually honour.
+  // properties: those cannot be erased, since they compile to assignments.
+  // Vite strips types per file and emits nothing else, so `erasableSyntaxOnly`
+  // holds the source to what that pipeline can actually honour.
   readonly status: number;
   readonly kind: string;
   /**
@@ -69,8 +72,8 @@ export class ApiError extends Error {
    * Which guardrail is asking, for a refusal that can be answered.
    *
    * Three of them ask, and the caller sends this name back to say what it
-   * looked at. A bare "yes" answered all three at once, so confirming a
-   * capacity shortfall lifted the batch threshold the operator was never
+   * looked at. A bare "yes" would answer all three at once, and confirming a
+   * capacity shortfall would lift the batch threshold the operator was never
    * shown.
    */
   readonly confirm: string | null;
@@ -140,11 +143,11 @@ async function request<T>(
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
-  // Only sent when the user configured one; an open instance ignores it.
+  // Only sent when the user configured one. An open instance ignores it.
   if (key) headers['X-Api-Key'] = key;
 
   // A server that never answers must not leave a spinner running forever. The
-  // Arr calls the backend makes are bounded on its side; this bounds the one
+  // Arr calls the backend makes are bounded on its side. This bounds the one
   // the browser makes to the backend. The kind is what `describeError` reads,
   // so the wording stays with the other translated messages.
   //
@@ -158,8 +161,8 @@ async function request<T>(
   // endpoint sweep in `client.test.ts` calls every method on this object with
   // positional placeholders, so a signal parameter receives a string there.
   // `AbortSignal.any` throws on one, and the method would then answer without
-  // issuing the request the sweep exists to inspect — a whole class of URL
-  // faults going unchecked to spare one line here.
+  // issuing the request the sweep exists to inspect, leaving a whole class of
+  // URL faults unchecked to spare one line here.
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
   const signal = caller ? anySignal([caller, timeout]) : timeout;
@@ -341,8 +344,8 @@ export const api = {
     }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   /**
-   * The new key comes back exactly once — there is no route that reads it
-   * again, so a caller that drops it has to mint another.
+   * The new key comes back exactly once. No route reads it again, so a caller
+   * that drops it has to mint another.
    */
   rotateApiKey: () => request<{ api_key: string }>('/auth/api-key', { method: 'POST' }),
   deleteApiKey: () => request<unknown>('/auth/api-key', { method: 'DELETE' }),

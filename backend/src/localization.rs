@@ -26,7 +26,7 @@ pub const DEFAULT_LANGUAGE: &str = "en";
 ///
 /// Held here rather than in the frontend because the catalogue is here: adding
 /// `ar` to `CATALOG` should turn the interface around on its own, with nothing
-/// else to remember. Base tags only — a regional variant carries its script's
+/// else to remember. Base tags only: a regional variant carries its script's
 /// direction, so `ar-EG` matches `ar`.
 const RTL_LANGUAGES: &[&str] = &["ar", "he", "fa", "ur", "yi", "dv", "ps"];
 
@@ -43,11 +43,11 @@ pub fn direction(code: &str) -> &'static str {
 /// Locale data, so it sits beside `RTL_LANGUAGES` rather than in the
 /// dictionaries: these are symbols, not prose, and a translator has nothing to
 /// decide about them. Generated from `Intl.NumberFormat`, which is the same
-/// source `frontend/src/api/format.ts` reads at run time — that is what stops
+/// source `frontend/src/api/format.ts` reads at run time, and that is what stops
 /// the two halves of the application naming one figure two ways.
 ///
 /// Japanese differs from the default by one capital, and Arabic's petabyte is
-/// the one entry `Intl` gives as a word rather than a symbol; inventing a
+/// the one entry `Intl` gives as a word rather than a symbol. Inventing a
 /// prefix for it would be worse than repeating what the platform says, and no
 /// homelab reports a petabyte of free space.
 const BYTE_UNITS_DEFAULT: [&str; 6] = ["B", "kB", "MB", "GB", "TB", "PB"];
@@ -135,7 +135,7 @@ fn dictionaries() -> &'static HashMap<&'static str, Dictionary> {
             .map(|(language, raw)| {
                 let parsed: Dictionary = serde_json::from_str(raw).unwrap_or_else(|e| {
                     // A malformed shipped locale is a build mistake, not a
-                    // runtime condition; degrade to keys rather than refusing to
+                    // runtime condition. Degrade to keys rather than refusing to
                     // start.
                     tracing::error!("Locale {} is not valid JSON: {e}", language.code);
                     Dictionary::new()
@@ -159,7 +159,7 @@ pub struct LanguageInfo {
     /// Shipped because a partial translation is allowed: rather than hiding an
     /// incomplete language or refusing it, the picker says how complete it is.
     /// Anything a language does not translate is served in English, so the
-    /// interface stays usable either way — but the user gets to know.
+    /// interface stays usable either way, but the user gets to know.
     pub completion: u8,
 }
 
@@ -206,8 +206,8 @@ pub fn dictionary(code: &str) -> Dictionary {
 /// English underneath, the translation on top.
 ///
 /// Extracted so the partial-translation contract can be tested against a
-/// deliberately incomplete dictionary: every shipped locale is complete today,
-/// so a test written against them would prove nothing.
+/// deliberately incomplete dictionary: while every shipped locale is complete,
+/// a test written against them proves nothing.
 fn merge(english: Dictionary, translated: Option<&Dictionary>) -> Dictionary {
     let mut merged = english;
     if let Some(translated) = translated {
@@ -218,8 +218,8 @@ fn merge(english: Dictionary, translated: Option<&Dictionary>) -> Dictionary {
 
 /// The template for a key: the requested language first, English second.
 ///
-/// This is what makes a partial translation safe rather than broken — see
-/// [`merge`] for why it is a free function.
+/// This is what makes a partial translation safe rather than broken. [`merge`]
+/// says why it is a free function.
 fn lookup<'a>(
     translated: Option<&'a Dictionary>,
     english: Option<&'a Dictionary>,
@@ -312,7 +312,7 @@ fn resolve(code: &str) -> Option<&'static str> {
 /// Match a normalized code against the catalogue.
 ///
 /// Locale files keep the Servarr naming (`nb_NO`, `zh_CN`), so both sides are
-/// normalized before comparison — otherwise `nb-no` would never find `nb_NO`.
+/// normalized before comparison, or `nb-no` would never find `nb_NO`.
 fn shipped(code: &str) -> Option<&'static str> {
     CATALOG
         .iter()
@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn a_regional_variant_follows_its_script() {
-        // `ar-EG` is still Arabic; matching the whole tag would have missed it.
+        // `ar-EG` is still Arabic, and matching the whole tag would miss it.
         assert_eq!(direction("ar-EG"), "rtl");
         assert_eq!(direction("pt_BR"), "ltr");
     }
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn the_catalogue_reports_each_language_its_own_direction() {
         // The invariant is that the direction served is the one `direction()`
-        // derives from the tag, never a hand-kept list in the frontend — which
+        // derives from the tag, never a hand-kept list in the frontend, which
         // is what lets a right-to-left language be added to `CATALOG` alone.
         for language in languages() {
             assert_eq!(
@@ -428,9 +428,9 @@ mod tests {
 
     #[test]
     fn a_partial_translation_falls_back_to_english_key_by_key() {
-        // Built by hand rather than taken from `locales/`: every shipped
-        // dictionary is complete, so a test written against them would pass
-        // whether or not the fallback exists.
+        // Built by hand rather than taken from `locales/`: while every shipped
+        // dictionary is complete, a test written against them passes whether
+        // or not the fallback exists.
         let english = Dictionary::from([
             ("Translated".to_string(), "English one".to_string()),
             ("Untranslated".to_string(), "English two".to_string()),

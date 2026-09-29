@@ -105,9 +105,9 @@
                     <td class="mono">{instance.version ?? t('None')}</td>
                     <td>{instance.media_count}</td>
                     <td>
-                      <!-- A count, not a verdict: zero mapped folders is already
-                           reported in the warnings above, and it was the only
-                           reason this number was ever painted red. -->
+                      <!-- A count, not a verdict: zero mapped folders, the one
+                           case worth painting red, is already reported in the
+                           warnings above. -->
                       <span class="num">{instance.mapped_root_folders}</span>
                     </td>
                     <td
@@ -130,9 +130,10 @@
         </div>
 
         <!-- A list, not a grid of `Stat` tiles. Those are built for numbers, so
-             the state landed in the figure slot and the source name in the
-             caption: one read "connected / AniList" instead of "AniList —
-             connected". The name is the information; the state qualifies it. -->
+             the state would land in the figure slot and the source name in the
+             caption, reading "connected / AniList" instead of "AniList,
+             connected". The name is the information, and the state qualifies
+             it. -->
         <div class="source-list">
           {#each health.metadata.providers as provider (provider.id)}
             {@const waiting = !provider.configured}

@@ -5,14 +5,11 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   // Relative asset URLs, resolved against the `<base href>` the backend injects.
   // An absolute base would have to be chosen at build time, which would mean one
-  // Docker image per mount point — the opposite of shipping a single image.
+  // Docker image per mount point, the opposite of shipping a single image.
   base: './',
 
   plugins: [
     svelte({
-      // Compile components for the browser in tests too, rather than rendering
-      // them to a string: the suite asserts on what a user can reach — roles,
-      // labels, what a click does — and none of that exists server-side.
       compilerOptions: { hmr: process.env.NODE_ENV !== 'production' },
     }),
   ],
@@ -39,12 +36,12 @@ export default defineConfig({
       output: {
         // Everything from node_modules in one chunk of its own.
         //
-        // Without this, Rollup folded the Svelte runtime and the icons into
-        // whichever application chunk happened to pull them first — 55 kB
-        // shipping as `ErrorBanner-<hash>.js`, which makes a network panel lie
+        // Without this, Rollup folds the Svelte runtime and the icons into
+        // whichever application chunk happens to pull them first, shipping
+        // them as `ErrorBanner-<hash>.js`, which makes a network panel lie
         // about what is being downloaded. It also caches better: dependencies
         // change on a Dependabot schedule, screens change on every commit, and
-        // a shared hash meant one edit invalidated both.
+        // a shared hash would let one edit invalidate both.
         manualChunks(id) {
           if (id.includes('node_modules')) return 'vendor';
         },
@@ -60,15 +57,16 @@ export default defineConfig({
   },
 
   test: {
-    // jsdom, not happy-dom, which does not
-    // drive `<select>` the way Svelte's `bind:value` reads it — the option
-    // changes in the DOM, the bound variable never does, and a filter test
-    // passes its click and then asserts against a request that was never made.
+    // jsdom, not happy-dom, which does not drive `<select>` the way Svelte's
+    // `bind:value` reads it: the option changes in the DOM, the bound variable
+    // never does, and a filter test passes its click and then asserts against a
+    // request that was never made.
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     globals: true,
-    // Keep production builds free of test files. `e2e/` belongs to Playwright:
-    // its specs drive a real browser against a real server and would hang here.
+    // No test is looked for in the build output, and `e2e/` belongs to
+    // Playwright: its specs drive a real browser against a real server and
+    // would hang here.
     exclude: ['node_modules', 'dist', 'e2e'],
     coverage: {
       provider: 'v8',
@@ -86,12 +84,12 @@ export default defineConfig({
       ],
       reporter: ['text-summary', 'lcov'],
       // A floor, not a target. It catches a suite that stops running or a
-      // screen added with no test at all; it is not meant to be negotiated with
-      // on every refactor. Raise it when the real figure moves up, never lower
-      // it to make a build pass.
-      // About two points below what the suite measures, the headroom the
-      // backend gate keeps too. Enough that ordinary work does not trip it,
-      // not so much that it stops guarding.
+      // screen added with no test at all, and it is not meant to be negotiated
+      // with on every refactor. Raise it when the real figure moves up, never
+      // lower it to make a build pass.
+      // A little below what the suite measures, the headroom the backend gate
+      // keeps too. Enough that ordinary work does not trip it, not so much
+      // that it stops guarding.
       thresholds: { statements: 90, branches: 80, functions: 88, lines: 90 },
     },
   },

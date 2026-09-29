@@ -2,7 +2,7 @@
   import { createAsync } from '../lib/async.svelte';
 
   /**
-   * `createAsync` opens an effect, so it has to run inside a component; this
+   * `createAsync` opens an effect, so it has to run inside a component. This
    * is the smallest one that shows what a page would read from it. `filter` is
    * the dependency a screen would pass as `deps`: a test re-renders with a new
    * one to move the inputs on.
