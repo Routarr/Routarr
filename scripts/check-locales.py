@@ -11,7 +11,9 @@ Checks, in order of how much a failure would hurt:
 4. no key is left behind once its last use is deleted;
 5. no language falls below MIN_COMPLETION;
 6. every dictionary keeps the English key order, which `add-locale.py` writes:
-   a file out of order has every line moved by the next run of it.
+   a file out of order has every line moved by the next run of it;
+7. a core term reads one way inside each language (`scripts/glossary.json`):
+   a reader who meets two words for "apply" cannot tell they are one act.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
@@ -42,6 +44,8 @@ DYNAMIC_PREFIXES = ("ConditionLabel", "Job", "Trigger", "Status")
 # rather than work in progress. Partial translations above it are welcome: the
 # picker shows their completion, so nothing is claimed that is not true.
 MIN_COMPLETION = 0.50
+
+GLOSSARY = ROOT / "scripts" / "glossary.json"
 
 
 def source_text() -> str:
@@ -102,6 +106,46 @@ def referenced_keys(text: str) -> set[str]:
 
 def placeholders(template: str) -> set[str]:
     return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", template))
+
+
+def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str, str]]) -> list[str]:
+    """A key carries a concept when its English value says the concept's word.
+
+    Chosen from the English, so a key added later is held to the word without
+    anyone listing it. `except` names the keys where the English word means
+    something else ("Move up", "Skip to content"), and a stale entry there is
+    itself a problem, or the list keeps exempting a key that no longer needs it.
+    A value still identical to the English is an untranslated fallback and is
+    not read.
+    """
+    problems: list[str] = []
+    for concept, spec in json.loads(GLOSSARY.read_text(encoding="utf-8")).items():
+        carriers = [
+            key
+            for key, value in english.items()
+            if re.search(spec["en"], value, re.I) and key not in spec["except"]
+        ]
+        if not carriers:
+            problems.append(f"glossary: '{concept}' matches no English key")
+        for key in spec["except"]:
+            if key not in english or not re.search(spec["en"], english[key], re.I):
+                problems.append(f"glossary: '{concept}' excepts {key}, whose English does not say it")
+        for language, dictionary in sorted(dictionaries.items()):
+            if language == "en":
+                continue
+            word = spec["words"].get(language)
+            if word is None:
+                problems.append(f"glossary: '{concept}' has no word for {language}")
+                continue
+            for key in carriers:
+                value = dictionary.get(key)
+                if value is None or value == english[key]:
+                    continue
+                if not re.search(word, value, re.I):
+                    problems.append(
+                        f"{language}.json: '{key}' says '{concept}' in another word than /{word}/"
+                    )
+    return problems
 
 
 def main() -> int:
@@ -178,6 +222,9 @@ def main() -> int:
                 f"(expected '{expected[at]}'): "
                 f"echo '{{}}' | python3 scripts/add-locale.py {language}"
             )
+
+    # 7. One word per core term.
+    problems.extend(glossary_problems(english, dictionaries))
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)

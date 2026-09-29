@@ -36,7 +36,7 @@ cargo fmt
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 90%
-python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans
+python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written
 ```
