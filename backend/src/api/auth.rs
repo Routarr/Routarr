@@ -560,7 +560,7 @@ pub struct Callback {
 pub async fn oidc_callback(
     State(state): State<AppState>,
     headers: HeaderMap,
-    axum::extract::Query(callback): axum::extract::Query<Callback>,
+    super::Query(callback): super::Query<Callback>,
 ) -> Response {
     let home = home(&state);
 

@@ -58,7 +58,9 @@ async fn the_library_is_reported_per_instance_and_type() {
     let body = scrape(&app).await;
 
     assert!(
-        body.contains(r#"routarr_media_total{instance="Radarr",media_type="movie"} 1"#),
+        body.contains(
+            r#"routarr_media_total{arr_instance="Radarr",arr_instance_id="inst-1",media_type="movie"} 1"#
+        ),
         "got:\n{body}"
     );
     assert_well_formed(&body);
@@ -71,7 +73,10 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
 
     // Never synced: not up.
     let body = scrape(&app).await;
-    assert!(body.contains(r#"routarr_instance_up{instance="Radarr"} 0"#), "got:\n{body}");
+    assert!(
+        body.contains(r#"routarr_instance_up{arr_instance="Radarr",arr_instance_id="inst-1"} 0"#),
+        "got:\n{body}"
+    );
 
     sqlx::query("UPDATE instances SET last_sync_status = 'success'")
         .execute(&app.state.pool)
@@ -79,7 +84,36 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
         .unwrap();
 
     let body = scrape(&app).await;
-    assert!(body.contains(r#"routarr_instance_up{instance="Radarr"} 1"#), "got:\n{body}");
+    assert!(
+        body.contains(r#"routarr_instance_up{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#),
+        "got:\n{body}"
+    );
+}
+
+/// Prometheus sets `instance` on every scraped series to the target it
+/// scraped, so a label of that name is renamed `exported_instance` on the way
+/// in. Two instances may also share a name, and one series per name would
+/// merge them.
+#[tokio::test]
+async fn two_instances_of_one_name_are_two_series() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    sqlx::query(
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('inst-2', 'Radarr', 'radarr', 'http://radarr-4k:7878', 'secret', 1, 'tok2')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let body = scrape(&app).await;
+
+    let up: Vec<&str> =
+        body.lines().filter(|line| line.starts_with("routarr_instance_up{")).collect();
+    assert_eq!(up.len(), 2, "got:\n{body}");
+    assert_ne!(up[0], up[1], "got:\n{body}");
+    assert!(!body.contains("{instance="), "a label Prometheus renames:\n{body}");
+    assert_well_formed(&body);
 }
 
 #[tokio::test]

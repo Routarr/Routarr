@@ -62,6 +62,7 @@ RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --locked
 cargo llvm-cov --summary-only --fail-under-lines 90 --ignore-filename-regex 'src/(tests/|main\.rs)'
 cargo audit
+cargo deny --locked check           # licences, advisories and sources, from deny.toml
 python3 ../scripts/check-locales.py
 python3 ../scripts/check-api-types.py   # the response structs against types.ts
 python3 ../scripts/check-versions.py    # every place a version is written

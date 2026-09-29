@@ -1,7 +1,7 @@
 //! Media explorer and per-item explainability.
 
-use super::Json;
-use axum::extract::{Path, Query, State};
+use super::{Json, Query};
+use axum::extract::{Path, State};
 use chrono::Utc;
 use serde::Serialize;
 use sqlx::AssertSqlSafe;

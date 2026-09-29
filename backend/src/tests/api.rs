@@ -433,6 +433,52 @@ async fn a_body_that_cannot_be_parsed_still_gets_the_error_envelope() {
     }
 }
 
+/// A query string the stock extractor cannot parse is answered in text/plain,
+/// which the interface cannot unwrap into a translated message.
+#[tokio::test]
+async fn a_query_that_cannot_be_parsed_still_gets_the_error_envelope() {
+    let app = TestApp::new().await;
+    for path in [
+        "/api/v1/decisions?page=abc",
+        "/api/v1/media?per_page=-1",
+        "/api/v1/logs?success=maybe",
+        "/api/v1/logs/export?success=maybe",
+        "/api/v1/jobs?page=abc",
+        "/api/v1/health?probe=maybe",
+    ] {
+        let response = app.get(path).await;
+        assert_eq!(response.status, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(response.json["error"], "bad_request", "{path}: {}", response.json);
+        assert!(response.message().contains("query"), "{path}: {}", response.json);
+    }
+}
+
+/// The scan finds a handler added later that reads its query through the
+/// stock extractor, which the test above would not know to ask.
+#[test]
+fn no_handler_takes_the_stock_query_extractor() {
+    let takes_stock = |source: &str| {
+        source.contains("axum::extract::Query")
+            || source.lines().any(|line| {
+                line.trim_start().starts_with("use axum::extract::{")
+                    && line.split(|c: char| !c.is_alphanumeric()).any(|word| word == "Query")
+            })
+    };
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api");
+    let mut read = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        // Where `api::Query` wraps the stock extractor.
+        if path.ends_with("mod.rs") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        read += 1;
+        assert!(!takes_stock(&source), "{} takes axum's Query: use api::Query", path.display());
+    }
+    assert!(read > 10, "read {read} files under {}", dir.display());
+}
+
 #[tokio::test]
 async fn a_single_rule_can_be_fetched_back() {
     let app = TestApp::new().await;
