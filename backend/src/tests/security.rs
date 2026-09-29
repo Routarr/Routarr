@@ -432,23 +432,21 @@ async fn an_oversized_body_is_refused() {
 
 // ------------------------------------------------------- modes
 
-/// `disabled` and `required` are spellings an existing deployment may still
-/// set. An image people pull without reading release notes has to keep
-/// starting, and starting *open* is the one outcome a typo must never produce.
+/// Only `none` opens the door. Starting open is the one outcome a typo or a
+/// spelling no release documented must never produce: each falls back to the
+/// API key.
 #[test]
-fn the_old_spelling_still_opts_out_and_a_typo_never_does() {
+fn only_none_opts_out_and_anything_else_keeps_the_key() {
     use crate::config::AuthMode;
 
     assert_eq!(AuthMode::from_env("none"), AuthMode::None);
-    assert_eq!(AuthMode::from_env("disabled"), AuthMode::None);
-    assert_eq!(AuthMode::from_env("DISABLED"), AuthMode::None);
+    assert_eq!(AuthMode::from_env("NONE"), AuthMode::None);
 
-    assert_eq!(AuthMode::from_env("required"), AuthMode::ApiKey);
     assert_eq!(AuthMode::from_env("apikey"), AuthMode::ApiKey);
     assert_eq!(AuthMode::from_env(""), AuthMode::ApiKey);
-    // A typo closes the door rather than opening it.
-    assert_eq!(AuthMode::from_env("nome"), AuthMode::ApiKey);
-    assert_eq!(AuthMode::from_env("off"), AuthMode::ApiKey);
+    for undocumented in ["disabled", "required", "nome", "off"] {
+        assert_eq!(AuthMode::from_env(undocumented), AuthMode::ApiKey, "{undocumented}");
+    }
 }
 
 /// Radarr wires its own `External` to the same handler as `None`: it reads no

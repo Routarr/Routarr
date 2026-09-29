@@ -49,8 +49,8 @@ async fn anilist_answers_the_shape_the_client_expects() {
     // is the only test that would notice.
     let matched = candidates.iter().find(|c| {
         c.titles.iter().any(|t| {
-            crate::services::metadata::normalise_title(t)
-                == crate::services::metadata::normalise_title(TITLE)
+            crate::services::rule_engine::normalise_value(t)
+                == crate::services::rule_engine::normalise_value(TITLE)
         })
     });
     let matched = matched.expect("no AniList candidate matched on title");
@@ -94,8 +94,8 @@ async fn jikan_answers_the_shape_the_client_expects() {
         .iter()
         .find(|c| {
             c.titles.iter().any(|t| {
-                crate::services::metadata::normalise_title(t)
-                    == crate::services::metadata::normalise_title(TITLE)
+                crate::services::rule_engine::normalise_value(t)
+                    == crate::services::rule_engine::normalise_value(TITLE)
             })
         })
         .expect("no Jikan candidate matched on title");

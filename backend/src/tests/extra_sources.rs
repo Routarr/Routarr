@@ -490,10 +490,13 @@ async fn a_source_without_its_key_is_reported_rather_than_probed() {
 
 #[test]
 fn a_title_matches_whatever_punctuation_and_case_it_is_written_in() {
-    assert_eq!(metadata::normalise_title("My Neighbor Totoro!"), "my neighbor totoro");
-    assert_eq!(metadata::normalise_title("  ONE  PIECE  "), "one piece");
     assert_eq!(
-        metadata::normalise_title("Fullmetal Alchemist: Brotherhood"),
+        crate::services::rule_engine::normalise_value("My Neighbor Totoro!"),
+        "my neighbor totoro"
+    );
+    assert_eq!(crate::services::rule_engine::normalise_value("  ONE  PIECE  "), "one piece");
+    assert_eq!(
+        crate::services::rule_engine::normalise_value("Fullmetal Alchemist: Brotherhood"),
         "fullmetal alchemist brotherhood"
     );
 }

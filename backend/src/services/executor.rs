@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::jobs::{Attribution, Detail, JobKind};
+use crate::jobs::{Attribution, Detail, JobKind, detached};
 use crate::models::Instance;
 use crate::services::routing::{self, format_timestamp};
 use crate::services::rule_engine::normalize_path;
@@ -328,25 +328,6 @@ pub async fn apply_unattended(
 ) -> AppResult<ApplyReport> {
     guard_dry_run(state).await?;
     run_apply(state, decision_ids, false, by).await
-}
-
-/// Run the writing part of an apply on a task of its own, and wait for it.
-///
-/// The request future is dropped the moment the client hangs up (a browser
-/// navigating away, an Arr whose webhook timed out), and it is dropped at its
-/// next await, which can be the one between the Arr performing a move and
-/// this recording it. A move the Arr has performed must be recorded whatever
-/// the caller does next. Spawned, the work runs to its end holding the lock
-/// and the job handle, so a second apply still waits its turn and the Tasks
-/// screen sees this one finish.
-async fn detached<T, F>(work: F) -> AppResult<T>
-where
-    F: std::future::Future<Output = AppResult<T>> + Send + 'static,
-    T: Send + 'static,
-{
-    tokio::spawn(work)
-        .await
-        .map_err(|e| AppError::Internal(format!("the apply task ended before it reported: {e}")))?
 }
 
 /// The shared body of both apply paths: take the lock, record a job, write.

@@ -66,28 +66,17 @@ impl AuthMode {
         }
     }
 
-    /// Read `ROUTARR_AUTH`, with the aliases a deployed compose file may carry.
+    /// Read `ROUTARR_AUTH`.
     ///
     /// Anything unrecognised falls back to the API key rather than to nothing:
     /// a typo must not be the way an installation ends up open.
     pub fn from_env(raw: &str) -> Self {
         match raw.trim().to_ascii_lowercase().as_str() {
             "none" => Self::None,
-            // An alias deployed compose files carry. An image people pull
-            // without reading release notes has to keep starting on it.
-            "disabled" => {
-                tracing::warn!(
-                    "ROUTARR_AUTH=disabled is the old spelling of `none` and still works. \
-                     Rename it, the alias will not be documented"
-                );
-                Self::None
-            }
-            // `required` is an alias for the API key that deployed compose
-            // files carry.
             "oidc" | "openid" => Self::Oidc,
             "forms" | "form" => Self::Forms,
             "external" | "proxy" => Self::External,
-            "apikey" | "api_key" | "required" | "" => Self::ApiKey,
+            "apikey" | "api_key" | "" => Self::ApiKey,
             other => {
                 // The variable is named apart from its value: the sample-env
                 // check scans this file for a quoted `ROUTARR_*` and would read

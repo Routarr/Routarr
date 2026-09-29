@@ -22,6 +22,10 @@ pub struct LogEntry {
     pub instance_id: Option<String>,
     pub media_id: Option<String>,
     pub media_title: Option<String>,
+    /// What set the write off: `manual`, `schedule` or `webhook`.
+    pub actor: Option<String>,
+    /// Who asked, when the mode vouched for a name.
+    pub subject: Option<String>,
     pub executed_at: String,
 }
 
@@ -37,7 +41,7 @@ pub struct LogQuery {
 }
 
 const COLUMNS: &str = "id, decision_id, action, details, success, error_message,
-     instance_id, media_id, media_title, executed_at";
+     instance_id, media_id, media_title, actor, subject, executed_at";
 
 pub async fn list(
     State(state): State<AppState>,
@@ -81,12 +85,16 @@ pub async fn export(
     }
     let entries = list_query.fetch_all(&state.pool).await?;
 
-    let mut csv = String::from("executed_at,action,success,media_title,details,error_message\n");
+    let mut csv = String::from(
+        "executed_at,action,actor,subject,success,media_title,details,error_message\n",
+    );
     for entry in entries {
         csv.push_str(&format!(
-            "{},{},{},{},{},{}\n",
+            "{},{},{},{},{},{},{},{}\n",
             csv_field(&entry.executed_at),
             csv_field(&entry.action),
+            csv_field(entry.actor.as_deref().unwrap_or("")),
+            csv_field(entry.subject.as_deref().unwrap_or("")),
             entry.success,
             csv_field(entry.media_title.as_deref().unwrap_or("")),
             csv_field(entry.details.as_deref().unwrap_or("")),

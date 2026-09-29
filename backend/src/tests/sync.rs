@@ -9,6 +9,55 @@ use crate::services::sync;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
+/// A reverse proxy that times out, or a tab closed, drops the request. The
+/// sync it started runs to its end: rolled back with the request, the library
+/// stays stale and the Tasks screen shows a failure nobody caused.
+#[tokio::test]
+async fn hanging_up_mid_sync_still_finishes_the_sync() {
+    use std::time::Duration;
+
+    let arr = FakeArr::holding_edits(Duration::from_millis(200)).await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-held", "radarr", &arr.base_url).await;
+
+    {
+        let mut syncing =
+            Box::pin(app.post("/api/v1/instances/inst-held/sync", serde_json::json!({})));
+        let reached = tokio::time::timeout(Duration::from_secs(5), async {
+            while !arr.recorded().reads.iter().any(|read| read == "/api/v3/movie") {
+                let _ = futures::poll!(syncing.as_mut());
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        assert!(reached.is_ok(), "the sync never asked for the library");
+    }
+
+    let finished = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let status: Option<String> = sqlx::query_scalar(
+                "SELECT status FROM jobs WHERE kind = 'sync' AND status != 'running'",
+            )
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+            if let Some(status) = status {
+                return status;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the sync job never ended");
+    assert_eq!(finished, "success");
+    let media: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM media WHERE instance_id = 'inst-held'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(media > 0, "the library was not stored");
+}
+
 /// The webhook path stamps its `read_at` *before* reading the Arr, as the full
 /// sync does before its first request. Stamped after, a move applied while that
 /// read is in flight would be older than the stamp, and the path the Arr

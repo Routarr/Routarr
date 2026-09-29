@@ -1707,6 +1707,40 @@ async fn logs_can_be_exported_as_csv() {
     assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
 }
 
+/// Every write says what set it off and, when a mode vouched for a name, who:
+/// the log answers "did the nightly sweep do this, or did somebody" on
+/// screen and in the file an operator hands on.
+#[tokio::test]
+async fn a_log_entry_names_its_trigger_and_its_account() {
+    let app = TestApp::new().await;
+    sqlx::query(
+        "INSERT INTO execution_logs (id, action, details, success, media_title, actor, subject,
+                                     executed_at)
+         VALUES ('log-1', 'move', 'd', 1, 'Totoro', 'manual', 'alice', '2026-09-01 10:00:00'),
+                ('log-2', 'move', 'd', 1, 'Akira', 'schedule', NULL, '2026-09-01 09:00:00')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let page = app.get("/api/v1/logs").await;
+    let entries = page.assert_ok()["data"].as_array().unwrap().clone();
+    assert_eq!(
+        (&entries[0]["actor"], &entries[0]["subject"]),
+        (&serde_json::json!("manual"), &serde_json::json!("alice"))
+    );
+    assert_eq!(
+        (&entries[1]["actor"], &entries[1]["subject"]),
+        (&serde_json::json!("schedule"), &serde_json::Value::Null)
+    );
+
+    let csv = app.text("/api/v1/logs/export").await;
+    let mut lines = csv.lines();
+    assert!(lines.next().unwrap().contains(",actor,subject,"), "{csv}");
+    assert!(lines.next().unwrap().contains(r#","manual","alice","#), "{csv}");
+    assert!(lines.next().unwrap().contains(r#","schedule","","#), "{csv}");
+}
+
 // ------------------------------------------------------------ status
 
 #[tokio::test]

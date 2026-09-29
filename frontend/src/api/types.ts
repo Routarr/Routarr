@@ -439,6 +439,10 @@ export interface LogEntry {
   instance_id: string | null;
   media_id: string | null;
   media_title: string | null;
+  /** What set the write off: `manual`, `schedule` or `webhook`. */
+  actor: string | null;
+  /** Who asked, when the mode vouched for a name. */
+  subject: string | null;
   executed_at: string;
 }
 

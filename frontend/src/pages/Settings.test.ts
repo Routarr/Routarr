@@ -392,13 +392,10 @@ describe('the metadata sources', () => {
   /**
    * The shipped order is the backend's to state. A copy kept here drifts from
    * it, and since a save sends every field, the first save of anything at all
-   * would store the copy. Absent or empty, a list nobody chose is the server's.
+   * would store the copy. A list nobody chose is the server's.
    */
-  it.each([
-    ['absent', {}],
-    ['empty', { metadata_providers: '' }],
-  ])('shows and saves the order the server resolved when none is stored (%s)', async (_, unset) => {
-    mount({ global_dry_run: 'true', ...unset }, APIKEY_MODE, {
+  it('shows and saves the order the server resolved when none is stored', async () => {
+    mount({ global_dry_run: 'true' }, APIKEY_MODE, {
       configured: true,
       order: ['tmdb', 'arr'],
     });

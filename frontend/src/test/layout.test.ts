@@ -190,7 +190,7 @@ describe('a row of fields survives labels of different lengths', () => {
   it('every field is drawn by this stylesheet rather than by the browser', () => {
     const css = read('index.css');
 
-    const base = css.match(/\.form-input,\s*\.form-select,\s*\.form-textarea \{[^}]*\}/)?.[0] ?? '';
+    const base = css.match(/\.form-input,\s*\.form-select \{[^}]*\}/)?.[0] ?? '';
     for (const property of ['background-color', 'border:', 'border-radius', 'color:', 'padding']) {
       expect(base, `the shared field rule no longer sets ${property}`).toContain(property);
     }

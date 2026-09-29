@@ -95,6 +95,20 @@ describe('what the screen shows', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('later');
   });
 
+  /** Loaded as every screen loads, so a failed list is one click from a retry. */
+  it('asks the pending list again when the reader retries', async () => {
+    const pendingDecision = decision({ id: 'd-retry', media_title: 'Retried' });
+    vi.spyOn(api, 'getDecisions')
+      .mockRejectedValueOnce(new ApiError('later', 503, 'unavailable'))
+      .mockResolvedValue(paginated([pendingDecision]));
+    renderWithI18n(Simulation, { strings: { ...STRINGS, Retry: 'Retry' } });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Retried')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   /** "Nothing to review" before the list has answered is a claim nobody checked. */
   it('holds the table open while the pending list loads', async () => {
     vi.spyOn(api, 'getDecisions').mockReturnValue(new Promise(() => {}));

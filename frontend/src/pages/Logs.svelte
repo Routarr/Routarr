@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Download, RefreshCw } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import { LOG_ACTION_KEY, formatTimestamp } from '../api/format';
+  import { LOG_ACTION_KEY, formatTimestamp, triggerKey } from '../api/format';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
@@ -130,6 +130,16 @@
               <tr>
                 <td class="cell-timestamp" title={entry.executed_at}>
                   {formatTimestamp(entry.executed_at, i18n.language)}
+                  <!-- As History draws a decision: the trigger, then who asked,
+                       which only a mode that vouches for a name can say. -->
+                  {#if entry.actor}
+                    <span class="text-xs" title={t('TriggeredBy')}
+                      >{t(triggerKey(entry.actor))}</span
+                    >
+                  {/if}
+                  {#if entry.subject}
+                    <span class="text-xs text-muted" title={t('PerformedBy')}>{entry.subject}</span>
+                  {/if}
                 </td>
                 <td
                   ><span class="badge badge-value muted">{t(LOG_ACTION_KEY[entry.action])}</span
