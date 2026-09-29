@@ -117,6 +117,12 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
     itself a problem, or the list keeps exempting a key that no longer needs it.
     A value still identical to the English is an untranslated fallback and is
     not read.
+
+    `homonym` is English a key may say without carrying the concept, whose
+    translation must not take the concept's word either: in a dozen
+    languages the word for "apply" also means "application", and "the Arr
+    application" written with it puts the apply act into a sentence about
+    the Arr.
     """
     problems: list[str] = []
     for concept, spec in json.loads(GLOSSARY.read_text(encoding="utf-8")).items():
@@ -144,6 +150,18 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                 if not re.search(word, value, re.I):
                     problems.append(
                         f"{language}.json: '{key}' says '{concept}' in another word than /{word}/"
+                    )
+            homonym = spec.get("homonym")
+            if homonym is None:
+                continue
+            for key, value in english.items():
+                translated = dictionary.get(key)
+                if key in carriers or translated is None or translated == value:
+                    continue
+                if re.search(homonym, value) and re.search(word, translated, re.I):
+                    problems.append(
+                        f"{language}.json: '{key}' uses the '{concept}' word /{word}/ "
+                        f"for what its English says as /{homonym}/"
                     )
     return problems
 

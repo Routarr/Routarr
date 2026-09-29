@@ -141,6 +141,7 @@
       "RestoreStaged",
       "RestoreStagedWithoutKey"
     ],
+    "homonym": "\\bArr\\b",
     "words": {
       "ar": "ط[ً-ْـ]*ب[ً-ْـ]*ي?[ً-ْـ]*ق",
       "ca": "\\baplic|\\bapliqu",
@@ -178,7 +179,7 @@
       "cs": "\\b(ne)?vr[aá][tc]",
       "da": "fortr[yu]d",
       "de": "rückgängig",
-      "el": "επαναφ(ορ[άαέε]|[εέ]ρ)",
+      "el": "\\bανα[ιί]ρ",
       "es": "\\brev(ert|iert|irt|ersi)",
       "fi": "\\bkumo",
       "fr": "\\bannul",
