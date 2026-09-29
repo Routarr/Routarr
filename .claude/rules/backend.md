@@ -114,6 +114,9 @@ Each of these questions has one function. Call it, never spell the question agai
   `scripts/check-locales.py` fails on a key the code uses and `en.json` lacks, a key another
   language has and English lacks, a changed `{placeholder}`, an empty value, a key no source
   file quotes, and a language below 50%.
+- A translation says each core term (apply, move, exception, root folder...) in the one word
+  `scripts/glossary.json` gives its language. The check picks the keys from their English, so
+  an English sentence using the word in another sense goes in that concept's `except`.
 - `python3 scripts/add-locale.py <code> < batch.json` merges translations into
   `backend/locales/<code>.json` and refuses a lost or invented `{placeholder}`.
 - The dictionaries are `include_str!`'d. When a locale edit is missing from a fresh build,

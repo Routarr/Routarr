@@ -1133,7 +1133,7 @@ async fn applying_more_than_the_batch_limit_is_refused() {
         )
         .await;
     response.assert_status(StatusCode::BAD_REQUEST);
-    assert!(response.message().contains("exceeds the limit"));
+    assert!(response.message().contains("above the batch limit"));
 }
 
 #[tokio::test]
@@ -2343,7 +2343,7 @@ async fn an_apply_naming_more_ids_than_one_statement_binds_is_refused_not_failed
         )
         .await;
     assert_eq!(response.status, 400, "{}", response.json);
-    assert!(response.message().contains("exceeds the limit"), "{}", response.json);
+    assert!(response.message().contains("above the batch limit"), "{}", response.json);
 }
 
 /// The same list on a simulation's instance filter: refused as a request no

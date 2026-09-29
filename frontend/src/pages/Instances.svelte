@@ -214,7 +214,7 @@
     try {
       const report = await api.syncInstance(saved.id);
       outcome.succeed(
-        t('InstanceFirstSyncDone', {
+        t('SyncResult', {
           name: saved.name,
           media: report.media,
           folders: report.root_folders,

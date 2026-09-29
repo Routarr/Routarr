@@ -40,12 +40,12 @@ const STRINGS = {
   InstanceUpdated: 'Instance updated',
   InstanceAdded: 'Instance added',
   InstanceFirstSync: '{name} is saved. Reading its library for the first time.',
-  InstanceFirstSyncDone: '{name} is synced. Titles: {media}, root folders: {folders}',
+  SyncResult: '{name} is synced. Titles: {media}, root folders: {folders}',
   InstanceFirstSyncFailed: '{name} is saved, but its first sync failed.',
   InstanceFirstSyncFinished: '{name} is synced.',
   InstanceUrlHelp: "With the port. In Docker, use {service}'s container name.",
   InstanceKeyHelp: 'In {service}: Settings → General → Security → API Key.',
-  ConnectionOk: '{name}: connected (v{version}, {folders} root folders)',
+  ConnectionOk: '{name}: connected (v{version}), root folders: {folders}',
   OpensInNewTab: 'opens in a new tab',
   SyncEveryMinutes: 'Sync every (minutes)',
   EnabledSyncedRouted: 'Enabled',
@@ -524,7 +524,7 @@ describe('Instances', () => {
     root_folders: 2,
     inaccessible_root_folders: 0,
   };
-  const CONNECTED = 'Radarr: connected (v5.2.6, 2 root folders)';
+  const CONNECTED = 'Radarr: connected (v5.2.6), root folders: 2';
 
   async function openAdd(): Promise<HTMLElement> {
     await fireEvent.click(await screen.findByRole('button', { name: 'Add instance' }));
