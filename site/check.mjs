@@ -149,6 +149,17 @@ for (const { code, path } of LANGUAGES) {
     pages[detail] = read(detail);
   }
 
+  // The not-found page Cloudflare serves for a miss under this language's
+  // prefix, the English one at the root. Astro writes a translated route as a
+  // directory, and `astro.config.mjs` moves it to where the lookup finds it.
+  const notFoundPage = code === 'en' ? '404.html' : `${code}/404.html`;
+  if (!existsSync(join(DIST, notFoundPage))) {
+    fail(`${notFoundPage} was not built, so a miss under ${path} is answered in English`);
+  } else {
+    pages[notFoundPage] = read(notFoundPage);
+    if (!pages[notFoundPage].includes(`<html lang="${code}"`)) fail(`${notFoundPage} is not in ${code}`);
+  }
+
   if (!index.includes(`href="${path}" hreflang="${code}"`)) {
     fail(`the built page does not offer ${path} in its language switcher`);
   }
@@ -237,7 +248,7 @@ for (const file of sitemapFiles) {
 
 // Every built page is offered, and the count is the guard on the guard.
 for (const file of Object.keys(pages)) {
-  if (file === '404.html') continue;
+  if (file.endsWith('404.html')) continue;
   const path = file === 'index.html' ? '' : file.replace(/index\.html$/, '');
   if (!inSitemap.has(`https://${ORIGIN}/${path}`)) fail(`${file} was built but is not in the sitemap`);
 }
@@ -277,13 +288,13 @@ for (const [file, page] of Object.entries(pages)) {
 
 // ---------------------------------------------------- written into a component
 // Text a reader should get in their language comes from the catalogues. Written
-// into a component, it ships in English on the three translated pages. The 404
-// is English by design, served for every language. What is let through is no
-// language: the name, a key legend, and a category and a file shown as data.
+// into a component, it ships in English on the three translated pages. What is
+// let through is no language: the name, a key legend, and a category and a file
+// shown as data.
 const NOT_LANGUAGE = new Set(['Routarr', 'Ctrl', 'anime', 'docker-compose.yml']);
 let templatesRead = 0;
 for (const entry of readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })) {
-  if (!entry.name.endsWith('.astro') || entry.name === '404.astro') continue;
+  if (!entry.name.endsWith('.astro')) continue;
   templatesRead++;
   const file = join(entry.parentPath ?? entry.path, entry.name);
   let template = readFileSync(file, 'utf-8').replace(/^---[\s\S]*?\n---/, '');

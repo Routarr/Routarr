@@ -2,6 +2,7 @@
 import { LANGUAGES } from './src/i18n/languages.ts';
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
+import { renameSync, rmdirSync } from 'node:fs';
 
 /**
  * The showcase site: four languages, static, and no JavaScript it does not need.
@@ -68,5 +69,20 @@ export default defineConfig({
         return { ...item, links: [...item.links, { lang: 'x-default', url: english.url }] };
       },
     }),
+    // Cloudflare serves the `404.html` nearest a missing path, and Astro writes
+    // a translated route as a directory: each language's not-found page moves
+    // to where that lookup finds it, `/fr/404.html` for a miss under `/fr/`.
+    {
+      name: 'not-found-per-language',
+      hooks: {
+        'astro:build:done': ({ dir }) => {
+          for (const { code } of LANGUAGES.filter((language) => language.code !== 'en')) {
+            const folder = new URL(`${code}/404/`, dir);
+            renameSync(new URL('index.html', folder), new URL(`${code}/404.html`, dir));
+            rmdirSync(folder);
+          }
+        },
+      },
+    },
   ],
 });

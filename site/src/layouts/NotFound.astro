@@ -1,0 +1,82 @@
+---
+import '../styles/site.css';
+import { themeBootstrap } from '../theme-bootstrap';
+import { useTranslations, pathFor, type Locale } from '../i18n';
+
+interface Props { locale: Locale }
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+const home = pathFor(locale);
+
+/**
+ * The page for a path nothing resolves, one per language. Cloudflare's
+ * `404-page` handling serves the `404.html` nearest the missing path, so a
+ * miss under `/fr/` reads French, and one outside every language's prefix
+ * reads English.
+ *
+ * Deliberately minimal: no language switcher to a page that does not exist,
+ * no navigation to sections it does not have. An Astro page rather than a file
+ * in `public/`, so it takes the fingerprinted stylesheet: a static file would
+ * hold a stylesheet path the hashed name outlives, and render without CSS for
+ * people already lost.
+ */
+---
+
+<!doctype html>
+<html lang={locale}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{t('notfound.title')}</title>
+    <meta name="description" content={t('notfound.description')} />
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#ffffff" />
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" />
+    <script is:inline set:html={themeBootstrap} />
+  </head>
+
+  <body>
+    <a class="skip" href="#main">{t('page.skip')}</a>
+
+    <header class="site-header">
+      <div class="wrap">
+        <a class="brand" href={home}>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#ffa500"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M6 3v12" /><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /><path
+              d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+            /><path d="M15 6a9 9 0 0 0-9 9" />
+          </svg>
+          Routarr
+        </a>
+      </div>
+    </header>
+
+    <main id="main" class="wrap error-page">
+      <div>
+        <p class="eyebrow">404</p>
+        <h1>{t('notfound.h1')}</h1>
+        <p>{t('notfound.p')}</p>
+        <div class="hero-cta hero-cta-center">
+          <a class="btn btn-primary" href={home}>{t('notfound.home')}</a>
+          <a class="btn btn-secondary" href={`${home}#start`}>{t('notfound.install')}</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="site-footer">
+      <div class="wrap">
+        <span>{t('footer.p')}</span>
+      </div>
+    </footer>
+  </body>
+</html>

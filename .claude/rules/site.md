@@ -43,7 +43,7 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 - Every key goes into all four catalogues, which `check.mjs` requires. Text a reader should get in
   their language comes from `src/i18n/<code>.json`, `aria-label` and CSS `content` included. Text
   written into a template ships in English on the three translated pages: `check.mjs` refuses it
-  outside `NOT_LANGUAGE`, and the 404 page is English by design.
+  outside `NOT_LANGUAGE`. The not-found page is translated too, one per language prefix.
 - A catalogue value is text or whole elements, never the opening tag of the element it sits in.
   A text value carries no HTML entity (the template escapes it a second time), and a value with
   an element such as `<em>` renders with `set:html`. `check.mjs` catches that entity and an

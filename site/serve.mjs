@@ -10,7 +10,7 @@
  */
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -124,7 +124,18 @@ createServer(async (request, response) => {
   }
 
   if (!file) {
-    const body = await readFile(join(ROOT, '404.html'));
+    // The `404.html` nearest the missing path, as Cloudflare's `404-page`
+    // handling serves it: a miss under `/fr/` reads French.
+    const folders = path.split('/').slice(1, -1).filter((folder) => folder && folder !== '.' && folder !== '..');
+    let notFound = join(ROOT, '404.html');
+    for (let depth = folders.length; depth > 0; depth--) {
+      const candidate = join(ROOT, ...folders.slice(0, depth), '404.html');
+      if (existsSync(candidate)) {
+        notFound = candidate;
+        break;
+      }
+    }
+    const body = await readFile(notFound);
     response.writeHead(404, { ...headers, 'Content-Type': TYPES['.html'] });
     return response.end(body);
   }
