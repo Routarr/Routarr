@@ -52,6 +52,7 @@ npm run format:check         # Prettier
 npm run coverage             # Vitest with its floors, over the whole tree
 npm run test:e2e             # builds everything, drives Chromium through Playwright
 npm run test:e2e:base        # the specs tagged @subpath, under the /routarr mount point
+npm run test:e2e:auth        # the specs tagged @forms and @oidc, each against a server in that mode
 npm audit --audit-level=high
 ```
 

@@ -599,14 +599,16 @@ pub async fn oidc_callback(
     };
 
     match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str()).await {
+        // Appended: an array of headers inserts each one, so the second cookie
+        // would replace the session the browser is being handed.
         Ok(id) => (
-            [
+            axum::response::AppendHeaders([
                 (
                     axum::http::header::SET_COOKIE,
                     session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
                 ),
                 (axum::http::header::SET_COOKIE, cleared),
-            ],
+            ]),
             axum::response::Redirect::to(&home),
         )
             .into_response(),

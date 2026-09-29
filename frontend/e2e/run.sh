@@ -14,6 +14,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/backend/target}"
 PORT="${ROUTARR_E2E_PORT:-9877}"
 ARR_PORT="${ROUTARR_E2E_ARR_PORT:-7979}"
+OIDC_PORT="${ROUTARR_E2E_OIDC_PORT:-7980}"
+# The sign-in mode the server runs in. `apikey`, the shipped default, serves
+# every spec but those tagged @forms and @oidc, which run against a server in
+# their own mode, with a page that holds no key and opens on the sign-in screen.
+AUTH="${ROUTARR_E2E_AUTH:-apikey}"
 # Named so `prune.sh` sweeps it if this exits without its trap.
 WORK="$(mktemp -d -t routarr-e2e-XXXXXX)"
 
@@ -25,7 +30,7 @@ WORK="$(mktemp -d -t routarr-e2e-XXXXXX)"
 # shellcheck disable=SC2317,SC2329  # invoked through the trap below
 cleanup() {
   local pid
-  for pid in "${ROUTARR_PID:-}" "${ARR_PID:-}"; do
+  for pid in "${ROUTARR_PID:-}" "${ARR_PID:-}" "${OIDC_PID:-}"; do
     [[ -z "$pid" ]] && continue
     kill "$pid" 2>/dev/null || true
     for _ in $(seq 1 50); do
@@ -59,6 +64,8 @@ free_port() {
 echo "==> freeing ports"
 free_port "$PORT"
 free_port "$ARR_PORT"
+# Only where it is used: the port may belong to something else otherwise.
+if [[ "$AUTH" == oidc ]]; then free_port "$OIDC_PORT"; fi
 
 echo "==> building"
 # Built from inside the crate, not with `--manifest-path` from here. rustup
@@ -80,7 +87,6 @@ echo "==> fake Radarr on :$ARR_PORT"
 ARR_PORT="$ARR_PORT" python3 "$ROOT/frontend/e2e/fake_arr.py" &
 ARR_PID=$!
 
-echo "==> Routarr on :$PORT"
 # Started directly rather than inside a `( cd … ) &` subshell: there `$!` is the
 # subshell's pid, so the trap kills the wrapper and leaves the real server alive,
 # holding the port with a database that has just been deleted — exactly the
@@ -95,12 +101,52 @@ echo "==> Routarr on :$PORT"
 # shipped configuration — every request carrying a key from the browser's
 # storage — the one path nothing exercises end to end.
 API_KEY="e2e-key-not-a-secret"
+BROWSER_KEY=""
+case "$AUTH" in
+  apikey)
+    MODE=(ROUTARR_API_KEY="$API_KEY")
+    BROWSER_KEY="$API_KEY"
+    ;;
+  forms)
+    # The account and its password are generated at first start, and the
+    # password written beside the database, where a spec reads it.
+    MODE=(ROUTARR_AUTH=forms)
+    ;;
+  oidc)
+    OIDC_CLIENT="routarr-e2e"
+    OIDC_SECRET="e2e-client-not-a-secret"
+    echo "==> stand-in provider on :$OIDC_PORT"
+    OIDC_PORT="$OIDC_PORT" OIDC_CLIENT_ID="$OIDC_CLIENT" OIDC_CLIENT_SECRET="$OIDC_SECRET" \
+      python3 "$ROOT/frontend/e2e/fake_oidc.py" &
+    OIDC_PID=$!
+    DISCOVERY="http://127.0.0.1:$OIDC_PORT/.well-known/openid-configuration"
+    for _ in $(seq 1 50); do
+      if curl -sf "$DISCOVERY" >/dev/null; then break; fi
+      sleep 0.1
+    done
+    MODE=(
+      ROUTARR_AUTH=oidc
+      ROUTARR_OIDC_ISSUER="http://127.0.0.1:$OIDC_PORT"
+      ROUTARR_OIDC_CLIENT_ID="$OIDC_CLIENT"
+      ROUTARR_OIDC_CLIENT_SECRET="$OIDC_SECRET"
+      ROUTARR_OIDC_REDIRECT_URL="http://127.0.0.1:$PORT${ROUTARR_E2E_BASE:-}/api/v1/auth/oidc/callback"
+    )
+    ;;
+  *)
+    echo "ROUTARR_E2E_AUTH is apikey, forms or oidc, not $AUTH" >&2
+    exit 1
+    ;;
+esac
 
-ROUTARR_DB_PATH="$WORK/routarr.db" \
-ROUTARR_PORT="$PORT" \
-ROUTARR_FRONTEND_DIR="$ROOT/frontend/dist" \
-ROUTARR_BASE_PATH="${ROUTARR_E2E_BASE:-}" \
-ROUTARR_API_KEY="$API_KEY" \
+echo "==> Routarr on :$PORT"
+# Through `env`, which replaces itself with the server: `$!` stays the pid the
+# trap has to kill.
+env \
+  ROUTARR_DB_PATH="$WORK/routarr.db" \
+  ROUTARR_PORT="$PORT" \
+  ROUTARR_FRONTEND_DIR="$ROOT/frontend/dist" \
+  ROUTARR_BASE_PATH="${ROUTARR_E2E_BASE:-}" \
+  "${MODE[@]}" \
   "$TARGET_DIR/release/routarr" >"$WORK/routarr.log" 2>&1 &
 ROUTARR_PID=$!
 
@@ -118,7 +164,8 @@ cd "$ROOT/frontend"
 set +e
 ROUTARR_E2E_URL="http://127.0.0.1:$PORT${ROUTARR_E2E_BASE:-}" \
 ROUTARR_E2E_ARR="http://127.0.0.1:$ARR_PORT" \
-ROUTARR_E2E_KEY="$API_KEY" \
+ROUTARR_E2E_KEY="$BROWSER_KEY" \
+ROUTARR_E2E_PASSWORD_FILE="$WORK/routarr.password" \
   npx playwright test "$@"
 STATUS=$?
 set -e
