@@ -1,7 +1,7 @@
 //! Decision history and execution.
 
-use super::Json;
-use axum::extract::{Query, State};
+use super::{Json, Query};
+use axum::extract::State;
 use sqlx::AssertSqlSafe;
 
 use crate::api::{Page, paginate};

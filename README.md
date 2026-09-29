@@ -24,7 +24,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 ## Features
 
 - **Rules**: 28 conditions (genres, keywords, language, country, certification, tags, paths, size…),
-  ALL/ANY, exclusions, priorities, manual overrides, and an impact preview before saving.
+  ALL/ANY, exclusions, priorities, manual exceptions, and an impact preview before saving.
 - **Explained decisions**: for every title, what each condition expected and what it found,
   including the rules that matched and lost.
 - **Safe by default**: six gates in a fixed order, the first to object stopping the rest (global

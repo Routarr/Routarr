@@ -46,6 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // dependency four layers down.
     config.validate()?;
     init_tracing(&config);
+    log_panics();
 
     info!("Starting Routarr v{}", env!("CARGO_PKG_VERSION"));
 
@@ -337,22 +338,15 @@ fn build_router(state: AppState) -> Router {
         // `X-Request-Id` from the browser's network panel is how a failure in
         // the log is matched to the click that caused it. Set outermost, so the
         // trace layer inside already sees it.
-        .layer(TraceLayer::new_for_http().make_span_with(|request: &axum::extract::Request| {
-            tracing::info_span!(
-                "request",
-                method = %request.method(),
-                uri = %loggable_path(request),
-                id = request.headers().get("x-request-id").and_then(|v| v.to_str().ok()),
-            )
-        }))
+        .layer(TraceLayer::new_for_http().make_span_with(request_span))
         // Inside the request-id layers, so a panic still answers with the
         // `X-Request-Id` the trace span recorded — which is the whole point of
         // having one. Without this layer a panicking handler dropped the
         // connection: no status, no body, nothing to match against the log, and
         // a client that cannot tell a bug from a cut cable.
         //
-        // It does not hide anything. The panic is still logged with its
-        // backtrace; what changes is that the caller learns something.
+        // It hides nothing: `log_panics` logs the panic in the request span,
+        // and the caller learns something too.
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
@@ -370,6 +364,53 @@ fn build_router(state: AppState) -> Router {
     attach_frontend(app, &config)
         .layer(CompressionLayer::new())
         .layer(middleware::from_fn(security_headers))
+}
+
+/// The span every line logged while serving a request sits in, and the one a
+/// handler's panic is logged in: its `id` is the `X-Request-Id` the response
+/// carries.
+pub(crate) fn request_span(request: &axum::extract::Request) -> tracing::Span {
+    tracing::info_span!(
+        "request",
+        method = %request.method(),
+        uri = %loggable_path(request),
+        id = request.headers().get("x-request-id").and_then(|v| v.to_str().ok()),
+    )
+}
+
+/// Log a panic through `tracing`, in the span entered where it happened.
+///
+/// The standard hook prints plain text to stderr: no request id, and a line
+/// that is not JSON under `ROUTARR_LOG_FORMAT=json`. A handler's panic is
+/// logged inside its request span instead, with a backtrace when
+/// `RUST_BACKTRACE` asks for one. With no subscriber to take the line, as in a
+/// test that never set one, the hook in place before this one prints it.
+pub(crate) fn log_panics() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let logged = tracing::dispatcher::get_default(|dispatch| {
+                !dispatch.is::<tracing::subscriber::NoSubscriber>()
+            });
+            if !logged {
+                return previous(info);
+            }
+            let cause = info
+                .payload()
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| info.payload().downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("a panic with no message");
+            let location = info.location().map(ToString::to_string).unwrap_or_default();
+            let backtrace = std::backtrace::Backtrace::capture();
+            if backtrace.status() == std::backtrace::BacktraceStatus::Captured {
+                log_error!(%location, %backtrace, "Panicked: {cause}");
+            } else {
+                log_error!(%location, "Panicked: {cause}");
+            }
+        }));
+    });
 }
 
 /// What a panicking handler answers.

@@ -1179,6 +1179,60 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
     assert_eq!(json["error"], "internal");
 }
 
+/// The panic itself reaches the log, in the request's span: the id a user
+/// reads from the response headers finds the line, and under
+/// `ROUTARR_LOG_FORMAT=json` that line is JSON like every other.
+#[tokio::test]
+async fn a_panicking_handler_is_logged_under_its_request_id() {
+    use axum::routing::get;
+    use std::sync::{Arc, Mutex};
+    use tower::ServiceExt;
+    use tower_http::catch_panic::CatchPanicLayer;
+    use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+    use tower_http::trace::TraceLayer;
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+    impl std::io::Write for Captured {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    async fn boom() -> String {
+        panic!("the sweep found a row it cannot read")
+    }
+
+    crate::log_panics();
+    let captured = Captured::default();
+    let writer = captured.clone();
+    let subscriber = tracing_subscriber::fmt().json().with_writer(move || writer.clone()).finish();
+    let _logging = tracing::subscriber::set_default(subscriber);
+
+    let router = axum::Router::new()
+        .route("/boom", get(boom))
+        .layer(TraceLayer::new_for_http().make_span_with(crate::request_span))
+        .layer(CatchPanicLayer::custom(crate::panic_response))
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
+    let request = Request::get("/boom").header("x-request-id", "req-42").body(Body::empty());
+    let response = router.oneshot(request.unwrap()).await.unwrap();
+    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    let line = log
+        .lines()
+        .find(|line| line.contains("the sweep found a row it cannot read"))
+        .unwrap_or_else(|| panic!("the panic is not in the log: {log}"));
+    let line: serde_json::Value = serde_json::from_str(line).expect("a JSON line");
+    assert_eq!(line["level"], "ERROR", "{line}");
+    assert_eq!(line["span"]["id"], "req-42", "{line}");
+}
+
 // --------------------------------------------------- rotation
 
 /// An `apikey` installation whose key is the stored one rather than a pinned

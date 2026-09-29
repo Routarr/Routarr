@@ -22,8 +22,9 @@ pub mod settings;
 pub mod simulation;
 pub mod webhook;
 
-use axum::extract::{FromRequest, Request};
+use axum::extract::{FromRequest, FromRequestParts, Request};
 use axum::http::StatusCode;
+use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
@@ -46,6 +47,29 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         match axum::Json::<T>::from_request(req, state).await {
             Ok(axum::Json(value)) => Ok(Self(value)),
+            Err(rejection) => Err(envelope(rejection.status(), rejection.body_text())),
+        }
+    }
+}
+
+/// `axum::extract::Query` with the application's error envelope on rejection.
+///
+/// The stock extractor answers a query string it cannot parse (`?page=abc`)
+/// with a `text/plain` 400, which the interface cannot unwrap into a message.
+/// Every handler reads its query through this one instead.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Query<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Query<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Query::<T>::from_request_parts(parts, state).await {
+            Ok(axum::extract::Query(value)) => Ok(Self(value)),
             Err(rejection) => Err(envelope(rejection.status(), rejection.body_text())),
         }
     }

@@ -1,7 +1,7 @@
 //! Health and diagnostics.
 
-use super::Json;
-use axum::extract::{Query, State};
+use super::{Json, Query};
+use axum::extract::State;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

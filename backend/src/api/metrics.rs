@@ -46,16 +46,24 @@ fn label(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n")
 }
 
+/// The labels naming an Arr instance. Not `instance`: Prometheus sets that on
+/// every series to the target it scraped, and renames a label of that name
+/// `exported_instance`. Keyed by id, since two instances may share a name and
+/// one series per name would add them together.
+fn arr_instance(id: &str, name: &str) -> String {
+    format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
+}
+
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
     let mut families: Vec<Family> = Vec::new();
 
     // Media per (instance, type). Grouped rather than totalled: "which library
     // grew" is the question someone actually asks of a graph.
-    let media: Vec<(String, String, i64)> = sqlx::query_as(
-        "SELECT i.name, m.media_type, COUNT(*)
+    let media: Vec<(String, String, String, i64)> = sqlx::query_as(
+        "SELECT i.id, i.name, m.media_type, COUNT(*)
            FROM media m JOIN instances i ON i.id = m.instance_id
-          GROUP BY i.name, m.media_type",
+          GROUP BY i.id, i.name, m.media_type",
     )
     .fetch_all(pool)
     .await?;
@@ -64,9 +72,9 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "Media items Routarr tracks.",
         samples: media
             .into_iter()
-            .map(|(instance, kind, count)| {
+            .map(|(id, name, kind, count)| {
                 (
-                    format!("instance=\"{}\",media_type=\"{}\"", label(&instance), label(&kind)),
+                    format!("{},media_type=\"{}\"", arr_instance(&id, &name), label(&kind)),
                     count as f64,
                 )
             })
@@ -107,8 +115,8 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     });
 
     // Instance health as 1/0, from the last sync. The obvious thing to alert on.
-    let instances: Vec<(String, Option<String>, bool)> =
-        sqlx::query_as("SELECT name, last_sync_status, enabled FROM instances")
+    let instances: Vec<(String, String, Option<String>, bool)> =
+        sqlx::query_as("SELECT id, name, last_sync_status, enabled FROM instances")
             .fetch_all(pool)
             .await?;
     families.push(Family {
@@ -116,9 +124,9 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when the last sync of this instance succeeded, 0 otherwise.",
         samples: instances
             .iter()
-            .map(|(name, status, _)| {
+            .map(|(id, name, status, _)| {
                 let up = status.as_deref() == Some("success");
-                (format!("instance=\"{}\"", label(name)), if up { 1.0 } else { 0.0 })
+                (arr_instance(id, name), if up { 1.0 } else { 0.0 })
             })
             .collect(),
     });
@@ -127,8 +135,8 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when this instance is enabled for syncing and routing.",
         samples: instances
             .iter()
-            .map(|(name, _, enabled)| {
-                (format!("instance=\"{}\"", label(name)), if *enabled { 1.0 } else { 0.0 })
+            .map(|(id, name, _, enabled)| {
+                (arr_instance(id, name), if *enabled { 1.0 } else { 0.0 })
             })
             .collect(),
     });
