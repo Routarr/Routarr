@@ -122,6 +122,9 @@ a:hover { opacity: 0.85; }
      than each element's own. */
   border-radius: var(--radius-md);
 }
+/* A scrolling region draws its ring inside itself: the card around it clips
+   its overflow, and a ring drawn outside would be cut off. */
+[tabindex="0"]:focus-visible { outline-offset: -3px; }
 
 code, kbd, pre { font-family: var(--mono); font-size: 0.87em; }
 
@@ -692,7 +695,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-muted);
-  margin-inline-end: 8px;
 }
 /* Only the last step writes to somebody's library, which is the whole point
    of the column, so it is the one value the eye should find. */
@@ -1090,6 +1092,13 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-top: 1px solid var(--border);
 }
 .rule-group .rule-cond:first-of-type { border-top: 0; padding-top: 2px; }
+/* Three columns need a 240px field beside the operator and the values, which a
+   phone's card cannot give: the values ran out of the card and were cut off.
+   The field takes a line of its own, the operator and the values the next. */
+@media (max-width: 599px) {
+  .rule-cond { grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; }
+  .rule-field { grid-column: 1 / -1; }
+}
 .rule-field { font-family: var(--mono); font-size: 0.83rem; color: var(--text-soft); }
 .rule-op { font-family: var(--mono); font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; }
 .rule-values { display: flex; flex-wrap: wrap; gap: 5px; }
@@ -1253,7 +1262,6 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   color: var(--text-muted);
 }
 .objection-why > summary:hover { color: var(--text); }
-.objection-why > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .objection-detail { margin: 6px 0 0; font-size: 0.93rem; }
 
 /* Below 900px the worry takes a line of its own, the verdict and the
@@ -1543,9 +1551,9 @@ h2 em { font-style: normal; color: var(--accent-text); }
   font-weight: 600;
   white-space: nowrap;
 }
-.chip.is-go { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent-text); }
+.chip.is-go { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-text); }
 .chip.is-confirm {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   color: var(--accent-text);
 }

@@ -21,10 +21,14 @@
   // paint. What is left here is the state a screen reader is told, which only
   // exists once these buttons can do anything at all.
   var themeButtons = document.querySelectorAll('[data-theme-set]');
+  // The browser's bar takes the page's ground, white until the visitor picks
+  // the dark one: the system's own scheme says nothing about this page.
+  var themeColor = document.querySelector('meta[name="theme-color"]');
   function markTheme() {
     Array.prototype.forEach.call(themeButtons, function (button) {
       button.setAttribute('aria-pressed', String(button.getAttribute('data-theme-set') === current()));
     });
+    if (themeColor) themeColor.setAttribute('content', current() === 'dark' ? '#131519' : '#ffffff');
   }
   markTheme();
   Array.prototype.forEach.call(themeButtons, function (button) {
@@ -82,11 +86,14 @@
 
       // The two answers travel on the button as data attributes, written by
       // the page in its own language: this file is one script for four pages.
+      // The label to put back is kept from before the first click: read off
+      // the button each time, a second click inside the delay keeps "Copied".
       var done = function (ok) {
-        var was = button.textContent;
-        button.textContent = button.getAttribute(ok ? 'data-copied' : 'data-failed') || was;
+        var label = button.getAttribute('data-label') || button.textContent;
+        button.setAttribute('data-label', label);
+        button.textContent = button.getAttribute(ok ? 'data-copied' : 'data-failed') || label;
         setTimeout(function () {
-          button.textContent = was;
+          button.textContent = label;
         }, 1600);
       };
 
@@ -198,6 +205,8 @@
   var link = document.createElement('a');
   link.setAttribute('href', source.getAttribute('href'));
   link.setAttribute('hreflang', match);
+  // Read aloud with the rules of the language it is written in.
+  link.setAttribute('lang', match);
   link.textContent = source.getAttribute('data-offer');
   link.addEventListener('click', function () { remember(match); });
 
@@ -210,8 +219,10 @@
     hint.hidden = true;
   });
 
+  // Shown before it is filled: a live region announces what changes while it
+  // is visible, and content added under `hidden` is never read out.
+  hint.hidden = false;
   wrap.appendChild(link);
   wrap.appendChild(close);
   hint.appendChild(wrap);
-  hint.hidden = false;
 })();

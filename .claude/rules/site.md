@@ -22,9 +22,10 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
   CSP breaks looks fine there.
 - `verify.mjs`, `icons.mjs` and the screenshot capture load Playwright from
   `frontend/node_modules` (`FRONTEND_DIR` overrides the path).
-- `screenshots/run.sh` also leaves captures in `public/assets/shots/`, which no page shows and
-  `check.mjs` refuses: keep `og.png` and delete the captures. `screenshots/og.html` copies the
-  English hero headline (`page.h1`) and the palette by hand, so it changes with them.
+- `screenshots/run.sh` writes the captures to `screenshots/captures/`, outside what ships. A page
+  that shows one takes its WebP and AVIF pair into `public/assets/shots/`, which `check.mjs`
+  pairs and refuses once no page shows it. `screenshots/og.html` copies the English hero headline
+  (`page.h1`) and the palette by hand, so it changes with them.
 
 ## Content Security Policy
 
@@ -33,20 +34,20 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 - The theme bootstrap (`src/theme-bootstrap.ts`) is the one inline script that runs, allowed by
   its hash in `_headers`: an edit to it needs its new `sha256-` there, or the page loses its
   theme. Any other script is a file under `public/assets/` loaded with
-  `<script is:inline src="..." defer>`. Astro inlines a short component `<script>` as a module,
-  the CSP blocks it, `check.mjs` never sees it, and `verify.mjs` watches for violations on `/`
-  alone.
+  `<script is:inline src="..." defer>`. Astro inlines a short component `<script>` as a module
+  and the CSP blocks it: `check.mjs` refuses an inline script whose hash `_headers` lacks, and
+  `verify.mjs` watches every page for violations.
 
 ## Catalogues
 
 - Every key goes into all four catalogues, which `check.mjs` requires. Text a reader should get in
   their language comes from `src/i18n/<code>.json`, `aria-label` and CSS `content` included. Text
-  written into a component ships in English on the three translated pages, and `check.mjs` catches
-  only labels, CSS `content` and a few known phrases.
+  written into a template ships in English on the three translated pages: `check.mjs` refuses it
+  outside `NOT_LANGUAGE`, and the 404 page is English by design.
 - A catalogue value is text or whole elements, never the opening tag of the element it sits in.
   A text value carries no HTML entity (the template escapes it a second time), and a value with
-  an element such as `<em>` renders with `set:html`. `check.mjs` catches that entity, and an
-  escaped `em`, `strong`, `code`, `span` or `br` only when it carries no attribute.
+  an element such as `<em>` renders with `set:html`. `check.mjs` catches that entity and an
+  escaped `em`, `strong`, `code`, `span`, `br`, `a` or `kbd`.
 - An expression attribute takes no quotes: `alt={t('key')}`. In Astro, unlike Svelte,
   `alt="{t('key')}"` renders that literal text, and the `alt` check only asks for a non-empty one.
 - Internal links come from `pathFor(locale, page)`, which ends in the slash the server serves.
@@ -63,7 +64,7 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 - The domain is written in `astro.config.mjs` (`site`), `public/robots.txt`, `public/llms.txt`,
   `public/.well-known/security.txt` and the root `README.md`. `check.mjs` refuses a second origin
-  but reads neither `security.txt` nor the README.
+  and reads `security.txt`, not the README.
 
 ## llms.txt
 

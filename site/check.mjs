@@ -11,7 +11,7 @@
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -90,7 +90,9 @@ const llms = existsSync(join(DIST, 'llms.txt')) ? read('llms.txt') : null;
 // The canonical, the sitemap, robots.txt and llms.txt state the site's origin.
 // A partial rename — one updated, another forgotten — is the failure mode.
 const origins = new Set();
-for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '']) {
+const securityTxt = existsSync(join(DIST, '.well-known/security.txt')) ? read('.well-known/security.txt') : '';
+if (!securityTxt) fail('.well-known/security.txt is missing from the build');
+for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '', securityTxt]) {
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
 // `localhost` appears in the install instructions as prose, not as a host the
@@ -266,9 +268,62 @@ for (const file of Object.keys(pages)) {
 // Eight sections used `set:html` for their heading and the ninth did not, so
 // the fault was one component wide and invisible to every other check.
 for (const [file, page] of Object.entries(pages)) {
-  const escaped = page.match(/&lt;\/?(em|strong|code|span|br)\b[^&]{0,40}&gt;/);
+  // Attributes included: their quotes are escaped to `&quot;` as well.
+  const escaped = page.match(/&lt;\/?(em|strong|code|span|br|a|kbd)\b(?:[^&]|&quot;|&#39;|&amp;){0,80}?&gt;/);
   if (escaped) {
     fail(`${file} shows the markup ${escaped[0]} as text: that value needs set:html, or the tag does not belong in the catalogue`);
+  }
+}
+
+// ---------------------------------------------------- written into a component
+// Text a reader should get in their language comes from the catalogues. Written
+// into a component, it ships in English on the three translated pages. The 404
+// is English by design, served for every language. What is let through is no
+// language: the name, a key legend, and a category and a file shown as data.
+const NOT_LANGUAGE = new Set(['Routarr', 'Ctrl', 'anime', 'docker-compose.yml']);
+let templatesRead = 0;
+for (const entry of readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })) {
+  if (!entry.name.endsWith('.astro') || entry.name === '404.astro') continue;
+  templatesRead++;
+  const file = join(entry.parentPath ?? entry.path, entry.name);
+  let template = readFileSync(file, 'utf-8').replace(/^---[\s\S]*?\n---/, '');
+  template = template
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<(script|style|pre|code|svg)\b[\s\S]*?<\/\1>/g, '');
+  let outside = '';
+  let depth = 0;
+  for (const c of template) {
+    if (c === '{') depth++;
+    else if (c === '}') depth--;
+    else if (depth === 0) outside += c;
+  }
+  const words = outside
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&[a-z]+;/g, ' ')
+    .split(/\s+/)
+    .filter((word) => /[A-Za-z]{2,}/.test(word) && !NOT_LANGUAGE.has(word));
+  if (words.length) fail(`${relative(ROOT, file)} writes text no catalogue translates: ${words.slice(0, 6).join(' ')}`);
+}
+if (templatesRead < 10) fail(`read ${templatesRead} template(s), so the written-text check is reading almost nothing`);
+
+// ------------------------------------------------------------ first-run command
+// The command that prints the generated key is the first-run screen's, which
+// the image smoke test runs, restated in the README, llms.txt and the install
+// section. A copy that drifts sends a new user to a file that is not there.
+const readKey = readFileSync(join(ROOT, '../frontend/src/components/ApiKeyGate.svelte'), 'utf-8')
+  .match(/const READ_KEY_COMMAND = '([^']+)'/)?.[1];
+if (!readKey) {
+  fail('READ_KEY_COMMAND cannot be read out of frontend/src/components/ApiKeyGate.svelte');
+} else {
+  for (const [file, text] of [
+    ['README.md', readFileSync(join(ROOT, '../README.md'), 'utf-8')],
+    ['public/llms.txt', llms ?? ''],
+    ['src/components/sections/Start.astro', readFileSync(join(ROOT, 'src/components/sections/Start.astro'), 'utf-8')],
+  ]) {
+    const stated = [...text.matchAll(/docker exec [^\s'"`,]+ cat [^\s'"`,]+/g)].map((m) => m[0]);
+    if (!stated.length || stated.some((command) => command !== readKey)) {
+      fail(`${file} states the first-run command as ${stated.join(', ') || 'nothing'}, the application as ${readKey}`);
+    }
   }
 }
 
@@ -380,8 +435,15 @@ for (const script of inline) {
     fail(`the inline script's hash is not in _headers — the page would render unstyled and dead.\n    expected: ${digest}`);
   }
 }
-if (![...notFound.matchAll(/<script>([\s\S]*?)<\/script>/g)].every((m) => headers.includes(`sha256-${createHash('sha256').update(m[1]).digest('base64')}`))) {
-  fail('404.html carries an inline script whose hash is not in _headers');
+// Every page, and every inline script whatever its `type`: a component's
+// `<script>` short enough for Astro to inline arrives as `type="module"`, and
+// the CSP blocks it without a word. Structured data is not a script.
+for (const [file, page] of Object.entries(pages)) {
+  for (const [, script] of page.matchAll(/<script(?![^>]*\bsrc=)(?![^>]*application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/g)) {
+    if (!headers.includes(`sha256-${createHash('sha256').update(script).digest('base64')}`)) {
+      fail(`${file} carries an inline script whose hash is not in _headers, so the CSP blocks it`);
+    }
+  }
 }
 
 // -------------------------------------------------------------- head tags
@@ -471,11 +533,24 @@ for (const [name, source] of Object.entries(pages)) {
     if (href.startsWith('#')) {
       if (!ids.has(href.slice(1))) fail(`${name}: in-page link ${href} points at no element`);
     } else if (href.startsWith('/')) {
-      const target = href.split('#')[0];
+      const [target, fragment] = href.split('#');
       const file = target.endsWith('/') ? `${target}index.html` : target;
-      if (!existsSync(join(DIST, file.slice(1)))) fail(`${name}: link ${href} has no file behind it`);
+      if (!existsSync(join(DIST, file.slice(1)))) {
+        fail(`${name}: link ${href} has no file behind it`);
+      } else if (fragment !== undefined && !(pages[file.slice(1)] ?? read(file.slice(1))).includes(`id="${fragment}"`)) {
+        fail(`${name}: link ${href} points at no element of ${file}`);
+      }
     }
   }
+}
+
+// The landing's last card names six subjects of the detail page. Six links to
+// its top would name places the reader is never taken to.
+for (const [name, source] of Object.entries(pages)) {
+  const list = source.match(/<ul class="more-list">([\s\S]*?)<\/ul>/)?.[1];
+  if (!list) continue;
+  const targets = [...list.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);
+  if (new Set(targets).size !== targets.length) fail(`${name}: the subjects of the "More" card share a destination`);
 }
 
 if (linksChecked < 20) fail(`only ${linksChecked} href examined across the pages — the check read nothing`);
@@ -543,10 +618,10 @@ for (const { code } of LANGUAGES) {
 }
 
 // -------------------------------------------------------------- assets
-// The page shows no screenshot at the moment: they were a quarter of its
-// height, and the sections draw what they are about. `screenshots/run.sh`
-// still produces them, so the directory may be empty or full and both are
-// correct; what must never happen is shipping one nothing shows.
+// No page shows a screenshot at the moment: they were a quarter of its height,
+// and the sections draw what they are about. `screenshots/run.sh` writes its
+// captures outside `public/`, so the directory is empty until a page takes one
+// in. What must never happen is shipping one nothing shows.
 const shots = existsSync(join(DIST, 'assets/shots'))
   ? readdirSync(join(DIST, 'assets/shots'))
   : [];
@@ -751,6 +826,73 @@ for (const [label, palette] of [['light', light], ['dark', explicit]]) {
     const value = contrast(a, b);
     if (value < floor) fail(`${label} theme: ${fg} on ${bg} is ${value.toFixed(2)}:1, WCAG needs ${floor}:1`);
   }
+}
+
+// Text on a ground the accent tints, which the pairs above cannot see: the
+// hero at its gradient's peak, which axe cannot measure through the gradient
+// and the grid laid over it, and the plan's chips over its header and its rows.
+// Each tint is read out of its own rule.
+function tinted(ground, tint, share) {
+  const channels = (hex) => [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16));
+  const [g, t] = [channels(ground), channels(tint)];
+  return `#${g.map((c, i) => Math.round(c * (1 - share) + t[i] * share).toString(16).padStart(2, '0')).join('')}`;
+}
+function tintOf(rule) {
+  const block = css.match(rule)?.[1] ?? '';
+  return Math.max(...[...block.matchAll(/var\(--accent\) (\d+)%/g)].map((m) => Number(m[1])));
+}
+const TINTED = [
+  ['the hero', tintOf(/^\.hero \{([\s\S]*?)^\}/m), ['--bg'], ['--text', '--text-soft', '--accent-text']],
+  ['a chip', tintOf(/^\.chip\.is-go \{([^}]*)\}/m), ['--bg-raised', '--bg-card'], ['--accent-text']],
+];
+for (const [what, tint, grounds, texts] of TINTED) {
+  if (!Number.isFinite(tint)) {
+    fail(`the ground of ${what} cannot be read out of its rule`);
+    continue;
+  }
+  for (const [label, palette] of [['light', light], ['dark', explicit]]) {
+    for (const base of grounds) {
+      const ground = tinted(palette[base], palette['--accent'], tint / 100);
+      for (const fg of texts) {
+        const value = contrast(palette[fg], ground);
+        if (value < 4.5) fail(`${label} theme: ${fg} on ${what} over ${base} is ${value.toFixed(2)}:1, WCAG needs 4.5:1`);
+      }
+    }
+  }
+}
+
+// A label and its value, or the columns of a band, run together as one word
+// where only CSS keeps them apart: a screen reader and a copy read
+// "ReadsRadarr". A space in the markup separates them for both.
+let bandsRead = 0;
+for (const [file, html] of Object.entries(pages)) {
+  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head)">[\s\S]*?<\/p>/g)) {
+    bandsRead++;
+    if (/<\/(?:i|span)>(?:<span|[^\s<])/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
+  }
+}
+if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together check is reading almost nothing`);
+
+// The browser's bar follows the page, never the system: one `theme-color`, the
+// light ground, and the dark ground `site.js` writes once a visitor picks it.
+// A pair switched by `prefers-color-scheme` drew a dark bar over a white page.
+for (const [file, html] of Object.entries(pages)) {
+  const colours = [...html.matchAll(/<meta name="theme-color"([^>]*)>/g)].map((m) => m[1]);
+  if (colours.length !== 1 || !colours[0].includes(`content="${light['--bg']}"`) || colours[0].includes('media=')) {
+    fail(`${file}: theme-color must be one tag reading the light ground ${light['--bg']}, found ${colours.length}`);
+  }
+}
+for (const ground of [light['--bg'], explicit['--bg']]) {
+  if (!siteScript.includes(`'${ground}'`)) fail(`site.js never writes the ground ${ground} into theme-color`);
+}
+
+// `--focus` is the one ring colour measured above. A ring drawn in another
+// colour is one nothing measures, and the accent reaches 2.15:1.
+const unmeasuredRings = [...css.matchAll(/outline(?:-color)?:\s*([^;]+);/g)]
+  .map((m) => m[1].trim())
+  .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)'));
+if (unmeasuredRings.length) {
+  fail(`site.css draws a ring in a colour other than --focus: ${unmeasuredRings.join(', ')}`);
 }
 
 // ------------------------------------------------- immutable means fingerprinted
