@@ -35,6 +35,35 @@ test.describe('right to left', () => {
     await setLanguage('en');
   });
 
+  /** An arrow means "towards", so it turns around when the writing does. */
+  test('every arrow in the explanation points the way the text reads', async ({
+    page,
+    instanceId,
+  }) => {
+    expect(instanceId).toBeTruthy();
+    await setLanguage('ar');
+    await page.goto('/media');
+    await page
+      .getByRole('button', { name: /^لماذا؟ – / })
+      .first()
+      .click();
+
+    const panel = page.locator('dialog[open]');
+    await expect(panel).toBeVisible();
+    const arrows = await panel.evaluate((dialog) => {
+      const walker = document.createTreeWalker(dialog, NodeFilter.SHOW_TEXT);
+      const found: string[] = [];
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!node.textContent?.includes('→')) continue;
+        const holder = node.parentElement?.closest('.dir-aware');
+        found.push(holder ? getComputedStyle(holder).transform : 'not mirrored');
+      }
+      return found;
+    });
+    expect(arrows.length).toBeGreaterThan(0);
+    expect(arrows.filter((transform) => transform !== 'matrix(-1, 0, 0, 1, 0, 0)')).toEqual([]);
+  });
+
   test('the shell mirrors and nothing spills off the side', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
     await setLanguage('ar');

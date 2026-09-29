@@ -126,10 +126,14 @@
                   {/if}
                 </td>
                 <td class="max-w-320">
+                  <!-- A task that fails on its own count, such as every move of
+                       an apply refused, says so in its detail and has no error. -->
                   {#if job.error_message}
                     <span class="text-danger">{job.error_message}</span>
                   {:else}
-                    <span class="text-muted">{job.detail ?? t('None')}</span>
+                    <span class={job.status === 'failed' ? 'text-danger' : 'text-muted'}>
+                      {job.detail ?? t('None')}
+                    </span>
                   {/if}
                 </td>
                 <td class="cell-timestamp" title={job.started_at}>

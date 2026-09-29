@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
-use crate::jobs::{FULL_SIMULATION, JobKind, TRIGGER_SCHEDULE};
+use crate::jobs::{Detail, FULL_SIMULATION, JobKind, TRIGGER_SCHEDULE};
 use crate::services::{auto_apply, backup, enrichment, maintenance, routing, sync};
 use crate::state::AppState;
 
@@ -124,12 +124,14 @@ fn describe_panic(panic: Box<dyn std::any::Any + Send>) -> String {
 
 /// Best effort: a panic caused by an unreachable database takes this write
 /// with it.
-async fn record_panic(state: &AppState, cause: &str) {
+pub(crate) async fn record_panic(state: &AppState, cause: &str) {
     error!("Scheduler pass panicked and was restarted: {cause}");
-    if let Ok(job) =
-        state.jobs.start(JobKind::Scheduler, TRIGGER_SCHEDULE, None, "Unattended pass").await
+    if let Ok(job) = state
+        .jobs
+        .start(JobKind::Scheduler, TRIGGER_SCHEDULE, None, Detail::new("JobDetailScheduledPass"))
+        .await
     {
-        job.fail(&format!("the pass panicked: {cause}")).await;
+        job.fail_with(Detail::new("JobDetailPanicked").with("cause", cause)).await;
     }
 }
 

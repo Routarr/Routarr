@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { handFocus } from './focus';
+import { focusHeadingOf, handFocus } from './focus';
 
 function button(id: string, disabled = false): HTMLButtonElement {
   const element = document.createElement('button');
@@ -36,5 +36,41 @@ describe('handFocus', () => {
     await handFocus(neighbour);
 
     expect(document.activeElement).toBe(neighbour);
+  });
+});
+
+describe('focusHeadingOf', () => {
+  it('focuses a heading already on screen', () => {
+    const container = document.createElement('div');
+    container.innerHTML = '<h1>Rules</h1>';
+    document.body.append(container);
+
+    focusHeadingOf(container);
+
+    expect(document.activeElement?.textContent).toBe('Rules');
+  });
+
+  /** A screen renders once its chunk loads, after the navigation. */
+  it('waits for a heading that renders later', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+
+    focusHeadingOf(container);
+    expect(document.activeElement).toBe(document.body);
+    container.innerHTML = '<section><h1>Logs</h1></section>';
+
+    await Promise.resolve();
+    expect(document.activeElement?.textContent).toBe('Logs');
+  });
+
+  it('stops waiting once told to', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+
+    focusHeadingOf(container)();
+    container.innerHTML = '<h1>Logs</h1>';
+
+    await Promise.resolve();
+    expect(document.activeElement).toBe(document.body);
   });
 });

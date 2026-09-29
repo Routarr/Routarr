@@ -127,13 +127,16 @@ describe('Diagnostics', () => {
     expect(within(row).queryByText('connected')).toBeNull();
   });
 
-  it('reports an instance failure in the words the server used', async () => {
+  it('reports an instance failure in its words, and what the server ran into in the title', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
-      health({ instances: [healthInstance({ status: 'connection refused', version: null })] }),
+      health({
+        instances: [healthInstance({ status: 'error: connection refused', version: null })],
+      }),
     );
     show();
 
-    expect(await screen.findByText('connection refused')).toBeTruthy();
+    const failed = await screen.findByText('error');
+    expect(failed.getAttribute('title')).toBe('connection refused');
   });
 
   /**

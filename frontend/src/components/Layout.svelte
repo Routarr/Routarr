@@ -8,6 +8,8 @@
   import { poll } from '../lib/poll.svelte';
   import { applyTheme, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
+  import { focusHeadingOf } from '../lib/focus';
+  import { screenKey } from '../lib/routes';
   import { statusRevision } from '../lib/status.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
@@ -187,6 +189,22 @@
     auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' ? auth.data.mode : null,
   );
 
+  // A screen changes without a page load, so the tab, the history list and a
+  // screen reader learn of it here. The first screen is the page load itself,
+  // which the browser announces and focuses on its own.
+  $effect(() => {
+    document.title = unauthorized ? 'Routarr' : `${t(screenKey(router.path))} · Routarr`;
+  });
+  let pageContainer = $state<HTMLElement | null>(null);
+  let shownPath: string | null = null;
+  $effect(() => {
+    const path = router.path;
+    if (!pageContainer) return;
+    const first = shownPath === null;
+    shownPath = path;
+    if (!first) return focusHeadingOf(pageContainer);
+  });
+
   let signOutError = $state<string | null>(null);
 
   async function signOut() {
@@ -358,7 +376,7 @@
            sidebar and the status bar with it, since those are what the user
            needs to get somewhere that still works. Keyed on the path, so
            leaving a broken page is enough to clear it. -->
-      <div class="page-container">
+      <div class="page-container" bind:this={pageContainer}>
         {#key router.path}
           <svelte:boundary>
             {@render children()}

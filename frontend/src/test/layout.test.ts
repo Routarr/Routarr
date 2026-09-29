@@ -680,6 +680,81 @@ describe('every screen draws a shared thing the same way', () => {
   });
 });
 
+/** A component's text and expressions, with its script, styles, comments and tags blanked. */
+function content(source: string): string {
+  const blank = (match: string) => match.replace(/[^\n]/g, ' ');
+  const text = source
+    .replace(/<script\b[\s\S]*?<\/script>/g, blank)
+    .replace(/<style\b[\s\S]*?<\/style>/g, blank)
+    .replace(/<!--[\s\S]*?-->/g, blank);
+  let out = '';
+  let cursor = 0;
+  const TAG = /<\/?[A-Za-z][\w.-]*/g;
+  let match: RegExpExecArray | null;
+  while ((match = TAG.exec(text)) !== null) {
+    let depth = 0;
+    let end = match.index + match[0].length;
+    while (end < text.length) {
+      const char = text[end];
+      if (char === '{') depth += 1;
+      else if (char === '}') depth -= 1;
+      else if (char === '>' && depth === 0) break;
+      end += 1;
+    }
+    out += text.slice(cursor, match.index) + blank(text.slice(match.index, end + 1));
+    cursor = end + 1;
+    TAG.lastIndex = cursor;
+  }
+  return out + text.slice(cursor);
+}
+
+describe('every value a screen shows is written for its reader', () => {
+  /**
+   * What the backend sends as an enumeration is a machine word (`move`,
+   * `movie`, `success`) in every language: a screen shows the dictionary's
+   * word for it. Attributes are not read, since `class` and `value` carry the
+   * value on purpose.
+   */
+  const ENUMERATIONS = ['action', 'status', 'media_type', 'last_sync_status', 'kind', 'outcome'];
+  const RAW = new RegExp(`\\{\\s*(?:[\\w?]+\\.)*(?:${ENUMERATIONS.join('|')})\\s*\\}`, 'g');
+
+  it('finds an enumeration where one is written', () => {
+    expect(content('<td>{row.status}</td><td class={row.status}></td>').match(RAW)).toEqual([
+      '{row.status}',
+    ]);
+  });
+
+  it('shows no enumeration as it came', () => {
+    const raw = pages().flatMap((file) => {
+      const text = content(read(file));
+      return [...text.matchAll(RAW)].map(
+        (m) => `${file}:${text.slice(0, m.index).split('\n').length} ${m[0]}`,
+      );
+    });
+    expect(raw).toEqual([]);
+  });
+
+  /** A row that spans the table, empty or loading, spans every column of it. */
+  it('spans every full-width row across every column of its table', () => {
+    let tables = 0;
+    const wrong = pages().flatMap((file) =>
+      [...read(file).matchAll(/<table\b[\s\S]*?<\/table>/g)].flatMap((table) => {
+        const head = /<thead\b[\s\S]*?<\/thead>/.exec(table[0])?.[0];
+        if (!head) return [];
+        tables += 1;
+        const columns = (head.match(/<th\b/g) ?? []).length;
+        const line = read(file).slice(0, table.index).split('\n').length;
+        return [...table[0].matchAll(/colspan="(\d+)"|<TableSkeleton columns=\{(\d+)\}/g)]
+          .map((m) => Number(m[1] ?? m[2]))
+          .filter((span) => span !== columns)
+          .map((span) => `${file}:${line} spans ${span} of ${columns} columns`);
+      }),
+    );
+    expect(tables).toBeGreaterThan(10);
+    expect(wrong).toEqual([]);
+  });
+});
+
 describe('every screen names and dates things one way', () => {
   const english = JSON.parse(
     fs.readFileSync(path.join(SRC, '..', '..', 'backend', 'locales', 'en.json'), 'utf-8'),

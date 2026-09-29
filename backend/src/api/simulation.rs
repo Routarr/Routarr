@@ -4,7 +4,7 @@ use super::Json;
 use axum::extract::State;
 
 use crate::error::AppResult;
-use crate::jobs::JobKind;
+use crate::jobs::{Detail, JobKind};
 use crate::models::*;
 use crate::services::routing::{self, SimulationOptions};
 use crate::state::AppState;
@@ -39,7 +39,12 @@ pub async fn run(
 
     let job = state
         .jobs
-        .start(JobKind::Simulate, crate::jobs::TRIGGER_MANUAL, None, "Running simulation")
+        .start(
+            JobKind::Simulate,
+            crate::jobs::TRIGGER_MANUAL,
+            None,
+            Detail::new("JobDetailSimulating"),
+        )
         .await?;
 
     let outcome = routing::run_simulation(
@@ -63,10 +68,11 @@ pub async fn run(
 
     match &outcome {
         Ok(result) => {
-            job.succeed(&format!(
-                "media evaluated: {}, moves required: {}",
-                result.total_media, result.moves_required
-            ))
+            job.succeed(
+                Detail::new("JobDetailSimulated")
+                    .with("total", result.total_media)
+                    .with("moves", result.moves_required),
+            )
             .await
         }
         Err(e) => job.fail(&e.to_string()).await,

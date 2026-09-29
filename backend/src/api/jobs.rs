@@ -7,6 +7,8 @@ use sqlx::AssertSqlSafe;
 
 use crate::api::{Page, paginate};
 use crate::error::{AppError, AppResult};
+use crate::jobs::registry::render_detail;
+use crate::localization::Localizer;
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -16,12 +18,33 @@ pub struct Job {
     pub status: String,
     pub trigger: String,
     pub instance_id: Option<String>,
+    /// In the interface language, from `detail_key` when the row has one.
     pub detail: Option<String>,
+    #[serde(skip)]
+    pub detail_key: Option<String>,
+    #[serde(skip)]
+    pub detail_params: Option<String>,
     pub progress_current: i64,
     pub progress_total: i64,
     pub error_message: Option<String>,
     pub started_at: String,
     pub finished_at: Option<String>,
+}
+
+const JOB_COLUMNS: &str =
+    "id, kind, status, trigger, instance_id, detail, detail_key, detail_params,
+     progress_current, progress_total, error_message, started_at, finished_at";
+
+impl Job {
+    fn localized(mut self, localizer: &Localizer) -> Self {
+        self.detail = render_detail(
+            localizer,
+            self.detail_key.as_deref(),
+            self.detail_params.as_deref(),
+            self.detail.take(),
+        );
+        self
+    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -50,9 +73,7 @@ pub async fn list(
     }
 
     let list_sql = format!(
-        "SELECT id, kind, status, trigger, instance_id, detail, progress_current, progress_total,
-         error_message, started_at, finished_at
-         FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM jobs WHERE 1=1{filters}");
 
@@ -66,6 +87,8 @@ pub async fn list(
 
     let jobs = list_query.bind(per_page).bind(offset).fetch_all(&state.pool).await?;
     let total = count_query.fetch_one(&state.pool).await?;
+    let localizer = state.localizer().await;
+    let jobs = jobs.into_iter().map(|job| job.localized(&localizer)).collect();
 
     Ok(Json(Page::new(jobs, page, per_page, total)))
 }
@@ -74,13 +97,11 @@ pub async fn get_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Job>> {
-    sqlx::query_as::<_, Job>(
-        "SELECT id, kind, status, trigger, instance_id, detail, progress_current, progress_total,
-         error_message, started_at, finished_at FROM jobs WHERE id = ?",
-    )
-    .bind(&id)
-    .fetch_optional(&state.pool)
-    .await?
-    .map(Json)
-    .ok_or_else(|| AppError::NotFound(format!("Job {id} not found")))
+    let sql = format!("SELECT {JOB_COLUMNS} FROM jobs WHERE id = ?");
+    let job = sqlx::query_as::<_, Job>(AssertSqlSafe(sql.as_str()))
+        .bind(&id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Job {id} not found")))?;
+    Ok(Json(job.localized(&state.localizer().await)))
 }

@@ -87,7 +87,7 @@ npx astro check        # types over the components and the catalogue
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 ```
 
-Coverage has floors on both sides: 90 % of backend lines, and 89 / 79 / 87 / 90 for frontend
+Coverage has floors on both sides: 90 % of backend lines, and 90 / 80 / 88 / 90 for frontend
 statements, branches, functions and lines. **Raise one when the real figure moves up, never
 lower one to make a build pass.**
 

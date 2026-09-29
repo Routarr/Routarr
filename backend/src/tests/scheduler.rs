@@ -366,16 +366,15 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
     // The incident is recorded, and the pass after it runs: a sync appears.
     let outcome = tokio::time::timeout(std::time::Duration::from_secs(5), async {
         loop {
-            let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
-                "SELECT kind, status, error_message FROM jobs WHERE trigger = 'schedule'",
-            )
-            .fetch_all(&app.state.pool)
-            .await
-            .unwrap();
+            let rows: Vec<(String, String, Option<String>)> =
+                sqlx::query_as("SELECT kind, status, detail FROM jobs WHERE trigger = 'schedule'")
+                    .fetch_all(&app.state.pool)
+                    .await
+                    .unwrap();
             let panicked = rows.iter().any(|(kind, status, error)| {
                 kind == "scheduler"
                     && status == "failed"
-                    && error.as_deref().unwrap_or_default().contains("panicked")
+                    && error.as_deref().unwrap_or_default().contains("a sweep blew up")
             });
             let synced = rows.iter().any(|(kind, _, _)| kind == "sync");
             if panicked && synced {
@@ -460,19 +459,7 @@ async fn a_panicked_pass_is_visible_without_reading_the_log() {
     let quiet = app.get("/api/v1/status").await;
     let before = quiet.assert_ok()["warnings"].as_array().unwrap().len();
 
-    // What the loop's panic arm writes.
-    let job = app
-        .state
-        .jobs
-        .start(
-            crate::jobs::JobKind::Scheduler,
-            crate::jobs::TRIGGER_SCHEDULE,
-            None,
-            "Unattended pass",
-        )
-        .await
-        .unwrap();
-    job.fail("the pass panicked: a sweep blew up").await;
+    crate::jobs::scheduler::record_panic(&app.state, "a sweep blew up").await;
 
     let after = app.get("/api/v1/status").await;
     let after = after.assert_ok();

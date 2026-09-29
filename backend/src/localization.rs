@@ -8,7 +8,7 @@
 
 use crate::services::rule_engine::ConditionOutcome;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::OnceLock;
 
 /// A language Routarr ships translations for.
@@ -323,11 +323,17 @@ fn shipped(code: &str) -> Option<&'static str> {
 // ------------------------------------------------------------ domain rendering
 
 impl Localizer {
+    /// `translate`, with the values as the engine and the job registry store
+    /// them.
+    pub fn translate_map(&self, key: &str, params: &BTreeMap<String, String>) -> String {
+        let pairs: Vec<(&str, &str)> =
+            params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+        self.translate(key, &pairs)
+    }
+
     /// Fill in an outcome's wording for this language.
     pub fn localize_outcome(&self, mut outcome: ConditionOutcome) -> ConditionOutcome {
-        let params: Vec<(&str, &str)> =
-            outcome.params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-        outcome.expected = self.translate(&outcome.key, &params);
+        outcome.expected = self.translate_map(&outcome.key, &outcome.params);
         outcome
     }
 

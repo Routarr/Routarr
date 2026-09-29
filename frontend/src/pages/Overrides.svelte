@@ -5,7 +5,7 @@
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatTimestamp } from '../api/format';
+  import { formatTimestamp, mediaTypeKey } from '../api/format';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -141,7 +141,8 @@
               <tr>
                 <td>
                   <strong>{override.media_title}</strong>
-                  <span class="badge badge-value muted">{override.media_type}</span>
+                  <span class="badge badge-value muted">{t(mediaTypeKey(override.media_type))}</span
+                  >
                 </td>
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>

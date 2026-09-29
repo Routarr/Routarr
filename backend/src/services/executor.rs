@@ -12,7 +12,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::jobs::{Attribution, JobKind};
+use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::Instance;
 use crate::services::routing::{self, format_timestamp};
 use crate::services::rule_engine::normalize_path;
@@ -226,7 +226,9 @@ pub async fn apply_simulation_in_batches(
             JobKind::Apply,
             &by.trigger,
             None,
-            &format!("Applying {} decision(s) in {} batch(es)", ids.len(), batches_planned),
+            Detail::new("JobDetailApplyingBatches")
+                .with("count", ids.len())
+                .with("batches", batches_planned),
         )
         .await?;
 
@@ -276,10 +278,11 @@ pub async fn apply_simulation_in_batches(
             job,
             report.applied,
             report.failed,
-            format!(
-                "{} applied, {} failed, {} of {} batch(es)",
-                report.applied, report.failed, report.batches_run, report.batches_planned
-            ),
+            Detail::new("JobDetailAppliedBatches")
+                .with("applied", report.applied)
+                .with("failed", report.failed)
+                .with("run", report.batches_run)
+                .with("planned", report.batches_planned),
         )
         .await;
 
@@ -365,7 +368,7 @@ async fn run_apply(
             JobKind::Apply,
             &by.trigger,
             None,
-            &format!("Applying {} decision(s)", decision_ids.len()),
+            Detail::new("JobDetailApplying").with("count", decision_ids.len()),
         )
         .await?;
 
@@ -387,7 +390,9 @@ async fn run_apply(
 
         match &outcome {
             Ok(report) => {
-                let detail = format!("{} applied, {} failed", report.applied, report.failed);
+                let detail = Detail::new("JobDetailApplied")
+                    .with("applied", report.applied)
+                    .with("failed", report.failed);
                 close_job(job, report.applied, report.failed, detail).await
             }
             Err(e) => job.fail(&e.to_string()).await,
@@ -430,7 +435,7 @@ pub async fn revert_decisions(
             JobKind::Revert,
             &by.trigger,
             None,
-            &format!("Reverting {} move(s)", decision_ids.len()),
+            Detail::new("JobDetailReverting").with("count", decision_ids.len()),
         )
         .await?;
 
@@ -452,7 +457,9 @@ pub async fn revert_decisions(
 
         match &outcome {
             Ok(report) => {
-                let detail = format!("{} reverted, {} failed", report.applied, report.failed);
+                let detail = Detail::new("JobDetailReverted")
+                    .with("reverted", report.applied)
+                    .with("failed", report.failed);
                 close_job(job, report.applied, report.failed, detail).await
             }
             Err(e) => job.fail(&e.to_string()).await,
@@ -700,11 +707,11 @@ async fn record_failure(
 
 /// Close a job on what it did. Nothing done while something failed is a
 /// failure, whatever the count reads, or the Tasks screen shows it in green.
-async fn close_job(job: crate::jobs::JobHandle, done: usize, failed: usize, detail: String) {
+async fn close_job(job: crate::jobs::JobHandle, done: usize, failed: usize, detail: Detail) {
     if done == 0 && failed > 0 {
-        job.fail(&detail).await;
+        job.fail_with(detail).await;
     } else {
-        job.succeed(&detail).await;
+        job.succeed(detail).await;
     }
 }
 

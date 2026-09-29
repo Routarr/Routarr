@@ -76,6 +76,26 @@ async fn an_unsupported_language_is_refused() {
     response.assert_status(StatusCode::BAD_REQUEST);
 }
 
+/// A task writes its detail while it runs, and the Tasks screen reads it later
+/// in whatever language the interface speaks by then.
+#[tokio::test]
+async fn a_task_detail_is_read_in_the_interface_language() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/simulate", serde_json::json!({})).await.assert_ok();
+    speak_french(&app).await;
+
+    let jobs = app.get("/api/v1/jobs").await;
+    let detail = jobs.assert_ok()["data"][0]["detail"].as_str().unwrap().to_string();
+
+    let params = [("total", "1"), ("moves", "0")];
+    let french = crate::localization::Localizer::new("fr").translate("JobDetailSimulated", &params);
+    let english =
+        crate::localization::Localizer::new("en").translate("JobDetailSimulated", &params);
+    assert_ne!(french, english, "the French dictionary lacks the key");
+    assert_eq!(detail, french);
+}
+
 #[tokio::test]
 async fn decision_justifications_are_written_in_the_configured_language() {
     let app = TestApp::new().await;

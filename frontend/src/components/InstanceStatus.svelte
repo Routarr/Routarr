@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { failureDetail } from '../api/format';
   import { t } from '../lib/i18n.svelte';
 
   /**
@@ -19,5 +20,5 @@
 {:else if status === 'disabled'}
   <span class="badge badge-value muted">{t('Disabled')}</span>
 {:else}
-  <span class="badge badge-danger" title={status}>{status}</span>
+  <span class="badge badge-danger" title={failureDetail(status)}>{t('Error')}</span>
 {/if}

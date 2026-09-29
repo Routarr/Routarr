@@ -11,6 +11,7 @@ export type RuleMediaType = MediaType | 'both';
 export type MatchMode = 'all' | 'any';
 export type DecisionAction = 'move' | 'none' | 'skip';
 export type DecisionStatus = 'pending' | 'applied' | 'failed' | 'skipped';
+export type LogAction = 'move' | 'revert';
 
 export interface Instance {
   id: string;
@@ -429,7 +430,7 @@ export interface Job {
 export interface LogEntry {
   id: string;
   decision_id: string | null;
-  action: string;
+  action: LogAction;
   details: string | null;
   success: boolean;
   error_message: string | null;

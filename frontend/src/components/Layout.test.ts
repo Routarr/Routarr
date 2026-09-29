@@ -42,6 +42,7 @@ const STRINGS = {
   Diagnostics: 'Diagnostics',
   GuidePillLabel: 'Getting started, required steps done: {done} of {total}',
   CommandPalette: 'Command palette',
+  NotFoundTitle: 'Page not found',
 };
 
 function status(over: Partial<Status> = {}): Status {
@@ -476,6 +477,29 @@ describe('Layout', () => {
     expect(await pill(2)).toBeTruthy();
     navigate('/rules');
     expect(await pill(3)).toBeTruthy();
+  });
+
+  /**
+   * A screen changes without a page load, so nothing tells a screen reader
+   * that it did: the tab and the focus say so, as a load would. The first
+   * screen is the page load itself and leaves the focus where the browser put
+   * it.
+   */
+  it('names the screen in the tab, and moves the focus to its heading on a navigation', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+
+    await vi.waitFor(() => expect(document.title).toBe('Dashboard · Routarr'));
+    expect(document.activeElement).toBe(document.body);
+
+    navigate('/health');
+    await vi.waitFor(() => expect(document.title).toBe('Diagnostics · Routarr'));
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 })),
+    );
+
+    navigate('/no-such-screen');
+    await vi.waitFor(() => expect(document.title).toBe('Page not found · Routarr'));
   });
 
   /** The dashboard, where the guide lives, says so rather than showing nothing. */

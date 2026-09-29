@@ -46,6 +46,20 @@ describe('Tasks', () => {
     expect(within(row).getByText('Succeeded')).toBeTruthy();
   });
 
+  /** Every move of an apply refused is a failure the task counts itself. */
+  it('marks the detail of a task that failed on its own count as a failure', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([
+        job({ status: 'failed', detail: 'Applied: 0, failed: 3', error_message: null }),
+        job({ id: 'job-2', detail: 'Applied: 2, failed: 0' }),
+      ]),
+    );
+    show();
+
+    expect((await screen.findByText('Applied: 0, failed: 3')).className).toContain('text-danger');
+    expect(screen.getByText('Applied: 2, failed: 0').className).toContain('text-muted');
+  });
+
   it('says so when nothing has ever run, instead of showing an empty table', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([]));
     show();

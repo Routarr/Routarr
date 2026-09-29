@@ -120,6 +120,6 @@ Invariants a change must keep:
 - The backend suite is offline, and no test depends on a third party answering.
 - A test is named as a claim about behaviour: `a_trailing_slash_does_not_create_a_phantom_move`.
 - A regression test is seen to fail before its fix, or with the check it guards removed.
-- Coverage floors: 90% of backend lines, and 89% of frontend statements with the other Vitest
+- Coverage floors: 90% of backend lines, and 90% of frontend statements with the other Vitest
   floors in `frontend/vite.config.ts`. Raise a floor when the figure rises, never lower one to
   pass a build.

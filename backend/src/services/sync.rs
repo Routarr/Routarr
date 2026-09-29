@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
-use crate::jobs::JobKind;
+use crate::jobs::{Detail, JobKind};
 use crate::models::Instance;
 use crate::services::notify;
 use crate::services::rule_engine::normalize_path;
@@ -99,7 +99,12 @@ async fn sync_instance_inner(
 
     let job = state
         .jobs
-        .start(JobKind::Sync, trigger, Some(&instance.id), &format!("Syncing {}", instance.name))
+        .start(
+            JobKind::Sync,
+            trigger,
+            Some(&instance.id),
+            Detail::new("JobDetailSyncing").with("instance", &instance.name),
+        )
         .await?;
 
     // Read before writing: notifications fire on the transition, not on the
@@ -113,8 +118,12 @@ async fn sync_instance_inner(
     match &outcome {
         Ok(report) => {
             update_sync_status(&state.pool, &instance.id, "success").await;
-            job.succeed(&format!("{} media, {} root folders", report.media, report.root_folders))
-                .await;
+            job.succeed(
+                Detail::new("JobDetailSynced")
+                    .with("media", report.media)
+                    .with("folders", report.root_folders),
+            )
+            .await;
             if was_failing {
                 notify::send(
                     state,
