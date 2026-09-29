@@ -21,8 +21,9 @@ paths:
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or
   `.devcontainer/` matches no filter.
-- A commit touching only `scripts/` wakes the backend jobs, not the frontend one, which alone runs
-  `scripts/check-bundle-size.mjs`. Run that script yourself after `npm --prefix frontend run build`.
+- Which areas a commit wakes is `scripts/changed-areas.sh`, which a dry run calls from a clone
+  (`bash scripts/changed-areas.sh BASE HEAD`). A push to main is compared with the last commit of
+  main whose run succeeded, so a failed or cancelled run leaves its areas to the next one.
 
 ## Docker image
 

@@ -38,6 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let config = Config::from_env()?;
+    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+        return healthcheck(&config).await;
+    }
     // Before anything binds a port: a value the server cannot honour should
     // stop it with a sentence naming the variable, not with a panic from a
     // dependency four layers down.
@@ -159,6 +162,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Routarr stopped cleanly");
     Ok(())
+}
+
+/// `routarr healthcheck`, the image's HEALTHCHECK. Only the API's own answer
+/// counts: a mount point the probe got wrong reaches the page the interface
+/// falls back to, which answers 200 as well.
+async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(4))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let answer: serde_json::Value =
+        client.get(config.ping_url()).send().await?.error_for_status()?.json().await?;
+    if answer["status"] == "ok" {
+        Ok(())
+    } else {
+        Err(format!("{} answered without the ping's status", config.ping_url()).into())
+    }
 }
 
 /// The one route authenticated by its path: Radarr cannot send a custom header,

@@ -16,45 +16,25 @@ on:
 # current — it only changes who decides when the code changes.
 
 jobs:
-  # A tag can be pushed onto a commit whose CI failed, and the tag triggers the
-  # publish directly. GHCR is not a place to take something back from, so this
-  # asks the one question worth asking first.
+  # A tag triggers the publish directly, whatever commit it was pushed onto.
+  # `scripts/release-guard.sh` asks first whether that commit is on main, green
+  # everywhere, and a version the registry does not hold yet.
   guard:
-    name: The commit is green
+    name: The commit may be published
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
+      contents: read
       actions: read
     steps:
-      - name: Check CI on this commit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check the commit and the version
         env:
           GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
           SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-
-          runs=$(gh api "repos/${{ github.repository }}/actions/runs?head_sha=$SHA&per_page=100" \
-            --jq '.workflow_runs[] | select(.name != "Release") | "\(.name)\t\(.conclusion // .status)"')
-
-          if [ -z "$runs" ]; then
-            echo "::error::No workflow run for $SHA. Push the commit to main and let CI finish before tagging it."
-            exit 1
-          fi
-
-          printf '%s\n' "$runs"
-
-          # A skipped run is a legitimate answer — the path filters skip whole
-          # areas a commit did not touch. A failed or cancelled one is not.
-          #
-          # awk, not grep: the two fields are separated by a tab, and `\t` in an
-          # ERE is a literal `t`, so a grep pattern written that way matches
-          # nothing and refuses every commit ever tagged.
-          rejected=$(printf '%s\n' "$runs" | awk -F'\t' '$2 != "success" && $2 != "skipped"')
-          if [ -n "$rejected" ]; then
-            printf 'Not green:\n%s\n' "$rejected"
-            echo "::error::At least one workflow on $SHA did not succeed. Nothing published."
-            exit 1
-          fi
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release-guard.sh "$REPOSITORY" "$SHA" "$TAG"
 
   # One job per architecture, each on a runner of that architecture.
   #
@@ -107,12 +87,20 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      # Labels only here. The tags name the manifest list, which does not exist
-      # until the next job assembles it.
-      - id: meta
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
-        with:
-          images: ${{ steps.image.outputs.name }}
+      # What only a release knows, the version and the commit. The rest is the
+      # Dockerfile's, which metadata-action's own set would replace with the
+      # repository's: a licence read `GPL-3.0` and a version read `v0.1.2`. No
+      # tag here: the tags name the manifest list, assembled by the next job.
+      - id: labels
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          {
+            echo 'value<<LABELS'
+            echo "org.opencontainers.image.version=${TAG#v}"
+            echo "org.opencontainers.image.revision=$GITHUB_SHA"
+            echo 'LABELS'
+          } >> "$GITHUB_OUTPUT"
 
       # Pushed by digest and carrying no tag: a tag applied here would be taken
       # by whichever architecture pushed last, leaving the other unreachable
@@ -132,7 +120,7 @@ jobs:
           # included. The provenance that is verified is the signed one
           # attested below.
           provenance: mode=min
-          labels: ${{ steps.meta.outputs.labels }}
+          labels: ${{ steps.labels.outputs.value }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
           # A scope per architecture. Sharing one, the two legs evict each
           # other's layers and neither ever reads a warm cache.
@@ -244,6 +232,9 @@ jobs:
           subject-name: ${{ steps.image.outputs.name }}
           subject-digest: ${{ steps.digest.outputs.value }}
           push-to-registry: true
+          # The storage record is an organisation feature this repository does
+          # not use, and it asks for a permission the job does not hold.
+          create-storage-record: false
 
   # The release itself. Publishing it by hand — `gh release create` from a
   # laptop — is the kind of step that gets forgotten or done differently each

@@ -153,8 +153,10 @@ version is published because somebody decided to publish it.
    `npm version X.Y.Z --no-git-tag-version --ignore-scripts` in `frontend/` and
    `site/` moves each lockfile with its manifest, and any `cargo` command run
    in `backend/` does the same for `Cargo.lock`; CI builds with `--locked`.
-2. Commit, push, and let CI finish. The release refuses a commit whose workflows
-   are not green, so tagging ahead of them only wastes a tag.
+2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
+   is not on `main`, one whose workflows are not green and a version the registry
+   already holds (`scripts/release-guard.sh`, which a dry run can call), so
+   tagging ahead of them only wastes a tag.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 The tag builds the image for both architectures, pushes it to GHCR with a signed
@@ -172,9 +174,11 @@ The draft is the step that is easy to forget and the only one a person has to
 do: the image is on GHCR from step 3, so nothing is blocked while it waits — but
 until it is published there is no release to point anyone at.
 
-To undo, delete the draft and the tag. A version already published is corrected
-by tagging the next patch, never by moving a tag: `latest` follows the newest
-stable tag, and an image somebody has already pulled cannot be recalled.
+To undo, delete the draft and the tag. The image and its tags stay on GHCR, and
+the release refuses that version again until it is deleted from the package's
+page on GitHub. A version already published is corrected by tagging the next
+patch, never by moving a tag: `latest` follows the newest stable tag, and an
+image somebody has already pulled cannot be recalled.
 
 The provenance attestation needs the repository to be **public**: GitHub does
 not issue one for a private repository outside Enterprise, and the release job

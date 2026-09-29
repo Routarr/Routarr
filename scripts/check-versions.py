@@ -142,13 +142,23 @@ def main() -> int:
     # Major only, everywhere: nothing here pins a minor, and CI resolves the
     # latest of the line. The CI workflow holds several sightings on its own.
     ci = read(".github/workflows/ci.yml")
-    ci_versions = sorted(set(re.findall(r"^\s*node-version:\s*(\d+)", ci, re.M)))
+    # Quoted or not, as YAML reads both alike. A line read as nothing would
+    # leave CI out of the comparison while the check still passed.
+    declared = re.findall(r"^\s*node-version:\s*(.+?)\s*$", ci, re.M)
+    read_back = [re.match(r"""['"]?(\d+)\b""", value) for value in declared]
+    ci_versions = sorted({match.group(1) for match in read_back if match})
+    unreadable = [value for value, match in zip(declared, read_back) if not match]
     node = [
         find("Dockerfile", r"^FROM node:(\d+)-alpine@sha256:[0-9a-f]{64}"),
         find(".devcontainer/Dockerfile", r"^ARG NODE_VERSION=(\d+)\."),
         find("site/.node-version", r"^(\d+)"),
     ]
-    if len(ci_versions) > 1:
+    if not declared or unreadable:
+        failures.append(
+            "The CI workflow's Node version cannot be read: "
+            + (", ".join(unreadable) if unreadable else "no node-version line")
+        )
+    elif len(ci_versions) > 1:
         failures.append(
             f"The CI workflow asks for several Node versions: {', '.join(ci_versions)}"
         )
