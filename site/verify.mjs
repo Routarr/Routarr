@@ -123,7 +123,8 @@ const LANDINGS = LANGUAGES.map(({ path }) => path);
 const DETAILS = LANDINGS.map((path) => `${path}how/`);
 const PAGES = [...LANDINGS, ...DETAILS];
 
-for (const path of [...PAGES, '/404.html']) {
+const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
+for (const path of [...PAGES, ...NOT_FOUND]) {
   for (const width of [1440, 375]) {
     const tab = await context.newPage();
     await tab.setViewportSize({ width, height: 900 });
@@ -500,12 +501,15 @@ for (const [path, locale, why] of [
 }
 
 // ------------------------------------------------------------ 404
-const missing = await page.goto(`${BASE}/does-not-exist`);
-check(missing.status() === 404, `an unknown path answered ${missing.status()}, expected 404`);
-check(
-  (await page.locator('h1').count()) === 1,
-  'the 404 page does not have exactly one heading',
-);
+// A miss under a language's prefix is answered in that language, and one
+// outside every prefix in English, as Cloudflare serves the nearest 404.html.
+for (const { code, path } of LANGUAGES) {
+  const missing = await page.goto(`${BASE}${path}does-not-exist`);
+  check(missing.status() === 404, `${path}does-not-exist answered ${missing.status()}, expected 404`);
+  const lang = await page.evaluate(() => document.documentElement.lang);
+  check(lang === code, `a miss under ${path} is answered in "${lang}", not "${code}"`);
+  check((await page.locator('h1').count()) === 1, `the ${code} not-found page does not have exactly one heading`);
+}
 
 await browser.close();
 stop();

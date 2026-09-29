@@ -1,0 +1,15 @@
+---
+import NotFound from '../../layouts/NotFound.astro';
+import { LANGUAGES, type Locale } from '../../i18n';
+
+/** The three translated not-found pages, each under its language's prefix. */
+export function getStaticPaths() {
+  return LANGUAGES.filter((language) => language.code !== 'en').map((language) => ({
+    params: { lang: language.code },
+  }));
+}
+
+const { lang } = Astro.params;
+---
+
+<NotFound locale={lang as Locale} />
