@@ -197,6 +197,49 @@ for (const path of PAGES) {
 }
 await page.setViewportSize({ width: 1440, height: 900 });
 
+// ------------------------------------------------------------ clipping
+// A box that holds its content by a fixed height, or shrinks under it behind
+// `overflow: hidden`, loses words without scrolling the page, so the check
+// above passes. Down to 320px (the width WCAG reflow names), every box is
+// measured against its own content, with the copy button showing its longest
+// label. Scroll regions scroll by design, an ellipsis cuts on purpose, and a
+// glyph may reach past a tight line box by a few pixels.
+let boxesMeasured = 0;
+for (const path of PAGES) {
+  const tab = await context.newPage();
+  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  await tab.evaluate(() => document.querySelectorAll('.copy-btn').forEach((button) => {
+    button.textContent = button.dataset.failed;
+  }));
+  for (const width of [320, 360, 390]) {
+    await tab.setViewportSize({ width, height: 900 });
+    await tab.waitForTimeout(80);
+    const { count, clipped } = await tab.evaluate(() => {
+      const clipped = [];
+      let count = 0;
+      for (const el of document.querySelectorAll('main *')) {
+        if (!el.checkVisibility() || el.closest('.sr-only')) continue;
+        const style = getComputedStyle(el);
+        if (style.display === 'inline' || style.display === 'contents') continue;
+        if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
+        count += 1;
+        const hides = style.overflowX !== 'visible' || style.overflowY !== 'visible';
+        const across = el.scrollWidth - el.clientWidth;
+        const down = el.scrollHeight - el.clientHeight;
+        if (across > 1 || down > (hides ? 1 : 4)) {
+          const name = `${el.tagName.toLowerCase()}${[...el.classList].map((c) => `.${c}`).join('')}`;
+          clipped.push(`${name} "${el.textContent.trim().slice(0, 30)}" by ${across}x${down}px`);
+        }
+      }
+      return { count, clipped };
+    });
+    boxesMeasured += count;
+    for (const box of clipped) fail(`${path} at ${width}px: ${box} beyond its box`);
+  }
+  await tab.close();
+}
+check(boxesMeasured >= 4000, `measured ${boxesMeasured} box(es) for clipping, expected at least 4000`);
+
 // ------------------------------------------------------------ header
 // The bar holds the brand, the Index control and the repository on one row,
 // and the switches in the panel are as wide as the translated words make
