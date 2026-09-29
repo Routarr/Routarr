@@ -14,16 +14,24 @@ const t = useTranslations(Astro.props.locale);
  * Paths, instance names and categories are the operator's own words, so
  * nothing in the body is translated but the two origins and the two states.
  */
-interface Folder { path: string; instance: string; declared: boolean; free: string | null; category: string | null }
+interface Folder { path: string; instance: string; declared: boolean; free: number | null; category: string | null }
 const FOLDERS: Folder[] = [
-  { path: '/movies', instance: 'Radarr', declared: false, free: '2.4 TiB', category: 'standard' },
-  { path: '/movies/anime', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'anime' },
-  { path: '/movies/kids', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'kids' },
-  { path: '/movies/concerts', instance: 'Radarr', declared: true, free: '2.4 TiB', category: 'concerts' },
-  { path: '/tv', instance: 'Sonarr', declared: false, free: '6.1 TiB', category: 'standard' },
-  { path: '/tv/anime', instance: 'Sonarr', declared: false, free: '6.1 TiB', category: 'anime' },
+  { path: '/movies', instance: 'Radarr', declared: false, free: 2.4, category: 'standard' },
+  { path: '/movies/anime', instance: 'Radarr', declared: true, free: 2.4, category: 'anime' },
+  { path: '/movies/kids', instance: 'Radarr', declared: true, free: 2.4, category: 'kids' },
+  { path: '/movies/concerts', instance: 'Radarr', declared: true, free: 2.4, category: 'concerts' },
+  { path: '/tv', instance: 'Sonarr', declared: false, free: 6.1, category: 'standard' },
+  { path: '/tv/anime', instance: 'Sonarr', declared: false, free: 6.1, category: 'anime' },
   { path: '/mnt/archive', instance: 'Sonarr', declared: false, free: null, category: null },
 ];
+// As the application writes a size: the reader's number format and unit.
+const size = new Intl.NumberFormat(Astro.props.locale, {
+  style: 'unit',
+  unit: 'terabyte',
+  unitDisplay: 'short',
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 1,
+});
 const COLUMNS: Key[] = ['folders.col.path', 'folders.col.instance', 'folders.col.origin', 'folders.col.free', 'folders.col.category'];
 ---
 
@@ -47,7 +55,7 @@ const COLUMNS: Key[] = ['folders.col.path', 'folders.col.instance', 'folders.col
             </span>
             <span class="folder-free">
               <span class:list={['folder-dot', { off: !folder.free }]} aria-hidden="true" />
-              {folder.free ?? t('folders.unreachable')}
+              {folder.free === null ? t('folders.unreachable') : size.format(folder.free)}
             </span>
             <span class:list={['folder-cat', { none: !folder.category }]}>
               {folder.category ?? t('folders.unmapped')}

@@ -22,7 +22,7 @@ interface Departure {
   rule: { number: string; name: Key } | null;
   from: string;
   to: string;
-  gate: 'Radarr' | 'Sonarr';
+  instance: 'Radarr' | 'Sonarr';
   status: Key;
   kind: Kind;
 }
@@ -30,27 +30,27 @@ interface Departure {
 const DEPARTURES: Departure[] = [
   {
     title: 'Akira (1988)', rule: { number: '#10', name: 'page.text.3' }, from: '/movies', to: '/movies/anime',
-    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
     title: 'Stop Making Sense', rule: { number: '#20', name: 'page.text.6' }, from: '/movies', to: '/movies/concerts',
-    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
     title: 'Cowboy Bebop', rule: { number: '#10', name: 'page.text.3' }, from: '/tv', to: '/tv/anime',
-    gate: 'Sonarr', status: 'hero.status.confirm', kind: 'confirm',
+    instance: 'Sonarr', status: 'hero.status.confirm', kind: 'confirm',
   },
   {
     title: 'Paddington 2', rule: { number: '#30', name: 'page.text.8' }, from: '/movies', to: '/movies/kids',
-    gate: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
     title: 'Whiplash', rule: null, from: '/movies', to: '/movies',
-    gate: 'Radarr', status: 'hero.status.stays', kind: 'still',
+    instance: 'Radarr', status: 'hero.status.stays', kind: 'still',
   },
   {
     title: 'Homecoming', rule: { number: '#20', name: 'page.text.6' }, from: '/movies/concerts', to: '/movies/concerts',
-    gate: 'Radarr', status: 'hero.status.in-place', kind: 'still',
+    instance: 'Radarr', status: 'hero.status.in-place', kind: 'still',
   },
 ];
 
@@ -105,7 +105,7 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
               <th scope="col">{t('hero.col.title')}</th>
               <th scope="col">{t('hero.col.rule')}</th>
               <th scope="col">{t('hero.col.destination')}</th>
-              <th scope="col">{t('hero.col.gate')}</th>
+              <th scope="col">{t('hero.col.instance')}</th>
               <th scope="col">{t('hero.col.status')}</th>
             </tr>
           </thead>
@@ -121,7 +121,7 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
                     <span class="mono from">{d.from}</span>
                     {d.kind === 'still' ? null : <><span class="arrow" aria-hidden="true">&rarr;</span><span class="mono to">{d.to}</span></>}
                   </td>
-                  <td class="plan-gate">{d.gate}</td>
+                  <td class="plan-instance">{d.instance}</td>
                   <td><span class={`chip ${STATUS_CLASS[d.kind]}`}>{t(d.status)}</span></td>
                 </tr>
               ))

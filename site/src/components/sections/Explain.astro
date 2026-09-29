@@ -14,7 +14,7 @@ const t = useTranslations(Astro.props.locale);
  * library's, so only the two words of the pair and the verdicts are
  * translated.
  */
-interface Outcome { field: string; met: boolean; expected: string; observed: string }
+interface Outcome { field: string; met: boolean; expected: string; excluded?: boolean; observed: string }
 interface Verdict { number: string; name: Key; won: boolean; outcomes: Outcome[]; foot: Key }
 
 const OBSERVED_GENRES = 'Animation, Science Fiction';
@@ -24,7 +24,7 @@ const VERDICTS: Verdict[] = [
     outcomes: [
       { field: 'original_language', met: true, expected: 'ja', observed: 'ja' },
       { field: 'genre_contains', met: true, expected: 'Animation', observed: OBSERVED_GENRES },
-      { field: 'certification_in', met: true, expected: 'not G, U, TV-Y', observed: '15' },
+      { field: 'certification_in', met: true, expected: 'G, U, TV-Y', excluded: true, observed: '15' },
     ],
   },
   {
@@ -65,10 +65,10 @@ const VERDICTS: Verdict[] = [
                   <p class="outcome">
                     <span class:list={['mark', { no: !outcome.met }]} aria-hidden="true">{outcome.met ? '✓' : '✗'}</span>
                     <span>
-                      <span class="sr-only">{t(outcome.met ? 'explain.met' : 'explain.unmet')} — </span>
+                      <span class="sr-only">{t(outcome.met ? 'explain.met' : 'explain.unmet')}: </span>
                       <span class="outcome-field">{outcome.field}</span>
                       <span class="outcome-pair">
-                        {t('explain.expected')} <i>{outcome.expected}</i><br>
+                        {t('explain.expected')} <i>{outcome.excluded ? `${t('explain.not')} ` : ''}{outcome.expected}</i><br>
                         {t('explain.observed')} <i>{outcome.observed}</i>
                       </span>
                     </span>

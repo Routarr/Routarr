@@ -92,6 +92,9 @@ const llms = existsSync(join(DIST, 'llms.txt')) ? read('llms.txt') : null;
 const origins = new Set();
 const securityTxt = existsSync(join(DIST, '.well-known/security.txt')) ? read('.well-known/security.txt') : '';
 if (!securityTxt) fail('.well-known/security.txt is missing from the build');
+// Past its date, the file says the contact in it is no longer watched.
+const securityExpires = Date.parse(securityTxt.match(/^Expires:\s*(\S+)/m)?.[1] ?? '');
+if (!(securityExpires > Date.now())) fail('.well-known/security.txt has expired or states no Expires: renew it');
 for (const source of [index, notFound, headers, read('robots.txt'), read('sitemap-index.xml'), llms ?? '', securityTxt]) {
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
@@ -286,12 +289,31 @@ for (const [file, page] of Object.entries(pages)) {
   }
 }
 
+// --------------------------------------------------- the application's words
+// A new user looks in the application for the words the site gave them: the
+// setting to turn off, the mode it shows, the screen that holds exceptions.
+// Another name for one switch sends them looking for a setting nothing shows.
+const TERMS = [
+  ['hero.board.mode', 'ModeDryRunShort'],
+  ['safety.b', 'SettingGlobalDryRun'],
+  ['features.k.3', 'Overrides'],
+];
+for (const { code } of LANGUAGES) {
+  const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
+  const site = JSON.parse(readFileSync(join(ROOT, `src/i18n/${code}.json`), 'utf-8'));
+  for (const [siteKey, appKey] of TERMS) {
+    if ((site[siteKey] ?? '').toLowerCase() !== (app[appKey] ?? '').toLowerCase()) {
+      fail(`src/i18n/${code}.json: ${siteKey} reads "${site[siteKey]}", the application says "${app[appKey]}"`);
+    }
+  }
+}
+
 // ---------------------------------------------------- written into a component
 // Text a reader should get in their language comes from the catalogues. Written
 // into a component, it ships in English on the three translated pages. What is
-// let through is no language: the name, a key legend, and a category and a file
-// shown as data.
-const NOT_LANGUAGE = new Set(['Routarr', 'Ctrl', 'anime', 'docker-compose.yml']);
+// let through is no language: the name, and a category and a file shown as
+// data.
+const NOT_LANGUAGE = new Set(['Routarr', 'anime', 'docker-compose.yml']);
 let templatesRead = 0;
 for (const entry of readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })) {
   if (!entry.name.endsWith('.astro')) continue;
@@ -484,6 +506,19 @@ try {
   JSON.parse(index.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
 } catch (error) {
   fail(`index.html: the JSON-LD block is not valid JSON (${error.message})`);
+}
+// The structured data states the page's language, so its description is in it:
+// an English sentence declared French is what a search engine shows a French
+// reader.
+for (const [file, source] of Object.entries(pages)) {
+  const block = source.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
+  if (!block) continue;
+  const data = JSON.parse(block);
+  const lang = source.match(/<html lang="([a-z]+)"/)?.[1];
+  const meta = source.match(/<meta name="description" content="([^"]*)"/)?.[1]
+    ?.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+  if (data.inLanguage !== lang) fail(`${file}: the structured data says ${data.inLanguage}, the page ${lang}`);
+  if (data.description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
 }
 
 // -------------------------------------------------------------- images
@@ -855,6 +890,7 @@ function tintOf(rule) {
 const TINTED = [
   ['the hero', tintOf(/^\.hero \{([\s\S]*?)^\}/m), ['--bg'], ['--text', '--text-soft', '--accent-text']],
   ['a chip', tintOf(/^\.chip\.is-go \{([^}]*)\}/m), ['--bg-raised', '--bg-card'], ['--accent-text']],
+  ['the match mode in force', tintOf(/^\.rule-mode \.on \{([^}]*)\}/m), ['--bg-card'], ['--accent-text']],
 ];
 for (const [what, tint, grounds, texts] of TINTED) {
   if (!Number.isFinite(tint)) {

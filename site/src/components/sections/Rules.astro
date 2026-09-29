@@ -44,7 +44,7 @@ const EXCLUSIONS: typeof CONDITIONS = [
           <h4>{t('rules.card.conditions')}</h4>
           {/* Both modes are named and the one in force is lit, the way the
                theme switch names both of its states. */}
-          <p class="rule-mode"><span class="on">{t('rules.card.all')}</span><span>{t('rules.card.any')}</span></p>
+          <p class="rule-mode"><span class="on">{t('rules.card.all')}<span class="sr-only"> ({t('rules.card.in-force')})</span></span>{' '}<span>{t('rules.card.any')}</span></p>
         </div>
         {
           CONDITIONS.map((condition) => (
