@@ -90,3 +90,8 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
 export const SCREENS: string[] = ROUTE_GROUPS.flatMap((group) =>
   group.items.map((item) => item.to),
 );
+
+/** The dictionary key naming the screen at `path`: its menu entry's, or the not-found page's. */
+export const screenKey = (path: string): string =>
+  ROUTE_GROUPS.flatMap((group) => group.items).find((item) => item.to === path)?.key ??
+  'NotFoundTitle';

@@ -1,11 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import {
   describeCondition,
+  failureDetail,
   formatBytes,
   formatPercent,
   formatTimestamp,
   localName,
+  mediaTypeKey,
 } from './format';
+
+describe('failureDetail', () => {
+  it('keeps the error text and drops the marker the backend puts before it', () => {
+    expect(failureDetail('error: connection refused')).toBe('connection refused');
+  });
+
+  it('leaves a status without the marker as it is', () => {
+    expect(failureDetail('timed out')).toBe('timed out');
+  });
+});
+
+describe('mediaTypeKey', () => {
+  it('names each kind of title by its dictionary key', () => {
+    expect(mediaTypeKey('movie')).toBe('Movies');
+    expect(mediaTypeKey('series')).toBe('Series');
+  });
+});
 
 describe('localName', () => {
   /** The vocabulary the server sends is spelled in English, for every reader. */

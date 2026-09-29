@@ -16,7 +16,7 @@ use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::error::{AppError, AppResult};
-use crate::jobs::{JobHandle, JobKind};
+use crate::jobs::{Detail, JobHandle, JobKind};
 use crate::models::ProviderMetadata;
 use crate::services::metadata::{self, Addressing, FetchingSource};
 use crate::services::rate_limit::RateLimiter;
@@ -45,7 +45,8 @@ pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<Enri
         return Err(AppError::Conflict("An enrichment pass is already running".into()));
     };
 
-    let job = state.jobs.start(JobKind::Enrich, trigger, None, "Enriching metadata").await?;
+    let job =
+        state.jobs.start(JobKind::Enrich, trigger, None, Detail::new("JobDetailEnriching")).await?;
 
     let mut report = EnrichmentReport::default();
     let mut outcome = Ok(());
@@ -68,7 +69,12 @@ pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<Enri
 
     match &outcome {
         Ok(()) => {
-            job.succeed(&format!("{} enriched, {} failed", report.enriched, report.failed)).await
+            job.succeed(
+                Detail::new("JobDetailEnriched")
+                    .with("enriched", report.enriched)
+                    .with("failed", report.failed),
+            )
+            .await
         }
         Err(e) => job.fail(&e.to_string()).await,
     }

@@ -10,7 +10,12 @@
     Wifi,
   } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import { formatRelative, formatTimestamp, withoutCredentials } from '../api/format';
+  import {
+    failureDetail,
+    formatRelative,
+    formatTimestamp,
+    withoutCredentials,
+  } from '../api/format';
   import type { Instance } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -481,9 +486,13 @@
                       class="badge {instance.last_sync_status === 'success'
                         ? 'badge-success'
                         : 'badge-danger'}"
-                      title={instance.last_sync_status}
+                      title={instance.last_sync_status === 'success'
+                        ? undefined
+                        : failureDetail(instance.last_sync_status)}
                     >
-                      {instance.last_sync_status}
+                      {t(
+                        instance.last_sync_status === 'success' ? 'StatusSuccess' : 'StatusFailed',
+                      )}
                     </span>
                   {/if}
                 </td>

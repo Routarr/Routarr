@@ -1,6 +1,7 @@
 <script lang="ts">
   import { AlertTriangle, ArrowRight, Ban, Check } from '../lib/icons';
   import type { Decision } from '../api/types';
+  import { mediaTypeKey } from '../api/format';
   import { t } from '../lib/i18n.svelte';
   import Confidence from './Confidence.svelte';
 
@@ -25,7 +26,7 @@
   <td>
     <strong>{decision.media_title}</strong>
     <div class="text-muted text-sm">
-      {decision.instance_name} · {t(decision.media_type === 'movie' ? 'Movies' : 'Series')}
+      {decision.instance_name} · {t(mediaTypeKey(decision.media_type))}
       {#if decision.is_override}
         <span class="badge badge-warning ms-1">
           {t('ManualOverride')}

@@ -10,7 +10,7 @@ use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::{info, warn};
 
 use crate::error::AppResult;
-use crate::jobs::JobKind;
+use crate::jobs::{Detail, JobKind};
 use crate::services::metadata;
 use crate::state::AppState;
 
@@ -199,15 +199,20 @@ pub async fn run(state: &AppState, trigger: &str) -> AppResult<MaintenanceReport
         return Ok(MaintenanceReport::default());
     };
 
-    let job = state.jobs.start(JobKind::Maintenance, trigger, None, "Purging stale rows").await?;
+    let job = state
+        .jobs
+        .start(JobKind::Maintenance, trigger, None, Detail::new("JobDetailPurging"))
+        .await?;
     let outcome = purge(state).await;
 
     match &outcome {
         Ok(report) => {
-            job.succeed(&format!(
-                "{} decisions, {} logs, {} jobs removed",
-                report.decisions_removed, report.logs_removed, report.jobs_removed
-            ))
+            job.succeed(
+                Detail::new("JobDetailPurged")
+                    .with("decisions", report.decisions_removed)
+                    .with("logs", report.logs_removed)
+                    .with("jobs", report.jobs_removed),
+            )
             .await
         }
         Err(e) => job.fail(&e.to_string()).await,

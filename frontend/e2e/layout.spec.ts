@@ -42,6 +42,42 @@ test.describe('table cells stay on one line', () => {
     ).toBeLessThan(SAME_LINE);
   });
 
+  /**
+   * Sibling folders differ at their end, so a path cut short keeps its end:
+   * `/mnt/storage/media/movies` and `/mnt/storage/media/movies-anime` must not
+   * both read as the same start.
+   */
+  test('a path too long for its cell keeps its end and loses its start', async ({
+    page,
+    instanceId,
+  }) => {
+    expect(instanceId).toBeTruthy();
+    await page.goto('/media');
+
+    const cell = page.locator('.cell-path').first();
+    await expect(cell).toBeVisible();
+    const cut = await cell.evaluate((node) => {
+      const long = '/mnt/storage/media/library/movies-anime';
+      const holder = node.querySelector('bdi') ?? node;
+      holder.textContent = long;
+      const run = holder.firstChild as Text;
+      const box = node.getBoundingClientRect();
+      const range = document.createRange();
+      range.setStart(run, long.length - 1);
+      range.setEnd(run, long.length);
+      const last = range.getBoundingClientRect();
+      range.setStart(run, 0);
+      range.setEnd(run, 1);
+      const first = range.getBoundingClientRect();
+      return {
+        overflows: node.scrollWidth > node.clientWidth,
+        endShown: last.left >= box.left && last.right <= box.right + 1,
+        startHidden: first.left < box.left,
+      };
+    });
+    expect(cut).toEqual({ overflows: true, endShown: true, startHidden: true });
+  });
+
   test('a timestamp is written the way the language writes it', async ({ page, instanceId }) => {
     expect(instanceId).toBeTruthy();
     await page.goto('/instances');

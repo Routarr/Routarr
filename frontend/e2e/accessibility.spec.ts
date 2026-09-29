@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test';
 
 import { test, expect, api } from './fixtures';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
+import { screenKey } from '../src/lib/routes';
 
 /**
  * Every field was captioned by a `.form-label` sitting *next* to it with no
@@ -316,6 +317,43 @@ test('the first tab stop skips to the content', async ({ page, instanceId }) => 
 
   await page.keyboard.press('Enter');
   await expect(page.locator('main:focus, main:focus-within')).toHaveCount(1);
+});
+
+/**
+ * A screen changes without a page load, so the tab says which one it is, in
+ * the interface language, and a link followed leaves the focus on the heading
+ * of the screen it led to, where a screen reader starts reading.
+ */
+test('each screen names itself in the tab and takes the focus it was reached with', async ({
+  page,
+  instanceId,
+}) => {
+  expect(instanceId).toBeTruthy();
+  await api('/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: { ui_language: 'fr' } }),
+  });
+  const { strings } = (await api('/localization')) as { strings: Record<string, string> };
+
+  for (const path of SCREENS) {
+    await ready(page, path);
+    await expect(page).toHaveTitle(`${strings[screenKey(path)]} · Routarr`);
+  }
+  await ready(page, '/no-such-screen');
+  await expect(page).toHaveTitle(`${strings.NotFoundTitle} · Routarr`);
+
+  await ready(page, '/');
+  await page
+    .getByRole('navigation', { name: strings.MainNavigation })
+    .getByRole('link', { name: new RegExp(`^${strings.Logs}`) })
+    .click();
+  await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
+  await expect(page).toHaveTitle(`${strings.Logs} · Routarr`);
+
+  await api('/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: { ui_language: 'en' } }),
+  });
 });
 
 /**

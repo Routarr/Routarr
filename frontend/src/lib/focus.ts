@@ -25,3 +25,26 @@ export async function handFocus(...targets: FocusTarget[]): Promise<void> {
     }
   }
 }
+
+/**
+ * Move the focus to the heading of the screen `container` shows, as a page
+ * load would, so a screen reader announces where a link led.
+ *
+ * A screen is its own chunk and renders once that loads, so the heading is
+ * waited for rather than looked up once. Returns what stops the wait.
+ */
+export function focusHeadingOf(container: HTMLElement): () => void {
+  const focus = (): boolean => {
+    const heading = container.querySelector<HTMLElement>('h1');
+    if (!heading) return false;
+    heading.tabIndex = -1;
+    heading.focus({ preventScroll: true });
+    return true;
+  };
+  if (focus()) return () => {};
+  const observer = new MutationObserver(() => {
+    if (focus()) observer.disconnect();
+  });
+  observer.observe(container, { childList: true, subtree: true });
+  return () => observer.disconnect();
+}

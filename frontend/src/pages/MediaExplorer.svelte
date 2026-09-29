@@ -162,7 +162,7 @@
                 <td>{media.instance_name}</td>
                 <td class="mono text-sm">
                   <span class="cell-path" title={media.current_root_folder ?? undefined}>
-                    {media.current_root_folder ?? t('None')}
+                    <bdi>{media.current_root_folder ?? t('None')}</bdi>
                   </span>
                 </td>
                 <td>

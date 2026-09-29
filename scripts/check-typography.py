@@ -3,7 +3,7 @@
 
 No em dash, no semicolon in running text and no curly quotes: in the
 interface's dictionaries, the showcase site's catalogues, the README, and the
-strings the frontend and the backend write themselves. The en dash, the
+strings the frontend, the backend and the site's templates write themselves. The en dash, the
 ellipsis, arrows, check marks, the middle dot, angle quotes and corner
 brackets are all fine.
 
@@ -81,14 +81,11 @@ def without_comments(source: str, markup: bool) -> str:
     return re.sub(r"(?<![:'\"`\\])//[^\n]*", blank, source)
 
 
-def frontend(problems: list[str]) -> int:
-    files = sorted(
-        path
-        for pattern in ("src/**/*.svelte", "src/**/*.ts", "e2e/**/*.ts")
-        for path in (ROOT / "frontend").glob(pattern)
-    )
+def sources(folder: str, patterns: tuple[str, ...], problems: list[str]) -> int:
+    files = sorted(path for pattern in patterns for path in (ROOT / folder).glob(pattern))
     for path in files:
-        code = without_comments(path.read_text(encoding="utf-8"), path.suffix == ".svelte")
+        markup = path.suffix in (".svelte", ".astro", ".html")
+        code = without_comments(path.read_text(encoding="utf-8"), markup)
         for number, line in enumerate(code.split("\n"), 1):
             for name in found(line, ""):
                 problems.append(f"{path.relative_to(ROOT)}:{number} carries {name}")
@@ -151,7 +148,12 @@ def main() -> int:
     counts = {
         "dictionaries": catalogues(ROOT / "backend" / "locales", problems),
         "site catalogues": catalogues(ROOT / "site" / "src" / "i18n", problems),
-        "frontend files": frontend(problems),
+        # `index.html` holds the title a tab shows before the shell names the
+        # screen, and a template's text and labels reach the site's reader.
+        "frontend files": sources(
+            "frontend", ("index.html", "src/**/*.svelte", "src/**/*.ts", "e2e/**/*.ts"), problems
+        ),
+        "site templates": sources("site", ("src/**/*.astro", "src/**/*.ts"), problems),
         "backend files": backend(problems),
     }
     readme(problems)

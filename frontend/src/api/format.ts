@@ -1,4 +1,4 @@
-import type { Condition } from './types';
+import type { Condition, DecisionAction, LogAction, MediaType } from './types';
 
 /**
  * The byte symbol for a locale, off the kilobyte's.
@@ -29,7 +29,6 @@ function byteSymbol(locale: string): string | undefined {
  */
 const bcp47 = (language: string) => language.replace('_', '-');
 
-/** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
 /**
  * An address without the `user:pass@` before its host, which a browser
  * opening it would offer to sign in with. The server answers them masked.
@@ -37,6 +36,7 @@ const bcp47 = (language: string) => language.replace('_', '-');
 export const withoutCredentials = (address: string): string =>
   address.replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, '$1');
 
+/** A backend enum value, lower-case, as the head of a PascalCase dictionary key. */
 export const capitalize = (value: string): string => value.charAt(0).toUpperCase() + value.slice(1);
 
 /** The dictionary key naming what set a job or a decision off. */
@@ -44,6 +44,29 @@ export const triggerKey = (trigger: string): string => `Trigger${capitalize(trig
 
 /** The dictionary key naming the status of a job or a decision. */
 export const statusKey = (status: string): string => `Status${capitalize(status)}`;
+
+/** The dictionary key naming what a decision proposes. */
+export const DECISION_ACTION_KEY: Record<DecisionAction, string> = {
+  move: 'ActionMove',
+  none: 'ActionNone',
+  skip: 'ActionSkip',
+};
+
+/** The dictionary key naming what a log entry wrote to an Arr. */
+export const LOG_ACTION_KEY: Record<LogAction, string> = {
+  move: 'ActionMove',
+  revert: 'Revert',
+};
+
+/** The dictionary key naming a kind of title. */
+export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Movies' : 'Series');
+
+/**
+ * What a failed sync or probe ran into. The backend writes `error: ` and the
+ * error's own text, which comes from the network or the Arr: a badge says
+ * that it failed in the reader's language, and its title holds this.
+ */
+export const failureDetail = (status: string): string => status.replace(/^error: /, '');
 
 /**
  * Human-readable size in the reader's language, or a hyphen when the Arr did

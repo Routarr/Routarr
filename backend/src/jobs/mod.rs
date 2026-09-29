@@ -1,7 +1,7 @@
 pub mod registry;
 pub mod scheduler;
 
-pub use registry::{JobHandle, JobKind, JobRegistry};
+pub use registry::{Detail, JobHandle, JobKind, JobRegistry};
 
 /// What set a job off. Stored on the job row and rendered on the Tasks
 /// queue, where the frontend builds its translation key as `Trigger{Capitalised}`

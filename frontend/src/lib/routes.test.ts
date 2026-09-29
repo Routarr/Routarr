@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTE_GROUPS, SCREENS } from './routes';
+import { ROUTE_GROUPS, SCREENS, screenKey } from './routes';
 import { DESTINATIONS, GROUPS } from './navigation';
 
 /**
@@ -24,5 +24,13 @@ describe('the route table', () => {
     expect(DESTINATIONS).toHaveLength(SCREENS.length);
     expect(GROUPS.map((group) => group.key)).toEqual(ROUTE_GROUPS.map((group) => group.key));
     for (const item of DESTINATIONS) expect(item.icon, item.to).toBeDefined();
+  });
+});
+
+describe('screenKey', () => {
+  it('names a screen by its menu entry, and any other path as not found', () => {
+    expect(screenKey('/rules/tests')).toBe('RuleTests');
+    expect(screenKey('/')).toBe('Dashboard');
+    expect(screenKey('/rules/nope')).toBe('NotFoundTitle');
   });
 });

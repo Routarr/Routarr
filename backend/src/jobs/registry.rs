@@ -7,7 +7,7 @@
 //! waits its turn for it, first come first served, within a budget.
 
 use sqlx::SqlitePool;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -15,6 +15,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::error::AppResult;
+use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 
 /// The kinds of work Routarr runs in the background.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +48,55 @@ impl JobKind {
             JobKind::Scheduler => "scheduler",
         }
     }
+}
+
+/// What a job is doing or did: a dictionary key and the values it names.
+///
+/// Stored as the key, not as a sentence, because the Tasks screen reads it
+/// later in the language the interface speaks then (`api::jobs`). The log and
+/// the `detail` column take the English text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Detail {
+    key: &'static str,
+    params: BTreeMap<String, String>,
+}
+
+impl Detail {
+    pub fn new(key: &'static str) -> Self {
+        Self { key, params: BTreeMap::new() }
+    }
+
+    pub fn with(mut self, name: &str, value: impl ToString) -> Self {
+        self.params.insert(name.to_string(), value.to_string());
+        self
+    }
+
+    fn english(&self) -> String {
+        Localizer::new(DEFAULT_LANGUAGE).translate_map(self.key, &self.params)
+    }
+
+    fn stored_params(&self) -> String {
+        serde_json::Value::from_iter(
+            self.params
+                .iter()
+                .map(|(name, value)| (name.clone(), serde_json::Value::from(value.as_str()))),
+        )
+        .to_string()
+    }
+}
+
+/// A stored detail in `localizer`'s language: from its key when the row has
+/// one, as the text it was written with otherwise.
+pub fn render_detail(
+    localizer: &Localizer,
+    key: Option<&str>,
+    params: Option<&str>,
+    text: Option<String>,
+) -> Option<String> {
+    let Some(key) = key else { return text };
+    let params: BTreeMap<String, String> =
+        params.and_then(|stored| serde_json::from_str(stored).ok()).unwrap_or_default();
+    Some(localizer.translate_map(key, &params))
 }
 
 #[derive(Clone)]
@@ -122,11 +172,14 @@ impl JobRegistry {
     /// Without this, a crash mid-sync leaves a job spinning forever in the UI
     /// and its lock key is never released.
     pub async fn recover_orphans(&self) -> AppResult<u64> {
+        let interrupted = Detail::new("JobDetailInterrupted");
         let result = sqlx::query(
             "UPDATE jobs SET status = 'failed', finished_at = datetime('now'),
-             error_message = 'Interrupted by a Routarr restart'
+             detail = ?, detail_key = ?, detail_params = NULL
              WHERE status = 'running'",
         )
+        .bind(interrupted.english())
+        .bind(interrupted.key)
         .execute(&self.pool)
         .await?;
 
@@ -148,23 +201,26 @@ impl JobRegistry {
         kind: JobKind,
         trigger: &str,
         instance_id: Option<&str>,
-        detail: &str,
+        detail: Detail,
     ) -> AppResult<JobHandle> {
         let id = Uuid::new_v4().to_string();
+        let english = detail.english();
 
         sqlx::query(
-            "INSERT INTO jobs (id, kind, status, trigger, instance_id, detail)
-             VALUES (?, ?, 'running', ?, ?, ?)",
+            "INSERT INTO jobs (id, kind, status, trigger, instance_id, detail, detail_key, detail_params)
+             VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(kind.as_str())
         .bind(trigger)
         .bind(instance_id)
-        .bind(detail)
+        .bind(&english)
+        .bind(detail.key)
+        .bind(detail.stored_params())
         .execute(&self.pool)
         .await?;
 
-        info!(job_id = %id, kind = kind.as_str(), trigger, "Job started: {detail}");
+        info!(job_id = %id, kind = kind.as_str(), trigger, "Job started: {english}");
 
         Ok(JobHandle { id, pool: self.pool.clone(), kind, settled: false })
     }
@@ -215,20 +271,37 @@ impl JobHandle {
                 .await;
     }
 
-    /// Mark the job finished successfully.
-    pub async fn succeed(mut self, detail: &str) {
+    /// Mark the job finished successfully, saying what it did.
+    pub async fn succeed(self, detail: Detail) {
+        self.settle("success", detail).await;
+    }
+
+    /// Mark the job failed on an outcome it reports itself, such as every move
+    /// of an apply refused, as opposed to an error it ran into.
+    pub async fn fail_with(self, detail: Detail) {
+        self.settle("failed", detail).await;
+    }
+
+    async fn settle(mut self, status: &'static str, detail: Detail) {
         self.settled = true;
-        info!(job_id = %self.id, kind = self.kind.as_str(), "Job finished: {detail}");
+        let english = detail.english();
+        info!(job_id = %self.id, kind = self.kind.as_str(), status, "Job finished: {english}");
         let _ = sqlx::query(
-            "UPDATE jobs SET status = 'success', detail = ?, finished_at = datetime('now') WHERE id = ?",
+            "UPDATE jobs SET status = ?, detail = ?, detail_key = ?, detail_params = ?,
+                    finished_at = datetime('now')
+              WHERE id = ?",
         )
-        .bind(detail)
+        .bind(status)
+        .bind(&english)
+        .bind(detail.key)
+        .bind(detail.stored_params())
         .bind(&self.id)
         .execute(&self.pool)
         .await;
     }
 
-    /// Mark the job failed, keeping the message for the UI and the log page.
+    /// Mark the job failed on an error, whose text the Tasks screen shows as it
+    /// is: it comes from the database, the network or an Arr, not from here.
     pub async fn fail(mut self, error: &str) {
         self.settled = true;
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
@@ -259,12 +332,15 @@ impl Drop for JobHandle {
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job ended without reporting an outcome");
         let pool = self.pool.clone();
         let id = std::mem::take(&mut self.id);
+        let no_outcome = Detail::new("JobDetailNoOutcome");
         runtime.spawn(async move {
             let _ = sqlx::query(
                 "UPDATE jobs SET status = 'failed', finished_at = datetime('now'),
-                        error_message = 'The job ended without reporting an outcome; see the log'
+                        detail = ?, detail_key = ?, detail_params = NULL
                   WHERE id = ? AND status = 'running'",
             )
+            .bind(no_outcome.english())
+            .bind(no_outcome.key)
             .bind(id)
             .execute(&pool)
             .await;
@@ -296,14 +372,22 @@ mod tests {
     async fn a_handle_dropped_without_an_outcome_fails_its_job() {
         let registry = JobRegistry::new(crate::db::test_pool().await);
         let pool = registry.pool.clone();
-        let handle = registry.start(JobKind::Sync, "manual", None, "syncing").await.unwrap();
+        let handle = registry
+            .start(
+                JobKind::Sync,
+                "manual",
+                None,
+                Detail::new("JobDetailSyncing").with("instance", "Radarr"),
+            )
+            .await
+            .unwrap();
         let id = handle.id.clone();
         drop(handle);
 
         let settled = tokio::time::timeout(Duration::from_secs(2), async {
             loop {
                 let row: (String, Option<String>) =
-                    sqlx::query_as("SELECT status, error_message FROM jobs WHERE id = ?")
+                    sqlx::query_as("SELECT status, detail_key FROM jobs WHERE id = ?")
                         .bind(&id)
                         .fetch_one(&pool)
                         .await
@@ -317,15 +401,20 @@ mod tests {
         .await
         .expect("the job was left running");
         assert_eq!(settled.0, "failed");
-        assert!(
-            settled.1.as_deref().unwrap_or_default().contains("without reporting"),
-            "{settled:?}"
-        );
+        assert_eq!(settled.1.as_deref(), Some("JobDetailNoOutcome"), "{settled:?}");
 
         // The ordinary ending is untouched.
-        let handle = registry.start(JobKind::Sync, "manual", None, "syncing").await.unwrap();
+        let handle = registry
+            .start(
+                JobKind::Sync,
+                "manual",
+                None,
+                Detail::new("JobDetailSyncing").with("instance", "Radarr"),
+            )
+            .await
+            .unwrap();
         let id = handle.id.clone();
-        handle.succeed("done").await;
+        handle.succeed(Detail::new("JobDetailSynced").with("media", 3).with("folders", 1)).await;
         tokio::time::sleep(Duration::from_millis(30)).await;
         let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
             .bind(&id)
@@ -398,13 +487,29 @@ mod tests {
         let pool = crate::db::test_pool().await;
         let registry = JobRegistry::new(pool.clone());
 
-        let handle = registry.start(JobKind::Sync, "manual", None, "syncing").await.unwrap();
+        let handle = registry
+            .start(
+                JobKind::Sync,
+                "manual",
+                None,
+                Detail::new("JobDetailSyncing").with("instance", "Radarr"),
+            )
+            .await
+            .unwrap();
         let id = handle.id.clone();
         handle.progress(3, 10).await;
-        handle.succeed("done").await;
+        handle.succeed(Detail::new("JobDetailSynced").with("media", 3).with("folders", 1)).await;
 
-        let (status, current, total, detail): (String, i64, i64, String) = sqlx::query_as(
-            "SELECT status, progress_current, progress_total, detail FROM jobs WHERE id = ?",
+        let (status, current, total, detail, key, params): (
+            String,
+            i64,
+            i64,
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            "SELECT status, progress_current, progress_total, detail, detail_key, detail_params
+                   FROM jobs WHERE id = ?",
         )
         .bind(&id)
         .fetch_one(&pool)
@@ -413,14 +518,32 @@ mod tests {
 
         assert_eq!(status, "success");
         assert_eq!((current, total), (3, 10));
-        assert_eq!(detail, "done");
+        assert_eq!(detail, "Titles: 3, root folders: 1");
+        assert_eq!(key, "JobDetailSynced");
+        assert_eq!(
+            render_detail(&Localizer::new("fr"), Some(&key), Some(&params), Some(detail))
+                .as_deref(),
+            Some("Titres : 3, dossiers racines : 1"),
+        );
+    }
+
+    /// A row written before the key columns reads as it was written.
+    #[test]
+    fn a_detail_without_a_key_keeps_its_text() {
+        let french = Localizer::new("fr");
+        let text = Some("media evaluated: 3, moves required: 1".to_string());
+        assert_eq!(render_detail(&french, None, None, text.clone()), text);
+        assert_eq!(render_detail(&french, None, None, None), None);
     }
 
     #[tokio::test]
     async fn orphaned_jobs_are_failed_on_startup() {
         let pool = crate::db::test_pool().await;
         let registry = JobRegistry::new(pool.clone());
-        let handle = registry.start(JobKind::Enrich, "schedule", None, "enriching").await.unwrap();
+        let handle = registry
+            .start(JobKind::Enrich, "schedule", None, Detail::new("JobDetailEnriching"))
+            .await
+            .unwrap();
         let id = handle.id.clone();
         std::mem::forget(handle); // simulate a crash: never finished
 

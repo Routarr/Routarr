@@ -2,6 +2,7 @@
   import { api } from '../api/client';
   import { Lock, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
+  import { DECISION_ACTION_KEY } from '../api/format';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -88,7 +89,7 @@
               {t('ManualOverride')}
             </span>
           {/if}
-          <span class="badge badge-value muted">{data.action}</span>
+          <span class="badge badge-value muted">{t(DECISION_ACTION_KEY[data.action])}</span>
         </div>
       </div>
       <div class="w-120">
@@ -99,7 +100,7 @@
 
     <p class="text-muted text-md mt-4">
       <span class="mono">{data.media.current_root_folder ?? t('None')}</span>
-      →
+      <span class="dir-aware">→</span>
       <span class="mono">{data.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
   </div>

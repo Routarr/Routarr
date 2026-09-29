@@ -109,10 +109,16 @@ async fn only_a_simulation_someone_started_ticks_the_step() {
     let pass = app
         .state
         .jobs
-        .start(JobKind::Simulate, crate::jobs::TRIGGER_SCHEDULE, None, "Running simulation")
+        .start(
+            JobKind::Simulate,
+            crate::jobs::TRIGGER_SCHEDULE,
+            None,
+            crate::jobs::Detail::new("JobDetailSimulating"),
+        )
         .await
         .unwrap();
-    pass.succeed("").await;
+    pass.succeed(crate::jobs::Detail::new("JobDetailSimulated").with("total", 1).with("moves", 1))
+        .await;
     crate::services::maintenance::run(&app.state, crate::jobs::TRIGGER_MANUAL).await.unwrap();
     let manual: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM jobs WHERE trigger = 'manual' AND status = 'success'",

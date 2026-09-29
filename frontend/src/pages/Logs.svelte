@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Download, RefreshCw } from '../lib/icons';
   import { ApiError, api } from '../api/client';
-  import { formatTimestamp } from '../api/format';
+  import { LOG_ACTION_KEY, formatTimestamp } from '../api/format';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
@@ -131,7 +131,10 @@
                 <td class="cell-timestamp" title={entry.executed_at}>
                   {formatTimestamp(entry.executed_at, i18n.language)}
                 </td>
-                <td><span class="badge badge-value muted">{entry.action}</span></td>
+                <td
+                  ><span class="badge badge-value muted">{t(LOG_ACTION_KEY[entry.action])}</span
+                  ></td
+                >
                 <td>{entry.media_title ?? t('None')}</td>
                 <td class="mono text-sm">
                   {#if entry.error_message}

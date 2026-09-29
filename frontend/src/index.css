@@ -2678,8 +2678,12 @@ td * {
 
 /* A filesystem path is the widest thing in any of these tables and the least
    worth its width: it is read to recognise, not to parse. Truncated at the
-   start, because the end — the folder that changes — is the part that matters,
-   with the whole of it a hover away. */
+   start, because the end, the folder that changes, is the part that matters,
+   with the whole of it a hover away. A right-to-left box puts the cut and the
+   ellipsis at the start, and the path inside keeps its own direction in a
+   `<bdi>`, or its leading slash moves to the end. `isolate` holds the box to
+   that direction against the cells' `plaintext`, which would take it from the
+   path and cut the end again. */
 .cell-path {
   display: inline-block;
   max-width: 200px;
@@ -2687,6 +2691,8 @@ td * {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
+  direction: rtl;
+  unicode-bidi: isolate;
 }
 
 /* A table that scrolls says so.
