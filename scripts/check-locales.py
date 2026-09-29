@@ -53,9 +53,10 @@ def source_text() -> str:
                 continue
             # And so does their scaffolding. `frontend/src/test/` holds the
             # render helper and the payload fixtures, whose plausible-looking
-            # values ("Radarr", "Akira") match the lookup-map pattern below and
-            # were reported as keys English had lost.
-            if "test" in path.relative_to(ROOT).parts[:-1]:
+            # values ("Radarr", "Akira") match the lookup-map pattern below, and
+            # a key only `backend/src/tests/` quotes is one the product never
+            # shows, which the orphan check exists to find.
+            if {"test", "tests"} & set(path.relative_to(ROOT).parts[:-1]):
                 continue
             if path.suffix in {".rs", ".ts", ".svelte"} and path.is_file():
                 parts.append(strip_rust_tests(path.read_text(encoding="utf-8")))

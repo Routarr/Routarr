@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Bound the caches that otherwise only grow: superseded VS Code server builds,
-# the extension download caches, and the Rust build tree.
+# Bound the caches that otherwise only grow: the extension download caches and
+# the Rust build tree.
 #
 # The rule is not "delete caches". One that regenerates for free is cleared; one
 # that costs compute is given a ceiling; one that costs a download is left
@@ -27,10 +27,10 @@ if [ ! -f "$root/backend/Cargo.toml" ]; then
 fi
 RAMDISK="${ROUTARR_RAMDISK:-/ramdisk}"
 
+# Listed by `--status`, never removed. The volume is shared by every dev
+# container on the host, and this container's `/proc` cannot see another's
+# editor running an older build, which a removal would take down.
 SERVER_BUILDS=/vscode/vscode-server/bin/linux-x64
-# Builds kept besides the one in use. Each is ~700 MB and buys one step back:
-# a downgrade finds its build here instead of re-fetching it.
-KEEP_SERVER_BUILDS=2
 
 note() { echo "prune: $*"; }
 size_kb() { du -sk "$1" 2>/dev/null | cut -f1 || echo 0; }
@@ -54,33 +54,6 @@ drop() {
 prune_once() {
   freed=0
 
-  # --- VS Code server builds -------------------------------------------------
-  # Deleting the build in use takes the editor down with it, and mtime cannot
-  # identify it: reading a file inside a build updates its timestamp, so "keep
-  # the newest" can point at a stale one. `/proc` is the only reliable source.
-  builds="$SERVER_BUILDS"
-  if [ -d "$builds" ]; then
-    in_use="$(
-      { cat /proc/[0-9]*/cmdline 2>/dev/null || true; } \
-        | tr '\0' '\n' \
-        | grep -o "$builds/[a-f0-9]\{40\}" \
-        | sort -u || true
-    )"
-    # Plus the most recent few: at container start the server may not be
-    # running yet, leaving the timestamp as the only signal.
-    recent="$(find "$builds" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-      | sort -rn | head -n "$KEEP_SERVER_BUILDS" | cut -d' ' -f2-)"
-  
-    for build in "$builds"/*/; do
-      build="${build%/}"
-      case "$recent" in *"$build"*) continue ;; esac
-      case "$in_use" in *"$build"*) continue ;; esac
-      freed=$((freed + $(size_kb "$build")))
-      rm -rf "$build"
-      note "removed stale server build $(basename "$build")"
-    done
-  fi
-  
   # --- Extension download caches ---------------------------------------------
   # Downloaded VSIX files only; the extensions live in their own volume.
   for cache in /vscode/vscode-server/extensionsCache "$HOME/.vscode-server/extensionsCache"; do
@@ -107,9 +80,10 @@ prune_once() {
   if [ -n "$target" ] && [ -d "$target" ]; then
     if [ "$(fs_of "$target")" = "tmpfs" ]; then
       # Test scratch that outlived its process: the suites write under TMPDIR
-      # and a run that is killed leaves its directory behind. An hour old is
-      # nothing still running.
-      find "$RAMDISK" -mindepth 1 -maxdepth 1 -name 'routarr-*' -mmin +60 -exec rm -rf {} + 2>/dev/null || true
+      # and a run that is killed leaves its directory behind. Twelve hours old
+      # is nothing still running: an end-to-end session paused for an
+      # afternoon keeps its database.
+      find "$RAMDISK" -mindepth 1 -maxdepth 1 -name 'routarr-*' -mmin +720 -exec rm -rf {} + 2>/dev/null || true
       # 75%: enough headroom left for the `--release` build the e2e harness
       # makes, which is the largest single thing that lands here.
       if [ "$(fill_pct "$target")" -ge 75 ]; then

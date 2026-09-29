@@ -20,6 +20,7 @@ PORT="${SMOKE_PORT:-9876}"
 # on the first-run screen relies on.
 NAME=routarr
 VOLUME=routarr-smoke-data
+SUBPATH_NAME=routarr-smoke-subpath
 BASE="http://127.0.0.1:$PORT"
 
 fail() {
@@ -32,7 +33,7 @@ ok() { echo "ok   $*"; }
 # The name is the one a real installation uses, so an existing container may be
 # somebody's Routarr: refuse rather than remove it, and remove only what this
 # run created.
-for existing in "container:$NAME" "volume:$VOLUME"; do
+for existing in "container:$NAME" "volume:$VOLUME" "container:$SUBPATH_NAME"; do
   if docker "${existing%%:*}" inspect "${existing#*:}" >/dev/null 2>&1; then
     echo "::error::a ${existing%%:*} named ${existing#*:} already exists; not touching it" >&2
     exit 1
@@ -40,6 +41,7 @@ for existing in "container:$NAME" "volume:$VOLUME"; do
 done
 cleanup() {
   docker rm -f "$NAME" >/dev/null 2>&1 || true
+  docker rm -fv "$SUBPATH_NAME" >/dev/null 2>&1 || true
   docker volume rm -f "$VOLUME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -121,9 +123,34 @@ expect_status 200 "serves the interface and its entry script" "$BASE/$entry"
 docker exec "$NAME" test -s /app/LICENSE || fail "no LICENSE in the image"
 ok "carries the licence"
 
+# reqwest verifies TLS against the platform's store: without the bundle, every
+# metadata source and every Arr reached over HTTPS fails certificate checks.
+docker exec "$NAME" test -s /etc/ssl/certs/ca-certificates.crt || fail "no CA bundle in the image"
+ok "carries the CA bundle"
+
+# Nothing under /app is written at run time, and a process that can rewrite its
+# binary or the page it serves turns any code execution into a lasting one.
+if docker exec "$NAME" sh -c 'test -w /app || test -w /app/routarr || test -w /app/frontend/dist/index.html'; then
+  fail "uid 1000 can write under /app"
+fi
+ok "leaves /app read-only to uid 1000"
+
 # Docker's first probe runs one interval (30s) after start.
 wait_for 60 "healthy status from the HEALTHCHECK" healthy
 ok "the HEALTHCHECK reports healthy"
+
+# The mount point as people often write it, with no slash. The probe reads it
+# as the server does, and only the API's own answer counts, never the page the
+# interface falls back to.
+docker run -d --name "$SUBPATH_NAME" -e ROUTARR_BASE_PATH=routarr \
+  --health-interval=2s --health-start-period=1s "$IMAGE" >/dev/null
+deadline=$((SECONDS + 60))
+until [ "$(docker inspect -f '{{.State.Health.Status}}' "$SUBPATH_NAME")" = healthy ]; do
+  [ "$SECONDS" -lt "$deadline" ] || fail "ROUTARR_BASE_PATH=routarr never became healthy"
+  sleep 1
+done
+docker rm -fv "$SUBPATH_NAME" >/dev/null
+ok "the HEALTHCHECK follows ROUTARR_BASE_PATH=routarr"
 
 # PID 1 ignores a signal it installed no handler for, so a server that missed
 # SIGTERM is killed after ten seconds with 137 — skipping the checkpoint that

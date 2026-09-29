@@ -343,6 +343,13 @@ impl Config {
         format!("{}:{}", self.host, self.port)
     }
 
+    /// Where `routarr healthcheck` asks whether the server is up: the port and
+    /// the mount point as the server itself reads them, so `routarr` and
+    /// `/routarr/` probe the address it serves.
+    pub fn ping_url(&self) -> String {
+        format!("http://127.0.0.1:{}{}/api/v1/ping", self.port, self.base_path)
+    }
+
     /// Point the configuration at a database, moving its data directory with
     /// it.
     ///
@@ -505,6 +512,25 @@ fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The image's probe reads this address. Written raw from the variable,
+    /// `routarr` gave `:9876routarr` and a container unhealthy for ever, and
+    /// `/routarr/` a double slash the interface's fallback page answered.
+    #[test]
+    fn the_probe_asks_the_address_the_server_serves_however_the_mount_point_is_written() {
+        let mut config = Config::for_tests();
+        config.port = 9876;
+        for written in ["routarr", "/routarr", "/routarr/", " routarr/ "] {
+            config.base_path = normalise_base_path(written);
+            assert_eq!(
+                config.ping_url(),
+                "http://127.0.0.1:9876/routarr/api/v1/ping",
+                "{written:?}"
+            );
+        }
+        config.base_path = normalise_base_path("");
+        assert_eq!(config.ping_url(), "http://127.0.0.1:9876/api/v1/ping");
+    }
 
     /// `.env.example` is the only place most people will ever read the list of
     /// knobs, so a variable the code honours but the sample omits is invisible.

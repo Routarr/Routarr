@@ -22,8 +22,10 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 WORKDIR /app/frontend
 
 # Dependencies are their own layer so editing a component does not reinstall npm.
+# No install scripts: the build needs none, and one would run whatever a
+# compromised dependency ships inside the image build.
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+RUN npm ci --ignore-scripts
 
 COPY frontend/ ./
 RUN npm run build
@@ -56,8 +58,6 @@ FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cab
 # OMDb, TheTVDB, AniList and Jikan fails certificate validation — and an Arr
 # reached over HTTPS with it. It is also what makes a homelab CA work: mount it
 # into /usr/local/share/ca-certificates and run update-ca-certificates.
-# No `wget` package: the HEALTHCHECK's `wget -qO-` is BusyBox's applet, which
-# Alpine ships in the base image, and the GNU one only added a binary.
 RUN apk add --no-cache ca-certificates tzdata
 
 # What the image is, in the vocabulary a registry reads. `licenses` is the one
@@ -99,14 +99,12 @@ USER 1000:1000
 EXPOSE 9876
 VOLUME ["/data"]
 
-# `/api/v1/ping` is deliberately unauthenticated so this works with an API key
-# set. The port and the sub-path are read from the environment rather than
-# hard-coded: with ROUTARR_PORT changed, a fixed 9876 here reports a healthy
-# container as unhealthy, and an orchestrator restarts it in a loop.
-# Shell form on purpose: the port and the base path come from the environment,
-# which the exec form would not expand.
-# hadolint ignore=DL3025
+# The binary probes itself: it reads the port and the mount point as the server
+# does, so `ROUTARR_BASE_PATH=routarr` and a changed ROUTARR_PORT probe the
+# address actually served. A wrong address would report a healthy container as
+# unhealthy, and an orchestrator restarts it in a loop. `/api/v1/ping` is
+# deliberately unauthenticated, so this works with an API key set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD wget -qO- "http://127.0.0.1:${ROUTARR_PORT:-9876}${ROUTARR_BASE_PATH:-}/api/v1/ping" || exit 1
+    CMD ["/app/routarr", "healthcheck"]
 
 CMD ["/app/routarr"]
