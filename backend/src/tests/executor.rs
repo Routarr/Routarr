@@ -5,8 +5,8 @@ use crate::services::executor;
 use crate::services::routing::{self, SimulationOptions};
 use crate::services::sync;
 
-use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::{TestApp, TestResponse};
 
 /// The client hanging up mid-apply (a browser navigating away, an Arr whose
 /// webhook timed out) must not leave a move done at the Arr and unknown here.
@@ -394,19 +394,7 @@ async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
 async fn ready(arr: &FakeArr) -> (TestApp, String) {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.seed_route_to_anime().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
          current_root_folder, monitored, has_files)
@@ -416,19 +404,7 @@ async fn ready(arr: &FakeArr) -> (TestApp, String) {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
-    sqlx::query("UPDATE settings SET value = 'false' WHERE key = 'global_dry_run'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("global_dry_run", "false").await;
 
     let result = routing::run_simulation(
         &app.state.pool,
@@ -847,6 +823,10 @@ async fn a_revert_larger_than_the_threshold_asks_first() {
     assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
 }
 
+/// Reverting is the one operation a user reaches for when something has
+/// already gone wrong, so it goes through the route: a handler that never
+/// receives the ids it is given fails in exactly the moment nobody wants a
+/// surprise.
 #[tokio::test]
 async fn reverting_puts_the_media_back() {
     let arr = FakeArr::start().await;
@@ -861,17 +841,15 @@ async fn reverting_puts_the_media_back() {
     )
     .await
     .unwrap();
-    let report = executor::revert_decisions(
-        &app.state,
-        std::slice::from_ref(&decision_id),
-        false,
-        &executor::Confirmed::none(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
+    let body = app
+        .post(
+            "/api/v1/decisions/revert",
+            serde_json::json!({ "decision_ids": [decision_id], "move_files": false }),
+        )
+        .await;
 
-    assert_eq!((report.applied, report.failed), (1, 0));
+    let report = body.assert_ok();
+    assert_eq!((report["applied"].as_i64(), report["failed"].as_i64()), (Some(1), Some(0)));
 
     let last_write =
         arr.recorded().writes.iter().rev().find(|w| w["rootFolderPath"].is_string()).cloned();
@@ -995,41 +973,284 @@ async fn moves_to_the_same_folder_are_batched_into_one_call() {
     assert_eq!(edits[0]["movieIds"].as_array().unwrap().len(), 2);
 }
 
-// ------------------------------------------------- the route, not the service
-//
-// Everything above calls `executor::` directly. Reverting is the one operation
-// a user reaches for when something has already gone wrong, so it is worth
-// knowing the route itself is wired: a handler that never receives the ids it
-// is given fails in exactly the moment nobody wants a surprise.
+// ------------------------------------------------------- asking before a move
 
-#[tokio::test]
-async fn the_revert_route_puts_the_media_back() {
-    let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
-    executor::apply_decisions(
-        &app.state,
-        std::slice::from_ref(&decision_id),
-        false,
-        &executor::Confirmed::all(),
-        &Attribution::manual(None),
+/// Seed one pending move of `size` bytes from `/movies/standard` to
+/// `/movies/anime`, with the two folders reporting the free space given.
+async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i64) -> String {
+    sqlx::query(
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('i1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1, 't')",
     )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    for (id, arr_id, path, free, category) in [
+        ("rf-src", 1, "/movies/standard", source_free, "standard"),
+        ("rf-dst", 2, "/movies/anime", target_free, "anime"),
+    ] {
+        sqlx::query(
+            "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible, category)
+             VALUES (?, 'i1', ?, ?, ?, 1, ?)",
+        )
+        .bind(id)
+        .bind(arr_id)
+        .bind(path)
+        .bind(free)
+        .bind(category)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+         current_root_folder, monitored, has_files, size_on_disk)
+         VALUES ('m1', 'i1', 10, 'movie', 'Big', '/movies/standard/Big', '/movies/standard', 1, 1, ?)",
+    )
+    .bind(size)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    // What sends the item to `anime`. An apply decides each item again, and a
+    // decision nothing justifies is skipped before it reaches the Arr.
+    sqlx::query(
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm1', 'anime')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id, current_root_folder,
+         target_category, target_root_folder, action, status, reasons, alternatives, confidence)
+         VALUES ('d1', 'm1', 'Big', 'movie', 'i1', '/movies/standard', 'anime', '/movies/anime',
+                 'move', 'pending', '[]', '[]', 1.0)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    app.store_setting("global_dry_run", "false").await;
+    "d1".to_string()
+}
+
+/// `confirmed` names the guardrail the caller looked at, so a test that answers
+/// the capacity question does not also answer the batch threshold.
+async fn apply(app: &TestApp, confirmed: &[&str]) -> TestResponse {
+    app.post(
+        "/api/v1/decisions/apply",
+        serde_json::json!({ "decision_ids": ["d1"], "move_files": true, "confirm": confirmed }),
+    )
+    .await
+}
+
+/// `free_space` is synced on every pass and `size_on_disk` sits on every row.
+/// Uncompared, a batch that overruns its destination fails partway at the Arr.
+#[tokio::test]
+async fn a_move_larger_than_the_destination_is_refused_with_both_figures() {
+    let app = TestApp::new().await;
+    // 100 GB moving onto a volume with 10 GB free, from a different volume.
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+
+    let refused = apply(&app, &[]).await;
+    assert_eq!(refused.status, 409, "a plan that cannot fit was applied: {}", refused.json);
+    let message = refused.message();
+    assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
+    // Both figures, in the interface's own vocabulary: the root folders table
+    // says `GB` off the same division by 1024, and one figure named two ways
+    // on two screens read together contradicts itself.
+    assert!(message.contains("93.1 GB"), "the refusal must say what is moving: {message}");
+    assert!(message.contains("9.3 GB"), "and what the destination has: {message}");
+}
+
+/// With `move_files` off no byte moves, so free space is not asked about: a
+/// question with no stake teaches people to answer yes to the ones that have.
+#[tokio::test]
+async fn a_move_that_leaves_its_files_asks_nothing_about_free_space() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+
+    let response = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": ["d1"], "move_files": false, "confirm": [] }),
+        )
+        .await;
+    // Past every guard the move reaches the Arr, which is unreachable here.
+    assert_eq!(response.status, 200, "a move leaving its files was asked about: {}", response.json);
+    assert_eq!(response.json["failed"], 1, "the move never reached the Arr: {}", response.json);
+}
+
+/// A destination the Arr cannot reach is asked about, not silently written to.
+///
+/// The routing map keeps a sleeping folder on purpose, so the question of
+/// whether it can be written to has to be asked here, and asked rather than
+/// refused, because a NAS that wakes on access cannot be told from a dead disk.
+#[tokio::test]
+async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
+    let app = TestApp::new().await;
+    pending_move(&app, 1_000, 500_000_000_000, 400_000_000_000).await;
+    sqlx::query(
+        "UPDATE root_folders SET accessible = 0, last_accessible_at = '2026-09-05 03:00:00'
+         WHERE rtrim(path, '/') = '/movies/anime'",
+    )
+    .execute(&app.state.pool)
     .await
     .unwrap();
 
-    let body = app
-        .post(
-            "/api/v1/decisions/revert",
-            serde_json::json!({ "decision_ids": [decision_id], "move_files": false }),
-        )
-        .await;
-    let report = body.assert_ok();
-    assert_eq!((report["applied"].as_i64(), report["failed"].as_i64()), (Some(1), Some(0)));
+    let refused = apply(&app, &[]).await;
+    assert_eq!(refused.status, 409, "it wrote into a folder that is not answering");
+    assert_eq!(refused.json["confirm"], "unreachable");
+    let message = refused.message();
+    assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
+    // The date, not a verdict: twenty minutes reads as a nap and three days as
+    // a fault, and the operator is the one who knows their hardware.
+    assert!(message.contains("2026-09-05"), "and say when it last answered: {message}");
 
-    let root: String = sqlx::query_scalar("SELECT current_root_folder FROM media WHERE id = 'm-1'")
-        .fetch_one(&app.state.pool)
+    // Answered, it gets out of the way, and answers only itself.
+    let allowed = apply(&app, &["unreachable"]).await;
+    assert_eq!(allowed.status, 200, "confirming did not get past the guard: {}", allowed.json);
+    assert_eq!(allowed.json["failed"], 1, "the move never reached the Arr: {}", allowed.json);
+}
+
+/// Answering one question must not answer the others.
+///
+/// Three guardrails ask through the same mechanism, and each asks under its own
+/// name and lifts only that name. Read as a single boolean, confirming a
+/// capacity shortfall would lift the batch threshold as well, silently, and the
+/// operator would never be shown the second fact.
+#[tokio::test]
+async fn confirming_one_guardrail_does_not_lift_another() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+    // Any count at all now exceeds the threshold, so both guardrails have
+    // something to say about the same single decision.
+    sqlx::query("UPDATE settings SET value = '0' WHERE key = 'confirmation_threshold'")
+        .execute(&app.state.pool)
         .await
         .unwrap();
-    assert_eq!(root, "/movies/standard");
+
+    let first = apply(&app, &[]).await;
+    assert_eq!(first.status, 409);
+    assert_eq!(
+        first.json["confirm"], "capacity",
+        "the refusal must name which guardrail asked: {}",
+        first.json
+    );
+
+    // The capacity question is answered, and the threshold has not been asked
+    // yet.
+    let second = apply(&app, &["capacity"]).await;
+    assert_eq!(second.status, 409, "confirming capacity applied the plan: {}", second.json);
+    assert_eq!(
+        second.json["confirm"], "threshold",
+        "confirming one guardrail waved the other through: {}",
+        second.json
+    );
+
+    // And answering a question nobody asked lifts nothing.
+    let unrelated = apply(&app, &["batch"]).await;
+    assert_eq!(unrelated.status, 409, "an unrelated name lifted a guardrail: {}", unrelated.json);
+
+    let applied = apply(&app, &["capacity", "threshold"]).await;
+    assert_eq!(applied.status, 200, "both answered, and it still refused: {}", applied.json);
+}
+
+/// Applying a whole simulation asks the same question, scoped to the run
+/// rather than to a list of ids: a library-sized run must not be spelled out
+/// as bound parameters to be weighed.
+#[tokio::test]
+async fn a_whole_simulation_is_weighed_against_its_destination_too() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+    sqlx::query("UPDATE decisions SET simulation_id = 'sim-1' WHERE id = 'd1'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let refused = app
+        .post(
+            "/api/v1/decisions/apply-all",
+            serde_json::json!({ "simulation_id": "sim-1", "move_files": true, "confirm": [] }),
+        )
+        .await;
+    assert_eq!(refused.status, 409, "{}", refused.json);
+    let message = refused.message();
+    assert!(message.contains("/movies/anime"), "the shortfall must be carried in: {message}");
+}
+
+/// Evidence, not proof, so being wrong costs a click and never a block.
+#[tokio::test]
+async fn the_refusal_can_be_confirmed_through() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
+
+    assert_eq!(apply(&app, &[]).await.status, 409);
+    // Past the guard the move reaches the Arr, which is unreachable here: the
+    // apply answers, and reports the one move as failed. Anything else (a
+    // refusal, or a success against a host that does not exist) is not the
+    // guard letting go.
+    let confirmed = apply(&app, &["capacity"]).await;
+    assert_eq!(confirmed.status, 200, "confirming did not get past the guard: {}", confirmed.json);
+    assert_eq!(confirmed.json["failed"], 1, "the move never reached the Arr: {}", confirmed.json);
+}
+
+/// The common homelab shape: two folders on one disk. A move there is a rename
+/// and consumes nothing, and warning about it would make the guardrail noise on
+/// the most ordinary setup there is. Identical free space is the evidence.
+#[tokio::test]
+async fn a_move_within_one_filesystem_is_not_weighed() {
+    let app = TestApp::new().await;
+    // Same figure on both folders, and far more bytes than either has free.
+    pending_move(&app, 900_000_000_000, 10_000_000_000, 10_000_000_000).await;
+
+    let response = apply(&app, &[]).await;
+    assert_eq!(
+        response.status, 200,
+        "a rename on one volume was refused for want of space it does not need: {}",
+        response.json
+    );
+    assert_eq!(response.json["failed"], 1, "the move never reached the Arr: {}", response.json);
+}
+
+/// A declared destination sits under no root folder an Arr reports, so no
+/// sync brings it a free-space figure and nothing upstream would notice it
+/// filling. With no figure, a move of files onto it is asked about rather
+/// than waved through as an Arr's silent folder is.
+#[tokio::test]
+async fn a_declared_destination_with_no_figure_is_asked_about_its_space() {
+    let app = TestApp::new().await;
+    pending_move(&app, 100_000_000_000, 500_000_000_000, 0).await;
+    sqlx::query(
+        "UPDATE root_folders SET free_space = NULL, origin = 'declared', arr_id = NULL
+         WHERE id = 'rf-dst'",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let refused = apply(&app, &[]).await;
+    assert_eq!(refused.status, 409, "a move onto an unweighed disk went ahead: {}", refused.json);
+    assert_eq!(refused.json["confirm"], "capacity");
+    let message = refused.message();
+    assert!(message.contains("/movies/anime"), "the question must name the folder: {message}");
+    assert!(message.contains("93.1 GB"), "and say what is moving: {message}");
+
+    let confirmed = apply(&app, &["capacity"]).await;
+    assert_eq!(confirmed.status, 200, "confirming did not get past the guard: {}", confirmed.json);
+}
+
+/// Nothing is invented where the Arr said nothing.
+#[tokio::test]
+async fn a_destination_reporting_no_free_space_is_not_guessed_at() {
+    let app = TestApp::new().await;
+    pending_move(&app, 900_000_000_000, 500_000_000_000, 0).await;
+    sqlx::query("UPDATE root_folders SET free_space = NULL WHERE id = 'rf-dst'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let response = apply(&app, &[]).await;
+    assert_eq!(response.status, 200, "{}", response.json);
+    assert_eq!(response.json["failed"], 1, "the move never reached the Arr: {}", response.json);
 }
 
 #[tokio::test]

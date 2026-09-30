@@ -38,6 +38,9 @@ const STRINGS = {
   StatusPending: 'pending',
   StatusFailed: 'failed',
   StatusSkipped: 'skipped',
+  PageOf: 'Page {page} of {total}',
+  DecisionCount: 'Decisions: {count}',
+  Next: 'Next',
 };
 
 const show = () => renderWithI18n(History, { strings: STRINGS });
@@ -248,6 +251,49 @@ describe('History', () => {
         expect.any(AbortSignal),
       ),
     );
+  });
+
+  /** The history is paged by the server, and the pager asks it for the next page. */
+  it('counts every decision under the table, and asks the server for the next page', async () => {
+    const getDecisions = vi
+      .spyOn(api, 'getDecisions')
+      .mockResolvedValue(paginated([decision()], { total_pages: 3, total: 150 }));
+    show();
+
+    expect(await screen.findByText('Page 1 of 3 · Decisions: 150')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() =>
+      expect(getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 2 }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  /**
+   * Every search is a query against the operator's own server, so a title is
+   * asked for once the typing stops, not once per letter, and from the first
+   * page: the page the reader was on may not exist in the narrower list.
+   */
+  it('asks for a typed title once the typing stops, from the first page', async () => {
+    const getDecisions = vi
+      .spyOn(api, 'getDecisions')
+      .mockResolvedValue(paginated([decision()], { total_pages: 3, total: 150 }));
+    show();
+    await screen.findByText('Akira');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getDecisions).toHaveBeenCalledTimes(2));
+
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Search a title' }), 'heat');
+
+    await waitFor(() => expect(getDecisions).toHaveBeenCalledTimes(3));
+    expect(nthCall(getDecisions, 2)[0]).toMatchObject({ search: 'heat', page: 1 });
+    expect(getDecisions.mock.calls.map(([filters]) => filters?.search)).toEqual([
+      undefined,
+      undefined,
+      'heat',
+    ]);
   });
 
   /**

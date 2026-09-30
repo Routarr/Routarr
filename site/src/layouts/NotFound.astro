@@ -2,6 +2,7 @@
 import '../styles/site.css';
 import { themeBootstrap } from '../theme-bootstrap';
 import { useTranslations, pathFor, type Locale } from '../i18n';
+import Brand from '../components/icons/Brand.astro';
 
 interface Props { locale: Locale }
 const { locale } = Astro.props;
@@ -43,19 +44,7 @@ const home = pathFor(locale);
     <header class="site-header">
       <div class="wrap">
         <a class="brand" href={home}>
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#ffa500"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            aria-hidden="true"
-          >
-            <path d="M6 3v12" /><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /><path
-              d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
-            /><path d="M15 6a9 9 0 0 0-9 9" />
-          </svg>
+          <Brand />
           Routarr
         </a>
       </div>

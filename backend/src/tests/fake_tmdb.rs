@@ -5,17 +5,24 @@
 //! how a movie's metadata ends up filed against a series.
 
 use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 
 #[derive(Debug, Default)]
 pub struct Recorded {
     /// Every path requested, in the order the fake saw them.
     pub paths: Vec<String>,
+    /// When each of those arrived.
+    pub arrivals: Vec<Instant>,
+    /// The credential each request carried, as `(api_key query parameter,
+    /// Authorization header)`: which way it travelled, and whether both did.
+    pub credentials: Vec<(Option<String>, Option<String>)>,
 }
 
 #[derive(Clone)]
@@ -25,6 +32,9 @@ struct FakeState {
     failing: Arc<Vec<i64>>,
     /// Ids that answer slowly, to force out-of-order completion.
     slow: Arc<Vec<i64>>,
+    /// The `Retry-After` seconds the next item request is refused with, a 429
+    /// answered once.
+    throttle: Arc<Mutex<Option<u64>>>,
 }
 
 /// A film TMDb says is in Cantonese, which it writes `cn`.
@@ -45,11 +55,22 @@ impl FakeTmdb {
 
     /// `failing` answer 404 and `slow` answer after a delay.
     pub async fn with(failing: Vec<i64>, slow: Vec<i64>) -> Self {
+        Self::build(failing, slow, None).await
+    }
+
+    /// A fake whose first item request is refused with a 429 asking for
+    /// `seconds` of quiet, and which answers every request after it.
+    pub async fn throttling_once(seconds: u64) -> Self {
+        Self::build(vec![], vec![], Some(seconds)).await
+    }
+
+    async fn build(failing: Vec<i64>, slow: Vec<i64>, throttle: Option<u64>) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             failing: Arc::new(failing),
             slow: Arc::new(slow),
+            throttle: Arc::new(Mutex::new(throttle)),
         };
 
         let app = Router::new()
@@ -94,10 +115,13 @@ async fn movie(
     State(state): State<FakeState>,
     Path(id): Path<i64>,
     Query(query): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
-    record(&state, "movie", id, &query).await;
+    headers: HeaderMap,
+) -> Response {
+    if let Some(refusal) = record(&state, "movie", id, &query, &headers).await {
+        return refusal;
+    }
     if state.failing.contains(&id) {
-        return Err(axum::http::StatusCode::NOT_FOUND);
+        return StatusCode::NOT_FOUND.into_response();
     }
 
     // Two ids answer TMDb's two codes outside ISO 639-1: `cn`, its Cantonese,
@@ -107,7 +131,7 @@ async fn movie(
         NO_LANGUAGE => "xx",
         _ => "ja",
     };
-    Ok(Json(serde_json::json!({
+    Json(serde_json::json!({
         "id": id,
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
@@ -123,20 +147,24 @@ async fn movie(
             { "iso_3166_1": "US", "release_dates": [{ "certification": "PG" }] },
             { "iso_3166_1": "FR", "release_dates": [{ "certification": "Tous publics" }] }
         ]}
-    })))
+    }))
+    .into_response()
 }
 
 async fn tv(
     State(state): State<FakeState>,
     Path(id): Path<i64>,
     Query(query): Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, axum::http::StatusCode> {
-    record(&state, "tv", id, &query).await;
+    headers: HeaderMap,
+) -> Response {
+    if let Some(refusal) = record(&state, "tv", id, &query, &headers).await {
+        return refusal;
+    }
     if state.failing.contains(&id) {
-        return Err(axum::http::StatusCode::NOT_FOUND);
+        return StatusCode::NOT_FOUND.into_response();
     }
 
-    Ok(Json(serde_json::json!({
+    Json(serde_json::json!({
         "id": id,
         "name": format!("Series {id}"),
         "genres": [{ "id": 18, "name": "Drama" }],
@@ -148,19 +176,36 @@ async fn tv(
         // TV keywords come back under `results`, not `keywords`.
         "keywords": { "results": [{ "id": 2, "name": "documentary" }] },
         "content_ratings": { "results": [{ "iso_3166_1": "US", "rating": "TV-14" }] }
-    })))
+    }))
+    .into_response()
 }
 
-async fn record(state: &FakeState, kind: &str, id: i64, query: &HashMap<String, String>) {
+/// Write the request down, and hand back the 429 a throttling fake owes.
+async fn record(
+    state: &FakeState,
+    kind: &str,
+    id: i64,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+) -> Option<Response> {
     let appended = query.get("append_to_response").cloned().unwrap_or_default();
-    state
-        .recorded
-        .lock()
-        .expect("lock")
-        .paths
-        .push(format!("/{kind}/{id}?append_to_response={appended}"));
+    {
+        let mut recorded = state.recorded.lock().expect("lock");
+        recorded.paths.push(format!("/{kind}/{id}?append_to_response={appended}"));
+        recorded.arrivals.push(Instant::now());
+        recorded.credentials.push((
+            query.get("api_key").cloned(),
+            headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).map(str::to_string),
+        ));
+    }
 
+    let throttled = state.throttle.lock().expect("lock").take();
+    if let Some(seconds) = throttled {
+        let wait = [(header::RETRY_AFTER, seconds.to_string())];
+        return Some((StatusCode::TOO_MANY_REQUESTS, wait).into_response());
+    }
     if state.slow.contains(&id) {
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
+    None
 }

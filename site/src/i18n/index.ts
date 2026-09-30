@@ -57,3 +57,15 @@ export function pathFor(locale: Locale, page: Page = 'landing'): string {
      alternates name a URL that redirects. */
   return page === 'landing' ? base : `${base}how/`;
 }
+
+/**
+ * The routes of a page's translated copies, for the `getStaticPaths` of each
+ * page under `[lang]/`. English is not among them: `prefixDefaultLocale` is
+ * false, so it is served by the same page outside `[lang]/`, at the path the
+ * sitemap, every `hreflang` and the published links already use.
+ */
+export function translatedRoutes() {
+  return LANGUAGES.filter((language) => language.code !== 'en').map((language) => ({
+    params: { lang: language.code },
+  }));
+}

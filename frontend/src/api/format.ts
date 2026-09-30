@@ -277,3 +277,40 @@ export function localName(
     return null;
   }
 }
+
+/**
+ * `items` with the entry at `index` traded for its neighbour `by` places away,
+ * or `null` when there is no such neighbour. The list handed in is left as it
+ * is: a reorder is sent to the server, and the screen redraws from its answer.
+ */
+export function swapped<T>(items: readonly T[], index: number, by: number): T[] | null {
+  const target = index + by;
+  const from = items[index];
+  const to = items[target];
+  // Reading both is the bounds check: past either end reads `undefined`, and so
+  // does the hole of a sparse array, which a check on the length lets through.
+  if (from === undefined || to === undefined) return null;
+  const next = [...items];
+  next[index] = to;
+  next[target] = from;
+  return next;
+}
+
+/**
+ * The entries in runs of one key, in the order they came, each with its index
+ * in the whole list. A list drawn in groups is still walked as one by the
+ * arrows, and the index is the place they count.
+ */
+export function runsOf<T, K>(
+  items: readonly T[],
+  keyOf: (item: T) => K,
+): { key: K; entries: { item: T; index: number }[] }[] {
+  const runs: { key: K; entries: { item: T; index: number }[] }[] = [];
+  items.forEach((item, index) => {
+    const key = keyOf(item);
+    const last = runs.at(-1);
+    if (last && last.key === key) last.entries.push({ item, index });
+    else runs.push({ key, entries: [{ item, index }] });
+  });
+  return runs;
+}

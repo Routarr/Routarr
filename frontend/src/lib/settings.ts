@@ -11,9 +11,9 @@ import type { Settings, StoredSettings } from '../api/types';
  * exactly once: a field in no section would be unreachable and saved with its
  * fallback, silently.
  *
- * A new setting needs its `KNOWN` entry in `backend/src/api/settings.rs`, which
- * refuses an unknown key, and a `FIELDS` entry listed in exactly one `SECTIONS`
- * group.
+ * A new setting needs its `KNOWN` entry in `backend/src/services/settings.rs`,
+ * which refuses an unknown key, and a `FIELDS` entry listed in exactly one
+ * `SECTIONS` group.
  */
 export interface Field {
   key: string;
@@ -35,7 +35,7 @@ export interface Field {
     | 'secret';
   fallback: string;
   /**
-   * The interval a `number` accepts: the bounds `api/settings.rs` enforces,
+   * The interval a `number` accepts: the bounds `services/settings.rs` enforces,
    * stated here so the field refuses a value before a save instead of after
    * it, in a refusal naming a key in a tab the operator never opened. `null`
    * is no upper bound: a retention in days has none.

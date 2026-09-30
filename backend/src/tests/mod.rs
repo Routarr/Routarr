@@ -41,7 +41,13 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
+use crate::services::routing::{SimulationOptions, run_simulation};
 use crate::state::AppState;
+
+/// The HTTP client the application builds, under the test configuration.
+pub fn http_client() -> reqwest::Client {
+    crate::http::build_client(&crate::config::Config::for_tests()).expect("test http client")
+}
 
 /// Removed when dropped, so a test that fails halfway leaves nothing behind in
 /// a temporary directory that, in the dev container, is a tmpfs.
@@ -134,11 +140,12 @@ impl TestApp {
     /// `send` parses the body and discards it. A metrics scrape or a CSV export
     /// needs the bytes and the headers.
     pub async fn raw(&self, path: &str) -> axum::response::Response {
-        self.router
-            .clone()
-            .oneshot(Request::get(path).body(Body::empty()).unwrap())
-            .await
-            .expect("router call")
+        self.send_raw(Request::get(path).body(Body::empty()).unwrap()).await
+    }
+
+    /// The raw response to any request, headers and body untouched.
+    pub async fn send_raw(&self, request: Request<Body>) -> axum::response::Response {
+        self.router.clone().oneshot(request).await.expect("router call")
     }
 
     /// The response body as text.
@@ -148,7 +155,7 @@ impl TestApp {
     }
 
     pub async fn send(&self, request: Request<Body>) -> TestResponse {
-        let response = self.router.clone().oneshot(request).await.expect("router call");
+        let response = self.send_raw(request).await;
         let status = response.status();
         // Kept before the body is consumed: a redirect has no body worth
         // reading and everything it says is in this header.
@@ -164,13 +171,7 @@ impl TestApp {
 
     /// Seed a Radarr instance, a mapped root folder and one media item.
     pub async fn seed_library(&self) {
-        sqlx::query(
-            "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
-             VALUES ('inst-1', 'Radarr', 'radarr', 'http://radarr:7878', 'secret', 1, 'tok')",
-        )
-        .execute(&self.state.pool)
-        .await
-        .unwrap();
+        sqlx::query(AN_INSTANCE).execute(&self.state.pool).await.unwrap();
 
         sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
             .execute(&self.state.pool)
@@ -263,6 +264,100 @@ impl TestApp {
         .await
         .unwrap();
     }
+
+    /// Everything that routes TMDb's film 8392 to `/movies/anime` on `inst-1`
+    /// but the film itself: the anime rule, the `anime` category mapped onto
+    /// `rf-2`, and TMDb's answer for 8392, listed. Each test seeds the item
+    /// with the path, the files and the id its case needs.
+    pub async fn seed_route_to_anime(&self) {
+        self.seed_anime_rule().await;
+        sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
+            .execute(&self.state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+             VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
+        )
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
+             original_language, origin_countries, expires_at)
+             VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
+        )
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+        self.list_tmdb().await;
+    }
+
+    /// A harness whose library was synced from `arr`, as instance `inst-1`.
+    pub async fn synced_from(kind: &str, arr: &fake_arr::FakeArr) -> Self {
+        let app = Self::new().await;
+        app.seed_instance_at("inst-1", kind, &arr.base_url).await;
+        crate::services::sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+        app
+    }
+
+    /// A rule whose only condition is `condition`, routing to `anime`, a
+    /// category it creates when the library has none.
+    pub async fn seed_rule_on(&self, condition: serde_json::Value) {
+        sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES ('cat-anime', 'anime')")
+            .execute(&self.state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+             target_category, match_mode)
+             VALUES ('r-1', 'Rule under test', 10, 1, 'both', ?, 'anime', 'all')",
+        )
+        .bind(serde_json::json!([condition]).to_string())
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+    }
+
+    /// The category the rules settle on for the first item, by a simulation
+    /// that stores nothing.
+    pub async fn decided_category(&self) -> String {
+        let result = run_simulation(
+            &self.state.pool,
+            SimulationOptions { persist: false, ..Default::default() },
+        )
+        .await
+        .unwrap();
+        result.decisions[0].target_category.clone()
+    }
+
+    /// Run a persisting simulation and hand back its id.
+    pub async fn simulate(&self) -> String {
+        run_simulation(&self.state.pool, SimulationOptions { persist: true, ..Default::default() })
+            .await
+            .unwrap()
+            .simulation_id
+    }
+
+    /// Write a setting straight into the table, as a hand edit or an older
+    /// release leaves it: nothing validates or seals the value.
+    pub async fn store_setting(&self, key: &str, value: &str) {
+        sqlx::query(
+            "INSERT INTO settings (key, value) VALUES (?, ?)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+    }
+
+    /// Save a setting as the Settings screen saves it, through `PUT /settings`,
+    /// which validates the value and seals a credential.
+    pub async fn save_setting(&self, key: &str, value: &str) -> TestResponse {
+        self.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } })).await
+    }
 }
 
 fn json_request(method: &str, path: &str, body: serde_json::Value) -> Request<Body> {
@@ -320,9 +415,43 @@ pub async fn database_through(last: &str) -> sqlx::SqlitePool {
 
 /// One enabled instance, written in the initial schema's terms, which every
 /// later schema reads.
+///
+/// At port 1 on the loopback, where nothing listens: a request is refused at
+/// once and never leaves the machine. A host name such as `radarr` goes through
+/// the host's resolver, and on a homelab it may well answer.
 pub const AN_INSTANCE: &str = "INSERT INTO instances
     (id, name, instance_type, base_url, api_key, enabled, webhook_token)
-    VALUES ('inst-1', 'Radarr', 'radarr', 'http://radarr:7878', 'secret', 1, 'tok')";
+    VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'secret', 1, 'tok')";
+
+/// Collects what a `tracing` subscriber writes, so a test can read the log a
+/// request produced rather than trust that nothing sensitive is in it.
+#[derive(Clone, Default)]
+pub struct LogCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl LogCapture {
+    pub fn contents(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+impl std::io::Write for LogCapture {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
+    type Writer = LogCapture;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
 
 /// The warnings of a `/status` or `/health` answer, as the reader sees them.
 #[track_caller]

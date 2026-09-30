@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { href, navigate } from '../lib/router.svelte';
 import { withBase } from '../test/base';
+import { click } from '../test/links';
 import Sidebar from './Sidebar.svelte';
 
 /**
@@ -87,7 +88,7 @@ describe('Sidebar', () => {
     const onNavigate = vi.fn();
     show({ open: true, onNavigate });
 
-    await fireEvent.click(await screen.findByRole('link', { name: /Logs/ }));
+    click(await screen.findByRole('link', { name: /Logs/ }));
 
     expect(onNavigate).toHaveBeenCalledTimes(1);
   });

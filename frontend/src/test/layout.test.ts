@@ -11,9 +11,10 @@ function read(file: string): string {
 /**
  * Every screen and every shared component, by extension.
  *
- * The glob is load-bearing: a pattern matching no file leaves the four checks
- * below iterating over an empty list and passing without reading anything.
- * Components are included because half the forms live in them.
+ * The glob is load-bearing: a pattern matching no file leaves every sweep in
+ * this file iterating over an empty list and passing without reading anything,
+ * which the first check below refuses. Components are included because half
+ * the forms live in them.
  */
 function pages(): string[] {
   return ['pages', 'components'].flatMap((dir) =>
@@ -31,6 +32,13 @@ function pages(): string[] {
  * heights. `.form-row` bottom-aligns them, so the wrapping is invisible.
  */
 describe('a row of fields survives labels of different lengths', () => {
+  it('reads every screen and every shared component', () => {
+    const files = pages();
+    expect(files.length).toBeGreaterThan(40);
+    expect(files).toContain(path.join('pages', 'Rules.svelte'));
+    expect(files).toContain(path.join('components', 'Modal.svelte'));
+  });
+
   it('the form-row helper bottom-aligns its controls and wraps when narrow', () => {
     const rule = read('index.css').match(/\.form-row \{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('align-items: flex-end');
@@ -39,11 +47,13 @@ describe('a row of fields survives labels of different lengths', () => {
 
   it('no page lays out fields side by side with a bare flex row', () => {
     const offenders: string[] = [];
+    let rows = 0;
 
     for (const file of pages()) {
       const lines = read(file).split('\n');
       lines.forEach((line, index) => {
         if (!/\bclass="flex gap-\d"/.test(line)) return;
+        rows += 1;
         // A bare flex row is fine for buttons or badges. It is only wrong when
         // it carries labelled fields, whose labels wrap independently.
         const block = lines.slice(index + 1, index + 12).join('\n');
@@ -53,6 +63,7 @@ describe('a row of fields survives labels of different lengths', () => {
       });
     }
 
+    expect(rows, 'found no bare flex row to look inside').toBeGreaterThan(10);
     expect(offenders).toEqual([]);
   });
 
@@ -94,9 +105,11 @@ describe('a row of fields survives labels of different lengths', () => {
     // An icon-only button announces nothing to a screen reader, a destructive
     // one included.
     const offenders: string[] = [];
+    let seen = 0;
 
     for (const file of pages()) {
       for (const { attributes, body } of buttons(read(file))) {
+        seen += 1;
         // Control and render blocks are markup, not words: `{#if icon}` and
         // `{@render icon()}` name nobody. What is left is the button's text,
         // which may be a literal or an expression: `<span>{action.label}</span>`
@@ -112,6 +125,7 @@ describe('a row of fields survives labels of different lengths', () => {
       }
     }
 
+    expect(seen, 'found no button to name').toBeGreaterThan(80);
     expect(offenders).toEqual([]);
   });
 
@@ -120,10 +134,12 @@ describe('a row of fields survives labels of different lengths', () => {
     // and announces nothing: the field reads as unlabelled, and clicking the
     // caption does not focus it.
     const offenders: string[] = [];
+    let labels = 0;
 
     for (const file of pages()) {
       const source = read(file);
       for (const match of source.matchAll(/<label\b([^>]*class="form-label"[^>]*)>/g)) {
+        labels += 1;
         const attributes = match[1];
         if (attributes !== undefined && !/\bfor=/.test(attributes)) {
           offenders.push(`${file}: ${match[0].replace(/\s+/g, ' ').slice(0, 60)}`);
@@ -131,6 +147,7 @@ describe('a row of fields survives labels of different lengths', () => {
       }
     }
 
+    expect(labels, 'found no form label to follow').toBeGreaterThan(15);
     expect(offenders).toEqual([]);
   });
 
@@ -152,6 +169,7 @@ describe('a row of fields survives labels of different lengths', () => {
       }
     }
 
+    expect(seen.size, 'found no id to compare').toBeGreaterThan(30);
     expect(clashes).toEqual([]);
   });
 

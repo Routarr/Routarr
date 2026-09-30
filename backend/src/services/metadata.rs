@@ -745,6 +745,39 @@ pub async fn load_cache(
         .collect())
 }
 
+/// The cached answers for one item, keyed as [`load_cache`] keys the library's.
+///
+/// Every column of each row, `CACHE_COLUMNS`: the one-item readers show the
+/// status, the synopsis and the poster beside what the rules read. One lookup
+/// per source that holds an identifier for the item.
+pub async fn load_cache_of(
+    pool: &SqlitePool,
+    media: &Media,
+    providers: &[&'static ProviderInfo],
+    identifiers: &Identifiers,
+) -> AppResult<HashMap<(String, String, String), ProviderMetadata>> {
+    let mut cache = HashMap::new();
+    for provider in providers.iter().filter(|provider| provider.id != ARR) {
+        let Some(external_id) = external_id(provider, media, identifiers) else {
+            continue;
+        };
+        let row: Option<CacheRow> = sqlx::query_as(AssertSqlSafe(format!(
+            "SELECT {CACHE_COLUMNS} FROM metadata_cache
+              WHERE source = ? AND external_id = ? AND media_type = ?"
+        )))
+        .bind(provider.id)
+        .bind(&external_id)
+        .bind(&media.media_type)
+        .fetch_optional(pool)
+        .await?;
+        if let Some(row) = row {
+            let key = (provider.id.to_string(), external_id, media.media_type.clone());
+            cache.insert(key, row.into_answer());
+        }
+    }
+    Ok(cache)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

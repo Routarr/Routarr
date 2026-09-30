@@ -75,7 +75,13 @@ echo "==> building"
 # exists to prevent. The subshell is safe: unlike the server below, it is
 # waited on rather than backgrounded.
 (cd "$ROOT/backend" && cargo build --release >/dev/null)
-(cd "$ROOT/frontend" && npm run build >/dev/null)
+# Kept aside rather than discarded: svelte-check and Vite report on stdout, so
+# a failed build would end the run with nothing on screen to say why.
+if ! (cd "$ROOT/frontend" && npm run build >"$WORK/frontend-build.log" 2>&1); then
+  echo "the frontend did not build:" >&2
+  cat "$WORK/frontend-build.log" >&2
+  exit 1
+fi
 # A release build lands beside the debug tree and a coverage tree in the dev
 # container's tmpfs. The sweep is what keeps the next build from ENOSPC.
 # `CARGO_TARGET_DIR` is set only there, so CI never runs this.

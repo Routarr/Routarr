@@ -44,9 +44,9 @@ Components named without a path live in `frontend/src/components/`.
   it stops in a hidden tab and reloads on return.
 - `scripts/check-api-types.py` compares field names, not types, for each pair in its `PAIRS`
   table, so a new response type needs a line there. A `#[serde(flatten)]` struct arrives flat.
-- A new setting needs a `KNOWN` entry in `backend/src/api/settings.rs`, which refuses unknown keys,
-  and a `FIELDS` entry in `frontend/src/lib/settings.ts` listed in exactly one `SECTIONS` group. A
-  number field's `range` repeats the backend's bounds.
+- A new setting needs a `KNOWN` entry in `backend/src/services/settings.rs`, which refuses unknown
+  keys, and a `FIELDS` entry in `frontend/src/lib/settings.ts` listed in exactly one `SECTIONS`
+  group. A number field's `range` repeats the backend's bounds.
 - A value shown with a name carries the code in `value` and the name in `label`. Render
   `label ?? value` and write `value` into a rule: the engine matches the code.
 
@@ -118,16 +118,18 @@ Components named without a path live in `frontend/src/components/`.
   the dialog's real button, never `page.on('dialog')`.
 - Coverage counts every source file under `frontend/src/` but the tests, their helpers, `main.ts`
   and `api/types.ts` (`coverage` in `frontend/vite.config.ts`), so a new file without a test
-  lowers the figure the floors guard.
+  fails the per-file floor, whatever the aggregate says.
 - `npm run test:e2e` builds the release binary and the frontend, then drives Chromium against a
   fake Radarr. Specs are chosen by tag, never by file: one that needs a sub-path mount carries
   `@subpath` in its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode
   carries `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key,
   every other spec by default.
 - A new journey queries by role and label, not by class. The suite runs serially against one
-  server, so a spec restores any setting it changes beyond what the `instanceId` fixture resets.
+  server, which the `instanceId` fixture resets before every test, so a spec restores any
+  setting it changes beyond that reset.
 - A spec imports `test`, `expect` and `api` from `frontend/e2e/fixtures.ts`, which seeds the key
-  the harness serves with. Imported from `@playwright/test`, a page lands on the key gate.
+  the harness serves with. Imported from `@playwright/test`, a page lands on the key gate. A
+  screen opens with its `openScreen`, which fails on the not-found page a bare `h1` wait accepts.
 - `tsconfig.json` sets `erasableSyntaxOnly` (no `enum`, no `namespace`, no constructor parameter
   properties) and `noUncheckedIndexedAccess`.
 - ESLint is type-aware: no floating promise, type-only imports marked `type`, no `console.log`, and

@@ -1,4 +1,6 @@
-import { test, expect } from './fixtures';
+import type { Page } from '@playwright/test';
+
+import { test, expect, openScreen, screenShown } from './fixtures';
 
 /**
  * Routarr mounted under a sub-path, the Servarr "URL base" convention.
@@ -9,11 +11,10 @@ import { test, expect } from './fixtures';
  */
 const BASE = '/routarr';
 
-test('a deep link loads its assets rather than coming up blank @subpath', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
+const sidebarLinks = (page: Page) =>
+  page.getByRole('navigation', { name: 'Main navigation' }).getByRole('link');
+
+test('a deep link loads its assets rather than coming up blank @subpath', async ({ page }) => {
   const failures: string[] = [];
   page.on('response', (r) => {
     if (!r.ok()) failures.push(`${r.status()} ${r.url()}`);
@@ -22,18 +23,15 @@ test('a deep link loads its assets rather than coming up blank @subpath', async 
 
   // Straight to a client-side route: without a `<base href>` the relative asset
   // URLs would resolve against /routarr/rules/ and 404.
-  await page.goto(`${BASE}/rules`);
-
-  await expect(page.locator('.page-title')).toBeVisible();
+  await openScreen(page, `${BASE}/rules`);
   expect(failures, 'nothing may fail to load').toEqual([]);
 });
 
-test('navigation keeps the prefix @subpath', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('navigation keeps the prefix @subpath', async ({ page }) => {
   await page.goto(`${BASE}/`);
 
-  await page.locator('.sidebar-nav a').nth(1).click();
-  await expect(page.locator('.page-title')).toBeVisible();
+  await sidebarLinks(page).nth(1).click();
+  await screenShown(page, 'the second sidebar entry');
 
   // A link that dropped the prefix would leave the proxy entirely.
   expect(new URL(page.url()).pathname.startsWith(`${BASE}/`)).toBe(true);
@@ -49,11 +47,8 @@ test('navigation keeps the prefix @subpath', async ({ page, instanceId }) => {
 test('every link carries the prefix, and a ctrl-click stays under it @subpath', async ({
   page,
   context,
-  instanceId,
 }) => {
-  expect(instanceId).toBeTruthy();
-  await page.goto(`${BASE}/`);
-  await expect(page.locator('.page-title')).toBeVisible();
+  await openScreen(page, `${BASE}/`);
 
   const hrefs = await page
     .locator('a[href^="/"]')
@@ -65,26 +60,23 @@ test('every link carries the prefix, and a ctrl-click stays under it @subpath', 
 
   const [opened] = await Promise.all([
     context.waitForEvent('page'),
-    page
-      .locator('.sidebar-nav a')
+    sidebarLinks(page)
       .nth(1)
       .click({ modifiers: ['Control'] }),
   ]);
   await opened.waitForLoadState();
   expect(new URL(opened.url()).pathname.startsWith(`${BASE}/`)).toBe(true);
-  await expect(opened.locator('.page-title')).toBeVisible();
+  await screenShown(opened, opened.url());
   await opened.close();
 });
 
-test('the API is reached through the prefix @subpath', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('the API is reached through the prefix @subpath', async ({ page }) => {
   const calls: string[] = [];
   page.on('request', (r) => {
     if (r.url().includes('/api/v1/')) calls.push(new URL(r.url()).pathname);
   });
 
-  await page.goto(`${BASE}/instances`);
-  await expect(page.locator('.page-title')).toBeVisible();
+  await openScreen(page, `${BASE}/instances`);
 
   expect(calls.length).toBeGreaterThan(0);
   for (const path of calls) {
@@ -92,11 +84,7 @@ test('the API is reached through the prefix @subpath', async ({ page, instanceId
   }
 });
 
-test('the webhook URL it hands to Radarr carries the prefix @subpath', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
+test('the webhook URL it hands to Radarr carries the prefix @subpath', async ({ page }) => {
   await page.goto(`${BASE}/instances`);
 
   // Radarr calls this back. Missing the prefix, every event would 404 at the

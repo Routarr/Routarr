@@ -23,7 +23,7 @@ test.describe('a browser with no API key', () => {
 
     // The prompt, not the shell.
     await expect(page.getByText('This Routarr needs an API key')).toBeVisible();
-    await expect(page.locator('.sidebar-nav')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toHaveCount(0);
 
     // And it says where to find the key, because "enter your API key" helps
     // nobody who has never seen one. Read with the real dictionary, so a
@@ -70,12 +70,12 @@ test.describe('a browser with no API key', () => {
     const page = await context.newPage();
     await page.goto('/');
 
-    await page.locator('#gate-api-key').fill(process.env.ROUTARR_E2E_KEY ?? '');
+    await page.getByLabel('Routarr API key').fill(process.env.ROUTARR_E2E_KEY ?? '');
     await page.getByRole('button', { name: /save key/i }).click();
 
     // The shell, for real: the navigation is back and the status bar answers.
-    await expect(page.locator('.sidebar-nav')).toBeVisible();
-    await expect(page.locator('.topbar .mode-chip')).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Dry-run: writes blocked' })).toBeVisible();
 
     await context.close();
   });

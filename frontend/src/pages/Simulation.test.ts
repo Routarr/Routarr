@@ -77,10 +77,7 @@ async function show(pending: Decision[]) {
   await screen.findByRole('heading', { name: 'Simulation' });
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.restoreAllMocks());
 
 describe('what the screen shows', () => {
   /**

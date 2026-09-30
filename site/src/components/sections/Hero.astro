@@ -1,5 +1,6 @@
 ---
 import { useTranslations, pathFor, type Key, type Locale } from '../../i18n';
+import Arrow from '../icons/Arrow.astro';
 
 interface Props { locale: Locale }
 const { locale } = Astro.props;
@@ -74,7 +75,7 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
       <div class="hero-actions">
         <div class="hero-cta">
           <a class="btn btn-primary" href="#start">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            <Arrow />
             {t('page.a.get-started')}
           </a>
           <a class="btn btn-secondary" href={detail}>{t('page.a')}</a>

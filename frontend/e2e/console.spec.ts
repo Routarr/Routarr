@@ -1,4 +1,4 @@
-import { test, expect } from './fixtures';
+import { test, expect, openScreen } from './fixtures';
 import { SCREENS } from './screens';
 
 /**
@@ -9,11 +9,7 @@ import { SCREENS } from './screens';
  * way to notice one the day it appears, rather than the day a user reports the
  * symptom it eventually causes.
  */
-test('no page writes an error or a warning to the console @console', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
+test('no page writes an error or a warning to the console @console', async ({ page }) => {
   const noise: string[] = [];
 
   page.on('console', (message) => {
@@ -32,8 +28,7 @@ test('no page writes an error or a warning to the console @console', async ({
   });
 
   for (const path of SCREENS) {
-    await page.goto(path);
-    await expect(page.locator('.page-title')).toBeVisible();
+    await openScreen(page, path);
   }
 
   expect(noise, `the console was not silent:\n${[...new Set(noise)].join('\n')}`).toHaveLength(0);

@@ -34,6 +34,12 @@ if (!existsSync(DIST)) {
 // a copy here would miss a language added there.
 const { LANGUAGES } = await import('./src/i18n/languages.ts');
 
+/**
+ * Where a language's copy of a built file lands, from the language's `path`:
+ * English at the root, every other language under its prefix.
+ */
+const builtAs = (path, file) => `${path.slice(1)}${file}`;
+
 
 /** Read a WebP's intrinsic size without pulling in an image library. */
 function webpSize(file) {
@@ -116,7 +122,7 @@ const catalogue = (code) =>
 
 const english = catalogue('en');
 for (const { code, path } of LANGUAGES) {
-  const file = code === 'en' ? 'index.html' : `${code}/index.html`;
+  const file = builtAs(path, 'index.html');
 
   if (!existsSync(join(ROOT, `src/i18n/${code}.json`))) {
     fail(`${code} is in LANGUAGES but has no src/i18n/${code}.json`);
@@ -145,7 +151,7 @@ for (const { code, path } of LANGUAGES) {
   /* The detail page is checked exactly as the landing is. Left out, half the
      site would ship with nothing looking at its links, its labels or the
      English phrases that escape a catalogue. */
-  const detail = code === 'en' ? 'how/index.html' : `${code}/how/index.html`;
+  const detail = builtAs(path, 'how/index.html');
   if (!existsSync(join(DIST, detail))) {
     fail(`${detail} was not built: run \`npm run build\` in site/`);
   } else {
@@ -155,7 +161,7 @@ for (const { code, path } of LANGUAGES) {
   // The not-found page Cloudflare serves for a miss under this language's
   // prefix, the English one at the root. Astro writes a translated route as a
   // directory, and `astro.config.mjs` moves it to where the lookup finds it.
-  const notFoundPage = code === 'en' ? '404.html' : `${code}/404.html`;
+  const notFoundPage = builtAs(path, '404.html');
   if (!existsSync(join(DIST, notFoundPage))) {
     fail(`${notFoundPage} was not built, so a miss under ${path} is answered in English`);
   } else {
@@ -185,9 +191,9 @@ if (englishLabels.size < 4) {
   fail(`only ${englishLabels.size} aria-label(s) on the English page: the guard read nothing`);
 }
 const ESCAPED = ['one compose up', 'Global dry-run', 'Batch cap', '// before', 'Press Ctrl+C', 'Not affiliated'];
-for (const { code } of LANGUAGES) {
+for (const { code, path } of LANGUAGES) {
   if (code === 'en') continue;
-  for (const file of [`${code}/index.html`, `${code}/how/index.html`]) {
+  for (const file of [builtAs(path, 'index.html'), builtAs(path, 'how/index.html')]) {
     const page = pages[file];
     if (!page) continue;
     for (const label of labelsOf(page)) {
@@ -647,8 +653,8 @@ if (llms === null) {
 // A link preview states the page's language, and each translation names the
 // others. A page that omits `og:locale` is taken for `en_US`, whatever its
 // language.
-for (const { code } of LANGUAGES) {
-  const file = code === 'en' ? 'index.html' : `${code}/index.html`;
+for (const { code, path } of LANGUAGES) {
+  const file = builtAs(path, 'index.html');
   const page = pages[file];
   if (!page) continue;
   const stated = page.match(/property="og:locale" content="([a-z]{2}_[A-Z]{2})"/)?.[1];

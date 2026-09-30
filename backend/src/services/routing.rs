@@ -135,7 +135,7 @@ pub async fn load_library(
     }
 
     let pass = library_pass().await;
-    let ctx = load_context(pool).await?;
+    let ctx = load_context(pool, Scope::Library).await?;
     let media = load_media(
         pool,
         &options.instance_ids,
@@ -187,8 +187,9 @@ pub async fn simulate_loaded(
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
 
     for media in media_list {
-        let Route { evaluation, category: target_category, target: target_root_folder } =
-            route(ctx, media, rules, now);
+        let Route {
+            evaluation, category: target_category, target: target_root_folder, action, ..
+        } = route(ctx, media, rules, now);
 
         let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
         if is_override {
@@ -223,46 +224,37 @@ pub async fn simulate_loaded(
                 }
             };
 
-        let action = match &target_root_folder {
-            Some(target) => {
+        match (action, &target_root_folder) {
+            ("move", Some(target)) => {
+                summary.moves_required += 1;
+
+                // Weigh the plan as it is built. A move between two folders
+                // that report the *same* free space is a rename on one
+                // filesystem and consumes nothing. Only what crosses one has to
+                // fit. Identical byte-level figures are strong evidence of the
+                // same volume, and the alternative (asking the Arr, which does
+                // not tell us) is no alternative.
+                let free_of = |path: &str| -> Option<i64> {
+                    ctx.free_space
+                        .get(&(media.instance_id.clone(), normalize_path(path)))
+                        .copied()
+                        .flatten()
+                };
+                let entry =
+                    incoming.entry((media.instance_id.clone(), target.clone())).or_default();
+                entry.items += 1;
+                let size = media.size_on_disk.unwrap_or(0);
+                let destination = free_of(target);
                 let current = media.current_root_folder.as_deref().unwrap_or("");
-                if normalize_path(current) == normalize_path(target) {
-                    summary.already_correct += 1;
-                    "none"
+                if destination.is_some() && destination == free_of(current) {
+                    entry.same_filesystem_bytes += size;
                 } else {
-                    summary.moves_required += 1;
-
-                    // Weigh the plan as it is built. A move between two folders
-                    // that report the *same* free space is a rename on one
-                    // filesystem and consumes nothing. Only what crosses one
-                    // has to fit. Identical byte-level figures are strong
-                    // evidence of the same volume, and the alternative (asking
-                    // the Arr, which does not tell us) is no alternative.
-                    let free_of = |path: &str| -> Option<i64> {
-                        ctx.free_space
-                            .get(&(media.instance_id.clone(), normalize_path(path)))
-                            .copied()
-                            .flatten()
-                    };
-                    let entry =
-                        incoming.entry((media.instance_id.clone(), target.clone())).or_default();
-                    entry.items += 1;
-                    let size = media.size_on_disk.unwrap_or(0);
-                    let destination = free_of(target);
-                    if destination.is_some() && destination == free_of(current) {
-                        entry.same_filesystem_bytes += size;
-                    } else {
-                        entry.bytes += size;
-                    }
-
-                    "move"
+                    entry.bytes += size;
                 }
             }
-            None => {
-                summary.skipped_unmapped += 1;
-                "skip"
-            }
-        };
+            ("none", _) => summary.already_correct += 1,
+            _ => summary.skipped_unmapped += 1,
+        }
 
         let mut alternatives: Vec<AlternativeDecision> =
             evaluation.alternatives.iter().map(|m| to_alternative(m, &localizer)).collect();
@@ -374,19 +366,25 @@ pub async fn simulate_loaded(
 }
 
 /// Where one item goes under a rule set, and why.
-struct Route {
-    evaluation: rule_engine::Evaluation,
+pub struct Route {
+    /// What the rules read: every source's answer, merged in the configured order.
+    pub metadata: Option<MediaMetadata>,
+    pub evaluation: rule_engine::Evaluation,
     /// The winner's category, or the default one when no rule matched.
-    category: String,
+    pub category: String,
     /// The folder mapped to that category on the item's instance, if any.
-    target: Option<String>,
+    pub target: Option<String>,
+    /// `move`, `none` when the item is already there, or `skip` when the
+    /// category has no folder on the item's instance.
+    pub action: &'static str,
 }
 
 /// Decide one item: its metadata, the rules, its override and the mappings.
 ///
-/// Shared by the simulation and by the revalidation at apply time, which have
-/// to agree on where an item goes: a second spelling of it would retire a
-/// proposal the simulation still makes, or apply one it no longer makes.
+/// Shared by the simulation, the revalidation at apply time, the rule report
+/// and the explanation panel, which have to agree on where an item goes: a
+/// second spelling of it would retire a proposal the simulation still makes,
+/// apply one it no longer makes, or explain a folder it does not propose.
 fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateTime<Utc>) -> Route {
     let metadata = resolve_metadata(media, &ctx.providers, &ctx.metadata, &ctx.identifiers);
     let evaluation = rule_engine::evaluate_rules(
@@ -399,7 +397,39 @@ fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateT
         .as_ref()
         .map_or_else(|| ctx.default_category.clone(), |winner| winner.category.clone());
     let target = ctx.root_folders.get(&(media.instance_id.clone(), category.clone())).cloned();
-    Route { evaluation, category, target }
+    let action = match &target {
+        None => "skip",
+        Some(target) => {
+            let current = media.current_root_folder.as_deref().unwrap_or("");
+            if normalize_path(current) == normalize_path(target) { "none" } else { "move" }
+        }
+    };
+    Route { metadata, evaluation, category, target, action }
+}
+
+/// One item decided as the simulation decides it, with the rules it read.
+pub struct ItemRoute {
+    /// Every stored rule, in priority order: the explanation traces each one.
+    pub rules: Vec<Rule>,
+    /// The category a person pinned the item to, if one did.
+    pub override_category: Option<String>,
+    pub route: Route,
+}
+
+/// Decide one item live, through `route`, from what the database holds now.
+///
+/// Loads what deciding this item reads and nothing of the rest of the library,
+/// so it takes no library-pass permit: the explanation panel asks it one title
+/// at a time.
+pub async fn route_one(
+    pool: &SqlitePool,
+    media: &Media,
+    now: chrono::DateTime<Utc>,
+) -> AppResult<ItemRoute> {
+    let ctx = load_context(pool, Scope::Item(media)).await?;
+    let route = route(&ctx, media, &ctx.rules, now);
+    let override_category = ctx.overrides.get(&media.id).cloned();
+    Ok(ItemRoute { rules: ctx.rules, override_category, route })
 }
 
 /// Where the rules and mappings as they stand now send each of these items.
@@ -422,7 +452,7 @@ pub async fn current_targets(
     }
 
     let _pass = library_pass().await;
-    let ctx = load_context(pool).await?;
+    let ctx = load_context(pool, Scope::Library).await?;
     let now = Utc::now();
     for chunk in media_ids.chunks(BIND_CHUNK) {
         for media in load_media(pool, &[], Some(chunk), None).await? {
@@ -481,15 +511,10 @@ pub async fn evaluate_library(pool: &SqlitePool) -> AppResult<Vec<LibraryOutcome
         .media
         .iter()
         .map(|media| {
-            let metadata = resolve_metadata(media, &ctx.providers, &ctx.metadata, &ctx.identifiers);
-            // Overrides are passed through, because a pinned item genuinely is
-            // decided by a human and counting it against a rule would say the
-            // rule lost when it was never consulted.
-            let evaluation = rule_engine::evaluate_rules(
-                EvalContext { media, metadata: metadata.as_ref(), now },
-                &ctx.rules,
-                ctx.overrides.get(&media.id).map(String::as_str),
-            );
+            // Overrides pass through `route`, because a pinned item genuinely
+            // is decided by a human and counting it against a rule would say
+            // the rule lost when it was never consulted.
+            let evaluation = route(ctx, media, &ctx.rules, now).evaluation;
             LibraryOutcome {
                 winner: evaluation.winner.map(|m| m.rule_id),
                 alternatives: evaluation.alternatives.into_iter().map(|m| m.rule_id).collect(),
@@ -514,16 +539,36 @@ pub fn parse_timestamp(raw: &str) -> Option<chrono::DateTime<Utc>> {
         .map(|naive| naive.and_utc())
 }
 
-/// Load rules, overrides, mappings and metadata in a fixed number of queries.
-async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
-    let rules = load_rules(pool).await?;
+/// Which items a context is loaded for.
+#[derive(Clone, Copy)]
+enum Scope<'a> {
+    /// Every item: a simulation, a rule report, an apply's revalidation.
+    Library,
+    /// One item, for the explanation panel, which does not load the whole
+    /// metadata cache to explain one title.
+    Item(&'a Media),
+}
 
-    let overrides: HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("SELECT media_id, target_category FROM overrides")
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .collect();
+/// Load rules, overrides, mappings and metadata in a fixed number of queries.
+///
+/// One statement per table whatever the scope, an item's narrowed by its id
+/// and its instance: the panel and the simulation read the mappings alike.
+async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingContext> {
+    let rules = load_rules(pool).await?;
+    let (media_id, instance_id) = match scope {
+        Scope::Library => (None, None),
+        Scope::Item(media) => (Some(media.id.as_str()), Some(media.instance_id.as_str())),
+    };
+
+    let overrides: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT media_id, target_category FROM overrides WHERE ? IS NULL OR media_id = ?",
+    )
+    .bind(media_id)
+    .bind(media_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
 
     let root_folders: HashMap<(String, String), String> =
         sqlx::query_as::<_, (String, String, String)>(
@@ -535,8 +580,11 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
             // disk was awake. Unknown is not gone: whether the destination can
             // be written to is asked at apply time, where it can be answered.
             "SELECT instance_id, category, path FROM root_folders
-             WHERE category IS NOT NULL AND category != ''",
+             WHERE category IS NOT NULL AND category != ''
+               AND (? IS NULL OR instance_id = ?)",
         )
+        .bind(instance_id)
+        .bind(instance_id)
         .fetch_all(pool)
         .await?
         .into_iter()
@@ -545,20 +593,26 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
 
     let free_space: HashMap<(String, String), Option<i64>> =
         sqlx::query_as::<_, (String, String, Option<i64>)>(
-            "SELECT instance_id, path, free_space FROM root_folders",
+            "SELECT instance_id, path, free_space FROM root_folders
+              WHERE ? IS NULL OR instance_id = ?",
         )
+        .bind(instance_id)
+        .bind(instance_id)
         .fetch_all(pool)
         .await?
         .into_iter()
         .map(|(instance_id, path, free)| ((instance_id, normalize_path(&path)), free))
         .collect();
 
-    let instance_names: HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("SELECT id, name FROM instances")
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .collect();
+    let instance_names: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT id, name FROM instances WHERE ? IS NULL OR id = ?",
+    )
+    .bind(instance_id)
+    .bind(instance_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
 
     // The configured order (`metadata_order`), never the subset able to answer
     // today (`metadata_providers`): removing a key stops new fetches, and a
@@ -571,8 +625,16 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
             .await?;
     let providers = metadata::configured_order(providers_setting.as_deref());
 
-    let metadata = metadata::load_cache(pool).await?;
-    let identifiers = metadata::load_identifiers(pool).await?;
+    let (identifiers, metadata) = match scope {
+        Scope::Library => {
+            (metadata::load_identifiers(pool).await?, metadata::load_cache(pool).await?)
+        }
+        Scope::Item(media) => {
+            let identifiers = metadata::load_identifiers_of(pool, media).await?;
+            let cache = metadata::load_cache_of(pool, media, &providers, &identifiers).await?;
+            (identifiers, cache)
+        }
+    };
 
     let default_category = crate::state::AppState::default_category(pool).await;
 
@@ -595,7 +657,7 @@ async fn load_context(pool: &SqlitePool) -> AppResult<RoutingContext> {
 /// keeps it. `arr` is answered from the row itself (it is the only source that
 /// never costs a request), and a fetched source only contributes when the item
 /// carries an identifier in that source's namespace *and* the cache holds it.
-fn resolve_metadata(
+pub(crate) fn resolve_metadata(
     media: &Media,
     providers: &[&'static ProviderInfo],
     cache: &HashMap<(String, String, String), ProviderMetadata>,

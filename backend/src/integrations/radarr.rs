@@ -74,9 +74,9 @@ pub struct ArrTagDto {
     pub label: String,
 }
 
-/// Root folder from Radarr API.
+/// A root folder as either Arr reports it on `/api/v3/rootfolder`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RadarrRootFolder {
+pub struct ArrRootFolderDto {
     pub id: i64,
     pub path: String,
     #[serde(rename = "freeSpace", default, deserialize_with = "super::lenient_bytes")]
@@ -84,9 +84,9 @@ pub struct RadarrRootFolder {
     pub accessible: Option<bool>,
 }
 
-/// System status from Radarr API.
+/// What either Arr answers on `/api/v3/system/status`.
 #[derive(Debug, Clone, Deserialize)]
-pub struct RadarrStatus {
+pub struct ArrStatusDto {
     pub version: String,
     #[serde(rename = "appName")]
     pub app_name: Option<String>,
@@ -106,7 +106,7 @@ impl RadarrClient {
         self.client.get(format!("{}{path}", self.base_url)).header("X-Api-Key", &self.api_key)
     }
 
-    pub async fn test_connection(&self) -> AppResult<RadarrStatus> {
+    pub async fn test_connection(&self) -> AppResult<ArrStatusDto> {
         send_json(SERVICE, self.get("/api/v3/system/status")).await
     }
 
@@ -125,22 +125,13 @@ impl RadarrClient {
         send_json(SERVICE, self.get("/api/v3/tag")).await
     }
 
-    pub async fn get_root_folders(&self) -> AppResult<Vec<RadarrRootFolder>> {
+    pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
     }
 
-    /// Whether the Arr can see this directory.
-    ///
-    /// Asked of the Arr rather than of Routarr's own filesystem: the two run in
-    /// different containers as often as not, and `/media/films` existing here
-    /// says nothing about whether the process that will do the writing can
-    /// reach it. That mismatch is the commonest homelab fault of all, and it is
-    /// otherwise discovered at apply time.
+    /// Whether Radarr can see this directory (`integrations::directory_exists`).
     pub async fn directory_exists(&self, path: &str) -> AppResult<bool> {
-        let query = super::directory_query(path);
-        let listing: super::DirectoryListing =
-            send_json(SERVICE, self.get("/api/v3/filesystem").query(&[("path", query)])).await?;
-        Ok(listing.holds(path))
+        super::directory_exists(SERVICE, self.get("/api/v3/filesystem"), path).await
     }
 
     /// Bulk update movies: change root folder and optionally move files.

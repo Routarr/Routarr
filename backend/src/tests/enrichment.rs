@@ -4,29 +4,36 @@
 //! pairing them with the input list by position files a movie's metadata under
 //! `series`.
 
-use std::sync::Arc;
-
 use crate::services::enrichment;
-use crate::state::AppState;
 
 use super::TestApp;
 use super::fake_tmdb::FakeTmdb;
 
 /// A library with an instance and the given `(arr_id, media_type, tmdb_id)` items.
 async fn library(tmdb: &FakeTmdb, items: &[(i64, &str, i64)]) -> TestApp {
+    library_configured(tmdb, items, |_| {}).await
+}
+
+/// The same, with the configuration `adjust` leaves.
+async fn library_configured(
+    tmdb: &FakeTmdb,
+    items: &[(i64, &str, i64)],
+    adjust: impl FnOnce(&mut crate::config::Config),
+) -> TestApp {
     let app = TestApp::new().await;
 
     let mut config = crate::config::Config::for_tests();
     config.tmdb_api_key = Some("tmdb-key".into());
     config.tmdb_base_url = format!("{}/3", tmdb.base_url);
-    let state = AppState { config: Arc::new(config), ..app.state.clone() };
+    adjust(&mut config);
+    let state = app.state.clone().with_config(config);
     let app = TestApp::around(state);
     // What startup does with a key from the environment: list TMDb.
     crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
 
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('inst-1', 'Arr', 'radarr', 'http://x', 'k', 1)",
+         VALUES ('inst-1', 'Arr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
     )
     .execute(&app.state.pool)
     .await
@@ -80,6 +87,50 @@ async fn tmdb_s_two_codes_outside_iso_are_read_as_a_rule_is_written() {
     .await
     .unwrap();
     assert_eq!(languages, [(CANTONESE, Some("zh".to_string())), (NO_LANGUAGE, None)]);
+}
+
+/// A v3 key travels as the `api_key` query parameter and a v4 token as a
+/// bearer, each only its own way: a v4 token in the query string is written
+/// into the access log of every mirror and proxy on the path.
+#[tokio::test]
+async fn the_tmdb_credential_travels_the_way_its_kind_is_read() {
+    const V4_TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl";
+    for (credential, expected) in [
+        ("tmdb-key", (Some("tmdb-key".to_string()), None)),
+        (V4_TOKEN, (None, Some(format!("Bearer {V4_TOKEN}")))),
+    ] {
+        let tmdb = FakeTmdb::start().await;
+        let app = library_configured(&tmdb, &[(1, "movie", 100)], |config| {
+            config.tmdb_api_key = Some(credential.into());
+        })
+        .await;
+
+        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+        let sent = tmdb.recorded().credentials.clone();
+        assert_eq!(sent, vec![expected], "for {credential}");
+    }
+}
+
+/// A source's `Retry-After` holds the rest of the pass back: the request after
+/// a 429 asking for a second of quiet leaves at least a second after it. The
+/// pacing arithmetic has its own tests in `rate_limit`, and this one follows
+/// the header from the wire to the next request.
+#[tokio::test]
+async fn a_retry_after_from_the_source_holds_back_the_next_request() {
+    let tmdb = FakeTmdb::throttling_once(1).await;
+    // One request at a time, so the second leaves after the first is answered.
+    let app = library_configured(&tmdb, &[(1, "movie", 100), (2, "movie", 101)], |config| {
+        config.metadata_concurrency = 1;
+    })
+    .await;
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let arrivals = tmdb.recorded().arrivals.clone();
+    assert_eq!(arrivals.len(), 2, "the pass should ask once per item");
+    let gap = arrivals[1] - arrivals[0];
+    assert!(gap >= std::time::Duration::from_secs(1), "the next request left after {gap:?}");
 }
 
 /// Sonarr sends one delivery per imported episode, and the webhook enriches

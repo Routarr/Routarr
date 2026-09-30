@@ -227,7 +227,7 @@ jobs:
       # end-to-end suite covers it and this one cannot.
       - name: Measure coverage
         run: |
-          cargo llvm-cov --summary-only --fail-under-lines 90 \
+          cargo llvm-cov --summary-only --fail-under-lines 93 \
             --ignore-filename-regex 'src/(tests/|main\.rs)'
 
   frontend:

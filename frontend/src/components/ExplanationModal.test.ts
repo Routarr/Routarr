@@ -122,9 +122,7 @@ describe('ExplanationModal', () => {
 
     expect(screen.getByText('Animation')).toBeTruthy();
     expect(screen.getByText(/Language: ja/)).toBeTruthy();
-    const sources = screen.getByText(/Sources/);
-    expect(sources.textContent).toContain('arr');
-    expect(sources.textContent).toContain('tmdb');
+    expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources: arr\s*→\s*tmdb$/);
   });
 
   it('says no rule applies rather than showing an empty list', () => {

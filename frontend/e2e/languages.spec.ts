@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 
-import { test, expect, api } from './fixtures';
+import { test, expect, api, openScreen } from './fixtures';
+import { SCREENS, SETTINGS_SECTIONS } from './screens';
 
 /**
  * Every language holds on one line what English holds on one line, and no
@@ -13,28 +14,11 @@ import { test, expect, api } from './fixtures';
  * for, in a real browser, since jsdom lays nothing out.
  */
 
-/** Every screen, the guide's banners and the two dialogs a first run opens. */
-const SCREENS = [
-  '/',
-  '/rules',
-  '/rules?new=1',
-  '/rules/tests',
-  '/simulation',
-  '/media',
-  '/history',
-  '/overrides',
-  '/jobs',
-  '/logs',
-  '/health',
-  '/instances',
-  '/instances?add=1',
-  '/root-folders',
-  '/settings',
-  '/settings#routing',
-  '/settings#automation',
-  '/settings#metadata',
-  '/settings#maintenance',
-];
+/**
+ * Every screen and each section of the settings, with the guide's banners, and
+ * the two dialogs a first run opens.
+ */
+const PATHS = [...SCREENS, '/rules?new=1', '/instances?add=1', ...SETTINGS_SECTIONS];
 const WIDTHS = [1280, 390];
 
 /** Text laid out to hold one line, whatever the language. */
@@ -142,12 +126,8 @@ async function speak(code: string): Promise<void> {
   });
 }
 
-test('every language holds on one line what English does, and nothing spills', async ({
-  page,
-  instanceId,
-}) => {
+test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
   test.setTimeout(300_000);
-  expect(instanceId).toBeTruthy();
   // The guide on screen, its first step done by the fixture's synced instance.
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
   const { languages } = (await api('/localization/languages')) as { languages: { code: string }[] };
@@ -155,32 +135,27 @@ test('every language holds on one line what English does, and nothing spills', a
 
   const english = new Set<string>();
   const faults: string[] = [];
-  try {
-    for (const code of codes) {
-      await speak(code);
-      for (const path of SCREENS) {
-        await resize(page, WIDTHS[0]!);
-        await page.goto(path);
-        await expect(page.locator('.page-title')).toBeVisible();
-        await guideShown(page, path);
-        if (path.includes('=1')) await expect(page.getByRole('dialog')).toBeVisible();
+  for (const code of codes) {
+    await speak(code);
+    for (const path of PATHS) {
+      await resize(page, WIDTHS[0]!);
+      await openScreen(page, path);
+      await guideShown(page, path);
+      if (path.includes('=1')) await expect(page.getByRole('dialog')).toBeVisible();
 
-        for (const width of WIDTHS) {
-          await resize(page, width);
-          const { wrapped, spilled } = await read(page);
-          const where = `${path} at ${width}px`;
-          for (const [key, text] of Object.entries(wrapped)) {
-            if (code === 'en') english.add(`${where} ${key}`);
-            else if (!english.has(`${where} ${key}`)) {
-              faults.push(`${code} ${where}: "${text}" wraps where English holds one line`);
-            }
+      for (const width of WIDTHS) {
+        await resize(page, width);
+        const { wrapped, spilled } = await read(page);
+        const where = `${path} at ${width}px`;
+        for (const [key, text] of Object.entries(wrapped)) {
+          if (code === 'en') english.add(`${where} ${key}`);
+          else if (!english.has(`${where} ${key}`)) {
+            faults.push(`${code} ${where}: "${text}" wraps where English holds one line`);
           }
-          faults.push(...spilled.map((what) => `${code} ${where}: "${what}" spills out`));
         }
+        faults.push(...spilled.map((what) => `${code} ${where}: "${what}" spills out`));
       }
     }
-  } finally {
-    await speak('en');
   }
 
   expect(faults).toEqual([]);

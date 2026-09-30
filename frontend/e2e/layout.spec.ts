@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 
-import { test, expect, api } from './fixtures';
+import { test, expect, api, openScreen } from './fixtures';
 import { SCREENS as ROUTES } from './screens';
 
 /**
@@ -28,8 +28,7 @@ async function verticalSpread(cell: Locator): Promise<number> {
 }
 
 test.describe('table cells stay on one line', () => {
-  test('the last-sync column does not stack its date and status', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('the last-sync column does not stack its date and status', async ({ page }) => {
     await page.goto('/instances');
 
     const cell = page.locator('td.cell-timestamp').first();
@@ -47,11 +46,7 @@ test.describe('table cells stay on one line', () => {
    * `/mnt/storage/media/movies` and `/mnt/storage/media/movies-anime` must not
    * both read as the same start.
    */
-  test('a path too long for its cell keeps its end and loses its start', async ({
-    page,
-    instanceId,
-  }) => {
-    expect(instanceId).toBeTruthy();
+  test('a path too long for its cell keeps its end and loses its start', async ({ page }) => {
     await page.goto('/media');
 
     const cell = page.locator('.cell-path').first();
@@ -78,8 +73,7 @@ test.describe('table cells stay on one line', () => {
     expect(cut).toEqual({ overflows: true, endShown: true, startHidden: true });
   });
 
-  test('a timestamp is written the way the language writes it', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('a timestamp is written the way the language writes it', async ({ page }) => {
     await page.goto('/instances');
 
     const cell = page.locator('td.cell-timestamp').first();
@@ -89,8 +83,7 @@ test.describe('table cells stay on one line', () => {
     await expect(cell).toHaveAttribute('title', /\d{4}-\d{2}-\d{2}/);
   });
 
-  test('switching to a longer language does not fold the column', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('switching to a longer language does not fold the column', async ({ page }) => {
     // Greek and German run long: if any language folds the cell it is one of them.
     await api('/settings', {
       method: 'PUT',
@@ -114,12 +107,9 @@ test.describe('on a phone', () => {
   for (const path of ROUTES) {
     test(`${path} fits a 375px screen and its tables scroll inside their region`, async ({
       page,
-      instanceId,
     }) => {
-      expect(instanceId).toBeTruthy();
       await page.setViewportSize({ width: 375, height: 812 });
-      await page.goto(path);
-      await expect(page.locator('h1').first()).toBeVisible();
+      await openScreen(page, path);
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -150,11 +140,7 @@ test.describe('on a phone', () => {
    * does not scroll when that happens, so the check above passes, and nothing
    * but a measurement inside the row shows it.
    */
-  test('the source list stacks rather than squeezing its own field', async ({
-    page,
-    instanceId,
-  }) => {
-    expect(instanceId).toBeTruthy();
+  test('the source list stacks rather than squeezing its own field', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 812 });
     await page.goto('/settings#metadata');
     await expect(page.locator('.source-row').first()).toBeVisible();
@@ -193,8 +179,7 @@ test.describe('on a phone', () => {
    * writes them, so the status is forced here. A fixture that cannot produce
    * the failure is a test that cannot find it.
    */
-  test('every screen fits 360px with every counter at once', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('every screen fits 360px with every counter at once', async ({ page }) => {
     await page.route('**/api/v1/status', async (route) => {
       const response = await route.fetch();
       const body = await response.json();
@@ -212,8 +197,7 @@ test.describe('on a phone', () => {
     await page.setViewportSize({ width: 360, height: 780 });
 
     for (const path of ROUTES) {
-      await page.goto(path);
-      await expect(page.locator('h1').first()).toBeVisible();
+      await openScreen(page, path);
 
       const measured = await page.evaluate(() => {
         const bar = document.querySelector('.topbar');
@@ -242,15 +226,14 @@ test.describe('on a phone', () => {
     }
   });
 
-  test('the navigation is a drawer that opens and closes', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('the navigation is a drawer that opens and closes', async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await page.goto('/rules');
 
     const sidebar = page.locator('.sidebar');
     await expect(sidebar).not.toHaveClass(/is-open/);
 
-    await page.locator('.sidebar-toggle').click();
+    await page.getByRole('button', { name: 'Open navigation' }).click();
     await expect(sidebar).toHaveClass(/is-open/);
     await expect(page.getByRole('link', { name: /rules/i }).first()).toBeVisible();
 
@@ -270,15 +253,12 @@ test.describe('buttons are one size', () => {
    * inherits a line-height `<button>` resets, and a text label makes a taller
    * line box than an icon. All three are invisible to a unit test.
    */
-  test('every button on every page shares its size', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
-
+  test('every button on every page shares its size', async ({ page }) => {
     const regular = new Map<number, string>();
     const small = new Map<number, string>();
 
     for (const path of ROUTES) {
-      await page.goto(path);
-      await expect(page.locator('.page-title')).toBeVisible();
+      await openScreen(page, path);
 
       const found = await page.evaluate(() =>
         [...document.querySelectorAll('.btn')]
@@ -318,8 +298,7 @@ test.describe('buttons are one size', () => {
  * the padding in one shorthand, as a compact row does, draws the arrow over
  * the text, and "all of" reads as a glyph sitting on its last letter.
  */
-test('every select keeps the room its arrow is drawn in', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('every select keeps the room its arrow is drawn in', async ({ page }) => {
   const cramped: string[] = [];
   const measure = async (where: string) => {
     const found = await page.locator('select.form-select').evaluateAll((selects) =>
@@ -332,8 +311,7 @@ test('every select keeps the room its arrow is drawn in', async ({ page, instanc
   };
 
   for (const path of ROUTES) {
-    await page.goto(path);
-    await expect(page.locator('.page-title')).toBeVisible();
+    await openScreen(page, path);
     await measure(path);
   }
 
@@ -342,14 +320,9 @@ test('every select keeps the room its arrow is drawn in', async ({ page, instanc
   await page.goto('/rules?new=1');
   const dialog = page.getByRole('dialog');
   await dialog
-    .locator('select')
-    .filter({ hasText: 'Add a condition' })
-    .first()
+    .getByRole('combobox', { name: 'Conditions (all of)', exact: true })
     .selectOption('genre_contains');
-  await dialog
-    .getByRole('button', { name: /^Add – / })
-    .first()
-    .click();
+  await dialog.getByRole('button', { name: 'Add – Conditions (all of)' }).click();
   await expect(dialog.getByRole('combobox', { name: /^How these values combine/ })).toBeVisible();
   await measure('rule editor');
 
@@ -365,8 +338,7 @@ test.describe('the chrome draws one line', () => {
    * lands.
    */
   test('the sidebar header and the top bar end at the same height', async ({ page }) => {
-    await page.goto('/media');
-    await expect(page.locator('.page-title')).toBeVisible();
+    await openScreen(page, '/media');
 
     const [sidebar, topbar] = await Promise.all([
       page.locator('.sidebar-header').boundingBox(),
@@ -391,11 +363,9 @@ test.describe('right-to-left', () => {
    * properties (`inset-inline-start`, `margin-inline-start`, `text-align:
    * start`) so it mirrors on its own.
    */
-  test('the shell mirrors instead of overlapping', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('the shell mirrors instead of overlapping', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await page.goto('/media');
-    await expect(page.locator('.page-title')).toBeVisible();
+    await openScreen(page, '/media');
 
     const sideOf = () =>
       page.evaluate(() => {
@@ -427,8 +397,7 @@ test.describe('right-to-left', () => {
  * under the very pointer that had just clicked. Only a head shows it, a body
  * row being as tall as its text, and no DOM query can see it at all.
  */
-test('selecting rows does not move the rows', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('selecting rows does not move the rows', async ({ page }) => {
   // A rule this library actually matches: without one the run proposes nothing
   // and the table has no rows to select, so the check would pass by measuring
   // an empty page.
@@ -450,7 +419,7 @@ test('selecting rows does not move the rows', async ({ page, instanceId }) => {
   await page.getByRole('button', { name: /run simulation/i }).click();
   await expect(page.locator('tbody tr').first()).toBeVisible();
 
-  const selectAll = page.locator('thead input[type="checkbox"]').first();
+  const selectAll = page.getByRole('checkbox', { name: 'Select every proposed move' });
   const firstRow = page.locator('tbody tr').first();
 
   // The cell holding the box and nothing else. Measuring the whole head hides
@@ -490,14 +459,8 @@ test('selecting rows does not move the rows', async ({ page, instanceId }) => {
  * Measured rather than eyeballed: nothing about this is visible to a DOM
  * query, and it reads as a design choice until you sample the pixels.
  */
-test('a table with nothing to scroll has no shadow down its edges', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
-
-  await page.goto('/logs');
-  await page.locator('h1').first().waitFor({ state: 'visible' });
+test('a table with nothing to scroll has no shadow down its edges', async ({ page }) => {
+  await openScreen(page, '/logs');
 
   const container = page.locator('.table-container').first();
   await container.waitFor({ state: 'visible' });
@@ -544,8 +507,7 @@ test('a table with nothing to scroll has no shadow down its edges', async ({
  */
 test.describe('every screen draws a shared thing the same way', () => {
   /** A screen whose title waits for its data reads as a broken page. */
-  test('every screen keeps its title while its data loads', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('every screen keeps its title while its data loads', async ({ page }) => {
     // Held rather than failed, so each screen stays in its loading state. The
     // dictionary and the sign-in mode are what any screen needs to draw at all.
     await page.route('**/api/v1/**', async (route) => {
@@ -556,33 +518,24 @@ test.describe('every screen draws a shared thing the same way', () => {
       await new Promise(() => {});
     });
     for (const path of ROUTES) {
-      await page.goto(path);
-      await expect(page.locator('.page-title'), path).toBeVisible();
+      await openScreen(page, path);
     }
   });
 
   /** The primary colour says what the screen is for, which is one thing. */
-  test('every screen offers at most one primary action', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
-    const { state } = (await api('/onboarding')) as { state: string };
-    try {
-      for (const shown of ['done', 'pending']) {
-        await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: shown }) });
-        for (const path of ROUTES) {
-          await page.goto(path);
-          await expect(page.locator('.page-title')).toBeVisible();
-          const primary = await page.locator('.btn-primary:visible').count();
-          expect(primary, `${path} with the guide ${shown}`).toBeLessThanOrEqual(1);
-        }
+  test('every screen offers at most one primary action', async ({ page }) => {
+    for (const shown of ['done', 'pending']) {
+      await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: shown }) });
+      for (const path of ROUTES) {
+        await openScreen(page, path);
+        const primary = await page.locator('.btn-primary:visible').count();
+        expect(primary, `${path} with the guide ${shown}`).toBeLessThanOrEqual(1);
       }
-    } finally {
-      await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state }) });
     }
   });
 
   /** A row without a rank keeps its name in the wide lane. */
-  test('a source name on Diagnostics holds one line on a phone', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('a source name on Diagnostics holds one line on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/health');
     const names = page.locator('.source-row .source-name');
@@ -604,8 +557,7 @@ test.describe('every screen draws a shared thing the same way', () => {
   });
 
   /** Wrapped under Cancel, the actions still end where the footer ends. */
-  test('a wrapped dialog footer keeps its actions at the end', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('a wrapped dialog footer keeps its actions at the end', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto('/instances?add=1');
     const dialog = page.getByRole('dialog');

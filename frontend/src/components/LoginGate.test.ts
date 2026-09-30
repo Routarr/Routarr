@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
 import { interceptLinks, router } from '../lib/router.svelte';
+import { click } from '../test/links';
 import LoginGate from './LoginGate.svelte';
 
 /**
@@ -27,7 +28,7 @@ const STRINGS = {
 
 afterEach(() => {
   vi.restoreAllMocks();
-  window.history.replaceState({}, '', '/');
+  vi.unstubAllGlobals();
 });
 
 describe('LoginGate', () => {
@@ -39,14 +40,22 @@ describe('LoginGate', () => {
     expect(screen.getByLabelText('Username')).toHaveValue('admin');
   });
 
-  it('signs in with what was typed', async () => {
+  /**
+   * Then a reload rather than a state update: every screen behind the gate
+   * fetched and failed already. jsdom reloads nothing, so the page's own
+   * `location` stands in for the browser's.
+   */
+  it('signs in with what was typed, then reloads the page', async () => {
     const login = vi.spyOn(api, 'login').mockResolvedValue({ username: 'admin' });
+    const reload = vi.fn();
+    vi.stubGlobal('location', { search: '', reload });
     renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
 
     await userEvent.type(screen.getByLabelText('Password'), 'deadbeef');
     await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(login).toHaveBeenCalledWith('admin', 'deadbeef');
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   });
 
   /**
@@ -91,11 +100,10 @@ describe('LoginGate', () => {
     const stop = interceptLinks();
     renderWithI18n(LoginGate, { props: { mode: 'oidc' }, strings: STRINGS });
 
-    const link = screen.getByRole('link', { name: 'Sign in with your provider' });
-    const followed = await fireEvent.click(link);
+    const taken = click(screen.getByRole('link', { name: 'Sign in with your provider' }));
 
     stop();
-    expect(followed, 'the router took the click').toBe(true);
+    expect(taken, 'the router took the click').toBe(false);
     expect(router.path).not.toContain('/auth/oidc/start');
   });
 

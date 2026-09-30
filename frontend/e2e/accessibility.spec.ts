@@ -1,9 +1,119 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { test, expect, api } from './fixtures';
+import { test, expect, api, apiWhenFree, openScreen } from './fixtures';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 import { screenKey } from '../src/lib/routes';
+
+/**
+ * A row in every table the screens draw: two rules, an exception, a pinned
+ * case, a move applied and one still proposed. The reset library has none of
+ * them, and a sweep over a table with no rows checks its header and nothing a
+ * row carries: a row action, a checkbox, a badge.
+ *
+ * The two rules differ in name on purpose: two rows called the same thing are
+ * ambiguous however they are labelled, a different defect from labelling every
+ * row action "Delete".
+ */
+async function seedRows(): Promise<void> {
+  const rules: [string, string, number, string[]][] = [
+    ['Japanese animation', 'anime', 10, ['akira', 'totoro', 'perfect blue']],
+    ['Science fiction', 'standard', 20, ['matrix']],
+  ];
+  for (const [name, category, priority, titles] of rules) {
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        target_category: category,
+        media_type: 'movie',
+        priority,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: titles }],
+        exclusions: [],
+      }),
+    });
+  }
+
+  const { data: films } = (await api('/media')) as { data: { id: string; title: string }[] };
+  const film = (title: string) => {
+    const found = films.find((item) => item.title === title);
+    if (!found) throw new Error(`${title} is not in the library`);
+    return found.id;
+  };
+  await api('/overrides', {
+    method: 'POST',
+    body: JSON.stringify({ media_id: film('My Neighbor Totoro'), target_category: 'standard' }),
+  });
+  await api('/rule-tests', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'Akira is anime', media_id: film('Akira') }),
+  });
+
+  const { decisions } = (await apiWhenFree('/simulate', {
+    method: 'POST',
+    body: JSON.stringify({ persist: true }),
+  })) as { decisions: { id: string; media_title: string; action: string }[] };
+
+  // History keeps every move ever applied and no reset clears it, so a move is
+  // applied once in a run rather than once per test: Akira moved in every test
+  // would fill the table with rows no installation holds.
+  const { data: applied } = (await api('/decisions?status=applied&per_page=200')) as {
+    data: { reverted_at: string | null }[];
+  };
+  if (applied.some((decision) => !decision.reverted_at)) return;
+  const akira = decisions.find((d) => d.media_title === 'Akira' && d.action === 'move');
+  if (!akira) throw new Error('the simulation proposes no move for Akira');
+  // Nothing is written while the global dry run holds, and it holds again for
+  // the sweeps, the shipped posture.
+  const dryRun = (on: boolean) =>
+    api('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings: { global_dry_run: String(on) } }),
+    });
+  await dryRun(false);
+  await api('/decisions/apply', {
+    method: 'POST',
+    body: JSON.stringify({ decision_ids: [akira.id], move_files: false, confirm: [] }),
+  });
+  await dryRun(true);
+}
+
+test.beforeEach(seedRows);
+
+/** A screen once its data has drawn: the sweeps read what the rows carry. */
+async function openWithRows(page: Page, path: string): Promise<void> {
+  await openScreen(page, path);
+  await page.waitForLoadState('networkidle');
+}
+
+/**
+ * The guard on the seed: a sweep that walks a table with no rows passes on its
+ * header alone. A loading row and an empty state are not rows.
+ */
+test('the sweeps meet a row in every table they walk', async ({ page }) => {
+  const bare: string[] = [];
+
+  for (const path of SCREENS) {
+    await openWithRows(page, path);
+    const found = await page.evaluate(() =>
+      [...document.querySelectorAll('table')]
+        .filter(
+          (table) =>
+            ![...table.querySelectorAll('tbody tr')].some(
+              (row) =>
+                row.getAttribute('aria-hidden') !== 'true' &&
+                !row.querySelector('.empty-state, [role=status]'),
+            ),
+        )
+        .map((table) => table.querySelector('caption')?.textContent?.trim() || '(no caption)'),
+    );
+    bare.push(...found.map((table) => `${path}: ${table}`));
+  }
+
+  expect(bare).toEqual([]);
+});
 
 /**
  * A `.form-label` sitting *next* to a field with no `htmlFor` is decorative: the
@@ -37,9 +147,9 @@ test.describe('form fields carry a programmatic label', () => {
     await page.getByRole('button', { name: 'Add instance' }).click();
 
     // The usability half of a programmatic label: an unassociated caption is
-    // inert. Scoped to the caption element, since the page behind the modal has a
-    // column header with the same words.
-    await page.locator('label[for="instances-base-url"]').click();
+    // inert. Scoped to the dialog, since the page behind it has a column header
+    // with the same words.
+    await page.getByRole('dialog').getByText('Base URL', { exact: true }).click();
     await expect(page.getByLabel('Base URL', { exact: true })).toBeFocused();
   });
 
@@ -108,9 +218,11 @@ test.describe('modal dialogs', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog).toHaveAttribute('aria-label', /instance/i);
 
-    // The background is inert: the sidebar link behind the modal cannot be
-    // reached, which is what `showModal()` buys over a styled div.
-    await expect(page.locator('.sidebar-nav a').first()).not.toBeFocused();
+    // The background is inert: the sidebar link behind the modal refuses the
+    // focus even when asked, which is what `showModal()` buys over a styled div.
+    const behind = page.locator('.sidebar-nav a').first();
+    await behind.focus();
+    await expect(behind).not.toBeFocused();
 
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
@@ -128,59 +240,23 @@ test.describe('modal dialogs', () => {
 
     // Whatever holds focus, it must be inside the dialog: a trap that starts
     // outside itself is not a trap.
-    const focusIsInside = await page.evaluate(() => {
-      const dialog = document.querySelector('dialog[open]');
-      return !!dialog && dialog.contains(document.activeElement);
-    });
+    const focusIsInside = await dialog.evaluate((element) =>
+      element.contains(document.activeElement),
+    );
     expect(focusIsInside).toBe(true);
   });
 });
-
-/**
- * Wait for the screen itself, not merely for the URL.
- *
- * Each route is its own chunk, so `goto` returns with the fallback on screen and
- * the page's own markup still in flight. A sweep measuring then sees the spinner
- * and reports a missing `h1` on a page that has one.
- */
-async function ready(page: Page, path: string) {
-  await page.goto(path);
-  await page.locator('h1').first().waitFor({ state: 'visible' });
-}
 
 /**
  * Swept rather than sampled: the named tests above check the two editors, which
  * leaves the controls nobody thinks of as a form. The sweep also catches one
  * added later on a screen this file has never heard of.
  */
-test('every control on every screen has an accessible name', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
-
-  // Without a rule the simulation proposes nothing, so the row checkboxes this
-  // test exists for would never render and it would pass on an empty table.
-  await api('/rules', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: 'Everything japanese',
-      target_category: 'anime',
-      media_type: 'movie',
-      priority: 10,
-      enabled: true,
-      condition_logic: 'any',
-      conditions: [{ type: 'title_contains', value: ['akira', 'totoro', 'perfect blue'] }],
-      exclusions: [],
-    }),
-  });
-
+test('every control on every screen has an accessible name', async ({ page }) => {
   const nameless: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
-
-    if (path === '/simulation') {
-      await page.getByRole('button', { name: /run simulation/i }).click();
-      await expect(page.locator('tbody input[type=checkbox]').first()).toBeVisible();
-    }
+    await openWithRows(page, path);
 
     // The same four sources the browser computes a name from. `labels` covers
     // both a `for=` caption and a control wrapped inside its own `<label>`,
@@ -209,12 +285,11 @@ test('every control on every screen has an accessible name', async ({ page, inst
  * rendered first. A component with a hard-coded id fails that way the moment
  * it is used twice on a page.
  */
-test('no screen renders the same id twice', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('no screen renders the same id twice', async ({ page }) => {
   const duplicates: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openWithRows(page, path);
     const found = await page.evaluate(() => {
       const seen = new Map<string, number>();
       for (const el of document.querySelectorAll('[id]')) {
@@ -232,12 +307,11 @@ test('no screen renders the same id twice', async ({ page, instanceId }) => {
  * A table is announced by its caption. Without one a screen reader lands on
  * "table, 7 columns, 12 rows" and nothing says what the rows are.
  */
-test('every table on every screen carries a caption', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('every table on every screen carries a caption', async ({ page }) => {
   const bare: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openWithRows(page, path);
     const found = await page.evaluate(() =>
       [...document.querySelectorAll('table')]
         .filter((table) => !table.querySelector('caption')?.textContent?.trim())
@@ -257,12 +331,11 @@ test('every table on every screen carries a caption', async ({ page, instanceId 
  * nobody here wrote: WCAG 2.1 A and AA, every screen, so a failure names a rule
  * and not an opinion.
  */
-test('every screen passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('every screen passes axe at WCAG 2.1 AA', async ({ page }) => {
   const violations: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openWithRows(page, path);
     const results = await new AxeBuilder({ page })
       // `best-practice` on top of the standard: it is the tag that carries
       // `empty-table-header`, which the WCAG tags do not, so an unnamed
@@ -304,9 +377,8 @@ test('a focused field is outlined when the system forces its colours', async ({ 
  * The first Tab has to offer a way past them, and taking it has to land focus
  * where the content starts.
  */
-test('the first tab stop skips to the content', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
-  await ready(page, '/rules');
+test('the first tab stop skips to the content', async ({ page }) => {
+  await openScreen(page, '/rules');
 
   await page.keyboard.press('Tab');
   const skip = page.locator(':focus');
@@ -324,9 +396,7 @@ test('the first tab stop skips to the content', async ({ page, instanceId }) => 
  */
 test('each screen names itself in the tab and takes the focus it was reached with', async ({
   page,
-  instanceId,
 }) => {
-  expect(instanceId).toBeTruthy();
   await api('/settings', {
     method: 'PUT',
     body: JSON.stringify({ settings: { ui_language: 'fr' } }),
@@ -334,24 +404,19 @@ test('each screen names itself in the tab and takes the focus it was reached wit
   const { strings } = (await api('/localization')) as { strings: Record<string, string> };
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openScreen(page, path);
     await expect(page).toHaveTitle(`${strings[screenKey(path)]} · Routarr`);
   }
-  await ready(page, '/no-such-screen');
+  await page.goto('/no-such-screen');
   await expect(page).toHaveTitle(`${strings.NotFoundTitle} · Routarr`);
 
-  await ready(page, '/');
+  await openScreen(page, '/');
   await page
     .getByRole('navigation', { name: strings.MainNavigation })
     .getByRole('link', { name: new RegExp(`^${strings.Logs}`) })
     .click();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(page).toHaveTitle(`${strings.Logs} · Routarr`);
-
-  await api('/settings', {
-    method: 'PUT',
-    body: JSON.stringify({ settings: { ui_language: 'en' } }),
-  });
 });
 
 /**
@@ -365,14 +430,12 @@ test('each screen names itself in the tab and takes the focus it was reached wit
  */
 test.describe('the keyboard reaches every control', () => {
   for (const width of [1280, 375]) {
-    test(`on every screen at ${width}px`, async ({ page, instanceId }) => {
-      expect(instanceId).toBeTruthy();
+    test(`on every screen at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 });
       const problems: string[] = [];
 
       for (const path of [...SCREENS, ...SETTINGS_SECTIONS]) {
-        await ready(page, path);
-        await page.waitForLoadState('networkidle');
+        await openWithRows(page, path);
 
         // The controls a pointer can reach: drawn, enabled, not inert, and not
         // translated out of the viewport (a control past the edge of a table
@@ -457,9 +520,8 @@ test.describe('a button keeps the focus through the action it runs', () => {
     { path: '/settings#maintenance', name: /^Back up now$/ },
   ];
   for (const { path, name } of BUTTONS) {
-    test(`${name.source} on ${path}`, async ({ page, instanceId }) => {
-      expect(instanceId).toBeTruthy();
-      await ready(page, path);
+    test(`${name.source} on ${path}`, async ({ page }) => {
+      await openScreen(page, path);
       const button = page.getByRole('button', { name });
       await button.focus();
       await page.keyboard.press('Enter');
@@ -470,16 +532,14 @@ test.describe('a button keeps the focus through the action it runs', () => {
   }
 });
 
-test('every screen nests its headings without skipping a level', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
-
+test('every screen nests its headings without skipping a level', async ({ page }) => {
   // A screen reader offers the headings as the outline of the page. An h1
   // followed by an h3 says a level is missing and leaves the reader looking for
   // the section that was skipped.
   const jumps: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openWithRows(page, path);
 
     const levels = await page.evaluate(() =>
       [...document.querySelectorAll('h1, h2, h3, h4, h5, h6')].map((h) => ({
@@ -519,33 +579,11 @@ test('every screen nests its headings without skipping a level', async ({ page, 
  * card is not the same defect, and a rule broad enough to catch that would be
  * turned off within a week.
  */
-test('no two row actions in a table answer to the same name', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
-
-  // Two rows, or this proves nothing: a one-row table cannot hold a clash, and
-  // the reset library has no rule and no override. The names differ on
-  // purpose: two rows called the same thing are ambiguous however they are
-  // labelled, and that is a different defect from labelling them all "Delete".
-  for (const name of ['Japanese animation', 'Everything else']) {
-    await api('/rules', {
-      method: 'POST',
-      body: JSON.stringify({
-        name,
-        target_category: 'anime',
-        media_type: 'movie',
-        priority: name === 'Japanese animation' ? 10 : 20,
-        enabled: true,
-        condition_logic: 'any',
-        conditions: [{ type: 'title_contains', value: ['akira'] }],
-        exclusions: [],
-      }),
-    });
-  }
-
+test('no two row actions in a table answer to the same name', async ({ page }) => {
   const clashes: string[] = [];
 
   for (const path of SCREENS) {
-    await ready(page, path);
+    await openWithRows(page, path);
 
     const found = await page.evaluate(() => {
       const out: string[] = [];
@@ -578,8 +616,6 @@ const MODALS: {
   path: string;
   /** The source file this entry opens. Cross-checked by src/test/modals.test.ts. */
   covers: string;
-  /** Run before navigating, when the dialog needs the application to have state. */
-  prepare?: (page: Page) => Promise<void>;
   open: (page: Page) => Promise<void>;
 }[] = [
   {
@@ -640,23 +676,9 @@ const MODALS: {
         .click(),
   },
   {
-    // The only one that needs the application to have done something first:
-    // history holds applied decisions, so one has to be applied.
+    // Offered on a move the seed applied.
     path: '/history',
     covers: 'pages/History.svelte',
-    prepare: async (p) => {
-      // Writing is refused while the global dry run is on, which is the
-      // shipped default, and history stays empty until something is written.
-      await api('/settings', {
-        method: 'PUT',
-        body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
-      });
-      await ready(p, '/simulation');
-      await p.getByRole('button', { name: /run simulation/i }).click();
-      await p.locator('tbody input[type="checkbox"]').first().check();
-      await p.getByRole('button', { name: /apply selected/i }).click();
-      await expect(p.locator('.banner-success')).toBeVisible();
-    },
     open: (p) =>
       p
         .getByRole('button', { name: /^Revert – / })
@@ -665,32 +687,14 @@ const MODALS: {
   },
 ];
 
-test('every modal names itself and every control inside it', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
-
-  // The delete confirmation needs something to delete.
-  await api('/rules', {
-    method: 'POST',
-    body: JSON.stringify({
-      name: 'Sweepable',
-      target_category: 'anime',
-      media_type: 'movie',
-      priority: 90,
-      enabled: true,
-      condition_logic: 'any',
-      conditions: [{ type: 'title_contains', value: ['akira'] }],
-      exclusions: [],
-    }),
-  });
-
+test('every modal names itself and every control inside it', async ({ page }) => {
   const problems: string[] = [];
 
   for (const [index, modal] of MODALS.entries()) {
-    await modal.prepare?.(page);
-    await ready(page, modal.path);
+    await openScreen(page, modal.path);
     await modal.open(page);
 
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.getByRole('dialog');
     await expect(dialog, `${modal.path} #${index} did not open`).toBeVisible();
 
     const found = await dialog.evaluate((root) => {

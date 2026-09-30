@@ -83,14 +83,22 @@ export default defineConfig({
         'src/api/types.ts',
       ],
       reporter: ['text-summary', 'lcov'],
-      // A floor, not a target. It catches a suite that stops running or a
-      // screen added with no test at all, and it is not meant to be negotiated
-      // with on every refactor. Raise it when the real figure moves up, never
-      // lower it to make a build pass.
-      // A little below what the suite measures, the headroom the backend gate
-      // keeps too. Enough that ordinary work does not trip it, not so much
-      // that it stops guarding.
-      thresholds: { statements: 90, branches: 80, functions: 88, lines: 90 },
+      // Floors, not targets, and not meant to be negotiated with on every
+      // refactor. Raise one when the real figure moves up, never lower it to
+      // make a build pass.
+      // The aggregate sits a little below what the suite measures, the headroom
+      // the backend gate keeps too: enough that ordinary work does not trip it,
+      // not so much that it stops guarding. It catches a suite that stops
+      // running, and cannot see a screen with no test, a small share of the
+      // whole. The per-file floor sees that one: a file nothing renders
+      // measures nothing.
+      thresholds: {
+        statements: 91,
+        branches: 80,
+        functions: 89,
+        lines: 91,
+        perFile: { statements: 30, lines: 30 },
+      },
     },
   },
 });

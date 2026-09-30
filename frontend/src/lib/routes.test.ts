@@ -1,11 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { ROUTE_GROUPS, SCREENS, screenKey } from './routes';
-import { DESTINATIONS, GROUPS } from './navigation';
+import { SCREENS, screenKey } from './routes';
+import { iconFor } from './navigation';
 
 /**
  * The route table is data so the e2e sweeps can read it, and the icons are
  * looked up beside it. The two have to agree, or a destination renders without
- * a glyph, or throws on the first render, which this catches first.
+ * a glyph. `navigation.ts` dresses the table as it loads, so a route with no
+ * icon fails the import of this file before any test runs.
  */
 describe('the route table', () => {
   it('names thirteen distinct screens, the dashboard first', () => {
@@ -20,10 +21,10 @@ describe('the route table', () => {
     for (const screen of SCREENS) expect(screen).not.toMatch(/^\/api(\/|$)/);
   });
 
-  it('is dressed with an icon for every destination and nothing lost', () => {
-    expect(DESTINATIONS).toHaveLength(SCREENS.length);
-    expect(GROUPS.map((group) => group.key)).toEqual(ROUTE_GROUPS.map((group) => group.key));
-    for (const item of DESTINATIONS) expect(item.icon, item.to).toBeDefined();
+  it('refuses to dress a destination it has no icon for, naming it', () => {
+    expect(() => iconFor({ to: '/nowhere', key: 'Nowhere', hint: 'HintNowhere' })).toThrow(
+      '/nowhere',
+    );
   });
 });
 

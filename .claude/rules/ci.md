@@ -28,7 +28,7 @@ paths:
 ## Docker image
 
 - A file the root `Dockerfile` copies from outside `backend/` and `frontend/`, as it copies
-  `LICENSE`, goes into both `paths` lists of `docker.yml`. Otherwise a change to it is first
+  `LICENSE`, goes into the `paths` list of `docker.yml`. Otherwise a change to it is first
   built by `release.yml`.
 - The first-run command, `docker exec routarr cat /data/routarr.api_key`, depends on
   `container_name` in `docker-compose.yml` and on `ROUTARR_DB_PATH`, set in the `Dockerfile`

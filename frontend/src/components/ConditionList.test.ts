@@ -205,9 +205,14 @@ describe('ConditionList', () => {
 
     await userEvent.click(screen.getByRole('combobox', { name: 'Original language is' }));
 
-    // The one the library holds keeps its count *and* gains its name.
-    expect(screen.getByRole('option', { name: /English \(en\)/ })).toBeTruthy();
-    expect(screen.getByRole('option', { name: /Afrikaans \(af\)/ })).toBeTruthy();
+    // The one the library holds keeps its count *and* gains its name, once.
+    const held = screen.getAllByRole('option', { name: /English \(en\)/ });
+    expect(held).toHaveLength(1);
+    expect(held[0]).toHaveTextContent('English (en) 32');
+    // The rest of the vocabulary is offered bare of a figure.
+    expect(screen.getByRole('option', { name: /Afrikaans \(af\)/ })).toHaveTextContent(
+      /^Afrikaans \(af\)$/,
+    );
   });
 
   /** Chosen from names in the reader's language, stored as the code. */

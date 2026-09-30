@@ -97,7 +97,7 @@ Each of these questions has one function. Call it, never spell the question agai
 - A source answers in Routarr's vocabulary: an ISO 639-1 language code and an ISO 3166-1
   alpha-2 country code, converted through `backend/src/integrations/language.rs`. A name or a
   three-letter code stored as it came matches no rule written against `ja` or `JP`.
-- A credential setting takes a sealed `Kind` in `KNOWN` (`backend/src/api/settings.rs`, see
+- A credential setting takes a sealed `Kind` in `KNOWN` (`backend/src/services/settings.rs`, see
   `Kind::sealed`): the settings API, the export, the import and `maintenance::reseal_secrets`
   all read it there. A source's key is `<id>_api_key`, the name `provider_key_from` builds.
 - Every call uses the shared `state.http`, never `reqwest::Client::new()`: the shared client
@@ -127,16 +127,20 @@ Each of these questions has one function. Call it, never spell the question agai
 - `TestApp` (`backend/src/tests/mod.rs`) drives the real `Router`, middleware included,
   against an in-memory database. `TestApp::new()` runs with auth off and
   `TestApp::with_api_key(key)` turns it on. The router holds the state it is built from, so a
-  test that changes `app.state` rebuilds with `TestApp::around(state)`. Fixtures:
-  `seed_library`, `seed_anime_rule`, `seed_instance_at`.
+  test that changes `app.state` rebuilds with `TestApp::around(state)`, the config through
+  `with_config`. Fixtures and helpers (`seed_library`, `seed_route_to_anime`,
+  `seed_instance_at`, `store_setting`, `save_setting`, `simulate`, `LogCapture`...) live in
+  `mod.rs`, once: a second file needing one uses it there rather than copying it.
+- An address no test means to reach is port 1 on the loopback (`AN_INSTANCE`,
+  `Config::for_tests`), never a host name: a name goes through the host's resolver.
 - Anything touching `backend/src/integrations/`, the sync or the executor runs against an
   in-process stand-in on an ephemeral port (`fake_arr.rs`, `fake_tmdb.rs`, `fake_sources.rs`,
   `fake_oidc.rs` in `backend/src/tests/`) and asserts on what it recorded.
   `FakeArr::failing(status)` drives the error paths.
 - A test asserting that nothing happened needs a positive control proving the fixture can
   make it happen (`ready_to_apply` in `backend/src/tests/scheduler.rs`).
-- `backend/src/tests/scale.rs` counts a simulation's queries at two library sizes. A query per
-  item fails there and nowhere else, since every other test seeds one item.
+- `backend/src/tests/scale.rs` counts the statements a simulation runs at two library sizes. A
+  query per item fails there and nowhere else, since every other test seeds one item.
 - The webhook is the one route that reaches the library without the API key. No body may
   produce a 500 or a panic (`backend/src/tests/webhook_fuzz.rs`), and a bad token answers a
   404 that does not confirm the instance exists (`backend/src/tests/security.rs`).

@@ -333,8 +333,35 @@ fn build_router(state: AppState) -> Router {
     // a script with a typo in its path would parse HTML as JSON.
     let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
 
-    let app = Router::new()
-        .nest(&format!("{}/api/v1", config.base_path), api_routes)
+    let api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
+    let app = request_layers(api)
+        // Rules and import bundles are the only large bodies. 2 MiB is generous
+        // for them and stops an unauthenticated request from buffering
+        // unbounded input.
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(cors_layer(&config))
+        .with_state(state);
+
+    // Compression wraps the finished router so it also covers the static
+    // frontend bundle attach_frontend adds: a layer attached earlier only
+    // applies to the routes registered before it. The security headers go
+    // outermost for the same reason: they have to reach the served HTML, not
+    // just the API.
+    attach_frontend(app, &config)
+        .layer(CompressionLayer::new())
+        .layer(middleware::from_fn(security_headers))
+}
+
+/// The layers every API request passes through, around `routes`.
+///
+/// One function for the router and for the tests that make a handler panic: a
+/// route added to the assembled router would sit outside every layer, since a
+/// `.layer()` wraps only the routes registered before it.
+pub(crate) fn request_layers<S>(routes: Router<S>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    routes
         // Every request gets an id, carried on the response and in the span of
         // every line logged while serving it: a user pasting one
         // `X-Request-Id` from the browser's network panel is how a failure in
@@ -352,21 +379,6 @@ fn build_router(state: AppState) -> Router {
         .layer(CatchPanicLayer::custom(panic_response))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
-        // Rules and import bundles are the only large bodies. 2 MiB is generous
-        // for them and stops an unauthenticated request from buffering
-        // unbounded input.
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
-        .layer(cors_layer(&config))
-        .with_state(state);
-
-    // Compression wraps the finished router so it also covers the static
-    // frontend bundle attach_frontend adds: a layer attached earlier only
-    // applies to the routes registered before it. The security headers go
-    // outermost for the same reason: they have to reach the served HTML, not
-    // just the API.
-    attach_frontend(app, &config)
-        .layer(CompressionLayer::new())
-        .layer(middleware::from_fn(security_headers))
 }
 
 /// The span every line logged while serving a request sits in, and the one a

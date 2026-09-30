@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../api/client';
+  import { runsOf } from '../api/format';
   import { Search } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -20,11 +21,13 @@
    * by URL, and sending someone to `/media` would only be step one of the four
    * again.
    *
-   * Deliberately narrow. It carries no action that writes: applying a move,
-   * reverting one and deleting a rule all have guardrails that live on the
-   * screen owning them (a confirmation threshold, a batch ceiling, a capacity
-   * check), and a palette exists to be fast, which is the opposite of what a
-   * write to somebody's library wants.
+   * Deliberately narrow. It carries no action that writes to a library:
+   * applying a move, reverting one and deleting a rule all have guardrails that
+   * live on the screen owning them (a confirmation threshold, a batch ceiling, a
+   * capacity check), and a palette exists to be fast, which is the opposite of
+   * what a write to somebody's library wants. The explanation it opens is the
+   * library screen's own panel, whose one write, pinning a rule test, stays
+   * inside Routarr.
    */
   let { onClose }: { onClose: () => void } = $props();
 
@@ -63,15 +66,7 @@
 
   const current = $derived(rows[Math.min(cursor, rows.length - 1)]);
   /** The rows in runs of one kind, each with its place in the whole list, which the arrows count. */
-  const runs = $derived.by(() => {
-    const found: { kind: Row['kind']; rows: { row: Row; index: number }[] }[] = [];
-    rows.forEach((row, index) => {
-      const last = found.at(-1);
-      if (last && last.kind === row.kind) last.rows.push({ row, index });
-      else found.push({ kind: row.kind, rows: [{ row, index }] });
-    });
-    return found;
-  });
+  const runs = $derived(runsOf(rows, (row) => row.kind));
 
   // The library is asked once the typing stops, never on the keystroke: this
   // runs against somebody's Radarr host over their own network.
@@ -213,12 +208,12 @@
           <!-- One group per run, named by its heading: "History" the screen and
                "History" the film are otherwise the same option to a screen
                reader. -->
-          {#each runs as run (run.kind)}
-            <div role="group" aria-labelledby="palette-group-{run.kind}">
-              <div class="palette-group" id="palette-group-{run.kind}" role="presentation">
-                {t(run.kind === 'nav' ? 'CommandPaletteGoTo' : 'MediaExplorer')}
+          {#each runs as run (run.key)}
+            <div role="group" aria-labelledby="palette-group-{run.key}">
+              <div class="palette-group" id="palette-group-{run.key}" role="presentation">
+                {t(run.key === 'nav' ? 'CommandPaletteGoTo' : 'MediaExplorer')}
               </div>
-              {#each run.rows as { row, index } (row.id)}
+              {#each run.entries as { item: row, index } (row.id)}
                 <!-- The option carries the click itself rather than wrapping a
                      button: an `option` must not contain interactive content, and
                      a nested button would also be a tab stop, which the combobox

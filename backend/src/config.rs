@@ -5,6 +5,9 @@ use std::time::Duration;
 /// Public TMDb API root.
 pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 
+/// `ROUTARR_HTTP_TIMEOUT_SECS` when unset.
+pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
+
 /// The directory a database file lives in.
 ///
 /// One place for every caller: `Path::new(":memory:").parent()` is `Some("")`,
@@ -282,7 +285,10 @@ impl Config {
                         .collect()
                 })
                 .unwrap_or_default(),
-            http_timeout: Duration::from_secs(env_parse("ROUTARR_HTTP_TIMEOUT_SECS", 20)?),
+            http_timeout: Duration::from_secs(env_parse(
+                "ROUTARR_HTTP_TIMEOUT_SECS",
+                DEFAULT_HTTP_TIMEOUT_SECS,
+            )?),
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
             // Bounds how many requests are *open* per source, and `rate_limit`
@@ -433,6 +439,7 @@ impl Config {
     /// Config used by tests: in-memory database, no external calls.
     #[cfg(test)]
     pub fn for_tests() -> Self {
+        const UNREACHABLE_SOURCE: &str = "http://127.0.0.1:1";
         Self {
             base_path: String::new(),
             host: "127.0.0.1".into(),
@@ -461,14 +468,18 @@ impl Config {
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
             previous_secret_key: None,
             metadata_concurrency: 2,
-            tmdb_base_url: DEFAULT_TMDB_BASE_URL.to_string(),
+            // Port 1 on the loopback, where nothing listens: a test that lists
+            // a keyless source, or sets a key, and then probes or enriches is
+            // refused at once instead of reaching the real service. A test
+            // that means to reach one points the source at a stand-in.
+            tmdb_base_url: UNREACHABLE_SOURCE.to_string(),
             omdb_api_key: None,
-            omdb_base_url: crate::integrations::omdb::DEFAULT_BASE_URL.to_string(),
+            omdb_base_url: UNREACHABLE_SOURCE.to_string(),
             tvdb_api_key: None,
             tvdb_pin: None,
-            tvdb_base_url: crate::integrations::tvdb::DEFAULT_BASE_URL.to_string(),
-            anilist_base_url: crate::integrations::anilist::DEFAULT_BASE_URL.to_string(),
-            jikan_base_url: crate::integrations::jikan::DEFAULT_BASE_URL.to_string(),
+            tvdb_base_url: UNREACHABLE_SOURCE.to_string(),
+            anilist_base_url: UNREACHABLE_SOURCE.to_string(),
+            jikan_base_url: UNREACHABLE_SOURCE.to_string(),
         }
     }
 }

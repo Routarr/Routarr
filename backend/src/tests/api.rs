@@ -943,6 +943,37 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
         .assert_status(axum::http::StatusCode::NOT_FOUND);
 }
 
+/// The list the Overrides screen renders, read as the screen reads it: with
+/// the key, under a mode that demands one. Each entry carries the item's title
+/// and the instance it lives on, which the list joins in.
+#[tokio::test]
+async fn the_override_list_answers_with_the_key_and_names_each_item() {
+    let app = TestApp::with_api_key("s3cret").await;
+    app.seed_library().await;
+    let keyed = |method: &str, body: serde_json::Value| {
+        Request::builder()
+            .method(method)
+            .uri("/api/v1/overrides")
+            .header("x-api-key", "s3cret")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+
+    let body = serde_json::json!({ "media_id": "m-1", "target_category": "anime" });
+    app.send(keyed("POST", body)).await.assert_ok();
+
+    let listed = app.send(keyed("GET", serde_json::Value::Null)).await;
+    let listed = listed.assert_ok().as_array().expect("a list").clone();
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0]["media_id"], "m-1");
+    assert_eq!(listed[0]["target_category"], "anime");
+    assert_eq!(listed[0]["media_title"], "My Neighbor Totoro");
+    assert_eq!(listed[0]["instance_name"], "Radarr");
+
+    app.get("/api/v1/overrides").await.assert_status(StatusCode::UNAUTHORIZED);
+}
+
 /// An override pins a title to a category, and that is all it does: it wins
 /// over every rule already. A lock on it would protect nothing, so the API
 /// answers none, and an older client still sending one is heard.
@@ -961,6 +992,7 @@ async fn an_override_carries_no_lock() {
     let created = created.assert_ok().clone();
     assert!(created.get("locked").is_none(), "{created}");
     let listed = app.get("/api/v1/overrides").await.assert_ok().clone();
+    assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
     assert!(listed[0].get("locked").is_none(), "{listed}");
     let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
     assert!(detail["override"].get("locked").is_none(), "{detail}");
@@ -1542,38 +1574,8 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
-
     // A second item that also needs a move, which the webhook must leave alone.
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
-         current_root_folder, monitored, has_files)
-         VALUES ('m-2', 'inst-1', 99, 'movie', 'Akira', 8392, '/movies/standard', 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    seed_akira_needing_a_move(&app).await;
 
     let response = app
         .post(
@@ -1800,21 +1802,25 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
         .await
         .assert_ok();
 
-    let status = app.get("/api/v1/status").await;
-    let from_badge = warning_messages(status.assert_ok());
-
+    // The page first: its probe finds the fixture's Arr unreachable, one more
+    // finding, and the badge polled after it has to count that one too.
     let health = app.get("/api/v1/health").await;
     let on_the_page = warning_messages(health.assert_ok());
 
-    assert!(from_badge.len() > 1, "the fixture should produce several warnings");
+    let status = app.get("/api/v1/status").await;
+    let from_badge = warning_messages(status.assert_ok());
 
-    // Every warning the badge counts is one the page shows, word for word.
-    for warning in &from_badge {
+    assert!(on_the_page.len() > 1, "the fixture should produce several warnings");
+
+    // Every warning the page shows is one the badge counts, word for word, and
+    // the badge counts nothing the page leaves out.
+    for warning in &on_the_page {
         assert!(
-            on_the_page.contains(warning),
-            "the badge counts a warning the page never shows: {warning:?}"
+            from_badge.contains(warning),
+            "the page shows a warning the badge does not count: {warning:?}"
         );
     }
+    assert_eq!(from_badge.len(), on_the_page.len(), "{from_badge:?} against {on_the_page:?}");
 
     // And the instance with nothing mapped is among them: the finding a
     // hand-built badge list misses entirely.
@@ -1824,8 +1830,6 @@ async fn the_badge_never_claims_fewer_warnings_than_the_page_shows() {
     );
 }
 
-/// The other direction.
-///
 /// An unreachable Arr or metadata source is a finding only a probe can make,
 /// and `/status` may not probe: it is polled, and one dead host costs the full
 /// connect timeout. A probe writes down what it saw and the endpoint that
@@ -1862,14 +1866,23 @@ async fn the_badge_reports_what_the_last_probe_found() {
 async fn a_subject_that_answers_again_stops_being_reported() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
-    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+    let unreachable = || async {
+        let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
+        warnings.iter().any(|w| w.contains("Fake radarr") && w.contains("is unreachable"))
+    };
 
     app.get("/api/v1/health").await.assert_ok();
-    let healthy = warning_messages(app.get("/api/v1/status").await.assert_ok());
-    assert!(
-        !healthy.iter().any(|w| w.contains("is unreachable")),
-        "a reachable instance must leave no verdict behind: {healthy:?}"
-    );
+    assert!(unreachable().await, "the first probe recorded no failure to replace");
+
+    // The Arr comes back, and the next probe finds it.
+    sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'i-1'")
+        .bind(&arr.base_url)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    app.get("/api/v1/health").await.assert_ok();
+    assert!(!unreachable().await, "the verdict of the first probe outlived the second");
 }
 
 // ------------------------------------------------------------ health
@@ -1993,19 +2006,52 @@ async fn a_search_wildcard_is_matched_literally() {
     );
 }
 
-/// The e2e clicks the purge button without checking what the endpoint answers,
-/// and this checks it.
+/// What outlived its retention goes, what is younger stays, and the report the
+/// Settings screen renders says how much went. Under the default windows, 90
+/// days for logs and jobs and 30 for proposals, each table holds a row a day
+/// past its window and a row a day inside it. A running job is never purged,
+/// however old.
 #[tokio::test]
-async fn purging_reports_what_it_removed() {
+async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    for statement in [
+        "INSERT INTO execution_logs (id, action, success, executed_at)
+         VALUES ('log-old', 'move', 1, datetime('now', '-91 days')),
+                ('log-new', 'move', 1, datetime('now', '-89 days'))",
+        "INSERT INTO jobs (id, kind, status, started_at)
+         VALUES ('job-old', 'sync', 'success', datetime('now', '-91 days')),
+                ('job-new', 'sync', 'success', datetime('now', '-89 days')),
+                ('job-running', 'sync', 'running', datetime('now', '-91 days'))",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         target_category, action, status, decided_at)
+         VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
+                 datetime('now', '-31 days')),
+                ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
+                 datetime('now', '-29 days'))",
+    ] {
+        sqlx::query(statement).execute(&app.state.pool).await.unwrap();
+    }
 
     let response = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
     let report = response.assert_ok();
 
-    // The shape the Settings screen renders back to the user.
-    for field in ["decisions_removed", "logs_removed", "jobs_removed"] {
-        assert!(report[field].is_number(), "{field} missing from the purge report: {report}");
+    assert_eq!(report["logs_removed"], 1, "{report}");
+    assert_eq!(report["jobs_removed"], 1, "{report}");
+    assert_eq!(report["decisions_removed"], 1, "{report}");
+    for (table, kept) in [
+        ("execution_logs", vec!["log-new"]),
+        ("jobs", vec!["job-new", "job-running"]),
+        ("decisions", vec!["d-new"]),
+    ] {
+        let left: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT id FROM {table} WHERE id LIKE '%-old' OR id LIKE '%-new' OR id LIKE '%-running'
+             ORDER BY id"
+        )))
+        .fetch_all(&app.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(left, kept, "{table}");
     }
 }
 
@@ -2107,7 +2153,7 @@ async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_va
 #[tokio::test]
 async fn every_ranged_key_is_raised_and_only_a_bounded_one_is_lowered() {
     let app = TestApp::new().await;
-    let ranged = crate::api::settings::ranged_keys();
+    let ranged = crate::services::settings::ranged_keys();
     assert!(
         ranged.iter().any(|r| r.3) && ranged.iter().any(|r| !r.3),
         "the table is what this reads, and it holds both kinds"
@@ -2180,27 +2226,7 @@ async fn a_setting_that_is_not_a_number_is_left_for_validation_to_refuse() {
 /// that route it to `/movies/anime`: one item a simulation has a move for. Its
 /// row is named the way the sync names rows, so a delivery can find it.
 async fn seed_akira_needing_a_move(app: &TestApp) {
-    app.seed_anime_rule().await;
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
+    app.seed_route_to_anime().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
          current_root_folder, monitored, has_files)

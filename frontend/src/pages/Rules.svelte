@@ -11,18 +11,15 @@
     Trash2,
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
-  import { describeCondition } from '../api/format';
-  import { canonicalKey, localFacets, withoutRepeats } from '../api/conditions';
+  import { describeCondition, swapped } from '../api/format';
+  import { canonicalKey, facetOf, localFacets, withoutRepeats } from '../api/conditions';
   import type {
     Category,
     Condition,
     ConditionCatalog,
-    Facet,
-    FacetAxis,
     Rule,
     RuleDraft,
     RuleMediaType,
-    Vocabularies,
   } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -106,13 +103,8 @@
   // the name the library or its vocabulary gives it, `ja` as Japanese.
   const facets = $derived(library.data ? localFacets(library.data, i18n.language) : null);
   function nameIn(axis: string | undefined, value: string): string {
-    if (!axis || !facets) return value;
     const key = canonicalKey(value);
-    const known: Facet[] = [
-      ...(facets[axis as FacetAxis] ?? []),
-      ...(facets.vocabularies[axis as keyof Vocabularies] ?? []),
-    ];
-    return known.find((facet) => canonicalKey(facet.value) === key)?.label ?? value;
+    return facetOf(facets, axis).find((facet) => canonicalKey(facet.value) === key)?.label ?? value;
   }
 
   function describe(condition: Condition): string {
@@ -175,16 +167,9 @@
   }
 
   async function move(index: number, direction: -1 | 1) {
-    const target = index + direction;
-    if (target < 0 || target >= rules.length) return;
-    const reordered = [...rules];
-    const from = reordered[index];
-    const to = reordered[target];
-    // The bounds check above is not what makes this safe: a sparse array would
-    // pass it and still hand back `undefined`. Reading both first is.
-    if (!from || !to) return;
-    reordered[index] = to;
-    reordered[target] = from;
+    const from = rules[index];
+    const reordered = swapped(rules, index, direction);
+    if (!from || !reordered) return;
     await act(() => api.reorderRules(reordered.map((rule) => rule.id)), t('PrioritiesUpdated'));
     // With the rule: the arrow pressed, or the other one once it reached an
     // end of the list and the arrow pressed turned disabled.

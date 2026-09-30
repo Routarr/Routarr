@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp } from '../lib/icons';
+  import { swapped } from '../api/format';
   import type { MetadataProvider } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
@@ -49,14 +50,9 @@
     `${id}-${providerId}-${part}`;
 
   function move(index: number, by: number) {
-    const next = [...enabled];
-    const target = index + by;
-    if (target < 0 || target >= next.length) return;
-    const from = next[index];
-    const to = next[target];
-    if (!from || !to) return;
-    next[index] = to;
-    next[target] = from;
+    const from = enabled[index];
+    const next = swapped(enabled, index, by);
+    if (!from || !next) return;
     emit(next);
     // A press that moves a row draws it again, and the pressed button with it,
     // or leaves that button disabled at the end of the list.

@@ -1142,6 +1142,51 @@ mod tests {
         ));
     }
 
+    /// Whether `condition` holds for `media` and the canonical metadata.
+    fn holds(condition: Condition, media: &Media) -> bool {
+        let metadata = metadata();
+        evaluate_single_condition(
+            &condition,
+            EvalContext { media, metadata: Some(&metadata), now: now() },
+        )
+        .matched
+    }
+
+    #[test]
+    fn requiring_every_keyword_needs_each_of_them() {
+        let both = vec!["anime".into(), "Studio Ghibli".into()];
+        assert!(holds(Condition::KeywordContainsAll(both), &media()));
+        let one_missing = vec!["anime".into(), "mecha".into()];
+        assert!(!holds(Condition::KeywordContainsAll(one_missing.clone()), &media()));
+        assert!(holds(Condition::KeywordContains(one_missing), &media()));
+    }
+
+    #[test]
+    fn requiring_every_origin_country_needs_each_of_them() {
+        assert!(holds(Condition::OriginCountryAll(vec!["jp".into()]), &media()));
+        let coproduction = vec!["JP".into(), "FR".into()];
+        assert!(!holds(Condition::OriginCountryAll(coproduction.clone()), &media()));
+        assert!(holds(Condition::OriginCountry(coproduction), &media()));
+    }
+
+    #[test]
+    fn requiring_every_tag_needs_each_of_them() {
+        let tagged = Media { tags: Some(r#"["anime", "Kids"]"#.into()), ..media() };
+        assert!(holds(Condition::TagInAll(vec!["kids".into(), "anime".into()]), &tagged));
+        let one_missing = vec!["anime".into(), "4k".into()];
+        assert!(!holds(Condition::TagInAll(one_missing.clone()), &tagged));
+        assert!(holds(Condition::TagIn(one_missing), &tagged));
+    }
+
+    /// The Arr's own status, whatever its case, against any of the values.
+    #[test]
+    fn a_status_matches_any_of_the_values_it_names() {
+        assert!(holds(Condition::StatusIs(vec!["announced".into(), "Released".into()]), &media()));
+        assert!(!holds(Condition::StatusIs(vec!["announced".into()]), &media()));
+        let unknown = Media { status: None, ..media() };
+        assert!(!holds(Condition::StatusIs(vec!["released".into()]), &unknown));
+    }
+
     /// The quantifier, which is what removes the need for a second condition.
     #[test]
     fn one_condition_can_require_every_genre_it_names() {
@@ -1597,13 +1642,76 @@ mod tests {
     // ---------------------------------------------------------- explanation
 
     #[test]
-    fn every_condition_produces_a_reason() {
+    fn a_matched_condition_shows_what_it_found() {
         let winner = evaluate(&[anime_rule()], None).winner.unwrap();
         let reasons = reasons_of(&winner);
         assert_eq!(reasons.len(), 2);
         assert!(reasons.iter().all(|reason| reason.starts_with('✓')));
         assert!(reasons[0].contains("Original language"));
         assert!(reasons[0].contains("found [ja]"), "the observed value must be shown: {reasons:?}");
+    }
+
+    /// The condition after `previous` in a walk over every kind, `None` once
+    /// all are visited. The match has no wildcard, so a kind added to
+    /// `Condition` does not compile here until it has its place in the walk.
+    fn next_kind(previous: Option<&Condition>) -> Option<Condition> {
+        use Condition::*;
+        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        Some(match previous {
+            None => GenreContains(list(&["Animation"])),
+            Some(GenreContains(_)) => GenreContainsAll(list(&["Animation", "Family"])),
+            Some(GenreContainsAll(_)) => GenreNotContains(list(&["Horror"])),
+            Some(GenreNotContains(_)) => KeywordContains(list(&["anime"])),
+            Some(KeywordContains(_)) => KeywordContainsAll(list(&["anime", "studio ghibli"])),
+            Some(KeywordContainsAll(_)) => KeywordNotContains(list(&["horror"])),
+            Some(KeywordNotContains(_)) => OriginalLanguage(list(&["ja"])),
+            Some(OriginalLanguage(_)) => OriginalLanguageNot(list(&["en"])),
+            Some(OriginalLanguageNot(_)) => OriginCountry(list(&["JP"])),
+            Some(OriginCountry(_)) => OriginCountryAll(list(&["JP"])),
+            Some(OriginCountryAll(_)) => YearRange { min: Some(1980), max: Some(1990) },
+            Some(YearRange { .. }) => TagIn(list(&["anime"])),
+            Some(TagIn(_)) => TagInAll(list(&["anime"])),
+            Some(TagInAll(_)) => SeriesTypeIs(list(&["anime"])),
+            Some(SeriesTypeIs(_)) => SizeOnDiskOverGb(1),
+            Some(SizeOnDiskOverGb(_)) => SeasonCountOver(1),
+            Some(SeasonCountOver(_)) => CertificationIn(list(&["G"])),
+            Some(CertificationIn(_)) => StatusIs(list(&["released"])),
+            Some(StatusIs(_)) => CurrentRootFolder("/movies/standard".into()),
+            Some(CurrentRootFolder(_)) => CurrentRootFolderStartsWith("/movies".into()),
+            Some(CurrentRootFolderStartsWith(_)) => HasFiles(true),
+            Some(HasFiles(_)) => TitleContains(list(&["Totoro"])),
+            Some(TitleContains(_)) => TmdbIdIn(vec![8392]),
+            Some(TmdbIdIn(_)) => TvdbIdIn(vec![76885]),
+            Some(TvdbIdIn(_)) => ImdbIdIn(list(&["tt0096283"])),
+            Some(ImdbIdIn(_)) => AddedWithinDays(7),
+            Some(AddedWithinDays(_)) => Monitored(true),
+            Some(Monitored(_)) => HasMetadata(true),
+            Some(HasMetadata(_)) => return None,
+        })
+    }
+
+    /// Every kind explains itself in words: its key is in the dictionary and
+    /// every placeholder of the sentence is filled. A key nobody wrote comes
+    /// back as the key itself, and a parameter the engine stopped sending
+    /// leaves `{values}` on the panel.
+    #[test]
+    fn every_condition_produces_a_reason() {
+        let (media, metadata) = (media(), metadata());
+        let english = crate::localization::Localizer::new("en");
+        let mut seen = std::collections::HashSet::new();
+        let mut condition = next_kind(None);
+        while let Some(current) = condition {
+            let outcome = evaluate_single_condition(
+                &current,
+                EvalContext { media: &media, metadata: Some(&metadata), now: now() },
+            );
+            let reason = english.describe(&outcome);
+            assert!(!reason.contains(&outcome.key), "{} has no sentence: {reason}", outcome.kind);
+            assert!(!reason.contains('{'), "{} left a placeholder: {reason}", outcome.kind);
+            assert!(seen.insert(current.kind()), "{} is visited twice", current.kind());
+            condition = next_kind(Some(&current));
+        }
+        assert_eq!(seen.len(), 28, "the walk visited {} kinds", seen.len());
     }
 
     #[test]

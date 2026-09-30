@@ -3,42 +3,133 @@
 //! Every other test seeds one or two media items, so a regression to a query
 //! per item passes the whole suite and surfaces only on a large library.
 //!
-//! The assertion is an invariance, not a stopwatch: the number of times a
-//! simulation reaches for the database must not change when the library grows
-//! ten-fold. A wall-clock bound would measure the runner instead.
+//! The query assertions are invariances, not stopwatches: the number of
+//! statements a simulation runs must not change when the library grows
+//! ten-fold. The timing assertions compare one run with another ten times its
+//! size, so they measure how the work grows rather than how fast the runner is.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
+use tracing::Instrument;
+use tracing::instrument::WithSubscriber;
+use tracing_subscriber::layer::SubscriberExt;
 
 use crate::services::maintenance;
 use crate::services::routing::{self, SimulationOptions};
 use crate::tests::TestApp;
 
-/// A pool that counts how many times it hands out its connection.
+/// Counts the statements a future sends to SQLite.
 ///
-/// One connection, so every statement executed against the pool has to acquire
-/// the same idle connection and trip the hook. Per-pool rather than a global
-/// counter, so tests running in parallel cannot pollute each other's reading.
-async fn counting_pool() -> (SqlitePool, Arc<AtomicUsize>) {
-    let counter = Arc::new(AtomicUsize::new(0));
-    let hook = Arc::clone(&counter);
+/// sqlx runs every statement on the connection's worker thread, inside the
+/// span that was current where the statement was issued. Run inside a span
+/// this subscriber created, each statement enters that span once on the
+/// worker, whether it went through the pool, over a connection held across a
+/// loop, or inside a transaction. The caller's own thread enters it on every
+/// poll, and is not counted. The subscriber is the future's own, so tests
+/// running in parallel cannot pollute each other's reading.
+#[derive(Clone)]
+struct Statements {
+    entered: Arc<AtomicUsize>,
+    caller: std::thread::ThreadId,
+}
 
+impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Statements {
+    fn on_enter(&self, _: &tracing::span::Id, _: tracing_subscriber::layer::Context<'_, S>) {
+        if std::thread::current().id() != self.caller {
+            self.entered.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Run `work` and report how many statements it sent to the database.
+async fn statements_of<T>(work: impl Future<Output = T>) -> (T, usize) {
+    let counter = Statements { entered: Arc::default(), caller: std::thread::current().id() };
+    let dispatch = tracing::Dispatch::new(tracing_subscriber::registry().with(counter.clone()));
+    let output = async { work.instrument(tracing::info_span!("measured")).await }
+        .with_subscriber(dispatch)
+        .await;
+    (output, counter.entered.load(Ordering::Relaxed))
+}
+
+/// An in-memory library on one connection.
+async fn library_pool() -> SqlitePool {
+    library_on(SqliteConnectOptions::new()).await
+}
+
+/// An in-memory library on one connection opened with `options`.
+async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .min_connections(1)
-        .before_acquire(move |_conn, _meta| {
-            hook.fetch_add(1, Ordering::Relaxed);
-            Box::pin(async { Ok(true) })
-        })
-        .connect_with(SqliteConnectOptions::new().in_memory(true).foreign_keys(true))
+        .connect_with(options.in_memory(true).foreign_keys(true))
         .await
         .expect("in-memory sqlite");
-
     crate::db::run_migrations(&pool).await.expect("migrations");
-    (pool, counter)
+    pool
+}
+
+/// A clock for the work one library does: the CPU time of the test's thread,
+/// where the evaluation runs, and of the library's worker thread, where its
+/// statements run.
+///
+/// Waiting on a library-pass permit, on a lock or on a core another test holds
+/// is not in it, so the reading follows the work rather than how busy the
+/// runner is. Where the kernel publishes no per-thread figure, the wall clock
+/// stands in.
+struct WorkClock {
+    worker: Option<std::path::PathBuf>,
+}
+
+impl WorkClock {
+    /// A library on its own named worker, and the clock that reads it.
+    async fn with_library() -> (SqlitePool, WorkClock) {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        // Linux keeps fifteen bytes of a thread name, and this stays under.
+        let name = format!("scale-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+        let named = name.clone();
+        let pool =
+            library_on(SqliteConnectOptions::new().thread_name(move |_| named.clone())).await;
+        let worker = std::fs::read_dir("/proc/self/task").ok().and_then(|tasks| {
+            tasks.flatten().map(|task| task.path()).find(|task| {
+                std::fs::read_to_string(task.join("comm")).is_ok_and(|comm| comm.trim() == name)
+            })
+        });
+        (pool, WorkClock { worker: worker.map(|task| task.join("schedstat")) })
+    }
+
+    fn now(&self) -> Duration {
+        let on_cpu = |path: &std::path::Path| -> Option<u64> {
+            std::fs::read_to_string(path).ok()?.split_whitespace().next()?.parse().ok()
+        };
+        let threads = self.worker.as_deref().and_then(|worker| {
+            Some(on_cpu(worker)? + on_cpu(std::path::Path::new("/proc/thread-self/schedstat"))?)
+        });
+        match threads {
+            Some(nanoseconds) => Duration::from_nanos(nanoseconds),
+            None => wall_clock(),
+        }
+    }
+
+    /// The least of three runs of `work`.
+    async fn least<F: Future>(&self, mut work: impl FnMut() -> F) -> Duration {
+        let mut least = Duration::MAX;
+        for _ in 0..3 {
+            let started = self.now();
+            work().await;
+            least = least.min(self.now() - started);
+        }
+        least
+    }
+}
+
+/// Time since the first reading, for a kernel with no per-thread figure.
+fn wall_clock() -> Duration {
+    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START.get_or_init(Instant::now).elapsed()
 }
 
 /// A library of `count` films across one instance, with a rule that matches
@@ -46,7 +137,7 @@ async fn counting_pool() -> (SqlitePool, Arc<AtomicUsize>) {
 async fn seed(pool: &SqlitePool, count: usize) {
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('inst-1', 'Radarr', 'radarr', 'http://radarr:7878', 'k', 1)",
+         VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
     )
     .execute(pool)
     .await
@@ -118,41 +209,50 @@ async fn seed(pool: &SqlitePool, count: usize) {
     tx.commit().await.unwrap();
 }
 
-/// Simulate `count` items and report how many times the database was reached.
-async fn queries_for(count: usize) -> (usize, std::time::Duration) {
-    let (pool, counter) = counting_pool().await;
+/// A simulation of `count` items, the statements it ran, and how many
+/// decisions it stored.
+async fn statements_for(count: usize, persist: bool) -> (usize, i64) {
+    let pool = library_pool().await;
     seed(&pool, count).await;
 
-    // Seeding is not part of the measurement.
-    counter.store(0, Ordering::Relaxed);
-    let started = Instant::now();
-
-    let result =
-        routing::run_simulation(&pool, SimulationOptions { persist: true, ..Default::default() })
-            .await
-            .unwrap();
-    assert_eq!(result.total_media, count, "the whole library was not evaluated");
-
-    let elapsed = started.elapsed();
-    let queries = counter.load(Ordering::Relaxed);
+    let (result, statements) = statements_of(routing::run_simulation(
+        &pool,
+        SimulationOptions { persist, ..Default::default() },
+    ))
+    .await;
+    assert_eq!(result.unwrap().total_media, count, "the whole library was not evaluated");
+    let stored: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM decisions").fetch_one(&pool).await.unwrap();
     pool.close().await;
-    (queries, elapsed)
+    (statements, stored)
 }
 
+/// Reading and evaluating the library costs the same handful of statements
+/// whatever its size, and storing the run adds one row per decision it keeps
+/// and nothing else per item.
 #[tokio::test]
 async fn a_simulation_does_not_query_once_per_media_item() {
-    let (small, small_time) = queries_for(200).await;
-    let (large, large_time) = queries_for(2000).await;
-
-    println!("200 items: {small} queries in {small_time:?}");
-    println!("2000 items: {large} queries in {large_time:?}");
-
-    // Ten times the library, the same handful of queries. A per-item query
-    // would put roughly 1 800 more on the second reading.
+    let (small, _) = statements_for(200, false).await;
+    let (large, _) = statements_for(2000, false).await;
+    println!("evaluated: 200 items in {small} statements, 2000 in {large}");
+    // A per-item query would put roughly 1 800 more on the second reading.
     assert!(
         large <= small + 5,
         "the library grew ten-fold and the database was reached {large} times instead of {small}: \
          the simulation is querying per item again"
+    );
+
+    let (small, small_rows) = statements_for(200, true).await;
+    let (large, large_rows) = statements_for(2000, true).await;
+    println!("stored: {small_rows} rows in {small} statements, {large_rows} in {large}");
+    assert!(small_rows > 0, "the fixture stores nothing, so this proves nothing");
+    // Supersession binds its ids in chunks, a statement per chunk: the few
+    // statements the tolerance leaves are those.
+    let (beyond_small, beyond_large) = (small - small_rows as usize, large - large_rows as usize);
+    assert!(
+        beyond_large <= beyond_small + 5,
+        "beyond one per stored row, {beyond_large} statements against {beyond_small}: \
+         storing the run queries per item"
     );
 }
 
@@ -162,24 +262,28 @@ async fn a_simulation_does_not_query_once_per_media_item() {
 /// and nothing more.
 #[tokio::test]
 async fn an_evaluation_over_a_loaded_library_costs_no_query() {
-    let (pool, counter) = counting_pool().await;
+    let pool = library_pool().await;
     seed(&pool, 200).await;
 
-    counter.store(0, Ordering::Relaxed);
-    let library = routing::load_library(&pool, &SimulationOptions::default()).await.unwrap();
-    let loading = counter.load(Ordering::Relaxed);
+    let (library, loading) =
+        statements_of(routing::load_library(&pool, &SimulationOptions::default())).await;
+    let library = library.unwrap();
     assert!(loading > 0, "loading reads the library");
 
-    let without_rules = routing::simulate_loaded(
-        &pool,
-        &library,
-        SimulationOptions { rules_override: Some(Vec::new()), ..Default::default() },
-    )
-    .await
-    .unwrap();
-    let with_rules =
-        routing::simulate_loaded(&pool, &library, SimulationOptions::default()).await.unwrap();
-    assert_eq!(counter.load(Ordering::Relaxed), loading, "an evaluation reached the database");
+    let ((without_rules, with_rules), evaluating) = statements_of(async {
+        let without = routing::simulate_loaded(
+            &pool,
+            &library,
+            SimulationOptions { rules_override: Some(Vec::new()), ..Default::default() },
+        )
+        .await
+        .unwrap();
+        let with =
+            routing::simulate_loaded(&pool, &library, SimulationOptions::default()).await.unwrap();
+        (without, with)
+    })
+    .await;
+    assert_eq!(evaluating, 0, "an evaluation reached the database");
     assert_eq!(without_rules.total_media, 200);
     assert_ne!(
         without_rules.moves_required, with_rules.moves_required,
@@ -187,22 +291,38 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     );
     drop(library);
 
-    counter.store(0, Ordering::Relaxed);
-    routing::run_simulation(&pool, SimulationOptions::default()).await.unwrap();
-    assert_eq!(counter.load(Ordering::Relaxed), loading, "a run is one load and nothing more");
+    let (_, running) =
+        statements_of(routing::run_simulation(&pool, SimulationOptions::default())).await;
+    assert_eq!(running, loading, "a run is one load and nothing more");
 }
 
+/// The ceiling on how much more work ten times the library may cost. Linear
+/// work costs about ten times as much, less since a run has fixed costs, and
+/// a rescan of the library per item about a hundred times.
+const TEN_FOLD_CEILING: u32 = 15;
+
+/// The work a stored simulation of `count` items costs, at its least.
+async fn simulation_work(count: usize) -> Duration {
+    let (pool, clock) = WorkClock::with_library().await;
+    seed(&pool, count).await;
+    let options = || SimulationOptions { persist: true, ..Default::default() };
+    let work = clock.least(|| async { routing::run_simulation(&pool, options()).await.unwrap() });
+    let work = work.await;
+    pool.close().await;
+    work
+}
+
+/// Quadratic work that is not in the queries (a merge that rescans, an O(n²)
+/// lookup), which the statement count above cannot see.
 #[tokio::test]
-async fn a_simulation_stays_within_a_sane_time_at_scale() {
-    // A loose ceiling, not a benchmark: this catches quadratic work that is not
-    // in the queries (a merge that rescans, an O(n²) lookup), which the count
-    // above cannot see. Generous enough not to fail on a busy CI runner.
-    let (_, elapsed) = queries_for(5000).await;
-    println!("5000 items simulated in {elapsed:?}");
+async fn a_simulation_grows_linearly_with_the_library() {
+    let small = simulation_work(500).await;
+    let large = simulation_work(5000).await;
+    println!("500 items simulated in {small:?}, 5000 in {large:?}");
 
     assert!(
-        elapsed < std::time::Duration::from_secs(20),
-        "simulating 5 000 items took {elapsed:?}, which is not linear work any more"
+        large < small * TEN_FOLD_CEILING,
+        "ten times the library cost {large:?} against {small:?}: the work is not linear any more"
     );
 }
 
@@ -229,37 +349,49 @@ async fn seed_cache(pool: &SqlitePool, count: usize) {
     tx.commit().await.unwrap();
 }
 
-/// The two queries that join `media` to `metadata_cache` across every identifier
-/// namespace. Written as one OR over three cast columns they cannot use an
-/// index, and on a large library the facets take minutes and the hourly purge
-/// holds a connection for as long. The ceiling is loose, since a busy runner
-/// must not fail it, and still an order of magnitude under what a scan costs.
-#[tokio::test]
-async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {
-    let app = TestApp::new().await;
-    let count = 5000;
+/// The work the facets and the orphan sweep cost over `count` items and a
+/// cache row per source for each, at their least.
+async fn facets_and_sweep_work(count: usize) -> (Duration, Duration) {
+    let (pool, clock) = WorkClock::with_library().await;
+    let app = TestApp::around(crate::state::AppState::for_tests_on(pool));
     seed(&app.state.pool, count).await;
     seed_cache(&app.state.pool, count).await;
     app.list_tmdb().await;
 
-    let started = Instant::now();
-    let response = app.get("/api/v1/media/facets").await;
-    let facets = started.elapsed();
-    let body = response.assert_ok();
-    assert_eq!(body["total_media"], count as i64);
-    println!("facets over {count} items and {} cache rows: {facets:?}", count * 2);
-    assert!(
-        facets < std::time::Duration::from_secs(5),
-        "facets took {facets:?}: a join stopped using its index"
-    );
+    let facets = clock
+        .least(|| async {
+            let response = app.get("/api/v1/media/facets").await;
+            assert_eq!(response.assert_ok()["total_media"], count as i64);
+        })
+        .await;
+    let sweep = clock
+        .least(|| async {
+            let report = maintenance::run(&app.state, "test").await.unwrap();
+            assert_eq!(report.metadata_cache_removed, 0, "every cache row belongs to a media item");
+        })
+        .await;
+    (facets, sweep)
+}
 
-    let started = Instant::now();
-    let report = maintenance::run(&app.state, "test").await.unwrap();
-    let sweep = started.elapsed();
-    println!("orphan sweep over {} cache rows: {sweep:?}", count * 2);
-    assert_eq!(report.metadata_cache_removed, 0, "every cache row belongs to a media item");
+/// The two queries that join `media` to `metadata_cache` across every identifier
+/// namespace. Written as one OR over three cast columns they cannot use an
+/// index, and on a large library the facets take minutes and the hourly purge
+/// holds a connection for as long. A join that stopped using its index scans
+/// the cache once per item, and ten times the library takes a hundred times
+/// as long.
+#[tokio::test]
+async fn facets_and_the_orphan_sweep_stay_indexed_at_scale() {
+    let (small_facets, small_sweep) = facets_and_sweep_work(500).await;
+    let (large_facets, large_sweep) = facets_and_sweep_work(5000).await;
+    println!("facets: {small_facets:?} for 500 items, {large_facets:?} for 5000");
+    println!("orphan sweep: {small_sweep:?} for 500 items, {large_sweep:?} for 5000");
+
     assert!(
-        sweep < std::time::Duration::from_secs(5),
-        "the sweep took {sweep:?}: a NOT EXISTS stopped using its index"
+        large_facets < small_facets * TEN_FOLD_CEILING,
+        "facets cost {large_facets:?} against {small_facets:?}: a join stopped using its index"
+    );
+    assert!(
+        large_sweep < small_sweep * TEN_FOLD_CEILING,
+        "the sweep cost {large_sweep:?} against {small_sweep:?}: a NOT EXISTS stopped using its index"
     );
 }

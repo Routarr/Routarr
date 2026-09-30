@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 
-import { test, expect, api } from './fixtures';
+import { test, expect, api, ARR } from './fixtures';
 
 /**
  * The getting-started guide.
@@ -13,8 +13,7 @@ async function showGuide(): Promise<void> {
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
 }
 
-test('greets an installation not set up with its next steps', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('greets an installation not set up with its next steps', async ({ page }) => {
   await showGuide();
   await page.goto('/');
 
@@ -28,11 +27,7 @@ test('greets an installation not set up with its next steps', async ({ page, ins
   ).toBeVisible();
 });
 
-test('can be skipped, and offers itself back until the setup is done', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
+test('can be skipped, and offers itself back until the setup is done', async ({ page }) => {
   await showGuide();
   await page.goto('/');
 
@@ -46,11 +41,7 @@ test('can be skipped, and offers itself back until the setup is done', async ({
   await expect(page.getByRole('region', { name: 'Getting started' })).toBeVisible();
 });
 
-test('a step opens the screen that does it, with its dialog ready', async ({
-  page,
-  instanceId,
-}) => {
-  expect(instanceId).toBeTruthy();
+test('a step opens the screen that does it, with its dialog ready', async ({ page }) => {
   await showGuide();
   await page.goto('/');
 
@@ -73,9 +64,7 @@ test('adding an instance ticks the first step and leads straight to the next', a
   await page.getByRole('link', { name: 'Add an instance' }).click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Name', { exact: true }).fill('Radarr');
-  await dialog
-    .getByLabel('Base URL', { exact: true })
-    .fill(process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979');
+  await dialog.getByLabel('Base URL', { exact: true }).fill(ARR);
   await dialog.getByLabel('API key', { exact: true }).fill('e2e-key');
   await dialog.getByRole('button', { name: 'Add instance' }).click();
 
@@ -92,8 +81,7 @@ test('adding an instance ticks the first step and leads straight to the next', a
   ).toBeVisible();
 });
 
-test('the guide passes axe at WCAG 2.1 AA', async ({ page, instanceId }) => {
-  expect(instanceId).toBeTruthy();
+test('the guide passes axe at WCAG 2.1 AA', async ({ page }) => {
   await showGuide();
   await page.goto('/');
   await expect(page.getByRole('region', { name: 'Getting started' })).toBeVisible();

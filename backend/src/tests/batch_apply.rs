@@ -7,7 +7,6 @@
 
 use crate::jobs::Attribution;
 use crate::services::executor;
-use crate::services::routing::{self, SimulationOptions};
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -16,28 +15,7 @@ use super::fake_arr::FakeArr;
 async fn library(arr: &FakeArr, count: usize) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
+    app.seed_route_to_anime().await;
 
     for index in 0..count {
         sqlx::query(
@@ -54,33 +32,13 @@ async fn library(arr: &FakeArr, count: usize) -> TestApp {
         .unwrap();
     }
 
-    sqlx::query("UPDATE settings SET value = 'false' WHERE key = 'global_dry_run'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("global_dry_run", "false").await;
 
     app
 }
 
 async fn set_batch_limit(app: &TestApp, limit: usize) {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('batch_limit', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(limit.to_string())
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
-async fn simulate(app: &TestApp) -> String {
-    routing::run_simulation(
-        &app.state.pool,
-        SimulationOptions { persist: true, ..Default::default() },
-    )
-    .await
-    .unwrap()
-    .simulation_id
+    app.store_setting("batch_limit", &limit.to_string()).await;
 }
 
 #[tokio::test]
@@ -88,7 +46,7 @@ async fn a_library_larger_than_the_batch_limit_is_applied_in_slices() {
     let arr = FakeArr::start().await;
     let app = library(&arr, 12).await;
     set_batch_limit(&app, 5).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let report = executor::apply_simulation_in_batches(
         &app.state,
@@ -124,7 +82,7 @@ async fn global_dry_run_still_outranks_it() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let refused = executor::apply_simulation_in_batches(
         &app.state,
@@ -147,7 +105,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     let arr = FakeArr::failing(500).await;
     let app = library(&arr, 12).await;
     set_batch_limit(&app, 5).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let report = executor::apply_simulation_in_batches(
         &app.state,
@@ -179,7 +137,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
 async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty() {
     let arr = FakeArr::start().await;
     let app = library(&arr, 0).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let refused = executor::apply_simulation_in_batches(
         &app.state,
@@ -199,8 +157,8 @@ async fn it_only_touches_what_its_own_simulation_proposed() {
     let app = library(&arr, 4).await;
     set_batch_limit(&app, 50).await;
 
-    let earlier = simulate(&app).await;
-    let later = simulate(&app).await;
+    let earlier = app.simulate().await;
+    let later = app.simulate().await;
     assert_ne!(earlier, later);
 
     // The earlier run's proposals were superseded, so asking for them applies
@@ -232,7 +190,7 @@ async fn progress_is_recorded_so_the_operations_queue_can_show_it() {
     let arr = FakeArr::start().await;
     let app = library(&arr, 12).await;
     set_batch_limit(&app, 5).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     executor::apply_simulation_in_batches(
         &app.state,
@@ -260,7 +218,7 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
     let arr = FakeArr::start().await;
     let app = library(&arr, 3).await;
     set_batch_limit(&app, 50).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let response = app
         .post("/api/v1/decisions/apply-all", serde_json::json!({ "simulation_id": simulation }))
@@ -280,7 +238,7 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
 async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let arr = FakeArr::start().await;
     let app = library(&arr, 3).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
     let localizer = app.state.localizer().await;
     let count = localizer.translate("ConfirmApplyAll", &[("count", "3")]);
     let with_files = localizer.translate("ConfirmApplyWithFiles", &[]);
@@ -307,7 +265,7 @@ async fn the_endpoint_applies_everything_once_confirmed() {
     let arr = FakeArr::start().await;
     let app = library(&arr, 7).await;
     set_batch_limit(&app, 3).await;
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let response = app
         .post(

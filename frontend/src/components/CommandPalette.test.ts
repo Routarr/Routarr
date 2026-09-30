@@ -15,7 +15,7 @@ import CommandPalette from './CommandPalette.svelte';
  * "Why did Routarr put this film there?" otherwise takes four steps from any
  * screen: open the library, type, search, then find the row and press its
  * button. What is asserted here is that it takes one, and that the palette
- * carries nothing that writes.
+ * carries nothing that writes to a library.
  */
 
 const STRINGS = {
@@ -40,6 +40,7 @@ const STRINGS = {
   Settings: 'Settings',
   HintRules: 'What goes where',
   Dismiss: 'Dismiss',
+  PinAsRuleTest: 'Pin as a rule test',
 };
 
 const media = (over: Partial<MediaListItem> = {}) =>
@@ -264,13 +265,40 @@ describe('CommandPalette', () => {
   /**
    * A palette exists to be fast, which is the opposite of what a write to
    * somebody's library wants. Applying, reverting and deleting all have
-   * guardrails that live on the screen owning them.
+   * guardrails that live on the screen owning them. The explanation it opens is
+   * the library screen's own panel, and its one write, pinning the case as a
+   * rule test, stays inside Routarr.
    */
-  it('carries nothing that writes', async () => {
+  it('offers nothing that writes to a library, in its list or in the explanation it opens', async () => {
+    const WRITES = /apply|revert|delete|remove|sync|move|override/i;
+    const actions = (scope: HTMLElement) =>
+      [...scope.querySelectorAll('button')].map(
+        (button) => button.getAttribute('aria-label') ?? button.textContent?.trim() ?? '',
+      );
+    vi.spyOn(api, 'getMedia').mockResolvedValue({
+      data: [media()],
+      pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
+    });
+    vi.spyOn(api, 'explainMedia').mockResolvedValue({
+      media: { ...media(), current_path: '/movies/standard/Spirited Away', added_at: null },
+      metadata: null,
+      override_category: null,
+      target_category: 'anime',
+      target_root_folder: '/movies/anime',
+      action: 'move',
+      confidence: 0.7,
+      winning_rule: 'Japanese animation',
+      rule_traces: [],
+    } as never);
     show();
-    const options = await screen.findAllByRole('option');
-    const labels = options.map((option) => option.textContent ?? '');
 
-    expect(labels.some((label) => /apply|revert|delete|sync/i.test(label))).toBe(false);
+    await userEvent.type(screen.getByRole('combobox'), 'spirited');
+    const palette = screen.getByRole('dialog', { name: 'Quick search' });
+    expect(actions(palette).filter((name) => WRITES.test(name))).toEqual([]);
+    await fireEvent.click(await screen.findByRole('option', { name: /Spirited Away/ }));
+
+    const panel = await screen.findByRole('dialog', { name: 'Spirited Away' });
+    expect(actions(panel)).toContain('Pin as a rule test');
+    expect(actions(panel).filter((name) => WRITES.test(name))).toEqual([]);
   });
 });

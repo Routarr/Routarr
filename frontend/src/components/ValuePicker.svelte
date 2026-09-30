@@ -3,6 +3,7 @@
   import type { Facet } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import { canonicalKey, addValue, removeValue } from '../api/conditions';
+  import { runsOf } from '../api/format';
   import { handFocus } from '../lib/focus';
 
   /**
@@ -69,15 +70,7 @@
    * run with a group is drawn under its meaning, a run without is drawn bare.
    * Each keeps its place in the list, which is what the arrows count.
    */
-  const blocks = $derived.by(() => {
-    const runs: { group?: string; options: { option: Facet; index: number }[] }[] = [];
-    matches.forEach((option, index) => {
-      const last = runs.at(-1);
-      if (last && last.group === option.group) last.options.push({ option, index });
-      else runs.push({ group: option.group, options: [{ option, index }] });
-    });
-    return runs;
-  });
+  const blocks = $derived(runsOf(matches, (option) => option.group));
   const optionId = (index: number) => `${listId}-${index}`;
   /** Whether the figures beside the values are counts worth a caption. */
   const counted = $derived(matches.some((option) => option.count > 0));
@@ -256,16 +249,16 @@
           <p class="picker-head" aria-hidden="true">{t('PickerCountCaption')}</p>
         {/if}
         {#each blocks as block, index (index)}
-          {#if block.group}
-            <div role="group" aria-label={block.group}>
-              <p class="picker-group-title" aria-hidden="true">{block.group}</p>
-              {#each block.options as entry (entry.option.value)}
-                {@render row(entry.option, entry.index, true)}
+          {#if block.key}
+            <div role="group" aria-label={block.key}>
+              <p class="picker-group-title" aria-hidden="true">{block.key}</p>
+              {#each block.entries as entry (entry.item.value)}
+                {@render row(entry.item, entry.index, true)}
               {/each}
             </div>
           {:else}
-            {#each block.options as entry (entry.option.value)}
-              {@render row(entry.option, entry.index, false)}
+            {#each block.entries as entry (entry.item.value)}
+              {@render row(entry.item, entry.index, false)}
             {/each}
           {/if}
         {/each}

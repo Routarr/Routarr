@@ -2,6 +2,7 @@
 
 use super::{Json, Query};
 use axum::extract::State;
+use serde::Deserialize;
 use sqlx::AssertSqlSafe;
 
 use crate::api::{Page, paginate};
@@ -111,6 +112,43 @@ pub async fn list(
     let total = count_query.fetch_one(&state.pool).await?;
 
     Ok(Json(Page::new(rows.into_iter().map(decision_from_row).collect(), page, per_page, total)))
+}
+
+/// Request to apply selected decisions.
+#[derive(Debug, Deserialize)]
+pub struct ApplyDecisionsRequest {
+    pub decision_ids: Vec<String>,
+    #[serde(default)]
+    pub move_files: bool,
+    /// The guardrails the caller has looked at, by name, so that answering
+    /// one question answers no other.
+    #[serde(default)]
+    pub confirm: executor::Confirmed,
+}
+
+/// Apply everything one simulation proposed, in slices.
+#[derive(Debug, Deserialize)]
+pub struct ApplyAllRequest {
+    pub simulation_id: String,
+    #[serde(default)]
+    pub move_files: bool,
+    /// Always required: this is a mass operation by definition, so the
+    /// confirmation threshold has nothing to say about it. Its one question
+    /// states both the count and any capacity shortfall, and it is answered
+    /// under the single name `batch`.
+    #[serde(default)]
+    pub confirm: executor::Confirmed,
+}
+
+/// Request to roll a previously applied decision back to its original folder.
+#[derive(Debug, Deserialize)]
+pub struct RevertDecisionsRequest {
+    pub decision_ids: Vec<String>,
+    #[serde(default)]
+    pub move_files: bool,
+    /// The guardrails the caller has looked at, by name, as for an apply.
+    #[serde(default)]
+    pub confirm: executor::Confirmed,
 }
 
 pub async fn apply(

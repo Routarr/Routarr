@@ -13,9 +13,6 @@ import { test, expect, api } from './fixtures';
  * Geometry is the only way to catch that: the text content is identical either
  * way, so a DOM assertion sees nothing. jsdom computes no layout, which is
  * why this lives here rather than in the component suite.
- *
- * The language is a global setting and the suite runs serial on one server, so
- * it is put back afterwards rather than left for the next spec to find.
  */
 
 async function setLanguage(code: string): Promise<void> {
@@ -26,20 +23,12 @@ async function setLanguage(code: string): Promise<void> {
 }
 
 test.describe('right to left', () => {
-  // Not `beforeAll`: the `instanceId` fixture resets the library before every
-  // test, and its reset puts `ui_language` back to English. Set ahead of it,
-  // the language is undone before the first navigation and every test below
-  // measures a left-to-right page.
-  test.afterAll(async () => {
-    await setLanguage('en');
-  });
+  // Each test sets the language itself, never a `beforeAll`: the fixture's
+  // reset before every test puts `ui_language` back to English, and a page
+  // measured after it would be left to right.
 
   /** An arrow means "towards", so it turns around when the writing does. */
-  test('every arrow in the explanation points the way the text reads', async ({
-    page,
-    instanceId,
-  }) => {
-    expect(instanceId).toBeTruthy();
+  test('every arrow in the explanation points the way the text reads', async ({ page }) => {
     await setLanguage('ar');
     await page.goto('/media');
     await page
@@ -47,7 +36,7 @@ test.describe('right to left', () => {
       .first()
       .click();
 
-    const panel = page.locator('dialog[open]');
+    const panel = page.getByRole('dialog');
     await expect(panel).toBeVisible();
     const arrows = await panel.evaluate((dialog) => {
       const walker = document.createTreeWalker(dialog, NodeFilter.SHOW_TEXT);
@@ -63,8 +52,7 @@ test.describe('right to left', () => {
     expect(arrows.filter((transform) => transform !== 'matrix(-1, 0, 0, 1, 0, 0)')).toEqual([]);
   });
 
-  test('the shell mirrors and nothing spills off the side', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('the shell mirrors and nothing spills off the side', async ({ page }) => {
     await setLanguage('ar');
 
     for (const path of ['/', '/rules', '/root-folders', '/settings']) {

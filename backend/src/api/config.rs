@@ -112,7 +112,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
             .fetch_all(pool)
             .await?
             .into_iter()
-            .filter(|(key, _)| !crate::api::settings::is_secret(key))
+            .filter(|(key, _)| !crate::services::settings::is_secret(key))
             .map(|(key, value)| Setting { key, value })
             .collect();
 
@@ -251,7 +251,7 @@ pub async fn import(
         // opens with nothing here, and in the clear it came through a file
         // people share. The export writes none, but a bundle edited by hand, or
         // exported by a build that kept the setting in the clear, can carry one.
-        if crate::api::settings::is_secret(key) {
+        if crate::services::settings::is_secret(key) {
             report.skipped.push(format!(
                 "setting '{key}' is a credential a bundle does not carry. Set it again"
             ));
@@ -263,7 +263,7 @@ pub async fn import(
         // the API, and a value it does know but refuses is worse, because it
         // looks applied. Reported rather than fatal: a bundle is restored as far as it
         // can be, and `skipped` is what says how far.
-        if let Err(e) = crate::api::settings::check(key, &setting.value, &categories) {
+        if let Err(e) = crate::services::settings::check(key, &setting.value, &categories) {
             report.skipped.push(format!("setting {:?}: {e}", setting.key));
             continue;
         }

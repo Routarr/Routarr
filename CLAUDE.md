@@ -35,7 +35,7 @@ cargo test live_sources -- --ignored --nocapture   # the real AniList, Jikan, OM
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 90%
+cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 93%
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written
@@ -121,6 +121,6 @@ Invariants a change must keep:
 - The backend suite is offline, and no test depends on a third party answering.
 - A test is named as a claim about behaviour: `a_trailing_slash_does_not_create_a_phantom_move`.
 - A regression test is seen to fail before its fix, or with the check it guards removed.
-- Coverage floors: 90% of backend lines, and 90% of frontend statements with the other Vitest
+- Coverage floors: 93% of backend lines, and 91% of frontend statements with the other Vitest
   floors in `frontend/vite.config.ts`. Raise a floor when the figure rises, never lower one to
   pass a build.

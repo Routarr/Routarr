@@ -513,42 +513,17 @@ async fn store_metadata(
 
 /// Everything known about one item, every enabled source collapsed in priority
 /// order: what a single media page needs, without loading the whole cache.
+///
+/// Merged by the simulation's own merge over the configured order, *not* the
+/// usable subset: a key that has been removed stops new fetches, it does not
+/// un-know what is already cached. Read any other way, the media page and a
+/// pinned rule case would describe the item otherwise than the engine sees it.
 pub async fn resolve_for_media(
     state: &AppState,
     media: &crate::models::Media,
 ) -> AppResult<Option<crate::models::MediaMetadata>> {
-    let mut parts: Vec<(&str, ProviderMetadata)> = Vec::new();
+    let providers = state.metadata_order().await;
     let identifiers = metadata::load_identifiers_of(&state.pool, media).await?;
-
-    // The configured order, *not* the usable subset: a key that has been
-    // removed stops new fetches, it does not un-know what is already cached.
-    // This read and the simulation's must not disagree, or the explanation
-    // screen would contradict the simulation that produced the decision it
-    // explains.
-    for provider in state.metadata_order().await {
-        if provider.id == metadata::ARR {
-            parts.push((provider.id, metadata::from_media(media)));
-            continue;
-        }
-
-        let Some(external_id) = metadata::external_id(provider, media, &identifiers) else {
-            continue;
-        };
-
-        let row: Option<metadata::CacheRow> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {} FROM metadata_cache WHERE source = ? AND external_id = ? AND media_type = ?",
-            metadata::CACHE_COLUMNS
-        )))
-        .bind(provider.id)
-        .bind(&external_id)
-        .bind(&media.media_type)
-        .fetch_optional(&state.pool)
-        .await?;
-
-        if let Some(row) = row {
-            parts.push((provider.id, row.into_answer()));
-        }
-    }
-
-    Ok(crate::models::MediaMetadata::merge(parts))
+    let cache = metadata::load_cache_of(&state.pool, media, &providers, &identifiers).await?;
+    Ok(crate::services::routing::resolve_metadata(media, &providers, &cache, &identifiers))
 }

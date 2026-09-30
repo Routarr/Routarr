@@ -6,8 +6,6 @@
 //! media item, and a wrong genre routes a film into the wrong folder. Most of
 //! what follows defends that seam.
 
-use std::sync::Arc;
-
 use crate::services::{enrichment, metadata};
 use crate::state::AppState;
 
@@ -30,11 +28,11 @@ async fn library(sources: &FakeSources, order: &str) -> TestApp {
     config.tvdb_api_key = Some("tvdb-key".into());
     config.tvdb_pin = Some("1234".into());
 
-    let app = TestApp::around(AppState { config: Arc::new(config), ..app.state.clone() });
+    let app = TestApp::around(app.state.clone().with_config(config));
 
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('inst-1', 'Arr', 'radarr', 'http://x', 'k', 1)",
+         VALUES ('inst-1', 'Arr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
     )
     .execute(&app.state.pool)
     .await
@@ -50,14 +48,7 @@ async fn library(sources: &FakeSources, order: &str) -> TestApp {
     .await
     .unwrap();
 
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('metadata_providers', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(order)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("metadata_providers", order).await;
 
     app
 }
@@ -468,15 +459,9 @@ async fn a_source_without_its_key_is_reported_rather_than_probed() {
     let mut config = crate::config::Config::for_tests();
     config.omdb_base_url = sources.omdb_url();
     // No OMDb key.
-    let app = TestApp::around(AppState { config: Arc::new(config), ..app.state.clone() });
+    let app = TestApp::around(app.state.clone().with_config(config));
 
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'omdb')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("metadata_providers", "omdb").await;
 
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
@@ -596,14 +581,11 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     }
 
     // Pointed at the real APIs, the published ceilings apply.
-    let app = TestApp::new().await;
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'anilist,jikan')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    let mut config = crate::config::Config::for_tests();
+    config.anilist_base_url = crate::integrations::anilist::DEFAULT_BASE_URL.into();
+    config.jikan_base_url = crate::integrations::jikan::DEFAULT_BASE_URL.into();
+    let app = TestApp::around(AppState::for_tests().await.with_config(config));
+    app.store_setting("metadata_providers", "anilist,jikan").await;
 
     let rates: Vec<(&str, Option<(u32, u32)>)> = app
         .state
@@ -630,8 +612,7 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     // answering behaves.
     let mut config = (*app.state.config).clone();
     config.omdb_base_url = "http://127.0.0.1:1".to_string();
-    let app =
-        TestApp::around(AppState { config: std::sync::Arc::new(config), ..app.state.clone() });
+    let app = TestApp::around(app.state.clone().with_config(config));
 
     let unreachable =
         app.state.localizer().await.translate("WarnProviderUnreachable", &[("provider", "OMDb")]);

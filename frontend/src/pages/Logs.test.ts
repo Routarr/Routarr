@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, onTestFinished } from 'vitest';
 import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
@@ -30,6 +30,9 @@ const STRINGS = {
   ExportFailed: 'Export failed with status {status}',
   TriggerManual: 'manual',
   TriggerSchedule: 'schedule',
+  PageOf: 'Page {page} of {total}',
+  LogEntryCount: 'Entries: {count}',
+  Next: 'Next',
 };
 
 function entry(over: Partial<LogEntry> = {}): LogEntry {
@@ -51,6 +54,29 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
 }
 
 const show = () => renderWithI18n(Logs, { strings: STRINGS });
+
+/**
+ * The browser's half of a download, which jsdom has none of: the object URL
+ * the file is saved through, and the click that saves it. Hands back what was
+ * saved. Both are put back when the test finishes, so no other test inherits a
+ * `URL` that pretends to save.
+ */
+function saving(): Blob[] {
+  const saved: Blob[] = [];
+  Object.assign(URL, {
+    createObjectURL: (blob: Blob) => {
+      saved.push(blob);
+      return 'blob:routarr/logs';
+    },
+    revokeObjectURL: () => {},
+  });
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  onTestFinished(() => {
+    Reflect.deleteProperty(URL, 'createObjectURL');
+    Reflect.deleteProperty(URL, 'revokeObjectURL');
+  });
+  return saved;
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -115,17 +141,61 @@ describe('Activity log', () => {
     localStorage.setItem('routarr.apiKey', 'the-key');
     const fetcher = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['a,b']) });
     vi.stubGlobal('fetch', fetcher);
-    // Patched onto the real `URL`, not over it: replacing the global would take
-    // the constructor with it, and the API client builds every request URL.
-    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const saved = saving();
 
     show();
     await fireEvent.click(await screen.findByRole('button', { name: /export csv/i }));
 
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(saved).toHaveLength(1));
     expect((nthCall(fetcher)[1] as { headers: Record<string, string> }).headers['X-Api-Key']).toBe(
       'the-key',
     );
+  });
+
+  /** The log is paged by the server, and the pager asks it for the next page. */
+  it('counts every entry under the table, and asks the server for the next page', async () => {
+    const getLogs = vi
+      .spyOn(api, 'getLogs')
+      .mockResolvedValue(paginated([entry()], { total_pages: 3, total: 150 }));
+    show();
+
+    expect(await screen.findByText('Page 1 of 3 · Entries: 150')).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+
+    await waitFor(() =>
+      expect(getLogs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ page: 2 }),
+        expect.any(AbortSignal),
+      ),
+    );
+  });
+
+  /**
+   * Every search is a query against the operator's own server, so a term is
+   * asked for once the typing stops, not once per letter, and from the first
+   * page: the page the reader was on may not exist in the narrower list.
+   */
+  it('asks for a typed term once the typing stops, from the first page', async () => {
+    const getLogs = vi
+      .spyOn(api, 'getLogs')
+      .mockResolvedValue(paginated([entry()], { total_pages: 3, total: 150 }));
+    show();
+    await screen.findByText('Akira');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(2));
+
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: 'Search title or details' }),
+      'heat',
+    );
+
+    await waitFor(() => expect(getLogs).toHaveBeenCalledTimes(3));
+    expect(nthCall(getLogs, 2)[0]).toMatchObject({ search: 'heat', page: 1 });
+    expect(getLogs.mock.calls.map(([filters]) => filters?.search)).toEqual([
+      undefined,
+      undefined,
+      'heat',
+    ]);
   });
 
   it('asks the server for the outcome the user picked', async () => {
@@ -183,8 +253,7 @@ describe('Activity log', () => {
         .mockResolvedValueOnce({ ok: false, status: 503, text: async () => '' })
         .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['a,b']) }),
     );
-    const createObjectURL = vi.fn(() => 'blob:x');
-    Object.assign(URL, { createObjectURL, revokeObjectURL: () => {} });
+    const saved = saving();
 
     show();
     const exportCsv = await screen.findByRole('button', { name: /export csv/i });
@@ -193,7 +262,7 @@ describe('Activity log', () => {
 
     await fireEvent.click(exportCsv);
 
-    await waitFor(() => expect(createObjectURL).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(saved).toHaveLength(1));
     await waitFor(() => expect(screen.queryByText('Export failed with status 503')).toBeNull());
     expect(screen.queryByRole('alert')).toBeNull();
   });

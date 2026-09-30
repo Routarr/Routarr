@@ -5,15 +5,9 @@
  * same binary the E2E suite drives, against a throwaway database, so a screen
  * that no longer looks like this is a screen that changed.
  */
-import { createRequire } from 'node:module';
 import { mkdirSync } from 'node:fs';
 
-// Resolved against the frontend, which owns the dependency: ESM resolves from
-// the *file's* directory, so a plain import would look under site/ and fail
-// however the script is launched. The same fallback as verify.mjs.
-const FRONTEND = process.env.FRONTEND_DIR ?? new URL('../../frontend', import.meta.url).pathname;
-const require = createRequire(`${FRONTEND}/package.json`);
-const { chromium } = require('@playwright/test');
+import { chromium } from '../playwright.mjs';
 
 const BASE = process.env.ROUTARR_URL ?? 'http://127.0.0.1:9899';
 // Outside `public/` until a page shows them: the site ships what `public/`
