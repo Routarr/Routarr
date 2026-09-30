@@ -32,6 +32,7 @@ on:
       - 'backend/**'
       - 'frontend/**'
       - 'scripts/smoke-image.sh'
+      - 'scripts/install-runtime.sh'
       # Copied into the image, so a change to it is a change to the image.
       - 'LICENSE'
       - '.github/workflows/docker.yml'
@@ -94,4 +95,53 @@ jobs:
       # A build that succeeds says the Dockerfile compiles, not that the image
       # runs: the script starts it as the README does and says what it checked.
       - name: Start the image and check it serves
+        run: bash scripts/smoke-image.sh routarr:smoke
+
+      # The isolation jobs start this same image rather than build their own.
+      - name: Keep the image for the isolation jobs
+        run: docker save routarr:smoke | gzip -1 > "$RUNNER_TEMP/routarr-smoke.tar.gz"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: routarr-smoke
+          path: ${{ runner.temp }}/routarr-smoke.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  # The README offers two isolating runtimes, each a line in the compose file:
+  # gVisor, a kernel in user space, and Kata Containers, a virtual machine per
+  # container. Offered and never run, either could break on a change to the
+  # image and nobody would hear of it before a user did. So the image this
+  # workflow built goes through the whole smoke test again under each.
+  isolation:
+    name: Isolated under ${{ matrix.runtime }}
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      # Two verdicts, not one: a Kata failure says nothing about gVisor.
+      fail-fast: false
+      matrix:
+        include:
+          - runtime: gvisor
+            docker-runtime: runsc
+          - runtime: kata
+            docker-runtime: kata
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: routarr-smoke
+          path: ${{ runner.temp }}
+
+      - name: Load the image
+        run: gunzip -c "$RUNNER_TEMP/routarr-smoke.tar.gz" | docker load
+
+      - name: Install ${{ matrix.runtime }} and register it with Docker
+        run: sudo bash scripts/install-runtime.sh ${{ matrix.runtime }}
+
+      - name: Start the image under ${{ matrix.runtime }} and check it serves
+        env:
+          SMOKE_RUNTIME: ${{ matrix.docker-runtime }}
         run: bash scripts/smoke-image.sh routarr:smoke

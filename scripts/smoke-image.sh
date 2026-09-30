@@ -10,11 +10,16 @@
 # Usage: bash scripts/smoke-image.sh <image>
 # Needs Docker. CI runs it after the image job's build. The host port is
 # SMOKE_PORT, 9876 by default: set it when a development Routarr holds that one.
+# SMOKE_RUNTIME names a runtime registered with Docker, `runsc` for gVisor or
+# `kata`, and every container the script starts then runs under it.
 set -euo pipefail
 
 IMAGE="${1:?usage: smoke-image.sh <image>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${SMOKE_PORT:-9876}"
+RUNTIME="${SMOKE_RUNTIME:-}"
+RUNTIME_FLAGS=()
+[ -z "$RUNTIME" ] || RUNTIME_FLAGS=(--runtime "$RUNTIME")
 
 # The container name the README and docker-compose.yml use, which the command
 # on the first-run screen relies on.
@@ -78,7 +83,7 @@ expect_status() {
 }
 
 # A named volume, fresh, with the hardening the README's compose file sets.
-docker run -d --name "$NAME" \
+docker run -d --name "$NAME" "${RUNTIME_FLAGS[@]}" \
   -p "127.0.0.1:$PORT:9876" \
   -v "$VOLUME:/data" \
   --cap-drop ALL \
@@ -87,6 +92,14 @@ docker run -d --name "$NAME" \
 
 wait_for 30 "answer on /api/v1/ping" pings
 ok "starts and answers /api/v1/ping without a key"
+
+# The point of an isolating runtime is that the container no longer runs on
+# the host's kernel: gVisor answers with its own, Kata with its guest's.
+if [ -n "$RUNTIME" ]; then
+  inner=$(docker exec "$NAME" uname -r) || fail "cannot read the kernel the container sees"
+  [ "$inner" != "$(uname -r)" ] || fail "under $RUNTIME the container still sees the host's kernel, $inner"
+  ok "runs under $RUNTIME, on a kernel that is not the host's ($inner)"
+fi
 
 uid=$(docker exec "$NAME" awk '/^Uid:/ { print $2 }' /proc/1/status) || fail "cannot read PID 1's uid"
 [ "$uid" = 1000 ] || fail "the server runs as uid $uid, not 1000"
@@ -142,7 +155,7 @@ ok "the HEALTHCHECK reports healthy"
 # The mount point as people often write it, with no slash. The probe reads it
 # as the server does, and only the API's own answer counts, never the page the
 # interface falls back to.
-docker run -d --name "$SUBPATH_NAME" -e ROUTARR_BASE_PATH=routarr \
+docker run -d --name "$SUBPATH_NAME" "${RUNTIME_FLAGS[@]}" -e ROUTARR_BASE_PATH=routarr \
   --health-interval=2s --health-start-period=1s "$IMAGE" >/dev/null
 deadline=$((SECONDS + 60))
 until [ "$(docker inspect -f '{{.State.Health.Status}}' "$SUBPATH_NAME")" = healthy ]; do

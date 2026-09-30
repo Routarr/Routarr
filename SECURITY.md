@@ -158,6 +158,9 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `reqwest`'s own `Display`, which embeds the URL and therefore any `?api_key=`
   in it.
 - **The image runs as a non-root user** and carries a HEALTHCHECK.
+- **The image runs under gVisor and Kata Containers**, for a host that wants a
+  kernel between Routarr and its own (see the README). CI starts every image
+  it builds under both and runs the whole smoke test there.
 - **Every GitHub action is pinned to a commit**, not to a movable tag.
 
 Adversarial tests live in two files.
