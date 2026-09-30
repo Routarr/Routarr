@@ -2,6 +2,8 @@
 
 use super::{Json, Query};
 use axum::extract::{Path, State};
+use axum::http::{HeaderMap, HeaderName, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
@@ -36,11 +38,21 @@ pub struct Job {
     pub error_message: Option<String>,
     pub started_at: String,
     pub finished_at: Option<String>,
+    /// What a finished task answered: the report the same call gives when the
+    /// caller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,
+    /// or for a simulation its `SimulationResult` without `decisions`, which
+    /// `GET /decisions?simulation_id=` lists. Null while the task runs, when
+    /// it failed, and for a kind no call starts.
+    #[sqlx(skip)]
+    pub result: Option<serde_json::Value>,
+    #[serde(skip)]
+    #[sqlx(rename = "result")]
+    pub stored_result: Option<String>,
 }
 
 const JOB_COLUMNS: &str =
     "id, kind, status, trigger, subject, instance_id, detail, detail_key, detail_params,
-     progress_current, progress_total, error_message, started_at, finished_at";
+     progress_current, progress_total, error_message, started_at, finished_at, result";
 
 impl Job {
     fn localized(mut self, localizer: &Localizer) -> Self {
@@ -50,9 +62,63 @@ impl Job {
             self.detail_params.as_deref(),
             self.detail.take(),
         );
+        self.result =
+            self.stored_result.as_deref().and_then(|stored| serde_json::from_str(stored).ok());
         self
     }
 }
+
+/// What a call answers when the caller asked not to wait: the task it started.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Accepted {
+    /// Follow it with `GET /jobs/{job_id}`, whose `result` holds the report.
+    pub job_id: String,
+}
+
+/// Whether the caller prefers not to wait (RFC 7240, `Prefer: respond-async`).
+pub fn prefers_async(headers: &HeaderMap) -> bool {
+    headers
+        .get_all("prefer")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .any(|preference| preference.trim().eq_ignore_ascii_case("respond-async"))
+}
+
+/// Run `work` on a task of its own, and answer the way the caller prefers.
+///
+/// Waited for, it answers the report. With `respond_async`, it answers 202 as
+/// soon as the work has started its job, with that job's address, and a
+/// refusal the work makes before starting one (a guardrail's question, a lock
+/// held) still answers at once. The work runs to its end either way, whatever
+/// the caller does after asking.
+pub async fn answer<T>(
+    state: &AppState,
+    respond_async: bool,
+    work: impl Future<Output = AppResult<T>> + Send + 'static,
+) -> AppResult<Response>
+where
+    T: Serialize + Send + 'static,
+{
+    let (started, job) = tokio::sync::oneshot::channel();
+    let task = tokio::spawn(crate::jobs::announcing(started, work));
+    if respond_async && let Ok(job_id) = job.await {
+        let location = format!("{}/api/v1/jobs/{job_id}", state.config.base_path);
+        return Ok((
+            StatusCode::ACCEPTED,
+            [(header::LOCATION, location), (PREFERENCE_APPLIED, "respond-async".to_string())],
+            Json(Accepted { job_id }),
+        )
+            .into_response());
+    }
+    let report = task
+        .await
+        .map_err(|e| AppError::Internal(format!("the task ended before it reported: {e}")))??;
+    Ok(Json(report).into_response())
+}
+
+/// Says the server honoured the preference (RFC 7240).
+const PREFERENCE_APPLIED: HeaderName = HeaderName::from_static("preference-applied");
 
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]

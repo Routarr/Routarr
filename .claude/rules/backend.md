@@ -25,6 +25,10 @@ paths:
   `backend/openapi/v1.json`, so a remark for Routarr's developers goes in a `//` comment. A change
   to one of those types is pinned with `ROUTARR_WRITE_CONTRACT=1 cargo test contract`, and
   `scripts/check-api-breaks.sh` refuses a removal, a rename or a retype against the last release.
+- A route that starts one job answers through `api::jobs::answer`: the work runs on its own task
+  whatever the caller does, and `Prefer: respond-async` gets 202 once the job has started. Every
+  question and refusal comes before `JobRegistry::start`, and the work calls `JobHandle::report`
+  before the outcome, so a finished job always carries the report its call answers.
 - A refusal the user must read is `BadRequest`, `NotFound` or `Conflict`, and `Forbidden` what a
   known caller may not do. `Database`, `Serialization`, `Config` and `Internal` log their text
   and answer a generic 500 (`backend/src/error.rs`).

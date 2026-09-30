@@ -226,7 +226,8 @@ impl JobRegistry {
 
         info!(job_id = %id, kind = kind.as_str(), trigger, "Job started: {english}");
 
-        Ok(JobHandle { id, pool: self.pool.clone(), kind, settled: false })
+        announce(&id);
+        Ok(JobHandle { id, pool: self.pool.clone(), kind, settled: false, result: None })
     }
 }
 
@@ -261,6 +262,32 @@ pub struct JobHandle {
     kind: JobKind,
     /// Whether an outcome was recorded, so `Drop` knows when it has to.
     settled: bool,
+    /// The report the job answers, written with its outcome.
+    result: Option<String>,
+}
+
+tokio::task_local! {
+    /// Where the first job a piece of work starts says its id, for a caller
+    /// that answers as soon as the work has begun (`api::jobs::answer`).
+    static STARTED: std::cell::RefCell<Option<tokio::sync::oneshot::Sender<String>>>;
+}
+
+/// Run `work`, saying through `started` the id of the first job it starts.
+/// The sender goes with the work, so a work that ends before starting any job
+/// closes the channel instead.
+pub async fn announcing<T>(
+    started: tokio::sync::oneshot::Sender<String>,
+    work: impl std::future::Future<Output = T>,
+) -> T {
+    STARTED.scope(std::cell::RefCell::new(Some(started)), work).await
+}
+
+fn announce(id: &str) {
+    let _ = STARTED.try_with(|started| {
+        if let Some(started) = started.borrow_mut().take() {
+            let _ = started.send(id.to_string());
+        }
+    });
 }
 
 impl JobHandle {
@@ -273,6 +300,12 @@ impl JobHandle {
                 .bind(&self.id)
                 .execute(&self.pool)
                 .await;
+    }
+
+    /// Keep the report this job answers, to be written with its outcome, so a
+    /// finished job is never read without it.
+    pub fn report(&mut self, result: &impl serde::Serialize) {
+        self.result = serde_json::to_string(result).ok();
     }
 
     /// Mark the job finished successfully, saying what it did.
@@ -291,7 +324,7 @@ impl JobHandle {
         let english = detail.english();
         info!(job_id = %self.id, kind = self.kind.as_str(), status, "Job finished: {english}");
         let _ = sqlx::query(
-            "UPDATE jobs SET status = ?, detail = ?, detail_key = ?, detail_params = ?,
+            "UPDATE jobs SET status = ?, detail = ?, detail_key = ?, detail_params = ?, result = ?,
                     finished_at = datetime('now')
               WHERE id = ?",
         )
@@ -299,6 +332,7 @@ impl JobHandle {
         .bind(&english)
         .bind(detail.key)
         .bind(detail.stored_params())
+        .bind(&self.result)
         .bind(&self.id)
         .execute(&self.pool)
         .await;

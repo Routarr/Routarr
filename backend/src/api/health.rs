@@ -46,6 +46,13 @@ pub struct StatusResponse {
 /// One warning, in the reader's language.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Warning {
+    /// What the warning is about, stable across releases and languages:
+    /// `api_unauthenticated`, `api_external_auth`, `source_needs_key`,
+    /// `source_key_unlisted`, `source_unreachable`, `instance_unreachable`,
+    /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
+    /// `scheduler_panicked`, `setting_above_maximum` or
+    /// `instance_without_mapping`. The list may grow.
+    pub code: &'static str,
     pub message: String,
     /// The getting-started step this warning restates, if one does.
     // Its banner says the same thing while the step is open.
@@ -53,12 +60,12 @@ pub struct Warning {
 }
 
 impl Warning {
-    fn new(message: String) -> Self {
-        Self { message, guide_step: None }
+    fn new(code: &'static str, message: String) -> Self {
+        Self { code, message, guide_step: None }
     }
 
-    fn restating(step: &'static str, message: String) -> Self {
-        Self { message, guide_step: Some(step) }
+    fn restating(step: &'static str, code: &'static str, message: String) -> Self {
+        Self { code, message, guide_step: Some(step) }
     }
 }
 
@@ -251,6 +258,7 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
             // the display name belongs to the build, not to the observation.
             if let Some(info) = metadata::info(id) {
                 warnings.push(Warning::new(
+                    "source_unreachable",
                     localizer
                         .translate("WarnProviderUnreachable", &[("provider", info.display_name)]),
                 ));
@@ -262,10 +270,13 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
                     .fetch_optional(&state.pool)
                     .await?;
             if let Some(name) = name {
-                warnings.push(Warning::new(localizer.translate(
-                    "WarnInstanceUnreachable",
-                    &[("name", &name), ("status", detail.as_deref().unwrap_or(""))],
-                )));
+                warnings.push(Warning::new(
+                    "instance_unreachable",
+                    localizer.translate(
+                        "WarnInstanceUnreachable",
+                        &[("name", &name), ("status", detail.as_deref().unwrap_or(""))],
+                    ),
+                ));
             }
         }
     }
@@ -395,10 +406,16 @@ async fn offline_warnings(
     // unauthenticated is how a diagnostic gets ignored.
     match state.config.auth_mode {
         crate::config::AuthMode::None => {
-            warnings.push(Warning::new(localizer.translate("WarnApiUnauthenticated", &[])));
+            warnings.push(Warning::new(
+                "api_unauthenticated",
+                localizer.translate("WarnApiUnauthenticated", &[]),
+            ));
         }
         crate::config::AuthMode::External => {
-            warnings.push(Warning::new(localizer.translate("WarnApiExternalAuth", &[])));
+            warnings.push(Warning::new(
+                "api_external_auth",
+                localizer.translate("WarnApiExternalAuth", &[]),
+            ));
         }
         crate::config::AuthMode::ApiKey
         | crate::config::AuthMode::Forms
@@ -424,17 +441,20 @@ async fn offline_warnings(
     if row.0 > 0 {
         warnings.push(Warning::restating(
             step::CATEGORIES,
+            "unmapped_categories",
             localizer.translate("WarnUnmappedCategories", &[("count", &row.0.to_string())]),
         ));
     }
     if row.1 == 0 {
         warnings.push(Warning::restating(
             step::INSTANCE,
+            "no_enabled_instance",
             localizer.translate("WarnNoEnabledInstance", &[]),
         ));
     }
     if row.2 > 0 {
         warnings.push(Warning::new(
+            "missing_metadata",
             localizer.translate("WarnMissingMetadata", &[("count", &row.2.to_string())]),
         ));
     }
@@ -454,6 +474,7 @@ async fn offline_warnings(
     .await?;
     if panicked > 0 {
         warnings.push(Warning::new(
+            "scheduler_panicked",
             localizer.translate("WarnSchedulerPanicked", &[("count", &panicked.to_string())]),
         ));
     }
@@ -465,10 +486,13 @@ async fn offline_warnings(
     for (key, max) in crate::services::settings::retention_counts() {
         let stored: i64 = settings.get(key, 0i64);
         if stored > max {
-            warnings.push(Warning::new(localizer.translate(
-                "WarnSettingAboveMaximum",
-                &[("key", key), ("value", &stored.to_string()), ("max", &max.to_string())],
-            )));
+            warnings.push(Warning::new(
+                "setting_above_maximum",
+                localizer.translate(
+                    "WarnSettingAboveMaximum",
+                    &[("key", key), ("value", &stored.to_string()), ("max", &max.to_string())],
+                ),
+            ));
         }
     }
 
@@ -489,6 +513,7 @@ async fn offline_warnings(
     for (name,) in unmapped {
         warnings.push(Warning::restating(
             step::CATEGORIES,
+            "instance_without_mapping",
             localizer.translate("WarnInstanceNoMapping", &[("name", &name)]),
         ));
     }
@@ -514,6 +539,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
         if provider.needs_key && !metadata::is_usable(provider, &keys) {
             warnings.push(Warning::restating(
                 step::METADATA,
+                "source_needs_key",
                 localizer.translate("WarnProviderNeedsKey", &[("provider", provider.display_name)]),
             ));
         }
@@ -530,6 +556,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
         {
             warnings.push(Warning::restating(
                 step::METADATA,
+                "source_key_unlisted",
                 localizer.translate(
                     "WarnProviderKeyUnlisted",
                     &[("provider", provider.display_name), ("variable", variable)],

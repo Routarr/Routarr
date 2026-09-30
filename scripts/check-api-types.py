@@ -145,6 +145,9 @@ def rust_structs(root: Path) -> dict[str, set[str]]:
                 r"((?:#\[[^\]]*\]\s*)*)pub (\w+)\s*:", body
             ):
                 field_attrs, field_name = field.groups()
+                # Only serde decides what goes on the wire: `#[sqlx(skip)]`
+                # leaves a field out of the row, not out of the payload.
+                field_attrs = " ".join(re.findall(r"#\[serde\(([^\]]*)\)\]", field_attrs))
                 # `skip_serializing` drops the field. `skip_serializing_if`
                 # keeps it and only omits it when the predicate holds, so it is
                 # still part of the contract. The two differ by a suffix, which

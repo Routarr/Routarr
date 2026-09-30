@@ -1,0 +1,233 @@
+//! What an automation relies on: finding a title by the id another service
+//! gives it, pinning it that way, following long work without waiting for
+//! it, and warnings a script can tell apart.
+
+use std::time::Duration;
+
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
+use serde_json::{Value, json};
+
+use super::fake_arr::FakeArr;
+use super::{TestApp, TestResponse};
+use crate::api::jobs::prefers_async;
+
+/// Totoro twice: on `inst-1` as the library seeds it, and on a second Radarr.
+async fn two_copies() -> TestApp {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    for statement in [
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('inst-2', 'Radarr 4K', 'radarr', 'http://127.0.0.1:1', 'secret', 1, 'tok-2')",
+        "UPDATE media SET imdb_id = 'tt0096283' WHERE id = 'm-1'",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tmdb_id, imdb_id,
+         current_path, current_root_folder, monitored, has_files)
+         VALUES ('m-2', 'inst-2', 11, 'movie', 'My Neighbor Totoro', 1988, 8392, 'tt0096283',
+                 '/movies-4k/My Neighbor Totoro (1988)', '/movies-4k', 1, 1)",
+    ] {
+        sqlx::query(statement).execute(&app.state.pool).await.unwrap();
+    }
+    app
+}
+
+async fn pins(app: &TestApp) -> Vec<(String, String)> {
+    sqlx::query_as("SELECT media_id, target_category FROM overrides ORDER BY media_id")
+        .fetch_all(&app.state.pool)
+        .await
+        .unwrap()
+}
+
+async fn put(app: &TestApp, path: &str, body: Value) -> TestResponse {
+    app.put(path, body).await
+}
+
+#[tokio::test]
+async fn the_library_is_found_by_the_id_another_service_gives_a_title() {
+    let app = two_copies().await;
+
+    let found = app.get("/api/v1/media?tmdb_id=8392").await;
+    assert_eq!(found.assert_ok()["pagination"]["total"], 2);
+    assert_eq!(found.json["data"][0]["imdb_id"], "tt0096283");
+    let found = app.get("/api/v1/media?imdb_id=tt0096283&instance_id=inst-2").await;
+    assert_eq!(found.assert_ok()["pagination"]["total"], 1);
+    assert_eq!(found.json["data"][0]["id"], "m-2");
+
+    for missing in ["tmdb_id=1", "tvdb_id=8392", "imdb_id=tt0000001"] {
+        let found = app.get(&format!("/api/v1/media?{missing}")).await;
+        assert_eq!(found.assert_ok()["pagination"]["total"], 0, "{missing}");
+    }
+}
+
+#[tokio::test]
+async fn a_pin_by_external_id_reaches_every_copy_and_an_instance_narrows_it() {
+    let app = two_copies().await;
+    let pin = json!({ "target_category": "anime", "reason": "a request bot" });
+
+    let set = put(&app, "/api/v1/overrides/external?type=movie&tmdb=8392", pin.clone()).await;
+    assert_eq!(set.assert_ok().as_array().unwrap().len(), 2, "{:?}", set.json);
+    let both = vec![("m-1".into(), "anime".into()), ("m-2".into(), "anime".into())];
+    assert_eq!(pins(&app).await, both);
+
+    let path = "/api/v1/overrides/external?type=movie&imdb=tt0096283&instance=inst-2";
+    let removed = app.delete(path).await;
+    assert_eq!(removed.assert_ok()["deleted"], true);
+    assert_eq!(pins(&app).await, vec![("m-1".into(), "anime".into())]);
+    let again = app.delete(path).await;
+    assert_eq!(again.assert_ok()["deleted"], false, "nothing left to remove is not a failure");
+
+    let narrowed = json!({ "target_category": "standard" });
+    let path = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    assert_eq!(put(&app, path, narrowed).await.assert_ok().as_array().unwrap().len(), 1);
+    assert_eq!(pins(&app).await, vec![("m-1".into(), "standard".into())]);
+}
+
+#[tokio::test]
+async fn a_title_named_twice_or_not_at_all_is_refused_and_one_nobody_holds_is_not_found() {
+    let app = two_copies().await;
+    let pin = json!({ "target_category": "anime" });
+
+    for query in ["type=movie", "type=movie&tmdb=8392&imdb=tt0096283", "type=film&tmdb=8392"] {
+        let refused = put(&app, &format!("/api/v1/overrides/external?{query}"), pin.clone()).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{query}: {:?}", refused.json);
+    }
+    let missing = put(&app, "/api/v1/overrides/external?type=movie&tmdb=1", pin.clone()).await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND);
+    let missing = put(&app, "/api/v1/overrides/external?type=series&tmdb=8392", pin).await;
+    assert_eq!(missing.status, StatusCode::NOT_FOUND, "a movie's id names no series");
+    assert!(pins(&app).await.is_empty());
+}
+
+/// The pin decides now, so what the rules proposed before it is withdrawn.
+#[tokio::test]
+async fn a_pin_by_external_id_withdraws_the_pending_proposals() {
+    let app = two_copies().await;
+    app.seed_anime_rule().await;
+    app.simulate().await;
+    let pending = "SELECT COUNT(*) FROM decisions WHERE media_id = 'm-1' AND superseded = 0";
+    let before: i64 = sqlx::query_scalar(pending).fetch_one(&app.state.pool).await.unwrap();
+    assert!(before > 0, "the simulation proposed nothing for the film");
+
+    let pin = json!({ "target_category": "anime" });
+    put(&app, "/api/v1/overrides/external?type=movie&tmdb=8392", pin).await.assert_ok();
+
+    let after: i64 = sqlx::query_scalar(pending).fetch_one(&app.state.pool).await.unwrap();
+    assert_eq!(after, 0);
+}
+
+fn preferring_async(path: &str, body: Value) -> Request<Body> {
+    Request::post(path)
+        .header("prefer", "respond-async")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+/// The task, once it has finished.
+async fn finished(app: &TestApp, id: &str) -> Value {
+    for _ in 0..200 {
+        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
+        if task.assert_ok()["status"] != "running" {
+            return task.json;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the task {id} never finished");
+}
+
+#[tokio::test]
+async fn respond_async_answers_the_started_task_whose_result_holds_the_report() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 2).await;
+
+    let request = preferring_async("/api/v1/simulate", json!({ "persist": true }));
+    let response = app.send_raw(request).await;
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let headers = response.headers().clone();
+    assert_eq!(headers["preference-applied"], "respond-async");
+    let location = headers[axum::http::header::LOCATION].to_str().unwrap().to_string();
+    let bytes = http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes();
+    let accepted: Value = serde_json::from_slice(&bytes).unwrap();
+    let job_id = accepted["job_id"].as_str().unwrap();
+    assert_eq!(location, format!("/api/v1/jobs/{job_id}"));
+
+    let task = finished(&app, job_id).await;
+    assert_eq!(task["status"], "success");
+    assert_eq!(task["result"]["moves_required"], 2, "{task}");
+    assert_eq!(task["result"]["decisions"], json!([]), "the proposals are listed elsewhere");
+    let simulation = task["result"]["simulation_id"].as_str().unwrap();
+    let listed = app.get(&format!("/api/v1/decisions?simulation_id={simulation}")).await;
+    assert_eq!(listed.assert_ok()["pagination"]["total"], 2);
+
+    let sync = app.send_raw(preferring_async("/api/v1/instances/inst-1/sync", json!({}))).await;
+    assert_eq!(sync.status(), StatusCode::ACCEPTED);
+}
+
+/// A question is asked before any work starts, so it answers at once
+/// whatever the caller prefers, and nothing runs.
+#[tokio::test]
+async fn a_guardrail_still_answers_at_once_when_the_caller_prefers_not_to_wait() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 2).await;
+    let simulation = app.simulate().await;
+
+    let body = json!({ "simulation_id": simulation });
+    let asked = app.send(preferring_async("/api/v1/decisions/apply-all", body)).await;
+    assert_eq!(asked.status, StatusCode::CONFLICT);
+    assert_eq!(asked.json["confirm"], "batch");
+    let applies: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE kind = 'apply'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(applies, 0);
+    assert!(arr.recorded().writes.is_empty());
+}
+
+/// Waited for, the call answers its report, and its task keeps the same one.
+#[tokio::test]
+async fn a_task_keeps_the_report_its_call_answered() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 2).await;
+    let simulation = app.simulate().await;
+
+    let body = json!({ "simulation_id": simulation, "confirm": ["batch"] });
+    let answered = app.post("/api/v1/decisions/apply-all", body).await;
+    assert_eq!(answered.assert_ok()["applied"], 2);
+
+    let stored: String = sqlx::query_scalar("SELECT result FROM jobs WHERE kind = 'apply'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(serde_json::from_str::<Value>(&stored).unwrap(), answered.json);
+}
+
+#[test]
+fn respond_async_is_read_among_other_preferences_in_any_case() {
+    let prefer = |value: &str| {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("prefer", value.parse().unwrap());
+        prefers_async(&headers)
+    };
+    assert!(prefer("respond-async"));
+    assert!(prefer("wait=10, Respond-Async"));
+    assert!(!prefer("return=minimal"));
+    assert!(!prefer("respond-asynchronously"));
+    assert!(!prefers_async(&axum::http::HeaderMap::new()));
+}
+
+/// A script tells one warning from another by its code, whatever the language
+/// the message is in.
+#[tokio::test]
+async fn each_warning_carries_a_stable_code_beside_its_message() {
+    let app = TestApp::new().await;
+    app.store_setting("ui_language", "fr").await;
+
+    let status = app.get("/api/v1/status").await;
+    let codes: Vec<&str> = status.assert_ok()["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| warning["code"].as_str().unwrap())
+        .collect();
+    assert!(codes.contains(&"api_unauthenticated"), "{codes:?}");
+    assert!(codes.contains(&"no_enabled_instance"), "{codes:?}");
+}

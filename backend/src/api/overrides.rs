@@ -1,7 +1,9 @@
 //! Manual overrides: the human veto over the rule engine.
 
-use super::Json;
+use super::{Json, Query};
 use axum::extract::{Path, State};
+use serde::Deserialize;
+use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -47,8 +49,6 @@ pub async fn create(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateOverrideRequest>,
 ) -> AppResult<Json<OverrideEntry>> {
-    let category = req.target_category.trim().to_lowercase();
-
     let media_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
         .bind(&req.media_id)
         .fetch_one(&state.pool)
@@ -57,6 +57,128 @@ pub async fn create(
         return Err(AppError::NotFound(format!("Media {} not found", req.media_id)));
     }
 
+    let pinned = pin(
+        &state,
+        std::slice::from_ref(&req.media_id),
+        &req.target_category,
+        req.reason.as_deref(),
+        identity.actor(),
+    )
+    .await?;
+    pinned
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::Internal("a pin went unwritten".into()))
+        .map(Json)
+}
+
+/// A title named by the id another service gives it, on every instance that
+/// holds it or on one.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ExternalTitle {
+    /// `movie` or `series`.
+    #[serde(rename = "type")]
+    pub media_type: String,
+    /// The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`
+    /// and `imdb`.
+    pub tmdb: Option<i64>,
+    /// The title's TheTVDB id.
+    pub tvdb: Option<i64>,
+    /// The title's IMDb id, as `tt0133093`.
+    pub imdb: Option<String>,
+    /// Only the copy on this instance.
+    pub instance: Option<String>,
+}
+
+/// The category to pin a title to, and why.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct PinRequest {
+    /// The name of an existing category.
+    pub target_category: String,
+    pub reason: Option<String>,
+}
+
+/// Pin every copy of a title another service names, or the one on `instance`.
+pub async fn pin_external(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    Query(title): Query<ExternalTitle>,
+    Json(req): Json<PinRequest>,
+) -> AppResult<Json<Vec<OverrideEntry>>> {
+    let copies = copies_of(&state, &title).await?;
+    let pinned =
+        pin(&state, &copies, &req.target_category, req.reason.as_deref(), identity.actor()).await?;
+    Ok(Json(pinned))
+}
+
+/// Remove the pins on every copy of a title another service names, or on the
+/// one on `instance`. A title with none answers `deleted: false`.
+pub async fn unpin_external(
+    State(state): State<AppState>,
+    Query(title): Query<ExternalTitle>,
+) -> AppResult<Json<Deleted>> {
+    let copies = copies_of(&state, &title).await?;
+    let mut tx = state.pool.begin().await?;
+    let mut deleted = 0;
+    for media_id in &copies {
+        deleted += sqlx::query("DELETE FROM overrides WHERE media_id = ?")
+            .bind(media_id)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+    }
+    let ids: Vec<&str> = copies.iter().map(String::as_str).collect();
+    crate::services::routing::supersede_pending(&mut tx, &ids).await?;
+    tx.commit().await?;
+    Ok(Json(Deleted { deleted: deleted > 0 }))
+}
+
+/// The library rows of the title `title` names.
+async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<String>> {
+    if !matches!(title.media_type.as_str(), "movie" | "series") {
+        return Err(AppError::BadRequest("`type` is `movie` or `series`.".into()));
+    }
+    let (column, id) = match (title.tmdb, title.tvdb, title.imdb.as_deref()) {
+        (Some(tmdb), None, None) => ("tmdb_id", tmdb.to_string()),
+        (None, Some(tvdb), None) => ("tvdb_id", tvdb.to_string()),
+        (None, None, Some(imdb)) => ("imdb_id", imdb.trim().to_string()),
+        _ => {
+            return Err(AppError::BadRequest(
+                "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
+            ));
+        }
+    };
+    let copies: Vec<String> = sqlx::query_scalar(AssertSqlSafe(format!(
+        "SELECT id FROM media
+          WHERE media_type = ? AND {column} = ? AND (? IS NULL OR instance_id = ?)
+          ORDER BY instance_id, id"
+    )))
+    .bind(&title.media_type)
+    .bind(&id)
+    .bind(&title.instance)
+    .bind(&title.instance)
+    .fetch_all(&state.pool)
+    .await?;
+    if copies.is_empty() {
+        return Err(AppError::NotFound(format!(
+            "No {} in the library has {column} {id}.",
+            title.media_type
+        )));
+    }
+    Ok(copies)
+}
+
+/// Pin each title to `category`, replacing the pin it has, and withdraw its
+/// pending proposals, which the pin now decides.
+async fn pin(
+    state: &AppState,
+    media_ids: &[String],
+    category: &str,
+    reason: Option<&str>,
+    subject: Option<&str>,
+) -> AppResult<Vec<OverrideEntry>> {
+    let category = category.trim().to_lowercase();
     let category_exists: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
             .bind(&category)
@@ -67,48 +189,48 @@ pub async fn create(
     }
 
     let mut tx = state.pool.begin().await?;
-    sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category, reason, subject)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(media_id) DO UPDATE SET
-            target_category = excluded.target_category,
-            reason = excluded.reason,
-            subject = excluded.subject",
-    )
-    .bind(Uuid::new_v4().to_string())
-    .bind(&req.media_id)
-    .bind(&category)
-    .bind(&req.reason)
-    .bind(identity.actor())
-    .execute(&mut *tx)
-    .await?;
-
-    // Any pending proposal predates this override and is now wrong.
-    crate::services::routing::supersede_pending(&mut tx, &[&req.media_id]).await?;
+    for media_id in media_ids {
+        sqlx::query(
+            "INSERT INTO overrides (id, media_id, target_category, reason, subject)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT(media_id) DO UPDATE SET
+                target_category = excluded.target_category,
+                reason = excluded.reason,
+                subject = excluded.subject",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(media_id)
+        .bind(&category)
+        .bind(reason)
+        .bind(subject)
+        .execute(&mut *tx)
+        .await?;
+    }
+    let ids: Vec<&str> = media_ids.iter().map(String::as_str).collect();
+    crate::services::routing::supersede_pending(&mut tx, &ids).await?;
     tx.commit().await?;
 
-    // Read back so the response carries the row that actually exists: on an
-    // upsert the stored id is the original one, not the one just generated.
-    let row: OverrideRow = sqlx::query_as(
-        "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
-         m.title, m.media_type, i.name
-         FROM overrides o
-         JOIN media m ON o.media_id = m.id
-         JOIN instances i ON m.instance_id = i.id
-         WHERE o.media_id = ?",
-    )
-    .bind(&req.media_id)
-    .fetch_one(&state.pool)
-    .await?;
-
-    Ok(Json(OverrideEntry {
-        id: row.0,
-        media_id: row.1,
-        target_category: row.2,
-        reason: row.3,
-        created_at: row.4,
-        subject: row.5,
-    }))
+    // Read back so the answer carries the rows that exist: on an upsert the
+    // stored id is the original one, not the one just generated.
+    let mut pinned = Vec::with_capacity(media_ids.len());
+    for media_id in media_ids {
+        let row: (String, String, String, Option<String>, String, Option<String>) = sqlx::query_as(
+            "SELECT id, media_id, target_category, reason, created_at, subject
+                 FROM overrides WHERE media_id = ?",
+        )
+        .bind(media_id)
+        .fetch_one(&state.pool)
+        .await?;
+        pinned.push(OverrideEntry {
+            id: row.0,
+            media_id: row.1,
+            target_category: row.2,
+            reason: row.3,
+            created_at: row.4,
+            subject: row.5,
+        });
+    }
+    Ok(pinned)
 }
 
 /// What a removal answers.

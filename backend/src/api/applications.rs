@@ -37,6 +37,8 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("POST", "/decisions/revert", Scope::Operate),
     ("POST", "/overrides", Scope::Write),
     ("DELETE", "/overrides/{id}", Scope::Write),
+    ("PUT", "/overrides/external", Scope::Write),
+    ("DELETE", "/overrides/external", Scope::Write),
 ];
 
 /// The scope a route asks of an application key, or `None` when no key may

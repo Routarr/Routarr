@@ -2,11 +2,16 @@
 
 use super::{Json, Query};
 use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::response::Response;
 use serde::Deserialize;
 use sqlx::AssertSqlSafe;
 
+use crate::api::auth::Identity;
+use crate::api::jobs::{answer, prefers_async};
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
+use crate::jobs::Attribution;
 use crate::models::*;
 use crate::services::executor;
 use crate::state::AppState;
@@ -163,52 +168,68 @@ pub async fn apply(
     State(state): State<AppState>,
     // Who is moving files. The middleware puts an identity on every protected
     // request, so this cannot fail, and this is the write worth attributing.
-    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
     Json(req): Json<ApplyDecisionsRequest>,
-) -> AppResult<Json<executor::ApplyReport>> {
-    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
-        executor::apply_decisions(&state, &req.decision_ids, req.move_files, &confirmed, &by).await
-    };
-    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
+) -> AppResult<Response> {
+    let task = state.clone();
+    let work =
+        on_behalf_of(identity, req.move_files, &req.confirm, move |confirmed, by| async move {
+            executor::apply_decisions(&task, &req.decision_ids, req.move_files, &confirmed, &by)
+                .await
+        })?;
+    answer(&state, prefers_async(&headers), work).await
 }
 
 /// Apply every move a simulation proposed, in slices of `batch_limit`.
 pub async fn apply_all(
     State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
     Json(req): Json<ApplyAllRequest>,
-) -> AppResult<Json<executor::BatchApplyReport>> {
-    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
-        let (simulation, move_files) = (&req.simulation_id, req.move_files);
-        executor::apply_simulation_in_batches(&state, simulation, move_files, &confirmed, &by).await
-    };
-    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
+) -> AppResult<Response> {
+    let task = state.clone();
+    let work =
+        on_behalf_of(identity, req.move_files, &req.confirm, move |confirmed, by| async move {
+            let (simulation, move_files) = (&req.simulation_id, req.move_files);
+            executor::apply_simulation_in_batches(&task, simulation, move_files, &confirmed, &by)
+                .await
+        })?;
+    answer(&state, prefers_async(&headers), work).await
 }
 
 /// Undo previously applied moves.
 pub async fn revert(
     State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
     Json(req): Json<RevertDecisionsRequest>,
-) -> AppResult<Json<executor::ApplyReport>> {
-    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
-        executor::revert_decisions(&state, &req.decision_ids, req.move_files, &confirmed, &by).await
-    };
-    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
+) -> AppResult<Response> {
+    let task = state.clone();
+    let work =
+        on_behalf_of(identity, req.move_files, &req.confirm, move |confirmed, by| async move {
+            executor::revert_decisions(&task, &req.decision_ids, req.move_files, &confirmed, &by)
+                .await
+        })?;
+    answer(&state, prefers_async(&headers), work).await
 }
 
-/// Run an executor call as `identity` may: a key that may not move files is
+/// An executor call as `identity` may make it: a key that may not move files is
 /// refused before anything runs, the answers it was not given are dropped, and
 /// a question it may not answer comes back marked for a person. One function
 /// for the three routes that move files, so none of them forgets a step.
-async fn on_behalf_of<T>(
-    identity: &crate::api::auth::Identity,
+fn on_behalf_of<T, F>(
+    identity: Identity,
     move_files: bool,
     sent: &executor::Confirmed,
-    run: impl AsyncFnOnce(executor::Confirmed, crate::jobs::Attribution) -> AppResult<T>,
-) -> AppResult<T> {
+    run: impl FnOnce(executor::Confirmed, Attribution) -> F,
+) -> AppResult<impl Future<Output = AppResult<T>> + Send + 'static>
+where
+    F: Future<Output = AppResult<T>> + Send + 'static,
+{
     identity.may_move_files(move_files)?;
-    run(identity.answerable(sent), identity.attribution()).await.map_err(|e| identity.refer(e))
+    let work = run(identity.answerable(sent), identity.attribution());
+    Ok(async move { work.await.map_err(|e| identity.refer(e)) })
 }
 
 fn decision_from_row(r: DecisionRow) -> Decision {
