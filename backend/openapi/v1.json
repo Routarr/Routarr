@@ -1,0 +1,3127 @@
+{
+  "components": {
+    "schemas": {
+      "AlternativeDecision": {
+        "description": "An alternative decision that was considered but not selected.",
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "confidence": {
+            "format": "float",
+            "type": "number"
+          },
+          "excluded_by": {
+            "description": "Set when this rule matched but an exclusion vetoed it.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_name",
+          "category",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "AppStats": {
+        "properties": {
+          "applied_decisions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "enabled_rules": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "failed_decisions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pending_decisions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "running_jobs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_instances": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_media": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_movies": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_overrides": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_rules": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_series": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "unmapped_categories": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_instances",
+          "total_media",
+          "total_movies",
+          "total_series",
+          "total_rules",
+          "enabled_rules",
+          "total_overrides",
+          "pending_decisions",
+          "applied_decisions",
+          "failed_decisions",
+          "unmapped_categories",
+          "running_jobs"
+        ],
+        "type": "object"
+      },
+      "ApplyAllRequest": {
+        "description": "Apply everything one simulation proposed, in slices.",
+        "properties": {
+          "confirm": {
+            "$ref": "#/components/schemas/Confirmed",
+            "description": "Always asked: `batch`, whose one question states both the count and\nany capacity shortfall."
+          },
+          "move_files": {
+            "description": "Move the files on disk with each title. A key needs to be allowed to.",
+            "type": "boolean"
+          },
+          "simulation_id": {
+            "description": "The simulation whose proposals to apply.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "simulation_id"
+        ],
+        "type": "object"
+      },
+      "ApplyDecisionsRequest": {
+        "description": "Request to apply selected decisions.",
+        "properties": {
+          "confirm": {
+            "$ref": "#/components/schemas/Confirmed",
+            "description": "The guardrails the caller has looked at and accepts, by name.\nAnswering one question answers no other."
+          },
+          "decision_ids": {
+            "description": "The pending decisions to apply.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "move_files": {
+            "description": "Move the files on disk with each title. A key needs to be allowed to.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decision_ids"
+        ],
+        "type": "object"
+      },
+      "ApplyError": {
+        "properties": {
+          "decision_id": {
+            "type": "string"
+          },
+          "media_title": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id",
+          "media_title",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ApplyReport": {
+        "description": "Outcome of an apply or revert run.",
+        "properties": {
+          "applied": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyError"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "requested": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "requested",
+          "applied",
+          "failed",
+          "skipped",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "BatchApplyReport": {
+        "description": "Outcome of applying a whole simulation, slice by slice.",
+        "properties": {
+          "applied": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "batches_planned": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "batches_run": {
+            "description": "Slices actually attempted, fewer than planned when one of them failed.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "candidates": {
+            "description": "Everything the simulation proposed and that was still applicable.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/ApplyError"
+            },
+            "type": "array"
+          },
+          "failed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "stopped_early": {
+            "description": "True when a slice failed and the remaining ones were abandoned.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "candidates",
+          "applied",
+          "failed",
+          "skipped",
+          "batches_run",
+          "batches_planned",
+          "stopped_early",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "CapacityForecast": {
+        "description": "One destination folder, and the weight of what this plan sends to it.",
+        "properties": {
+          "fits": {
+            "description": "`incoming_bytes` fits in `free_bytes`.",
+            "type": "boolean"
+          },
+          "free_bytes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "incoming_bytes": {
+            "description": "Bytes arriving from a *different* filesystem, which is the only traffic\nthat consumes space (see `fits`).",
+            "format": "int64",
+            "type": "integer"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "same_filesystem_bytes": {
+            "description": "Bytes arriving from a folder that reports the same free space, and so\nalmost certainly sits on the same filesystem. A move there is a rename\nand costs nothing.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instance_id",
+          "path",
+          "incoming_bytes",
+          "same_filesystem_bytes",
+          "free_bytes",
+          "items",
+          "fits"
+        ],
+        "type": "object"
+      },
+      "Category": {
+        "description": "A user-defined category for media classification.",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_order": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "display_order",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "CategoryWithUsage": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Category"
+          },
+          {
+            "properties": {
+              "root_folder_count": {
+                "format": "int64",
+                "type": "integer"
+              },
+              "rule_count": {
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "rule_count",
+              "root_folder_count"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A category with the counts that make it safe (or unsafe) to delete."
+      },
+      "ConditionOutcome": {
+        "description": "One condition of a rule, held against a title.",
+        "properties": {
+          "expected": {
+            "description": "What the condition asked for, in the interface language.",
+            "type": "string"
+          },
+          "key": {
+            "description": "Translation key describing what the rule asked for.",
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "observed": {
+            "description": "What the media actually carried, verbatim.",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Placeholder values for `key`.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "source": {
+            "description": "Which metadata source supplied `observed`, absent for a condition the\nArr answers directly.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "matched",
+          "key",
+          "params",
+          "observed"
+        ],
+        "type": "object"
+      },
+      "Confirmed": {
+        "description": "The guardrails the caller has looked at and accepts: `capacity`,\n`threshold`, `batch` or `unreachable`.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "CreateOverrideRequest": {
+        "description": "A title to pin, and the category to pin it to.",
+        "properties": {
+          "media_id": {
+            "description": "The title's id in Routarr, as `/media` lists it.",
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_category": {
+            "description": "The name of an existing category.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "media_id",
+          "target_category"
+        ],
+        "type": "object"
+      },
+      "Decision": {
+        "description": "A routing decision computed by the rule engine.",
+        "properties": {
+          "action": {
+            "description": "`move`, `none` or `skip`.",
+            "type": "string"
+          },
+          "actor": {
+            "description": "What set the decision off: `manual`, `schedule`, `webhook` or `api`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/AlternativeDecision"
+            },
+            "type": "array"
+          },
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "confidence": {
+            "description": "0.0 to 1.0, how many independent signals backed the winning rule.",
+            "format": "float",
+            "type": "number"
+          },
+          "current_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_at": {
+            "type": "string"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_override": {
+            "type": "boolean"
+          },
+          "matched_rule_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched_rule_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "media_title": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "reverted_at": {
+            "description": "Set when the move was rolled back through `POST /decisions/revert`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revertible": {
+            "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is.",
+            "type": "boolean"
+          },
+          "simulation_id": {
+            "description": "Groups every decision produced by the same simulation run.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "description": "`pending`, `applied`, `failed` or `skipped`. A reverted move is\n`skipped` with `reverted_at` set.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "superseded": {
+            "description": "True once this proposal was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
+            "type": "boolean"
+          },
+          "target_category": {
+            "type": "string"
+          },
+          "target_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "media_id",
+          "media_title",
+          "media_type",
+          "instance_id",
+          "target_category",
+          "is_override",
+          "reasons",
+          "alternatives",
+          "action",
+          "status",
+          "decided_at"
+        ],
+        "type": "object"
+      },
+      "Deleted": {
+        "description": "What a removal answers.",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ],
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The envelope every refusal and failure answers.",
+        "properties": {
+          "answerable": {
+            "description": "Beside `confirm`: whether this caller may send the name back.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "confirm": {
+            "description": "The guardrail that asks, for `confirmation_required`. Sending it back\nin `confirm` accepts that question and no other.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `external_api_error`, or an\ninternal kind.",
+            "type": "string"
+          },
+          "message": {
+            "description": "A sentence for a person, in the interface language. Never part of the\ncontract.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "error",
+          "message"
+        ],
+        "type": "object"
+      },
+      "Explanation": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "confidence": {
+            "format": "float",
+            "type": "number"
+          },
+          "media": {
+            "$ref": "#/components/schemas/Media"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MediaMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "override_category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rule_traces": {
+            "description": "Per-condition outcome for every rule that was considered.",
+            "items": {
+              "$ref": "#/components/schemas/RuleTrace"
+            },
+            "type": "array"
+          },
+          "target_category": {
+            "type": "string"
+          },
+          "target_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "winning_rule": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "media",
+          "target_category",
+          "action",
+          "confidence",
+          "rule_traces"
+        ],
+        "type": "object"
+      },
+      "HealthResponse": {
+        "properties": {
+          "database": {
+            "type": "string"
+          },
+          "instances": {
+            "items": {
+              "$ref": "#/components/schemas/InstanceHealth"
+            },
+            "type": "array"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/MetadataHealth"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/AppStats"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "version",
+          "database",
+          "instances",
+          "metadata",
+          "stats",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "InstanceHealth": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "instance_type": {
+            "type": "string"
+          },
+          "last_sync": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sync_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mapped_root_folders": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "media_count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "instance_type",
+          "status",
+          "media_count",
+          "mapped_root_folders"
+        ],
+        "type": "object"
+      },
+      "Job": {
+        "properties": {
+          "detail": {
+            "description": "What the task did, in the interface language.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "description": "`sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,\n`maintenance` or `scheduler`.",
+            "type": "string"
+          },
+          "progress_current": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "progress_total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "status": {
+            "description": "`queued`, `running`, `success`, `failed` or `cancelled`.",
+            "type": "string"
+          },
+          "subject": {
+            "description": "Who asked: an application's name, or the person a sign-in mode names.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "trigger": {
+            "description": "What set the task off: `manual`, `schedule`, `webhook` or `api`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "trigger",
+          "progress_current",
+          "progress_total",
+          "started_at"
+        ],
+        "type": "object"
+      },
+      "Me": {
+        "description": "Who a request is.",
+        "properties": {
+          "subject": {
+            "description": "An application's name, the signed-in person, `apikey` for the owner's\nkey, or `anonymous` where the mode asks for nothing.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "type": "object"
+      },
+      "Media": {
+        "description": "A media item synchronized from an Arr instance.",
+        "properties": {
+          "added_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "arr_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "certification": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "genres": {
+            "description": "The genres Radarr or Sonarr reports, as a JSON array in a string.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_files": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "imdb_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "last_synced_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "monitored": {
+            "type": "boolean"
+          },
+          "original_language": {
+            "description": "ISO 639-1, normalised from the Arr's language *name* at sync time.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "season_count": {
+            "description": "Seasons excluding specials, null for movies.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "series_type": {
+            "description": "Sonarr's own classification (`standard`, `anime` or `daily`), null for\nmovies.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "size_on_disk": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sort_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "description": "The Arr's tag labels, as a JSON array in a string.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "tmdb_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tvdb_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "year": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "instance_id",
+          "arr_id",
+          "media_type",
+          "title",
+          "monitored",
+          "has_files"
+        ],
+        "type": "object"
+      },
+      "MediaDetail": {
+        "description": "One title, what its sources say about it, and the exception pinning it.",
+        "properties": {
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media": {
+            "$ref": "#/components/schemas/Media"
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/MediaMetadata",
+                "description": "Null until a source has answered for the title."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PinnedCategory",
+                "description": "The exception pinning the title to a category, if one does."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "media"
+        ],
+        "type": "object"
+      },
+      "MediaListItem": {
+        "properties": {
+          "arr_id": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "computed_category": {
+            "description": "Category proposed by the most recent, still-current decision.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "current_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "has_files": {
+            "type": "boolean"
+          },
+          "has_metadata": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": "string"
+          },
+          "last_synced_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "monitored": {
+            "type": "boolean"
+          },
+          "override_category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "tmdb_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "year": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "instance_id",
+          "instance_name",
+          "arr_id",
+          "media_type",
+          "title",
+          "monitored",
+          "has_files",
+          "has_metadata"
+        ],
+        "type": "object"
+      },
+      "MediaMetadata": {
+        "description": "What every enabled source, taken in priority order, adds up to.",
+        "properties": {
+          "certification": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field_sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Field name -> the source that supplied it. Only populated fields appear.",
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "genres": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "keywords": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "origin_countries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "original_language": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "overview": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "poster_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sources": {
+            "description": "Sources that supplied at least one field, highest priority first.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "MetadataHealth": {
+        "properties": {
+          "cached_items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "media_missing_metadata": {
+            "description": "Items no source describes at all.",
+            "format": "int64",
+            "type": "integer"
+          },
+          "providers": {
+            "description": "Every source in the user's order, whether or not it can answer.",
+            "items": {
+              "$ref": "#/components/schemas/MetadataProviderHealth"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "cached_items",
+          "media_missing_metadata"
+        ],
+        "type": "object"
+      },
+      "MetadataProviderHealth": {
+        "properties": {
+          "configured": {
+            "description": "A source that needs a key and has one, or that needs none.",
+            "type": "boolean"
+          },
+          "connected": {
+            "description": "Probed only for a fetched, configured source. Null for the Arr, whose\ninstances are probed on their own.",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "needs_key": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "needs_key",
+          "configured"
+        ],
+        "type": "object"
+      },
+      "OverrideEntry": {
+        "description": "An exception: a title pinned to a category by hand, which outranks every\nrule.",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "description": "Who set it: an application's name, or the person a sign-in mode names.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "media_id",
+          "target_category",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "OverrideWithMedia": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OverrideEntry"
+          },
+          {
+            "properties": {
+              "instance_name": {
+                "type": "string"
+              },
+              "media_title": {
+                "type": "string"
+              },
+              "media_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "media_title",
+              "media_type",
+              "instance_name"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "An exception, with the title it pins."
+      },
+      "Page_Decision": {
+        "description": "Standard pagination envelope shared by every list endpoint.",
+        "properties": {
+          "data": {
+            "items": {
+              "description": "A routing decision computed by the rule engine.",
+              "properties": {
+                "action": {
+                  "description": "`move`, `none` or `skip`.",
+                  "type": "string"
+                },
+                "actor": {
+                  "description": "What set the decision off: `manual`, `schedule`, `webhook` or `api`.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "alternatives": {
+                  "items": {
+                    "$ref": "#/components/schemas/AlternativeDecision"
+                  },
+                  "type": "array"
+                },
+                "applied_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "confidence": {
+                  "description": "0.0 to 1.0, how many independent signals backed the winning rule.",
+                  "format": "float",
+                  "type": "number"
+                },
+                "current_root_folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "decided_at": {
+                  "type": "string"
+                },
+                "error_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "instance_id": {
+                  "type": "string"
+                },
+                "instance_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "is_override": {
+                  "type": "boolean"
+                },
+                "matched_rule_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "matched_rule_name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "media_id": {
+                  "type": "string"
+                },
+                "media_title": {
+                  "type": "string"
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "reasons": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "reverted_at": {
+                  "description": "Set when the move was rolled back through `POST /decisions/revert`.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revertible": {
+                  "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is.",
+                  "type": "boolean"
+                },
+                "simulation_id": {
+                  "description": "Groups every decision produced by the same simulation run.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "description": "`pending`, `applied`, `failed` or `skipped`. A reverted move is\n`skipped` with `reverted_at` set.",
+                  "type": "string"
+                },
+                "subject": {
+                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "superseded": {
+                  "description": "True once this proposal was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
+                  "type": "boolean"
+                },
+                "target_category": {
+                  "type": "string"
+                },
+                "target_root_folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "media_id",
+                "media_title",
+                "media_type",
+                "instance_id",
+                "target_category",
+                "is_override",
+                "reasons",
+                "alternatives",
+                "action",
+                "status",
+                "decided_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
+      "Page_Job": {
+        "description": "Standard pagination envelope shared by every list endpoint.",
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "detail": {
+                  "description": "What the task did, in the interface language.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "finished_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "id": {
+                  "type": "string"
+                },
+                "instance_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "`sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,\n`maintenance` or `scheduler`.",
+                  "type": "string"
+                },
+                "progress_current": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "progress_total": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "started_at": {
+                  "type": "string"
+                },
+                "status": {
+                  "description": "`queued`, `running`, `success`, `failed` or `cancelled`.",
+                  "type": "string"
+                },
+                "subject": {
+                  "description": "Who asked: an application's name, or the person a sign-in mode names.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "trigger": {
+                  "description": "What set the task off: `manual`, `schedule`, `webhook` or `api`.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "kind",
+                "status",
+                "trigger",
+                "progress_current",
+                "progress_total",
+                "started_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
+      "Page_MediaListItem": {
+        "description": "Standard pagination envelope shared by every list endpoint.",
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "arr_id": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "computed_category": {
+                  "description": "Category proposed by the most recent, still-current decision.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "current_root_folder": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "has_files": {
+                  "type": "boolean"
+                },
+                "has_metadata": {
+                  "type": "boolean"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "instance_id": {
+                  "type": "string"
+                },
+                "instance_name": {
+                  "type": "string"
+                },
+                "last_synced_at": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "media_type": {
+                  "type": "string"
+                },
+                "monitored": {
+                  "type": "boolean"
+                },
+                "override_category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "title": {
+                  "type": "string"
+                },
+                "tmdb_id": {
+                  "format": "int64",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "year": {
+                  "format": "int64",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "instance_id",
+                "instance_name",
+                "arr_id",
+                "media_type",
+                "title",
+                "monitored",
+                "has_files",
+                "has_metadata"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
+      "Pagination": {
+        "properties": {
+          "page": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "per_page": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "total_pages": {
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "page",
+          "per_page",
+          "total",
+          "total_pages"
+        ],
+        "type": "object"
+      },
+      "PinnedCategory": {
+        "description": "The category an exception pins a title to, and why.",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_category"
+        ],
+        "type": "object"
+      },
+      "Pong": {
+        "description": "What the liveness probe answers.",
+        "properties": {
+          "status": {
+            "description": "Always `ok`: an answer at all is the news.",
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "version"
+        ],
+        "type": "object"
+      },
+      "RevertDecisionsRequest": {
+        "description": "Request to roll a previously applied decision back to its original folder.",
+        "properties": {
+          "confirm": {
+            "$ref": "#/components/schemas/Confirmed",
+            "description": "The guardrails the caller has looked at, by name, as for an apply."
+          },
+          "decision_ids": {
+            "description": "The applied decisions to move back.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "move_files": {
+            "description": "Move the files on disk with each title. A key needs to be allowed to.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decision_ids"
+        ],
+        "type": "object"
+      },
+      "RuleTrace": {
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "conditions": {
+            "description": "Every condition, with its wording already resolved for this language.",
+            "items": {
+              "$ref": "#/components/schemas/ConditionOutcome"
+            },
+            "type": "array"
+          },
+          "excluded_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "matched": {
+            "type": "boolean"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_name",
+          "priority",
+          "category",
+          "matched",
+          "outcome",
+          "conditions"
+        ],
+        "type": "object"
+      },
+      "SimulationRequest": {
+        "description": "Request to run a simulation.",
+        "properties": {
+          "instance_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "max_returned": {
+            "description": "Cap the payload size. The counters always reflect the full library.",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "persist": {
+            "description": "Store the decisions so they can be applied. `false` is a pure preview.",
+            "type": "boolean"
+          },
+          "persist_unchanged": {
+            "description": "Also keep decisions for media already in the right place.",
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SimulationResult": {
+        "description": "Simulation result summary.",
+        "properties": {
+          "already_correct": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "capacity": {
+            "description": "What the plan would put on each destination, and whether it fits.\n\nOnly destinations that receive something appear, and only when the Arr\nreported a free-space figure for them.",
+            "items": {
+              "$ref": "#/components/schemas/CapacityForecast"
+            },
+            "type": "array"
+          },
+          "decisions": {
+            "items": {
+              "$ref": "#/components/schemas/Decision"
+            },
+            "type": "array"
+          },
+          "elapsed_ms": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "excluded_by_rule": {
+            "description": "Rules that matched but were vetoed by one of their exclusions.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "moves_required": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "no_category_match": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "overrides_applied": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "returned": {
+            "description": "How many decisions are included in `decisions` after truncation.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "simulation_id": {
+            "type": "string"
+          },
+          "skipped_unmapped": {
+            "description": "Matched a category with no root folder mapped on that instance.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_media": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "simulation_id",
+          "total_media",
+          "returned",
+          "decisions",
+          "moves_required",
+          "already_correct",
+          "no_category_match",
+          "overrides_applied",
+          "skipped_unmapped",
+          "excluded_by_rule",
+          "capacity",
+          "elapsed_ms"
+        ],
+        "type": "object"
+      },
+      "StatusResponse": {
+        "description": "Counts and warnings, read from the database without probing anything.",
+        "properties": {
+          "dry_run": {
+            "description": "Whether the global dry run holds, in which case nothing is moved.",
+            "type": "boolean"
+          },
+          "failed_decisions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "pending_decisions": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "running_jobs": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "warnings": {
+            "description": "Configuration problems detectable without touching the network.",
+            "items": {
+              "$ref": "#/components/schemas/Warning"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "version",
+          "dry_run",
+          "running_jobs",
+          "pending_decisions",
+          "failed_decisions",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "SyncReport": {
+        "description": "Result of syncing one instance.",
+        "properties": {
+          "error": {
+            "description": "Set when the sync failed, so the caller of sync-all still gets one entry\nper instance instead of the failure silently vanishing from the report.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": "string"
+          },
+          "media": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "removed": {
+            "description": "Media rows that disappeared upstream and were removed locally.",
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "root_folders": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "instance_id",
+          "instance_name",
+          "root_folders",
+          "media",
+          "removed"
+        ],
+        "type": "object"
+      },
+      "Warning": {
+        "description": "One warning, in the reader's language.",
+        "properties": {
+          "guide_step": {
+            "description": "The getting-started step this warning restates, if one does.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "api_key": {
+        "in": "header",
+        "name": "X-Api-Key",
+        "type": "apiKey"
+      },
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "license": {
+      "identifier": "GPL-3.0-only",
+      "name": "GPL-3.0-only"
+    },
+    "title": "Routarr API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/auth/me": {
+      "get": {
+        "operationId": "who_am_i",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Who the key belongs to",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/categories": {
+      "get": {
+        "operationId": "list_categories",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CategoryWithUsage"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The categories, with what uses each",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/decisions": {
+      "get": {
+        "description": "A pending decision is a move a simulation proposed. `status=pending` with\n`simulation_id` lists what one simulation proposed.",
+        "operationId": "list_decisions",
+        "parameters": [
+          {
+            "description": "Only the decisions about this instance's titles.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "media_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`pending`, `applied`, `failed` or `skipped`.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the decisions sending a title to this category.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`move`, `none` or `skip`.",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only what this simulation proposed.",
+            "in": "query",
+            "name": "simulation_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Part of the title, ASCII letters in any case.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Include the superseded proposals. Defaults to false.",
+            "in": "query",
+            "name": "include_superseded",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Decision"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The proposals, a page at a time",
+        "tags": [
+          "proposals"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/decisions/apply": {
+      "post": {
+        "description": "Asks the Arr to move each title, behind the same guardrails as the\ninterface. A proposal no longer pending is skipped, so sending the same\nlist twice moves nothing twice. `move_files` needs a key allowed to move\nfiles.",
+        "operationId": "apply",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyDecisionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyReport"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A guardrail asks for a confirmation, named in `confirm`, or another apply is running."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Apply chosen proposals",
+        "tags": [
+          "proposals"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/decisions/apply-all": {
+      "post": {
+        "description": "In slices of the batch limit, stopping at the first slice that fails.\nAlways asks the `batch` guardrail first, whose question states how many\ntitles move.",
+        "operationId": "apply_all",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyAllRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchApplyReport"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "The `batch` confirmation is asked, or another apply is running."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Apply everything a simulation proposed",
+        "tags": [
+          "proposals"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/decisions/revert": {
+      "post": {
+        "description": "Only a title's latest move can be reverted. The same guardrails ask as for\nan apply.",
+        "operationId": "revert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertDecisionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplyReport"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A guardrail asks for a confirmation, named in `confirm`, or an apply is running."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Move titles back",
+        "tags": [
+          "proposals"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Probes each enabled instance and metadata source, up to a connect timeout\neach, and records what it found for `/status` to repeat. `probe=false`\nanswers from what the last probe recorded.",
+        "operationId": "health",
+        "parameters": [
+          {
+            "description": "`false` answers from what the last probe recorded. Defaults to true.",
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Reach every Arr and source, and report",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/instances/sync": {
+      "post": {
+        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others.",
+        "operationId": "sync_all",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SyncReport"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Read every enabled Arr again",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/instances/{id}/sync": {
+      "post": {
+        "description": "A sync of an instance already running answers 409.",
+        "operationId": "sync_instance",
+        "parameters": [
+          {
+            "description": "The instance's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Read one Arr again",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/jobs": {
+      "get": {
+        "operationId": "list_tasks",
+        "parameters": [
+          {
+            "description": "Only the tasks in this status.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the tasks of this kind.",
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The tasks, newest first",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/jobs/{id}": {
+      "get": {
+        "operationId": "get_task",
+        "parameters": [
+          {
+            "description": "The task's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One task",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media": {
+      "get": {
+        "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception pins it to.",
+        "operationId": "list_media",
+        "parameters": [
+          {
+            "description": "Only the titles of this instance.",
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "media_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filter on the category currently proposed by the engine.",
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Part of the title, ASCII letters in any case.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only media that no rule matched, for the \"unclassified\" view.",
+            "in": "query",
+            "name": "unmatched",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_MediaListItem"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The library, a page at a time",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}": {
+      "get": {
+        "operationId": "get_media",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MediaDetail"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One title",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/media/{id}/explain": {
+      "get": {
+        "description": "Every rule the title was held against, each condition with what it\nexpected and what it found, and the folder the winner sends it to. The\nsame answer a simulation gives, for one title, without storing anything.",
+        "operationId": "explain_media",
+        "parameters": [
+          {
+            "description": "The title's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Explanation"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Where a title goes, and why",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/metrics": {
+      "get": {
+        "description": "The text exposition format. A Prometheus scrape sends the key with\n`authorization: credentials`, as a bearer token.",
+        "operationId": "metrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {}
+            },
+            "description": "The metrics."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Prometheus metrics",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/overrides": {
+      "get": {
+        "operationId": "list_exceptions",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OverrideWithMedia"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The exceptions",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "description": "Replaces the title's exception if it has one. The pending proposals for the\ntitle are withdrawn, since the exception now decides.",
+        "operationId": "set_exception",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOverrideRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Pin a title to a category",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/overrides/{id}": {
+      "delete": {
+        "operationId": "remove_exception",
+        "parameters": [
+          {
+            "description": "The exception's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove an exception",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
+    "/ping": {
+      "get": {
+        "description": "Needs no key, touches no database and calls nothing: an answer at all is\nthe news. For a container runtime or an uptime monitor.",
+        "operationId": "ping",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Pong"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "security": [],
+        "summary": "Whether Routarr is up",
+        "tags": [
+          "status"
+        ]
+      }
+    },
+    "/simulate": {
+      "post": {
+        "description": "With `persist: true` the proposals are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.",
+        "operationId": "simulate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimulationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Run the rules over the library",
+        "tags": [
+          "proposals"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/status": {
+      "get": {
+        "description": "Read from the database alone, without reaching any Arr or source, so it is\ncheap enough to poll. `warnings` lists the configuration problems Routarr\ncan see, each in the interface language.",
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What needs attention",
+        "tags": [
+          "status"
+        ],
+        "x-routarr-scope": "read"
+      }
+    }
+  },
+  "security": [
+    {
+      "api_key": []
+    },
+    {
+      "bearer": []
+    }
+  ],
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Whether Routarr is up, and what needs attention.",
+      "name": "status"
+    },
+    {
+      "description": "The titles Routarr read from the Arrs, and where each one goes.",
+      "name": "library"
+    },
+    {
+      "description": "Simulating the rules over the library, and applying or reverting what they propose.",
+      "name": "proposals"
+    },
+    {
+      "description": "Titles pinned to a category by hand, which outrank every rule.",
+      "name": "exceptions"
+    },
+    {
+      "description": "What ran in the background, and how it ended.",
+      "name": "tasks"
+    },
+    {
+      "description": "Reading the library again from the Arrs.",
+      "name": "instances"
+    }
+  ]
+}

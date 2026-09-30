@@ -20,6 +20,11 @@ paths:
   scope, and a granted route is one an outside application relies on. A handler that moves files
   runs the executor through `on_behalf_of` (`backend/src/api/decisions.rs`), which holds an
   application key to the guardrails and file moves it was given.
+- A granted route needs its operation in `backend/src/api/contract.rs`, and the types it takes
+  and returns derive `utoipa::ToSchema`. Their `///` comments are published in
+  `backend/openapi/v1.json`, so a remark for Routarr's developers goes in a `//` comment. A change
+  to one of those types is pinned with `ROUTARR_WRITE_CONTRACT=1 cargo test contract`, and
+  `scripts/check-api-breaks.sh` refuses a removal, a rename or a retype against the last release.
 - A refusal the user must read is `BadRequest`, `NotFound` or `Conflict`, and `Forbidden` what a
   known caller may not do. `Database`, `Serialization`, `Config` and `Internal` log their text
   and answer a generic 500 (`backend/src/error.rs`).

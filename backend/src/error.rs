@@ -100,17 +100,23 @@ fn describe_external(service: &str, status: u16, message: &str) -> String {
     }
 }
 
-#[derive(Serialize)]
-struct ErrorResponse {
-    error: String,
-    message: String,
-    /// Which guardrail asked, for the one variant that asks. The caller sends
-    /// it back to say what it looked at, and nothing else is waved through.
+/// The envelope every refusal and failure answers.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct ErrorResponse {
+    /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
+    /// `conflict`, `confirmation_required`, `external_api_error`, or an
+    /// internal kind.
+    pub error: String,
+    /// A sentence for a person, in the interface language. Never part of the
+    /// contract.
+    pub message: String,
+    /// The guardrail that asks, for `confirmation_required`. Sending it back
+    /// in `confirm` accepts that question and no other.
     #[serde(skip_serializing_if = "Option::is_none")]
-    confirm: Option<&'static str>,
+    pub confirm: Option<&'static str>,
     /// Beside `confirm`: whether this caller may send the name back.
     #[serde(skip_serializing_if = "Option::is_none")]
-    answerable: Option<bool>,
+    pub answerable: Option<bool>,
 }
 
 impl IntoResponse for AppError {

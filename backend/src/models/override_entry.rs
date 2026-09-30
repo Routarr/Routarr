@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-/// A manual override for a specific media item.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// An exception: a title pinned to a category by hand, which outranks every
+/// rule.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct OverrideEntry {
     pub id: String,
     pub media_id: String,
@@ -12,16 +13,18 @@ pub struct OverrideEntry {
     pub subject: Option<String>,
 }
 
-/// Request body for creating an override.
-#[derive(Debug, Deserialize)]
+/// A title to pin, and the category to pin it to.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateOverrideRequest {
+    /// The title's id in Routarr, as `/media` lists it.
     pub media_id: String,
+    /// The name of an existing category.
     pub target_category: String,
     pub reason: Option<String>,
 }
 
-/// Override with associated media info for display.
-#[derive(Debug, Serialize)]
+/// An exception, with the title it pins.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OverrideWithMedia {
     #[serde(flatten)]
     pub override_entry: OverrideEntry,

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A user-defined category for media classification.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Category {
     pub id: String,
     pub name: String,
@@ -28,7 +28,7 @@ pub struct CreateCategoryRequest {
 }
 
 /// A category with the counts that make it safe (or unsafe) to delete.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct CategoryWithUsage {
     #[serde(flatten)]
     pub category: Category,

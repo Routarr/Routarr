@@ -117,35 +117,41 @@ pub async fn list(
 }
 
 /// Request to apply selected decisions.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ApplyDecisionsRequest {
+    /// The pending decisions to apply.
     pub decision_ids: Vec<String>,
+    /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]
     pub move_files: bool,
-    /// The guardrails the caller has looked at, by name, so that answering
-    /// one question answers no other.
+    /// The guardrails the caller has looked at and accepts, by name.
+    /// Answering one question answers no other.
     #[serde(default)]
     pub confirm: executor::Confirmed,
 }
 
 /// Apply everything one simulation proposed, in slices.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ApplyAllRequest {
+    /// The simulation whose proposals to apply.
     pub simulation_id: String,
+    /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]
     pub move_files: bool,
-    /// Always required: this is a mass operation by definition, so the
-    /// confirmation threshold has nothing to say about it. Its one question
-    /// states both the count and any capacity shortfall, and it is answered
-    /// under the single name `batch`.
+    /// Always asked: `batch`, whose one question states both the count and
+    /// any capacity shortfall.
+    // A mass operation by definition, so the confirmation threshold has
+    // nothing to say about it.
     #[serde(default)]
     pub confirm: executor::Confirmed,
 }
 
 /// Request to roll a previously applied decision back to its original folder.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RevertDecisionsRequest {
+    /// The applied decisions to move back.
     pub decision_ids: Vec<String>,
+    /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]
     pub move_files: bool,
     /// The guardrails the caller has looked at, by name, as for an apply.

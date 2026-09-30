@@ -17,7 +17,7 @@ use crate::services::rule_engine::{self, EvalContext};
 use crate::services::{enrichment, routing};
 use crate::state::AppState;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct MediaListItem {
     pub id: String,
     pub instance_id: String,
@@ -164,10 +164,29 @@ pub async fn list(
     Ok(Json(Page::new(rows, page, per_page, total)))
 }
 
+/// One title, what its sources say about it, and the exception pinning it.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct MediaDetail {
+    pub media: Media,
+    pub instance_name: Option<String>,
+    /// Null until a source has answered for the title.
+    pub metadata: Option<crate::models::MediaMetadata>,
+    /// The exception pinning the title to a category, if one does.
+    #[serde(rename = "override")]
+    pub exception: Option<PinnedCategory>,
+}
+
+/// The category an exception pins a title to, and why.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PinnedCategory {
+    pub target_category: String,
+    pub reason: Option<String>,
+}
+
 pub async fn get_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<MediaDetail>> {
     let media = load_media(&state, &id).await?;
 
     let instance_name: Option<String> =
@@ -184,18 +203,16 @@ pub async fn get_one(
             .fetch_optional(&state.pool)
             .await?;
 
-    Ok(Json(serde_json::json!({
-        "media": media,
-        "instance_name": instance_name,
-        "metadata": metadata,
-        "override": override_entry.map(|(category, reason)| serde_json::json!({
-            "target_category": category,
-            "reason": reason,
-        })),
-    })))
+    Ok(Json(MediaDetail {
+        media,
+        instance_name,
+        metadata,
+        exception: override_entry
+            .map(|(target_category, reason)| PinnedCategory { target_category, reason }),
+    }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Explanation {
     pub media: Media,
     pub metadata: Option<MediaMetadata>,
@@ -209,7 +226,7 @@ pub struct Explanation {
     pub rule_traces: Vec<RuleTrace>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RuleTrace {
     pub rule_id: String,
     pub rule_name: String,

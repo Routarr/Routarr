@@ -4,6 +4,7 @@ pub mod backup;
 pub mod categories;
 pub mod conditions;
 pub mod config;
+pub mod contract;
 pub mod decisions;
 pub mod health;
 pub mod instances;
@@ -95,13 +96,13 @@ impl<T: Serialize> IntoResponse for Json<T> {
 }
 
 /// Standard pagination envelope shared by every list endpoint.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Page<T> {
     pub data: Vec<T>,
     pub pagination: Pagination,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Pagination {
     pub page: u32,
     pub per_page: u32,

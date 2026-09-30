@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A routing decision computed by the rule engine.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Decision {
     pub id: String,
     pub media_id: String,
@@ -39,25 +39,25 @@ pub struct Decision {
     /// Set when the move was rolled back through `POST /decisions/revert`.
     #[serde(default)]
     pub reverted_at: Option<String>,
-    /// What caused this decision: `manual`, `schedule` or `webhook`. Every
-    /// writer sets it. The column is nullable, and a guess at a missing one
-    /// would read as a fact.
+    /// What set the decision off: `manual`, `schedule`, `webhook` or `api`.
+    // Every writer sets it. The column is nullable, and a guess at a missing
+    // one would read as a fact.
     #[serde(default)]
     pub actor: Option<String>,
-    /// Who asked, when the mode vouched for a name.
-    ///
+    /// Who asked: an application's name, or the person a sign-in mode names.
     /// Null when nobody asked (the scheduler or a webhook), and under a mode
-    /// that lets everyone through under one shared subject.
+    /// that names nobody.
     #[serde(default)]
     pub subject: Option<String>,
-    /// Whether a revert may undo this move now (`executor::REVERTIBLE`): only
-    /// the latest standing move of a title is.
+    /// Whether a revert may undo this move now: only the latest standing move
+    /// of a title is.
+    // `executor::REVERTIBLE` decides it.
     #[serde(default)]
     pub revertible: bool,
 }
 
 /// An alternative decision that was considered but not selected.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AlternativeDecision {
     pub rule_name: String,
     pub category: String,
@@ -70,7 +70,7 @@ pub struct AlternativeDecision {
 }
 
 /// Request to run a simulation.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
 pub struct SimulationRequest {
     #[serde(default)]
     pub instance_ids: Option<Vec<String>>,
@@ -88,7 +88,7 @@ pub struct SimulationRequest {
 }
 
 /// Simulation result summary.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SimulationResult {
     pub simulation_id: String,
     pub total_media: usize,
@@ -112,7 +112,7 @@ pub struct SimulationResult {
 }
 
 /// One destination folder, and the weight of what this plan sends to it.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, utoipa::ToSchema)]
 pub struct CapacityForecast {
     pub instance_id: String,
     pub instance_name: Option<String>,
@@ -122,8 +122,9 @@ pub struct CapacityForecast {
     pub incoming_bytes: i64,
     /// Bytes arriving from a folder that reports the same free space, and so
     /// almost certainly sits on the same filesystem. A move there is a rename
-    /// and costs nothing. It is counted separately rather than dropped, because
-    /// a figure the user cannot see is a figure they cannot check.
+    /// and costs nothing.
+    // Counted separately rather than dropped, because a figure the user cannot
+    // see is a figure they cannot check.
     pub same_filesystem_bytes: i64,
     pub free_bytes: i64,
     pub items: usize,
@@ -132,18 +133,28 @@ pub struct CapacityForecast {
 }
 
 /// Query parameters for decision listing.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct DecisionQuery {
+    /// Only the decisions about this instance's titles.
     pub instance_id: Option<String>,
+    /// `movie` or `series`.
     pub media_type: Option<String>,
+    /// `pending`, `applied`, `failed` or `skipped`.
     pub status: Option<String>,
+    /// Only the decisions sending a title to this category.
     pub category: Option<String>,
+    /// `move`, `none` or `skip`.
     pub action: Option<String>,
+    /// Only what this simulation proposed.
     pub simulation_id: Option<String>,
+    /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
     /// Include the superseded proposals. Defaults to false.
     pub include_superseded: Option<bool>,
+    /// From 1. Defaults to 1.
     pub page: Option<u32>,
+    /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
 }
 

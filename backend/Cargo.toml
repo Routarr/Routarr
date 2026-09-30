@@ -60,9 +60,16 @@ base64 = "0.23"
 subtle = "2"
 sha2 = "0.11"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+# The API contract: the OpenAPI document `GET /api/v1/openapi.json` serves and
+# `openapi/v1.json` pins, derived from the types the handlers return, so the
+# document cannot describe a field the code does not send.
+utoipa = { version = "6", features = ["preserve_order", "preserve_path_order"] }
 
 [dev-dependencies]
 http-body-util = "0.1"
+# Holds every documented answer the API gives to the schema the contract
+# states for it: the field names and the types both.
+jsonschema = { version = "0.58", default-features = false }
 # `test-util` only: it brings the paused clock the rate-limiter tests need, so
 # pacing is asserted in virtual time rather than by actually sleeping through it.
 tokio = { version = "1", features = ["test-util"] }

@@ -15,21 +15,26 @@ use crate::models::Instance;
 use crate::services::metadata;
 use crate::state::{AppState, Settings};
 
-/// Liveness probe: no database work, no outbound calls, no authentication.
-pub async fn ping() -> Json<serde_json::Value> {
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
+/// What the liveness probe answers.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Pong {
+    /// Always `ok`: an answer at all is the news.
+    pub status: &'static str,
+    pub version: &'static str,
 }
 
-/// Everything the app shell needs, with no outbound calls.
-///
-/// The top bar reads this rather than `/health`, which probes every Arr
-/// instance and would block the whole UI on an unreachable server.
-#[derive(Debug, Serialize)]
+/// Liveness probe: no database work, no outbound calls, no authentication.
+pub async fn ping() -> Json<Pong> {
+    Json(Pong { status: "ok", version: env!("CARGO_PKG_VERSION") })
+}
+
+/// Counts and warnings, read from the database without probing anything.
+// The top bar reads this rather than `/health`, which probes every Arr
+// instance and would block the whole UI on an unreachable server.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct StatusResponse {
     pub version: String,
+    /// Whether the global dry run holds, in which case nothing is moved.
     pub dry_run: bool,
     pub running_jobs: i64,
     pub pending_decisions: i64,
@@ -39,12 +44,11 @@ pub struct StatusResponse {
 }
 
 /// One warning, in the reader's language.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Warning {
     pub message: String,
-    /// The getting-started step this warning restates, whose banner says the
-    /// same thing while the step is open. `None` for every warning no step
-    /// answers, which the guide never says.
+    /// The getting-started step this warning restates, if one does.
+    // Its banner says the same thing while the step is open.
     pub guide_step: Option<&'static str>,
 }
 
@@ -85,7 +89,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
     }))
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -96,7 +100,7 @@ pub struct HealthResponse {
     pub warnings: Vec<Warning>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InstanceHealth {
     pub id: String,
     pub name: String,
@@ -109,7 +113,7 @@ pub struct InstanceHealth {
     pub mapped_root_folders: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MetadataHealth {
     /// Every source in the user's order, whether or not it can answer.
     pub providers: Vec<MetadataProviderHealth>,
@@ -118,19 +122,19 @@ pub struct MetadataHealth {
     pub media_missing_metadata: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MetadataProviderHealth {
     pub id: String,
     pub display_name: String,
     pub needs_key: bool,
     /// A source that needs a key and has one, or that needs none.
     pub configured: bool,
-    /// Probed only for a fetched, configured source. `None` for the Arr, which
-    /// is reached through the instance probes above.
+    /// Probed only for a fetched, configured source. Null for the Arr, whose
+    /// instances are probed on their own.
     pub connected: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct AppStats {
     pub total_instances: i64,
     pub total_media: i64,
@@ -151,8 +155,10 @@ pub struct AppStats {
 /// The dashboard asks for `probe=false` and gets what the database can answer
 /// immediately. The probe costs a full connect timeout per unreachable Arr,
 /// which is exactly when somebody is looking at the dashboard to find out why.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct HealthQuery {
+    /// `false` answers from what the last probe recorded. Defaults to true.
     probe: Option<bool>,
 }
 

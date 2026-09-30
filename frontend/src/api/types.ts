@@ -435,6 +435,16 @@ export interface Job {
   finished_at: string | null;
 }
 
+/** The envelope every refusal and failure of the API answers. */
+export interface ErrorBody {
+  error: string;
+  message: string;
+  /** The guardrail that asks, for `confirmation_required`. */
+  confirm?: string;
+  /** Beside `confirm`: whether this caller may send the name back. */
+  answerable?: boolean;
+}
+
 /** A scope beyond read, which every application key holds. */
 export type ApplicationScope = 'operate' | 'write';
 

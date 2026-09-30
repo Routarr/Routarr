@@ -122,13 +122,15 @@ fn the_route_walk_reads_every_declared_route() {
 
 /// What answers without a key, and why.
 ///
-/// `/ping` is the liveness probe. The shell needs its strings before it can
+/// `/ping` is the liveness probe, and `/openapi.json` the contract a client
+/// reads before it holds a key. The shell needs its strings before it can
 /// render an authentication error, and it needs to know which gate to show
 /// before it has anything to show it with. The OIDC pair is outside by
 /// necessity: the browser has no session on the way out and the provider's
 /// redirect carries none on the way back.
 pub(super) const OPEN: &[(&str, &str)] = &[
     ("GET", "/api/v1/ping"),
+    ("GET", "/api/v1/openapi.json"),
     ("GET", "/api/v1/localization"),
     ("GET", "/api/v1/localization/languages"),
     ("GET", "/api/v1/auth/mode"),

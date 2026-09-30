@@ -79,11 +79,12 @@ jobs:
         run: python3 scripts/check-versions.py
 
   # What no deliverable's job reads: the workflows, the shell harnesses, the
-  # Dockerfiles, the memory files Claude Code loads, the history, and the
-  # punctuation of every deliverable at once. Unfiltered for the same reason as
+  # Dockerfiles, the memory files Claude Code loads, the history, the API
+  # contract against the last release, and the punctuation of every
+  # deliverable at once. Unfiltered for the same reason as
   # `changes`, and needed by no other job, so a failure here skips nothing else.
   #
-  # The three binaries are fetched from their releases and checked against the
+  # The four binaries are fetched from their releases and checked against the
   # sums recorded here, so a moved tag or a replaced asset fails the step
   # rather than running. The runner image ships shellcheck.
   repository:
@@ -93,7 +94,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # gitleaks reads every commit, not the last one.
+          # gitleaks reads every commit, not the last one, and the API contract
+          # is compared with the last release's tag.
           fetch-depth: 0
 
       - name: Check the memory files stay short
@@ -107,6 +109,7 @@ jobs:
           ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
           HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+          OASDIFF_SHA256: 7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
@@ -122,7 +125,17 @@ jobs:
             https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
           echo "$GITLEAKS_SHA256  /tmp/gitleaks.tgz" | sha256sum -c -
           tar -xzf /tmp/gitleaks.tgz -C "$HOME/bin" gitleaks
+          curl -fsSL -o /tmp/oasdiff.tgz \
+            https://github.com/oasdiff/oasdiff/releases/download/v1.32.1/oasdiff_1.32.1_linux_amd64.tar.gz
+          echo "$OASDIFF_SHA256  /tmp/oasdiff.tgz" | sha256sum -c -
+          tar -xzf /tmp/oasdiff.tgz -C "$HOME/bin" oasdiff
           echo "$HOME/bin" >> "$GITHUB_PATH"
+
+      # Unfiltered with the rest of this job: a commit touching the pinned
+      # contract alone would wake the backend job, but one moving the tag the
+      # contract is compared with wakes nothing else.
+      - name: Check the API contract breaks no client of the last release
+        run: bash scripts/check-api-breaks.sh
 
       - name: Lint the workflows
         run: actionlint -no-color
