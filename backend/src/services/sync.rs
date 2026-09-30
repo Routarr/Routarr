@@ -135,6 +135,15 @@ async fn sync_instance_inner(
         }
         Err(e) => {
             update_sync_status(&state.pool, &instance.id, &format!("error: {e}")).await;
+            notify::send(
+                state,
+                notify::Event::SyncFailed {
+                    instance_id: instance.id.clone(),
+                    instance: instance.name.clone(),
+                    error: e.to_string(),
+                },
+            )
+            .await;
             job.fail(&e.to_string()).await;
             if !was_failing {
                 notify::send(

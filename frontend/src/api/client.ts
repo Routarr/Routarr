@@ -44,6 +44,7 @@ import type {
   StoredSettings,
   SimulationResult,
   Status,
+  WebhookSigningStatus,
   SyncReport,
   TestConnectionResponse,
   ValidationIssue,
@@ -408,6 +409,13 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- overrides
+  webhookSigning: (signal?: AbortSignal) =>
+    request<WebhookSigningStatus>('/notifications/webhook-secret', { signal }),
+  rotateWebhookSigning: () =>
+    request<{ secret: string }>('/notifications/webhook-secret', { method: 'POST' }),
+  removeWebhookSigning: () =>
+    request<unknown>('/notifications/webhook-secret', { method: 'DELETE' }),
+
   getApplications: (signal?: AbortSignal) => request<Application[]>('/applications', { signal }),
   createApplication: (data: NewApplication) =>
     request<MintedApplication>('/applications', { method: 'POST', body: body(data) }),

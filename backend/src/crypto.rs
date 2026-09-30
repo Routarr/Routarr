@@ -202,6 +202,21 @@ pub fn generate_secret() -> AppResult<String> {
     }))
 }
 
+/// A secret the outgoing notification is signed with, as Standard Webhooks
+/// writes one: `whsec_` and 32 random bytes in base64.
+pub fn generate_signing_secret() -> AppResult<String> {
+    let mut bytes = [0u8; 32];
+    random_bytes(&mut bytes)?;
+    Ok(format!("whsec_{}", B64.encode(bytes)))
+}
+
+/// The key a signing secret stands for, `None` for anything not shaped like
+/// one.
+pub fn signing_key(secret: &str) -> Option<Vec<u8>> {
+    let key = B64.decode(secret.trim().strip_prefix("whsec_")?).ok()?;
+    (key.len() >= 24).then_some(key)
+}
+
 /// Load the API key from `path`, generating one on first run.
 ///
 /// An API that can move files on disk must not be open by omission, and the

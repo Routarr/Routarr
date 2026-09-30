@@ -59,6 +59,8 @@ getrandom = "0.4"
 base64 = "0.23"
 subtle = "2"
 sha2 = "0.11"
+# Signs the outgoing notification, as Standard Webhooks specifies.
+hmac = "0.13"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 # The API contract: the OpenAPI document `GET /api/v1/openapi.json` serves and
 # `openapi/v1.json` pins, derived from the types the handlers return, so the

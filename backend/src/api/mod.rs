@@ -15,6 +15,7 @@ pub mod maintenance;
 pub mod media;
 pub mod metadata;
 pub mod metrics;
+pub mod notifications;
 pub mod onboarding;
 pub mod overrides;
 pub mod root_folders;

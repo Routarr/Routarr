@@ -5,8 +5,10 @@
 //! fifteen minutes for a week is an alert the operator mutes, which leaves them
 //! worse off than with no notifications at all.
 
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
+use axum::http::{HeaderMap, StatusCode};
 use axum::routing::post;
 use axum::{Json, Router};
 use tokio::net::TcpListener;
@@ -17,25 +19,51 @@ use crate::services::sync;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
+/// One POST the receiver took: the Standard Webhooks headers and the body as
+/// sent, byte for byte, which is what a signature covers.
+#[derive(Debug, Clone)]
+struct Delivery {
+    id: String,
+    timestamp: String,
+    signature: Option<String>,
+    body: String,
+}
+
 /// A webhook receiver that records what Routarr posted to it.
 struct Receiver {
     url: String,
-    received: Arc<Mutex<Vec<serde_json::Value>>>,
+    received: Arc<Mutex<Vec<Delivery>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
 impl Receiver {
     async fn start() -> Self {
+        Self::answering(&[]).await
+    }
+
+    /// A receiver answering these statuses in turn, then 200.
+    async fn answering(statuses: &[u16]) -> Self {
         let received = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&received);
+        let answers = Arc::new(Mutex::new(statuses.iter().copied().collect::<VecDeque<u16>>()));
 
         let app = Router::new().route(
             "/hook",
-            post(move |Json(body): Json<serde_json::Value>| {
+            post(move |headers: HeaderMap, body: String| {
                 let sink = Arc::clone(&sink);
+                let answers = Arc::clone(&answers);
                 async move {
-                    sink.lock().expect("lock").push(body);
-                    Json(serde_json::json!({ "ok": true }))
+                    let header = |name: &str| {
+                        headers.get(name).and_then(|v| v.to_str().ok()).map(str::to_string)
+                    };
+                    sink.lock().expect("lock").push(Delivery {
+                        id: header("webhook-id").unwrap_or_default(),
+                        timestamp: header("webhook-timestamp").unwrap_or_default(),
+                        signature: header("webhook-signature"),
+                        body,
+                    });
+                    let status = answers.lock().expect("lock").pop_front().unwrap_or(200);
+                    (StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({ "ok": true })))
                 }
             }),
         );
@@ -55,7 +83,27 @@ impl Receiver {
     }
 
     fn messages(&self) -> Vec<serde_json::Value> {
+        self.deliveries()
+            .iter()
+            .map(|delivery| serde_json::from_str(&delivery.body).expect("a JSON body"))
+            .collect()
+    }
+
+    fn deliveries(&self) -> Vec<Delivery> {
         self.received.lock().expect("lock").clone()
+    }
+
+    /// The deliveries once `count` have arrived, for what is sent from a task
+    /// of its own.
+    async fn awaiting(&self, count: usize) -> Vec<Delivery> {
+        for _ in 0..300 {
+            let deliveries = self.deliveries();
+            if deliveries.len() >= count {
+                return deliveries;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("{count} deliveries never arrived, {} did", self.deliveries().len());
     }
 }
 
@@ -260,17 +308,15 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
 }
 
 /// Delivering a notification never fails the work that produced it. The
-/// recovery this sync announces is sent, fails, and is logged, and the sync
-/// still succeeds.
+/// recovery this sync announces reaches a webhook that fails every time, and
+/// the sync still succeeds.
 #[tokio::test]
-async fn an_unreachable_webhook_does_not_break_the_sync() {
-    use tracing::instrument::WithSubscriber;
-    use tracing_subscriber::layer::SubscriberExt;
-
+async fn a_failing_webhook_does_not_break_the_sync() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.save_setting("notification_webhook_url", "http://127.0.0.1:1/hook").await.assert_ok();
+    let receiver = Receiver::answering(&[500, 500, 500, 500]).await;
+    listening(&app, &receiver).await;
     sqlx::query(
         "UPDATE instances SET last_sync_status = 'error: previously down' WHERE id = 'inst-1'",
     )
@@ -278,24 +324,27 @@ async fn an_unreachable_webhook_does_not_break_the_sync() {
     .await
     .unwrap();
 
-    let capture = super::LogCapture::default();
-    let subscriber = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
     let report = sync::sync_instance(
         &app.state,
         "inst-1",
         &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
     )
-    .with_subscriber(tracing::Dispatch::new(subscriber))
     .await
     .unwrap();
 
     assert!(report.media > 0, "the sync must succeed regardless");
-    let log = capture.contents();
-    assert!(
-        log.contains("Notification not delivered") && log.contains("instance_recovered"),
-        "the recovery was never sent, so nothing here could have failed:\n{log}"
-    );
+    // The positive control: the recovery was sent, and failed.
+    assert_eq!(receiver.messages()[0]["event"], "instance_recovered");
+}
+
+/// Nothing answering at the address at all is a failure like any other.
+#[tokio::test]
+async fn an_unreachable_webhook_does_not_fail_the_send() {
+    let app = TestApp::new().await;
+    app.save_setting("notification_webhook_url", "http://127.0.0.1:1/hook").await.assert_ok();
+    tokio::time::timeout(std::time::Duration::from_secs(5), notify::send(&app.state, recovered()))
+        .await
+        .expect("an unreachable webhook held the caller");
 }
 
 /// An unattended apply the Arr refused is the failure nobody is watching for,
@@ -358,4 +407,123 @@ async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
         )
         .await;
     assert!(accepted.status.is_success(), "empty means 'off', not 'invalid'");
+}
+
+// ------------------------------------------------------ signed deliveries
+
+use crate::services::notify::{self, Event};
+
+async fn listening(app: &TestApp, receiver: &Receiver) {
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+}
+
+/// Whether `signature` holds a `v1` entry made with `secret` over the rest.
+fn signed_with(secret: &str, delivery: &Delivery) -> bool {
+    let key = crate::crypto::signing_key(secret).expect("a signing secret");
+    let expected = notify::sign(&[key], &delivery.id, &delivery.timestamp, &delivery.body);
+    delivery.signature.as_deref().unwrap_or_default().split(' ').any(|entry| entry == expected)
+}
+
+fn recovered() -> Event {
+    Event::InstanceRecovered { instance: "Radarr".into() }
+}
+
+/// The secret is shown once, and what it signs checks against it: the id,
+/// the timestamp and the body, as Standard Webhooks writes them.
+#[tokio::test]
+async fn a_notification_is_signed_with_the_secret_shown_once() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    assert_eq!(app.get("/api/v1/notifications/webhook-secret").await.json["signed"], false);
+
+    let minted = app.post("/api/v1/notifications/webhook-secret", serde_json::json!({})).await;
+    let secret = minted.assert_ok()["secret"].as_str().unwrap().to_string();
+    assert!(secret.starts_with("whsec_"), "{secret}");
+    let status = app.get("/api/v1/notifications/webhook-secret").await;
+    assert_eq!(status.assert_ok()["signed"], true);
+    assert!(!status.json.to_string().contains(&secret), "the secret was read back");
+    let stored: String = sqlx::query_scalar("SELECT secret FROM webhook_secrets")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert!(!stored.contains(&secret), "the secret is stored in the clear");
+
+    notify::send(&app.state, recovered()).await;
+    let delivery = receiver.deliveries().pop().expect("a delivery");
+    assert!(delivery.id.starts_with("msg_"), "{delivery:?}");
+    assert!(signed_with(&secret, &delivery), "{delivery:?}");
+    let body: serde_json::Value = serde_json::from_str(&delivery.body).unwrap();
+    assert_eq!(body["type"], "instance.recovered");
+    assert_eq!(body["data"]["instance"], "Radarr");
+
+    let removed = app.delete("/api/v1/notifications/webhook-secret").await;
+    assert_eq!(removed.status, axum::http::StatusCode::NO_CONTENT);
+    notify::send(&app.state, recovered()).await;
+    assert_eq!(receiver.deliveries().pop().unwrap().signature, None);
+}
+
+/// A new secret signs beside the one it replaces for a day, so the receiver
+/// can be given it without missing a message, and alone after that.
+#[tokio::test]
+async fn a_replaced_secret_keeps_signing_for_a_day() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    let mint = || app.post("/api/v1/notifications/webhook-secret", serde_json::json!({}));
+    let old = mint().await.json["secret"].as_str().unwrap().to_string();
+    let new = mint().await.json["secret"].as_str().unwrap().to_string();
+
+    notify::send(&app.state, recovered()).await;
+    let delivery = receiver.deliveries().pop().unwrap();
+    assert!(signed_with(&old, &delivery) && signed_with(&new, &delivery), "{delivery:?}");
+
+    sqlx::query("UPDATE webhook_secrets SET created_at = datetime('now', '-2 days')")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    notify::send(&app.state, recovered()).await;
+    let delivery = receiver.deliveries().pop().unwrap();
+    assert!(signed_with(&new, &delivery), "{delivery:?}");
+    assert!(!signed_with(&old, &delivery), "a secret replaced two days ago still signs");
+}
+
+/// A receiver that fails is tried again under the same id. One that refuses
+/// the message is not: it will refuse it again.
+#[tokio::test]
+async fn a_failed_delivery_is_tried_again_and_a_refused_one_is_not() {
+    let app = TestApp::new().await;
+    let failing = Receiver::answering(&[503, 500]).await;
+    listening(&app, &failing).await;
+    notify::send(&app.state, recovered()).await;
+    let deliveries = failing.awaiting(3).await;
+    assert!(deliveries.iter().all(|d| d.id == deliveries[0].id), "{deliveries:?}");
+
+    let refusing = Receiver::answering(&[400]).await;
+    listening(&app, &refusing).await;
+    notify::send(&app.state, recovered()).await;
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(refusing.deliveries().len(), 1, "a refused message was sent again");
+}
+
+/// What finished well reaches the webhook only when it asked for it.
+#[tokio::test]
+async fn a_completion_is_sent_only_to_a_webhook_that_asked_for_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 1).await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+
+    app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await.assert_ok();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(receiver.deliveries().is_empty(), "a completion nobody asked for was sent");
+
+    app.save_setting("notify_simulation_completed", "true").await.assert_ok();
+    let simulated = app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await;
+    let simulation = simulated.assert_ok()["simulation_id"].clone();
+    receiver.awaiting(1).await;
+    let message = &receiver.messages()[0];
+    assert_eq!(message["type"], "simulation.completed");
+    assert_eq!(message["data"]["simulation_id"], simulation);
+    assert_eq!(message["data"]["moves"], 1);
 }

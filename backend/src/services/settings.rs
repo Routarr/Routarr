@@ -51,6 +51,10 @@ const KNOWN: &[(&str, Kind)] = &[
     ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60)),
     ("certification_regions", Kind::CountryList),
     ("notification_webhook_url", Kind::WebhookUrl),
+    // What the webhook receives beside the failures, which it always does.
+    ("notify_sync_failed", Kind::Bool),
+    ("notify_simulation_completed", Kind::Bool),
+    ("notify_moves_completed", Kind::Bool),
     ("ui_language", Kind::Language),
     ("ui_theme", Kind::Theme),
     // Whether the getting-started guide is still wanted. Written by

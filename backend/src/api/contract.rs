@@ -36,6 +36,7 @@ use crate::models::{
     OverrideWithMedia, SimulationRequest, SimulationResult,
 };
 use crate::services::executor::{ApplyReport, BatchApplyReport};
+use crate::services::notify::Notification;
 use crate::services::placement::Placement;
 use crate::services::sync::SyncReport;
 
@@ -62,6 +63,12 @@ for it and answers its report. Sent with `Prefer: respond-async`, it answers 202
 task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its \
 `result` holds the report once it has finished. A guardrail's question and any refusal still \
 answer at once.\n\n\
+The notification webhook set in Routarr's settings receives a `Notification` for each failure, \
+and for the syncs that failed, the simulations and the moves that finished when asked to. With \
+a signing secret it is signed as Standard Webhooks specifies: `webhook-id`, stable across \
+retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of \
+`id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A \
+delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\n\
 Nothing documented under `/api/v1` is removed or renamed, and no field changes type. New \
 operations, new fields and new values of the open lists (`action`, `status`, `error`, \
 `confirm`, the kinds of a condition) may appear in any release."
@@ -93,7 +100,7 @@ operations, new fields and new values of the open lists (`action`, `status`, `er
         sync_all,
         sync_instance,
     ),
-    components(schemas(ErrorResponse)),
+    components(schemas(ErrorResponse, Notification)),
     modifiers(&Keys, &Failures, &Scopes),
     security(("api_key" = []), ("bearer" = [])),
     tags(

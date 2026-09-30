@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobKind, detached};
 use crate::models::Instance;
+use crate::services::notify;
 use crate::services::routing::{self, format_timestamp};
 use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
@@ -287,6 +288,15 @@ pub async fn apply_simulation_in_batches(
                 .with("planned", report.batches_planned),
         )
         .await;
+        notify::send_later(
+            &state,
+            notify::Event::MovesCompleted {
+                reverted: false,
+                applied: report.applied,
+                failed: report.failed,
+                skipped: report.skipped,
+            },
+        );
 
         Ok(report)
     })
@@ -379,7 +389,8 @@ async fn run_apply(
                 let detail = Detail::new("JobDetailApplied")
                     .with("applied", report.applied)
                     .with("failed", report.failed);
-                close_job(job, report.applied, report.failed, detail).await
+                close_job(job, report.applied, report.failed, detail).await;
+                notify::send_later(&state, moves_completed(false, report));
             }
             Err(e) => job.fail(&e.to_string()).await,
         }
@@ -445,7 +456,8 @@ pub async fn revert_decisions(
                 let detail = Detail::new("JobDetailReverted")
                     .with("reverted", report.applied)
                     .with("failed", report.failed);
-                close_job(job, report.applied, report.failed, detail).await
+                close_job(job, report.applied, report.failed, detail).await;
+                notify::send_later(&state, moves_completed(true, report));
             }
             Err(e) => job.fail(&e.to_string()).await,
         }
@@ -699,6 +711,16 @@ async fn record_failure(
 
 /// Close a job on what it did. Nothing done while something failed is a
 /// failure, whatever the count reads, or the Tasks screen shows it in green.
+/// What the webhook is told when an apply or a revert finishes.
+fn moves_completed(reverted: bool, report: &ApplyReport) -> notify::Event {
+    notify::Event::MovesCompleted {
+        reverted,
+        applied: report.applied,
+        failed: report.failed,
+        skipped: report.skipped,
+    }
+}
+
 async fn close_job(job: crate::jobs::JobHandle, done: usize, failed: usize, detail: Detail) {
     if done == 0 && failed > 0 {
         job.fail_with(detail).await;

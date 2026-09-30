@@ -63,6 +63,7 @@ PAIRS: dict[str, str] = {
     "TestConnectionResponse": "TestConnectionResponse",
     "Minted": "MintedApplication",
     "ErrorResponse": "ErrorBody",
+    "SigningStatus": "WebhookSigningStatus",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
     "Application": "Application",

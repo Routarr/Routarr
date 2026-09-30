@@ -142,6 +142,27 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
         info!("Re-encrypted {resealed} instance API key(s) under the current master key");
     }
 
+    // The notification's signing secrets, opened each time a notification is
+    // signed: one left under a retired key signs nothing, and the receiver
+    // refuses every message without a word here.
+    let secrets: Vec<(i64, String)> =
+        sqlx::query_as("SELECT rowid, secret FROM webhook_secrets").fetch_all(&state.pool).await?;
+    for (rowid, stored) in secrets {
+        if !state.secrets.needs_reseal(&stored) {
+            continue;
+        }
+        let Ok(plaintext) = state.secrets.open(&stored) else {
+            tracing::error!("Cannot decrypt a webhook signing secret. Generate a new one");
+            continue;
+        };
+        sqlx::query("UPDATE webhook_secrets SET secret = ? WHERE rowid = ?")
+            .bind(state.secrets.seal(&plaintext)?)
+            .bind(rowid)
+            .execute(&state.pool)
+            .await?;
+        resealed += 1;
+    }
+
     // The sealed settings, as `KNOWN` marks them. Covering `instances` alone
     // leaves them unreadable after a rotation, and unlike an Arr, a setting
     // that fails to open shows up only as conditions that quietly stop
