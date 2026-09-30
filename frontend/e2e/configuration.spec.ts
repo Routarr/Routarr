@@ -1,4 +1,4 @@
-import { test, expect, api, ARR } from './fixtures';
+import { test, expect, api, API, ARR } from './fixtures';
 
 /**
  * The screens that configure the routing: root folders, exceptions, the rule
@@ -206,6 +206,41 @@ test.describe('the API key card', () => {
     await expect(page.getByText('cannot be changed here')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Regenerate' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Create a key' })).toHaveCount(0);
+  });
+});
+
+test.describe('application keys', () => {
+  /**
+   * The token is read off the screen once and used as another application
+   * would: what the key was given answers, what it was not is refused, and a
+   * revoked key opens nothing.
+   */
+  test('a key made on the screen reads, is held to its scopes and dies revoked', async ({
+    page,
+  }) => {
+    await page.goto('/applications');
+    await page.getByRole('button', { name: 'New key' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('n8n');
+    await dialog.getByRole('button', { name: 'Create a key' }).click();
+
+    const token = (await page.locator('code.mono').textContent())?.trim() ?? '';
+    expect(token).toMatch(/^rtr_/);
+    const call = (path: string, method = 'GET') =>
+      fetch(`${API}${path}`, {
+        method,
+        headers: { 'x-api-key': token, 'content-type': 'application/json' },
+        body: method === 'GET' ? undefined : '{}',
+      });
+
+    expect((await call('/status')).status).toBe(200);
+    expect((await call('/simulate', 'POST')).status).toBe(403);
+    expect((await call('/settings')).status).toBe(403);
+
+    await page.getByRole('button', { name: 'Revoke – n8n' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await expect(page.getByText('No application has a key yet.')).toBeVisible();
+    expect((await call('/status')).status).toBe(401);
   });
 });
 

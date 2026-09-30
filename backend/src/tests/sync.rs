@@ -110,7 +110,9 @@ async fn sync_populates_media_and_root_folders() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    let report = sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.media, 1);
     assert_eq!(report.root_folders, 3);
@@ -132,7 +134,9 @@ async fn sync_decrypts_the_stored_api_key_before_calling_the_arr() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let recorded = arr.recorded();
     assert!(!recorded.api_keys.is_empty());
@@ -149,7 +153,9 @@ async fn sync_records_its_outcome_on_the_instance_and_as_a_job() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let status: String =
         sqlx::query_scalar("SELECT last_sync_status FROM instances WHERE id = 'inst-1'")
@@ -183,7 +189,11 @@ async fn a_failing_sync_is_recorded_rather_than_swallowed() {
     .await
     .unwrap();
 
-    assert!(sync::sync_instance(&app.state, "inst-1", "manual").await.is_err());
+    assert!(
+        sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+            .await
+            .is_err()
+    );
 
     let (status, last_sync, attempted): (String, String, String) = sqlx::query_as(
         "SELECT last_sync_status, last_sync_at, last_sync_attempt_at FROM instances
@@ -233,7 +243,9 @@ async fn media_removed_upstream_is_removed_locally() {
     .await
     .unwrap();
 
-    let report = sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.removed, 1);
     let remaining: Vec<String> =
@@ -268,7 +280,9 @@ async fn an_empty_upstream_response_does_not_wipe_the_library() {
     .await
     .unwrap();
 
-    let report = sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.removed, 0, "a misconfigured Arr must not look like a mass deletion");
     let overrides: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM overrides")
@@ -284,9 +298,13 @@ async fn re_syncing_updates_rather_than_duplicates() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     sqlx::query("UPDATE media SET title = 'Stale title'").execute(&app.state.pool).await.unwrap();
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let titles: Vec<String> =
         sqlx::query_scalar("SELECT title FROM media").fetch_all(&app.state.pool).await.unwrap();
@@ -297,7 +315,7 @@ async fn re_syncing_updates_rather_than_duplicates() {
 async fn syncing_an_unknown_instance_is_a_not_found() {
     let app = TestApp::new().await;
     assert!(matches!(
-        sync::sync_instance(&app.state, "nope", "manual").await,
+        sync::sync_instance(&app.state, "nope", &crate::jobs::Attribution::manual(None)).await,
         Err(crate::error::AppError::NotFound(_))
     ));
 }
@@ -311,7 +329,7 @@ async fn a_concurrent_sync_of_the_same_instance_is_refused() {
     let _held = app.state.jobs.try_lock("sync:inst-1").expect("first lock");
 
     assert!(matches!(
-        sync::sync_instance(&app.state, "inst-1", "manual").await,
+        sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None)).await,
         Err(crate::error::AppError::Conflict(_))
     ));
 }
@@ -323,7 +341,9 @@ async fn sync_all_isolates_per_instance_failures() {
     app.seed_instance_at("good", "radarr", &arr.base_url).await;
     app.seed_instance_at("bad", "sonarr", "http://127.0.0.1:1").await;
 
-    let reports = sync::sync_all_instances(&app.state, "manual").await.unwrap();
+    let reports = sync::sync_all_instances(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(reports.len(), 2, "the failure must appear in the report, not vanish from it");
     let good = reports.iter().find(|r| r.instance_id == "good").unwrap();
@@ -437,7 +457,9 @@ async fn syncing_every_instance_does_them_at_the_same_time() {
     app.seed_instance_at("inst-2", "radarr", &arr.base_url).await;
     app.seed_instance_at("inst-3", "sonarr", &arr.base_url).await;
 
-    let reports = sync::sync_all_instances(&app.state, "manual").await.unwrap();
+    let reports = sync::sync_all_instances(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(reports.len(), 3, "every instance should report");
     assert!(
@@ -463,7 +485,9 @@ async fn the_reports_keep_the_order_the_instances_were_listed_in() {
 
     let expected: Vec<String> =
         app.state.instances(true).await.unwrap().iter().map(|i| i.id.clone()).collect();
-    let reports = sync::sync_all_instances(&app.state, "manual").await.unwrap();
+    let reports = sync::sync_all_instances(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(
         reports.iter().map(|r| r.instance_id.clone()).collect::<Vec<_>>(),
@@ -646,7 +670,7 @@ async fn a_folder_the_arr_reuses_an_id_for_does_not_take_the_old_category_with_i
     // Id 1 was `/movies/old-anime`. The Arr now reports `/movies/standard` under it.
     left_by_a_previous_pass(&app, Some(1), "/movies/old-anime", "anime", "arr").await;
 
-    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     assert_eq!(category_of(&app, "/movies/standard").await, None, "the category followed the id");
 }
@@ -659,7 +683,7 @@ async fn a_category_follows_its_folder_through_a_renumbering() {
     app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
     left_by_a_previous_pass(&app, Some(99), "/movies/kids", "kids", "arr").await;
 
-    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
 }
@@ -704,12 +728,12 @@ async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
             .await
             .unwrap()
     };
-    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
     let read = tags().await;
     assert!(read.contains("anime"), "the fixture carries no tag to begin with: {read}");
 
     arr.break_tag_endpoint();
-    sync::sync_instance(&app.state, "i-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
     assert_eq!(tags().await, read, "a full sync stripped the tags");
 
     app.post(

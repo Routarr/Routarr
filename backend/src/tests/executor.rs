@@ -1376,7 +1376,9 @@ async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
         .await
         .unwrap();
 
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let (root, path): (String, String) =
         sqlx::query_as("SELECT current_root_folder, current_path FROM media WHERE id = 'm-1'")
@@ -1411,7 +1413,9 @@ async fn a_sync_that_read_after_the_move_still_follows_the_arr() {
         .await
         .unwrap();
 
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let root: String = sqlx::query_scalar("SELECT current_root_folder FROM media WHERE id = 'm-1'")
         .fetch_one(&app.state.pool)

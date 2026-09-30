@@ -22,6 +22,7 @@ const STRINGS = {
   NoTaskYet: 'Nothing has run yet',
   JobSync: 'Library sync',
   TriggerSchedule: 'Scheduled',
+  TriggerApi: 'application',
   StatusRunning: 'Running',
   StatusSuccess: 'Succeeded',
   None: '-',
@@ -44,6 +45,18 @@ describe('Tasks', () => {
     const row = screen.getByText('Library sync').closest('tr') as HTMLElement;
     expect(within(row).getByText('Scheduled')).toBeTruthy();
     expect(within(row).getByText('Succeeded')).toBeTruthy();
+  });
+
+  /** An application's key names it, and the task says which one asked. */
+  it('names the application that started a task beside its trigger', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([job({ trigger: 'api', subject: 'n8n' })]),
+    );
+    show();
+
+    const row = (await screen.findByText('Library sync')).closest('tr') as HTMLElement;
+    expect(within(row).getByText('application')).toBeTruthy();
+    expect(within(row).getByText('n8n')).toBeTruthy();
   });
 
   /** Every move of an apply refused is a failure the task counts itself. */

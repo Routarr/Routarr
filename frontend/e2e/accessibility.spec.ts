@@ -7,7 +7,7 @@ import { screenKey } from '../src/lib/routes';
 
 /**
  * A row in every table the screens draw: two rules, an exception, a pinned
- * case, a move applied and one still proposed. The reset library has none of
+ * case, an application key, a move applied and one still proposed. The reset library has none of
  * them, and a sweep over a table with no rows checks its header and nothing a
  * row carries: a row action, a checkbox, a badge.
  *
@@ -49,6 +49,10 @@ async function seedRows(): Promise<void> {
   await api('/rule-tests', {
     method: 'POST',
     body: JSON.stringify({ name: 'Akira is anime', media_id: film('Akira') }),
+  });
+  await api('/applications', {
+    method: 'POST',
+    body: JSON.stringify({ name: 'Home Assistant', scopes: ['operate'], may_confirm: ['batch'] }),
   });
 
   const { decisions } = (await apiWhenFree('/simulate', {
@@ -639,6 +643,11 @@ const MODALS: {
     path: '/overrides',
     covers: 'pages/Overrides.svelte',
     open: (p) => p.getByRole('button', { name: 'New exception' }).click(),
+  },
+  {
+    path: '/applications',
+    covers: 'pages/Applications.svelte',
+    open: (p) => p.getByRole('button', { name: 'New key' }).click(),
   },
   {
     path: '/root-folders',

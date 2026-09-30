@@ -206,7 +206,13 @@ async fn ready_to_apply(arr: &FakeArr) -> TestApp {
 
     // Sync first so the root folders exist to be mapped. The mapping is the
     // user's and the sync preserves it, so the tick's own sync will not undo it.
-    crate::services::sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    crate::services::sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::manual(None),
+    )
+    .await
+    .unwrap();
 
     sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES ('cat-anime', 'anime')")
         .execute(&app.state.pool)

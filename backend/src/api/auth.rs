@@ -7,9 +7,11 @@
 //! reads. Nothing downstream knows which mode produced it, and that is the
 //! point: adding a mode is one arm here, not a change everywhere.
 //!
-//! There are no roles. The Servarr applications have none either: their `User`
-//! model carries a name and a password hash and nothing else, and a single
-//! account. Access is all or nothing, and who gets in is the mode's business.
+//! There are no roles among people. The Servarr applications have none either:
+//! their `User` model carries a name and a password hash and nothing else, and
+//! a single account. A person's access is all or nothing, and who gets in is
+//! the mode's business. An application key is the one exception: it reaches
+//! only what its scopes grant, whatever the mode (`api::applications`).
 
 use std::net::IpAddr;
 
@@ -23,7 +25,10 @@ use subtle::ConstantTimeEq;
 use crate::AppState;
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
+use crate::jobs::Attribution;
 use crate::services::accounts;
+use crate::services::applications::{self, Grant, TOKEN_PREFIX};
+use crate::services::executor::Confirmed;
 
 /// The cookie the `forms` mode sets. Named for the application, since a browser
 /// pointed at several homelab services holds all of their cookies at once.
@@ -36,31 +41,85 @@ pub const OIDC_COOKIE: &str = "routarr_oidc";
 
 /// Who is making a request, once a mode has decided.
 ///
-/// It carries no role on purpose: there is one level of access, and the mode
-/// decides who reaches it. The subject is what the `subject` column of
-/// `decisions` and `execution_logs` records, when the mode names anybody (see
-/// [`Identity::actor`]).
+/// A person carries no role: there is one level of access, and the mode
+/// decides who reaches it. An application carries its [`Grant`]. The subject
+/// is what the `subject` column of `jobs`, `decisions`, `execution_logs` and
+/// `overrides` records, when anybody is named (see [`Identity::actor`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Identity {
     pub subject: String,
     pub source: AuthMode,
+    /// What an application key allows. `None` for a person, who may do
+    /// everything.
+    pub application: Option<Grant>,
 }
 
 impl Identity {
     /// The caller nobody had to name: `none` lets everyone through under it.
     fn anonymous(source: AuthMode) -> Self {
-        Self { subject: "anonymous".to_string(), source }
+        Self { subject: "anonymous".to_string(), source, application: None }
     }
 
-    /// The name worth recording on a write, if the mode vouched for one.
+    fn person(subject: String, source: AuthMode) -> Self {
+        Self { subject, source, application: None }
+    }
+
+    fn application(grant: Grant, source: AuthMode) -> Self {
+        Self { subject: grant.name.clone(), source, application: Some(grant) }
+    }
+
+    /// The name worth recording on a write, if anybody vouched for one.
     ///
     /// `none` and `external` let everybody through under one shared subject, so
     /// storing it would fill an audit column with a word that names nobody,
-    /// and that reads, on the History screen, exactly like an attribution.
+    /// and that reads, on the History screen, exactly like an attribution. An
+    /// application key names its application in every mode.
     pub fn actor(&self) -> Option<&str> {
-        match self.source {
-            AuthMode::None | AuthMode::External => None,
-            _ => Some(&self.subject),
+        match (&self.application, self.source) {
+            (Some(grant), _) => Some(&grant.name),
+            (None, AuthMode::None | AuthMode::External) => None,
+            (None, _) => Some(&self.subject),
+        }
+    }
+
+    /// What a write this caller asked for is recorded as.
+    pub fn attribution(&self) -> Attribution {
+        match &self.application {
+            Some(grant) => Attribution::application(&grant.name),
+            None => Attribution::manual(self.actor()),
+        }
+    }
+
+    /// The guardrail answers this caller may give, out of those it sent.
+    pub fn answerable(&self, sent: &Confirmed) -> Confirmed {
+        match &self.application {
+            Some(grant) => sent.only(|name| grant.may_answer(name)),
+            None => sent.clone(),
+        }
+    }
+
+    /// A guardrail's question, marked for a person when this caller may not
+    /// answer it.
+    pub fn refer(&self, error: AppError) -> AppError {
+        match (error, &self.application) {
+            (AppError::ConfirmationRequired { kind, message }, Some(grant))
+                if !grant.may_answer(kind) =>
+            {
+                AppError::ConfirmationWithheld { kind, message }
+            }
+            (error, _) => error,
+        }
+    }
+
+    /// Refuse a move of the files a key was not allowed to make.
+    pub fn may_move_files(&self, move_files: bool) -> AppResult<()> {
+        match &self.application {
+            Some(grant) if move_files && !grant.may_move_files => Err(AppError::Forbidden(
+                "This application key may not move files. Send move_files: false, or ask the \
+                 owner for a key that may."
+                    .into(),
+            )),
+            _ => Ok(()),
         }
     }
 }
@@ -74,6 +133,27 @@ pub async fn authenticate(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
+    // An application key, in every mode: held to its scopes, and refused
+    // outright when it names no live key. Letting a revoked key fall through to
+    // a mode that asks nothing would hand it more than it ever had. The master
+    // key is looked at first, so one that happens to share the prefix is still
+    // the master key.
+    if api_key_identity(&state, request.headers()).is_none()
+        && let Some(token) =
+            extract_key(request.headers()).filter(|key| key.starts_with(TOKEN_PREFIX))
+    {
+        let grant = match applications::resolve(&state.pool, &token).await {
+            Ok(Some(grant)) => grant,
+            Ok(None) => return unknown_application_key(),
+            Err(e) => return e.into_response(),
+        };
+        if let Err(refusal) = super::applications::admit(&grant, &request) {
+            return refusal.into_response();
+        }
+        request.extensions_mut().insert(Identity::application(grant, state.config.auth_mode));
+        return next.run(request).await;
+    }
+
     let mut renewal = None;
     let identity = match state.config.auth_mode {
         // Nothing is asked for, and no name a proxy sends is read: the proxy in
@@ -139,6 +219,18 @@ pub async fn authenticate(
     }
 }
 
+/// The refusal of a token shaped like an application key that names no live one.
+fn unknown_application_key() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        axum::Json(serde_json::json!({
+            "error": "unauthorized",
+            "message": "This application key does not exist or was revoked.",
+        })),
+    )
+        .into_response()
+}
+
 /// The refusal of a write whose Origin is another site.
 fn foreign_origin() -> Response {
     forbidden(
@@ -152,7 +244,7 @@ fn api_key_identity(state: &AppState, headers: &HeaderMap) -> Option<Identity> {
     let expected = state.api_key()?;
     extract_key(headers)
         .filter(|provided| constant_time_eq(provided, &expected))
-        .map(|_| Identity { subject: "apikey".to_string(), source: AuthMode::ApiKey })
+        .map(|_| Identity::person("apikey".to_string(), AuthMode::ApiKey))
 }
 
 /// The identity a live session cookie names, when the mode in force opened it,
@@ -169,7 +261,7 @@ async fn session_identity(
         .renewed
         .then(|| session_cookie(state, headers, &id, accounts::SESSION_DAYS))
         .and_then(|cookie| axum::http::HeaderValue::from_str(&cookie).ok());
-    Some((Identity { subject: session.subject, source: mode }, renewal))
+    Some((Identity::person(session.subject, mode), renewal))
 }
 
 /// One named cookie out of the header, without a crate for it.
@@ -725,7 +817,7 @@ mod tests {
     /// A subject worth storing, and the three cases where there is none.
     #[test]
     fn only_a_mode_that_names_somebody_produces_an_actor() {
-        let named = Identity { subject: "alice".to_string(), source: AuthMode::Forms };
+        let named = Identity::person("alice".to_string(), AuthMode::Forms);
         assert_eq!(named.actor(), Some("alice"));
 
         // `none` and `external` share one subject that names nobody, and storing

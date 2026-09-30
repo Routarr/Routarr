@@ -127,7 +127,12 @@ async fn an_instance_going_down_notifies_once_not_on_every_tick() {
 
     // Three consecutive failed syncs, as the scheduler would produce.
     for _ in 0..3 {
-        let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
+        let _ = sync::sync_instance(
+            &app.state,
+            "inst-1",
+            &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+        )
+        .await;
     }
 
     let messages = receiver.messages();
@@ -149,7 +154,12 @@ async fn coming_back_closes_the_loop() {
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
-    let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
+    let _ = sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await;
 
     // Point it at a reachable Arr and sync again.
     sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
@@ -157,7 +167,13 @@ async fn coming_back_closes_the_loop() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
+    sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await
+    .unwrap();
 
     let messages = receiver.messages();
     assert_eq!(messages.len(), 2);
@@ -174,7 +190,13 @@ async fn a_healthy_instance_is_never_worth_a_message() {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
     for _ in 0..3 {
-        sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
+        sync::sync_instance(
+            &app.state,
+            "inst-1",
+            &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+        )
+        .await
+        .unwrap();
     }
 
     assert!(receiver.messages().is_empty(), "success is not an event");
@@ -189,7 +211,12 @@ async fn nothing_is_sent_once_the_webhook_is_cleared() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
-    let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
+    let _ = sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await;
     assert_eq!(receiver.messages().len(), 1, "the unreachable instance was not notified");
 
     app.save_setting("notification_webhook_url", "").await.assert_ok();
@@ -198,7 +225,13 @@ async fn nothing_is_sent_once_the_webhook_is_cleared() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
+    sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(receiver.messages().len(), 1, "the recovery went to a cleared webhook");
 }
@@ -210,7 +243,12 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
-    let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
+    let _ = sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await;
 
     let message = receiver.messages().remove(0);
     let text = message["message"].as_str().unwrap();
@@ -243,10 +281,14 @@ async fn an_unreachable_webhook_does_not_break_the_sync() {
     let capture = super::LogCapture::default();
     let subscriber = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
-    let report = sync::sync_instance(&app.state, "inst-1", "schedule")
-        .with_subscriber(tracing::Dispatch::new(subscriber))
-        .await
-        .unwrap();
+    let report = sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .with_subscriber(tracing::Dispatch::new(subscriber))
+    .await
+    .unwrap();
 
     assert!(report.media > 0, "the sync must succeed regardless");
     let log = capture.contents();

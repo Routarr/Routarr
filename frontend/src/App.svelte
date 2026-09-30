@@ -23,6 +23,7 @@
     '/jobs': () => import('./pages/Jobs.svelte'),
     '/logs': () => import('./pages/Logs.svelte'),
     '/health': () => import('./pages/Health.svelte'),
+    '/applications': () => import('./pages/Applications.svelte'),
     '/settings': () => import('./pages/Settings.svelte'),
   };
 

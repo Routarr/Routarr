@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
-use crate::jobs::{Detail, FULL_SIMULATION, JobKind, TRIGGER_SCHEDULE};
+use crate::jobs::{Attribution, Detail, FULL_SIMULATION, JobKind, TRIGGER_SCHEDULE};
 use crate::services::{auto_apply, backup, enrichment, maintenance, routing, sync};
 use crate::state::AppState;
 
@@ -128,7 +128,12 @@ pub(crate) async fn record_panic(state: &AppState, cause: &str) {
     error!("Scheduler pass panicked and was restarted: {cause}");
     if let Ok(job) = state
         .jobs
-        .start(JobKind::Scheduler, TRIGGER_SCHEDULE, None, Detail::new("JobDetailScheduledPass"))
+        .start(
+            JobKind::Scheduler,
+            &Attribution::unattended(TRIGGER_SCHEDULE),
+            None,
+            Detail::new("JobDetailScheduledPass"),
+        )
         .await
     {
         job.fail_with(Detail::new("JobDetailPanicked").with("cause", cause)).await;
@@ -256,7 +261,9 @@ pub(crate) async fn tick(
             continue;
         }
 
-        match sync::sync_instance(state, &instance.id, TRIGGER_SCHEDULE).await {
+        match sync::sync_instance(state, &instance.id, &Attribution::unattended(TRIGGER_SCHEDULE))
+            .await
+        {
             Ok(_) => {
                 last_sync.insert(instance.id.clone(), now);
                 synced_any = true;
@@ -301,7 +308,7 @@ pub(crate) async fn tick(
             tokio::time::Instant::now().duration_since(last) >= Duration::from_secs(hours * 3600)
         });
         if due {
-            match backup::create(state, TRIGGER_SCHEDULE).await {
+            match backup::create(state, &Attribution::unattended(TRIGGER_SCHEDULE)).await {
                 // Stamped on an attempt that happened, not on one that worked.
                 // Recorded on success alone, a backup failing on a full disk
                 // would be retried every tick: at the default interval,
@@ -328,7 +335,7 @@ pub(crate) async fn tick(
     let maintenance_due =
         last_maintenance.is_none_or(|last| now.duration_since(last) >= Duration::from_secs(3600));
     if maintenance_due {
-        match maintenance::run(state, TRIGGER_SCHEDULE).await {
+        match maintenance::run(state, &Attribution::unattended(TRIGGER_SCHEDULE)).await {
             Ok(_) => *last_maintenance = Some(now),
             // Same reason as the backup above: an hourly pass that fails must
             // not become a pass on every tick.

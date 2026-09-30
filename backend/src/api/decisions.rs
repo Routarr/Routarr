@@ -7,7 +7,6 @@ use sqlx::AssertSqlSafe;
 
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
-use crate::jobs::Attribution;
 use crate::models::*;
 use crate::services::executor;
 use crate::state::AppState;
@@ -161,16 +160,10 @@ pub async fn apply(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<ApplyDecisionsRequest>,
 ) -> AppResult<Json<executor::ApplyReport>> {
-    Ok(Json(
-        executor::apply_decisions(
-            &state,
-            &req.decision_ids,
-            req.move_files,
-            &req.confirm,
-            &Attribution::manual(identity.actor()),
-        )
-        .await?,
-    ))
+    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
+        executor::apply_decisions(&state, &req.decision_ids, req.move_files, &confirmed, &by).await
+    };
+    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
 }
 
 /// Apply every move a simulation proposed, in slices of `batch_limit`.
@@ -179,16 +172,11 @@ pub async fn apply_all(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<ApplyAllRequest>,
 ) -> AppResult<Json<executor::BatchApplyReport>> {
-    Ok(Json(
-        executor::apply_simulation_in_batches(
-            &state,
-            &req.simulation_id,
-            req.move_files,
-            &req.confirm,
-            &Attribution::manual(identity.actor()),
-        )
-        .await?,
-    ))
+    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
+        let (simulation, move_files) = (&req.simulation_id, req.move_files);
+        executor::apply_simulation_in_batches(&state, simulation, move_files, &confirmed, &by).await
+    };
+    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
 }
 
 /// Undo previously applied moves.
@@ -197,16 +185,24 @@ pub async fn revert(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<RevertDecisionsRequest>,
 ) -> AppResult<Json<executor::ApplyReport>> {
-    Ok(Json(
-        executor::revert_decisions(
-            &state,
-            &req.decision_ids,
-            req.move_files,
-            &req.confirm,
-            &Attribution::manual(identity.actor()),
-        )
-        .await?,
-    ))
+    let run = async |confirmed: executor::Confirmed, by: crate::jobs::Attribution| {
+        executor::revert_decisions(&state, &req.decision_ids, req.move_files, &confirmed, &by).await
+    };
+    Ok(Json(on_behalf_of(&identity, req.move_files, &req.confirm, run).await?))
+}
+
+/// Run an executor call as `identity` may: a key that may not move files is
+/// refused before anything runs, the answers it was not given are dropped, and
+/// a question it may not answer comes back marked for a person. One function
+/// for the three routes that move files, so none of them forgets a step.
+async fn on_behalf_of<T>(
+    identity: &crate::api::auth::Identity,
+    move_files: bool,
+    sent: &executor::Confirmed,
+    run: impl AsyncFnOnce(executor::Confirmed, crate::jobs::Attribution) -> AppResult<T>,
+) -> AppResult<T> {
+    identity.may_move_files(move_files)?;
+    run(identity.answerable(sent), identity.attribution()).await.map_err(|e| identity.refer(e))
 }
 
 fn decision_from_row(r: DecisionRow) -> Decision {

@@ -56,7 +56,8 @@ async function apiWhenFree(path: string, init: RequestInit): Promise<unknown> {
 /**
  * Put the instance back the way every test expects to find it: one Radarr, its
  * root folders mapped to `standard` and `anime` and no other category, no
- * rules, no pinned case, no pending decision, dry-run on, in English.
+ * rules, no pinned case, no application key, no pending decision, dry-run on,
+ * in English.
  *
  * Done through the API rather than against the database, so a reset that the
  * API cannot express is a reset the product cannot express either.
@@ -78,6 +79,10 @@ async function resetLibrary(): Promise<string> {
   const cases = (await api('/rule-tests')) as { id: string }[];
   for (const pinned of cases) {
     await api(`/rule-tests/${pinned.id}`, { method: 'DELETE' });
+  }
+  const keys = (await api('/applications')) as { id: string }[];
+  for (const key of keys) {
+    await api(`/applications/${key.id}`, { method: 'DELETE' });
   }
   // Nothing refers to a category once the rules and the folders are gone, so
   // one a test created or renamed can go.
@@ -201,4 +206,4 @@ export const test = base.extend<{ instanceId: string }>({
   ],
 });
 
-export { expect, api, apiWhenFree, openScreen, screenShown, ARR };
+export { expect, api, apiWhenFree, openScreen, screenShown, API, ARR };

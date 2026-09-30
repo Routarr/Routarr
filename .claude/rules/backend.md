@@ -9,15 +9,20 @@ paths:
 
 - Axum 0.8 writes a path parameter `{id}`, never `:id`.
 - The live API key is `state.api_key()`. `config.api_key` holds only `ROUTARR_API_KEY`.
-- A write a person asked for takes `Extension<Identity>` and records
-  `Attribution::manual(identity.actor())`. The scheduler and the webhook pass
-  `Attribution::unattended(trigger)`. Mind the names: `Identity::actor()` fills the `subject`
-  column, and the `actor` column of `decisions` and `execution_logs` holds the trigger.
+- A write somebody asked for takes `Extension<Identity>` and records `identity.attribution()`:
+  the `manual` trigger for a person, `api` and its name for an application key. The scheduler and
+  the webhook pass `Attribution::unattended(trigger)`. Mind the names: `Identity::actor()` fills
+  the `subject` column, and the `actor` column of `decisions` and `execution_logs` holds the
+  trigger.
 - `scripts/smoke-image.sh` looks for two log lines of `backend/src/main.rs`, `Generated an API
   key` and `Routarr stopped cleanly`: reworded, either fails the image check in CI.
-- A refusal the user must read is `BadRequest`, `NotFound` or `Conflict`. `Database`,
-  `Serialization`, `Config` and `Internal` log their text and answer a generic 500
-  (`backend/src/error.rs`).
+- A new route is the owner's until `GRANTS` in `backend/src/api/applications.rs` names it with a
+  scope, and a granted route is one an outside application relies on. A handler that moves files
+  runs the executor through `on_behalf_of` (`backend/src/api/decisions.rs`), which holds an
+  application key to the guardrails and file moves it was given.
+- A refusal the user must read is `BadRequest`, `NotFound` or `Conflict`, and `Forbidden` what a
+  known caller may not do. `Database`, `Serialization`, `Config` and `Internal` log their text
+  and answer a generic 500 (`backend/src/error.rs`).
 
 ## One answer per question
 

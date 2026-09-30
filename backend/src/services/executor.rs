@@ -76,14 +76,10 @@ pub mod confirm {
     /// The destination is not answering right now.
     pub const UNREACHABLE: &str = "unreachable";
 
-    /// Every name above, for the one caller that answers all of them.
-    ///
-    /// `Confirmed::all()` is built from this rather than listing them again:
-    /// written twice, a guardrail added to the module and forgotten in the list
-    /// refuses a caller that answered every question, and says nothing about
-    /// why. Test-only, because in the application answering everything at once
-    /// would be the blanket flag `Confirmed` exists to prevent.
-    #[cfg(test)]
+    /// Every name above: what an application key may be allowed to answer,
+    /// and what `Confirmed::all()` builds from in tests. Written once, because
+    /// a guardrail added to the module and forgotten in a second list is one
+    /// no key can ever be given, and one the tests never answer.
     pub const ALL: &[&str] = &[CAPACITY, THRESHOLD, BATCH, UNREACHABLE];
 }
 
@@ -104,6 +100,11 @@ impl Confirmed {
 
     pub fn has(&self, kind: &str) -> bool {
         self.0.iter().any(|answered| answered == kind)
+    }
+
+    /// The answers `keep` accepts, the others dropped as if never sent.
+    pub fn only(&self, keep: impl Fn(&str) -> bool) -> Self {
+        Self(self.0.iter().filter(|answered| keep(answered)).cloned().collect())
     }
 
     /// Every question answered, for tests, which assert what happens *after*
@@ -224,7 +225,7 @@ pub async fn apply_simulation_in_batches(
         .jobs
         .start(
             JobKind::Apply,
-            &by.trigger,
+            by,
             None,
             Detail::new("JobDetailApplyingBatches")
                 .with("count", ids.len())
@@ -347,7 +348,7 @@ async fn run_apply(
         .jobs
         .start(
             JobKind::Apply,
-            &by.trigger,
+            by,
             None,
             Detail::new("JobDetailApplying").with("count", decision_ids.len()),
         )
@@ -414,7 +415,7 @@ pub async fn revert_decisions(
         .jobs
         .start(
             JobKind::Revert,
-            &by.trigger,
+            by,
             None,
             Detail::new("JobDetailReverting").with("count", decision_ids.len()),
         )

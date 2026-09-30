@@ -50,6 +50,16 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `ROUTARR_API_KEY` is set: the variable wins, so a key minted here would live
   until the next restart and no further. A leaked key is therefore revoked in a
   click rather than a maintenance window.
+- **An application key reaches only what its scopes grant, in every mode.**
+  The owner makes one per application on the Applications screen. It reads,
+  and may also operate (sync, simulate, apply, revert) or write (exceptions),
+  each granted on its own. A route no scope names is refused to every such
+  key: the settings, the instances, the rules, the backups, the logs and the
+  keys themselves stay the owner's. It answers only the guardrails it was
+  given and moves files only if allowed, so a question it may not answer comes
+  back marked for a person. Its token is shown once and stored as a SHA-256
+  hash, and a revoked or unknown one is refused even in `none` and `external`,
+  where a request with no key at all is let through.
 - **The generated key and the generated password are printed once**, at the
   moment they are created, beside the path of the file holding them. That is a
   deliberate trade: without it a first run needs shell access into the
@@ -164,8 +174,8 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **The API key is a full-access credential.** Whoever holds it can download a
   backup, which carries the master key, and can point a connection test or the
   outbound notification at any `http(s)` address the server can reach, the
-  local network included. There is no read-only key to hand out, so treat the
-  one key as you would the Arr's own.
+  local network included. Treat it as you would the Arr's own, and give another
+  application a key of its own instead, which reaches none of that.
 - **That includes replacing the key itself.** `POST /auth/api-key` sits behind
   the same middleware, so a stolen key can rotate itself. In `apikey` mode,
   where it is the only credential, that locks the operator out of the interface:
@@ -184,4 +194,5 @@ Not vulnerabilities to report, but decisions, with reasons.
   a *name*: the account or the provider's subject is stored beside every
   decision and every write it causes, so "who moved this" has an answer past
   "somebody, manually". The key is one such name, `apikey`, which is how a
-  script is told apart from a person.
+  script is told apart from a person, and an application key writes its
+  application's name, under the trigger `api`.

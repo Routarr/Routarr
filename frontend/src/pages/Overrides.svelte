@@ -148,7 +148,12 @@
                 <td><span class="badge badge-value">{override.target_category}</span></td>
                 <td class="text-muted">{override.reason ?? t('None')}</td>
                 <td class="cell-timestamp">
-                  {formatTimestamp(override.created_at, i18n.language)}
+                  <span>{formatTimestamp(override.created_at, i18n.language)}</span>
+                  {#if override.subject}
+                    <span class="text-xs text-muted" title={t('PerformedBy')}
+                      >{override.subject}</span
+                    >
+                  {/if}
                 </td>
                 <td>
                   <button

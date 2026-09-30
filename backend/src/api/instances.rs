@@ -4,9 +4,10 @@ use super::Json;
 use axum::extract::{Path, State};
 use uuid::Uuid;
 
+use crate::api::auth::Identity;
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
-use crate::jobs::{TRIGGER_MANUAL, detached};
+use crate::jobs::detached;
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::connection::{self, Cause};
@@ -214,19 +215,22 @@ async fn check(
 }
 
 /// Sync every enabled instance.
-pub async fn sync_all(State(state): State<AppState>) -> AppResult<Json<Vec<sync::SyncReport>>> {
-    let reports =
-        detached(async move { sync::sync_all_instances(&state, TRIGGER_MANUAL).await }).await?;
+pub async fn sync_all(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+) -> AppResult<Json<Vec<sync::SyncReport>>> {
+    let by = identity.attribution();
+    let reports = detached(async move { sync::sync_all_instances(&state, &by).await }).await?;
     Ok(Json(reports))
 }
 
 pub async fn sync_now(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Path(id): Path<String>,
 ) -> AppResult<Json<sync::SyncReport>> {
-    let (task_state, task_id) = (state.clone(), id.clone());
-    let synced =
-        detached(async move { sync::sync_instance(&task_state, &task_id, TRIGGER_MANUAL).await });
+    let (task_state, task_id, by) = (state.clone(), id.clone(), identity.attribution());
+    let synced = detached(async move { sync::sync_instance(&task_state, &task_id, &by).await });
     let error = match synced.await {
         Ok(report) => return Ok(Json(report)),
         Err(error) => error,
