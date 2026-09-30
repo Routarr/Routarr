@@ -9,6 +9,7 @@ pub mod maintenance;
 pub mod metadata;
 pub mod notify;
 pub mod oidc;
+pub mod placement;
 pub mod rate_limit;
 pub mod routing;
 pub mod rule_engine;

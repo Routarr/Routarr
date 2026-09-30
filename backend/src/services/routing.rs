@@ -427,7 +427,23 @@ pub async fn route_one(
     media: &Media,
     now: chrono::DateTime<Utc>,
 ) -> AppResult<ItemRoute> {
-    let ctx = load_context(pool, Scope::Item(media)).await?;
+    route_one_with(pool, media, now, HashMap::new()).await
+}
+
+/// `route_one`, with answers a source gave just now where the cache has none.
+///
+/// Nothing is stored: a caller asking where a title would go must not fill the
+/// cache for a title the library does not hold.
+pub async fn route_one_with(
+    pool: &SqlitePool,
+    media: &Media,
+    now: chrono::DateTime<Utc>,
+    fresh: HashMap<(String, String, String), ProviderMetadata>,
+) -> AppResult<ItemRoute> {
+    let mut ctx = load_context(pool, Scope::Item(media)).await?;
+    for (key, answer) in fresh {
+        ctx.metadata.entry(key).or_insert(answer);
+    }
     let route = route(&ctx, media, &ctx.rules, now);
     let override_category = ctx.overrides.get(&media.id).cloned();
     Ok(ItemRoute { rules: ctx.rules, override_category, route })
@@ -712,6 +728,27 @@ pub const MEDIA_COLUMNS: &str = "id, instance_id, arr_id, media_type, title, sor
      tmdb_id, tvdb_id, imdb_id, current_path, current_root_folder, monitored, has_files,
      status, added_at, series_type, size_on_disk, season_count, tags, genres,
      original_language, certification, last_synced_at";
+
+/// The library rows of a title another service names, on one instance or all.
+pub async fn media_by_external_id(
+    pool: &SqlitePool,
+    media_type: &str,
+    id: &ExternalId,
+    instance_id: Option<&str>,
+) -> AppResult<Vec<Media>> {
+    Ok(sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT {MEDIA_COLUMNS} FROM media
+          WHERE media_type = ? AND {} = ? AND (? IS NULL OR instance_id = ?)
+          ORDER BY instance_id, id",
+        id.column()
+    )))
+    .bind(media_type)
+    .bind(id.value())
+    .bind(instance_id)
+    .bind(instance_id)
+    .fetch_all(pool)
+    .await?)
+}
 
 /// Load every rule, tolerating rows whose JSON payload got corrupted.
 pub async fn load_rules(pool: &SqlitePool) -> AppResult<Vec<Rule>> {

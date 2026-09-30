@@ -71,6 +71,27 @@ pub struct RuleMatch {
     pub excluded_by: Option<ConditionOutcome>,
 }
 
+/// The rules that apply to `media`, in the order they are tried: enabled,
+/// covering its type and its instance.
+///
+/// Lower priority number wins, ties break on name and then on id, so the
+/// outcome does not depend on the order SQLite returns rows in. Name alone is
+/// not enough: nothing stops two rules sharing one (the interface accepts the
+/// same name twice and duplication only appends "(copy)"), and two such rules
+/// can target different categories.
+pub fn in_order<'a>(rules: &'a [Rule], media: &Media) -> Vec<&'a Rule> {
+    let mut applicable: Vec<&Rule> = rules
+        .iter()
+        .filter(|r| r.enabled)
+        .filter(|r| r.covers_media_type(&media.media_type))
+        .filter(|r| r.covers_instance(&media.instance_id))
+        .collect();
+    applicable.sort_by(|a, b| {
+        a.priority.cmp(&b.priority).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id))
+    });
+    applicable
+}
+
 /// Marker used in place of a rule id when a human decision wins.
 pub const OVERRIDE_RULE_ID: &str = "override";
 
@@ -120,26 +141,10 @@ pub fn evaluate_rules(
         };
     }
 
-    let mut applicable: Vec<&Rule> = rules
-        .iter()
-        .filter(|r| r.enabled)
-        .filter(|r| r.covers_media_type(&ctx.media.media_type))
-        .filter(|r| r.covers_instance(&ctx.media.instance_id))
-        .collect();
-
-    // Lower priority number wins, ties break on name and then on id, so the
-    // outcome does not depend on the order SQLite returns rows in. Name alone
-    // is not enough: nothing stops two rules sharing one (the interface
-    // accepts the same name twice and duplication only appends "(copy)"), and
-    // two such rules can target different categories.
-    applicable.sort_by(|a, b| {
-        a.priority.cmp(&b.priority).then_with(|| a.name.cmp(&b.name)).then_with(|| a.id.cmp(&b.id))
-    });
-
     let mut matches: Vec<RuleMatch> = Vec::new();
     let mut excluded: Vec<RuleMatch> = Vec::new();
 
-    for rule in applicable {
+    for rule in in_order(rules, ctx.media) {
         let (matched, evaluations) = evaluate_conditions(&rule.conditions, rule.match_mode, ctx);
         if !matched {
             continue;

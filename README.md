@@ -38,6 +38,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Keys for other applications**, each limited to what you allow: reading, operating (sync,
   simulate, apply, revert) or setting exceptions, with the guardrails it may answer on its own.
   What they may call is a stable contract, described at `/api/v1/openapi.json`.
+- **Where would it go?** Ask by TMDb, TheTVDB or IMDb id, before the title is even added: a
+  request bot learns the folder the rules choose, and nothing is stored.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
   or Apprise.
 - **26 languages**.

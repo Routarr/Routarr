@@ -90,3 +90,40 @@ pub struct MediaQuery {
     /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
 }
+
+/// The id another service gives a title.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalId {
+    Tmdb(i64),
+    Tvdb(i64),
+    Imdb(String),
+}
+
+impl ExternalId {
+    /// The one id among these, or `None` when there is none or more than one.
+    pub fn one_of(tmdb: Option<i64>, tvdb: Option<i64>, imdb: Option<&str>) -> Option<Self> {
+        match (tmdb, tvdb, imdb.map(str::trim)) {
+            (Some(tmdb), None, None) => Some(Self::Tmdb(tmdb)),
+            (None, Some(tvdb), None) => Some(Self::Tvdb(tvdb)),
+            (None, None, Some(imdb)) if !imdb.is_empty() => Some(Self::Imdb(imdb.to_string())),
+            _ => None,
+        }
+    }
+
+    /// The `media` column holding this id.
+    pub fn column(&self) -> &'static str {
+        match self {
+            Self::Tmdb(_) => "tmdb_id",
+            Self::Tvdb(_) => "tvdb_id",
+            Self::Imdb(_) => "imdb_id",
+        }
+    }
+
+    /// The id as that column compares it.
+    pub fn value(&self) -> String {
+        match self {
+            Self::Tmdb(id) | Self::Tvdb(id) => id.to_string(),
+            Self::Imdb(id) => id.clone(),
+        }
+    }
+}

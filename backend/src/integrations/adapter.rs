@@ -152,6 +152,15 @@ impl ArrAdapter {
         }
     }
 
+    /// A title as another service names it, whether this Arr's library holds
+    /// it or not. `None` when the Arr knows no such title.
+    pub async fn lookup(&self, id: &crate::models::ExternalId) -> AppResult<Option<ArrMedia>> {
+        match self {
+            Self::Radarr(c) => Ok(c.lookup_movie(id).await?.map(movie_to_media)),
+            Self::Sonarr(c) => Ok(c.lookup_series(id).await?.map(series_to_media)),
+        }
+    }
+
     /// Get the instance's tag catalogue, so ids can be resolved to labels.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTag>> {
         let tags = match self {

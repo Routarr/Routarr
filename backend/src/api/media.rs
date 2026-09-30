@@ -3,7 +3,7 @@
 use super::{Json, Query};
 use axum::extract::{Path, State};
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
 use crate::api::{Page, paginate};
@@ -174,6 +174,82 @@ pub async fn list(
     let total = count_query.fetch_one(&state.pool).await?;
 
     Ok(Json(Page::new(rows, page, per_page, total)))
+}
+
+/// A title named by the id another service gives it, on every instance that
+/// holds it or on one.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ExternalTitle {
+    /// `movie` or `series`.
+    #[serde(rename = "type")]
+    pub media_type: String,
+    /// The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`
+    /// and `imdb`.
+    pub tmdb: Option<i64>,
+    /// The title's TheTVDB id.
+    pub tvdb: Option<i64>,
+    /// The title's IMDb id, as `tt0133093`.
+    pub imdb: Option<String>,
+    /// Only the copy on this instance.
+    pub instance: Option<String>,
+}
+
+impl ExternalTitle {
+    /// The title's type and the one id naming it, or why they do not name one.
+    pub fn named(&self) -> AppResult<(&str, ExternalId)> {
+        if !matches!(self.media_type.as_str(), "movie" | "series") {
+            return Err(AppError::BadRequest("`type` is `movie` or `series`.".into()));
+        }
+        let id =
+            ExternalId::one_of(self.tmdb, self.tvdb, self.imdb.as_deref()).ok_or_else(|| {
+                AppError::BadRequest(
+                    "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
+                )
+            })?;
+        Ok((&self.media_type, id))
+    }
+}
+
+/// What `GET /route` takes beside the title.
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct PlacementOptions {
+    /// The tag labels a title the library does not hold would be added with,
+    /// separated by commas, for the rules that read tags.
+    pub tags: Option<String>,
+    /// Ask every source that can answer and has no cached answer now, storing
+    /// nothing. Slower, and paced by each source's limits. Defaults to false.
+    pub enrich: Option<bool>,
+}
+
+/// Where a title another service names would go, on each Arr that holds it or
+/// knows it.
+pub async fn place(
+    State(state): State<AppState>,
+    Query(title): Query<ExternalTitle>,
+    Query(options): Query<PlacementOptions>,
+) -> AppResult<Json<crate::services::placement::Placement>> {
+    let (media_type, id) = title.named()?;
+    let tags: Vec<String> = options
+        .tags
+        .as_deref()
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|tag| !tag.is_empty())
+        .map(str::to_string)
+        .collect();
+    let placement = crate::services::placement::place(
+        &state,
+        media_type,
+        &id,
+        title.instance.as_deref(),
+        &tags,
+        options.enrich.unwrap_or(false),
+    )
+    .await?;
+    Ok(Json(placement))
 }
 
 /// One title, what its sources say about it, and the exception pinning it.

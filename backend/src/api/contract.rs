@@ -28,14 +28,15 @@ use crate::api::auth::Me;
 use crate::api::decisions::{ApplyAllRequest, ApplyDecisionsRequest, RevertDecisionsRequest};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
 use crate::api::jobs::{Accepted, Job, JobQuery};
-use crate::api::media::{Explanation, MediaDetail, MediaListItem};
-use crate::api::overrides::{Deleted, ExternalTitle, PinRequest};
+use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, PlacementOptions};
+use crate::api::overrides::{Deleted, PinRequest};
 use crate::error::ErrorResponse;
 use crate::models::{
     CategoryWithUsage, CreateOverrideRequest, Decision, DecisionQuery, MediaQuery, OverrideEntry,
     OverrideWithMedia, SimulationRequest, SimulationResult,
 };
 use crate::services::executor::{ApplyReport, BatchApplyReport};
+use crate::services::placement::Placement;
 use crate::services::sync::SyncReport;
 
 /// The scope an operation asks of an application key, as the document states it.
@@ -76,6 +77,7 @@ operations, new fields and new values of the open lists (`action`, `status`, `er
         list_media,
         get_media,
         explain_media,
+        place_title,
         list_decisions,
         simulate,
         apply,
@@ -303,6 +305,25 @@ fn get_media() {}
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn explain_media() {}
+
+/// Where a title another service names would go
+///
+/// For each enabled Arr of the title's kind, or the one `instance` names. A
+/// title the library holds is decided as a simulation decides it. One the
+/// library does not hold is looked up in the Arr and decided the same way,
+/// and its `action` is `add`. Nothing is stored. `unanswered_fields` lists what
+/// the rules read and no source answered, which `enrich=true` asks the sources
+/// for. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its
+/// TheTVDB or IMDb id. 404 when no instance knows the title.
+#[utoipa::path(
+    get,
+    path = "/route",
+    tag = "library",
+    params(ExternalTitle, PlacementOptions),
+    responses((status = 200, body = Placement))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn place_title() {}
 
 // --------------------------------------------------------------- proposals
 

@@ -306,6 +306,9 @@ fn build_router(state: AppState) -> Router {
         .route("/media", get(api::media::list))
         .route("/media/{id}", get(api::media::get_one))
         .route("/media/{id}/explain", get(api::media::explain))
+        // Where a title another service names would go, whether the library
+        // holds it or only an Arr knows it. Stores nothing.
+        .route("/route", get(api::media::place))
         .route("/simulate", post(api::simulation::run))
         .route("/decisions", get(api::decisions::list))
         .route("/decisions/apply", post(api::decisions::apply))

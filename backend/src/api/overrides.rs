@@ -3,9 +3,9 @@
 use super::{Json, Query};
 use axum::extract::{Path, State};
 use serde::Deserialize;
-use sqlx::AssertSqlSafe;
 use uuid::Uuid;
 
+use crate::api::media::ExternalTitle;
 use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
@@ -72,25 +72,6 @@ pub async fn create(
         .map(Json)
 }
 
-/// A title named by the id another service gives it, on every instance that
-/// holds it or on one.
-#[derive(Debug, Deserialize, utoipa::IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct ExternalTitle {
-    /// `movie` or `series`.
-    #[serde(rename = "type")]
-    pub media_type: String,
-    /// The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`
-    /// and `imdb`.
-    pub tmdb: Option<i64>,
-    /// The title's TheTVDB id.
-    pub tvdb: Option<i64>,
-    /// The title's IMDb id, as `tt0133093`.
-    pub imdb: Option<String>,
-    /// Only the copy on this instance.
-    pub instance: Option<String>,
-}
-
 /// The category to pin a title to, and why.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PinRequest {
@@ -136,37 +117,19 @@ pub async fn unpin_external(
 
 /// The library rows of the title `title` names.
 async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<String>> {
-    if !matches!(title.media_type.as_str(), "movie" | "series") {
-        return Err(AppError::BadRequest("`type` is `movie` or `series`.".into()));
-    }
-    let (column, id) = match (title.tmdb, title.tvdb, title.imdb.as_deref()) {
-        (Some(tmdb), None, None) => ("tmdb_id", tmdb.to_string()),
-        (None, Some(tvdb), None) => ("tvdb_id", tvdb.to_string()),
-        (None, None, Some(imdb)) => ("imdb_id", imdb.trim().to_string()),
-        _ => {
-            return Err(AppError::BadRequest(
-                "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
-            ));
-        }
-    };
-    let copies: Vec<String> = sqlx::query_scalar(AssertSqlSafe(format!(
-        "SELECT id FROM media
-          WHERE media_type = ? AND {column} = ? AND (? IS NULL OR instance_id = ?)
-          ORDER BY instance_id, id"
-    )))
-    .bind(&title.media_type)
-    .bind(&id)
-    .bind(&title.instance)
-    .bind(&title.instance)
-    .fetch_all(&state.pool)
-    .await?;
+    let (media_type, id) = title.named()?;
+    let instance = title.instance.as_deref();
+    let copies =
+        crate::services::routing::media_by_external_id(&state.pool, media_type, &id, instance)
+            .await?;
     if copies.is_empty() {
         return Err(AppError::NotFound(format!(
-            "No {} in the library has {column} {id}.",
-            title.media_type
+            "No {media_type} in the library has {} {}.",
+            id.column(),
+            id.value()
         )));
     }
-    Ok(copies)
+    Ok(copies.into_iter().map(|media| media.id).collect())
 }
 
 /// Pin each title to `category`, replacing the pin it has, and withdraw its

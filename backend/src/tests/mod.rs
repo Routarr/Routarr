@@ -28,6 +28,7 @@ mod metrics;
 mod notify;
 mod onboarding;
 mod outbound_http;
+mod placement;
 mod provider_keys;
 mod routing;
 mod rule_health;
