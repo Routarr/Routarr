@@ -376,6 +376,9 @@ async fn resolve_identifiers(
             job.progress(index + 1, total).await;
         }
     }
+    // The coarse steps above stop short of the end, and a pass left with
+    // nothing to fetch ends here: without this its task finishes at "1/47".
+    job.progress(total, total).await;
 
     if abandoned > 0 {
         warn!(

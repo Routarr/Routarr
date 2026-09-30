@@ -246,6 +246,32 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     assert_eq!(searches, 1);
 }
 
+/// A pass whose searches all come back empty has nothing left to fetch, and
+/// its task still ends full: a finished task showing "1/2" reads as one that
+/// stopped halfway.
+#[tokio::test]
+async fn a_pass_that_identifies_nothing_still_ends_its_progress() {
+    let sources = FakeSources::with_mismatched_year().await;
+    let app = library(&sources, "anilist").await;
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Castle in the Sky', 1986, 1, 1)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let progress: (String, i64, i64) = sqlx::query_as(
+        "SELECT status, progress_current, progress_total FROM jobs WHERE kind = 'enrich'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(progress, ("success".to_string(), 2, 2));
+}
+
 /// Jikan leaves `year` null for a film and dates it by `aired`. Read from
 /// `year`, every film whose library knows its year would be refused, and the
 /// refusal remembered for good.
