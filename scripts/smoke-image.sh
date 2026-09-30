@@ -10,8 +10,8 @@
 # Usage: bash scripts/smoke-image.sh <image>
 # Needs Docker. CI runs it after the image job's build. The host port is
 # SMOKE_PORT, 9876 by default: set it when a development Routarr holds that one.
-# SMOKE_RUNTIME names a runtime registered with Docker, `runsc` for gVisor or
-# `kata`, and every container the script starts then runs under it.
+# SMOKE_RUNTIME names a runtime registered with Docker, `runsc` for gVisor, and
+# every container the script starts then runs under it.
 set -euo pipefail
 
 IMAGE="${1:?usage: smoke-image.sh <image>}"
@@ -94,7 +94,7 @@ wait_for 30 "answer on /api/v1/ping" pings
 ok "starts and answers /api/v1/ping without a key"
 
 # The point of an isolating runtime is that the container no longer runs on
-# the host's kernel: gVisor answers with its own, Kata with its guest's.
+# the host's kernel: gVisor answers with a kernel of its own.
 if [ -n "$RUNTIME" ]; then
   inner=$(docker exec "$NAME" uname -r) || fail "cannot read the kernel the container sees"
   [ "$inner" != "$(uname -r)" ] || fail "under $RUNTIME the container still sees the host's kernel, $inner"

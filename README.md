@@ -78,36 +78,19 @@ beside it. Routarr also archives itself into `data/backups/`, every day unless y
 
 ## Stronger isolation
 
-The container already runs as uid 1000 with every capability dropped. To put a kernel between
-Routarr and your host as well, run the same image under an isolating runtime: install it,
-register it with Docker, and add one line to the compose file. CI runs the image's whole start-up
-check under both on every change to the image.
+The container already runs as uid 1000 with every capability dropped. To put a kernel of its own
+between Routarr and your host as well, run the same image under
+[gVisor](https://gvisor.dev/docs/user_guide/install/), which answers every system call in user
+space and runs on any Linux host, a NAS or a VPS included. Install it as its guide says (its
+installer registers `runsc` with Docker), add `runtime: runsc` under `routarr:` in the compose
+file, and run `docker compose up -d` again. `docker exec routarr uname -r` then prints gVisor's
+kernel, not the host's. CI runs the image's whole start-up check under gVisor on every change to
+the image.
 
-| Runtime | What it adds | Needs | Compose line |
-|-|-|-|-|
-| [gVisor](https://gvisor.dev/docs/user_guide/install/) | A kernel in user space answers every system call | Any Linux host, a NAS or a VPS included | `runtime: runsc` |
-| [Kata Containers](https://github.com/kata-containers/kata-containers/blob/main/docs/installation.md#use-kata-containers-with-docker) | A virtual machine of its own, on its own kernel | KVM on the host (bare metal, or nested virtualisation), Docker 26+ | `runtime: kata` |
-
-gVisor's installer registers `runsc` with Docker itself. Kata registers its Rust runtime with
-QEMU, the pairing its maintainers test with Docker, in `/etc/docker/daemon.json`:
-
-```json
-{
-  "runtimes": {
-    "kata": {
-      "runtimeType": "/opt/kata/runtime-rs/bin/containerd-shim-kata-v2",
-      "options": {
-        "ConfigPath": "/opt/kata/share/defaults/kata-containers/runtime-rs/configuration-qemu-runtime-rs.toml"
-      }
-    }
-  }
-}
-```
-
-Then add `runtime: runsc` or `runtime: kata` under `routarr:` in the compose file and run
-`docker compose up -d` again. `docker exec routarr uname -r` now prints the sandbox's kernel,
-not the host's. Expect slower disk access under gVisor, and a little more memory for Kata's
-virtual machine.
+It protects the host from a compromised Routarr: reaching the host no longer takes one flaw in
+your kernel. It does not protect what Routarr holds, the Arr keys and the `data/` directory, which
+a compromised Routarr reads either way. Disk access is slower under gVisor, which a single SQLite
+file barely feels.
 
 ## Getting started
 

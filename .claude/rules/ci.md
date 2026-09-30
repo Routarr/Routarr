@@ -37,9 +37,9 @@ paths:
   `site/check.mjs` holds the copies in `README.md`, `site/public/llms.txt` and
   `site/src/components/sections/Start.astro` to it.
 
-- `docker.yml` runs `scripts/smoke-image.sh` again under gVisor and Kata Containers, installed by
-  `scripts/install-runtime.sh` at pinned versions and checksums. A check added to the smoke test
-  has to hold inside both sandboxes.
+- `docker.yml` runs `scripts/smoke-image.sh` again under gVisor, installed by
+  `scripts/install-runtime.sh` at a pinned version and checksum. A check added to the smoke test
+  has to hold inside that sandbox.
 
 ## Checks that run only in CI
 
