@@ -16,6 +16,7 @@ export {
   ArrowRight,
   ArrowUp,
   Ban,
+  BookOpen,
   Check,
   Circle,
   CircleMinus,

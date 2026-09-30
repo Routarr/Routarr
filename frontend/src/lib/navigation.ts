@@ -3,6 +3,7 @@ import type { LucideProps } from '@lucide/svelte';
 
 import {
   Activity,
+  BookOpen,
   ClipboardCheck,
   Film,
   FlaskConical,
@@ -45,6 +46,7 @@ const ICONS: Record<string, Component<LucideProps>> = {
   '/instances': Server,
   '/root-folders': FolderTree,
   '/applications': Plug,
+  '/reference': BookOpen,
   '/settings': Settings,
 };
 

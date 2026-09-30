@@ -24,6 +24,7 @@
     '/logs': () => import('./pages/Logs.svelte'),
     '/health': () => import('./pages/Health.svelte'),
     '/applications': () => import('./pages/Applications.svelte'),
+    '/reference': () => import('./pages/ApiReference.svelte'),
     '/settings': () => import('./pages/Settings.svelte'),
   };
 

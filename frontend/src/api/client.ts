@@ -5,6 +5,7 @@
 // without rendering anything.
 
 import { basePath } from './basePath';
+import type { OpenApiDocument } from './openapi';
 
 import type {
   Application,
@@ -409,6 +410,9 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- overrides
+  /** The contract other applications call, as the running version describes it. */
+  openApi: (signal?: AbortSignal) => request<OpenApiDocument>('/openapi.json', { signal }),
+
   webhookSigning: (signal?: AbortSignal) =>
     request<WebhookSigningStatus>('/notifications/webhook-secret', { signal }),
   rotateWebhookSigning: () =>
