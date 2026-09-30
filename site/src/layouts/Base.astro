@@ -1,6 +1,6 @@
 ---
 import { version } from '../version';
-import { LANGUAGES, useTranslations, pathFor, type Locale, type Page } from '../i18n';
+import { LANGUAGES, useTranslations, pathFor, type Key, type Locale, type Page } from '../i18n';
 import { themeBootstrap } from '../theme-bootstrap';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
@@ -14,10 +14,15 @@ interface Props {
 const { locale, page = 'landing' } = Astro.props;
 const t = useTranslations(locale);
 
-/* The second page states its own title and description. Everything else on
-   this page is the same for both, which is why they are the only two. */
-const title = page === 'how' ? t('head.title.how') : t('head.title');
-const description = page === 'how' ? t('head.description.how') : t('head.description');
+/* Each page states its own title and description. Everything else in the
+   head is the same for every page, which is why they are the only two. */
+const HEAD: Record<Page, { title: Key; description: Key }> = {
+  landing: { title: 'head.title', description: 'head.description' },
+  how: { title: 'head.title.how', description: 'head.description.how' },
+  api: { title: 'head.title.api', description: 'head.description.api' },
+};
+const title = t(HEAD[page].title);
+const description = t(HEAD[page].description);
 
 /**
  * Absolute URLs, all from `site` in astro.config.mjs.

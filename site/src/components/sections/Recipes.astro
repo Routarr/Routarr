@@ -1,0 +1,227 @@
+---
+import { useTranslations, type Key, type Locale } from '../../i18n';
+import Terminal from '../Terminal.astro';
+
+interface Props { locale: Locale }
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/**
+ * What people wire Routarr into, each as a file that runs as written against
+ * a Routarr on its default port. Every call and every field here is one the
+ * contract documents, so a recipe breaks only where the reference below does.
+ *
+ * A recipe with several files shows them one at a time: `name` on the
+ * `<details>` closes the open one when another opens, with no script.
+ */
+interface File { name: string; code: string; label?: string }
+interface Recipe { id: string; title: Key; text: Key; scope: string | null; files: File[] }
+
+const NIGHTLY = String.raw`#!/bin/sh
+set -eu
+api=http://localhost:9876/api/v1
+key="X-Api-Key: $ROUTARR_KEY"
+json="Content-Type: application/json"
+
+curl -fsS -X POST -H "$key" "$api/instances/sync" > /dev/null
+id=$(curl -fsS -X POST -H "$key" -H "$json" \
+  -d '{"persist": true, "max_returned": 0}' "$api/simulate" | jq -r .simulation_id)
+curl -fsS -X POST -H "$key" -H "$json" \
+  -d "{\"simulation_id\": \"$id\", \"confirm\": [\"batch\"]}" "$api/decisions/apply-all"`;
+
+const ROUTE = String.raw`curl -fsS -H "X-Api-Key: $ROUTARR_KEY" \
+  "http://localhost:9876/api/v1/route?type=movie&tmdb=129" |
+  jq '.answers[] | {instance_name, source, action, category,
+    root_folder: .root_folder.path, unanswered_fields}'`;
+
+const ROUTE_ANSWER = `{
+  "instance_name": "Radarr",
+  "source": "lookup",
+  "action": "add",
+  "category": "anime",
+  "root_folder": "/movies/anime",
+  "unanswered_fields": []
+}`;
+
+const PIN = String.raw`curl -fsS -X PUT -H "X-Api-Key: $ROUTARR_KEY" \
+  -H "Content-Type: application/json" -d '{"target_category": "anime"}' \
+  "http://localhost:9876/api/v1/overrides/external?type=movie&tmdb=129"`;
+
+const DASHBOARD = `- ${t('api.recipe.dashboard.group')}:
+    - Routarr:
+        href: http://localhost:9876
+        widget:
+          type: customapi
+          url: http://routarr:9876/api/v1/status
+          headers:
+            X-Api-Key: rtr_...
+          mappings:
+            - field: pending_decisions
+              label: ${t('api.recipe.dashboard.pending')}
+            - field: failed_decisions
+              label: ${t('api.recipe.dashboard.failed')}
+            - field: running_jobs
+              label: ${t('api.recipe.dashboard.running')}`;
+
+const METRICS = `scrape_configs:
+  - job_name: routarr
+    metrics_path: /api/v1/metrics
+    authorization:
+      credentials: rtr_...
+    static_configs:
+      - targets: ["routarr:9876"]`;
+
+const PYTHON = String.raw`import base64, hashlib, hmac, time
+
+def verified(secret: str, headers, body: bytes) -> bool:
+    key = base64.b64decode(secret.removeprefix("whsec_"))
+    msg_id = headers["webhook-id"]
+    timestamp = headers["webhook-timestamp"]
+    if abs(time.time() - int(timestamp)) > 300:
+        return False
+    signed = f"{msg_id}.{timestamp}.".encode() + body
+    digest = hmac.new(key, signed, hashlib.sha256).digest()
+    expected = "v1," + base64.b64encode(digest).decode()
+    return any(hmac.compare_digest(expected, signature)
+               for signature in headers["webhook-signature"].split())`;
+
+const NODE = String.raw`import { createHmac, timingSafeEqual } from 'node:crypto';
+
+export function verified(secret, headers, body) {
+  const key = Buffer.from(secret.replace(/^whsec_/, ''), 'base64');
+  const id = headers['webhook-id'];
+  const timestamp = headers['webhook-timestamp'];
+  if (Math.abs(Date.now() / 1000 - Number(timestamp)) > 300) return false;
+  const digest = createHmac('sha256', key)
+    .update(id + '.' + timestamp + '.').update(body).digest('base64');
+  const expected = Buffer.from('v1,' + digest);
+  return String(headers['webhook-signature']).split(' ').some((signature) => {
+    const given = Buffer.from(signature);
+    return given.length === expected.length && timingSafeEqual(given, expected);
+  });
+}`;
+
+const GO = String.raw`package webhook
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func Verified(secret string, header http.Header, body []byte) bool {
+	key, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(secret, "whsec_"))
+	if err != nil {
+		return false
+	}
+	id, timestamp := header.Get("webhook-id"), header.Get("webhook-timestamp")
+	sent, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil || time.Since(time.Unix(sent, 0)).Abs() > 5*time.Minute {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write([]byte(id + "." + timestamp + "."))
+	mac.Write(body)
+	expected := []byte("v1," + base64.StdEncoding.EncodeToString(mac.Sum(nil)))
+	for _, signature := range strings.Fields(header.Get("webhook-signature")) {
+		if hmac.Equal([]byte(signature), expected) {
+			return true
+		}
+	}
+	return false
+}`;
+
+const RECIPES: Recipe[] = [
+  {
+    id: 'nightly',
+    title: 'api.recipe.nightly',
+    text: 'api.recipe.nightly.p',
+    scope: 'operate',
+    files: [{ name: 'nightly.sh', code: NIGHTLY }],
+  },
+  {
+    id: 'route',
+    title: 'api.recipe.route',
+    text: 'api.recipe.route.p',
+    scope: 'read',
+    files: [
+      { name: 'route.sh', code: ROUTE, label: t('api.recipe.call') },
+      { name: 'answer.json', code: ROUTE_ANSWER, label: t('api.recipe.answer') },
+    ],
+  },
+  {
+    id: 'pin',
+    title: 'api.recipe.pin',
+    text: 'api.recipe.pin.p',
+    scope: 'write',
+    files: [{ name: 'pin.sh', code: PIN }],
+  },
+  {
+    id: 'dashboard',
+    title: 'api.recipe.dashboard',
+    text: 'api.recipe.dashboard.p',
+    scope: 'read',
+    files: [{ name: 'services.yaml', code: DASHBOARD }],
+  },
+  {
+    id: 'metrics',
+    title: 'api.recipe.metrics',
+    text: 'api.recipe.metrics.p',
+    scope: 'read',
+    files: [{ name: 'prometheus.yml', code: METRICS }],
+  },
+  {
+    id: 'signature',
+    title: 'api.recipe.signature',
+    text: 'api.recipe.signature.p',
+    scope: null,
+    files: [
+      { name: 'verify.py', code: PYTHON, label: 'Python' },
+      { name: 'verify.mjs', code: NODE, label: 'Node.js' },
+      { name: 'verify.go', code: GO, label: 'Go' },
+    ],
+  },
+];
+---
+
+<section id="recipes">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('api.recipes.span')}</span>
+      <h2 set:html={t('api.recipes.h2')} />
+      <p set:html={t('api.recipes.p')} />
+    </div>
+
+    <div class="recipes">
+      {
+        RECIPES.map((recipe) => (
+          <article class="recipe" id={`recipe-${recipe.id}`}>
+            <div class="recipe-say">
+              <h3>{t(recipe.title)}</h3>
+              <p set:html={t(recipe.text)} />
+              {recipe.scope && (
+                <p class="recipe-scope">{t('api.scope')} <code>{recipe.scope}</code></p>
+              )}
+            </div>
+            <div class="recipe-files">
+              {recipe.files.length === 1 ? (
+                <Terminal locale={locale} name={recipe.files[0]!.name} code={recipe.files[0]!.code} />
+              ) : (
+                recipe.files.map((file, at) => (
+                  <details class="recipe-file" name={`recipe-${recipe.id}`} open={at === 0}>
+                    <summary>{file.label}</summary>
+                    <Terminal locale={locale} name={file.name} code={file.code} />
+                  </details>
+                ))
+              )}
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>

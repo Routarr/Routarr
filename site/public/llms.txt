@@ -65,6 +65,9 @@ Routarr also provides:
 - Export of rules, categories, mappings and exceptions as JSON. Arr API keys are encrypted at rest
   with AES-256-GCM and are left out of the export.
 - Translations into 26 languages, decision justifications included.
+- An API for other applications under /api/v1, with one key per application made on the
+  Applications screen and scoped to read, operate or write. Its OpenAPI contract is served at
+  /api/v1/openapi.json, and nothing documented in it is removed, renamed or retyped.
 
 It has no telemetry, no analytics and no update check. Its only outbound calls go to the
 configured Radarr and Sonarr instances, to the metadata sources the user enables, to an OpenID
@@ -102,11 +105,11 @@ everything else is set from the Settings page.
 
 Security issues are reported privately through GitHub, as SECURITY.md describes, never in a
 public issue. Only the most recent release is supported. Out of scope by design: a permission
-model (there is one level of access), telemetry of any kind (opt-in included), a second database
-engine, signal weighting, nested condition groups, temporary exceptions and a persistent job
-queue.
+model for people (whoever signs in has the one level of access, and only the keys made for other
+applications are scoped), telemetry of any kind (opt-in included), a second database engine,
+signal weighting, nested condition groups, temporary exceptions and a persistent job queue.
 
-The Site links below are the two English pages of the showcase site, and their French, German
+The Site links below are the three English pages of the showcase site, and their French, German
 and Spanish copies are under Optional. Under Docs, repository files are linked as raw text, and
 the README is the reference for installation and configuration.
 
@@ -117,6 +120,11 @@ the README is the reference for installation and configuration.
 - [How it decides](https://routarr.app/how/): the gap Routarr fills, the four steps, how a
   decision is explained, how root folders are declared, the full specification, and the
   objections answered.
+- [API](https://routarr.app/api/): application keys and their scopes, recipes for cron,
+  Jellyseerr, Homepage, Prometheus and webhook signatures, and every operation and schema,
+  read from the contract.
+- [OpenAPI contract](https://routarr.app/api/v1/openapi.json): the same file every Routarr serves
+  at /api/v1/openapi.json, as JSON.
 
 ## Docs
 
@@ -141,7 +149,10 @@ the README is the reference for installation and configuration.
   authentication and the container hardening.
 - [Landing page (French)](https://routarr.app/fr/)
 - [How it decides (French)](https://routarr.app/fr/how/)
+- [API (French)](https://routarr.app/fr/api/)
 - [Landing page (German)](https://routarr.app/de/)
 - [How it decides (German)](https://routarr.app/de/how/)
+- [API (German)](https://routarr.app/de/api/)
 - [Landing page (Spanish)](https://routarr.app/es/)
 - [How it decides (Spanish)](https://routarr.app/es/how/)
+- [API (Spanish)](https://routarr.app/es/api/)

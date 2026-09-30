@@ -119,7 +119,8 @@ for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 const { LANGUAGES } = await import('./src/i18n/languages.ts');
 const LANDINGS = LANGUAGES.map(({ path }) => path);
 const DETAILS = LANDINGS.map((path) => `${path}how/`);
-const PAGES = [...LANDINGS, ...DETAILS];
+const APIS = LANDINGS.map((path) => `${path}api/`);
+const PAGES = [...LANDINGS, ...DETAILS, ...APIS];
 
 const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
 for (const path of [...PAGES, ...NOT_FOUND]) {
@@ -236,7 +237,7 @@ for (const path of PAGES) {
   }
   await tab.close();
 }
-check(boxesMeasured >= 4000, `measured ${boxesMeasured} box(es) for clipping, expected at least 4000`);
+check(boxesMeasured >= 10000, `measured ${boxesMeasured} box(es) for clipping, expected at least 10000`);
 
 // ------------------------------------------------------------ header
 // The bar holds the brand, the Index control and the repository on one row,
@@ -288,7 +289,7 @@ for (const path of PAGES) {
 }
 // Every header control, closed and open, over nine widths and every page: a
 // selector that stops matching would compare nothing and pass.
-check(headerControls >= 1100, `measured ${headerControls} header control(s), expected at least 1100`);
+check(headerControls >= 1650, `measured ${headerControls} header control(s), expected at least 1650`);
 
 // ------------------------------------------------------------- plan
 // The hero's plan is a table of translated strings in columns that do not

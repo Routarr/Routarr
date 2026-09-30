@@ -1,0 +1,42 @@
+---
+import Base from './Base.astro';
+import { useTranslations, type Locale } from '../i18n';
+
+import Calls from '../components/sections/Calls.astro';
+import Recipes from '../components/sections/Recipes.astro';
+import Reference from '../components/sections/Reference.astro';
+import Schemas from '../components/sections/Schemas.astro';
+import Download from '../components/icons/Download.astro';
+
+/**
+ * The third page, for whoever wires Routarr into something else. What a call
+ * needs comes first and the recipes second, because a working example answers
+ * most questions before a reference is opened. The reference closes the page,
+ * read from the contract rather than written here.
+ */
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+---
+
+<Base locale={locale} page="api">
+  <section id="api-head">
+    <div class="wrap section-head">
+      <span class="eyebrow">{t('api.span')}</span>
+      <h1 set:html={t('api.h1')} />
+      <p set:html={t('api.p')} />
+      <a class="btn btn-secondary" href="/api/v1/openapi.json" download="routarr-openapi-v1.json">
+        <Download />
+        {t('api.download')}
+      </a>
+    </div>
+  </section>
+
+  <Calls locale={locale} />
+  <Recipes locale={locale} />
+  <Reference locale={locale} />
+  <Schemas locale={locale} />
+</Base>

@@ -116,6 +116,16 @@
     });
   });
 
+  // ---------------------------------------------------------------- reference
+  // A link to `#schema-Decision` lands on a folded entry, and a browser that
+  // does not unfold the target shows the one line it lands on.
+  function unfold() {
+    var target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (target && target.tagName === 'DETAILS') target.open = true;
+  }
+  window.addEventListener('hashchange', unfold);
+  unfold();
+
   // ---------------------------------------------------------------- scroll-spy
   // On a page this long the nav should say where you are. Progressive
   // enhancement only: without JS the links still navigate, nothing is lost.
