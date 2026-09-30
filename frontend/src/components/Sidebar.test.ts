@@ -18,6 +18,7 @@ const STRINGS = {
   Instances: 'Instances',
   RootFolders: 'Root folders',
   Applications: 'Applications',
+  ApiReference: 'API reference',
   RulesEngine: 'Rules',
   RuleTests: 'Tests',
   MainNavigation: 'Main navigation',
@@ -55,7 +56,7 @@ describe('Sidebar', () => {
     // Bump this when a destination is added. It is not the claim (the loop
     // below is), but without it the loop passes over an empty list and asserts
     // nothing at all.
-    expect(links).toHaveLength(14);
+    expect(links).toHaveLength(15);
     for (const link of links) {
       expect(link.getAttribute('title')).toBeTruthy();
     }
@@ -103,7 +104,13 @@ describe('Sidebar', () => {
 
     const links = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
     expect(links.slice(0, 4)).toEqual(['/', '/rules', '/rules/tests', '/simulation']);
-    expect(links.slice(-4)).toEqual(['/instances', '/root-folders', '/applications', '/settings']);
+    expect(links.slice(-5)).toEqual([
+      '/instances',
+      '/root-folders',
+      '/applications',
+      '/reference',
+      '/settings',
+    ]);
   });
 
   /**
@@ -129,7 +136,7 @@ describe('Sidebar', () => {
     show({ counts: { jobs: 1, decisions: 0, failed: 0, warnings: 0 } });
 
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
-    expect(links.length).toBeGreaterThanOrEqual(14);
+    expect(links.length).toBeGreaterThanOrEqual(15);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
     expect(links).toContain('/routarr/rules');
     expect(links).toContain('/routarr/');

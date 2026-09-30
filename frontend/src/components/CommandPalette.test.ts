@@ -38,6 +38,7 @@ const STRINGS = {
   Instances: 'Instances',
   RootFolders: 'Root folders',
   Applications: 'Applications',
+  ApiReference: 'API reference',
   Settings: 'Settings',
   HintRules: 'What goes where',
   Dismiss: 'Dismiss',
@@ -74,7 +75,7 @@ describe('CommandPalette', () => {
     const options = await screen.findAllByRole('option');
     // Every screen, and nothing else: an empty field proposes where to go
     // rather than an empty box.
-    expect(options).toHaveLength(14);
+    expect(options).toHaveLength(15);
     expect(options[0]).toHaveTextContent('Dashboard');
   });
 
