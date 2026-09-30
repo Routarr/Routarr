@@ -386,11 +386,34 @@ img { max-width: 100%; height: auto; }
 }
 .icon-btn:hover { color: var(--text); border-color: var(--border-strong); opacity: 1; }
 .icon-btn svg { width: 18px; height: 18px; }
+/* The same box as the repository's, holding a word instead of a mark. */
+.text-btn {
+  width: auto;
+  padding-inline: 11px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+.text-btn[aria-current='page'] { color: var(--accent-text); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
 
 /* A keyboard hint on a device with no keyboard is noise, and it is the first
    thing worth dropping when the row gets tight. */
 @media (max-width: 859px) {
   .index kbd { display: none; }
+}
+/* On a phone the Index shows its mark alone and keeps its name for a screen
+   reader: with the API beside the repository, the name is what pushes the
+   last two controls onto a second row. */
+@media (max-width: 559px) {
+  .index > summary { width: 38px; padding: 0; justify-content: center; }
+  .index-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* At 320px, the narrowest width WCAG reflow names, the version is the one
+   thing on the bar a reader does not act on. */
+@media (max-width: 359px) {
+  .version { display: none; }
 }
 /* Below 740px the bar may wrap rather than push the repository link off the
    page: the Index control's label is longer in French and German.
