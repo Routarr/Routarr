@@ -15,7 +15,7 @@
   "api.calls.k.4": "Trabajo largo",
   "api.calls.note.4": "Una simulación, una aplicación, una reversión o una sincronización espera al final del trabajo y responde con su informe. Con esta cabecera responde <code>202</code> en cuanto la tarea arranca, y <code>GET /jobs/{id}</code> contiene el informe cuando termina.",
   "api.calls.k.5": "Webhook",
-  "api.calls.note.5": "El webhook de notificaciones se firma como indica Standard Webhooks, y una entrega rechazada o sin respuesta se reintenta tras 10 s, 60 s y 5 min. Los fallos siempre le llegan, y las simulaciones y los movimientos terminados si usted lo pide.",
+  "api.calls.note.5": "El webhook de notificaciones se firma como indica Standard Webhooks, y una entrega rechazada o sin respuesta se reintenta tras 10 s, 60 s y 5 min. Un Arr inaccesible y una aplicación automática rechazada siempre le llegan, y las sincronizaciones fallidas y las simulaciones y movimientos terminados en cuanto usted los activa.",
   "api.calls.k.6": "Estabilidad",
   "api.calls.note.6": "Nada de lo documentado bajo ella se elimina ni se renombra, y ningún campo cambia de tipo. Nuevas operaciones, campos y valores pueden llegar con cualquier versión, y la CI rechaza todo lo demás frente a la anterior.",
   "api.recipes.span": "Recetas",
