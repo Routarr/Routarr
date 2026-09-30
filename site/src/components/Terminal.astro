@@ -1,0 +1,19 @@
+---
+import { useTranslations, type Locale } from '../i18n';
+
+interface Props { locale: Locale; name: string; code: string }
+const { locale, name, code } = Astro.props;
+const t = useTranslations(locale);
+
+/* The name is in the copy button's label: two buttons on one page that both
+   answer to "Copy" leave a screen reader guessing which block each copies. */
+---
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <span></span><span></span><span></span>
+    <span class="name">{name}</span>
+    <button class="copy-btn" type="button" aria-label={`${t('page.button.copy')} – ${name}`} aria-live="polite" data-copied={t('page.button.copied')} data-failed={t('page.button.copy-failed')}>{t('page.button.copy')}</button>
+  </div>
+  <pre tabindex="0"><code>{code}</code></pre>
+</div>

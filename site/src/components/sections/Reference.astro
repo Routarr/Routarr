@@ -1,0 +1,89 @@
+---
+import { useTranslations, type Locale } from '../../i18n';
+import { groups } from '../../contract';
+
+interface Props { locale: Locale }
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/**
+ * Every operation under `/api/v1`, as the contract states it. Each folds to
+ * one line, the method, the path, what it does and the scope it needs, since
+ * a reference is scanned for the line first and opened second.
+ *
+ * The contract's own words carry `lang="en"` on every page: a screen reader
+ * reading them with French rules mispronounces every one.
+ */
+const GROUPS = groups();
+---
+
+<section id="reference">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('api.reference.span')}</span>
+      <h2 set:html={t('api.reference.h2')} />
+      <p set:html={t('api.reference.p')} />
+      {locale !== 'en' && <p class="ref-lang">{t('api.reference.lang')}</p>}
+    </div>
+
+    {
+      GROUPS.map((group) => (
+        <div class="ref-group">
+          <h3 class="ref-tag" lang="en">{group.name}</h3>
+          <div class="ref-note" lang="en" set:html={group.description} />
+          <div class="ref-list">
+            {group.endpoints.map((operation) => (
+              <details class="ref-item" id={operation.id}>
+                <summary>
+                  <span class:list={['ref-method', operation.method.toLowerCase()]}>{operation.method}</span>
+                  <code class="ref-name">{operation.path}</code>
+                  <span class="ref-scope">{operation.scope ?? t('api.ref.open')}</span>
+                  <span class="ref-line" lang="en">{operation.summary}</span>
+                </summary>
+                <div class="ref-body">
+                  <div class="ref-prose" lang="en" set:html={operation.description} />
+                  {operation.parameters.length > 0 && (
+                    <>
+                    <h4>{t('api.ref.params')}</h4>
+                    <dl class="ref-fields">
+                      {operation.parameters.map((parameter) => (
+                        <div>
+                          <dt>
+                            <code>{parameter.name}</code>
+                            <span class="ref-type" set:html={parameter.type} />
+                            <span class="ref-in">{parameter.in}</span>
+                            {parameter.required && <span class="ref-required">{t('api.ref.required')}</span>}
+                          </dt>
+                          <dd lang="en" set:html={parameter.description} />
+                        </div>
+                      ))}
+                    </dl>
+                    </>
+                  )}
+                  {operation.body && (
+                    <>
+                    <h4>{t('api.ref.body')}</h4>
+                    <p class="ref-type" set:html={operation.body} />
+                    </>
+                  )}
+                  <h4>{t('api.ref.answers')}</h4>
+                  <dl class="ref-fields">
+                    {operation.answers.map((answer) => (
+                      <div>
+                        <dt>
+                          <code>{answer.code}</code>
+                          <span class="ref-type" set:html={answer.type} />
+                        </dt>
+                        <dd lang="en" set:html={answer.description} />
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+  </div>
+</section>

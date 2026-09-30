@@ -39,8 +39,8 @@ export function useTranslations(locale: Locale) {
 }
 
 
-/** The two pages the site has. */
-export type Page = 'landing' | 'how';
+/** The pages the site has. */
+export type Page = 'landing' | 'how' | 'api';
 
 /**
  * Where a given language's copy of a page lives.
@@ -55,7 +55,7 @@ export function pathFor(locale: Locale, page: Page = 'landing'): string {
      `how/index.html`, and `/how` answers 307 to `/how/`. Without it every
      internal link takes a redirect and, worse, the canonical and the hreflang
      alternates name a URL that redirects. */
-  return page === 'landing' ? base : `${base}how/`;
+  return page === 'landing' ? base : `${base}${page}/`;
 }
 
 /**

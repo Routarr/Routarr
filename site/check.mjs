@@ -121,6 +121,8 @@ const catalogue = (code) =>
   JSON.parse(readFileSync(join(ROOT, `src/i18n/${code}.json`), 'utf-8'));
 
 const english = catalogue('en');
+/* Every page but the landing, under each language's prefix. */
+const SUBPAGES = ['how/index.html', 'api/index.html'];
 for (const { code, path } of LANGUAGES) {
   const file = builtAs(path, 'index.html');
 
@@ -148,14 +150,16 @@ for (const { code, path } of LANGUAGES) {
   }
   pages[file] = read(file);
 
-  /* The detail page is checked exactly as the landing is. Left out, half the
-     site would ship with nothing looking at its links, its labels or the
+  /* The other pages are checked exactly as the landing is. Left out, most of
+     the site would ship with nothing looking at its links, its labels or the
      English phrases that escape a catalogue. */
-  const detail = builtAs(path, 'how/index.html');
-  if (!existsSync(join(DIST, detail))) {
-    fail(`${detail} was not built: run \`npm run build\` in site/`);
-  } else {
-    pages[detail] = read(detail);
+  for (const other of SUBPAGES) {
+    const built = builtAs(path, other);
+    if (!existsSync(join(DIST, built))) {
+      fail(`${built} was not built: run \`npm run build\` in site/`);
+    } else {
+      pages[built] = read(built);
+    }
   }
 
   // The not-found page Cloudflare serves for a miss under this language's
@@ -193,7 +197,7 @@ if (englishLabels.size < 4) {
 const ESCAPED = ['one compose up', 'Global dry-run', 'Batch cap', '// before', 'Press Ctrl+C', 'Not affiliated'];
 for (const { code, path } of LANGUAGES) {
   if (code === 'en') continue;
-  for (const file of [builtAs(path, 'index.html'), builtAs(path, 'how/index.html')]) {
+  for (const file of [builtAs(path, 'index.html'), ...SUBPAGES.map((other) => builtAs(path, other))]) {
     const page = pages[file];
     if (!page) continue;
     for (const label of labelsOf(page)) {
@@ -265,7 +269,7 @@ for (const file of Object.keys(pages)) {
 if (inSitemap.has(`https://${ORIGIN}/404`) || inSitemap.has(`https://${ORIGIN}/404/`)) {
   fail('the sitemap lists /404, the one page that tells crawlers to go away');
 }
-if (comparedPages < 8) {
+if (comparedPages < 12) {
   fail(`compared ${comparedPages} page(s) against the sitemap, so this check is reading almost nothing`);
 }
 
@@ -298,16 +302,24 @@ for (const [file, page] of Object.entries(pages)) {
 // A new user looks in the application for the words the site gave them: the
 // setting to turn off, the mode it shows, the screen that holds exceptions.
 // Another name for one switch sends them looking for a setting nothing shows.
+// A term `within` a sentence is a screen or a scope the sentence names.
 const TERMS = [
   ['hero.board.mode', 'ModeDryRunShort'],
   ['safety.b', 'SettingGlobalDryRun'],
   ['features.k.3', 'Overrides'],
+  ['api.scope', 'Scope'],
+  ['api.p', 'ApiReference', 'within'],
+  ['api.calls.note', 'Applications', 'within'],
+  ['api.calls.note.2', 'ScopeOperate', 'within'],
+  ['api.calls.note.2', 'ScopeWrite', 'within'],
 ];
 for (const { code } of LANGUAGES) {
   const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
   const site = JSON.parse(readFileSync(join(ROOT, `src/i18n/${code}.json`), 'utf-8'));
-  for (const [siteKey, appKey] of TERMS) {
-    if ((site[siteKey] ?? '').toLowerCase() !== (app[appKey] ?? '').toLowerCase()) {
+  for (const [siteKey, appKey, within] of TERMS) {
+    const said = (site[siteKey] ?? '').toLowerCase();
+    const term = (app[appKey] ?? '').toLowerCase();
+    if (!term || (within ? !said.includes(term) : said !== term)) {
       fail(`src/i18n/${code}.json: ${siteKey} reads "${site[siteKey]}", the application says "${app[appKey]}"`);
     }
   }

@@ -52,6 +52,12 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
   `alt="{t('key')}"` renders that literal text, and the `alt` check only asks for a non-empty one.
 - Internal links come from `pathFor(locale, page)`, which ends in the slash the server serves.
 
+## API page
+
+- `src/contract.ts` builds the reference and `/api/v1/openapi.json` from
+  `backend/openapi/v1.json`. No operation is written into a page by hand, and the contract's
+  prose stays in English under `lang="en"`. A recipe calls documented operations only.
+
 ## Layout
 
 - Sections band by position (`main > section:nth-of-type(even)` in `src/styles/site.css`) and the

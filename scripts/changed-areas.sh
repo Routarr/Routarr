@@ -48,9 +48,11 @@ CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)")"
 # The frontend job alone runs the bundle size check.
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$CONTROL)")"
-# `site/check.mjs` reads the version out of the crate's manifest and holds the
-# README and the first-run screen to one command, and `site/verify.mjs` loads
-# Playwright out of the frontend's `node_modules`. Each is a real dependency on
-# another deliverable: a Dependabot bump of `@playwright/test` matches nothing
-# else the site job watches, and would land green while breaking it.
-echo "site=$(decide "^(site/|backend/Cargo\.toml|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
+# `site/check.mjs` reads the version out of the crate's manifest, holds the
+# README and the first-run screen to one command and the site's words to the
+# application's dictionaries, the API page is built from the pinned contract,
+# and `site/verify.mjs` loads Playwright out of the frontend's `node_modules`.
+# Each is a real dependency on another deliverable: a Dependabot bump of
+# `@playwright/test` matches nothing else the site job watches, and would land
+# green while breaking it.
+echo "site=$(decide "^(site/|backend/(Cargo\.toml|openapi/v1\.json|locales/)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"

@@ -2,6 +2,7 @@
 import { version } from '../version';
 import { LANGUAGES, useTranslations, pathFor, type Key, type Locale, type Page } from '../i18n';
 import { DETAIL_SECTIONS } from '../detail-sections';
+import { API_SECTIONS } from '../api-sections';
 import Brand from './icons/Brand.astro';
 import GitHub from './icons/GitHub.astro';
 
@@ -26,10 +27,16 @@ const LANDING: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '03', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
 ];
 
-const sections = page === 'how' ? DETAIL_SECTIONS : LANDING;
-const crossLink = page === 'how'
-  ? { href: pathFor(locale), label: t('header.home'), note: t('header.home.note') }
-  : { href: pathFor(locale, 'how'), label: t('header.detail'), note: t('header.detail.note') };
+const SECTIONS: Record<Page, typeof LANDING> = { landing: LANDING, how: DETAIL_SECTIONS, api: API_SECTIONS };
+
+/* After the page's own places, the doors to the other pages, so a reader
+   reaches every page from the one panel. */
+const PAGES: { page: Page; label: Key; note: Key }[] = [
+  { page: 'landing', label: 'header.home', note: 'header.home.note' },
+  { page: 'how', label: 'header.detail', note: 'header.detail.note' },
+  { page: 'api', label: 'header.api', note: 'header.api.note' },
+];
+const crossLinks = PAGES.filter((other) => other.page !== page);
 ---
 
 <header class="site-header">
@@ -52,17 +59,21 @@ const crossLink = page === 'how'
       <div class="index-panel">
         <nav class="index-nav" aria-label={t('header.nav.sections')}>
           {
-            sections.map((section) => (
+            SECTIONS[page].map((section) => (
               <a href={section.href}>
                 <i>{section.number}</i>
                 <span><b>{t(section.label)}</b><p>{t(section.note)}</p></span>
               </a>
             ))
           }
-          <a class="cross" href={crossLink.href}>
-            <i aria-hidden="true">&rarr;</i>
-            <span><b>{crossLink.label}</b><p>{crossLink.note}</p></span>
-          </a>
+          {
+            crossLinks.map((other) => (
+              <a class="cross" href={pathFor(locale, other.page)}>
+                <i aria-hidden="true">&rarr;</i>
+                <span><b>{t(other.label)}</b><p>{t(other.note)}</p></span>
+              </a>
+            ))
+          }
         </nav>
 
         {/* Plain links, no script: the CSP allows one inline script and it is
