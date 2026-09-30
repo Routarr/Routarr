@@ -80,10 +80,10 @@ Components named without a path live in `frontend/src/components/`.
   the test fails when the two blocks declare different tokens.
 - The accent as text or border is `--accent-strong`, as a fill `--accent-primary`. A control's
   boundary is `--border-strong`, a passive separation `--border-subtle`.
-- Radii: `--radius-xs` for badges and the three bars (guide, confidence, task), which share one
-  rule, `--radius-sm` for controls, `--radius-md` for surfaces. `--radius-full` is for the kind,
-  mode and confidence dots, the guide's step numbers, the navigation count and the scrollbar
-  thumb only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
+- Radii: none on the three bars (guide, confidence, task), which share one rule, `--radius-xs`
+  for badges, `--radius-sm` for controls, `--radius-md` for surfaces. `--radius-full` is for the
+  kind, mode and confidence dots, the guide's step numbers, the navigation count and the
+  scrollbar thumb only. Shadows mark elevation (dialogs, menus, the save bar), never a card.
 
 ## Components and markup
 
