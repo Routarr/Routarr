@@ -41,7 +41,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Where would it go?** Ask by TMDb, TheTVDB or IMDb id, before the title is even added: a
   request bot learns the folder the rules choose, and nothing is stored.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
-  or Apprise.
+  or Apprise, signed as Standard Webhooks specifies when a receiver checks where they come from.
 - **26 languages**.
 
 ## Quick start

@@ -334,6 +334,12 @@ fn build_router(state: AppState) -> Router {
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
         .route("/settings", get(api::settings::get_all).put(api::settings::update))
+        .route(
+            "/notifications/webhook-secret",
+            get(api::notifications::signing)
+                .post(api::notifications::rotate_signing)
+                .delete(api::notifications::remove_signing),
+        )
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/metadata/providers", get(api::metadata::list))
         .route("/config/export", get(api::config::export))

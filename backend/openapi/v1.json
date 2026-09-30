@@ -1320,6 +1320,64 @@
         ],
         "type": "object"
       },
+      "Notification": {
+        "description": "What the notification webhook receives.",
+        "properties": {
+          "body": {
+            "description": "The message again, where Apprise reads it.",
+            "type": "string"
+          },
+          "content": {
+            "description": "The message again, where Discord reads it.",
+            "type": "string"
+          },
+          "data": {
+            "description": "Ids and counts for a program: the instance, the simulation, how many\ntitles moved.",
+            "type": "object"
+          },
+          "event": {
+            "description": "What happened, in snake case: `instance_unreachable`,\n`instance_recovered`, `auto_apply_failed`, `sync_failed`,\n`simulation_completed`, `apply_completed` or `revert_completed`.",
+            "type": "string"
+          },
+          "message": {
+            "description": "A sentence in English for a person.",
+            "type": "string"
+          },
+          "severity": {
+            "description": "`error`, `warning` or `info`.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Always `routarr`.",
+            "type": "string"
+          },
+          "timestamp": {
+            "description": "When it happened, in RFC 3339.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Always `Routarr`.",
+            "type": "string"
+          },
+          "type": {
+            "description": "The same, dotted as Standard Webhooks writes it: `instance.unreachable`,\n`sync.failed`, `apply.completed`...",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "type",
+          "timestamp",
+          "severity",
+          "source",
+          "title",
+          "message",
+          "content",
+          "body",
+          "data"
+        ],
+        "type": "object"
+      },
       "OverrideEntry": {
         "description": "An exception: a title pinned to a category by hand, which outranks every\nrule.",
         "properties": {
@@ -2270,7 +2328,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. With a signing secret it is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"

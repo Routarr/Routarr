@@ -21,6 +21,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("008_drop_move_files_default", include_str!("../migrations/008_drop_move_files_default.sql")),
     ("009_application_keys", include_str!("../migrations/009_application_keys.sql")),
     ("010_job_result", include_str!("../migrations/010_job_result.sql")),
+    ("011_webhook_secrets", include_str!("../migrations/011_webhook_secrets.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.

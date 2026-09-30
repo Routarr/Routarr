@@ -19,6 +19,7 @@
   } from '../lib/settings';
   import FileButton from '../components/FileButton.svelte';
   import BackupCard from '../components/BackupCard.svelte';
+  import WebhookSigning from '../components/WebhookSigning.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
   import ProviderOrder from '../components/ProviderOrder.svelte';
@@ -783,6 +784,10 @@
             {/if}
           </div>
         </form>
+
+        {#if section === 'automation'}
+          <WebhookSigning {outcome} />
+        {/if}
       </div>
     </div>
   {/if}

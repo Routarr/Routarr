@@ -9,6 +9,7 @@ use crate::api::jobs::{answer, prefers_async};
 use crate::error::AppResult;
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::*;
+use crate::services::notify;
 use crate::services::routing::{self, SimulationOptions};
 use crate::state::AppState;
 
@@ -74,6 +75,16 @@ async fn simulate(
 
     match &outcome {
         Ok(result) => {
+            if req.persist {
+                notify::send_later(
+                    &state,
+                    notify::Event::SimulationCompleted {
+                        simulation_id: result.simulation_id.clone(),
+                        total: result.total_media,
+                        moves: result.moves_required,
+                    },
+                );
+            }
             // The counts, without the decisions: a task row is not where a
             // thousand proposals are kept, and `/decisions` lists them.
             if let Ok(mut summary) = serde_json::to_value(result) {

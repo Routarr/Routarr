@@ -210,6 +210,27 @@ export const FIELDS: Field[] = [
     fallback: '',
   },
   {
+    key: 'notify_sync_failed',
+    labelKey: 'SettingNotifySyncFailed',
+    helpKey: 'SettingNotifySyncFailedHelp',
+    kind: 'bool',
+    fallback: 'false',
+  },
+  {
+    key: 'notify_simulation_completed',
+    labelKey: 'SettingNotifySimulationCompleted',
+    helpKey: 'SettingNotifySimulationCompletedHelp',
+    kind: 'bool',
+    fallback: 'false',
+  },
+  {
+    key: 'notify_moves_completed',
+    labelKey: 'SettingNotifyMovesCompleted',
+    helpKey: 'SettingNotifyMovesCompletedHelp',
+    kind: 'bool',
+    fallback: 'false',
+  },
+  {
     key: 'certification_regions',
     labelKey: 'SettingCertificationRegions',
     helpKey: 'SettingCertificationRegionsHelp',
@@ -291,6 +312,9 @@ export const SECTIONS = [
       'auto_apply_enabled',
       'scheduler_interval_minutes',
       'notification_webhook_url',
+      'notify_sync_failed',
+      'notify_simulation_completed',
+      'notify_moves_completed',
     ],
   },
   {
