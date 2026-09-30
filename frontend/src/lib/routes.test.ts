@@ -9,9 +9,9 @@ import { iconFor } from './navigation';
  * icon fails the import of this file before any test runs.
  */
 describe('the route table', () => {
-  it('names thirteen distinct screens, the dashboard first', () => {
-    expect(SCREENS).toHaveLength(13);
-    expect(new Set(SCREENS).size).toBe(13);
+  it('names fourteen distinct screens, the dashboard first', () => {
+    expect(SCREENS).toHaveLength(14);
+    expect(new Set(SCREENS).size).toBe(14);
     expect(SCREENS[0]).toBe('/');
     for (const screen of SCREENS) expect(screen).toMatch(/^\//);
   });

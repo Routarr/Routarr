@@ -412,6 +412,8 @@ export interface OverrideEntry {
   target_category: string;
   reason: string | null;
   created_at: string;
+  /** Who set it: an application's name, or the person a sign-in mode names. */
+  subject: string | null;
   media_title: string;
   media_type: MediaType;
   instance_name: string;
@@ -422,6 +424,8 @@ export interface Job {
   kind: string;
   status: 'running' | 'success' | 'failed';
   trigger: string;
+  /** Who asked: an application's name, or the person a sign-in mode names. */
+  subject: string | null;
   instance_id: string | null;
   detail: string | null;
   progress_current: number;
@@ -429,6 +433,35 @@ export interface Job {
   error_message: string | null;
   started_at: string;
   finished_at: string | null;
+}
+
+/** A scope beyond read, which every application key holds. */
+export type ApplicationScope = 'operate' | 'write';
+
+/** The names a guardrail asks under, as the executor sends them back. */
+export type Guardrail = 'capacity' | 'threshold' | 'batch' | 'unreachable';
+
+export interface Application {
+  id: string;
+  name: string;
+  scopes: ApplicationScope[];
+  may_confirm: Guardrail[];
+  may_move_files: boolean;
+  created_at: string;
+  created_by: string | null;
+  last_used_at: string | null;
+}
+
+export interface NewApplication {
+  name: string;
+  scopes: ApplicationScope[];
+  may_confirm: Guardrail[];
+  may_move_files: boolean;
+}
+
+/** A key just made. The token is in this answer and never again. */
+export interface MintedApplication extends Application {
+  token: string;
 }
 
 export interface LogEntry {

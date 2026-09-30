@@ -366,7 +366,9 @@ async fn facets_and_sweep_work(count: usize) -> (Duration, Duration) {
         .await;
     let sweep = clock
         .least(|| async {
-            let report = maintenance::run(&app.state, "test").await.unwrap();
+            let report = maintenance::run(&app.state, &crate::jobs::Attribution::manual(None))
+                .await
+                .unwrap();
             assert_eq!(report.metadata_cache_removed, 0, "every cache row belongs to a media item");
         })
         .await;

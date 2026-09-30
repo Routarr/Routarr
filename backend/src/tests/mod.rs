@@ -1,6 +1,7 @@
 //! Integration tests driving the real router against an in-memory database.
 
 mod api;
+mod applications;
 mod arr_clients;
 mod arr_signals;
 mod auto_apply;
@@ -293,11 +294,43 @@ impl TestApp {
         self.list_tmdb().await;
     }
 
+    /// A library of `count` films the anime rule wants to move off `arr`,
+    /// with the global dry run off, ready to apply.
+    pub async fn films_to_move(arr: &fake_arr::FakeArr, count: usize) -> Self {
+        let app = Self::new().await;
+        app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+        app.seed_route_to_anime().await;
+
+        for index in 0..count {
+            sqlx::query(
+                "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
+                 current_path, current_root_folder, monitored, has_files)
+                 VALUES (?, 'inst-1', ?, 'movie', ?, 8392, ?, '/movies/standard', 1, 1)",
+            )
+            .bind(format!("m-{index}"))
+            .bind(index as i64 + 100)
+            .bind(format!("Film {index:03}"))
+            .bind(format!("/movies/standard/Film {index:03}"))
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+        }
+
+        app.store_setting("global_dry_run", "false").await;
+        app
+    }
+
     /// A harness whose library was synced from `arr`, as instance `inst-1`.
     pub async fn synced_from(kind: &str, arr: &fake_arr::FakeArr) -> Self {
         let app = Self::new().await;
         app.seed_instance_at("inst-1", kind, &arr.base_url).await;
-        crate::services::sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+        crate::services::sync::sync_instance(
+            &app.state,
+            "inst-1",
+            &crate::jobs::Attribution::manual(None),
+        )
+        .await
+        .unwrap();
         app
     }
 

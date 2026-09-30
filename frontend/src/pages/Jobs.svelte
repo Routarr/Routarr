@@ -100,7 +100,12 @@
             {#each jobs as job (job.id)}
               <tr>
                 <td><strong>{t(jobKindKey(job.kind))}</strong></td>
-                <td><span class="badge badge-info">{t(triggerKey(job.trigger))}</span></td>
+                <td>
+                  <span class="badge badge-info">{t(triggerKey(job.trigger))}</span>
+                  {#if job.subject}
+                    <span class="text-xs text-muted" title={t('PerformedBy')}>{job.subject}</span>
+                  {/if}
+                </td>
                 <td>
                   <span class="badge {STATUS_BADGE[job.status]}">{t(statusKey(job.status))}</span>
                 </td>

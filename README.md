@@ -35,6 +35,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
 - **Several instances** of Radarr and Sonarr v3.
 - **Authentication on by default**: API key, a single account, or OpenID Connect.
+- **Keys for other applications**, each limited to what you allow: reading, operating (sync,
+  simulate, apply, revert) or setting exceptions, with the guardrails it may answer on its own.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
   or Apprise.
 - **26 languages**.

@@ -1380,6 +1380,42 @@ tr:hover td {
   margin-bottom: 8px;
 }
 
+/* A group of choices under one name. The fieldset names the group for a
+   screen reader and draws nothing of its own: its legend reads as a label. */
+fieldset.form-group {
+  border: 0;
+  margin-inline: 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+fieldset.form-group > legend {
+  padding: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+}
+
+/* One checkbox and what it grants, the explanation under its name. */
+.check-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.check-option:has(> input:disabled) {
+  color: var(--text-muted);
+}
+
+.form-hint {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* A row of fields sitting side by side. Labels translate to wildly different
    lengths («Type» is one line, «Synchroniser toutes les (min)» is two), so the
    controls are bottom-aligned rather than top-aligned: whatever the label does,

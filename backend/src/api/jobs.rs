@@ -17,6 +17,8 @@ pub struct Job {
     pub kind: String,
     pub status: String,
     pub trigger: String,
+    /// Who asked: an application's name, or the person a sign-in mode names.
+    pub subject: Option<String>,
     pub instance_id: Option<String>,
     /// In the interface language, from `detail_key` when the row has one.
     pub detail: Option<String>,
@@ -32,7 +34,7 @@ pub struct Job {
 }
 
 const JOB_COLUMNS: &str =
-    "id, kind, status, trigger, instance_id, detail, detail_key, detail_params,
+    "id, kind, status, trigger, subject, instance_id, detail, detail_key, detail_params,
      progress_current, progress_total, error_message, started_at, finished_at";
 
 impl Job {

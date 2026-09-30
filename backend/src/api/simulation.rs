@@ -37,21 +37,15 @@ pub async fn run(
         None
     };
 
-    let job = state
-        .jobs
-        .start(
-            JobKind::Simulate,
-            crate::jobs::TRIGGER_MANUAL,
-            None,
-            Detail::new("JobDetailSimulating"),
-        )
-        .await?;
+    let by = identity.attribution();
+    let job =
+        state.jobs.start(JobKind::Simulate, &by, None, Detail::new("JobDetailSimulating")).await?;
 
     let outcome = routing::run_simulation(
         &state.pool,
         SimulationOptions {
-            trigger: crate::jobs::TRIGGER_MANUAL.to_string(),
-            subject: identity.actor().map(str::to_string),
+            trigger: by.trigger,
+            subject: by.subject,
             instance_ids: req.instance_ids.unwrap_or_default(),
             media_ids: None,
             media_type: req.media_type,

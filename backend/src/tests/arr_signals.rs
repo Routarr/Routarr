@@ -172,7 +172,9 @@ async fn an_arr_without_a_tag_endpoint_still_syncs() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
 
-    let report = sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert!(report.media > 0, "the library must still be read");
 }

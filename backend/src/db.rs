@@ -19,6 +19,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("006_drop_override_lock", include_str!("../migrations/006_drop_override_lock.sql")),
     ("007_job_detail_keys", include_str!("../migrations/007_job_detail_keys.sql")),
     ("008_drop_move_files_default", include_str!("../migrations/008_drop_move_files_default.sql")),
+    ("009_application_keys", include_str!("../migrations/009_application_keys.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.

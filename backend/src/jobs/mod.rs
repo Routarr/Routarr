@@ -27,6 +27,8 @@ where
 pub const TRIGGER_MANUAL: &str = "manual";
 pub const TRIGGER_SCHEDULE: &str = "schedule";
 pub const TRIGGER_WEBHOOK: &str = "webhook";
+/// An application key asked, and its name is the subject.
+pub const TRIGGER_API: &str = "api";
 
 /// The longest interval an instance may be synced on, in minutes: a day.
 ///
@@ -61,7 +63,7 @@ pub struct Attribution {
 }
 
 impl Attribution {
-    /// Somebody asked, through the interface or the API.
+    /// Somebody asked, through the interface or with the master key.
     pub fn manual(subject: Option<&str>) -> Self {
         Self { trigger: TRIGGER_MANUAL.to_string(), subject: subject.map(str::to_string) }
     }
@@ -69,5 +71,10 @@ impl Attribution {
     /// Nobody asked: the scheduler, or an Arr's webhook.
     pub fn unattended(trigger: &str) -> Self {
         Self { trigger: trigger.to_string(), subject: None }
+    }
+
+    /// An application asked, with a key that names it.
+    pub fn application(name: &str) -> Self {
+        Self { trigger: TRIGGER_API.to_string(), subject: Some(name.to_string()) }
     }
 }

@@ -7,6 +7,7 @@
 import { basePath } from './basePath';
 
 import type {
+  Application,
   AuthMode,
   ApplyReport,
   BatchApplyReport,
@@ -27,6 +28,8 @@ import type {
   Localization,
   MediaListItem,
   MetadataProviders,
+  MintedApplication,
+  NewApplication,
   OnboardingState,
   OnboardingStatus,
   OverrideEntry,
@@ -404,6 +407,11 @@ export const api = {
     }),
 
   // ---------------------------------------------------------- overrides
+  getApplications: (signal?: AbortSignal) => request<Application[]>('/applications', { signal }),
+  createApplication: (data: NewApplication) =>
+    request<MintedApplication>('/applications', { method: 'POST', body: body(data) }),
+  revokeApplication: (id: string) => request<unknown>(`/applications/${id}`, { method: 'DELETE' }),
+
   getOverrides: (signal?: AbortSignal) => request<OverrideEntry[]>('/overrides', { signal }),
   createOverride: (data: unknown) =>
     request<OverrideEntry>('/overrides', { method: 'POST', body: body(data) }),

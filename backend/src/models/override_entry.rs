@@ -8,6 +8,8 @@ pub struct OverrideEntry {
     pub target_category: String,
     pub reason: Option<String>,
     pub created_at: String,
+    /// Who set it: an application's name, or the person a sign-in mode names.
+    pub subject: Option<String>,
 }
 
 /// Request body for creating an override.

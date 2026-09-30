@@ -82,6 +82,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     items: [
       { to: '/instances', key: 'Instances', hint: 'HintInstances' },
       { to: '/root-folders', key: 'RootFolders', hint: 'HintRootFolders' },
+      { to: '/applications', key: 'Applications', hint: 'HintApplications' },
       { to: '/settings', key: 'Settings', hint: 'HintSettings' },
     ],
   },

@@ -55,7 +55,7 @@ async fn delete_with_key(app: &TestApp, path: &str, key: &str) -> super::TestRes
 /// A list of probes kept by hand goes stale in silence, which is why the e2e
 /// specs are selected by tag and the modal sweep is checked against the files
 /// rendering a `<Modal>`.
-fn declared_routes() -> Vec<(&'static str, String)> {
+pub(super) fn declared_routes() -> Vec<(&'static str, String)> {
     let block = route_block();
 
     let mut routes = Vec::new();
@@ -127,7 +127,7 @@ fn the_route_walk_reads_every_declared_route() {
 /// before it has anything to show it with. The OIDC pair is outside by
 /// necessity: the browser has no session on the way out and the provider's
 /// redirect carries none on the way back.
-const OPEN: &[(&str, &str)] = &[
+pub(super) const OPEN: &[(&str, &str)] = &[
     ("GET", "/api/v1/ping"),
     ("GET", "/api/v1/localization"),
     ("GET", "/api/v1/localization/languages"),
@@ -1820,10 +1820,14 @@ async fn the_credentials_in_an_arr_address_never_reach_the_log() {
     let capture = LogCapture::default();
     let subscriber = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
-    crate::services::sync::sync_instance(&app.state, "inst-1", "manual")
-        .with_subscriber(tracing::Dispatch::new(subscriber))
-        .await
-        .unwrap();
+    crate::services::sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::manual(None),
+    )
+    .with_subscriber(tracing::Dispatch::new(subscriber))
+    .await
+    .unwrap();
 
     let log = capture.contents();
     let shown = arr.base_url.replacen("http://", "http://***@", 1);

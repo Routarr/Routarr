@@ -46,7 +46,7 @@ fn entries(archive: &std::path::Path) -> Vec<String> {
 async fn a_backup_carries_everything_a_restore_needs() {
     let (app, dir) = app_with_files("complete").await;
 
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
     let names = entries(&archive);
 
@@ -67,7 +67,7 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
     let (app, dir) = app_with_files("snapshot").await;
     app.seed_library().await;
 
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
 
     // Extract the database and open it: a `VACUUM INTO` snapshot has to be a
@@ -170,7 +170,7 @@ async fn only_the_retained_count_survives_a_prune() {
 async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     let (app, dir) = app_with_files("schema").await;
 
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
 
     // Rewrite the manifest as if a later Routarr had produced it.
@@ -213,7 +213,7 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     let (app, dir) = app_with_files("restore").await;
     app.seed_library().await;
 
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     // Change the live database after the backup, so a successful restore is
     // observable rather than a no-op.
@@ -325,7 +325,7 @@ async fn media_count(config: &crate::config::Config) -> i64 {
 async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() {
     let (app, dir) = app_with_files("staging-fails").await;
     app.seed_library().await;
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     damage_entry(&dir.join("backups").join(&file.name), "routarr.db");
 
     let refused = backup::stage_restore(&app.state, &file.name)
@@ -350,7 +350,7 @@ async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() 
 async fn an_archive_whose_database_is_not_one_is_refused_before_anything_is_staged() {
     let (app, dir) = app_with_files("empty-db").await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     // A well-formed archive whose database entry is empty: its CRC is right,
     // its manifest reads, and restoring it would start the next run on an
     // empty schema.
@@ -420,7 +420,7 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
     let (app, dir) = app_with_files("restage").await;
     let backups = dir.join("backups");
 
-    let first = backup::create(&app.state, "manual").await.unwrap();
+    let first = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     // Two archives taken in one second would share a name.
     std::fs::rename(backups.join(&first.name), backups.join("routarr-backup-20000101-000000.zip"))
         .unwrap();
@@ -431,7 +431,7 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
     );
 
     std::fs::remove_file(app.state.config.api_key_path()).unwrap();
-    let second = backup::create(&app.state, "manual").await.unwrap();
+    let second = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     assert!(
         !entries(&backups.join(&second.name)).contains(&"routarr.api_key".to_string()),
         "precondition: the second archive carries no API key"
@@ -452,7 +452,7 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
     let (app, dir) = app_with_files("damaged-inside").await;
     app.seed_library().await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     // The media table's page, found in the archive's own database and then
     // overwritten with a page type SQLite does not have.
@@ -490,7 +490,7 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
 async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
     let (app, dir) = app_with_files("damaged-key").await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = backups.join(&file.name);
 
     // The entry's local header, which the reader checks before its data.
@@ -517,7 +517,7 @@ async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
 async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
     let (app, dir) = app_with_files("missing-key").await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     rewrite(
         &backups.join(&file.name),
         &backups.join("routarr-backup-20000101-000000.zip"),
@@ -540,7 +540,7 @@ async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
 async fn a_refused_restore_leaves_the_one_already_staged() {
     let (app, dir) = app_with_files("refused-second").await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     backup::stage_restore(&app.state, &file.name).await.unwrap();
 
     forge(
@@ -572,7 +572,7 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
 #[tokio::test]
 async fn a_restore_is_staged_one_at_a_time() {
     let (app, _dir) = app_with_files("one-at-a-time").await;
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     let held = app.state.jobs.try_lock("restore").expect("the restore lock");
     let refused = backup::stage_restore(&app.state, &file.name)
@@ -591,7 +591,7 @@ async fn a_restore_is_staged_one_at_a_time() {
 async fn a_pending_database_from_a_newer_schema_is_not_applied() {
     let (app, dir) = app_with_files("newer-pending").await;
     app.seed_library().await;
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let config = app.state.config.clone();
     app.state.pool.close().await;
 
@@ -618,7 +618,7 @@ async fn a_pending_database_from_a_newer_schema_is_not_applied() {
 async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     let (app, dir) = app_with_files("sweep").await;
     let backups = dir.join("backups");
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let config = app.state.config.clone();
     app.state.pool.close().await;
 
@@ -800,7 +800,7 @@ async fn an_archive_without_the_master_key_says_so() {
     // The shape a key held in the environment leaves on disk: nothing.
     std::fs::remove_file(app.state.config.secret_key_path()).unwrap();
 
-    let file = backup::create(&app.state, "manual").await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     let archive = dir.join("backups").join(&file.name);
 
     let manifest = backup::read_manifest(&archive).unwrap();

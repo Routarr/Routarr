@@ -145,6 +145,7 @@ export function job(over: Partial<Job> = {}): Job {
     kind: 'sync',
     status: 'success',
     trigger: 'schedule',
+    subject: null,
     instance_id: null,
     detail: null,
     progress_current: 0,

@@ -11,32 +11,6 @@ use crate::services::executor;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
-/// A library of `count` films the anime rule wants to move, ready to apply.
-async fn library(arr: &FakeArr, count: usize) -> TestApp {
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_route_to_anime().await;
-
-    for index in 0..count {
-        sqlx::query(
-            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
-             current_root_folder, monitored, has_files)
-             VALUES (?, 'inst-1', ?, 'movie', ?, 8392, ?, '/movies/standard', 1, 1)",
-        )
-        .bind(format!("m-{index}"))
-        .bind(index as i64 + 100)
-        .bind(format!("Film {index:03}"))
-        .bind(format!("/movies/standard/Film {index:03}"))
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    }
-
-    app.store_setting("global_dry_run", "false").await;
-
-    app
-}
-
 async fn set_batch_limit(app: &TestApp, limit: usize) {
     app.store_setting("batch_limit", &limit.to_string()).await;
 }
@@ -44,7 +18,7 @@ async fn set_batch_limit(app: &TestApp, limit: usize) {
 #[tokio::test]
 async fn a_library_larger_than_the_batch_limit_is_applied_in_slices() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 12).await;
+    let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
 
@@ -77,7 +51,7 @@ async fn a_library_larger_than_the_batch_limit_is_applied_in_slices() {
 #[tokio::test]
 async fn global_dry_run_still_outranks_it() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 4).await;
+    let app = TestApp::films_to_move(&arr, 4).await;
     sqlx::query("UPDATE settings SET value = 'true' WHERE key = 'global_dry_run'")
         .execute(&app.state.pool)
         .await
@@ -103,7 +77,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     // be attempted, because an Arr that just refused five moves will refuse five
     // hundred.
     let arr = FakeArr::failing(500).await;
-    let app = library(&arr, 12).await;
+    let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
 
@@ -136,7 +110,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
 #[tokio::test]
 async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 0).await;
+    let app = TestApp::films_to_move(&arr, 0).await;
     let simulation = app.simulate().await;
 
     let refused = executor::apply_simulation_in_batches(
@@ -154,7 +128,7 @@ async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty
 #[tokio::test]
 async fn it_only_touches_what_its_own_simulation_proposed() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 4).await;
+    let app = TestApp::films_to_move(&arr, 4).await;
     set_batch_limit(&app, 50).await;
 
     let earlier = app.simulate().await;
@@ -188,7 +162,7 @@ async fn it_only_touches_what_its_own_simulation_proposed() {
 #[tokio::test]
 async fn progress_is_recorded_so_the_operations_queue_can_show_it() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 12).await;
+    let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
 
@@ -216,7 +190,7 @@ async fn progress_is_recorded_so_the_operations_queue_can_show_it() {
 #[tokio::test]
 async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 3).await;
+    let app = TestApp::films_to_move(&arr, 3).await;
     set_batch_limit(&app, 50).await;
     let simulation = app.simulate().await;
 
@@ -237,7 +211,7 @@ async fn the_endpoint_refuses_without_a_confirmation_however_small_the_library()
 #[tokio::test]
 async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 3).await;
+    let app = TestApp::films_to_move(&arr, 3).await;
     let simulation = app.simulate().await;
     let localizer = app.state.localizer().await;
     let count = localizer.translate("ConfirmApplyAll", &[("count", "3")]);
@@ -263,7 +237,7 @@ async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
 #[tokio::test]
 async fn the_endpoint_applies_everything_once_confirmed() {
     let arr = FakeArr::start().await;
-    let app = library(&arr, 7).await;
+    let app = TestApp::films_to_move(&arr, 7).await;
     set_batch_limit(&app, 3).await;
     let simulation = app.simulate().await;
 

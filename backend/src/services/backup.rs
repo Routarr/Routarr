@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use crate::error::{AppError, AppResult};
-use crate::jobs::{Detail, JobKind};
+use crate::jobs::{Attribution, Detail, JobKind};
 use crate::state::AppState;
 
 /// Written into every archive so a restore can refuse what it cannot honour.
@@ -112,13 +112,13 @@ pub fn is_valid_backup_name(name: &str) -> bool {
 }
 
 /// Take a backup now.
-pub async fn create(state: &AppState, trigger: &str) -> AppResult<BackupFile> {
+pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile> {
     let Some(_lock) = state.jobs.try_lock("backup") else {
         return Err(AppError::Conflict("A backup is already running".into()));
     };
 
     let job =
-        state.jobs.start(JobKind::Backup, trigger, None, Detail::new("JobDetailBackingUp")).await?;
+        state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
     let outcome = write_archive(state).await;
 
     match &outcome {

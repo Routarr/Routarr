@@ -247,6 +247,10 @@ fn build_router(state: AppState) -> Router {
         .route("/auth/me", get(api::auth::me))
         .route("/auth/password", put(api::auth::change_password))
         .route("/auth/api-key", post(api::auth::rotate_api_key).delete(api::auth::delete_api_key))
+        // Keys for other applications, each held to its own scopes. Owner-only,
+        // like every route `api::applications::GRANTS` does not name.
+        .route("/applications", get(api::applications::list).post(api::applications::create))
+        .route("/applications/{id}", delete(api::applications::revoke))
         .route("/status", get(api::health::status))
         .route("/health", get(api::health::health_check))
         // Behind the API key like everything else that describes the library:

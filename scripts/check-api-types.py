@@ -61,8 +61,10 @@ PAIRS: dict[str, str] = {
     "RestoreResponse": "RestoreResult",
     "BackupManifest": "BackupManifest",
     "TestConnectionResponse": "TestConnectionResponse",
+    "Minted": "MintedApplication",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
+    "Application": "Application",
     "ApplyReport": "ApplyReport",
     "BatchApplyReport": "BatchApplyReport",
     "CapacityForecast": "CapacityForecast",

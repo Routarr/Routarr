@@ -41,6 +41,7 @@ export {
   MoveUp,
   Pencil,
   Play,
+  Plug,
   Plus,
   RefreshCw,
   Save,

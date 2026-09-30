@@ -42,6 +42,17 @@ pub enum AppError {
     #[error("Confirmation required: {message}")]
     ConfirmationRequired { kind: &'static str, message: String },
 
+    /// A guardrail asked a caller not allowed to answer it: an application key
+    /// that was not given that name. The same 409 and the same `confirm`, with
+    /// `answerable: false`, so a script hands the question to a person instead
+    /// of sending the name back to be refused again.
+    #[error("Confirmation required from a person: {message}")]
+    ConfirmationWithheld { kind: &'static str, message: String },
+
+    /// The caller is known and may not do this.
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     /// An outbound call failed: an Arr, a metadata source, the identity
     /// provider or the notification webhook.
     ///
@@ -97,6 +108,9 @@ struct ErrorResponse {
     /// it back to say what it looked at, and nothing else is waved through.
     #[serde(skip_serializing_if = "Option::is_none")]
     confirm: Option<&'static str>,
+    /// Beside `confirm`: whether this caller may send the name back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    answerable: Option<bool>,
 }
 
 impl IntoResponse for AppError {
@@ -109,9 +123,10 @@ impl IntoResponse for AppError {
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
-            AppError::ConfirmationRequired { .. } => {
+            AppError::ConfirmationRequired { .. } | AppError::ConfirmationWithheld { .. } => {
                 (StatusCode::CONFLICT, "confirmation_required")
             }
+            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
                 (StatusCode::BAD_GATEWAY, "external_api_error")
             }
@@ -128,7 +143,9 @@ impl IntoResponse for AppError {
             | AppError::BadRequest(message)
             | AppError::Conflict(message)
             | AppError::UpstreamDown(message)
-            | AppError::ConfirmationRequired { message, .. } => message.clone(),
+            | AppError::Forbidden(message)
+            | AppError::ConfirmationRequired { message, .. }
+            | AppError::ConfirmationWithheld { message, .. } => message.clone(),
 
             // The underlying text is logged, never returned. `sqlx::Error`
             // names constraints, columns and sometimes the statement, and
@@ -148,11 +165,12 @@ impl IntoResponse for AppError {
             other => other.to_string(),
         };
 
-        let confirm = match &self {
-            AppError::ConfirmationRequired { kind, .. } => Some(*kind),
-            _ => None,
+        let (confirm, answerable) = match &self {
+            AppError::ConfirmationRequired { kind, .. } => (Some(*kind), Some(true)),
+            AppError::ConfirmationWithheld { kind, .. } => (Some(*kind), Some(false)),
+            _ => (None, None),
         };
-        let body = ErrorResponse { error: error_type.to_string(), message, confirm };
+        let body = ErrorResponse { error: error_type.to_string(), message, confirm, answerable };
 
         (status, axum::Json(body)).into_response()
     }

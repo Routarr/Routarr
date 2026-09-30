@@ -6,7 +6,7 @@ use tracing::{error, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
-use crate::jobs::{Detail, JobKind};
+use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::Instance;
 use crate::services::notify;
 use crate::services::rule_engine::normalize_path;
@@ -38,7 +38,7 @@ pub struct SyncReport {
 const SYNC_CONCURRENCY: usize = 4;
 
 /// Synchronize every enabled instance, isolating per-instance failures.
-pub async fn sync_all_instances(state: &AppState, trigger: &str) -> AppResult<Vec<SyncReport>> {
+pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult<Vec<SyncReport>> {
     let instances = state.instances(true).await?;
     info!("Syncing {} enabled instance(s)", instances.len());
 
@@ -50,7 +50,7 @@ pub async fn sync_all_instances(state: &AppState, trigger: &str) -> AppResult<Ve
     // between two runs are a table nobody can read.
 
     let reports = futures::stream::iter(instances.into_iter().map(|instance| async move {
-        match sync_instance_inner(state, &instance, trigger).await {
+        match sync_instance_inner(state, &instance, by).await {
             Ok(report) => report,
             Err(e) => {
                 // One unreachable Radarr must not stop the Sonarr sync, but the
@@ -77,16 +77,16 @@ pub async fn sync_all_instances(state: &AppState, trigger: &str) -> AppResult<Ve
 pub async fn sync_instance(
     state: &AppState,
     instance_id: &str,
-    trigger: &str,
+    by: &Attribution,
 ) -> AppResult<SyncReport> {
     let instance = state.instance(instance_id).await?;
-    sync_instance_inner(state, &instance, trigger).await
+    sync_instance_inner(state, &instance, by).await
 }
 
 async fn sync_instance_inner(
     state: &AppState,
     instance: &Instance,
-    trigger: &str,
+    by: &Attribution,
 ) -> AppResult<SyncReport> {
     // Refuse to pile up concurrent syncs of the same instance: the scheduler and
     // a user clicking "Sync" would otherwise fight over the same rows.
@@ -101,7 +101,7 @@ async fn sync_instance_inner(
         .jobs
         .start(
             JobKind::Sync,
-            trigger,
+            by,
             Some(&instance.id),
             Detail::new("JobDetailSyncing").with("instance", &instance.name),
         )

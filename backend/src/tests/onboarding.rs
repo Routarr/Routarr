@@ -111,7 +111,7 @@ async fn only_a_simulation_someone_started_ticks_the_step() {
         .jobs
         .start(
             JobKind::Simulate,
-            crate::jobs::TRIGGER_SCHEDULE,
+            &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
             None,
             crate::jobs::Detail::new("JobDetailSimulating"),
         )
@@ -119,7 +119,9 @@ async fn only_a_simulation_someone_started_ticks_the_step() {
         .unwrap();
     pass.succeed(crate::jobs::Detail::new("JobDetailSimulated").with("total", 1).with("moves", 1))
         .await;
-    crate::services::maintenance::run(&app.state, crate::jobs::TRIGGER_MANUAL).await.unwrap();
+    crate::services::maintenance::run(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let manual: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM jobs WHERE trigger = 'manual' AND status = 'success'",
     )
@@ -227,7 +229,12 @@ async fn a_manual_simulation_stays_counted_after_the_next_scheduled_pass() {
     )
     .await
     .unwrap();
-    crate::services::maintenance::run(&app.state, crate::jobs::TRIGGER_SCHEDULE).await.unwrap();
+    crate::services::maintenance::run(
+        &app.state,
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
+    )
+    .await
+    .unwrap();
     let manual: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions WHERE actor = 'manual'")
         .fetch_one(&app.state.pool)
         .await

@@ -29,8 +29,11 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListRes
     }))
 }
 
-pub async fn create(State(state): State<AppState>) -> AppResult<Json<BackupFile>> {
-    Ok(Json(backup::create(&state, crate::jobs::TRIGGER_MANUAL).await?))
+pub async fn create(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+) -> AppResult<Json<BackupFile>> {
+    Ok(Json(backup::create(&state, &identity.attribution()).await?))
 }
 
 /// Stream an archive to the caller.

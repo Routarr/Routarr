@@ -200,20 +200,23 @@ impl JobRegistry {
     pub async fn start(
         &self,
         kind: JobKind,
-        trigger: &str,
+        by: &super::Attribution,
         instance_id: Option<&str>,
         detail: Detail,
     ) -> AppResult<JobHandle> {
         let id = Uuid::new_v4().to_string();
         let english = detail.english();
+        let trigger = by.trigger.as_str();
 
         sqlx::query(
-            "INSERT INTO jobs (id, kind, status, trigger, instance_id, detail, detail_key, detail_params)
-             VALUES (?, ?, 'running', ?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, kind, status, trigger, subject, instance_id, detail, detail_key,
+                               detail_params)
+             VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(kind.as_str())
         .bind(trigger)
+        .bind(&by.subject)
         .bind(instance_id)
         .bind(&english)
         .bind(detail.key)
@@ -377,7 +380,7 @@ mod tests {
         let handle = registry
             .start(
                 JobKind::Sync,
-                "manual",
+                &super::super::Attribution::manual(None),
                 None,
                 Detail::new("JobDetailSyncing").with("instance", "Radarr"),
             )
@@ -409,7 +412,7 @@ mod tests {
         let handle = registry
             .start(
                 JobKind::Sync,
-                "manual",
+                &super::super::Attribution::manual(None),
                 None,
                 Detail::new("JobDetailSyncing").with("instance", "Radarr"),
             )
@@ -492,7 +495,7 @@ mod tests {
         let handle = registry
             .start(
                 JobKind::Sync,
-                "manual",
+                &super::super::Attribution::manual(None),
                 None,
                 Detail::new("JobDetailSyncing").with("instance", "Radarr"),
             )
@@ -544,7 +547,12 @@ mod tests {
         let pool = crate::db::test_pool().await;
         let registry = JobRegistry::new(pool.clone());
         let handle = registry
-            .start(JobKind::Enrich, "schedule", None, Detail::new("JobDetailEnriching"))
+            .start(
+                JobKind::Enrich,
+                &super::super::Attribution::unattended("schedule"),
+                None,
+                Detail::new("JobDetailEnriching"),
+            )
             .await
             .unwrap();
         let id = handle.id.clone();

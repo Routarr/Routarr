@@ -11,6 +11,7 @@ import {
   History,
   LayoutDashboard,
   ListChecks,
+  Plug,
   ScrollText,
   Server,
   Settings,
@@ -43,6 +44,7 @@ const ICONS: Record<string, Component<LucideProps>> = {
   '/health': Activity,
   '/instances': Server,
   '/root-folders': FolderTree,
+  '/applications': Plug,
   '/settings': Settings,
 };
 
