@@ -62,6 +62,9 @@ struct FakeState {
     max_in_flight: Arc<AtomicUsize>,
     /// Whether the tag catalogue answers a 500, as an Arr failing on it does.
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
+    /// The folder name the movie editor gives a movie moved with its files,
+    /// as Radarr's naming format does. `None` keeps the folder it had.
+    renames_to: Arc<Mutex<Option<String>>>,
 }
 
 pub struct FakeArr {
@@ -70,6 +73,7 @@ pub struct FakeArr {
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     max_in_flight: Arc<AtomicUsize>,
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
+    renames_to: Arc<Mutex<Option<String>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -95,6 +99,14 @@ impl FakeArr {
             Self::build(None, "/tv/standard/Cowboy Bebop (1998)", true, std::time::Duration::ZERO)
                 .await;
         fake.series_body.lock().expect("lock").replace(body);
+        fake
+    }
+
+    /// Start a fake whose movie editor names a movie moved with its files
+    /// `folder`, as Radarr's naming format may.
+    pub async fn renaming_folders_to(folder: &str) -> Self {
+        let fake = Self::start().await;
+        fake.renames_to.lock().expect("lock").replace(folder.to_string());
         fake
     }
 
@@ -147,6 +159,7 @@ impl FakeArr {
         let series_body: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
         let max_in_flight = Arc::new(AtomicUsize::new(0));
         let tags_broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let renames_to: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             fail_with,
@@ -157,6 +170,7 @@ impl FakeArr {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_in_flight: Arc::clone(&max_in_flight),
             tags_broken: Arc::clone(&tags_broken),
+            renames_to: Arc::clone(&renames_to),
         };
 
         let app = Router::new()
@@ -191,6 +205,7 @@ impl FakeArr {
             series_body,
             max_in_flight,
             tags_broken,
+            renames_to,
             shutdown: Some(tx),
         }
     }
@@ -386,7 +401,7 @@ async fn movie_editor(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     record_key(&state, &headers);
-    state.recorded.lock().expect("lock").writes.push(body);
+    state.recorded.lock().expect("lock").writes.push(body.clone());
 
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), refusal()));
@@ -396,7 +411,25 @@ async fn movie_editor(
     if !state.hold.is_zero() {
         tokio::time::sleep(state.hold).await;
     }
-    Ok(Json(serde_json::json!([])))
+    // As Radarr answers: each movie edited, with the path it now has. Without
+    // its files a movie keeps its folder name, with them the naming format
+    // may give it another.
+    let root = body["rootFolderPath"].as_str().unwrap_or_default().trim_end_matches('/');
+    let movie = totoro(&state);
+    let kept = movie["path"].as_str().unwrap_or_default().rsplit('/').next().unwrap_or_default();
+    let renamed = state.renames_to.lock().expect("lock").clone();
+    let folder = match renamed {
+        Some(name) if body["moveFiles"].as_bool() == Some(true) => name,
+        _ => kept.to_string(),
+    };
+    let moved: Vec<serde_json::Value> = body["movieIds"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|id| id.as_i64() == movie["id"].as_i64())
+        .map(|id| serde_json::json!({ "id": id, "path": format!("{root}/{folder}") }))
+        .collect();
+    Ok(Json(serde_json::Value::Array(moved)))
 }
 
 async fn series_list(

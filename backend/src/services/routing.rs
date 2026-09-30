@@ -264,6 +264,7 @@ pub async fn simulate_loaded(
         decisions.push(Decision {
             actor: Some(options.trigger.clone()),
             subject: options.subject.clone(),
+            revertible: false,
             id: Uuid::new_v4().to_string(),
             media_id: media.id.clone(),
             media_title: media.title.clone(),

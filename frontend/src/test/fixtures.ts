@@ -40,6 +40,7 @@ export function decision(over: Partial<Decision> = {}): Decision {
     reverted_at: null,
     actor: null,
     subject: null,
+    revertible: false,
     ...over,
   };
 }

@@ -209,7 +209,7 @@
                   {/if}
                 </td>
                 <td>
-                  {#if decision.status === 'applied' && !decision.reverted_at}
+                  {#if decision.revertible}
                     <button
                       class="btn btn-secondary btn-sm"
                       onclick={() => {

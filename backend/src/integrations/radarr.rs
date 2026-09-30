@@ -2,6 +2,7 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tracing::debug;
 
 use super::{send_json, send_ok};
@@ -138,14 +139,19 @@ impl RadarrClient {
     ///
     /// Radarr's editor endpoint takes a list, so a batch of decisions targeting
     /// the same folder costs one call instead of one call per movie.
+    ///
+    /// Answers the path Radarr gave each movie, by id. With its files moved, a
+    /// movie's folder is named from Radarr's naming format, which the caller
+    /// cannot compose. An answer that lists no path leaves that movie out: the
+    /// edit went through, and only the caller's own composition is left.
     pub async fn update_movies_root_folder(
         &self,
         movie_ids: &[i64],
         root_folder_path: &str,
         move_files: bool,
-    ) -> AppResult<()> {
+    ) -> AppResult<HashMap<i64, String>> {
         if movie_ids.is_empty() {
-            return Ok(());
+            return Ok(HashMap::new());
         }
 
         #[derive(Serialize)]
@@ -160,14 +166,25 @@ impl RadarrClient {
 
         debug!("Moving {} movie(s) to {}", movie_ids.len(), root_folder_path);
 
-        send_ok(
+        #[derive(Deserialize)]
+        struct Edited {
+            id: i64,
+            path: Option<String>,
+        }
+
+        let response = super::check_status(
             SERVICE,
             self.client
                 .put(format!("{}/api/v3/movie/editor", self.base_url))
                 .header("X-Api-Key", &self.api_key)
                 .json(&MovieEditorRequest { movie_ids, root_folder_path, move_files }),
         )
-        .await
+        .await?;
+        let edited = response.json::<Vec<Edited>>().await.unwrap_or_else(|_| {
+            debug!("Radarr's movie editor answered without the movies it edited");
+            Vec::new()
+        });
+        Ok(edited.into_iter().filter_map(|movie| Some((movie.id, movie.path?))).collect())
     }
 
     /// Trigger a rescan/refresh so Radarr picks up the new location.

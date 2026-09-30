@@ -124,7 +124,7 @@ async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied(
     let (app, decision_id) = ready(&arr).await;
     sqlx::query(
         "UPDATE media SET current_root_folder = '/movies/anime',
-                current_path = '/movies/anime/Totoro (1988)' WHERE id = 'm-1'",
+                current_path = '/movies/anime/My Neighbor Totoro (1988)' WHERE id = 'm-1'",
     )
     .execute(&app.state.pool)
     .await
@@ -399,7 +399,7 @@ async fn ready(arr: &FakeArr) -> (TestApp, String) {
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
          current_root_folder, monitored, has_files)
          VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', 8392,
-                 '/movies/standard/Totoro (1988)', '/movies/standard', 1, 1)",
+                 '/movies/standard/My Neighbor Totoro (1988)', '/movies/standard', 1, 1)",
     )
     .execute(&app.state.pool)
     .await
@@ -416,6 +416,82 @@ async fn ready(arr: &FakeArr) -> (TestApp, String) {
     let decision_id = result.decisions[0].id.clone();
 
     (app, decision_id)
+}
+
+/// With its files, Radarr names the moved folder from its own naming format
+/// and answers with the path it chose. That is the path recorded: composed
+/// from the old folder name instead, it names a folder that does not exist,
+/// and the explanation, a revert or the next plan read it until a sync.
+#[tokio::test]
+async fn a_move_with_its_files_records_the_folder_radarr_chose() {
+    let arr = FakeArr::renaming_folders_to("My Neighbor Totoro (1988) {tmdb-8392}").await;
+    let (app, decision_id) = ready(&arr).await;
+
+    executor::apply_decisions(
+        &app.state,
+        &[decision_id],
+        true,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 'm-1'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(path, "/movies/anime/My Neighbor Totoro (1988) {tmdb-8392}");
+}
+
+/// A title moved twice can only have its latest move undone. Undoing the older
+/// one would send it back to its first folder and skip the one between, and in
+/// History two buttons would answer to one name. The list says which move a
+/// revert may undo, and the server refuses the other without writing.
+#[tokio::test]
+async fn only_the_latest_move_of_a_title_can_be_reverted() {
+    let arr = FakeArr::start().await;
+    let (app, first) = ready(&arr).await;
+    executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&first),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status, applied_at)
+         VALUES ('d-later', 'm-1', 'Totoro', 'movie', 'inst-1', '/movies/anime',
+                 '/movies/standard', 'standard', 'move', 'applied',
+                 datetime('now', '+1 minute'))",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let listed = app.get("/api/v1/decisions?status=applied").await;
+    let revertible: std::collections::HashMap<String, bool> = listed.assert_ok()["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| (d["id"].as_str().unwrap().to_string(), d["revertible"] == true))
+        .collect();
+    assert_eq!(revertible.get(&first), Some(&false), "{revertible:?}");
+    assert_eq!(revertible.get("d-later"), Some(&true), "{revertible:?}");
+
+    let writes = arr.recorded().writes.len();
+    let refused = app
+        .post(
+            "/api/v1/decisions/revert",
+            serde_json::json!({ "decision_ids": [first], "confirm": ["capacity", "threshold"] }),
+        )
+        .await;
+    assert_eq!(refused.assert_ok()["applied"], 0);
+    assert_eq!(arr.recorded().writes.len(), writes, "the older move was sent to the Arr");
 }
 
 #[tokio::test]
@@ -470,7 +546,10 @@ async fn applying_rewrites_the_local_path_so_the_move_is_not_reproposed() {
             .await
             .unwrap();
     assert_eq!(root, "/movies/anime");
-    assert_eq!(path, "/movies/anime/Totoro (1988)", "the folder name must be preserved");
+    assert_eq!(
+        path, "/movies/anime/My Neighbor Totoro (1988)",
+        "the folder name must be preserved"
+    );
 
     // The whole point: a fresh simulation now agrees the media is in place.
     let again =
@@ -861,7 +940,7 @@ async fn reverting_puts_the_media_back() {
             .await
             .unwrap();
     assert_eq!(root, "/movies/standard");
-    assert_eq!(path, "/movies/standard/Totoro (1988)");
+    assert_eq!(path, "/movies/standard/My Neighbor Totoro (1988)");
 
     let (status, reverted): (String, Option<String>) =
         sqlx::query_as("SELECT status, reverted_at FROM decisions WHERE id = ?")
@@ -1305,7 +1384,7 @@ async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
             .await
             .unwrap();
     assert_eq!(root, "/movies/anime", "the sync undid the move it did not know about");
-    assert_eq!(path, "/movies/anime/Totoro (1988)");
+    assert_eq!(path, "/movies/anime/My Neighbor Totoro (1988)");
 }
 
 /// The other half, and the one that stops the guard becoming a permanent veto:
