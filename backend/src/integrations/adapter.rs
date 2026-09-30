@@ -166,24 +166,28 @@ impl ArrAdapter {
     /// Radarr takes the whole batch in one call. Sonarr takes one request per
     /// series (see `SonarrClient::update_series_path`), so a refusal is reported
     /// for its series and the rest of the batch still moves.
+    ///
+    /// Each success carries the path the Arr reports the item now has, when it
+    /// reports one: Radarr names a folder moved with its files from its naming
+    /// format. Sonarr is sent the full path, so it has nothing to add.
     pub async fn move_to_root_folder(
         &self,
         arr_ids: &[i64],
         root_folder_path: &str,
         move_files: bool,
-    ) -> Vec<(i64, AppResult<()>)> {
+    ) -> Vec<(i64, AppResult<Option<String>>)> {
         match self {
             Self::Radarr(c) => {
                 match c.update_movies_root_folder(arr_ids, root_folder_path, move_files).await {
-                    Ok(()) => arr_ids.iter().map(|id| (*id, Ok(()))).collect(),
+                    Ok(mut paths) => arr_ids.iter().map(|id| (*id, Ok(paths.remove(id)))).collect(),
                     Err(e) => arr_ids.iter().map(|id| (*id, Err(clone_error(&e)))).collect(),
                 }
             }
             Self::Sonarr(c) => {
                 let mut results = Vec::with_capacity(arr_ids.len());
                 for id in arr_ids {
-                    results
-                        .push((*id, c.update_series_path(*id, root_folder_path, move_files).await));
+                    let moved = c.update_series_path(*id, root_folder_path, move_files).await;
+                    results.push((*id, moved.map(|()| None)));
                 }
                 results
             }

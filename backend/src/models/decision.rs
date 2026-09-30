@@ -50,6 +50,10 @@ pub struct Decision {
     /// that lets everyone through under one shared subject.
     #[serde(default)]
     pub subject: Option<String>,
+    /// Whether a revert may undo this move now (`executor::REVERTIBLE`): only
+    /// the latest standing move of a title is.
+    #[serde(default)]
+    pub revertible: bool,
 }
 
 /// An alternative decision that was considered but not selected.

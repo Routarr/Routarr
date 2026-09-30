@@ -50,7 +50,9 @@ afterEach(() => vi.restoreAllMocks());
 describe('History', () => {
   it('offers a revert on a move that was applied', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
-      paginated([decision({ status: 'applied', applied_at: '2026-08-27 11:00:00' })]),
+      paginated([
+        decision({ status: 'applied', revertible: true, applied_at: '2026-08-27 11:00:00' }),
+      ]),
     );
     show();
 
@@ -86,9 +88,23 @@ describe('History', () => {
     expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
   });
 
+  /**
+   * A title moved twice can only have its latest move undone: undoing the
+   * older one would skip the folder between, and the server refuses it.
+   */
+  it('offers no revert on a move another has followed', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', applied_at: '2026-08-27 11:00:00' })]),
+    );
+    show();
+
+    await screen.findByText('Akira');
+    expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
+  });
+
   it('asks once, naming the film and where it would go back to', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
-      paginated([decision({ status: 'applied', current_root_folder: '/films' })]),
+      paginated([decision({ status: 'applied', revertible: true, current_root_folder: '/films' })]),
     );
     show();
 
@@ -100,7 +116,9 @@ describe('History', () => {
   /** Cancel means stop, not "revert quietly". */
   it('reverts nothing when the dialog is cancelled', async () => {
     const revertDecisions = vi.spyOn(api, 'revertDecisions');
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', revertible: true })]),
+    );
     show();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
@@ -117,7 +135,9 @@ describe('History', () => {
     const revertDecisions = vi
       .spyOn(api, 'revertDecisions')
       .mockResolvedValue({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', revertible: true })]),
+    );
     show();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
@@ -148,7 +168,9 @@ describe('History', () => {
       .spyOn(api, 'revertDecisions')
       .mockRejectedValueOnce(unreachable())
       .mockResolvedValueOnce({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', revertible: true })]),
+    );
     show();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
@@ -163,7 +185,9 @@ describe('History', () => {
 
   it('reverts nothing, and reports no failure, when the question is declined', async () => {
     const revertDecisions = vi.spyOn(api, 'revertDecisions').mockRejectedValueOnce(unreachable());
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'applied' })]));
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', revertible: true })]),
+    );
     show();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
@@ -182,7 +206,7 @@ describe('History', () => {
    */
   it('reports a revert that restored nothing as a failure, not a success', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
-      paginated([decision({ status: 'applied', media_title: 'Akira' })]),
+      paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
     );
     vi.spyOn(api, 'revertDecisions').mockResolvedValue({
       requested: 1,
@@ -210,8 +234,8 @@ describe('History', () => {
   it('takes the previous success off screen when the next revert is refused', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([
-        decision({ status: 'applied', media_title: 'Akira' }),
-        decision({ status: 'applied', media_title: 'Heat' }),
+        decision({ status: 'applied', revertible: true, media_title: 'Akira' }),
+        decision({ status: 'applied', revertible: true, media_title: 'Heat' }),
       ]),
     );
     vi.spyOn(api, 'revertDecisions')
@@ -346,7 +370,9 @@ describe('History', () => {
    */
   it('keeps a failed reload on screen beside the revert it followed', async () => {
     vi.spyOn(api, 'getDecisions')
-      .mockResolvedValueOnce(paginated([decision({ status: 'applied', media_title: 'Akira' })]))
+      .mockResolvedValueOnce(
+        paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
+      )
       .mockRejectedValue(new ApiError('The history could not be read', 409, 'conflict'));
     vi.spyOn(api, 'revertDecisions').mockResolvedValue({
       requested: 1,
@@ -369,7 +395,7 @@ describe('History', () => {
   /** A refusal stays until it is dismissed or replaced, whatever reloads the table. */
   it('keeps a refused revert on screen when the table reloads', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
-      paginated([decision({ status: 'applied', media_title: 'Akira' })]),
+      paginated([decision({ status: 'applied', revertible: true, media_title: 'Akira' })]),
     );
     vi.spyOn(api, 'revertDecisions').mockRejectedValue(
       new ApiError('The Arr refused the move', 409, 'conflict'),

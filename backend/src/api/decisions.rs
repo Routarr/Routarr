@@ -41,6 +41,7 @@ struct DecisionRow {
     reverted_at: Option<String>,
     actor: Option<String>,
     subject: Option<String>,
+    revertible: bool,
 }
 
 const DECISION_COLUMNS: &str = "id, media_id, media_title, media_type, instance_id, instance_name,
@@ -94,8 +95,10 @@ pub async fn list(
     }
 
     let list_sql = format!(
-        "SELECT {DECISION_COLUMNS} FROM decisions WHERE 1=1{filters}
-         ORDER BY decided_at DESC, media_title ASC LIMIT ? OFFSET ?"
+        "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible
+         FROM decisions d WHERE 1=1{filters}
+         ORDER BY decided_at DESC, media_title ASC LIMIT ? OFFSET ?",
+        executor::REVERTIBLE
     );
     let count_sql = format!("SELECT COUNT(*) FROM decisions WHERE 1=1{filters}");
 
@@ -210,6 +213,7 @@ fn decision_from_row(r: DecisionRow) -> Decision {
     Decision {
         actor: r.actor,
         subject: r.subject,
+        revertible: r.revertible,
         id: r.id,
         media_id: r.media_id,
         media_title: r.media_title,

@@ -301,6 +301,8 @@ export interface Decision {
   /** Who asked. Null for the scheduler, for the modes that name nobody, and on
    * a row stored without one. */
   subject: string | null;
+  /** Whether a revert may undo this move now: only the latest standing move of a title. */
+  revertible: boolean;
 }
 
 export interface SimulationResult extends SimulationSummary {

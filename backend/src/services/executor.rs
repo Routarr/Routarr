@@ -529,18 +529,25 @@ async fn execute_moves(
 
         let arr_ids: Vec<i64> = batch.iter().map(|m| m.arr_id).collect();
         let results = adapter.move_to_root_folder(&arr_ids, &target, move_files).await;
-        let outcomes: HashMap<i64, bool> = results.iter().map(|(id, r)| (*id, r.is_ok())).collect();
-        let errors: HashMap<i64, String> = results
-            .into_iter()
-            .filter_map(|(id, r)| r.err().map(|e| (id, e.to_string())))
-            .collect();
+        let mut moved: HashMap<i64, Option<String>> = HashMap::new();
+        let mut errors: HashMap<i64, String> = HashMap::new();
+        for (id, result) in results {
+            match result {
+                Ok(path) => {
+                    moved.insert(id, path);
+                }
+                Err(e) => {
+                    errors.insert(id, e.to_string());
+                }
+            }
+        }
 
         let mut succeeded_ids = Vec::new();
 
         for mv in &batch {
-            if outcomes.get(&mv.arr_id).copied().unwrap_or(false) {
+            if let Some(answered) = moved.remove(&mv.arr_id) {
                 succeeded_ids.push(mv.arr_id);
-                record_success(state, mv, &target, direction, by).await;
+                record_success(state, mv, &target, answered.as_deref(), direction, by).await;
                 report.applied += 1;
             } else {
                 let message = errors
@@ -597,17 +604,21 @@ async fn record_success(
     state: &AppState,
     mv: &PendingMove,
     target: &str,
+    answered: Option<&str>,
     direction: MoveDirection,
     by: &Attribution,
 ) {
     let now = format_timestamp(chrono::Utc::now());
     let pool = &state.pool;
 
-    // Rewrite the local path so it reflects reality until the next sync.
-    // Computed in Rust rather than SQL: the substring arithmetic in SQLite
-    // silently produces `/movies/animeTitle` whenever the stored root folder
+    // The path the Arr answered with, or, when it named none, the old folder
+    // name under the new root, so the row reflects reality until the next
+    // sync. Composed in Rust rather than SQL: the substring arithmetic in
+    // SQLite produces `/movies/animeTitle` when the stored root folder
     // carries a trailing slash.
-    let new_path = mv.current_path.as_deref().map(|path| relocate(path, target));
+    let new_path = answered
+        .map(str::to_string)
+        .or_else(|| mv.current_path.as_deref().map(|path| relocate(path, target)));
 
     // The decision and the media row in one transaction: an `applied` decision
     // beside a stale path reproposes a move that already happened.
@@ -826,10 +837,17 @@ struct Weighed {
 /// The proposals an apply writes.
 const PROPOSED: &str = "d.status = 'pending' AND d.superseded = 0 AND d.action = 'move'";
 
-/// The moves a revert may undo: applied, not undone yet, and knowing where
-/// they came from.
-const REVERTIBLE: &str =
-    "d.status = 'applied' AND d.reverted_at IS NULL AND d.current_root_folder IS NOT NULL";
+/// The moves a revert may undo: applied, not undone yet, knowing where they
+/// came from, and the latest of their title's standing moves. Undoing an
+/// older one would send the title back to its first folder and skip the ones
+/// between. The decisions list reads it too, to draw a Revert button on
+/// exactly the rows it lets through.
+pub(crate) const REVERTIBLE: &str =
+    "d.status = 'applied' AND d.reverted_at IS NULL AND d.current_root_folder IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM decisions later
+                      WHERE later.media_id = d.media_id AND later.id <> d.id
+                        AND later.status = 'applied' AND later.reverted_at IS NULL
+                        AND later.applied_at > d.applied_at)";
 
 impl CapacityScope<'_> {
     /// `None` for an empty selection, which there is nothing to weigh in.
