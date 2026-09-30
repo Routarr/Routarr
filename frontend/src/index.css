@@ -804,14 +804,15 @@ a {
    marks where the bar ends, since the unfilled part is the input colour on a
    card, too close to it to see. The edge is the accent as a border,
    `--accent-strong`, readable on both grounds. Six pixels edge included, and
-   barely rounded ends. */
+   square ends: at that size a rounded corner reads as a smudge, worst on a
+   short bar. */
 .guide-bar,
 .confidence-track,
 .progress-track {
   box-sizing: border-box;
   height: 6px;
   border: 1px solid var(--accent-strong);
-  border-radius: var(--radius-xs);
+  border-radius: 0;
   background-color: var(--bg-input);
   overflow: hidden;
 }
