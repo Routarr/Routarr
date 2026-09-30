@@ -15,7 +15,7 @@
   "api.calls.k.4": "Lange Aufgaben",
   "api.calls.note.4": "Eine Simulation, eine Anwendung, eine Rücknahme oder eine Synchronisierung wartet auf das Ende und antwortet mit ihrem Bericht. Mit diesem Header antwortet sie <code>202</code>, sobald die Aufgabe gestartet ist, und <code>GET /jobs/{id}</code> enthält den Bericht, wenn sie endet.",
   "api.calls.k.5": "Webhook",
-  "api.calls.note.5": "Der Benachrichtigungs-Webhook ist signiert, wie Standard Webhooks es vorsieht, und eine abgelehnte oder unbeantwortete Zustellung wird nach 10 s, 60 s und 5 min wiederholt. Fehler erreichen ihn immer, abgeschlossene Simulationen und Verschiebungen, wenn Sie es wünschen.",
+  "api.calls.note.5": "Der Benachrichtigungs-Webhook ist signiert, wie Standard Webhooks es vorsieht, und eine abgelehnte oder unbeantwortete Zustellung wird nach 10 s, 60 s und 5 min wiederholt. Ein unerreichbares Arr und eine abgelehnte automatische Anwendung erreichen ihn immer, fehlgeschlagene Synchronisierungen sowie abgeschlossene Simulationen und Verschiebungen, sobald Sie sie einschalten.",
   "api.calls.k.6": "Stabilität",
   "api.calls.note.6": "Nichts, was darunter dokumentiert ist, wird entfernt oder umbenannt, und kein Feld ändert seinen Typ. Neue Operationen, Felder und Werte können mit jeder Version kommen, und die CI lehnt alles andere gegenüber der letzten ab.",
   "api.recipes.span": "Rezepte",

@@ -15,7 +15,7 @@
   "api.calls.k.4": "Long work",
   "api.calls.note.4": "A simulation, an apply, a revert or a sync waits for the work and answers its report. With this header it answers <code>202</code> once the task has started, and <code>GET /jobs/{id}</code> holds the report when it ends.",
   "api.calls.k.5": "Webhook",
-  "api.calls.note.5": "The notification webhook is signed as Standard Webhooks specifies, and a delivery refused or unanswered is tried again after 10 s, 60 s and 5 min. Failures always reach it, finished simulations and moves when you ask for them.",
+  "api.calls.note.5": "The notification webhook is signed as Standard Webhooks specifies, and a delivery refused or unanswered is tried again after 10 s, 60 s and 5 min. An unreachable Arr and a refused automatic apply always reach it, failed syncs and finished simulations and moves once you switch them on.",
   "api.calls.k.6": "Stability",
   "api.calls.note.6": "Nothing documented under it is removed or renamed, and no field changes type. New operations, fields and values may come with any release, and CI refuses anything else against the last one.",
   "api.recipes.span": "Recipes",

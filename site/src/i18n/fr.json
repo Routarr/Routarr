@@ -15,7 +15,7 @@
   "api.calls.k.4": "Travail long",
   "api.calls.note.4": "Une simulation, une application, une annulation ou une synchronisation attend la fin du travail et répond son rapport. Avec cet en-tête, l'appel répond <code>202</code> dès que la tâche a démarré, et <code>GET /jobs/{id}</code> contient le rapport quand elle se termine.",
   "api.calls.k.5": "Webhook",
-  "api.calls.note.5": "Le webhook de notification est signé comme Standard Webhooks le prévoit, et une livraison refusée ou sans réponse est retentée après 10 s, 60 s et 5 min. Les échecs lui parviennent toujours, les simulations et les déplacements terminés si vous le demandez.",
+  "api.calls.note.5": "Le webhook de notification est signé comme Standard Webhooks le prévoit, et une livraison refusée ou sans réponse est retentée après 10 s, 60 s et 5 min. Un Arr injoignable et une application automatique refusée lui parviennent toujours, les synchronisations échouées et les simulations et déplacements terminés une fois que vous les activez.",
   "api.calls.k.6": "Stabilité",
   "api.calls.note.6": "Rien de ce qui y est documenté n'est retiré ni renommé, et aucun champ ne change de type. De nouvelles opérations, de nouveaux champs et de nouvelles valeurs peuvent arriver avec chaque version, et la CI refuse tout le reste face à la précédente.",
   "api.recipes.span": "Recettes",
