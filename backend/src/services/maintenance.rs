@@ -78,7 +78,7 @@ pub async fn converge_setting_bounds(state: &AppState) -> AppResult<usize> {
 
     let mut converged = 0;
     for (key, value) in rows {
-        let Some((min, max)) = crate::api::settings::bounds(&key) else {
+        let Some((min, max)) = crate::services::settings::bounds(&key) else {
             continue;
         };
         // A value that is not a number at all is left for `check` to refuse:
@@ -151,7 +151,7 @@ pub async fn reseal_secrets(state: &AppState) -> AppResult<usize> {
     // `AppState::provider_key_from` builds to read it back. Stored under any
     // other name, a key is resealed here and never opened, and its source
     // answers nothing.
-    let keys = crate::api::settings::sealed_keys();
+    let keys = crate::services::settings::sealed_keys();
     let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(format!(
         "SELECT key, value FROM settings WHERE key IN ({})",
         crate::db::placeholders(keys.len())

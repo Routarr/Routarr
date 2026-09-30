@@ -65,43 +65,6 @@ pub struct AlternativeDecision {
     pub confidence: f32,
 }
 
-/// Request to apply selected decisions.
-#[derive(Debug, Deserialize)]
-pub struct ApplyDecisionsRequest {
-    pub decision_ids: Vec<String>,
-    #[serde(default)]
-    pub move_files: bool,
-    /// The guardrails the caller has looked at, by name, so that answering
-    /// one question answers no other.
-    #[serde(default)]
-    pub confirm: crate::services::executor::Confirmed,
-}
-
-/// Apply everything one simulation proposed, in slices.
-#[derive(Debug, Deserialize)]
-pub struct ApplyAllRequest {
-    pub simulation_id: String,
-    #[serde(default)]
-    pub move_files: bool,
-    /// Always required: this is a mass operation by definition, so the
-    /// confirmation threshold has nothing to say about it. Its one question
-    /// states both the count and any capacity shortfall, and it is answered
-    /// under the single name `batch`.
-    #[serde(default)]
-    pub confirm: crate::services::executor::Confirmed,
-}
-
-/// Request to roll a previously applied decision back to its original folder.
-#[derive(Debug, Deserialize)]
-pub struct RevertDecisionsRequest {
-    pub decision_ids: Vec<String>,
-    #[serde(default)]
-    pub move_files: bool,
-    /// The guardrails the caller has looked at, by name, as for an apply.
-    #[serde(default)]
-    pub confirm: crate::services::executor::Confirmed,
-}
-
 /// Request to run a simulation.
 #[derive(Debug, Default, Deserialize)]
 pub struct SimulationRequest {

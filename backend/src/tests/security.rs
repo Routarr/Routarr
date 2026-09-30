@@ -11,7 +11,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 
-use super::TestApp;
+use super::{LogCapture, TestApp};
 
 /// Send with an arbitrary `X-Api-Key`, returning the status.
 async fn get_with_key(app: &TestApp, path: &str, key: &str) -> StatusCode {
@@ -481,6 +481,11 @@ async fn external_asks_for_nothing_and_says_so() {
 /// file while keeping their own account, so whichever read second would read a
 /// password that opens nothing.
 async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
+    forms_app_under(label, "").await
+}
+
+/// The same, served under the mount point `base`.
+async fn forms_app_under(label: &str, base: &str) -> (TestApp, super::TempDir) {
     use crate::config::AuthMode;
 
     let dir = super::TempDir::new(&format!("forms-{label}"));
@@ -488,6 +493,7 @@ async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
     let mut config = crate::config::Config::for_tests();
     config.auth_mode = AuthMode::Forms;
     config.data_dir = dir.to_path_buf();
+    config.base_path = crate::config::normalise_base_path(base);
 
     let state = crate::state::AppState::for_tests().await.with_config(config);
     crate::services::accounts::ensure_account(&state.pool, &state.config.password_path())
@@ -697,43 +703,54 @@ async fn a_password_too_short_to_have_been_set_is_refused_without_hashing() {
 async fn a_burst_of_sign_ins_is_bounded_and_still_lets_the_password_through() {
     use axum::body::Body;
     use axum::http::{Request, header};
-    use tower::ServiceExt;
 
     let (app, _dir) = forms_app("burst").await;
     let password = generated_password(&app);
 
     let attempt = |body: String| {
-        let router = app.router.clone();
+        let app = &app;
         async move {
-            router
-                .oneshot(
+            let response = app
+                .send_raw(
                     Request::post("/api/v1/auth/login")
                         .header(header::CONTENT_TYPE, "application/json")
                         .body(Body::from(body))
                         .unwrap(),
                 )
-                .await
-                .unwrap()
-                .status()
+                .await;
+            let retry_after = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            (response.status(), retry_after)
         }
     };
 
     let wrong =
         serde_json::json!({ "username": "admin", "password": "not the password" }).to_string();
-    let statuses = futures::future::join_all((0..24).map(|_| attempt(wrong.clone()))).await;
+    let answers = futures::future::join_all((0..24).map(|_| attempt(wrong.clone()))).await;
 
     // Every one is answered: refused, or told to come back in a moment. None is
     // dropped, and none locks anybody out.
-    for status in &statuses {
+    for (status, _) in &answers {
         assert!(
             *status == StatusCode::UNAUTHORIZED || *status == StatusCode::SERVICE_UNAVAILABLE,
             "unexpected {status} under load"
         );
     }
+    // More arrive at once than the queue holds, so some are turned away, and
+    // each of those says when to come back.
+    let turned_away: Vec<_> =
+        answers.iter().filter(|(status, _)| *status == StatusCode::SERVICE_UNAVAILABLE).collect();
+    assert!(!turned_away.is_empty(), "twenty-four hashes ran at once: the queue is unbounded");
+    for (_, retry_after) in turned_away {
+        assert_eq!(retry_after.as_deref(), Some("1"), "a refusal without a Retry-After");
+    }
 
     // And the operator still gets in: the property a lockout gives away.
     let right = serde_json::json!({ "username": "admin", "password": password }).to_string();
-    assert_eq!(attempt(right).await, StatusCode::OK, "the burst locked the account out");
+    assert_eq!(attempt(right).await.0, StatusCode::OK, "the burst locked the account out");
 }
 
 /// The cookie has to carry the three attributes that make it survivable: out of
@@ -743,23 +760,27 @@ async fn a_burst_of_sign_ins_is_bounded_and_still_lets_the_password_through() {
 async fn a_session_cookie_is_httponly_lax_and_scoped() {
     use axum::body::Body;
     use axum::http::{Request, header};
-    use tower::ServiceExt;
 
-    let (app, _dir) = forms_app("cookie").await;
-    let body = serde_json::json!({ "username": "admin", "password": generated_password(&app) });
-    let request = Request::post("/api/v1/auth/login")
-        .header(header::CONTENT_TYPE, "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap();
+    for (label, base, scope) in [("cookie", "", "/"), ("cookie-sub", "/routarr", "/routarr/")] {
+        let (app, _dir) = forms_app_under(label, base).await;
+        let body = serde_json::json!({ "username": "admin", "password": generated_password(&app) });
+        let request = Request::post(format!("{base}/api/v1/auth/login"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
 
-    let response = app.router.clone().oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+        let response = app.send_raw(request).await;
+        assert_eq!(response.status(), StatusCode::OK, "under {base:?}");
 
-    let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
-    assert!(cookie.starts_with("routarr_session="), "{cookie}");
-    assert!(cookie.contains("HttpOnly"), "{cookie}");
-    assert!(cookie.contains("SameSite=Lax"), "{cookie}");
-    assert!(cookie.contains("Path=/"), "{cookie}");
+        let cookie = response.headers()[header::SET_COOKIE].to_str().unwrap().to_string();
+        let attributes: Vec<&str> = cookie.split("; ").collect();
+        assert!(cookie.starts_with("routarr_session="), "{cookie}");
+        assert!(attributes.contains(&"HttpOnly"), "{cookie}");
+        assert!(attributes.contains(&"SameSite=Lax"), "{cookie}");
+        // The whole attribute: `Path=/` is also the start of `Path=/routarr/`.
+        let path = format!("Path={scope}");
+        assert!(attributes.contains(&path.as_str()), "under {base:?}: {cookie}");
+    }
 }
 
 /// An operator who moves from `forms` to `oidc` does so to change who may enter,
@@ -1136,17 +1157,14 @@ async fn the_mode_says_whether_a_key_exists_at_all() {
 /// reaches them. The panic is still logged, and what changes is that somebody
 /// is told.
 ///
-/// The stack is rebuilt here rather than borrowed from `build_router`, because
-/// a `.layer()` wraps only the routes registered before it: a `/boom` added to
-/// the assembled router would sit outside every layer and prove nothing. What
-/// this pins is the pair that matters: the catch layer *inside* the request-id
-/// layers, so the id still reaches a response the handler never produced.
+/// The handler sits inside `request_layers`, the stack `build_router` wraps
+/// every API route in, so what this pins is that stack's order: the catch
+/// layer inside the request-id layers, so the id still reaches a response the
+/// handler never produced.
 #[tokio::test]
 async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
     use axum::routing::get;
     use tower::ServiceExt;
-    use tower_http::catch_panic::CatchPanicLayer;
-    use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
     // A declared return type, or the handler's response type is `!` and axum
     // cannot infer one.
@@ -1154,11 +1172,7 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
         panic!("a handler that panics is a bug, not a disconnection")
     }
 
-    let router = axum::Router::new()
-        .route("/boom", get(boom))
-        .layer(CatchPanicLayer::custom(crate::panic_response))
-        .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
+    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)));
 
     let response = router
         .oneshot(Request::get("/boom").body(Body::empty()).unwrap())
@@ -1183,45 +1197,23 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
 #[tokio::test]
 async fn a_panicking_handler_is_logged_under_its_request_id() {
     use axum::routing::get;
-    use std::sync::{Arc, Mutex};
     use tower::ServiceExt;
-    use tower_http::catch_panic::CatchPanicLayer;
-    use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
-    use tower_http::trace::TraceLayer;
-
-    #[derive(Clone, Default)]
-    struct Captured(Arc<Mutex<Vec<u8>>>);
-    impl std::io::Write for Captured {
-        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(bytes);
-            Ok(bytes.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
 
     async fn boom() -> String {
         panic!("the sweep found a row it cannot read")
     }
 
     crate::log_panics();
-    let captured = Captured::default();
-    let writer = captured.clone();
-    let subscriber = tracing_subscriber::fmt().json().with_writer(move || writer.clone()).finish();
+    let captured = LogCapture::default();
+    let subscriber = tracing_subscriber::fmt().json().with_writer(captured.clone()).finish();
     let _logging = tracing::subscriber::set_default(subscriber);
 
-    let router = axum::Router::new()
-        .route("/boom", get(boom))
-        .layer(TraceLayer::new_for_http().make_span_with(crate::request_span))
-        .layer(CatchPanicLayer::custom(crate::panic_response))
-        .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid));
+    let router = crate::request_layers(axum::Router::new().route("/boom", get(boom)));
     let request = Request::get("/boom").header("x-request-id", "req-42").body(Body::empty());
     let response = router.oneshot(request.unwrap()).await.unwrap();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
-    let log = String::from_utf8(captured.0.lock().unwrap().clone()).unwrap();
+    let log = captured.contents();
     let line = log
         .lines()
         .find(|line| line.contains("the sweep found a row it cannot read"))
@@ -1778,36 +1770,6 @@ async fn the_policy_permits_no_external_origin() {
 }
 
 // ------------------------------------------------------------------ logging
-
-/// Collects what a `tracing` subscriber writes, so a test can read the log a
-/// request produced rather than trust that nothing sensitive is in it.
-#[derive(Clone, Default)]
-struct LogCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
-
-impl LogCapture {
-    fn contents(&self) -> String {
-        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
-    }
-}
-
-impl std::io::Write for LogCapture {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
-    type Writer = LogCapture;
-
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
 
 /// A Discord or Slack webhook URL carries its secret in the path: whoever reads
 /// it can post to the channel. A notification that fails is logged, and the

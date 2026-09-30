@@ -456,7 +456,7 @@ async fn offline_warnings(
     // lowering it removes what is beyond it, and nothing but the operator's
     // own save may do that. Named here so the operator is the one who lowers
     // it: the screen refuses to save it as it stands, and this says why.
-    for (key, max) in crate::api::settings::retention_counts() {
+    for (key, max) in crate::services::settings::retention_counts() {
         let stored: i64 = settings.get(key, 0i64);
         if stored > max {
             warnings.push(Warning::new(localizer.translate(

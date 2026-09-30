@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { ApiError, api, getApiKey, setApiKey } from './client';
 
 interface FakeResponse {
@@ -52,6 +54,35 @@ function fetchCall(spy: ReturnType<typeof mockFetch>, index = 0) {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
+
+/**
+ * Every route the backend serves, as `VERB /path` with each parameter written
+ * `{}`, read from the route table in `backend/src/main.rs`. Each `.route(`
+ * call is read to the parenthesis that closes it, since a long one spans lines.
+ */
+const SERVED: Set<string> = (() => {
+  const table = fs.readFileSync(
+    path.resolve(__dirname, '..', '..', '..', 'backend', 'src', 'main.rs'),
+    'utf-8',
+  );
+  const served = new Set<string>();
+  for (const call of table.matchAll(/\.route\(/g)) {
+    const start = (call.index ?? 0) + call[0].length;
+    let end = start;
+    for (let depth = 1; depth > 0 && end < table.length; end += 1) {
+      if (table[end] === '(') depth += 1;
+      else if (table[end] === ')') depth -= 1;
+    }
+    const args = table.slice(start, end);
+    // The webhook route is a constant, and no client method calls it.
+    const at = /^\s*"([^"]+)"/.exec(args)?.[1];
+    if (!at) continue;
+    for (const verb of args.matchAll(/\b(get|post|put|delete|patch)\(/g)) {
+      served.add(`${verb[1]!.toUpperCase()} ${at.replace(/\{\w+\}/g, '{}')}`);
+    }
+  }
+  return served;
+})();
 
 describe('api key storage', () => {
   it('round-trips through localStorage', () => {
@@ -273,7 +304,8 @@ describe('request bodies', () => {
  * and no hand-written test covers every method.
  *
  * So every one of them is called with a placeholder and the request it made is
- * inspected: one call, to this API, with nothing unserialised in the path.
+ * inspected: one call, to this API, with nothing unserialised in the path, and
+ * a verb and a path the backend's route table serves.
  */
 describe('every endpoint', () => {
   /** Methods that build a URL for the browser rather than fetching one. */
@@ -290,29 +322,52 @@ describe('every endpoint', () => {
     expect(methods.length).toBeGreaterThan(50);
   });
 
+  /** Placeholders for whatever shape a method wants, each standing for one path parameter. */
+  const PLACEHOLDERS = ['an-id', 'second', 'third'];
+
+  /** A request as the route table writes it: `VERB /path`, every parameter `{}`, no query. */
+  const route = (verb: string, url: string) =>
+    `${verb} ${url
+      .replace(/^.*\/api\/v1/, '')
+      .replace(/\?.*$/, '')
+      .split('/')
+      .map((segment) => (PLACEHOLDERS.includes(decodeURIComponent(segment)) ? '{}' : segment))
+      .join('/')}`;
+
+  it('reads the backend route table rather than an empty one', () => {
+    expect(SERVED.size).toBeGreaterThan(60);
+    expect(SERVED).toContain('PUT /categories/{}');
+  });
+
   it.each(methods)('%s issues one well-formed request', async (name, method) => {
     const spy = mockFetch({ body: {} });
 
-    // Placeholders for whatever shape the method wants. Only the path is under
-    // test here, so a string standing in for an object is harmless.
-    await Promise.resolve(method('an-id', 'second', 'third')).catch(() => {});
+    // Only the request is under test here, so a string standing in for an
+    // object is harmless.
+    await Promise.resolve(method(...PLACEHOLDERS)).catch(() => {});
 
     expect(spy, `${name} made no request`).toHaveBeenCalledTimes(1);
-    const url = fetchCall(spy).url as string;
+    const { url, options } = fetchCall(spy);
     expect(url, `${name} left the API base`).toContain('/api/v1/');
     expect(url, `${name} put an object in its path`).not.toContain('[object');
     expect(url, `${name} interpolated an absent argument`).not.toContain('undefined');
+    // A verb or a path the server does not route answers 404 or 405, which the
+    // caller reports as "not found" about something that exists.
+    expect(SERVED, `${name} asks for a route the backend does not serve`).toContain(
+      route(options.method ?? 'GET', url),
+    );
   });
 
   it('builds the sign-in link without fetching it', () => {
     // A link the browser follows itself, off this origin and back. It must
-    // still start at this API.
+    // still start at this API, at a route the server answers.
     for (const name of URL_BUILDERS) {
       const build = (api as unknown as Record<string, () => string>)[name];
       // A name listed here and absent from the client fails under its own name.
       expect(typeof build, `${name} is not a URL builder on the client`).toBe('function');
       const url = (build as () => string)();
       expect(url, name).toContain('/api/v1/');
+      expect(SERVED, name).toContain(route('GET', url));
     }
   });
 });

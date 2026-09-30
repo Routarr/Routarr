@@ -1,6 +1,7 @@
 ---
 import { useTranslations, pathFor, type Locale } from '../../i18n';
 import { DETAIL_SECTIONS } from '../../detail-sections';
+import Arrow from '../icons/Arrow.astro';
 
 interface Props { locale: Locale }
 const { locale } = Astro.props;
@@ -29,7 +30,7 @@ const href = pathFor(locale, 'how');
       <h2 set:html={t('more.h2')} />
       <p>{t('more.p')}</p>
       <a class="btn btn-primary" href={href}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        <Arrow />
         {t('more.cta')}
       </a>
     </div>

@@ -5,8 +5,6 @@
 //! database restored without `routarr.key` opens fine and has no readable Arr
 //! credential in it, which is the failure a backup exists to prevent.
 
-use std::sync::Arc;
-
 use crate::services::backup;
 use crate::state::AppState;
 
@@ -34,18 +32,7 @@ async fn app_with_files(label: &str) -> (TestApp, TempDir) {
     )
     .unwrap();
 
-    let state = AppState {
-        http: crate::http::build_client(&config).expect("test http client"),
-        secrets,
-        tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
-        jobs: crate::jobs::JobRegistry::new(pool.clone()),
-        api_key: Arc::new(std::sync::RwLock::new(config.api_key.clone())),
-        sign_in: Arc::new(Default::default()),
-        oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
-        config: Arc::new(config),
-        pool,
-    };
-
+    let state = AppState { secrets, ..AppState::for_tests_on(pool).with_config(config) };
     (TestApp::around(state), dir)
 }
 

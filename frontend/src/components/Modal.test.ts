@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, onTestFinished, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/svelte';
 
 import ModalHarness from '../test/ModalHarness.svelte';
@@ -9,10 +9,6 @@ import ModalHarness from '../test/ModalHarness.svelte';
  * but only when opened with `showModal` and only when Escape is routed through
  * the caller rather than closing the element behind its back.
  */
-
-// A hand-rolled save/restore is skipped when an assertion above it throws, and
-// the next test then renders against a `showModal` that does nothing.
-afterEach(() => vi.restoreAllMocks());
 
 describe('Modal', () => {
   /**
@@ -64,19 +60,22 @@ describe('Modal', () => {
   it('opens it as a modal, not merely as a visible element', () => {
     // jsdom ships the element and neither of its methods, so `showModal` is
     // installed here rather than spied on. That is also what makes the
-    // fallback below the *default* path in this suite.
+    // fallback below the *default* path in this suite. Taken away when the
+    // test finishes, failed or not: left behind, it would stand in for the
+    // fallback in every test after this one.
     const showModal = vi.fn();
     Object.defineProperty(HTMLDialogElement.prototype, 'showModal', {
       value: showModal,
       configurable: true,
       writable: true,
     });
+    onTestFinished(() => {
+      delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>).showModal;
+    });
 
     render(ModalHarness, { label: 'Rename category', onClose: vi.fn() });
 
     expect(showModal).toHaveBeenCalledTimes(1);
-
-    delete (HTMLDialogElement.prototype as unknown as Record<string, unknown>).showModal;
   });
 
   /**

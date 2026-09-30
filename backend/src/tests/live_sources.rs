@@ -24,8 +24,16 @@ use crate::integrations::tvdb::TvdbClient;
 
 /// A real HTTP client with the project's own timeouts and redirect policy, so
 /// what is exercised is the shipped configuration and not a bare reqwest.
+///
+/// The shipped timeout, not the test one: the offline suite's 300 ms is spent
+/// on a loopback socket, and a real API across the internet outlasts it, which
+/// Jikan's test would report as the source being down and skip.
 fn client() -> reqwest::Client {
-    crate::http::build_client(&Config::for_tests()).expect("test http client")
+    let config = Config {
+        http_timeout: std::time::Duration::from_secs(crate::config::DEFAULT_HTTP_TIMEOUT_SECS),
+        ..Config::for_tests()
+    };
+    crate::http::build_client(&config).expect("live http client")
 }
 
 /// The reference work: an anime film every one of these sources knows, with an

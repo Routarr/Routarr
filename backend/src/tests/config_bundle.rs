@@ -114,32 +114,35 @@ async fn an_export_leaves_the_notification_webhook_out() {
     assert!(!serialised.contains("hook-secret"), "the address travelled");
 }
 
-/// A bundle exported before the address was sealed carries it in the clear. The
-/// import leaves it out like any credential and says to set it again, rather
-/// than storing a credential that arrived in a shared file.
+/// A bundle exported before a credential was sealed, or edited by hand, carries
+/// it in the clear: the notification address, or a source's key. The import
+/// leaves every one out and says to set it again, rather than storing a
+/// credential that arrived in a shared file.
 #[tokio::test]
 async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     let app = TestApp::new().await;
-    let bundle = serde_json::json!({
-        "bundle": {
-            "version": 1,
-            "settings": [
-                { "key": "notification_webhook_url", "value": "https://discord.com/api/webhooks/1/abc" },
-                { "key": "batch_limit", "value": "25" }
-            ]
-        }
-    });
+    let credentials = crate::services::settings::sealed_keys();
+    assert!(credentials.contains(&"notification_webhook_url"), "{credentials:?}");
+    assert!(credentials.contains(&"tmdb_api_key"), "{credentials:?}");
+    let mut settings: Vec<serde_json::Value> = credentials
+        .iter()
+        .map(|key| serde_json::json!({ "key": key, "value": "https://discord.com/api/webhooks/1/abc" }))
+        .collect();
+    settings.push(serde_json::json!({ "key": "batch_limit", "value": "25" }));
+    let bundle = serde_json::json!({ "bundle": { "version": 1, "settings": settings } });
 
     let report = app.post("/api/v1/config/import", bundle).await.assert_ok().clone();
 
-    let stored: Option<String> =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
+    let skipped = report["skipped"].to_string();
+    for key in credentials {
+        let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
             .fetch_optional(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(stored, None, "the credential was stored from the bundle");
-    let skipped = report["skipped"].to_string();
-    assert!(skipped.contains("notification_webhook_url"), "not reported: {skipped}");
+        assert_eq!(stored, None, "{key} was stored from the bundle");
+        assert!(skipped.contains(key), "{key} not reported: {skipped}");
+    }
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 

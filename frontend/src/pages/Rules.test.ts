@@ -104,11 +104,7 @@ function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en'
   return renderWithI18n(Rules, { strings: STRINGS, language });
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-  window.history.replaceState({}, '', '/');
-});
+afterEach(() => vi.restoreAllMocks());
 
 describe('Rules', () => {
   /** A label over a hidden input takes no focus, so the import is a button. */
@@ -418,6 +414,45 @@ describe('Rules', () => {
     show([rule({ conditions: [{ type: 'original_language', value: ['ja'] }] })], served, 'fr');
 
     expect(await screen.findByText('Langue originale: japonais (ja)')).toBeTruthy();
+  });
+
+  /**
+   * The library sends the values it holds without a name, and a code `Intl`
+   * cannot name keeps none in the reader's language either. The vocabulary
+   * still names it, as the editor does, so the table reads the same name.
+   */
+  it('names a held value from the vocabulary when the language has no name for it', async () => {
+    const spec = catalog.conditions[0] as ConditionCatalog['conditions'][number];
+    const served: ConditionCatalog = {
+      ...catalog,
+      conditions: [
+        ...catalog.conditions,
+        {
+          ...spec,
+          type: 'original_language',
+          label: 'Original language is',
+          suggestions: 'original_languages',
+        },
+      ],
+    };
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue({
+      total_media: 12,
+      without_metadata: 0,
+      vocabularies: {
+        original_languages: [{ value: 'qaa', label: 'Reserved (qaa)', count: 0 }],
+        origin_countries: [],
+      },
+      genres: [],
+      original_languages: [{ value: 'qaa', count: 3 }],
+      origin_countries: [],
+      certifications: [],
+      tags: [],
+      series_types: [],
+      root_folders: [],
+    } as unknown as LibraryFacets);
+    show([rule({ conditions: [{ type: 'original_language', value: ['qaa'] }] })], served);
+
+    expect(await screen.findByText('Original language is: Reserved (qaa)')).toBeTruthy();
   });
 
   /**

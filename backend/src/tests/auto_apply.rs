@@ -4,7 +4,6 @@
 //! except the ones that prove it does the one thing it exists for.
 
 use crate::services::auto_apply::{self, AutoApplyOutcome};
-use crate::services::routing::{self, SimulationOptions};
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -16,19 +15,7 @@ use super::fake_arr::FakeArr;
 async fn library_with_one_move(arr: &FakeArr, has_files: bool) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.seed_route_to_anime().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
          current_root_folder, monitored, has_files)
@@ -39,40 +26,8 @@ async fn library_with_one_move(arr: &FakeArr, has_files: bool) -> TestApp {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
 
     app
-}
-
-async fn set(app: &TestApp, key: &str, value: &str) {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(key)
-    .bind(value)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
-/// Run a persisting simulation and hand back its id.
-async fn simulate(app: &TestApp) -> String {
-    routing::run_simulation(
-        &app.state.pool,
-        SimulationOptions { persist: true, ..Default::default() },
-    )
-    .await
-    .unwrap()
-    .simulation_id
 }
 
 #[tokio::test]
@@ -80,8 +35,8 @@ async fn a_fresh_install_never_applies_on_its_own() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
     // Only dry-run is turned off: auto-apply itself is left at its default.
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
 
@@ -93,9 +48,9 @@ async fn a_fresh_install_never_applies_on_its_own() {
 async fn global_dry_run_outranks_auto_apply() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
+    app.store_setting("auto_apply_enabled", "true").await;
     // global_dry_run is left at its default of true.
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
 
@@ -107,9 +62,9 @@ async fn global_dry_run_outranks_auto_apply() {
 async fn a_media_that_already_has_files_is_left_to_a_human() {
     let arr = FakeArr::start().await;
     let app = library_with_one_move(&arr, true).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
 
@@ -130,9 +85,9 @@ async fn a_media_that_already_has_files_is_left_to_a_human() {
 async fn a_media_with_no_files_yet_is_routed_without_asking() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
 
@@ -169,9 +124,9 @@ async fn a_film_that_got_its_file_since_the_sync_is_not_moved_unattended() {
     // The sync saw no file, and Radarr has imported one since.
     let arr = FakeArr::start().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
 
@@ -196,9 +151,9 @@ async fn a_film_that_got_its_file_since_the_sync_is_not_moved_unattended() {
 async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     // The destination stopped answering between the simulation and the pass.
     sqlx::query("UPDATE root_folders SET accessible = 0 WHERE rtrim(path, '/') = '/movies/anime'")
@@ -222,9 +177,9 @@ async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
 async fn an_auto_applied_move_is_auditable_and_revertible() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let simulation = app.simulate().await;
 
     auto_apply::apply_simulation(&app.state, &simulation, crate::jobs::TRIGGER_WEBHOOK)
         .await
@@ -270,8 +225,8 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
 async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
 
     // Two more films the same rule wants to move, for three candidates total.
     for (id, arr_id, title) in [("m-2", 11, "Akira"), ("m-3", 12, "Perfect Blue")] {
@@ -288,8 +243,8 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
         .await
         .unwrap();
     }
-    set(&app, "batch_limit", "2").await;
-    let simulation = simulate(&app).await;
+    app.store_setting("batch_limit", "2").await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
 
@@ -305,11 +260,11 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
 async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
 
-    let earlier = simulate(&app).await;
-    let later = simulate(&app).await;
+    let earlier = app.simulate().await;
+    let later = app.simulate().await;
     assert_ne!(earlier, later);
 
     // Asking for the earlier run must apply nothing: its decision has been
@@ -325,15 +280,15 @@ async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
 async fn a_media_pointing_at_an_unmapped_category_is_not_applied() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = library_with_one_move(&arr, false).await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
 
     // Unmap the target: the decision becomes `skip`, not `move`.
     sqlx::query("UPDATE root_folders SET category = NULL WHERE id = 'rf-2'")
         .execute(&app.state.pool)
         .await
         .unwrap();
-    let simulation = simulate(&app).await;
+    let simulation = app.simulate().await;
 
     let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
 
@@ -349,31 +304,9 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    // The metadata TMDb would supply, pre-cached so the test stays offline.
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
-    set(&app, "auto_apply_enabled", "true").await;
-    set(&app, "global_dry_run", "false").await;
+    app.seed_route_to_anime().await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
 
     let response = app
         .post(
@@ -415,28 +348,8 @@ async fn the_same_event_only_proposes_when_auto_apply_is_off() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_anime_rule().await;
-    sqlx::query("INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
-         VALUES ('rf-2', 'inst-1', 2, '/movies/anime', 1, 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.list_tmdb().await;
-    set(&app, "global_dry_run", "false").await;
+    app.seed_route_to_anime().await;
+    app.store_setting("global_dry_run", "false").await;
 
     let response = app
         .post(

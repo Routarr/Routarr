@@ -282,6 +282,25 @@ where
     })
 }
 
+/// Whether the Arr behind `filesystem`, a request to its `/api/v3/filesystem`,
+/// can see this directory.
+///
+/// Asked of the Arr rather than of Routarr's own filesystem: the two run in
+/// different containers as often as not, and `/media/films` existing here
+/// says nothing about whether the process that will do the writing can
+/// reach it. That mismatch is the commonest homelab fault of all, and it is
+/// otherwise discovered at apply time.
+pub(crate) async fn directory_exists(
+    service: &'static str,
+    filesystem: reqwest::RequestBuilder,
+    path: &str,
+) -> AppResult<bool> {
+    let query = directory_query(path);
+    let listing: DirectoryListing =
+        send_json(service, filesystem.query(&[("path", query)])).await?;
+    Ok(listing.holds(path))
+}
+
 /// What Radarr and Sonarr answer on `GET /api/v3/filesystem`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct DirectoryListing {

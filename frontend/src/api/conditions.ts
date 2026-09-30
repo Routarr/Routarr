@@ -2,7 +2,14 @@
 // expects. Getting this wrong silently stores a rule that can never match, so
 // it lives here as pure functions rather than inline in the form.
 
-import type { Condition, ConditionSpec, Facet, LibraryFacets } from './types';
+import type {
+  Condition,
+  ConditionSpec,
+  Facet,
+  FacetAxis,
+  LibraryFacets,
+  Vocabularies,
+} from './types';
 import { localName } from './format';
 
 /** Value a freshly added condition starts with. */
@@ -148,6 +155,38 @@ export function nameFacets(held: Facet[], vocabulary: Facet[]): Facet[] {
     ...facet,
     label: facet.label ?? names.get(canonicalKey(facet.value)),
   }));
+}
+
+/**
+ * The values a condition on `axis` can hold, each with its name: what the
+ * library carries, named from the closed vocabulary, then the rest of that
+ * vocabulary. The rule editor offers these, and the rule table names a stored
+ * value from them, so the two never call one value by two names.
+ *
+ * `facets` are read as they come, so a caller naming values in the reader's
+ * language hands in `localFacets`. The catalogue names the axis, and this reads
+ * it off the payload, so a condition added in Rust needs no change here.
+ */
+export function facetOf(facets: LibraryFacets | null, axis: string | undefined): Facet[] {
+  if (!axis || !facets) return [];
+  // Narrowed, not widened: the name arrives from the backend so this is an
+  // assertion either way, but `Record<string, Facet[]>` would erase every
+  // later check as well. A test vouches for the name itself.
+  const held = facets[axis as FacetAxis] ?? [];
+  // A closed vocabulary is offered whole, the library's own values first so
+  // the common answer stays at the top. Without it a language rule offers only
+  // the codes that happen to be synced, and every other one has to be guessed,
+  // as a code, which nobody would.
+  // Only two axes have a closed vocabulary, so this indexing is partial by
+  // design and the key may legitimately miss.
+  const vocabulary = facets.vocabularies[axis as keyof Vocabularies] ?? [];
+  if (!vocabulary.length) return held;
+
+  const seen = new Set(held.map((facet) => canonicalKey(facet.value)));
+  return [
+    ...nameFacets(held, vocabulary),
+    ...vocabulary.filter((facet) => !seen.has(canonicalKey(facet.value))),
+  ];
 }
 
 /**

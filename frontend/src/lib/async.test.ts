@@ -91,6 +91,13 @@ describe('createAsync', () => {
     expect(screen.getByTestId('loading')).toHaveTextContent('idle');
   });
 
+  /**
+   * New inputs ask a new question. The last one's failure left up while the
+   * new one loads reads as its answer: a filter moved after a refusal would
+   * show the refusal over the loading table, and its Retry would offer to
+   * repeat a request that has not failed. The same inputs asked again keep
+   * theirs, which the next test holds.
+   */
   it('renders the failure as a message, and clears it on the next load', async () => {
     const first = deferred<string>();
     const second = deferred<string>();

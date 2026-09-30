@@ -76,8 +76,7 @@ async fn a_redirect_to_another_host_does_not_carry_the_api_key() {
     let (elsewhere, seen, _stop_a) = recorder().await;
     let (arr, _stop_b) = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
-    let client =
-        crate::http::build_client(&crate::config::Config::for_tests()).expect("test http client");
+    let client = super::http_client();
     let _ = client.get(format!("{arr}/api/v3/movie")).header("X-Api-Key", "s3cret").send().await;
 
     let leaked = seen.lock().unwrap().clone();
@@ -130,8 +129,7 @@ async fn a_redirect_within_the_same_service_is_still_followed() {
             .ok();
     });
 
-    let client =
-        crate::http::build_client(&crate::config::Config::for_tests()).expect("test http client");
+    let client = super::http_client();
     let response = client
         .get(format!("http://{addr}/api/v3/movie"))
         .header("X-Api-Key", "s3cret")
@@ -153,8 +151,7 @@ async fn a_blocked_redirect_comes_back_as_the_redirect_itself() {
     let (elsewhere, _seen, _stop_a) = recorder().await;
     let (arr, _stop_b) = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
-    let client =
-        crate::http::build_client(&crate::config::Config::for_tests()).expect("test http client");
+    let client = super::http_client();
     let response =
         client.get(format!("{arr}/api/v3/movie")).header("X-Api-Key", "s3cret").send().await;
 

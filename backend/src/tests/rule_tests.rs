@@ -57,6 +57,40 @@ async fn deleting_the_rule_a_case_depends_on_fails_that_case() {
     assert_ne!(result["actual_category"], "anime");
 }
 
+/// A case is judged at the instant it was pinned. `added_within_days` answers
+/// differently from one day to the next, and a case read against the wall
+/// clock would fail alone one morning, with nothing changed. Here the case is
+/// moved back to the day after the film arrived, when the rule held.
+#[tokio::test]
+async fn a_case_is_judged_at_the_instant_it_was_pinned() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    sqlx::query("UPDATE media SET added_at = '2020-01-01 10:00:00' WHERE id = 'm-1'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+         target_category, match_mode)
+         VALUES ('rule-new', 'New arrivals', 10, 1, 'both',
+                 '[{\"type\":\"added_within_days\",\"value\":7}]', 'anime', 'all')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let id = pin(&app, "A new arrival goes to anime", "m-1", Some("anime")).await;
+    assert_eq!(run(&app).await["failed"], 1, "judged today, the film is years old");
+
+    sqlx::query("UPDATE rule_tests SET evaluated_at = '2020-01-02 10:00:00' WHERE id = ?")
+        .bind(&id)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let outcome = run(&app).await;
+    assert_eq!(outcome["passed"], 1, "the case was judged at another instant: {outcome}");
+}
+
 /// A case survives the library. `sync` deletes rows the Arr stops returning and
 /// that cascades to overrides, so a case referencing `media_id` would vanish
 /// with the film it was written to protect.

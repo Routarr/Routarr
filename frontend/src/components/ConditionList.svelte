@@ -1,15 +1,8 @@
 <script lang="ts">
   import { Plus, Trash2 } from '../lib/icons';
-  import type {
-    Condition,
-    ConditionSpec,
-    Facet,
-    FacetAxis,
-    LibraryFacets,
-    Vocabularies,
-  } from '../api/types';
+  import type { Condition, ConditionSpec, LibraryFacets } from '../api/types';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { canonicalKey, localFacets, nameFacets } from '../api/conditions';
+  import { facetOf, localFacets } from '../api/conditions';
   import { handFocus } from '../lib/focus';
   import ConditionValue from './ConditionValue.svelte';
 
@@ -55,32 +48,7 @@
     onRemove: (index: number) => void;
   } = $props();
 
-  // The catalogue names the axis, and this reads it off the payload. Indexed
-  // rather than switched on the condition kind, so a condition added in Rust
-  // needs no change here.
   const named = $derived(facets ? localFacets(facets, i18n.language) : null);
-  function facetOf(spec?: ConditionSpec): Facet[] {
-    if (!spec?.suggestions || !named) return [];
-    // Narrowed, not widened: the name arrives from the backend so this is an
-    // assertion either way, but `Record<string, Facet[]>` would erase every
-    // later check as well. A test vouches for the name itself.
-    const axis = spec.suggestions as FacetAxis;
-    const held = named[axis] ?? [];
-    // A closed vocabulary is offered whole, the library's own values first so
-    // the common answer stays at the top. Without it a language rule offers only
-    // the codes that happen to be synced, and every other one has to be guessed,
-    // as a code, which nobody would.
-    // Only two axes have a closed vocabulary, so this indexing is partial by
-    // design and the key may legitimately miss.
-    const vocabulary = named.vocabularies[axis as keyof Vocabularies] ?? [];
-    if (!vocabulary.length) return held;
-
-    const seen = new Set(held.map((facet) => canonicalKey(facet.value)));
-    return [
-      ...nameFacets(held, vocabulary),
-      ...vocabulary.filter((facet) => !seen.has(canonicalKey(facet.value))),
-    ];
-  }
 
   // A quantified pair is one question, so the row is captioned by the `any`
   // half of it and the selector carries the difference. Captioning each half
@@ -172,7 +140,7 @@
               ? `rules-${list}-${index}-quantifier`
               : undefined}
             value={condition.value}
-            suggestions={facetOf(spec)}
+            suggestions={facetOf(named, spec?.suggestions)}
             suggestionsLoading={facetsLoading}
             suggestionsError={facetsError}
             onChange={(value) => onUpdate(index, value)}

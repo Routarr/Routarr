@@ -98,16 +98,11 @@ impl ArrAdapter {
     }
 
     pub async fn test_connection(&self) -> AppResult<ArrStatus> {
-        match self {
-            Self::Radarr(c) => {
-                let s = c.test_connection().await?;
-                Ok(ArrStatus { version: s.version, app_name: s.app_name })
-            }
-            Self::Sonarr(c) => {
-                let s = c.test_connection().await?;
-                Ok(ArrStatus { version: s.version, app_name: s.app_name })
-            }
-        }
+        let status = match self {
+            Self::Radarr(c) => c.test_connection().await?,
+            Self::Sonarr(c) => c.test_connection().await?,
+        };
+        Ok(ArrStatus { version: status.version, app_name: status.app_name })
     }
 
     /// Whether the Arr can see this directory, in *its* filesystem namespace.
@@ -119,30 +114,19 @@ impl ArrAdapter {
     }
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolder>> {
-        match self {
-            Self::Radarr(c) => Ok(c
-                .get_root_folders()
-                .await?
-                .into_iter()
-                .map(|rf| ArrRootFolder {
-                    arr_id: rf.id,
-                    path: rf.path,
-                    free_space: rf.free_space,
-                    accessible: rf.accessible.unwrap_or(true),
-                })
-                .collect()),
-            Self::Sonarr(c) => Ok(c
-                .get_root_folders()
-                .await?
-                .into_iter()
-                .map(|rf| ArrRootFolder {
-                    arr_id: rf.id,
-                    path: rf.path,
-                    free_space: rf.free_space,
-                    accessible: rf.accessible.unwrap_or(true),
-                })
-                .collect()),
-        }
+        let folders = match self {
+            Self::Radarr(c) => c.get_root_folders().await?,
+            Self::Sonarr(c) => c.get_root_folders().await?,
+        };
+        Ok(folders
+            .into_iter()
+            .map(|rf| ArrRootFolder {
+                arr_id: rf.id,
+                path: rf.path,
+                free_space: rf.free_space,
+                accessible: rf.accessible.unwrap_or(true),
+            })
+            .collect())
     }
 
     pub async fn get_media(&self) -> AppResult<Vec<ArrMedia>> {
@@ -179,9 +163,9 @@ impl ArrAdapter {
 
     /// Move a batch of items to a root folder.
     ///
-    /// Radarr accepts the whole batch in one call. Sonarr has no bulk editor, so
-    /// each series is patched individually and a failure is reported for its
-    /// item rather than aborting the rest of the batch.
+    /// Radarr takes the whole batch in one call. Sonarr takes one request per
+    /// series (see `SonarrClient::update_series_path`), so a refusal is reported
+    /// for its series and the rest of the batch still moves.
     pub async fn move_to_root_folder(
         &self,
         arr_ids: &[i64],

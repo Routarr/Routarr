@@ -6,55 +6,14 @@
 //! disagree, the order the user set decides, field by field, with the loser
 //! still filling in what the winner had nothing to say about.
 
-use crate::services::routing::{self, SimulationOptions};
-use crate::services::{maintenance, sync};
+use crate::services::maintenance;
 use sqlx::AssertSqlSafe;
 
 use super::fake_arr::FakeArr;
 use super::{AN_INSTANCE, TestApp, database_through, warning_messages};
 
-async fn synced(kind: &str, arr: &FakeArr) -> TestApp {
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", kind, &arr.base_url).await;
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
-    app
-}
-
-async fn seed_rule(app: &TestApp, condition: serde_json::Value) {
-    sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
-         target_category, match_mode)
-         VALUES ('r-1', 'Source rule', 10, 1, 'both', ?, 'anime', 'all')",
-    )
-    .bind(serde_json::json!([condition]).to_string())
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
 async fn set_order(app: &TestApp, order: &str) {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('metadata_providers', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(order)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
-async fn decided_category(app: &TestApp) -> String {
-    let result = routing::run_simulation(
-        &app.state.pool,
-        SimulationOptions { persist: false, ..Default::default() },
-    )
-    .await
-    .unwrap();
-    result.decisions[0].target_category.clone()
+    app.store_setting("metadata_providers", order).await;
 }
 
 /// Cache a TMDb answer for the fake Radarr's movie, deliberately different from
@@ -76,7 +35,7 @@ async fn cache_tmdb(app: &TestApp, genres: &str) {
 #[tokio::test]
 async fn sync_stores_the_metadata_radarr_already_carries() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
 
     let row: (Option<String>, Option<String>, Option<String>) =
         sqlx::query_as("SELECT genres, original_language, certification FROM media")
@@ -93,32 +52,32 @@ async fn sync_stores_the_metadata_radarr_already_carries() {
 #[tokio::test]
 async fn a_genre_rule_matches_with_no_tmdb_key_configured() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
     // `AppState::for_tests` configures no TMDb key, and nothing was enriched.
     assert!(app.state.config.tmdb_api_key.is_none());
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn an_original_language_rule_matches_the_code_not_the_arrs_wording() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "original_language", "value": ["ja"] })).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "original_language", "value": ["ja"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn a_keyword_rule_cannot_match_from_the_arr_alone() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     set_order(&app, "arr").await;
-    seed_rule(&app, serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
 
     // The one thing no Arr reports. Silence, not a wrong match.
-    assert_eq!(decided_category(&app).await, "standard");
+    assert_eq!(app.decided_category().await, "standard");
 }
 
 // ------------------------------------------------------------ priority order
@@ -126,37 +85,37 @@ async fn a_keyword_rule_cannot_match_from_the_arr_alone() {
 #[tokio::test]
 async fn the_first_source_in_the_order_wins_the_field() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn reordering_the_sources_changes_the_decision() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "tmdb,arr").await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
     // Same library, same rule, same data: only the order moved.
-    assert_eq!(decided_category(&app).await, "standard");
+    assert_eq!(app.decided_category().await, "standard");
 }
 
 #[tokio::test]
 async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
     // Radarr wins the genres above. Keywords exist only in TMDb's answer and
     // must still be reachable.
-    seed_rule(&app, serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 /// The Arr's own metadata is always read. A list saved without it, by an older
@@ -165,11 +124,11 @@ async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
 #[tokio::test]
 async fn the_arr_source_cannot_be_turned_off() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     set_order(&app, "").await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 
     for without_arr in ["tmdb", ""] {
         let refused = app
@@ -185,12 +144,12 @@ async fn the_arr_source_cannot_be_turned_off() {
 #[tokio::test]
 async fn a_source_from_a_newer_build_is_ignored_rather_than_fatal() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     // A database written by a build that knew a source this one does not.
     set_order(&app, "trakt,arr").await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 // ------------------------------------------------------------ explainability
@@ -198,10 +157,10 @@ async fn a_source_from_a_newer_build_is_ignored_rather_than_fatal() {
 #[tokio::test]
 async fn the_explanation_names_the_source_that_answered() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
-    seed_rule(&app, serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
     let response = app.get("/api/v1/media/m-inst-1-10/explain").await;
     let explanation = response.assert_ok();
@@ -216,7 +175,7 @@ async fn the_explanation_names_the_source_that_answered() {
 #[tokio::test]
 async fn the_media_page_lists_the_sources_that_contributed() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
 
@@ -304,7 +263,7 @@ async fn listed_has_metadata(app: &TestApp) -> bool {
 #[tokio::test]
 async fn a_disabled_source_no_longer_answers_for_an_item() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     sqlx::query("UPDATE media SET genres = '[]', original_language = NULL, certification = NULL")
         .execute(&app.state.pool)
         .await
@@ -333,7 +292,7 @@ async fn a_disabled_source_no_longer_answers_for_an_item() {
 #[tokio::test]
 async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     let arr = FakeArr::start().await;
-    let app = synced("sonarr", &arr).await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
     sqlx::query(
         "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
                           tmdb_id = NULL, tvdb_id = 4242",
@@ -367,7 +326,7 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
 #[tokio::test]
 async fn the_three_metadata_counters_agree_on_one_library() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     // Half described by the Arr, half by nothing at all.
     sqlx::query(
         "UPDATE media SET genres = '[]' WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)",
@@ -408,7 +367,7 @@ async fn the_three_metadata_counters_agree_on_one_library() {
 #[tokio::test]
 async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
 
     // Nothing the Arr can contribute, so only the cache is left to answer.
     sqlx::query("UPDATE media SET genres = '[]', original_language = NULL, certification = NULL")
@@ -468,7 +427,7 @@ async fn any_field_a_rule_reads_describes_the_item_to_every_counter() {
     ];
     for (case, arr_field, cached_keywords) in cases {
         let arr = FakeArr::start().await;
-        let app = synced("radarr", &arr).await;
+        let app = TestApp::synced_from("radarr", &arr).await;
         let pool = &app.state.pool;
         sqlx::query("DELETE FROM media WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)")
             .execute(pool)

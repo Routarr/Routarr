@@ -11,6 +11,7 @@
   import ExplanationModal from '../components/ExplanationModal.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
+  import Pager from '../components/Pager.svelte';
   import SearchField from '../components/SearchField.svelte';
 
   let search = $state('');
@@ -207,28 +208,7 @@
       </table>
     </TableRegion>
 
-    {#if pagination && pagination.total_pages > 1}
-      <div class="flex items-center justify-between mt-4">
-        <span class="text-muted text-md">
-          {t('PageOf', { page: pagination.page, total: pagination.total_pages })} · {t(
-            'ItemCount',
-            { count: pagination.total },
-          )}
-        </span>
-        <div class="flex gap-2">
-          <button class="btn btn-secondary btn-sm" disabled={page <= 1} onclick={() => (page -= 1)}>
-            {t('Previous')}
-          </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            disabled={page >= pagination.total_pages}
-            onclick={() => (page += 1)}
-          >
-            {t('Next')}
-          </button>
-        </div>
-      </div>
-    {/if}
+    <Pager {pagination} bind:page countKey="ItemCount" />
   </div>
 
   {#if explaining}

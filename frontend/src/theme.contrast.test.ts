@@ -112,13 +112,36 @@ const PAIRS: [string, string][] = [
   // on a card, and under a field of a dialog, drawn on the surface.
   ['--status-danger', '--bg-card'],
   ['--status-danger', '--bg-surface'],
-  // Text on a filled button. White on the dark theme's light red falls short.
-  ['--text-on-accent', '--accent-primary'],
-  ['--text-on-danger', '--status-danger'],
   // The kind badges, whose label takes the kind's hue: the dark theme's pale
   // blue and violet fall short on a white card.
   ['--kind-radarr', '--bg-card'],
   ['--kind-sonarr', '--bg-card'],
+];
+
+/**
+ * The custom property a rule of the stylesheet sets `property` to.
+ *
+ * Read off the rule rather than written here: a pair named by hand goes on
+ * measuring the colours the button used to wear after the rule moves to others.
+ */
+function declared(selector: string, property: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const body = CSS.match(new RegExp(`^${escaped}\\s*\\{([^}]*)\\}`, 'm'))?.[1] ?? '';
+  // Anchored so `color` is not read out of `background-color` or `border-color`.
+  const name = body.match(new RegExp(`(?:^|[\\s;])${property}\\s*:\\s*var\\((--[\\w-]+)\\)`))?.[1];
+  if (name === undefined) throw new Error(`${selector} sets no ${property} from a token`);
+  return name;
+}
+
+/**
+ * A filled button's text on its fill, at rest and under the pointer, as the
+ * rules drawing it declare them: `[label, text rule, fill rule]`.
+ */
+const FILLED: [string, string, string][] = [
+  ['primary', '.btn-primary', '.btn-primary'],
+  ['hovered primary', '.btn-primary', '.btn-primary:hover:not(:disabled)'],
+  // White on the dark theme's light red falls short.
+  ['dialog danger', '.modal-content .btn-danger', '.modal-content .btn-danger'],
 ];
 
 /** Badge text on its own translucent background, itself over a card. */
@@ -144,9 +167,11 @@ function token(palette: Record<string, string>, name: string): string {
  * the dark value rather than to nothing.
  */
 it('states the light palette identically for the explicit theme and for auto', () => {
-  const explicit = Object.keys(tokensOf(/^:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/m));
-  const stamped = Object.keys(tokensOf(AUTO));
-  expect(stamped.sort()).toEqual(explicit.sort());
+  const explicit = tokensOf(/^:root\[data-theme='light'\]\s*\{([\s\S]*?)\n\}/m);
+  expect(Object.keys(explicit).length).toBeGreaterThan(10);
+  // Names and values: a token restated with another value draws `auto` in a
+  // colour the explicit theme never shows, and no pair below reads both.
+  expect(tokensOf(AUTO)).toEqual(explicit);
 });
 
 describe.each([
@@ -160,6 +185,13 @@ describe.each([
   });
 
   it.each(PAIRS)('reads %s on %s at AA', (fg, bg) => {
+    const ratio = contrast(token(palette, fg), token(palette, bg));
+    expect(ratio, `${name}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it.each(FILLED)('reads the %s button at AA', (_, text, fill) => {
+    const fg = declared(text, 'color');
+    const bg = declared(fill, 'background-color');
     const ratio = contrast(token(palette, fg), token(palette, bg));
     expect(ratio, `${name}: ${fg} on ${bg} is ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(4.5);
   });

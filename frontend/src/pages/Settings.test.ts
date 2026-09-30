@@ -159,7 +159,6 @@ afterEach(() => {
   vi.restoreAllMocks();
   withBase(null);
   publishOnboarding(null);
-  window.history.replaceState({}, '', '/');
 });
 
 describe('the unattended-writing warning', () => {
@@ -938,6 +937,25 @@ describe('a refused save', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
     expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('false');
     expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
+  });
+
+  /** Save guards against a second press while one runs, and a refusal ends the run. */
+  it('sends the next save once the refused one is answered', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    const update = vi
+      .spyOn(api, 'updateSettings')
+      .mockRejectedValueOnce(new ApiError('The batch limit is out of range', 400, 'bad_request'))
+      .mockResolvedValueOnce(undefined as never);
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('The batch limit is out of range')).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(nthCall(update, 1)[0]).toMatchObject({ global_dry_run: 'false' });
+    await waitFor(() => expect(screen.queryByText('The batch limit is out of range')).toBeNull());
   });
 
   /** Save waits for a read that succeeded, and only Retry gives it one. */

@@ -194,15 +194,11 @@ fn split_statements(sql: &str) -> Vec<String> {
                     }
                 }
             }
+            // An escaped quote, `''`, needs no case of its own: it closes the
+            // string and opens it again at once, with nothing in between.
             '\'' => {
-                // '' inside a string is an escaped quote, not a terminator.
-                if in_string && chars.next_if_eq(&'\'').is_some() {
-                    current.push('\'');
-                    current.push('\'');
-                } else {
-                    in_string = !in_string;
-                    current.push(c);
-                }
+                in_string = !in_string;
+                current.push(c);
             }
             ';' if !in_string && block_depth == 0 => {
                 push_statement(&mut statements, &mut current);
@@ -326,21 +322,31 @@ mod tests {
             .unwrap()
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .foreign_keys(true);
-        let pool = SqlitePoolOptions::new().max_connections(4).connect_with(options).await.unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(options.clone())
+            .await
+            .unwrap();
         run_migrations(&pool).await.unwrap();
         sqlx::query("INSERT INTO categories (id, name) VALUES ('c-1', 'survives')")
             .execute(&pool)
             .await
             .unwrap();
+        // Another connection to the file, as an operator's `sqlite3` shell holds
+        // one. SQLite folds the log back when the *last* connection closes, so
+        // with this one open, closing the pool alone leaves everything in the
+        // WAL, and only the checkpoint moves it into the file.
+        let bystander =
+            SqlitePoolOptions::new().max_connections(1).connect_with(options).await.unwrap();
+        sqlx::query("SELECT 1").execute(&bystander).await.unwrap();
 
         // The write is in the WAL at this point, not in the database file.
         assert!(path.with_extension("db-wal").exists(), "expected a WAL to exist while running");
 
         checkpoint_and_close(&pool).await;
 
-        // The WAL must no longer carry anything. SQLite removes the file when the
-        // process exits, and within a test the pool close leaves it truncated to
-        // zero, which contributes exactly as much: nothing.
+        // The WAL must no longer carry anything: truncated to zero, it
+        // contributes exactly as much as a removed one.
         let wal = path.with_extension("db-wal");
         let leftover = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
         assert_eq!(leftover, 0, "the WAL still holds {leftover} bytes after closing");
@@ -360,6 +366,26 @@ mod tests {
         assert_eq!(name, "survives");
 
         restored.close().await;
+        bystander.close().await;
+    }
+
+    /// `main` folds the log back once the server has stopped serving. Read out
+    /// of its source, since no test runs `main`: a shutdown that drops the pool
+    /// instead leaves the documented backup, a copy of the `.db`, without the
+    /// last writes.
+    #[test]
+    fn the_server_checkpoints_the_database_once_it_stops_serving() {
+        const MAIN: &str = include_str!("main.rs");
+        let after_serving = MAIN
+            .split_once(".with_graceful_shutdown(shutdown_signal())")
+            .expect("main serves until a shutdown signal")
+            .1;
+        let shutdown =
+            after_serving.split_once("Routarr stopped cleanly").expect("main says it stopped").0;
+        assert!(
+            shutdown.contains("db::checkpoint_and_close(&pool)"),
+            "main stops without folding the log back:\n{shutdown}"
+        );
     }
 
     #[test]
@@ -377,9 +403,9 @@ mod tests {
     }
 
     #[test]
-    fn handles_escaped_quotes() {
-        let s = split_statements("INSERT INTO t VALUES ('it''s; fine');");
-        assert_eq!(s.len(), 1);
+    fn an_escaped_quote_keeps_the_semicolon_after_it_in_the_string() {
+        let s = split_statements("INSERT INTO t VALUES ('it''s; fine');\nSELECT 1;");
+        assert_eq!(s, ["INSERT INTO t VALUES ('it''s; fine')", "SELECT 1"]);
     }
 
     #[test]

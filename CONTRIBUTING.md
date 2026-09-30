@@ -60,7 +60,7 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --locked
-cargo llvm-cov --summary-only --fail-under-lines 90 --ignore-filename-regex 'src/(tests/|main\.rs)'
+cargo llvm-cov --summary-only --fail-under-lines 93 --ignore-filename-regex 'src/(tests/|main\.rs)'
 cargo audit
 cargo deny --locked check           # licences, advisories and sources, from deny.toml
 python3 ../scripts/check-locales.py
@@ -88,8 +88,9 @@ npx astro check        # types over the components and the catalogue
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 ```
 
-Coverage has floors on both sides: 90 % of backend lines, and 90 / 80 / 88 / 90 for frontend
-statements, branches, functions and lines. **Raise one when the real figure moves up, never
+Coverage has floors on both sides: 93 % of backend lines, and 91 / 80 / 89 / 91 for frontend
+statements, branches, functions and lines, with 30 % of the statements and lines of each frontend
+file, so a screen with no test fails the run. **Raise one when the real figure moves up, never
 lower one to make a build pass.**
 
 ## What a good change looks like

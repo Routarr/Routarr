@@ -157,9 +157,9 @@ pub fn from_tmdb(code: &str) -> Option<String> {
 /// ISO 639-1 from a three-letter code.
 ///
 /// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every
-/// language of [`LANGUAGES`] but Romansh (`roh`) is listed, the bibliographic
-/// form beside the terminological one where they differ (`fre` and `fra`), and
-/// a code outside the list answers `None`.
+/// language of [`LANGUAGES`] is listed, the bibliographic form beside the
+/// terminological one where they differ (`fre` and `fra`), and a code outside
+/// the list answers `None`.
 pub fn from_iso_639_3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {
@@ -219,6 +219,7 @@ pub fn from_iso_639_3(code: &str) -> Option<String> {
         "tgl" => "tl",
         "urd" => "ur",
         "mon" => "mn",
+        "roh" => "rm",
         _ => return None,
     };
 
@@ -339,6 +340,14 @@ mod tests {
         // wild, and TheTVDB is not consistent about which it returns.
         assert_eq!(from_iso_639_3("fre").as_deref(), Some("fr"));
         assert_eq!(from_iso_639_3("fra").as_deref(), Some("fr"));
+    }
+
+    /// Romansh is in the vocabulary a rule is written against, as `rm`, so a
+    /// source answering `roh` has to land there too.
+    #[test]
+    fn romansh_in_three_letters_matches_a_rule_written_against_rm() {
+        assert_eq!(from_iso_639_3("roh").as_deref(), Some("rm"));
+        assert_eq!(normalise("Romansh").as_deref(), Some("rm"));
     }
 
     #[test]

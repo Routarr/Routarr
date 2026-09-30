@@ -5,22 +5,23 @@
 //! works on the developer's `/` and breaks behind the proxy, which is the one
 //! place it cannot be debugged comfortably.
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use tower::ServiceExt;
+use axum::http::StatusCode;
 
 use crate::config::{Config, normalise_base_path};
 use crate::state::AppState;
 
-/// A router mounted under `base`.
-async fn mounted_at(base: &str) -> (axum::Router, AppState) {
+use super::TestApp;
+
+/// The application under `config`, as `main` assembles it.
+async fn serving(config: Config) -> TestApp {
+    TestApp::around(AppState::for_tests().await.with_config(config))
+}
+
+/// The application mounted under `base`.
+async fn mounted_at(base: &str) -> TestApp {
     let mut config = Config::for_tests();
     config.base_path = normalise_base_path(base);
-
-    let mut state = AppState::for_tests().await;
-    state.config = std::sync::Arc::new(config);
-
-    (crate::build_router(state.clone()), state)
+    serving(config).await
 }
 
 /// Under the API prefix every miss is a JSON 404, whatever the method and
@@ -32,17 +33,16 @@ async fn an_unknown_api_path_is_a_json_404_not_the_index() {
     use axum::body::Body;
     use axum::http::Request;
     use http_body_util::BodyExt;
-    use tower::ServiceExt;
 
     for (base, prefix) in [("", ""), ("/routarr", "/routarr")] {
-        let (router, _) = mounted_at(base).await;
+        let app = mounted_at(base).await;
         for method in ["GET", "POST", "DELETE"] {
             let request = Request::builder()
                 .method(method)
                 .uri(format!("{prefix}/api/v1/nope"))
                 .body(Body::empty())
                 .unwrap();
-            let response = router.clone().oneshot(request).await.unwrap();
+            let response = app.send_raw(request).await;
             assert_eq!(response.status(), StatusCode::NOT_FOUND, "{method} {prefix}/api/v1/nope");
             let content_type = response
                 .headers()
@@ -58,13 +58,8 @@ async fn an_unknown_api_path_is_a_json_404_not_the_index() {
     }
 }
 
-async fn status_of(router: &axum::Router, path: &str) -> StatusCode {
-    router
-        .clone()
-        .oneshot(Request::get(path).body(Body::empty()).unwrap())
-        .await
-        .expect("router call")
-        .status()
+async fn status_of(app: &TestApp, path: &str) -> StatusCode {
+    app.raw(path).await.status()
 }
 
 #[test]
@@ -84,56 +79,48 @@ fn every_way_a_person_writes_a_sub_path_means_the_same_thing() {
 
 #[tokio::test]
 async fn the_api_answers_under_the_mount_point() {
-    let (router, _state) = mounted_at("/routarr").await;
+    let app = mounted_at("/routarr").await;
 
-    assert_eq!(status_of(&router, "/routarr/api/v1/ping").await, StatusCode::OK);
+    assert_eq!(status_of(&app, "/routarr/api/v1/ping").await, StatusCode::OK);
 }
 
 #[tokio::test]
 async fn nothing_answers_outside_the_mount_point() {
-    let (router, _state) = mounted_at("/routarr").await;
+    let app = mounted_at("/routarr").await;
 
     // A proxy strips its own prefix or it does not. If it does not, answering at
     // the root anyway would hide the misconfiguration until something subtler
     // broke.
-    assert_eq!(status_of(&router, "/api/v1/ping").await, StatusCode::NOT_FOUND);
+    assert_eq!(status_of(&app, "/api/v1/ping").await, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn the_default_deployment_is_untouched() {
-    let (router, _state) = mounted_at("").await;
+    let app = mounted_at("").await;
 
-    assert_eq!(status_of(&router, "/api/v1/ping").await, StatusCode::OK);
-    assert_eq!(status_of(&router, "/routarr/api/v1/ping").await, StatusCode::NOT_FOUND);
+    assert_eq!(status_of(&app, "/api/v1/ping").await, StatusCode::OK);
+    assert_eq!(status_of(&app, "/routarr/api/v1/ping").await, StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
 async fn a_webhook_url_is_advertised_relative_to_the_mount_point() {
     // Radarr is handed this URL to call back. Missing the prefix, every webhook
     // would hit the proxy's 404 and the user would see nothing at all.
-    let (router, _state) = mounted_at("/routarr").await;
+    let app = mounted_at("/routarr").await;
 
-    let response = router
-        .oneshot(
-            Request::post("/routarr/api/v1/instances")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({
-                        "name": "Radarr",
-                        "instance_type": "radarr",
-                        "base_url": "http://radarr:7878",
-                        "api_key": "k",
-                    })
-                    .to_string(),
-                ))
-                .unwrap(),
+    let response = app
+        .post(
+            "/routarr/api/v1/instances",
+            serde_json::json!({
+                "name": "Radarr",
+                "instance_type": "radarr",
+                "base_url": "http://radarr:7878",
+                "api_key": "k",
+            }),
         )
-        .await
-        .expect("router call");
+        .await;
 
-    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let url = body["webhook_url"].as_str().expect("a webhook url");
+    let url = response.assert_ok()["webhook_url"].as_str().expect("a webhook url");
 
     assert!(url.starts_with("/routarr/api/v1/webhook/"), "got {url}");
 }
@@ -175,14 +162,12 @@ async fn a_deep_link_and_the_root_both_serve_the_application() {
     config.base_path = normalise_base_path("/routarr");
     config.frontend_dir = dir.to_path_buf();
 
-    let mut state = AppState::for_tests().await;
-    state.config = std::sync::Arc::new(config);
-    let router = crate::build_router(state);
+    let app = serving(config).await;
 
     // The root, a client-side route, and a real asset.
-    assert_eq!(status_of(&router, "/routarr/").await, StatusCode::OK);
-    assert_eq!(status_of(&router, "/routarr/rules").await, StatusCode::OK);
-    assert_eq!(status_of(&router, "/routarr/assets/app.js").await, StatusCode::OK);
+    assert_eq!(status_of(&app, "/routarr/").await, StatusCode::OK);
+    assert_eq!(status_of(&app, "/routarr/rules").await, StatusCode::OK);
+    assert_eq!(status_of(&app, "/routarr/assets/app.js").await, StatusCode::OK);
     // And nothing outside.
-    assert_eq!(status_of(&router, "/rules").await, StatusCode::NOT_FOUND);
+    assert_eq!(status_of(&app, "/rules").await, StatusCode::NOT_FOUND);
 }

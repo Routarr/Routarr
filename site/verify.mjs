@@ -9,13 +9,12 @@
  *   node site/verify.mjs
  */
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 
+import { chromium, fromFrontend } from './playwright.mjs';
+
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
-const require = createRequire(`${process.env.FRONTEND_DIR ?? `${ROOT}../frontend`}/package.json`);
-const { chromium } = require('@playwright/test');
-const { AxeBuilder } = require('@axe-core/playwright');
+const { AxeBuilder } = fromFrontend('@axe-core/playwright');
 
 /**
  * A port nothing else holds: a fixed one collides with a second checkout

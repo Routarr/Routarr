@@ -20,12 +20,13 @@ name: Docker image
 # rather than by whoever wrote it. A Rust version whose `-alpine` image is not
 # published yet passes every job in `ci.yml` and fails only here.
 #
-# The two lists are written twice because GitHub Actions does not read YAML
-# anchors: an alias here is silently not the list it names.
+# One list for both events: `pull_request` names the `push` list by its YAML
+# anchor. Actions reads anchors and aliases but not the `<<` merge key, so a
+# list for one event alone is written out whole, not merged into this one.
 on:
   push:
     branches: [main]
-    paths:
+    paths: &image-inputs
       - 'Dockerfile'
       - '.dockerignore'
       - 'backend/**'
@@ -35,15 +36,7 @@ on:
       - 'LICENSE'
       - '.github/workflows/docker.yml'
   pull_request:
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'backend/**'
-      - 'frontend/**'
-      - 'scripts/smoke-image.sh'
-      # Copied into the image, so a change to it is a change to the image.
-      - 'LICENSE'
-      - '.github/workflows/docker.yml'
+    paths: *image-inputs
 
 # The job runs a pull request's Dockerfile, so the token it holds reads and
 # nothing more.

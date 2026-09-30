@@ -11,6 +11,7 @@ use axum::routing::post;
 use axum::{Json, Router};
 use tokio::net::TcpListener;
 
+use crate::services::auto_apply::AutoApplyOutcome;
 use crate::services::sync;
 
 use super::TestApp;
@@ -66,14 +67,6 @@ impl Drop for Receiver {
     }
 }
 
-/// Saved as the Settings screen saves it, so what the notifier reads is what an
-/// installation holds.
-async fn set(app: &TestApp, key: &str, value: &str) {
-    app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } }))
-        .await
-        .assert_ok();
-}
-
 /// The address of a Discord or Slack webhook is the channel's credential:
 /// whoever reads it can post there. It is sealed like an API key, and what the
 /// screen gets back says whether one is stored, never what it is.
@@ -81,7 +74,7 @@ async fn set(app: &TestApp, key: &str, value: &str) {
 async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
     let app = TestApp::new().await;
     let url = "https://discord.com/api/webhooks/123/hook-secret-8d2e";
-    set(&app, "notification_webhook_url", url).await;
+    app.save_setting("notification_webhook_url", url).await.assert_ok();
 
     let stored: String =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'notification_webhook_url'")
@@ -130,7 +123,7 @@ async fn an_instance_going_down_notifies_once_not_on_every_tick() {
     // Port 1 on the loopback refuses the connection at once: unreachable,
     // without the timeout a black-hole address costs on every test.
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    set(&app, "notification_webhook_url", &receiver.url).await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
     // Three consecutive failed syncs, as the scheduler would produce.
     for _ in 0..3 {
@@ -154,7 +147,7 @@ async fn coming_back_closes_the_loop() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    set(&app, "notification_webhook_url", &receiver.url).await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
     let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
 
@@ -178,7 +171,7 @@ async fn a_healthy_instance_is_never_worth_a_message() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    set(&app, "notification_webhook_url", &receiver.url).await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
     for _ in 0..3 {
         sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
@@ -187,16 +180,27 @@ async fn a_healthy_instance_is_never_worth_a_message() {
     assert!(receiver.messages().is_empty(), "success is not an event");
 }
 
+/// Cleared, the webhook sends nothing: the failure that reached the receiver
+/// while it was set is the proof that the one after it would have.
 #[tokio::test]
-async fn nothing_is_sent_when_no_webhook_is_configured() {
+async fn nothing_is_sent_once_the_webhook_is_cleared() {
     let receiver = Receiver::start().await;
+    let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    // Deliberately not configured, which is the default.
-
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
     let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
+    assert_eq!(receiver.messages().len(), 1, "the unreachable instance was not notified");
 
-    assert!(receiver.messages().is_empty());
+    app.save_setting("notification_webhook_url", "").await.assert_ok();
+    sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
+        .bind(&arr.base_url)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
+
+    assert_eq!(receiver.messages().len(), 1, "the recovery went to a cleared webhook");
 }
 
 #[tokio::test]
@@ -204,7 +208,7 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    set(&app, "notification_webhook_url", &receiver.url).await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 
     let _ = sync::sync_instance(&app.state, "inst-1", "schedule").await;
 
@@ -217,14 +221,18 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
     assert_eq!(message["source"], "routarr");
 }
 
+/// Delivering a notification never fails the work that produced it. The
+/// recovery this sync announces is sent, fails, and is logged, and the sync
+/// still succeeds.
 #[tokio::test]
 async fn an_unreachable_webhook_does_not_break_the_sync() {
+    use tracing::instrument::WithSubscriber;
+    use tracing_subscriber::layer::SubscriberExt;
+
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    // Points nowhere: delivering a notification must never be able to fail the
-    // work that produced it.
-    set(&app, "notification_webhook_url", "http://127.0.0.1:1/hook").await;
+    app.save_setting("notification_webhook_url", "http://127.0.0.1:1/hook").await.assert_ok();
     sqlx::query(
         "UPDATE instances SET last_sync_status = 'error: previously down' WHERE id = 'inst-1'",
     )
@@ -232,9 +240,58 @@ async fn an_unreachable_webhook_does_not_break_the_sync() {
     .await
     .unwrap();
 
-    let report = sync::sync_instance(&app.state, "inst-1", "schedule").await.unwrap();
+    let capture = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    let report = sync::sync_instance(&app.state, "inst-1", "schedule")
+        .with_subscriber(tracing::Dispatch::new(subscriber))
+        .await
+        .unwrap();
 
     assert!(report.media > 0, "the sync must succeed regardless");
+    let log = capture.contents();
+    assert!(
+        log.contains("Notification not delivered") && log.contains("instance_recovered"),
+        "the recovery was never sent, so nothing here could have failed:\n{log}"
+    );
+}
+
+/// An unattended apply the Arr refused is the failure nobody is watching for,
+/// and the message says how many moves failed and the first reason.
+#[tokio::test]
+async fn an_unattended_apply_the_arr_refuses_is_notified() {
+    let receiver = Receiver::start().await;
+    let arr = FakeArr::refusing_unimported_movie(500).await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_route_to_anime().await;
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+         current_root_folder, monitored, has_files)
+         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', 8392,
+                 '/movies/standard/Totoro (1988)', '/movies/standard', 1, 0)",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+
+    let simulation = app.simulate().await;
+    let outcome =
+        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook").await;
+
+    assert!(
+        matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 1),
+        "{outcome:?}"
+    );
+    let messages = receiver.messages();
+    assert_eq!(messages.len(), 1, "{messages:?}");
+    assert_eq!(messages[0]["event"], "auto_apply_failed");
+    assert_eq!(messages[0]["severity"], "error");
+    let text = messages[0]["message"].as_str().unwrap();
+    assert!(text.contains("Failures: 1") && text.contains("Totoro"), "{text}");
 }
 
 #[tokio::test]

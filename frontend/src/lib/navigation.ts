@@ -46,7 +46,7 @@ const ICONS: Record<string, Component<LucideProps>> = {
   '/settings': Settings,
 };
 
-function iconFor(route: Route): Component<LucideProps> {
+export function iconFor(route: Route): Component<LucideProps> {
   const icon = ICONS[route.to];
   if (!icon) throw new Error(`navigation: no icon for ${route.to}`);
   return icon;

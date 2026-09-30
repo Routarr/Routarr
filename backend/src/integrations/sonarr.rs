@@ -86,25 +86,7 @@ pub struct SonarrSeriesStatistics {
     pub size_on_disk: Option<i64>,
 }
 
-pub use super::radarr::{ArrLanguage, ArrTagDto};
-
-/// Root folder from Sonarr API.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SonarrRootFolder {
-    pub id: i64,
-    pub path: String,
-    #[serde(rename = "freeSpace", default, deserialize_with = "super::lenient_bytes")]
-    pub free_space: Option<i64>,
-    pub accessible: Option<bool>,
-}
-
-/// System status from Sonarr API.
-#[derive(Debug, Clone, Deserialize)]
-pub struct SonarrStatus {
-    pub version: String,
-    #[serde(rename = "appName")]
-    pub app_name: Option<String>,
-}
+pub use super::radarr::{ArrLanguage, ArrRootFolderDto, ArrStatusDto, ArrTagDto};
 
 impl SonarrClient {
     pub fn new(client: Client, base_url: &str, api_key: &str) -> Self {
@@ -119,7 +101,7 @@ impl SonarrClient {
         self.client.get(format!("{}{path}", self.base_url)).header("X-Api-Key", &self.api_key)
     }
 
-    pub async fn test_connection(&self) -> AppResult<SonarrStatus> {
+    pub async fn test_connection(&self) -> AppResult<ArrStatusDto> {
         send_json(SERVICE, self.get("/api/v3/system/status")).await
     }
 
@@ -133,22 +115,13 @@ impl SonarrClient {
         send_json(SERVICE, self.get(&format!("/api/v3/series/{id}"))).await
     }
 
-    pub async fn get_root_folders(&self) -> AppResult<Vec<SonarrRootFolder>> {
+    pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
     }
 
-    /// Whether the Arr can see this directory.
-    ///
-    /// Asked of the Arr rather than of Routarr's own filesystem: the two run in
-    /// different containers as often as not, and `/media/films` existing here
-    /// says nothing about whether the process that will do the writing can
-    /// reach it. That mismatch is the commonest homelab fault of all, and it is
-    /// otherwise discovered at apply time.
+    /// Whether Sonarr can see this directory (`integrations::directory_exists`).
     pub async fn directory_exists(&self, path: &str) -> AppResult<bool> {
-        let query = super::directory_query(path);
-        let listing: super::DirectoryListing =
-            send_json(SERVICE, self.get("/api/v3/filesystem").query(&[("path", query)])).await?;
-        Ok(listing.holds(path))
+        super::directory_exists(SERVICE, self.get("/api/v3/filesystem"), path).await
     }
 
     /// Get the tag catalogue: a media row only carries numeric ids.
@@ -158,11 +131,17 @@ impl SonarrClient {
 
     /// Move one series to a new root folder.
     ///
-    /// Sonarr has no bulk editor equivalent to Radarr's, so the full series
-    /// object is read back, patched and re-sent, since anything less drops
-    /// fields the PUT expects. The existing folder name is preserved: deriving
-    /// it from `titleSlug` would silently *rename* the on-disk directory during
-    /// what was asked to be a move.
+    /// One request per series, although Sonarr's `PUT /api/v3/series/editor`
+    /// takes a list: the executor records each series from its own answer, and
+    /// records its new path as the target plus the folder name it already had
+    /// (`relocate`). The editor answers once for the whole list, and names each
+    /// destination folder from Sonarr's naming format instead of keeping the
+    /// one on disk.
+    ///
+    /// The full series object is read back, patched and re-sent, since anything
+    /// less drops fields the PUT expects. The existing folder name is kept:
+    /// deriving it from `titleSlug` would silently *rename* the on-disk
+    /// directory during what was asked to be a move.
     pub async fn update_series_path(
         &self,
         series_id: i64,

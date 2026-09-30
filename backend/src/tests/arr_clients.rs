@@ -1,16 +1,12 @@
 //! Integration client behaviour, exercised against a real socket.
 
-use crate::config::Config;
 use crate::error::AppError;
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::radarr::RadarrClient;
 use crate::integrations::sonarr::SonarrClient;
 
 use super::fake_arr::FakeArr;
-
-fn client() -> reqwest::Client {
-    crate::http::build_client(&Config::for_tests()).expect("test http client")
-}
+use super::http_client as client;
 
 // ------------------------------------------------------------------ Radarr
 
@@ -91,6 +87,9 @@ async fn a_bulk_failure_is_reported_for_every_item() {
     );
 }
 
+/// The refusal names its service and status, and keeps the start of what the
+/// Arr said, cut: the fake's refusal is over a thousand characters long, and
+/// the message goes into the log and back to the screen.
 #[tokio::test]
 async fn upstream_errors_carry_the_status_and_are_truncated() {
     let arr = FakeArr::failing(422).await;
@@ -102,15 +101,16 @@ async fn upstream_errors_carry_the_status_and_are_truncated() {
         AppError::ExternalApi { service, status, message, .. } => {
             assert_eq!(service, "Radarr");
             assert_eq!(status, 422);
-            assert!(message.contains("rejected"));
-            assert!(message.len() < 600);
+            assert!(message.starts_with("upstream rejected the edit"), "{message}");
+            assert!(message.ends_with("(truncated)"), "{message}");
+            assert!(message.chars().count() < 600, "{} characters", message.chars().count());
         }
         other => panic!("expected an ExternalApi error, got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn an_unreachable_host_is_a_transport_error_not_a_panic() {
+async fn a_refused_connection_is_named_unreachable_with_no_status() {
     // Port 1 on the loopback: nothing listens, so the connection is refused at
     // once. A black-hole address (TEST-NET-1) waits the full timeout instead,
     // on every test.
@@ -119,10 +119,7 @@ async fn an_unreachable_host_is_a_transport_error_not_a_panic() {
     match radarr.test_connection().await.unwrap_err() {
         AppError::ExternalApi { status, message, .. } => {
             assert_eq!(status, 0, "a transport failure has no HTTP status");
-            assert!(
-                message.contains("timed out") || message.contains("unreachable"),
-                "unhelpful message: {message}"
-            );
+            assert!(message.contains("unreachable"), "unhelpful message: {message}");
         }
         other => panic!("expected an ExternalApi error, got {other:?}"),
     }
@@ -181,6 +178,9 @@ async fn a_series_that_was_never_scanned_falls_back_to_the_slug() {
     assert_eq!(arr.recorded().writes[0]["path"], "/tv/anime/cowboy-bebop");
 }
 
+/// Sonarr moves one series per request, so the first refusal must not keep
+/// the next series from being asked: each is sent, and each refusal reported
+/// against its own id.
 #[tokio::test]
 async fn sonarr_reports_failures_per_item() {
     let arr = FakeArr::failing(409).await;
@@ -188,8 +188,10 @@ async fn sonarr_reports_failures_per_item() {
 
     let results = adapter.move_to_root_folder(&[20, 21], "/tv/anime", false).await;
 
-    assert_eq!(results.len(), 2, "one failure must not abort the rest of the batch");
+    let ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids, [20, 21]);
     assert!(results.iter().all(|(_, outcome)| outcome.is_err()));
+    assert_eq!(arr.recorded().writes.len(), 2, "one failure aborted the rest of the batch");
 }
 
 #[tokio::test]
@@ -216,7 +218,7 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
 /// A 2xx body that is not a series object is reported, not patched.
 ///
 /// `update_series_path` reads the series back, patches two fields and re-sends
-/// it, because Sonarr has no bulk editor. Indexing a `serde_json::Value` that
+/// it, one series per request. Indexing a `serde_json::Value` that
 /// is not an object *panics* (`[]`, a string and a number all do), so a reverse
 /// proxy answering 200 with a cached empty array, or a base URL pointing at
 /// some other service on the same host, would abort the apply with a 500 that

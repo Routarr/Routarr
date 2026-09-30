@@ -8,13 +8,6 @@
 
 use super::TestApp;
 
-async fn save(app: &TestApp, key: &str, value: &str) -> u16 {
-    app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } }))
-        .await
-        .status
-        .as_u16()
-}
-
 async fn settings(app: &TestApp) -> serde_json::Value {
     app.get("/api/v1/settings").await.assert_ok().clone()
 }
@@ -24,7 +17,8 @@ async fn settings(app: &TestApp) -> serde_json::Value {
 #[tokio::test]
 async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
     let app = TestApp::new().await;
-    assert_eq!(save(&app, "tmdb_api_key", "super-secret-value").await, 200);
+    app.list_tmdb().await;
+    assert_eq!(app.save_setting("tmdb_api_key", "super-secret-value").await.status, 200);
 
     let stored: String =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'tmdb_api_key'")
@@ -37,10 +31,18 @@ async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
     let body = settings(&app).await;
     assert_eq!(body["tmdb_api_key"], "", "the value came back out");
     assert_eq!(body["tmdb_api_key_configured"], true, "the screen cannot tell one is set");
-    assert!(
-        !serde_json::to_string(&body).unwrap().contains("super-secret"),
-        "the plaintext appears somewhere in the payload"
-    );
+
+    // Every answer that speaks about the source, or about the settings.
+    for path in [
+        "/api/v1/settings",
+        "/api/v1/metadata/providers",
+        "/api/v1/health?probe=false",
+        "/api/v1/config/export",
+    ] {
+        let answer = app.text(path).await;
+        assert!(answer.contains("tmdb"), "{path} answered something else: {answer}");
+        assert!(!answer.contains("super-secret"), "the plaintext appears in {path}");
+    }
 }
 
 /// Saved beats the environment, or setting one in the interface would look like
@@ -49,9 +51,7 @@ async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
 async fn a_saved_key_outranks_the_environment_variable() {
     let mut config = crate::config::Config::for_tests();
     config.tmdb_api_key = Some("from-the-environment".into());
-    let mut state = crate::state::AppState::for_tests().await;
-    state.config = std::sync::Arc::new(config);
-    let app = TestApp::around(state);
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
 
     assert_eq!(
         app.state.provider_key("tmdb").await.as_deref(),
@@ -59,7 +59,7 @@ async fn a_saved_key_outranks_the_environment_variable() {
         "the environment should answer while nothing is saved"
     );
 
-    save(&app, "tmdb_api_key", "from-the-interface").await;
+    app.save_setting("tmdb_api_key", "from-the-interface").await;
     assert_eq!(app.state.provider_key("tmdb").await.as_deref(), Some("from-the-interface"));
 }
 
@@ -69,12 +69,10 @@ async fn a_saved_key_outranks_the_environment_variable() {
 async fn clearing_a_saved_key_falls_back_to_the_environment() {
     let mut config = crate::config::Config::for_tests();
     config.tmdb_api_key = Some("from-the-environment".into());
-    let mut state = crate::state::AppState::for_tests().await;
-    state.config = std::sync::Arc::new(config);
-    let app = TestApp::around(state);
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
 
-    save(&app, "tmdb_api_key", "from-the-interface").await;
-    save(&app, "tmdb_api_key", "").await;
+    app.save_setting("tmdb_api_key", "from-the-interface").await;
+    app.save_setting("tmdb_api_key", "").await;
 
     assert_eq!(app.state.provider_key("tmdb").await.as_deref(), Some("from-the-environment"));
     // Empty, not an opaque blob meaning "unset".
@@ -102,7 +100,7 @@ async fn a_listed_source_answers_while_its_key_is_saved() {
     let usable = app.state.metadata_providers().await;
     assert!(usable.iter().any(|p| p.id == "omdb"), "saving a key did not enable the source");
 
-    save(&app, "omdb_api_key", "").await;
+    app.save_setting("omdb_api_key", "").await;
     let unusable = app.state.metadata_providers().await;
     assert!(!unusable.iter().any(|p| p.id == "omdb"), "omdb answered with no key at all");
 }
@@ -114,7 +112,7 @@ async fn a_listed_source_answers_while_its_key_is_saved() {
 async fn a_source_that_needs_a_key_is_not_added_without_one() {
     let app = TestApp::new().await;
 
-    assert_eq!(save(&app, "metadata_providers", "arr,omdb").await, 400);
+    assert_eq!(app.save_setting("metadata_providers", "arr,omdb").await.status, 400);
     let listed = app.state.metadata_order().await;
     assert!(!listed.iter().any(|p| p.id == "omdb"), "the refused list was stored anyway");
 }
@@ -131,7 +129,7 @@ async fn a_listed_source_without_its_key_does_not_block_a_save() {
     )
     .await
     .assert_ok();
-    save(&app, "omdb_api_key", "").await;
+    app.save_setting("omdb_api_key", "").await;
 
     let saved = app
         .put(

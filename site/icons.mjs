@@ -14,16 +14,13 @@
 // screenshots and the CSP verification, so no image library enters the
 // dependency tree for three files that rarely change.
 
-import { createRequire } from 'node:module';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 
+import { chromium } from './playwright.mjs';
+
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
-// Same resolution as verify.mjs: Playwright is the frontend's dependency, and
-// the site does not repeat it.
-const require = createRequire(`${process.env.FRONTEND_DIR ?? `${ROOT}../frontend`}/package.json`);
-const { chromium } = require('@playwright/test');
 const svg = readFileSync(join(ROOT, 'public/assets/favicon.svg'), 'utf-8');
 const dataUri = `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 

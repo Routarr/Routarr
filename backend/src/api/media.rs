@@ -225,7 +225,9 @@ pub struct RuleTrace {
 /// Explain, condition by condition, why a media item lands where it does.
 ///
 /// Evaluated live rather than read from a stored decision, so it also explains
-/// rules that were edited since the last run.
+/// rules that were edited since the last run. The category, the folder and the
+/// action come from `routing::route_one`, the simulation's own decision, and
+/// only the trace is built here.
 pub async fn explain(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -233,42 +235,11 @@ pub async fn explain(
     let media = load_media(&state, &id).await?;
     let localizer: Localizer = state.localizer().await;
 
-    let metadata = enrichment::resolve_for_media(&state, &media).await?;
-
-    let rules = routing::load_rules(&state.pool).await?;
-    let override_category: Option<String> =
-        sqlx::query_scalar("SELECT target_category FROM overrides WHERE media_id = ?")
-            .bind(&media.id)
-            .fetch_optional(&state.pool)
-            .await?;
-
-    let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now: Utc::now() };
-    let evaluation = rule_engine::evaluate_rules(ctx, &rules, override_category.as_deref());
-
-    let default_category = AppState::default_category(&state.pool).await;
-
-    let target_category =
-        evaluation.winner.as_ref().map(|w| w.category.clone()).unwrap_or(default_category);
-
-    let target_root_folder: Option<String> = sqlx::query_scalar(
-        "SELECT path FROM root_folders WHERE instance_id = ? AND category = ? LIMIT 1",
-    )
-    .bind(&media.instance_id)
-    .bind(&target_category)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let action = match &target_root_folder {
-        None => "skip",
-        Some(target) => {
-            let current = media.current_root_folder.as_deref().unwrap_or("");
-            if rule_engine::normalize_path(current) == rule_engine::normalize_path(target) {
-                "none"
-            } else {
-                "move"
-            }
-        }
-    };
+    let now = Utc::now();
+    let routing::ItemRoute { rules, override_category, route } =
+        routing::route_one(&state.pool, &media, now).await?;
+    let routing::Route { metadata, evaluation, category, target, action } = route;
+    let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
 
     // Trace every applicable rule, not just the winner: seeing why the *other*
     // rules did not fire is usually the actual question.
@@ -330,8 +301,8 @@ pub async fn explain(
         media,
         metadata,
         override_category,
-        target_category,
-        target_root_folder,
+        target_category: category,
+        target_root_folder: target,
         action: action.to_string(),
         confidence: evaluation.winner.as_ref().map(|w| w.confidence).unwrap_or(0.0),
         winning_rule: evaluation.winner.as_ref().map(|w| {

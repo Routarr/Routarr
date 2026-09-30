@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import {
   describeCondition,
   failureDetail,
@@ -7,6 +7,8 @@ import {
   formatTimestamp,
   localName,
   mediaTypeKey,
+  runsOf,
+  swapped,
 } from './format';
 
 describe('failureDetail', () => {
@@ -185,12 +187,22 @@ describe('formatTimestamp', () => {
     expect(fr).toContain('22/08');
   });
 
+  /**
+   * Without the Z, a browser east of Greenwich would shift the hour and a sync
+   * could appear to have run in the future. The zone is pinned east of
+   * Greenwich: on a host running in UTC, local time and UTC agree, and the two
+   * readings would match whichever one the code took.
+   */
   it('treats the stored value as UTC rather than local time', () => {
-    // Without the Z, a browser east of Greenwich would shift the hour and a
-    // sync could appear to have run in the future.
+    vi.stubEnv('TZ', 'Asia/Tokyo');
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
+
     const utc = formatTimestamp('2026-08-22 14:05:57', 'en-GB');
     const explicit = formatTimestamp('2026-08-22T14:05:57Z', 'en-GB');
 
+    expect(explicit).toBe('22/08/2026, 23:05');
     expect(utc).toBe(explicit);
   });
 
@@ -239,5 +251,60 @@ describe('formatPercent', () => {
     expect(formatPercent(-0.2, 'en')).toBe('0%');
     expect(formatPercent(null, 'en')).toBe('0%');
     expect(formatPercent(0.6349, 'en')).toBe('63%');
+  });
+});
+
+describe('swapped', () => {
+  /** Priority order is the routing: a reorder moves one entry by one place, nothing else. */
+  it('trades an entry with its neighbour and leaves the list it was given alone', () => {
+    const order = ['arr', 'tmdb', 'omdb'];
+
+    expect(swapped(order, 1, -1)).toEqual(['tmdb', 'arr', 'omdb']);
+    expect(swapped(order, 1, 1)).toEqual(['arr', 'omdb', 'tmdb']);
+    expect(order).toEqual(['arr', 'tmdb', 'omdb']);
+  });
+
+  it('refuses a move past either end rather than wrapping round', () => {
+    expect(swapped(['arr', 'tmdb'], 0, -1)).toBeNull();
+    expect(swapped(['arr', 'tmdb'], 1, 1)).toBeNull();
+    expect(swapped([], 0, 1)).toBeNull();
+  });
+
+  /** A sparse array passes a bounds check and still reads `undefined`. */
+  it('refuses a hole rather than writing it into the order', () => {
+    expect(swapped(['arr', , 'omdb'], 0, 1)).toBeNull();
+  });
+});
+
+describe('runsOf', () => {
+  /** The arrows count the whole list, so each entry keeps its place in it. */
+  it('groups neighbours that share a key, each with its index in the whole list', () => {
+    const runs = runsOf(['nav', 'nav', 'media', 'nav'], (kind) => kind);
+
+    expect(runs).toEqual([
+      {
+        key: 'nav',
+        entries: [
+          { item: 'nav', index: 0 },
+          { item: 'nav', index: 1 },
+        ],
+      },
+      { key: 'media', entries: [{ item: 'media', index: 2 }] },
+      { key: 'nav', entries: [{ item: 'nav', index: 3 }] },
+    ]);
+  });
+
+  /** A value with no group is a run of its own kind, drawn bare. */
+  it('keeps an absent key as a key of its own', () => {
+    const runs = runsOf(
+      [{ group: undefined }, { group: 'PG' }, { group: undefined }],
+      (option) => option.group,
+    );
+
+    expect(runs.map((run) => run.key)).toEqual([undefined, 'PG', undefined]);
+  });
+
+  it('answers an empty list with no run', () => {
+    expect(runsOf([], (item) => item)).toEqual([]);
   });
 });

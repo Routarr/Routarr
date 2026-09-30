@@ -103,6 +103,12 @@ impl FakeArr {
         Self::with(None, "/tv/standard/Cowboy Bebop (1998)", false).await
     }
 
+    /// The same movie, not yet downloaded, on a fake that rejects mutating
+    /// calls with `status`: an unattended apply the Arr refuses.
+    pub async fn refusing_unimported_movie(status: u16) -> Self {
+        Self::with(Some(status), "/tv/standard/Cowboy Bebop (1998)", false).await
+    }
+
     /// Start a fake that holds each request open long enough for overlapping
     /// callers to be counted. See [`FakeArr::max_concurrent`].
     pub async fn observing_concurrency() -> Self {
@@ -368,6 +374,12 @@ fn totoro(state: &FakeState) -> serde_json::Value {
     })
 }
 
+/// What a refused edit carries: a reason, then as much detail as an Arr's
+/// validation list, longer than any error message may keep.
+fn refusal() -> String {
+    format!("upstream rejected the edit: {}", "a folder the Arr cannot write to, ".repeat(30))
+}
+
 async fn movie_editor(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -377,10 +389,7 @@ async fn movie_editor(
     state.recorded.lock().expect("lock").writes.push(body);
 
     if let Some(status) = state.fail_with {
-        return Err((
-            StatusCode::from_u16(status).unwrap(),
-            "upstream rejected the edit".to_string(),
-        ));
+        return Err((StatusCode::from_u16(status).unwrap(), refusal()));
     }
     // Recorded first, then held: a test can see the edit arrive before the
     // Arr is done with it.

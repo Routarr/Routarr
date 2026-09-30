@@ -1,4 +1,4 @@
-import { test, expect, api } from './fixtures';
+import { test, expect, api, ARR } from './fixtures';
 
 /**
  * The screens that configure the routing: root folders, exceptions, the rule
@@ -10,34 +10,21 @@ import { test, expect, api } from './fixtures';
  */
 
 test.describe('root folders', () => {
-  test('mapping a folder to a category sticks', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('mapping a folder to a category sticks', async ({ page }) => {
     await page.goto('/root-folders');
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     // The fixture maps both folders through the API. One is unmapped through the
     // UI, and the change has to survive a reload rather than only re-render.
-    const row = page.locator('tbody tr').filter({ hasText: '/movies/anime' });
-    await expect(row).toHaveCount(1);
-    await row.locator('select').selectOption('');
-    await row.getByRole('button', { name: 'Save – /movies/anime' }).click();
+    const folder = page.getByRole('combobox', { name: 'Category for /movies/anime' });
+    await folder.selectOption('');
+    await page.getByRole('button', { name: 'Save – /movies/anime' }).click();
 
     await expect(page.locator('.banner-success')).toBeVisible();
     await page.reload();
-    await expect(
-      page.locator('tbody tr').filter({ hasText: '/movies/anime' }).locator('select'),
-    ).toHaveValue('');
-
-    // Put it back, so the ordering of the suite does not matter.
-    const again = page.locator('tbody tr').filter({ hasText: '/movies/anime' });
-    await again.locator('select').selectOption('anime');
-    await again.getByRole('button', { name: 'Save – /movies/anime' }).click();
-    await expect(page.locator('.banner-success')).toBeVisible();
+    await expect(folder).toHaveValue('');
   });
 
-  test('renaming a category carries the rule that targets it', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
-
+  test('renaming a category carries the rule that targets it', async ({ page }) => {
     // A rule pointing at `anime`, so the rename has something to carry. The
     // backend transaction is covered by backend/src/tests/categories.rs. What
     // only a browser can establish is that the control is wired to it at all,
@@ -56,51 +43,45 @@ test.describe('root folders', () => {
     });
 
     await page.goto('/root-folders');
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await page.getByRole('button', { name: 'Rename category – anime' }).click();
 
-    const row = page.locator('tbody tr').filter({ hasText: 'anime' }).last();
-    await row.getByRole('button', { name: /rename/i }).click();
-
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-    await dialog.locator('input').fill('japanese');
+    await dialog.getByLabel('Name', { exact: true }).fill('japanese');
     await dialog.getByRole('button', { name: /save/i }).click();
 
     await expect(page.locator('.banner-success')).toBeVisible();
-    // Two tables share this page, so rows rather than a bare tbody.
-    await expect(page.locator('tr').filter({ hasText: 'japanese' }).first()).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Rename category – japanese' })).toBeVisible();
 
     // The folder mapping followed, on the same screen.
-    await expect(
-      page.locator('tr').filter({ hasText: '/movies/anime' }).locator('select'),
-    ).toHaveValue('japanese');
+    await expect(page.getByRole('combobox', { name: 'Category for /movies/anime' })).toHaveValue(
+      'japanese',
+    );
 
     // And so did the rule, on another screen: the half a single-page re-render
     // could have faked.
     await page.goto('/rules');
-    const rule = page.locator('tr').filter({ hasText: 'Japanese animation' });
+    const rule = page.getByRole('row').filter({ hasText: 'Japanese animation' });
     await expect(rule).toContainText('japanese');
     // The old name, gone from the row: the rename reached the rule's target.
     await expect(rule).not.toContainText(/\banime\b/);
   });
 
-  test('an unmapped category is reported rather than left to guess', async ({
-    page,
-    instanceId,
-  }) => {
-    expect(instanceId).toBeTruthy();
+  test('an unmapped category is reported rather than left to guess', async ({ page }) => {
     await api('/categories', { method: 'POST', body: JSON.stringify({ name: 'concerts' }) });
 
     await page.goto('/health');
     // Nothing points at `concerts`, and a rule targeting it would silently skip
-    // every match, so diagnostics has to say so.
-    await expect(page.getByText(/not mapped to any root folder/i).first()).toBeVisible();
+    // every match, so diagnostics has to say so. Counted, since the reset maps
+    // every other category: one reported is this one.
+    await expect(
+      page.getByText('Categories not mapped to any root folder: 1.').first(),
+    ).toBeVisible();
   });
 });
 
 test.describe('exceptions', () => {
-  test('pinning a film outranks the rules and can be undone', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('pinning a film outranks the rules and can be undone', async ({ page }) => {
     // A rule that would send Akira to anime, so the override has something to
     // outrank rather than merely agreeing with.
     await api('/rules', {
@@ -124,10 +105,10 @@ test.describe('exceptions', () => {
     await page.getByRole('button', { name: /^search$/i }).click();
     await page.getByRole('button', { name: /select – akira/i }).click();
 
-    await page.locator('.modal-content select').selectOption('standard');
+    await page.getByLabel('Force category for "Akira"').selectOption('standard');
     await page.getByRole('button', { name: /create exception/i }).click();
 
-    await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(1);
+    await expect(page.getByRole('row').filter({ hasText: 'Akira' })).toHaveCount(1);
 
     // The engine must now propose `standard`, not what the rule wanted.
     const found = (await api('/media?search=Akira')) as { data: { id: string }[] };
@@ -147,14 +128,11 @@ test.describe('exceptions', () => {
     // `page.on('dialog')`, a blanket handler that cannot tell the right
     // question from any question. Addressed by its accessible name, which the
     // button has because it is destructive and icon-only.
-    await page
-      .getByRole('button', { name: /delete/i })
-      .first()
-      .click();
-    const confirmation = page.locator('dialog[open]');
+    await page.getByRole('button', { name: 'Delete – Akira' }).click();
+    const confirmation = page.getByRole('dialog');
     await expect(confirmation).toContainText('Akira');
     await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.locator('tbody tr').filter({ hasText: 'Akira' })).toHaveCount(0);
+    await expect(page.getByRole('row').filter({ hasText: 'Akira' })).toHaveCount(0);
 
     const again = (await api(`/media/${akira.id}/explain`)) as {
       target_category: string;
@@ -164,8 +142,7 @@ test.describe('exceptions', () => {
 });
 
 test.describe('rule bundles', () => {
-  test('a rule set survives an export and a re-import', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('a rule set survives an export and a re-import', async ({ page }) => {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -200,10 +177,12 @@ test.describe('rule bundles', () => {
     for (const rule of rules) await api(`/rules/${rule.id}`, { method: 'DELETE' });
 
     await page.reload();
-    await page.locator('input[type="file"]').setInputFiles(await file.path());
+    const chooser = page.waitForEvent('filechooser');
+    await page.getByRole('button', { name: 'Import' }).click();
+    await (await chooser).setFiles(await file.path());
     // Three outcomes, so it is three buttons: a yes/no dialog would have to
     // map one of them onto Cancel.
-    await page.locator('dialog[open]').getByRole('button', { name: 'Append' }).click();
+    await page.getByRole('dialog').getByRole('button', { name: 'Append' }).click();
 
     await expect(page.getByText('Round trip')).toBeVisible();
     const restored = (await api('/rules')) as { name: string; priority: number }[];
@@ -290,9 +269,11 @@ test.describe('metadata sources without a key', () => {
   test('a fresh stack lists the Arr alone and raises no key warning', async ({ page }) => {
     await page.goto('/settings#metadata');
     const sources = page.locator('#setting-metadata_providers');
-    const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
-    await expect(tmdb.getByRole('button', { name: 'Enable' })).toBeDisabled();
-    await expect(tmdb.locator('input')).toHaveAttribute('placeholder', /TMDB_API_KEY/);
+    await expect(sources.getByRole('button', { name: 'Enable – TMDb' })).toBeDisabled();
+    await expect(sources.getByLabel('TMDb', { exact: true })).toHaveAttribute(
+      'placeholder',
+      /TMDB_API_KEY/,
+    );
 
     // The source rows arrive with the warnings, so the list is loaded before
     // its silence is read.
@@ -324,25 +305,24 @@ test.describe('metadata sources without a key', () => {
     // TMDb is listed and has no key here: it stays in the list, in its
     // position, and says so in words rather than only by being greyed.
     const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
-    await expect(tmdb.locator('.badge-warning')).toHaveText('inactive');
+    await expect(tmdb.getByText('inactive', { exact: true })).toBeVisible();
 
     // OMDb is not in the list and cannot be put in it until a key is given.
     // The field that accepts one is in its own row, so no scroll and no save
     // stand between the key and the button, and it names the variable that is
     // the other way to supply it.
-    const omdb = sources.locator('.source-row').filter({ hasText: 'OMDb' });
-    const enable = omdb.getByRole('button', { name: 'Enable' });
+    const enable = sources.getByRole('button', { name: 'Enable – OMDb' });
+    const key = sources.getByLabel('OMDb', { exact: true });
     await expect(enable).toBeDisabled();
-    await expect(omdb.locator('input')).toHaveAttribute('placeholder', /OMDB_API_KEY/);
+    await expect(key).toHaveAttribute('placeholder', /OMDB_API_KEY/);
 
     // A key typed but not yet saved counts: refusing the click then would send
     // the reader back for a save they cannot see the need for.
-    await omdb.locator('input').fill('a-key');
+    await key.fill('a-key');
     await expect(enable).toBeEnabled();
 
     // AniList needs no key at all, so nothing stands in the way of enabling it.
-    const anilist = sources.locator('.source-row').filter({ hasText: 'AniList' });
-    await expect(anilist.getByRole('button', { name: 'Enable' })).toBeEnabled();
+    await expect(sources.getByRole('button', { name: 'Enable – AniList' })).toBeEnabled();
   });
 });
 
@@ -358,7 +338,7 @@ test.describe('backups', () => {
 
     await page.getByRole('button', { name: 'Back up now' }).click();
 
-    const entry = page.locator('.mono').filter({ hasText: /^routarr-backup-/ });
+    const entry = page.getByText(/^routarr-backup-/);
     await expect(entry.first()).toBeVisible();
 
     // Removable, and the list reflects it without a reload.
@@ -366,8 +346,8 @@ test.describe('backups', () => {
     await page.getByLabel(`Delete – ${name}`).click();
     // Deleting is the one irreversible half of the pair: a restore is staged
     // and undone by not restarting, a deleted archive is the only copy.
-    await page.locator('dialog[open]').getByRole('button', { name: 'Delete', exact: true }).click();
-    await expect(page.locator('.mono').filter({ hasText: name })).toHaveCount(0);
+    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await expect(page.getByText(name)).toHaveCount(0);
   });
 });
 
@@ -447,9 +427,7 @@ test.describe('rule tests', () => {
    * every rule below it, and a pinned case is the only thing that notices when
    * the routing nobody was watching moves.
    */
-  test('a pinned decision fails once a rule stops producing it', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
-
+  test('a pinned decision fails once a rule stops producing it', async ({ page }) => {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -471,7 +449,7 @@ test.describe('rule tests', () => {
       .getByRole('button', { name: /^Why\?/ })
       .first()
       .click();
-    const panel = page.locator('dialog[open]');
+    const panel = page.getByRole('dialog');
     await panel.getByRole('button', { name: 'Pin as test' }).click();
     await expect(panel.getByRole('button', { name: 'Pinned' })).toBeVisible();
     await page.keyboard.press('Escape');
@@ -506,7 +484,7 @@ test.describe('the instance form', () => {
     const address = dialog.getByLabel('Base URL', { exact: true });
     const test = dialog.getByRole('button', { name: 'Test connectivity' });
 
-    await address.fill(process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979');
+    await address.fill(ARR);
     await dialog.getByLabel('API key', { exact: true }).fill('e2e-key');
     await test.click();
     await expect(dialog.getByRole('status')).toContainText('connected');
@@ -523,8 +501,7 @@ test.describe('a deletion asked about', () => {
    * Cancel is the answer every guarded action relies on. Pressed, the rule
    * stays on screen and on the server.
    */
-  test('cancelling a deletion leaves the row where it was', async ({ page, instanceId }) => {
-    expect(instanceId).toBeTruthy();
+  test('cancelling a deletion leaves the row where it was', async ({ page }) => {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -541,7 +518,7 @@ test.describe('a deletion asked about', () => {
 
     await page.goto('/rules');
     await page.getByRole('button', { name: 'Delete – Stays put' }).click();
-    const dialog = page.locator('dialog[open]');
+    const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Delete the rule "Stays put"?');
     await dialog.getByRole('button', { name: 'Cancel' }).click();
 

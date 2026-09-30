@@ -42,25 +42,13 @@ async fn scheduled_jobs(app: &TestApp) -> Vec<String> {
     .unwrap()
 }
 
-async fn set(app: &TestApp, key: &str, value: &str) {
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES (?, ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(key)
-    .bind(value)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
 /// A library that will actually sync, with backups off: taking one needs a
 /// database on disk, and what belongs here is the *decision* to take it, which
 /// its own test covers.
 async fn ready(arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    set(&app, "backup_enabled", "false").await;
+    app.store_setting("backup_enabled", "false").await;
     app
 }
 
@@ -89,7 +77,7 @@ async fn a_tick_syncs_the_library_and_runs_the_housekeeping() {
 async fn disabling_auto_sync_still_leaves_housekeeping_running() {
     let arr = FakeArr::start().await;
     let app = ready(&arr).await;
-    set(&app, "auto_sync_enabled", "false").await;
+    app.store_setting("auto_sync_enabled", "false").await;
 
     tick(&app).await;
 
@@ -105,7 +93,7 @@ async fn disabling_auto_sync_still_leaves_housekeeping_running() {
 async fn nothing_downstream_runs_when_nothing_synced() {
     let arr = FakeArr::start().await;
     let app = ready(&arr).await;
-    set(&app, "auto_sync_enabled", "false").await;
+    app.store_setting("auto_sync_enabled", "false").await;
 
     tick(&app).await;
 
@@ -124,7 +112,7 @@ async fn nothing_downstream_runs_when_nothing_synced() {
 async fn disabling_auto_simulate_stops_at_the_sync() {
     let arr = FakeArr::start().await;
     let app = ready(&arr).await;
-    set(&app, "auto_simulate_enabled", "false").await;
+    app.store_setting("auto_simulate_enabled", "false").await;
 
     tick(&app).await;
 
@@ -145,7 +133,7 @@ async fn disabling_auto_simulate_stops_at_the_sync() {
 async fn a_failing_instance_waits_its_interval_before_the_next_attempt() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    set(&app, "backup_enabled", "false").await;
+    app.store_setting("backup_enabled", "false").await;
     let mut last_sync = HashMap::new();
     let mut chain = None;
 
@@ -171,7 +159,7 @@ async fn a_failing_instance_waits_its_interval_before_the_next_attempt() {
 async fn a_failing_sync_does_not_cancel_the_rest_of_the_tick() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
-    set(&app, "backup_enabled", "false").await;
+    app.store_setting("backup_enabled", "false").await;
 
     tick(&app).await;
 
@@ -214,7 +202,7 @@ async fn a_disabled_instance_is_left_alone() {
 async fn ready_to_apply(arr: &FakeArr) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    set(&app, "backup_enabled", "false").await;
+    app.store_setting("backup_enabled", "false").await;
 
     // Sync first so the root folders exist to be mapped. The mapping is the
     // user's and the sync preserves it, so the tick's own sync will not undo it.
@@ -247,8 +235,8 @@ async fn ready_to_apply(arr: &FakeArr) -> TestApp {
 async fn the_scheduler_applies_when_both_switches_allow_it() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = ready_to_apply(&arr).await;
-    set(&app, "global_dry_run", "false").await;
-    set(&app, "auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.store_setting("auto_apply_enabled", "true").await;
 
     tick(&app).await;
 
@@ -264,8 +252,8 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
 async fn the_scheduler_writes_nothing_while_dry_run_holds() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = ready_to_apply(&arr).await;
-    set(&app, "global_dry_run", "true").await;
-    set(&app, "auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "true").await;
+    app.store_setting("auto_apply_enabled", "true").await;
 
     tick(&app).await;
 
@@ -286,7 +274,7 @@ async fn the_scheduler_writes_nothing_while_dry_run_holds() {
 async fn automatic_application_stays_opt_in() {
     let arr = FakeArr::with_unimported_movie().await;
     let app = ready_to_apply(&arr).await;
-    set(&app, "global_dry_run", "false").await;
+    app.store_setting("global_dry_run", "false").await;
     // `auto_apply_enabled` left at its default, which is off.
 
     tick(&app).await;
@@ -311,8 +299,8 @@ async fn a_backup_is_decided_on_its_own_cadence() {
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     // Nothing to sync from here would still leave the backup due: it protects
     // against losing the database, which has nothing to do with syncing.
-    set(&app, "auto_sync_enabled", "false").await;
-    set(&app, "backup_enabled", "true").await;
+    app.store_setting("auto_sync_enabled", "false").await;
+    app.store_setting("backup_enabled", "true").await;
 
     tick(&app).await;
 
@@ -352,7 +340,7 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
     let arr = FakeArr::start().await;
     let app = ready(&arr).await;
     // The floor is the wait: a setting of zero minutes leaves only it.
-    set(&app, "scheduler_interval_minutes", "0").await;
+    app.store_setting("scheduler_interval_minutes", "0").await;
     scheduler::PANIC_NEXT_TICK.with(|flag| flag.set(true));
 
     let (stop, stopped) = tokio::sync::watch::channel(false);
@@ -416,7 +404,7 @@ async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     assert!(decisions > 0, "the chain did not simulate");
 
     // Nothing synced, nothing to follow.
-    set(&app, "auto_sync_enabled", "false").await;
+    app.store_setting("auto_sync_enabled", "false").await;
     assert!(tick_only(&app).await.is_none());
 }
 

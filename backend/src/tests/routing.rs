@@ -400,6 +400,39 @@ async fn the_response_can_be_truncated_without_losing_the_counters() {
     assert_eq!(result.decisions.len(), 3);
 }
 
+/// Trimmed, the answer keeps what someone has to act on: the moves, then the
+/// skips, then the items already in place. Cut in the order the library is
+/// read, by title, the three items sorting first would crowd both out.
+#[tokio::test]
+async fn a_truncated_response_keeps_the_moves_then_the_skips() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    for statement in [
+        // Routed to `kids`, which no folder is mapped to: a skip.
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+         target_category, match_mode)
+         VALUES ('rule-kids', 'Kids', 5, 1, 'both',
+                 '[{\"type\":\"title_contains\",\"value\":[\"Kids\"]}]', 'kids', 'all')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+         monitored, has_files)
+         VALUES ('m-a1', 'inst-1', 101, 'movie', 'A Film 1', '/movies/standard', 1, 1),
+                ('m-a2', 'inst-1', 102, 'movie', 'A Film 2', '/movies/standard', 1, 1),
+                ('m-a3', 'inst-1', 103, 'movie', 'A Film 3', '/movies/standard', 1, 1),
+                ('m-kids', 'inst-1', 104, 'movie', 'B Kids Film', '/movies/standard', 1, 1)",
+    ] {
+        sqlx::query(statement).execute(&app.state.pool).await.unwrap();
+    }
+
+    let result =
+        simulate(&app, SimulationOptions { max_returned: Some(2), ..Default::default() }).await;
+
+    let kept: Vec<(&str, &str)> =
+        result.decisions.iter().map(|d| (d.media_id.as_str(), d.action.as_str())).collect();
+    assert_eq!(kept, [("m-1", "move"), ("m-kids", "skip")]);
+    assert_eq!(result.total_media, 5);
+}
+
 #[tokio::test]
 async fn excluded_rules_are_reported_as_alternatives() {
     let app = TestApp::new().await;
@@ -564,4 +597,67 @@ async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
 
     drop(running);
     app.post("/api/v1/simulate", serde_json::json!({ "persist": true })).await.assert_ok();
+}
+
+/// The explanation panel names the category, the folder and the action the
+/// simulation proposes, whatever road the item takes to get there.
+///
+/// A panel naming a folder the simulation does not propose breaks the promise
+/// that every decision explains itself. Each item reaches its folder by a road
+/// a second spelling of the decision could read differently: an exclusion
+/// handing it to the next rule and a folder declared here rather than reported
+/// by the Arr, a folder the Arr reports asleep, and an override onto the folder
+/// the item is already in, stored with a trailing slash.
+#[tokio::test]
+async fn the_explanation_names_the_folder_the_simulation_proposes() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    for statement in [
+        "INSERT INTO categories (id, name) VALUES ('cat-kids', 'kids')",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category, origin)
+         VALUES ('rf-kids', 'inst-1', NULL, '/movies/kids', 1, 'kids', 'declared')",
+        "UPDATE root_folders SET accessible = 0 WHERE id = 'rf-2'",
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, exclusions,
+         target_category, match_mode)
+         VALUES ('rule-anime', 'Anime', 10, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Family\"]}]', 'anime', 'all'),
+                ('rule-family', 'Family', 20, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Family\"]}]', '[]', 'kids', 'all')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+         current_root_folder, monitored, has_files, genres)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira', '/movies/standard/Akira',
+                 '/movies/standard', 1, 1, '[\"Animation\"]'),
+                ('m-3', 'inst-1', 12, 'movie', 'Paprika', '/movies/anime/Paprika',
+                 '/movies/anime/', 1, 1, '[]')",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-3', 'm-3', 'anime')",
+    ] {
+        sqlx::query(statement).execute(&app.state.pool).await.unwrap();
+    }
+
+    let simulated = simulate(&app, SimulationOptions::default()).await;
+
+    for (media_id, road) in [
+        ("m-1", ("kids", Some("/movies/kids"), "move")),
+        ("m-2", ("anime", Some("/movies/anime"), "move")),
+        ("m-3", ("anime", Some("/movies/anime"), "none")),
+    ] {
+        let decision =
+            simulated.decisions.iter().find(|d| d.media_id == media_id).expect("a decision");
+        let proposed = (
+            decision.target_category.as_str(),
+            decision.target_root_folder.as_deref(),
+            decision.action.as_str(),
+        );
+        assert_eq!(proposed, road, "{media_id} does not take the road the fixture names");
+
+        let explained = app.get(&format!("/api/v1/media/{media_id}/explain")).await;
+        let panel = explained.assert_ok();
+        let shown = (
+            panel["target_category"].as_str().unwrap_or_default(),
+            panel["target_root_folder"].as_str(),
+            panel["action"].as_str().unwrap_or_default(),
+        );
+        assert_eq!(shown, proposed, "the panel and the simulation disagree on {media_id}");
+    }
 }

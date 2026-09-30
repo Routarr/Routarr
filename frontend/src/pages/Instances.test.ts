@@ -65,7 +65,6 @@ const show = (list: ReturnType<typeof instance>[]) => {
 afterEach(() => {
   vi.restoreAllMocks();
   Reflect.deleteProperty(navigator, 'clipboard');
-  window.history.replaceState({}, '', '/');
 });
 
 describe('Instances', () => {

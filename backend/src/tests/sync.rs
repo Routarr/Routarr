@@ -166,19 +166,35 @@ async fn sync_records_its_outcome_on_the_instance_and_as_a_job() {
     assert_eq!((kind.as_str(), job_status.as_str()), ("sync", "success"));
 }
 
+/// A failure is written on the instance and as a job. It moves the time of the
+/// last attempt and leaves the time of the last success where it was: the
+/// Instances screen reads that one as how fresh the library is.
 #[tokio::test]
 async fn a_failing_sync_is_recorded_rather_than_swallowed() {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let succeeded = "2026-09-01 08:00:00";
+    sqlx::query(
+        "UPDATE instances SET last_sync_at = ?, last_sync_attempt_at = ? WHERE id = 'inst-1'",
+    )
+    .bind(succeeded)
+    .bind(succeeded)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
 
     assert!(sync::sync_instance(&app.state, "inst-1", "manual").await.is_err());
 
-    let status: String =
-        sqlx::query_scalar("SELECT last_sync_status FROM instances WHERE id = 'inst-1'")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
+    let (status, last_sync, attempted): (String, String, String) = sqlx::query_as(
+        "SELECT last_sync_status, last_sync_at, last_sync_attempt_at FROM instances
+         WHERE id = 'inst-1'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
     assert!(status.starts_with("error:"), "got {status}");
+    assert_eq!(last_sync, succeeded, "a failure refreshed the time of the last success");
+    assert!(attempted.as_str() > succeeded, "the attempt was not recorded: {attempted}");
 
     let job_status: String =
         sqlx::query_scalar("SELECT status FROM jobs ORDER BY started_at DESC LIMIT 1")

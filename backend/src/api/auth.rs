@@ -752,27 +752,6 @@ mod tests {
     }
 
     #[test]
-    fn reads_x_api_key() {
-        let mut h = HeaderMap::new();
-        h.insert("x-api-key", HeaderValue::from_static("abc"));
-        assert_eq!(extract_key(&h).as_deref(), Some("abc"));
-    }
-
-    #[test]
-    fn reads_bearer_token() {
-        let mut h = HeaderMap::new();
-        h.insert(axum::http::header::AUTHORIZATION, HeaderValue::from_static("Bearer abc"));
-        assert_eq!(extract_key(&h).as_deref(), Some("abc"));
-    }
-
-    #[test]
-    fn ignores_other_schemes() {
-        let mut h = HeaderMap::new();
-        h.insert(axum::http::header::AUTHORIZATION, HeaderValue::from_static("Basic abc"));
-        assert_eq!(extract_key(&h), None);
-    }
-
-    #[test]
     fn comparison_rejects_length_mismatch() {
         assert!(!constant_time_eq("abc", "abcd"));
         assert!(constant_time_eq("abc", "abc"));

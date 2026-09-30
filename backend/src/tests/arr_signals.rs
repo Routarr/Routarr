@@ -11,46 +11,10 @@ use crate::services::sync;
 use super::TestApp;
 use super::fake_arr::FakeArr;
 
-/// Sync a library from the fake Arr and hand back the app.
-async fn synced(kind: &str, arr: &FakeArr) -> TestApp {
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", kind, &arr.base_url).await;
-    sync::sync_instance(&app.state, "inst-1", "manual").await.unwrap();
-    app
-}
-
-/// Add a rule whose only condition is the one under test.
-async fn seed_rule(app: &TestApp, condition: serde_json::Value) {
-    sqlx::query("INSERT OR IGNORE INTO categories (id, name) VALUES ('cat-anime', 'anime')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
-         target_category, match_mode)
-         VALUES ('r-1', 'Signal rule', 10, 1, 'both', ?, 'anime', 'all')",
-    )
-    .bind(serde_json::json!([condition]).to_string())
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-}
-
-/// The category the engine settles on for the first media item.
-async fn decided_category(app: &TestApp) -> String {
-    let result = routing::run_simulation(
-        &app.state.pool,
-        SimulationOptions { persist: false, ..Default::default() },
-    )
-    .await
-    .unwrap();
-    result.decisions[0].target_category.clone()
-}
-
 #[tokio::test]
 async fn sync_stores_the_tags_a_user_attached_in_radarr() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
 
     // Stored as labels, not ids: a rule must be written against "anime", and
     // ids are not stable from one instance to the next.
@@ -71,25 +35,25 @@ async fn sync_stores_the_tags_a_user_attached_in_radarr() {
 #[tokio::test]
 async fn a_rule_can_route_on_an_arr_tag() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "tag_in", "value": ["anime", "docs"] })).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["anime", "docs"] })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn a_tag_the_media_does_not_carry_does_not_match() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "tag_in", "value": ["concerts"] })).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["concerts"] })).await;
 
-    assert_eq!(decided_category(&app).await, "standard", "the default category");
+    assert_eq!(app.decided_category().await, "standard", "the default category");
 }
 
 #[tokio::test]
 async fn sonarrs_own_series_type_settles_the_anime_question() {
     let arr = FakeArr::start().await;
-    let app = synced("sonarr", &arr).await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
 
     let series_type: Option<String> = sqlx::query_scalar("SELECT series_type FROM media")
         .fetch_one(&app.state.pool)
@@ -97,25 +61,25 @@ async fn sonarrs_own_series_type_settles_the_anime_question() {
         .unwrap();
     assert_eq!(series_type.as_deref(), Some("anime"));
 
-    seed_rule(&app, serde_json::json!({ "type": "series_type_is", "value": ["anime"] })).await;
-    assert_eq!(decided_category(&app).await, "anime");
+    app.seed_rule_on(serde_json::json!({ "type": "series_type_is", "value": ["anime"] })).await;
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn a_movie_never_matches_a_series_type_condition() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
     // Radarr has no series type, and an absent value must not satisfy a
     // condition, or every film would match "not standard".
-    seed_rule(&app, serde_json::json!({ "type": "series_type_is", "value": ["anime"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "series_type_is", "value": ["anime"] })).await;
 
-    assert_eq!(decided_category(&app).await, "standard");
+    assert_eq!(app.decided_category().await, "standard");
 }
 
 #[tokio::test]
 async fn specials_do_not_count_towards_the_season_total() {
     let arr = FakeArr::start().await;
-    let app = synced("sonarr", &arr).await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
 
     // The fake reports seasons 0, 1 and 2. Season 0 is bonus material: counting
     // it would make "more than two seasons" true for a two-season show.
@@ -125,23 +89,23 @@ async fn specials_do_not_count_towards_the_season_total() {
         .unwrap();
     assert_eq!(seasons, Some(2));
 
-    seed_rule(&app, serde_json::json!({ "type": "season_count_over", "value": 2 })).await;
-    assert_eq!(decided_category(&app).await, "standard", "two is not more than two");
+    app.seed_rule_on(serde_json::json!({ "type": "season_count_over", "value": 2 })).await;
+    assert_eq!(app.decided_category().await, "standard", "two is not more than two");
 }
 
 #[tokio::test]
 async fn a_long_running_series_can_be_routed_to_an_archive() {
     let arr = FakeArr::start().await;
-    let app = synced("sonarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "season_count_over", "value": 1 })).await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "season_count_over", "value": 1 })).await;
 
-    assert_eq!(decided_category(&app).await, "anime");
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn size_on_disk_is_compared_in_gigabytes_on_both_sides_of_the_threshold() {
     let arr = FakeArr::start().await;
-    let app = synced("sonarr", &arr).await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
 
     // The fake reports 200 GiB.
     let bytes: Option<i64> = sqlx::query_scalar("SELECT size_on_disk FROM media")
@@ -150,19 +114,19 @@ async fn size_on_disk_is_compared_in_gigabytes_on_both_sides_of_the_threshold() 
         .unwrap();
     assert_eq!(bytes, Some(214_748_364_800));
 
-    seed_rule(&app, serde_json::json!({ "type": "size_on_disk_over_gb", "value": 500 })).await;
-    assert_eq!(decided_category(&app).await, "standard", "200 GiB is under 500 GB");
+    app.seed_rule_on(serde_json::json!({ "type": "size_on_disk_over_gb", "value": 500 })).await;
+    assert_eq!(app.decided_category().await, "standard", "200 GiB is under 500 GB");
 
     sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
-    seed_rule(&app, serde_json::json!({ "type": "size_on_disk_over_gb", "value": 100 })).await;
-    assert_eq!(decided_category(&app).await, "anime");
+    app.seed_rule_on(serde_json::json!({ "type": "size_on_disk_over_gb", "value": 100 })).await;
+    assert_eq!(app.decided_category().await, "anime");
 }
 
 #[tokio::test]
 async fn the_explanation_names_the_signal_and_what_was_observed() {
     let arr = FakeArr::start().await;
-    let app = synced("radarr", &arr).await;
-    seed_rule(&app, serde_json::json!({ "type": "tag_in", "value": ["anime"] })).await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["anime"] })).await;
 
     let result = routing::run_simulation(
         &app.state.pool,

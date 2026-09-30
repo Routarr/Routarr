@@ -3,8 +3,9 @@ import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { api } from '../api/client';
-import type { RuleDraft } from '../api/types';
+import { nthCall } from '../test/spy';
+import { ApiError, api } from '../api/client';
+import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import RuleEditor from './RuleEditor.svelte';
 
 /**
@@ -20,6 +21,10 @@ const STRINGS = {
   RuleName: 'Rule name',
   Priority: 'Priority',
   EnterWholeNumber: 'Enter a whole number.',
+  PreviewImpact: 'Preview impact',
+  PreviewTitle: 'Impact preview',
+  PreviewSummary: 'Changing: {changed}. Moves from {beforeMoves} to {afterMoves}.',
+  PreviewTruncated: 'Shown: {shown} of {total}.',
 };
 
 const DRAFT: RuleDraft = {
@@ -370,5 +375,88 @@ describe('the facets the parent already holds', () => {
     await screen.findByLabelText('Rule name');
 
     expect(api.getLibraryFacets).not.toHaveBeenCalled();
+  });
+});
+
+describe('the impact preview', () => {
+  const summary = (moves: number): SimulationSummary => ({
+    total_media: 12,
+    moves_required: moves,
+    already_correct: 12 - moves,
+    no_category_match: 0,
+    skipped_unmapped: 0,
+    excluded_by_rule: 0,
+  });
+
+  const change = (over: Partial<PreviewChange> = {}): PreviewChange => ({
+    media_id: 'm1',
+    media_title: 'Akira',
+    media_type: 'movie',
+    instance_name: 'Radarr',
+    from_category: 'films',
+    to_category: 'anime',
+    current_root_folder: '/films',
+    target_root_folder: '/anime',
+    reasons: [],
+    confidence: 0.9,
+    ...over,
+  });
+
+  function open(ruleId?: string) {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render(ruleId);
+  }
+
+  /**
+   * A rule is understood by what it moves. The draft is asked about as it
+   * stands, and nothing is saved by asking: the panel says so in its title.
+   */
+  it('shows what the draft would move, and saves nothing', async () => {
+    const preview = vi.spyOn(api, 'previewRule').mockResolvedValue({
+      issues: [],
+      before: summary(2),
+      after: summary(3),
+      changed: [change()],
+      changed_total: 1,
+    });
+    const writes = [vi.spyOn(api, 'createRule'), vi.spyOn(api, 'updateRule')];
+    open('r1');
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Preview impact' }));
+
+    expect(await screen.findByText('Changing: 1. Moves from 2 to 3.')).toBeTruthy();
+    const row = screen.getByRole('row', { name: /Akira/ });
+    expect(row).toHaveTextContent(/films\s*anime/);
+    expect(nthCall(preview)).toEqual([expect.objectContaining({ name: 'Anime' }), 'r1']);
+    expect(screen.queryByText(/Shown:/)).toBeNull();
+    for (const write of writes) expect(write).not.toHaveBeenCalled();
+  });
+
+  /** The server sends the first changes only, and the panel does not pass them off as all. */
+  it('says the list of changes is cut short when the server sent only part of it', async () => {
+    vi.spyOn(api, 'previewRule').mockResolvedValue({
+      issues: [],
+      before: summary(2),
+      after: summary(40),
+      changed: [change()],
+      changed_total: 38,
+    });
+    open();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Preview impact' }));
+
+    expect(await screen.findByText('Shown: 1 of 38.')).toBeTruthy();
+  });
+
+  it('says a preview the server refused, and keeps the draft', async () => {
+    vi.spyOn(api, 'previewRule').mockRejectedValue(
+      new ApiError('The simulation is already running', 409, 'conflict'),
+    );
+    open();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Preview impact' }));
+
+    expect(await screen.findByText('The simulation is already running')).toBeTruthy();
+    expect(screen.getByLabelText('Rule name')).toHaveValue('Anime');
   });
 });

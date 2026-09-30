@@ -6,10 +6,10 @@ import { ApiError } from '../api/client';
  * `window.confirm()` costs three things here. Its buttons are browser chrome,
  * so they render in the *browser's* language however carefully the question is
  * translated, in an application whose language is a setting with a catalogue
- * per language behind it. It cannot be asserted on: jsdom ships no `confirm` at
- * all, so a unit test can only assert against a stand-in of its own making, and
- * a Playwright journey needs a blanket `page.on('dialog')` handler that accepts
- * whatever is asked. And a browser told to suppress further dialogs returns
+ * per language behind it. It cannot be asserted on: jsdom's `confirm` asks
+ * nothing and answers nothing, so a unit test can only assert against a
+ * stand-in of its own making, and a Playwright journey needs a blanket
+ * `page.on('dialog')` handler that accepts whatever is asked. And a browser told to suppress further dialogs returns
  * `false` without asking, which on the apply guardrail means the action
  * silently does not happen.
  *

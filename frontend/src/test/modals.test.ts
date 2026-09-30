@@ -13,20 +13,31 @@ const SWEEP = path.resolve(SRC, '..', 'e2e', 'accessibility.spec.ts');
  * silently never run: a dialog nobody adds to `MODALS` is a dialog
  * nothing opens, and nothing would say so.
  *
- * So the source is the authority: every file that renders a `<Modal>` has to be
- * named in a `covers:` field. Writing a modal and not sweeping it fails here,
- * in a second, rather than never.
+ * So the source is the authority: every `<Modal>` a file renders needs an entry
+ * of its own naming that file in a `covers:` field, and a screen rendering two
+ * needs two. Writing a modal and not sweeping it fails here, in a second,
+ * rather than never.
  */
-function modalBearingFiles(): string[] {
+function dialogs(): string[] {
   return ['pages', 'components'].flatMap((dir) =>
     fs
       .readdirSync(path.join(SRC, dir))
       .filter((f) => f.endsWith('.svelte'))
-      .filter((f) => fs.readFileSync(path.join(SRC, dir, f), 'utf-8').includes('<Modal'))
       // `Modal.svelte` is the dialog itself, not a use of it.
       .filter((f) => f !== 'Modal.svelte')
-      .map((f) => `${dir}/${f}`),
+      .flatMap((f) =>
+        (fs.readFileSync(path.join(SRC, dir, f), 'utf-8').match(/<Modal\b/g) ?? []).map(
+          () => `${dir}/${f}`,
+        ),
+      ),
   );
+}
+
+/** How many times each item appears in a list. */
+function tally(items: string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const item of items) counts.set(item, (counts.get(item) ?? 0) + 1);
+  return counts;
 }
 
 /**
@@ -42,14 +53,16 @@ const ANCHOR = 'components/ConfirmDialog.svelte';
 describe('the modal accessibility sweep', () => {
   it('opens every dialog the application can render', () => {
     const sweep = fs.readFileSync(SWEEP, 'utf-8');
-    const covered = new Set([...sweep.matchAll(/covers: '([^']+)'/g)].map((match) => match[1]));
+    const covered = tally([...sweep.matchAll(/covers: '([^']+)'/g)].map((match) => match[1]!));
 
-    const bearing = modalBearingFiles();
+    const rendered = dialogs();
     // `ConfirmDialog` is mounted by `Layout` and is the one dialog the
     // application always has, so a search that misses it found nothing.
-    expect(bearing, 'the search for files rendering <Modal> found nothing').toContain(ANCHOR);
+    expect(rendered, 'the search for files rendering <Modal> found nothing').toContain(ANCHOR);
 
-    const uncovered = bearing.filter((file) => !covered.has(file));
+    const uncovered = [...tally(rendered)]
+      .filter(([file, dialogs]) => (covered.get(file) ?? 0) < dialogs)
+      .map(([file, dialogs]) => `${file}: ${dialogs} dialogs, ${covered.get(file) ?? 0} opened`);
     expect(uncovered).toEqual([]);
   });
 

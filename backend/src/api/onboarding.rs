@@ -13,10 +13,8 @@ use sqlx::AssertSqlSafe;
 
 use crate::api::health::UNMAPPED;
 use crate::error::{AppError, AppResult};
+use crate::services::settings::ONBOARDING_STATES;
 use crate::state::AppState;
-
-/// The values the `onboarding` setting may hold.
-pub const STATES: [&str; 3] = ["pending", "dismissed", "done"];
 
 /// Each step's id. A warning that restates a step names it by the same id
 /// (`health::Warning`).
@@ -62,8 +60,11 @@ pub async fn update(
     Json(req): Json<OnboardingUpdate>,
 ) -> AppResult<Json<OnboardingStatus>> {
     let wanted = req.state.trim();
-    if !STATES.contains(&wanted) {
-        return Err(AppError::BadRequest(format!("'state' must be one of {}", STATES.join(", "))));
+    if !ONBOARDING_STATES.contains(&wanted) {
+        return Err(AppError::BadRequest(format!(
+            "'state' must be one of {}",
+            ONBOARDING_STATES.join(", ")
+        )));
     }
     sqlx::query(
         "INSERT INTO settings (key, value, updated_at) VALUES ('onboarding', ?, datetime('now'))
@@ -119,7 +120,8 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     let complete = steps.iter().all(|step| step.done || step.optional);
 
     let stored: String = state.setting("onboarding", String::new()).await;
-    let current = if STATES.contains(&stored.as_str()) { stored } else { "pending".to_string() };
+    let current =
+        if ONBOARDING_STATES.contains(&stored.as_str()) { stored } else { "pending".to_string() };
 
     Ok(OnboardingStatus { state: current, complete, steps })
 }

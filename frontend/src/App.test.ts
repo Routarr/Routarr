@@ -16,10 +16,7 @@ vi.mock('./pages/Logs.svelte', () => {
   throw new TypeError('Failed to fetch dynamically imported module');
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  window.history.replaceState({}, '', '/');
-});
+afterEach(() => vi.restoreAllMocks());
 
 describe('App', () => {
   it('reports a screen whose code no longer loads, and offers a reload', async () => {

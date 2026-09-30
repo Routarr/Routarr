@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach, onTestFinished } from 'vitest';
 import { href, interceptLinks, isCurrent, navigate, router } from './router.svelte';
 import { withBase } from '../test/base';
+import { click } from '../test/links';
 
 /**
  * Flat routes, written rather than installed, because the mount point is
@@ -124,52 +125,48 @@ describe('the current entry', () => {
 });
 
 describe('intercepting links', () => {
+  /** An anchor in the document, taken out again when the test finishes. */
+  function link(to: string, attributes: Record<string, string> = {}): HTMLAnchorElement {
+    const anchor = document.createElement('a');
+    anchor.setAttribute('href', to);
+    for (const [name, value] of Object.entries(attributes)) anchor.setAttribute(name, value);
+    document.body.append(anchor);
+    onTestFinished(() => anchor.remove());
+    return anchor;
+  }
+
+  /** The router listening for the length of the test. */
+  function listening() {
+    onTestFinished(interceptLinks());
+  }
+
   /**
    * One delegated listener rather than a `<Link>` component: the markup stays a
    * plain `<a href>`, which is what makes middle-click open a tab and a screen
    * reader announce a link with a destination.
    */
   it('follows an internal link without leaving the document', () => {
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/instances');
-    document.body.append(anchor);
+    listening();
 
-    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-
+    expect(click(link('/instances'))).toBe(true);
     expect(router.path).toBe('/instances');
-    anchor.remove();
-    stop();
   });
 
   it('follows a prefixed link under a mount point without doubling the prefix', () => {
     withBase('/routarr/');
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', href('/instances'));
-    document.body.append(anchor);
+    listening();
 
-    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
+    click(link(href('/instances')));
 
     expect(router.path).toBe('/instances');
     expect(window.location.pathname).toBe('/routarr/instances');
-    anchor.remove();
-    stop();
   });
 
   it('leaves a link to another application on the same host to the browser', () => {
     withBase('/routarr/');
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/radarr/');
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    anchor.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(false);
-    anchor.remove();
-    stop();
+    expect(click(link('/radarr/'))).toBe(false);
   });
 
   /**
@@ -180,109 +177,57 @@ describe('intercepting links', () => {
   it.each([
     ['without a mount point', null, '/api/v1/auth/oidc/start'],
     ['under a mount point', '/routarr/', '/routarr/api/v1/auth/oidc/start'],
-  ])('leaves a link into the API to the browser, %s', (_, base, link) => {
+  ])('leaves a link into the API to the browser, %s', (_, base, to) => {
     withBase(base);
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', link);
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    anchor.dispatchEvent(event);
-    anchor.remove();
-    stop();
-
-    expect(event.defaultPrevented).toBe(false);
+    expect(click(link(to))).toBe(false);
     expect(router.path).toBe('/');
   });
 
   /** `/api` is a path segment, not a prefix: `/apix` would be a screen's. */
   it('still follows a path that only begins with the letters api', () => {
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/apix');
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    anchor.dispatchEvent(event);
-    anchor.remove();
-    stop();
-
-    expect(event.defaultPrevented).toBe(true);
+    expect(click(link('/apix'))).toBe(true);
     expect(router.path).toBe('/apix');
   });
 
   it('leaves an external link to the browser', () => {
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', 'https://github.com/Routarr/Routarr');
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    anchor.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(false);
+    expect(click(link('https://github.com/Routarr/Routarr'))).toBe(false);
     expect(router.path).toBe('/');
-    anchor.remove();
-    stop();
   });
 
   it('leaves a modified click alone, so ctrl-click still opens a tab', () => {
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/instances');
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      ctrlKey: true,
-    });
-    anchor.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(false);
+    expect(click(link('/instances'), { ctrlKey: true })).toBe(false);
     expect(router.path).toBe('/');
-    anchor.remove();
-    stop();
   });
 
   it('leaves a download alone', () => {
-    const stop = interceptLinks();
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/backups/x.zip');
-    anchor.setAttribute('download', 'x.zip');
-    document.body.append(anchor);
+    listening();
 
-    const event = new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 });
-    anchor.dispatchEvent(event);
-
-    expect(event.defaultPrevented).toBe(false);
-    anchor.remove();
-    stop();
+    expect(click(link('/backups/x.zip', { download: 'x.zip' }))).toBe(false);
   });
 
   it('follows the back button', () => {
-    const stop = interceptLinks();
+    listening();
     navigate('/rules');
 
     window.history.replaceState({}, '', '/logs');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
     expect(router.path).toBe('/logs');
-    stop();
   });
 
   it('stops listening once it is told to', () => {
     const stop = interceptLinks();
     stop();
 
-    const anchor = document.createElement('a');
-    anchor.setAttribute('href', '/instances');
-    document.body.append(anchor);
-    anchor.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, button: 0 }));
-
+    expect(click(link('/instances'))).toBe(false);
     expect(router.path).toBe('/');
-    anchor.remove();
   });
 });

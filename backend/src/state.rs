@@ -10,15 +10,22 @@ pub const DEFAULT_CATEGORY: &str = "standard";
 use crate::config::Config;
 use crate::crypto::SecretBox;
 use crate::error::{AppError, AppResult};
+use crate::jobs::JobRegistry;
+use crate::localization::{DEFAULT_LANGUAGE, Localizer};
+use crate::models::Instance;
+
+// The state imports from the layers that read it: handlers, services and jobs
+// all receive it, and it is the one place a client is built, from the
+// shared `http` client and a key `secrets` opens (`adapter`, `tmdb_from`,
+// `metadata_sources`). A client built anywhere else is a second place that
+// opens a key, and one free to pick a client without the redirect policy that
+// keeps the key from leaking.
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
-use crate::jobs::JobRegistry;
-use crate::localization::{DEFAULT_LANGUAGE, Localizer};
-use crate::models::Instance;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
 
 /// The API key: the environment's, else the stored one.

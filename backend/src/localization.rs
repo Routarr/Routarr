@@ -517,24 +517,45 @@ mod tests {
         assert_eq!(substitute("{a} {missing}", &[("a", "1")]), "1 {missing}");
     }
 
+    /// The kind after `previous` in a walk over every job kind, `None` once
+    /// all are visited. The match has no wildcard, so a kind added to the enum
+    /// does not compile here until it has its place in the walk.
+    fn next_job_kind(previous: Option<crate::jobs::JobKind>) -> Option<crate::jobs::JobKind> {
+        use crate::jobs::JobKind::*;
+        Some(match previous {
+            None => Sync,
+            Some(Sync) => Enrich,
+            Some(Enrich) => Simulate,
+            Some(Simulate) => Apply,
+            Some(Apply) => Revert,
+            Some(Revert) => Maintenance,
+            Some(Maintenance) => Backup,
+            Some(Backup) => Scheduler,
+            Some(Scheduler) => return None,
+        })
+    }
+
     /// Every job kind the registry can write must have a label.
     ///
     /// `t()` falls back to the raw key, so a kind nobody translated renders as
     /// `JobBackup` on the Tasks screen, and backups are on by default.
     /// `check-locales.py` cannot catch it: the
     /// `Job*` prefix is exempt from its orphan check, which necessarily makes
-    /// it blind to a missing one too. The list is the enum, not a copy of it.
+    /// it blind to a missing one too.
     #[test]
     fn every_job_kind_has_a_label() {
-        use crate::jobs::JobKind::*;
-
         let english: serde_json::Value =
             serde_json::from_str(include_str!("../locales/en.json")).expect("en.json");
 
-        for kind in [Sync, Enrich, Simulate, Apply, Revert, Maintenance, Backup, Scheduler] {
-            let name = kind.as_str();
+        let mut kind = next_job_kind(None);
+        let mut visited = 0;
+        while let Some(current) = kind {
+            let name = current.as_str();
             let key = format!("Job{}{}", name[..1].to_uppercase(), &name[1..]);
             assert!(english.get(&key).is_some(), "{key} is missing from en.json");
+            visited += 1;
+            kind = next_job_kind(Some(current));
         }
+        assert_eq!(visited, 8, "the walk visited {visited} kinds");
     }
 }

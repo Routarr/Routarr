@@ -75,10 +75,7 @@ function show(overrides: OverrideEntry[]) {
   return renderWithI18n(Overrides, { strings: STRINGS });
 }
 
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.restoreAllMocks());
 
 describe('Overrides', () => {
   it('says there are none rather than showing an empty table', async () => {

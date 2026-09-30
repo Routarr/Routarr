@@ -21,7 +21,7 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 - Preview through `serve.mjs`. `astro dev` and `astro preview` apply no `_headers`, so a page the
   CSP breaks looks fine there.
 - `verify.mjs`, `icons.mjs` and the screenshot capture load Playwright from
-  `frontend/node_modules` (`FRONTEND_DIR` overrides the path).
+  `frontend/node_modules` through `playwright.mjs` (`FRONTEND_DIR` overrides the path).
 - `screenshots/run.sh` writes the captures to `screenshots/captures/`, outside what ships. A page
   that shows one takes its WebP and AVIF pair into `public/assets/shots/`, which `check.mjs`
   pairs and refuses once no page shows it. `screenshots/og.html` copies the English hero headline
