@@ -60,6 +60,12 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   back marked for a person. Its token is shown once and stored as a SHA-256
   hash, and a revoked or unknown one is refused even in `none` and `external`,
   where a request with no key at all is let through.
+- **A notification can be signed.** With a signing secret, generated in the
+  settings and shown once, every delivery carries Standard Webhooks headers:
+  an HMAC-SHA256 of its id, its timestamp and its body, so a receiver can
+  refuse a message nobody signed or one replayed later. The secret is sealed
+  like an Arr's key and left out of a configuration export, and the one it
+  replaces signs beside it for a day.
 - **The generated key and the generated password are printed once**, at the
   moment they are created, beside the path of the file holding them. That is a
   deliberate trade: without it a first run needs shell access into the

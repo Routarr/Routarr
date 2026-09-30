@@ -197,6 +197,14 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
             };
             match routing::run_simulation(&state.pool, options).await {
                 Ok(result) => {
+                    crate::services::notify::send_later(
+                        &state,
+                        crate::services::notify::Event::SimulationCompleted {
+                            simulation_id: result.simulation_id.clone(),
+                            total: result.total_media,
+                            moves: result.moves_required,
+                        },
+                    );
                     // Catches what the webhook missed: an instance without a
                     // webhook configured, or an item added while Routarr was
                     // down. Same guardrails: only file-free media, capped, and
