@@ -6,6 +6,7 @@ use tracing::debug;
 
 use super::{send_json, send_ok};
 use crate::error::{AppError, AppResult};
+use crate::models::ExternalId;
 
 const SERVICE: &str = "Sonarr";
 
@@ -19,6 +20,8 @@ pub struct SonarrClient {
 /// Series data from Sonarr API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SonarrSeries {
+    /// 0 for a series a lookup found and the library does not hold.
+    #[serde(default)]
     pub id: i64,
     pub title: String,
     #[serde(rename = "sortTitle")]
@@ -113,6 +116,28 @@ impl SonarrClient {
     /// One series by id. A 404 surfaces as `ExternalApi { status: 404 }`.
     pub async fn get_series_one(&self, id: i64) -> AppResult<SonarrSeries> {
         send_json(SERVICE, self.get(&format!("/api/v3/series/{id}"))).await
+    }
+
+    /// A series as TheTVDB or IMDb names it, whether the library holds it or
+    /// not, `None` when Sonarr knows no such series.
+    pub async fn lookup_series(&self, id: &ExternalId) -> AppResult<Option<SonarrSeries>> {
+        let term = match id {
+            ExternalId::Tvdb(tvdb) => format!("tvdb:{tvdb}"),
+            ExternalId::Imdb(imdb) => format!("imdb:{imdb}"),
+            ExternalId::Tmdb(_) => {
+                return Err(AppError::BadRequest(
+                    "Sonarr looks a series up by its TheTVDB or IMDb id.".into(),
+                ));
+            }
+        };
+        let request = self.get("/api/v3/series/lookup").query(&[("term", term)]);
+        let found: Vec<SonarrSeries> = send_json(SERVICE, request).await?;
+        // A term search, so every answer is held to the id it was asked for.
+        Ok(found.into_iter().find(|series| match id {
+            ExternalId::Tvdb(tvdb) => series.tvdb_id == Some(*tvdb),
+            ExternalId::Imdb(imdb) => series.imdb_id.as_deref() == Some(imdb.as_str()),
+            ExternalId::Tmdb(_) => false,
+        }))
     }
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {

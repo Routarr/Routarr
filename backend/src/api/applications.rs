@@ -23,6 +23,7 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/media", Scope::Read),
     ("GET", "/media/{id}", Scope::Read),
     ("GET", "/media/{id}/explain", Scope::Read),
+    ("GET", "/route", Scope::Read),
     ("GET", "/decisions", Scope::Read),
     ("GET", "/overrides", Scope::Read),
     ("GET", "/jobs", Scope::Read),

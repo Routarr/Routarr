@@ -179,8 +179,11 @@ impl FakeArr {
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
             .route("/api/v3/movie", get(movies))
+            .route("/api/v3/movie/lookup/tmdb", get(movie_lookup))
+            .route("/api/v3/movie/lookup/imdb", get(movie_lookup))
             .route("/api/v3/movie/{id}", get(movie_one))
             .route("/api/v3/movie/editor", put(movie_editor))
+            .route("/api/v3/series/lookup", get(series_lookup))
             .route("/api/v3/series", get(series_list))
             .route("/api/v3/series/{id}", get(series_one).put(series_update))
             .route("/api/v3/command", post(command))
@@ -387,6 +390,58 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "originalLanguage": { "id": 8, "name": "Japanese" },
         "certification": "G"
     })
+}
+
+/// A movie by its TMDb or IMDb id, as Radarr's lookup answers: Totoro, which
+/// the library holds, Spirited Away, which it does not, and a 404 for any
+/// other.
+async fn movie_lookup(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    record_key(&state, &headers);
+    let asked = query.get("tmdbId").or_else(|| query.get("imdbId")).cloned().unwrap_or_default();
+    record_read(&state, &format!("/api/v3/movie/lookup/{asked}"));
+    match asked.as_str() {
+        "8392" | "tt0096283" => Ok(Json(totoro(&state))),
+        "129" | "tt0245429" => Ok(Json(spirited_away())),
+        _ => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// A movie Radarr knows and does not hold: no id, no folder, no file.
+fn spirited_away() -> serde_json::Value {
+    serde_json::json!({
+        "title": "Spirited Away",
+        "sortTitle": "spirited away",
+        "year": 2001,
+        "tmdbId": 129,
+        "imdbId": "tt0245429",
+        "monitored": false,
+        "hasFile": false,
+        "status": "released",
+        "tags": [],
+        "genres": ["Animation", "Family", "Fantasy"],
+        "originalLanguage": { "id": 8, "name": "Japanese" },
+        "certification": "PG"
+    })
+}
+
+/// Series by a term, as Sonarr's lookup answers: Cowboy Bebop by its TheTVDB
+/// id, which the library holds, and nothing for any other term.
+async fn series_lookup(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
+    record_key(&state, &headers);
+    let term = query.get("term").cloned().unwrap_or_default();
+    record_read(&state, &format!("/api/v3/series/lookup/{term}"));
+    match term.as_str() {
+        "tvdb:76885" => Json(serde_json::json!([bebop(&state, 20)])),
+        _ => Json(serde_json::json!([])),
+    }
 }
 
 /// What a refused edit carries: a reason, then as much detail as an Arr's

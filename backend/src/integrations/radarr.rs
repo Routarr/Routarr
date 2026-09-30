@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use tracing::debug;
 
 use super::{send_json, send_ok};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
+use crate::models::ExternalId;
 
 const SERVICE: &str = "Radarr";
 
@@ -20,6 +21,8 @@ pub struct RadarrClient {
 /// Movie data from Radarr API.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RadarrMovie {
+    /// 0 for a movie a lookup found and the library does not hold.
+    #[serde(default)]
     pub id: i64,
     pub title: String,
     #[serde(rename = "sortTitle")]
@@ -119,6 +122,29 @@ impl RadarrClient {
     /// One movie by id. A 404 surfaces as `ExternalApi { status: 404 }`.
     pub async fn get_movie(&self, id: i64) -> AppResult<RadarrMovie> {
         send_json(SERVICE, self.get(&format!("/api/v3/movie/{id}"))).await
+    }
+
+    /// A movie as TMDb or IMDb names it, whether the library holds it or not,
+    /// `None` when Radarr knows no such movie.
+    pub async fn lookup_movie(&self, id: &ExternalId) -> AppResult<Option<RadarrMovie>> {
+        let request = match id {
+            ExternalId::Tmdb(tmdb) => {
+                self.get("/api/v3/movie/lookup/tmdb").query(&[("tmdbId", tmdb.to_string())])
+            }
+            ExternalId::Imdb(imdb) => {
+                self.get("/api/v3/movie/lookup/imdb").query(&[("imdbId", imdb.as_str())])
+            }
+            ExternalId::Tvdb(_) => {
+                return Err(AppError::BadRequest(
+                    "Radarr looks a movie up by its TMDb or IMDb id.".into(),
+                ));
+            }
+        };
+        match send_json(SERVICE, request).await {
+            Ok(movie) => Ok(Some(movie)),
+            Err(AppError::ExternalApi { status: 404, .. }) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     /// Get the tag catalogue: a media row only carries numeric ids.

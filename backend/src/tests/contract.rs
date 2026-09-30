@@ -172,6 +172,7 @@ async fn every_documented_operation_answers_as_its_schema_says() {
         ("/media", "/api/v1/media?per_page=2"),
         ("/media/{id}", "/api/v1/media/m-0"),
         ("/media/{id}/explain", "/api/v1/media/m-0/explain"),
+        ("/route", "/api/v1/route?type=movie&tmdb=8392&instance=inst-1"),
     ] {
         checker.check("GET", route, &app.get(path).await);
     }

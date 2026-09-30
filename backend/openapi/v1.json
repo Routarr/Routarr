@@ -743,6 +743,25 @@
         ],
         "type": "object"
       },
+      "InstanceFailure": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id",
+          "instance_name",
+          "error"
+        ],
+        "type": "object"
+      },
       "InstanceHealth": {
         "properties": {
           "id": {
@@ -1800,6 +1819,136 @@
         },
         "required": [
           "target_category"
+        ],
+        "type": "object"
+      },
+      "Placement": {
+        "description": "What `GET /route` answers: one placement per instance that holds or knows\nthe title, and what went wrong on the others.",
+        "properties": {
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/PlacementAnswer"
+            },
+            "type": "array"
+          },
+          "errors": {
+            "description": "An instance that could not be asked, which stops none of the others.",
+            "items": {
+              "$ref": "#/components/schemas/InstanceFailure"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "answers",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "PlacementAnswer": {
+        "description": "Where one instance would put the title.",
+        "properties": {
+          "action": {
+            "description": "`add` for a title the Arr does not hold yet, else `move` or `none`.\n`skip` when the category has no folder on this instance.",
+            "type": "string"
+          },
+          "category": {
+            "description": "The category the rules or an exception choose, or the default one.",
+            "type": "string"
+          },
+          "confidence": {
+            "format": "float",
+            "type": "number"
+          },
+          "current_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": "string"
+          },
+          "is_override": {
+            "type": "boolean"
+          },
+          "media_id": {
+            "description": "The title's id in Routarr, for a title the library holds.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "root_folder": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PlacementFolder",
+                "description": "The folder mapped to that category on this instance, null when none is."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rule": {
+            "description": "The winning rule's name, null when none matched or an exception decided.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source": {
+            "description": "`library` when Routarr holds the title for this instance, `lookup`\nwhen only the Arr knows it.",
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unanswered_fields": {
+            "description": "The metadata fields a rule tried up to the winner reads that no source\nanswered: `genres`, `keywords`, `original_language`, `origin_countries`\nor `certification`. A source answering one may change the placement.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "year": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "instance_id",
+          "instance_name",
+          "source",
+          "title",
+          "category",
+          "action",
+          "is_override",
+          "confidence",
+          "unanswered_fields"
+        ],
+        "type": "object"
+      },
+      "PlacementFolder": {
+        "description": "A destination, and whether the Arr reports it or only Routarr declares it.",
+        "properties": {
+          "origin": {
+            "description": "`arr` for a root folder the Arr reports, `declared` for one only\nRoutarr knows, which the Arr may refuse until it is added there.",
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "origin"
         ],
         "type": "object"
       },
@@ -3430,6 +3579,105 @@
         "tags": [
           "status"
         ]
+      }
+    },
+    "/route": {
+      "get": {
+        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
+        "operationId": "place_title",
+        "parameters": [
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "in": "query",
+            "name": "tmdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's TheTVDB id.",
+            "in": "query",
+            "name": "tvdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the copy on this instance.",
+            "in": "query",
+            "name": "instance",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The tag labels a title the library does not hold would be added with,\nseparated by commas, for the rules that read tags.",
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Ask every source that can answer and has no cached answer now, storing\nnothing. Slower, and paced by each source's limits. Defaults to false.",
+            "in": "query",
+            "name": "enrich",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Placement"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Where a title another service names would go",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/simulate": {
