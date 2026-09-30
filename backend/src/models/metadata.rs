@@ -62,7 +62,7 @@ pub struct ProviderMetadata {
 }
 
 /// What every enabled source, taken in priority order, adds up to.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MediaMetadata {
     #[serde(default)]
     pub genres: Vec<String>,

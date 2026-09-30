@@ -111,10 +111,16 @@ pub async fn create(
     }))
 }
 
+/// What a removal answers.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct Deleted {
+    pub deleted: bool,
+}
+
 pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Deleted>> {
     let media_id: Option<String> =
         sqlx::query_scalar("SELECT media_id FROM overrides WHERE id = ?")
             .bind(&id)
@@ -130,5 +136,5 @@ pub async fn remove(
     crate::services::routing::supersede_pending(&mut tx, &[&media_id]).await?;
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(Deleted { deleted: true }))
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A media item synchronized from an Arr instance.
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct Media {
     pub id: String,
     pub instance_id: String,
@@ -19,18 +19,20 @@ pub struct Media {
     pub has_files: bool,
     pub status: Option<String>,
     pub added_at: Option<String>,
-    /// Sonarr's own classification (`standard` / `anime` / `daily`), `None` for
+    /// Sonarr's own classification (`standard`, `anime` or `daily`), null for
     /// movies.
     pub series_type: Option<String>,
     pub size_on_disk: Option<i64>,
-    /// Seasons excluding specials, `None` for movies.
+    /// Seasons excluding specials, null for movies.
     pub season_count: Option<i64>,
-    /// Tag labels as a JSON array, denormalised from the Arr. Read in bulk on
-    /// every rule evaluation and by the library's tag facet.
+    /// The Arr's tag labels, as a JSON array in a string.
+    // Denormalised from the Arr, and read in bulk on every rule evaluation and
+    // by the library's tag facet.
     pub tags: Option<String>,
-    /// Genres as a JSON array, straight from Radarr or Sonarr. The `arr`
-    /// metadata source reads these three columns, which cost no request and go
-    /// stale only when the library does.
+    /// The genres Radarr or Sonarr reports, as a JSON array in a string.
+    // The `arr` metadata source reads this column, the language and the
+    // certification, which cost no request and go stale only when the library
+    // does.
     pub genres: Option<String>,
     /// ISO 639-1, normalised from the Arr's language *name* at sync time.
     pub original_language: Option<String>,
@@ -64,15 +66,21 @@ impl Media {
 }
 
 /// Query parameters for media listing.
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct MediaQuery {
+    /// Only the titles of this instance.
     pub instance_id: Option<String>,
+    /// `movie` or `series`.
     pub media_type: Option<String>,
     /// Filter on the category currently proposed by the engine.
     pub category: Option<String>,
+    /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
     /// Only media that no rule matched, for the "unclassified" view.
     pub unmatched: Option<bool>,
+    /// From 1. Defaults to 1.
     pub page: Option<u32>,
+    /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
 }

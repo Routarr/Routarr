@@ -11,16 +11,21 @@ use crate::jobs::registry::render_detail;
 use crate::localization::Localizer;
 use crate::state::AppState;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct Job {
     pub id: String,
+    /// `sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,
+    /// `maintenance` or `scheduler`.
     pub kind: String,
+    /// `queued`, `running`, `success`, `failed` or `cancelled`.
     pub status: String,
+    /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
     pub trigger: String,
     /// Who asked: an application's name, or the person a sign-in mode names.
     pub subject: Option<String>,
     pub instance_id: Option<String>,
-    /// In the interface language, from `detail_key` when the row has one.
+    /// What the task did, in the interface language.
+    // Rendered from `detail_key` when the row has one.
     pub detail: Option<String>,
     #[serde(skip)]
     pub detail_key: Option<String>,
@@ -49,11 +54,16 @@ impl Job {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct JobQuery {
+    /// Only the tasks in this status.
     pub status: Option<String>,
+    /// Only the tasks of this kind.
     pub kind: Option<String>,
+    /// From 1. Defaults to 1.
     pub page: Option<u32>,
+    /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
 }
 

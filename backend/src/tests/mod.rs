@@ -11,6 +11,7 @@ mod batch_apply;
 mod categories;
 mod config_bundle;
 mod connection;
+mod contract;
 mod crypto_format;
 mod enrichment;
 mod executor;

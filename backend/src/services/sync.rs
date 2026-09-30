@@ -13,7 +13,7 @@ use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Result of syncing one instance.
-#[derive(Debug, Default, Clone, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct SyncReport {
     pub instance_id: String,
     pub instance_name: String,

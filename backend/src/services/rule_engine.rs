@@ -11,12 +11,11 @@ use crate::models::{
     Condition, MatchMode, Media, MediaMetadata, MetadataField, Rule, ValidationIssue,
 };
 
-/// A single condition evaluation.
-///
-/// Deliberately structured rather than pre-rendered prose: the engine stays
-/// language-agnostic and the wording is resolved through the dictionary at the
-/// edges (see `Localizer::describe`).
-#[derive(Debug, Clone, Serialize, PartialEq)]
+/// One condition of a rule, held against a title.
+// Structured rather than pre-rendered prose: the engine stays language-agnostic
+// and the wording is resolved through the dictionary at the edges
+// (`Localizer::describe`).
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct ConditionOutcome {
     pub kind: String,
     pub matched: bool,
@@ -26,14 +25,15 @@ pub struct ConditionOutcome {
     pub params: BTreeMap<String, String>,
     /// What the media actually carried, verbatim.
     pub observed: String,
-    /// Rendered wording, filled in by `Localizer::localize_outcome`.
+    /// What the condition asked for, in the interface language.
+    // Filled in by `Localizer::localize_outcome`.
     #[serde(default)]
     pub expected: String,
-    /// Which metadata source supplied `observed`, when the condition reads one.
-    ///
-    /// With several sources enabled, "genre does not contain Animation" is only
-    /// explainable if the reader can see whether the genres came from Radarr or
-    /// from TMDb. `None` for conditions the Arr answers directly.
+    /// Which metadata source supplied `observed`, absent for a condition the
+    /// Arr answers directly.
+    // With several sources enabled, "genre does not contain Animation" is only
+    // explainable if the reader can see whether the genres came from Radarr or
+    // from TMDb.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }

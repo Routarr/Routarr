@@ -68,6 +68,7 @@ python3 ../scripts/check-api-types.py   # the response structs against types.ts
 python3 ../scripts/check-versions.py    # every place a version is written
 python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
 python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
+bash ../scripts/check-api-breaks.sh     # the API contract against the last release, with oasdiff
 
 # frontend/
 npm run format:check
@@ -113,6 +114,14 @@ lower one to make a build pass.**
   have broken parity or left a key nobody references.
 - **A new endpoint touches `api/` *and* the route table in `main.rs`.** They are
   separate on purpose and neither is generated.
+- **The API other applications call is a contract.** The routes an application
+  key may reach are described in
+  [`backend/src/api/contract.rs`](backend/src/api/contract.rs) and pinned in
+  [`backend/openapi/v1.json`](backend/openapi/v1.json), which `cargo test` holds
+  to the code. A change to a type those routes take or return changes the file:
+  pin it again with `ROUTARR_WRITE_CONTRACT=1 cargo test contract` and review
+  the difference. Adding is free. Removing, renaming or retyping anything
+  documented breaks a client, and CI refuses it against the last release.
 
 ## Things that will be turned down
 

@@ -15,6 +15,7 @@ import type {
   Category,
   ConditionCatalog,
   Decision,
+  ErrorBody,
   Explanation,
   Health,
   Instance,
@@ -207,7 +208,7 @@ async function exchange<T>(
     let kind = 'http_error';
     let confirm: string | null = null;
     try {
-      const json = JSON.parse(body);
+      const json = JSON.parse(body) as Partial<ErrorBody>;
       message = json.message ?? json.error ?? message;
       kind = json.error ?? kind;
       confirm = typeof json.confirm === 'string' ? json.confirm : null;

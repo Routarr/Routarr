@@ -228,7 +228,10 @@ fn build_router(state: AppState) -> Router {
         // the middleware by necessity: a browser with no session cannot be
         // asked for one to learn that it needs one.
         .route("/auth/mode", get(api::auth::mode))
-        .route("/auth/logout", post(api::auth::logout));
+        .route("/auth/logout", post(api::auth::logout))
+        // The contract describes the software, not the installation, and a
+        // client reads it before it holds a key.
+        .route("/openapi.json", get(api::contract::serve));
     // Each way in exists in its own mode only. Elsewhere a request for the
     // provider's start logs an error on an install that has no provider, and
     // `/auth/login` checks a password a former `forms` mode left behind.

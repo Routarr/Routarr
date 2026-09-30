@@ -19,7 +19,7 @@ use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Outcome of an apply or revert run.
-#[derive(Debug, Default, Clone, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ApplyReport {
     pub requested: usize,
     pub applied: usize,
@@ -28,7 +28,7 @@ pub struct ApplyReport {
     pub errors: Vec<ApplyError>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct ApplyError {
     pub decision_id: String,
     pub media_title: String,
@@ -83,12 +83,12 @@ pub mod confirm {
     pub const ALL: &[&str] = &[CAPACITY, THRESHOLD, BATCH, UNREACHABLE];
 }
 
-/// Which refusals the caller has looked at and accepted.
-///
-/// A list of names, never a boolean: with one flag read by every guardrail
-/// that asks, answering one question answers them all, and confirming a
-/// capacity shortfall silently waves the batch threshold through as well.
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+/// The guardrails the caller has looked at and accepts: `capacity`,
+/// `threshold`, `batch` or `unreachable`.
+// A list of names, never a boolean: with one flag read by every guardrail
+// that asks, answering one question answers them all, and confirming a
+// capacity shortfall silently waves the batch threshold through as well.
+#[derive(Debug, Clone, Default, serde::Deserialize, utoipa::ToSchema)]
 #[serde(transparent)]
 pub struct Confirmed(Vec<String>);
 
@@ -142,7 +142,7 @@ pub async fn apply_decisions(
 }
 
 /// Outcome of applying a whole simulation, slice by slice.
-#[derive(Debug, Default, Clone, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, utoipa::ToSchema)]
 pub struct BatchApplyReport {
     /// Everything the simulation proposed and that was still applicable.
     pub candidates: usize,

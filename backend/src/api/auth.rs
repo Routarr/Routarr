@@ -587,11 +587,17 @@ pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Respon
         .into_response()
 }
 
+/// Who a request is.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct Me {
+    /// An application's name, the signed-in person, `apikey` for the owner's
+    /// key, or `anonymous` where the mode asks for nothing.
+    pub subject: String,
+}
+
 /// Who this request is, for a shell that wants to show a name.
-pub async fn me(
-    axum::Extension(identity): axum::Extension<Identity>,
-) -> super::Json<serde_json::Value> {
-    super::Json(serde_json::json!({ "subject": identity.subject }))
+pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::Json<Me> {
+    super::Json(Me { subject: identity.subject })
 }
 
 /// Send the browser to the provider.
