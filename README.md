@@ -76,6 +76,22 @@ a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a 
 Back up the whole `data/` directory: the database cannot be read without the `routarr.key` file
 beside it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
 
+## Stronger isolation
+
+The container already runs as uid 1000 with every capability dropped. To put a kernel of its own
+between Routarr and your host as well, run the same image under
+[gVisor](https://gvisor.dev/docs/user_guide/install/), which answers every system call in user
+space and runs on any Linux host, a NAS or a VPS included. Install it as its guide says (its
+installer registers `runsc` with Docker), add `runtime: runsc` under `routarr:` in the compose
+file, and run `docker compose up -d` again. `docker exec routarr uname -r` then prints gVisor's
+kernel, not the host's. CI runs the image's whole start-up check under gVisor on every change to
+the image.
+
+It protects the host from a compromised Routarr: reaching the host no longer takes one flaw in
+your kernel. It does not protect what Routarr holds, the Arr keys and the `data/` directory, which
+a compromised Routarr reads either way. Disk access is slower under gVisor, which a single SQLite
+file barely feels.
+
 ## Getting started
 
 On a fresh install the dashboard walks through these steps and ticks each one once it is done.

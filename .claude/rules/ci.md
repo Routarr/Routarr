@@ -37,6 +37,10 @@ paths:
   `site/check.mjs` holds the copies in `README.md`, `site/public/llms.txt` and
   `site/src/components/sections/Start.astro` to it.
 
+- `docker.yml` runs `scripts/smoke-image.sh` again under gVisor, installed by
+  `scripts/install-runtime.sh` at a pinned version and checksum. A check added to the smoke test
+  has to hold inside that sandbox.
+
 ## Checks that run only in CI
 
 - The dev container has no Docker, shellcheck, hadolint, actionlint, gitleaks or cargo-deny. The

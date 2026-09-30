@@ -88,6 +88,11 @@ to belong to uid 1000. Back up the whole data/ directory: without routarr.key, t
 credentials cannot be recovered. The image tag latest follows the most recent release, 0.1
 follows the patch releases of 0.1, and a full version such as 0.1.0 pins one.
 
+For stronger isolation the same image runs under gVisor (runtime: runsc in the compose file), a
+kernel in user space between the container and the host's, on any Linux host. It protects the
+host from a compromised Routarr, not what Routarr holds: the Arr keys and the data directory. CI
+runs the image's whole smoke test under it.
+
 First use, in the interface, walked through by the dashboard on a fresh install: Instances (add
 Radarr or Sonarr, which the form tries and syncs on save), Root Folders (create categories, map
 folders to them, declare any destination the Arrs do not list), optionally a metadata source
