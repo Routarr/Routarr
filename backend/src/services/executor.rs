@@ -221,7 +221,7 @@ pub async fn apply_simulation_in_batches(
     let size: usize = state.setting("batch_limit", 50usize).await.max(1);
     let batches_planned = ids.len().div_ceil(size);
 
-    let job = state
+    let mut job = state
         .jobs
         .start(
             JobKind::Apply,
@@ -275,6 +275,7 @@ pub async fn apply_simulation_in_batches(
             job.progress(report.applied + report.failed + report.skipped, ids.len()).await;
         }
 
+        job.report(&report);
         close_job(
             job,
             report.applied,
@@ -344,7 +345,7 @@ async fn run_apply(
         ));
     };
 
-    let job = state
+    let mut job = state
         .jobs
         .start(
             JobKind::Apply,
@@ -368,10 +369,13 @@ async fn run_apply(
         };
         let skipped = ids.len() - moves.len();
 
-        let outcome = execute_moves(&state, moves, move_files, MoveDirection::Forward, &by).await;
+        let outcome = execute_moves(&state, moves, move_files, MoveDirection::Forward, &by)
+            .await
+            .map(|report| ApplyReport { requested: ids.len(), skipped, ..report });
 
         match &outcome {
             Ok(report) => {
+                job.report(report);
                 let detail = Detail::new("JobDetailApplied")
                     .with("applied", report.applied)
                     .with("failed", report.failed);
@@ -380,11 +384,7 @@ async fn run_apply(
             Err(e) => job.fail(&e.to_string()).await,
         }
 
-        outcome.map(|mut report| {
-            report.requested = ids.len();
-            report.skipped = skipped;
-            report
-        })
+        outcome
     })
     .await
 }
@@ -411,7 +411,7 @@ pub async fn revert_decisions(
         ));
     };
 
-    let job = state
+    let mut job = state
         .jobs
         .start(
             JobKind::Revert,
@@ -435,10 +435,13 @@ pub async fn revert_decisions(
         };
         let skipped = ids.len() - moves.len();
 
-        let outcome = execute_moves(&state, moves, move_files, MoveDirection::Revert, &by).await;
+        let outcome = execute_moves(&state, moves, move_files, MoveDirection::Revert, &by)
+            .await
+            .map(|report| ApplyReport { requested: ids.len(), skipped, ..report });
 
         match &outcome {
             Ok(report) => {
+                job.report(report);
                 let detail = Detail::new("JobDetailReverted")
                     .with("reverted", report.applied)
                     .with("failed", report.failed);
@@ -447,11 +450,7 @@ pub async fn revert_decisions(
             Err(e) => job.fail(&e.to_string()).await,
         }
 
-        outcome.map(|mut report| {
-            report.requested = ids.len();
-            report.skipped = skipped;
-            report
-        })
+        outcome
     })
     .await
 }

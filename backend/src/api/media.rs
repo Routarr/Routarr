@@ -27,6 +27,8 @@ pub struct MediaListItem {
     pub title: String,
     pub year: Option<i64>,
     pub tmdb_id: Option<i64>,
+    pub tvdb_id: Option<i64>,
+    pub imdb_id: Option<String>,
     pub current_root_folder: Option<String>,
     pub monitored: bool,
     pub has_files: bool,
@@ -108,6 +110,16 @@ pub async fn list(
         filters.push_str(" AND m.media_type = ?");
         binds.push(v.clone());
     }
+    for (column, id) in [("m.tmdb_id", query.tmdb_id), ("m.tvdb_id", query.tvdb_id)] {
+        if let Some(id) = id {
+            filters.push_str(&format!(" AND {column} = CAST(? AS INTEGER)"));
+            binds.push(id.to_string());
+        }
+    }
+    if let Some(v) = &query.imdb_id {
+        filters.push_str(" AND m.imdb_id = ?");
+        binds.push(v.trim().to_string());
+    }
     if let Some(v) = &query.search {
         filters.push_str(" AND m.title LIKE ? ESCAPE '\\'");
         binds.push(format!("%{}%", crate::db::escape_like(v)));
@@ -137,7 +149,7 @@ pub async fn list(
     // per-row lookups the explorer would otherwise need.
     let list_sql = format!(
         "SELECT m.id, m.instance_id, i.name AS instance_name, m.arr_id, m.media_type, m.title,
-                m.year, m.tmdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
+                m.year, m.tmdb_id, m.tvdb_id, m.imdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
                 m.last_synced_at,
                 (SELECT d.target_category FROM decisions d
                   WHERE d.media_id = m.id AND d.superseded = 0

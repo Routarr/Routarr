@@ -27,9 +27,9 @@ use crate::api::Page;
 use crate::api::auth::Me;
 use crate::api::decisions::{ApplyAllRequest, ApplyDecisionsRequest, RevertDecisionsRequest};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
-use crate::api::jobs::{Job, JobQuery};
+use crate::api::jobs::{Accepted, Job, JobQuery};
 use crate::api::media::{Explanation, MediaDetail, MediaListItem};
-use crate::api::overrides::Deleted;
+use crate::api::overrides::{Deleted, ExternalTitle, PinRequest};
 use crate::error::ErrorResponse;
 use crate::models::{
     CategoryWithUsage, CreateOverrideRequest, Decision, DecisionQuery, MediaQuery, OverrideEntry,
@@ -56,6 +56,11 @@ A failure answers one envelope: `error`, a stable code, and `message`, a sentenc
 interface language that is not part of the contract. A move that crosses a guardrail answers \
 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in \
 `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\n\
+A call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits \
+for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the \
+task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its \
+`result` holds the report once it has finished. A guardrail's question and any refusal still \
+answer at once.\n\n\
 Nothing documented under `/api/v1` is removed or renamed, and no field changes type. New \
 operations, new fields and new values of the open lists (`action`, `status`, `error`, \
 `confirm`, the kinds of a condition) may appear in any release."
@@ -79,6 +84,8 @@ operations, new fields and new values of the open lists (`action`, `status`, `er
         list_exceptions,
         set_exception,
         remove_exception,
+        pin_by_external_id,
+        unpin_by_external_id,
         list_tasks,
         get_task,
         sync_all,
@@ -323,7 +330,11 @@ fn list_decisions() {}
     path = "/simulate",
     tag = "proposals",
     request_body = SimulationRequest,
-    responses((status = 200, body = SimulationResult))
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
+    responses((status = 200, body = SimulationResult), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn simulate() {}
@@ -339,8 +350,13 @@ fn simulate() {}
     path = "/decisions/apply",
     tag = "proposals",
     request_body = ApplyDecisionsRequest,
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
     responses(
         (status = 200, body = ApplyReport),
+        (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
 or another apply is running.", body = ErrorResponse),
     )
@@ -358,8 +374,13 @@ fn apply() {}
     path = "/decisions/apply-all",
     tag = "proposals",
     request_body = ApplyAllRequest,
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
     responses(
         (status = 200, body = BatchApplyReport),
+        (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),
         (status = 409, description = "The `batch` confirmation is asked, or another apply is \
 running.", body = ErrorResponse),
     )
@@ -376,8 +397,13 @@ fn apply_all() {}
     path = "/decisions/revert",
     tag = "proposals",
     request_body = RevertDecisionsRequest,
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
     responses(
         (status = 200, body = ApplyReport),
+        (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
 or an apply is running.", body = ErrorResponse),
     )
@@ -422,6 +448,40 @@ fn set_exception() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn remove_exception() {}
 
+/// Pin a title by the id another service gives it
+///
+/// For an application that knows the title by its TMDb, TheTVDB or IMDb id.
+/// Every copy of the title the library holds is pinned, one per instance, or
+/// only the one on `instance`. Each replaces the exception its copy had, and
+/// the pending proposals for it are withdrawn. 404 when no copy is in the
+/// library.
+#[utoipa::path(
+    put,
+    path = "/overrides/external",
+    tag = "exceptions",
+    params(ExternalTitle),
+    request_body = PinRequest,
+    responses((status = 200, description = "The exceptions set, one per copy.",
+body = Vec<OverrideEntry>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn pin_by_external_id() {}
+
+/// Unpin a title by the id another service gives it
+///
+/// Removes the exception on every copy of the title, or on the one on
+/// `instance`. `deleted` is false when none had one. 404 when no copy is in
+/// the library.
+#[utoipa::path(
+    delete,
+    path = "/overrides/external",
+    tag = "exceptions",
+    params(ExternalTitle),
+    responses((status = 200, body = Deleted))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn unpin_by_external_id() {}
+
 // ------------------------------------------------------------------- tasks
 
 /// The tasks, newest first
@@ -451,7 +511,9 @@ fn get_task() {}
 /// Read every enabled Arr again
 ///
 /// Answers once every instance is read, one report each. An instance that
-/// fails is reported with its `error` and stops none of the others.
+/// fails is reported with its `error` and stops none of the others. It starts
+/// one task per instance, so it always waits: to follow each one, sync the
+/// instances one by one with `respond-async`.
 #[utoipa::path(
     post,
     path = "/instances/sync",
@@ -468,8 +530,11 @@ fn sync_all() {}
     post,
     path = "/instances/{id}/sync",
     tag = "instances",
-    params(("id" = String, Path, description = "The instance's id.")),
-    responses((status = 200, body = SyncReport))
+    params(("id" = String, Path, description = "The instance's id."), ("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
+    responses((status = 200, body = SyncReport), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_instance() {}

@@ -1,6 +1,19 @@
 {
   "components": {
     "schemas": {
+      "Accepted": {
+        "description": "What a call answers when the caller asked not to wait: the task it started.",
+        "properties": {
+          "job_id": {
+            "description": "Follow it with `GET /jobs/{job_id}`, whose `result` holds the report.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "type": "object"
+      },
       "AlternativeDecision": {
         "description": "An alternative decision that was considered but not selected.",
         "properties": {
@@ -823,6 +836,9 @@
             "format": "int64",
             "type": "integer"
           },
+          "result": {
+            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult` without `decisions`, which\n`GET /decisions?simulation_id=` lists. Null while the task runs, when\nit failed, and for a kind no call starts."
+          },
           "started_at": {
             "type": "string"
           },
@@ -1083,6 +1099,12 @@
           "id": {
             "type": "string"
           },
+          "imdb_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "instance_id": {
             "type": "string"
           },
@@ -1117,6 +1139,13 @@
             "type": "string"
           },
           "tmdb_id": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "tvdb_id": {
             "format": "int64",
             "type": [
               "integer",
@@ -1545,6 +1574,9 @@
                   "format": "int64",
                   "type": "integer"
                 },
+                "result": {
+                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult` without `decisions`, which\n`GET /decisions?simulation_id=` lists. Null while the task runs, when\nit failed, and for a kind no call starts."
+                },
                 "started_at": {
                   "type": "string"
                 },
@@ -1619,6 +1651,12 @@
                 "id": {
                   "type": "string"
                 },
+                "imdb_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
                 "instance_id": {
                   "type": "string"
                 },
@@ -1653,6 +1691,13 @@
                   "type": "string"
                 },
                 "tmdb_id": {
+                  "format": "int64",
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "tvdb_id": {
                   "format": "int64",
                   "type": [
                     "integer",
@@ -1718,6 +1763,25 @@
           "per_page",
           "total",
           "total_pages"
+        ],
+        "type": "object"
+      },
+      "PinRequest": {
+        "description": "The category to pin a title to, and why.",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target_category": {
+            "description": "The name of an existing category.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target_category"
         ],
         "type": "object"
       },
@@ -2022,6 +2086,10 @@
       "Warning": {
         "description": "One warning, in the reader's language.",
         "properties": {
+          "code": {
+            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum` or\n`instance_without_mapping`. The list may grow.",
+            "type": "string"
+          },
           "guide_step": {
             "description": "The getting-started step this warning restates, if one does.",
             "type": [
@@ -2034,6 +2102,7 @@
           }
         },
         "required": [
+          "code",
           "message"
         ],
         "type": "object"
@@ -2052,7 +2121,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -2259,6 +2328,20 @@
       "post": {
         "description": "Asks the Arr to move each title, behind the same guardrails as the\ninterface. A proposal no longer pending is skipped, so sending the same\nlist twice moves nothing twice. `move_files` needs a key allowed to move\nfiles.",
         "operationId": "apply",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2275,6 +2358,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApplyReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -2311,6 +2418,20 @@
       "post": {
         "description": "In slices of the batch limit, stopping at the first slice that fails.\nAlways asks the `batch` guardrail first, whose question states how many\ntitles move.",
         "operationId": "apply_all",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2327,6 +2448,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BatchApplyReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -2363,6 +2508,20 @@
       "post": {
         "description": "Only a title's latest move can be reverted. The same guardrails ask as for\nan apply.",
         "operationId": "revert",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2379,6 +2538,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApplyReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -2456,7 +2639,7 @@
     },
     "/instances/sync": {
       "post": {
-        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others.",
+        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others. It starts\none task per instance, so it always waits: to follow each one, sync the\ninstances one by one with `respond-async`.",
         "operationId": "sync_all",
         "responses": {
           "200": {
@@ -2502,6 +2685,18 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
           }
         ],
         "responses": {
@@ -2510,6 +2705,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SyncReport"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -2683,6 +2902,35 @@
             "description": "Part of the title, ASCII letters in any case.",
             "in": "query",
             "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the titles with this TMDb id.",
+            "in": "query",
+            "name": "tmdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this TheTVDB id.",
+            "in": "query",
+            "name": "tvdb_id",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only the titles with this IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb_id",
             "required": false,
             "schema": {
               "type": "string"
@@ -2936,6 +3184,180 @@
         "x-routarr-scope": "write"
       }
     },
+    "/overrides/external": {
+      "delete": {
+        "description": "Removes the exception on every copy of the title, or on the one on\n`instance`. `deleted` is false when none had one. 404 when no copy is in\nthe library.",
+        "operationId": "unpin_by_external_id",
+        "parameters": [
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "in": "query",
+            "name": "tmdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's TheTVDB id.",
+            "in": "query",
+            "name": "tvdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the copy on this instance.",
+            "in": "query",
+            "name": "instance",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Unpin a title by the id another service gives it",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      },
+      "put": {
+        "description": "For an application that knows the title by its TMDb, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
+        "operationId": "pin_by_external_id",
+        "parameters": [
+          {
+            "description": "`movie` or `series`.",
+            "in": "query",
+            "name": "type",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "in": "query",
+            "name": "tmdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's TheTVDB id.",
+            "in": "query",
+            "name": "tvdb",
+            "required": false,
+            "schema": {
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "The title's IMDb id, as `tt0133093`.",
+            "in": "query",
+            "name": "imdb",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only the copy on this instance.",
+            "in": "query",
+            "name": "instance",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OverrideEntry"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "The exceptions set, one per copy."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Pin a title by the id another service gives it",
+        "tags": [
+          "exceptions"
+        ],
+        "x-routarr-scope": "write"
+      }
+    },
     "/overrides/{id}": {
       "delete": {
         "operationId": "remove_exception",
@@ -3014,6 +3436,20 @@
       "post": {
         "description": "With `persist: true` the proposals are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.",
         "operationId": "simulate",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3030,6 +3466,30 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SimulationResult"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }

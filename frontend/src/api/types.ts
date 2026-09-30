@@ -345,6 +345,8 @@ export interface MediaListItem {
   title: string;
   year: number | null;
   tmdb_id: number | null;
+  tvdb_id: number | null;
+  imdb_id: string | null;
   current_root_folder: string | null;
   monitored: boolean;
   has_files: boolean;
@@ -433,6 +435,8 @@ export interface Job {
   error_message: string | null;
   started_at: string;
   finished_at: string | null;
+  /** The report a finished task answered, when a call started it. */
+  result: unknown;
 }
 
 /** The envelope every refusal and failure of the API answers. */
@@ -493,6 +497,8 @@ export interface LogEntry {
 
 /** One warning, in the reader's language. */
 export interface Warning {
+  /** What the warning is about, stable across releases and languages. */
+  code: string;
   message: string;
   /** The getting-started step this warning restates, whose banner says it too. */
   guide_step: OnboardingStep['id'] | null;

@@ -5,6 +5,7 @@ mod applications;
 mod arr_clients;
 mod arr_signals;
 mod auto_apply;
+mod automation;
 mod backup;
 mod base_path;
 mod batch_apply;

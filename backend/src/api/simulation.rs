@@ -2,9 +2,12 @@
 
 use super::Json;
 use axum::extract::State;
+use axum::http::HeaderMap;
+use axum::response::Response;
 
+use crate::api::jobs::{answer, prefers_async};
 use crate::error::AppResult;
-use crate::jobs::{Detail, JobKind};
+use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::*;
 use crate::services::routing::{self, SimulationOptions};
 use crate::state::AppState;
@@ -17,8 +20,18 @@ pub async fn run(
     // Whoever asked, so the decisions this writes name them. The middleware
     // puts one there for every protected route, so the extractor cannot fail.
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    headers: HeaderMap,
     Json(req): Json<SimulationRequest>,
-) -> AppResult<Json<SimulationResult>> {
+) -> AppResult<Response> {
+    let work = simulate(state.clone(), identity.attribution(), req);
+    answer(&state, prefers_async(&headers), work).await
+}
+
+async fn simulate(
+    state: AppState,
+    by: Attribution,
+    req: SimulationRequest,
+) -> AppResult<SimulationResult> {
     // One *persisting* pass at a time (see `jobs::FULL_SIMULATION`). What the
     // lock protects is the writing: two passes each supersede the other's
     // pending decisions and the later commit wins. A run that persists
@@ -37,8 +50,7 @@ pub async fn run(
         None
     };
 
-    let by = identity.attribution();
-    let job =
+    let mut job =
         state.jobs.start(JobKind::Simulate, &by, None, Detail::new("JobDetailSimulating")).await?;
 
     let outcome = routing::run_simulation(
@@ -62,6 +74,13 @@ pub async fn run(
 
     match &outcome {
         Ok(result) => {
+            // The counts, without the decisions: a task row is not where a
+            // thousand proposals are kept, and `/decisions` lists them.
+            if let Ok(mut summary) = serde_json::to_value(result) {
+                summary["decisions"] = serde_json::json!([]);
+                summary["returned"] = serde_json::json!(0);
+                job.report(&summary);
+            }
             job.succeed(
                 Detail::new("JobDetailSimulated")
                     .with("total", result.total_media)
@@ -72,5 +91,5 @@ pub async fn run(
         Err(e) => job.fail(&e.to_string()).await,
     }
 
-    outcome.map(Json)
+    outcome
 }

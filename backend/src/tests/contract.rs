@@ -212,15 +212,30 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     let exception = set.json["id"].as_str().unwrap();
     let removed = app.delete(&format!("/api/v1/overrides/{exception}")).await;
     checker.check("DELETE", "/overrides/{id}", &removed);
+    let external = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    let pin = json!({ "target_category": "anime" });
+    checker.check("PUT", "/overrides/external", &app.put(external, pin).await);
+    checker.check("DELETE", "/overrides/external", &app.delete(external).await);
 
     let synced = app.post("/api/v1/instances/sync", json!({})).await;
     checker.check("POST", "/instances/sync", &synced);
     let synced = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
     checker.check("POST", "/instances/{id}/sync", &synced);
+    // An answer that does not wait has a schema of its own.
+    let started = app
+        .send(
+            axum::http::Request::post("/api/v1/instances/inst-1/sync")
+                .header("prefer", "respond-async")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await;
+    assert_eq!(started.status, StatusCode::ACCEPTED);
+    checker.check("POST", "/instances/{id}/sync", &started);
 
     let tasks = app.get("/api/v1/jobs").await;
     checker.check("GET", "/jobs", &tasks);
-    let task = tasks.json["data"][0]["id"].as_str().unwrap();
+    let task = started.json["job_id"].as_str().unwrap();
     checker.check("GET", "/jobs/{id}", &app.get(&format!("/api/v1/jobs/{task}")).await);
 
     let documented: BTreeSet<(String, String)> =

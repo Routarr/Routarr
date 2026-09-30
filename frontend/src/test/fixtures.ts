@@ -153,6 +153,7 @@ export function job(over: Partial<Job> = {}): Job {
     error_message: null,
     started_at: '2026-08-27 10:00:00',
     finished_at: '2026-08-27 10:00:04',
+    result: null,
     ...over,
   };
 }
@@ -167,6 +168,8 @@ export function media(over: Partial<MediaListItem> = {}): MediaListItem {
     title: 'Akira',
     year: 1988,
     tmdb_id: 149,
+    tvdb_id: null,
+    imdb_id: 'tt0094625',
     current_root_folder: '/data/films',
     monitored: true,
     has_files: true,
@@ -181,7 +184,7 @@ export function media(over: Partial<MediaListItem> = {}): MediaListItem {
 
 /** A warning as `/status` and `/health` send it, restating a guide step or none. */
 export function warning(message: string, guideStep: OnboardingStep['id'] | null = null): Warning {
-  return { message, guide_step: guideStep };
+  return { code: 'a_warning', message, guide_step: guideStep };
 }
 
 /** A guide state with the named steps done, pending unless said otherwise. */

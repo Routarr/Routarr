@@ -97,7 +97,7 @@ async fn sync_instance_inner(
         )));
     };
 
-    let job = state
+    let mut job = state
         .jobs
         .start(
             JobKind::Sync,
@@ -118,6 +118,7 @@ async fn sync_instance_inner(
     match &outcome {
         Ok(report) => {
             update_sync_status(&state.pool, &instance.id, "success").await;
+            job.report(report);
             job.succeed(
                 Detail::new("JobDetailSynced")
                     .with("media", report.media)

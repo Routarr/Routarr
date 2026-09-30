@@ -2,9 +2,12 @@
 
 use super::Json;
 use axum::extract::{Path, State};
+use axum::http::HeaderMap;
+use axum::response::Response;
 use uuid::Uuid;
 
 use crate::api::auth::Identity;
+use crate::api::jobs::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::detached;
@@ -227,22 +230,35 @@ pub async fn sync_all(
 pub async fn sync_now(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
     Path(id): Path<String>,
-) -> AppResult<Json<sync::SyncReport>> {
-    let (task_state, task_id, by) = (state.clone(), id.clone(), identity.attribution());
-    let synced = detached(async move { sync::sync_instance(&task_state, &task_id, &by).await });
-    let error = match synced.await {
-        Ok(report) => return Ok(Json(report)),
-        Err(error) => error,
+) -> AppResult<Response> {
+    let (task_state, by) = (state.clone(), identity.attribution());
+    let work = async move {
+        match sync::sync_instance(&task_state, &id, &by).await {
+            Ok(report) => Ok(report),
+            Err(error) => Err(explained(&task_state, &id, error).await),
+        }
     };
+    answer(&state, prefers_async(&headers), work).await
+}
+
+/// A failed sync, in the words of what answers at the instance's address.
+async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
     let Some(cause) = connection::cause_of(&error) else {
-        return Err(error);
+        return error;
     };
+    match explain_sync_failure(state, id, cause).await {
+        Ok(explained) | Err(explained) => explained,
+    }
+}
+
+async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppResult<AppError> {
     // Explained by what answers at the address: a probe tells a wrong type from
     // a wrong port, which the sync's own failure, a 404 on the library, cannot.
     // This is the first failure most people read, since a new instance syncs as
     // its form closes.
-    let instance = state.instance(&id).await?;
+    let instance = state.instance(id).await?;
     let localizer = state.localizer().await;
     let adapter = state.adapter(&instance)?;
     let kind = instance.instance_type.as_str();
@@ -251,7 +267,7 @@ pub async fn sync_now(
     // sends the operator to edit an address that is right. What failed is the
     // library listing, the one call large enough to outlast the timeout.
     let service = [("service", connection::service_name(kind))];
-    Err(match cause {
+    Ok(match cause {
         Cause::TimedOut => {
             AppError::UpstreamDown(localizer.translate("InstanceSyncTimedOut", &service))
         }
