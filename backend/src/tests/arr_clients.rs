@@ -51,15 +51,17 @@ async fn radarr_moves_the_whole_batch_in_one_call() {
     let adapter = ArrAdapter::Radarr(RadarrClient::new(client(), &arr.base_url, "k"));
 
     let results = adapter.move_to_root_folder(&[1, 2, 3], "/movies/anime", true).await;
+    adapter.move_to_root_folder(&[4], "/movies/anime", false).await;
 
     assert_eq!(results.len(), 3);
     assert!(results.iter().all(|(_, outcome)| outcome.is_ok()));
 
     let recorded = arr.recorded();
-    assert_eq!(recorded.writes.len(), 1, "one bulk call, not one per movie");
+    assert_eq!(recorded.writes.len(), 2, "one bulk call per batch, not one per movie");
     assert_eq!(recorded.writes[0]["movieIds"], serde_json::json!([1, 2, 3]));
     assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
     assert_eq!(recorded.writes[0]["moveFiles"], true);
+    assert_eq!(recorded.writes[1]["moveFiles"], false);
 }
 
 #[tokio::test]
@@ -156,6 +158,7 @@ async fn moving_a_series_keeps_its_existing_folder_name() {
     let sonarr = SonarrClient::new(client(), &arr.base_url, "k");
 
     sonarr.update_series_path(20, "/tv/anime", true).await.unwrap();
+    sonarr.update_series_path(20, "/tv/anime", false).await.unwrap();
 
     let recorded = arr.recorded();
     let sent = &recorded.writes[0];
@@ -165,7 +168,7 @@ async fn moving_a_series_keeps_its_existing_folder_name() {
         "deriving the folder from titleSlug would silently rename it on disk"
     );
     assert_eq!(sent["qualityProfileId"], 3, "unrelated fields must survive the round trip");
-    assert_eq!(recorded.query_strings[0], "moveFiles=true");
+    assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }
 
 #[tokio::test]

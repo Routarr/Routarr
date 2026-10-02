@@ -259,56 +259,200 @@ async fn media_removed_upstream_is_removed_locally() {
     assert!(superseded, "the proposal for a row the Arr no longer has still stands");
 }
 
+/// An Arr answering no title while it still reports its folders is restoring,
+/// or a base URL points elsewhere: the titles stay, and their exceptions with
+/// them, since deleting a title cascades to its exception.
 #[tokio::test]
-async fn an_empty_upstream_response_does_not_wipe_the_library() {
+async fn an_arr_answering_no_title_keeps_the_library() {
+    let arr = FakeArr::start().await;
+    arr.answer_no_titles();
     let app = TestApp::new().await;
-    // This fake answers with no movies and no root folders.
-    let arr = EmptyArr::start().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-
-    sqlx::query(
+    app.execute(&[
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
-         VALUES ('m-inst-1-1', 'inst-1', 1, 'movie', 'Precious', 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm-inst-1-1', 'anime')",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+             VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Precious', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+             VALUES ('o1', 'm-inst-1-10', 'anime')",
+    ])
+    .await;
 
     let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     assert_eq!(report.removed, 0, "a misconfigured Arr must not look like a mass deletion");
-    let overrides: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM overrides")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(overrides, 1, "overrides cascade from media and must survive");
+    assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1);
+    assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 1, "the exception went");
 }
 
+/// The same for folders: an Arr answering no root folder keeps the ones it
+/// reported, and the category each is mapped to.
 #[tokio::test]
-async fn re_syncing_updates_rather_than_duplicates() {
+async fn an_arr_answering_no_root_folder_keeps_the_folders_and_their_categories() {
+    let arr = FakeArr::start().await;
+    arr.answer_no_root_folders();
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+           VALUES ('rf-anime', 'inst-1', 2, '/movies/anime', 1, 'anime')"])
+        .await;
+
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let mapped = app
+        .count("SELECT COUNT(*) FROM root_folders WHERE id = 'rf-anime' AND category = 'anime'")
+        .await;
+    assert_eq!(mapped, 1, "the folder or its category went with an empty answer");
+}
+
+/// A title the webhook writes while a full sync is reading the Arr was not in
+/// what the sync read, and is not gone: the sync retires only what was last
+/// seen before it began reading.
+#[tokio::test]
+async fn a_title_written_after_the_sync_began_reading_survives_it() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files,
+                            last_synced_at)
+         VALUES ('m-inst-1-50', 'inst-1', 50, 'movie', 'Just added', 1, 0, '2999-01-01 00:00:00')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files,
+                            last_synced_at)
+         VALUES ('m-inst-1-51', 'inst-1', 51, 'movie', 'Long gone', 1, 1, '2000-01-01 00:00:00')",
+    ])
+    .await;
 
     sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
-    sqlx::query("UPDATE media SET title = 'Stale title'").execute(&app.state.pool).await.unwrap();
+
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-50'").await, 1);
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-51'").await, 0);
+}
+
+/// An Arr rebuilt, or an instance pointed at another Arr, hands its ids out
+/// again: the title id 10 now names is not the one the row, its exception and
+/// its proposal described, and none of them carries over to it.
+#[tokio::test]
+async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Spirited Away', 129,
+                 '/movies/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+         VALUES ('o-1', 'm-inst-1-10', 'kids')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status)
+         VALUES ('d-1', 'm-inst-1-10', 'Spirited Away', 'movie', 'inst-1', '/movies/standard',
+                 '/movies/kids', 'kids', 'move', 'pending')",
+    ])
+    .await;
+
     sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
-    let titles: Vec<String> =
-        sqlx::query_scalar("SELECT title FROM media").fetch_all(&app.state.pool).await.unwrap();
-    assert_eq!(titles, vec!["My Neighbor Totoro"]);
+    assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 0, "the exception carried over");
+    assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 1);
+    assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
+}
+
+/// A sync writes and cleans only its own instance: another instance holding
+/// the same Arr ids, a folder, an exception and a proposal keeps all of them,
+/// while a title the synced Arr stopped reporting goes.
+#[tokio::test]
+async fn syncing_one_instance_leaves_another_instances_rows_alone() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-2", "radarr", "http://127.0.0.1:1").await;
+    app.execute(&[
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+             VALUES ('rf-other', 'inst-2', 1, '/movies/elsewhere', 1, 'anime')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                                monitored, has_files)
+             VALUES ('m-other', 'inst-2', 10, 'movie', 'Other', '/movies/elsewhere', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+             VALUES ('o-other', 'm-other', 'anime')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                    current_root_folder, target_root_folder, target_category,
+                                    action, status)
+             VALUES ('d-other', 'm-other', 'Other', 'movie', 'inst-2', '/movies/elsewhere',
+                     '/movies/anime', 'anime', 'move', 'pending')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
+             VALUES ('m-inst-1-999', 'inst-1', 999, 'movie', 'Gone', 1, 1)",
+    ])
+    .await;
+
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    assert_eq!(report.removed, 1, "the title the synced Arr stopped reporting stayed");
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-999'").await, 0);
+    let other = [
+        "SELECT COUNT(*) FROM media WHERE id = 'm-other' AND current_root_folder = '/movies/elsewhere'",
+        "SELECT COUNT(*) FROM overrides WHERE id = 'o-other'",
+        "SELECT COUNT(*) FROM decisions WHERE id = 'd-other' AND superseded = 0",
+        "SELECT COUNT(*) FROM root_folders WHERE id = 'rf-other' AND category = 'anime'",
+    ];
+    for sql in other {
+        assert_eq!(app.count(sql).await, 1, "another instance's row changed: {sql}");
+    }
+}
+
+#[tokio::test]
+async fn a_re_sync_takes_every_change_the_arr_made_to_a_title() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let by = crate::jobs::Attribution::manual(None);
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+    arr.edit_movie(serde_json::json!({
+        "title": "Tonari no Totoro", "sortTitle": "tonari no totoro", "year": 1989,
+        "path": "/movies/kids/Tonari no Totoro (1988)", "rootFolderPath": "/movies/kids",
+        "monitored": false, "hasFile": false, "status": "announced", "sizeOnDisk": 1024,
+        "tags": [2], "genres": ["Fantasy"], "certification": "PG",
+        "originalLanguage": { "id": 1, "name": "English" }
+    }));
+
+    sync::sync_instance(&app.state, "inst-1", &by).await.unwrap();
+
+    assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1, "the re-sync added a row");
+    let place: (String, String, i64, String, String, bool, bool) = sqlx::query_as(
+        "SELECT title, sort_title, year, current_path, current_root_folder, monitored, has_files
+           FROM media WHERE id = 'm-inst-1-10'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    let moved = "/movies/kids/Tonari no Totoro (1988)";
+    let renamed = ("Tonari no Totoro", "tonari no totoro", 1989, moved, "/movies/kids");
+    assert_eq!(
+        (place.0.as_str(), place.1.as_str(), place.2, place.3.as_str(), place.4.as_str()),
+        renamed
+    );
+    assert_eq!((place.5, place.6), (false, false), "monitoring and files");
+    let facts: (String, i64, String, String, String, String) = sqlx::query_as(
+        "SELECT status, size_on_disk, tags, genres, original_language, certification
+           FROM media WHERE id = 'm-inst-1-10'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    let (status, size, tags, genres, language, rating) = facts;
+    assert_eq!(
+        (status.as_str(), size, tags.as_str(), genres.as_str(), language.as_str(), rating.as_str()),
+        ("announced", 1024, r#"["kids"]"#, r#"["Fantasy"]"#, "en", "PG")
+    );
 }
 
 #[tokio::test]
@@ -353,49 +497,6 @@ async fn sync_all_isolates_per_instance_failures() {
     assert!(bad.error.is_some(), "the unreachable instance must carry its error");
 }
 
-/// A fake that reports an empty library, to exercise the cleanup guardrail.
-struct EmptyArr {
-    base_url: String,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
-}
-
-impl EmptyArr {
-    async fn start() -> Self {
-        use axum::routing::get;
-        use axum::{Json, Router};
-
-        let app = Router::new()
-            .route(
-                "/api/v3/system/status",
-                get(|| async { Json(serde_json::json!({ "version": "5.0" })) }),
-            )
-            .route("/api/v3/rootfolder", get(|| async { Json(serde_json::json!([])) }))
-            .route("/api/v3/movie", get(|| async { Json(serde_json::json!([])) }));
-
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
-
-        Self { base_url: format!("http://{addr}"), shutdown: Some(tx) }
-    }
-}
-
-impl Drop for EmptyArr {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
-    }
-}
-
 // ------------------------------------------------- the routes, not the service
 //
 // Everything above drives `sync::` directly. These go through the router, so
@@ -413,6 +514,26 @@ async fn the_sync_route_reports_what_it_fetched() {
     let report = body.assert_ok();
     assert!(report["media"].as_i64().unwrap() > 0, "got {report}");
     assert!(report["root_folders"].as_i64().unwrap() > 0, "got {report}");
+}
+
+/// "Simulate after each sync": a sync somebody asked for is followed as a
+/// scheduled one is, so with background sync off the library is still
+/// enriched and simulated, under the trigger of the one who asked.
+#[tokio::test]
+async fn a_sync_somebody_asked_for_is_followed_by_a_simulation() {
+    for route in ["/api/v1/instances/inst-1/sync", "/api/v1/instances/sync"] {
+        let arr = FakeArr::start().await;
+        let app = TestApp::new().await;
+        app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+        app.store_setting("auto_sync_enabled", "false").await;
+
+        app.post(route, serde_json::json!({})).await.assert_ok();
+        let followed = app.state.post_sync.lock().await.take();
+        followed.expect("nothing followed the sync").await.unwrap();
+
+        let simulated = app.count("SELECT COUNT(*) FROM decisions WHERE actor = 'manual'").await;
+        assert!(simulated > 0, "{route} was not followed by a simulation");
+    }
 }
 
 #[tokio::test]
@@ -497,6 +618,34 @@ async fn the_reports_keep_the_order_the_instances_were_listed_in() {
 }
 
 // ------------------------------------------------- declared destinations
+
+/// A declared destination takes the free space and the reachability of the
+/// deepest folder the Arr reports above it, at every sync: kept from the day
+/// it was typed, they would vouch for a disk that filled up or went to sleep.
+#[tokio::test]
+async fn a_declared_destination_follows_the_figures_of_the_folder_above_it() {
+    let arr = FakeArr::start().await;
+    arr.report_root_folder(
+        serde_json::json!({ "id": 9, "path": "/movies", "freeSpace": 999_999, "accessible": true }),
+    );
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible,
+                                            origin)
+                   VALUES ('rf-declared', 'i-1', NULL, '/movies/anime/kids', 1, 1, 'declared')",
+    ])
+    .await;
+
+    sync::sync_instance(&app.state, "i-1", &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    let figures: (i64, bool) =
+        sqlx::query_as("SELECT free_space, accessible FROM root_folders WHERE id = 'rf-declared'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(figures, (2048, false), "not the figures of /movies/anime, the folder above it");
+}
 
 /// A target need not be a root folder in Radarr or Sonarr, or routing into
 /// `/movies/anime/kids` would mean declaring it *there* first. What an operator

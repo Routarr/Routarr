@@ -110,11 +110,7 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
 
     // And never asks the Arr to move files: there are none, and auto-apply is
     // defined as the case where no bytes move.
-    assert!(
-        recorded.query_strings.iter().all(|q| !q.contains("moveFiles=true")),
-        "auto-apply must not request a disk move, got {:?}",
-        recorded.query_strings
-    );
+    assert_eq!(edit["moveFiles"], false, "auto-apply must not request a disk move");
 }
 
 /// A film downloaded between the sync and the pass has a file the database
@@ -330,7 +326,7 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
             .find(|w| w.get("rootFolderPath").is_some())
             .expect("the bulk editor must have been called");
         assert_eq!(edit["rootFolderPath"], "/movies/anime");
-        assert!(recorded.query_strings.iter().all(|q| !q.contains("moveFiles=true")));
+        assert_eq!(edit["moveFiles"], false);
     }
 
     // Routarr's own view followed, so the next simulation does not repropose it.

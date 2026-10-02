@@ -43,6 +43,19 @@ pub struct ConfigBundle {
     pub root_folders: Vec<RootFolderMapping>,
     #[serde(default)]
     pub overrides: Vec<Override>,
+    #[serde(default)]
+    pub rules: Vec<BundledRule>,
+}
+
+/// A rule as a bundle carries it, its instance scope by name: an id means
+/// nothing on another installation, and a scope dropped would let the rule
+/// route every instance.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BundledRule {
+    #[serde(flatten)]
+    pub rule: crate::models::CreateRuleRequest,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_names: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -89,6 +102,10 @@ pub struct RootFolderMapping {
 pub struct Override {
     /// Kept for the human reading the bundle: matching goes by external id.
     pub media_title: String,
+    /// The instance holding the copy the exception was pinned on: one film
+    /// held by two instances is two titles, each with its own exception.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_name: Option<String>,
     pub media_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tmdb_id: Option<i64>,
@@ -155,24 +172,49 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     .map(|(instance_name, path, category)| RootFolderMapping { instance_name, path, category })
     .collect();
 
-    let overrides: Vec<Override> =
-        sqlx::query_as::<_, (String, String, Option<i64>, Option<i64>, String, Option<String>)>(
-            "SELECT m.title, m.media_type, m.tmdb_id, m.tvdb_id,
-                    o.target_category, o.reason
-               FROM overrides o
-               JOIN media m ON m.id = o.media_id
-              ORDER BY m.title",
-        )
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|(media_title, media_type, tmdb_id, tvdb_id, target_category, reason)| Override {
+    type OverrideRow = (String, String, String, Option<i64>, Option<i64>, String, Option<String>);
+    let overrides: Vec<Override> = sqlx::query_as::<_, OverrideRow>(
+        "SELECT m.title, i.name, m.media_type, m.tmdb_id, m.tvdb_id, o.target_category, o.reason
+           FROM overrides o
+           JOIN media m ON m.id = o.media_id
+           JOIN instances i ON i.id = m.instance_id
+          ORDER BY m.title, i.name",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(media_title, instance, media_type, tmdb_id, tvdb_id, target_category, reason)| {
+        Override {
             media_title,
+            instance_name: Some(instance),
             media_type,
             tmdb_id,
             tvdb_id,
             target_category,
             reason,
+        }
+    })
+    .collect();
+
+    let names: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT id, name FROM instances")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect();
+    let rules: Vec<BundledRule> = routing::load_rules(pool)
+        .await?
+        .into_iter()
+        .map(|rule| {
+            let instance_names = rule
+                .instance_ids
+                .as_ref()
+                .map(|ids| ids.iter().filter_map(|id| names.get(id).cloned()).collect());
+            let rule = crate::models::CreateRuleRequest {
+                instance_ids: None,
+                ..super::rules::to_request(rule)
+            };
+            BundledRule { rule, instance_names }
         })
         .collect();
 
@@ -184,12 +226,17 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
         instances,
         root_folders,
         overrides,
+        rules,
     }))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ImportRequest {
     pub bundle: ConfigBundle,
+    /// Whether the bundle's rules replace the rules in place, rather than
+    /// joining them, as `POST /rules/import` asks.
+    #[serde(default)]
+    pub replace_rules: bool,
 }
 
 /// What the import managed to restore, and what it could not.
@@ -200,6 +247,7 @@ pub struct ImportReport {
     pub instances: usize,
     pub root_folders: usize,
     pub overrides: usize,
+    pub rules: usize,
     /// Everything that could not be restored, and why. Never silent: a backup
     /// that quietly drops half its contents is worse than none.
     pub skipped: Vec<String>,
@@ -238,6 +286,31 @@ pub async fn import(
             && !categories.contains(&name)
         {
             categories.push(name);
+        }
+    }
+
+    // Judged before the transaction opens, against the categories as they will
+    // be once it commits: a pool of one connection, which the tests run on,
+    // cannot serve the reads judging needs while a transaction holds it.
+    let mut importable = Vec::new();
+    if !bundle.rules.is_empty() {
+        let mut env = super::rules::environment(&state).await?;
+        env.known.extend(categories.iter().cloned());
+        for bundled in &bundle.rules {
+            let errors: Vec<String> = super::rules::judge(&env, &bundled.rule)
+                .into_iter()
+                .filter(crate::models::ValidationIssue::is_error)
+                .map(|issue| issue.message)
+                .collect();
+            if errors.is_empty() {
+                importable.push(bundled);
+            } else {
+                report.skipped.push(format!(
+                    "rule '{}': {}",
+                    bundled.rule.name,
+                    errors.join(" · ")
+                ));
+            }
         }
     }
 
@@ -438,27 +511,37 @@ pub async fn import(
     }
 
     // Overrides are matched on external id, which is the only identity a media
-    // keeps across installations.
+    // keeps across installations, on the instance of the name they were pinned
+    // under. A bundle naming none cannot tell two copies apart, so it pins
+    // every copy, and says so.
     for over in &bundle.overrides {
-        let media_id: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM media
-              WHERE media_type = ?
-                AND ((tmdb_id IS NOT NULL AND tmdb_id = ?) OR (tvdb_id IS NOT NULL AND tvdb_id = ?))
-              LIMIT 1",
+        let media_ids: Vec<String> = sqlx::query_scalar(
+            "SELECT m.id FROM media m JOIN instances i ON i.id = m.instance_id
+              WHERE m.media_type = ?
+                AND ((m.tmdb_id IS NOT NULL AND m.tmdb_id = ?)
+                     OR (m.tvdb_id IS NOT NULL AND m.tvdb_id = ?))
+                AND (? IS NULL OR i.name = ?)
+              ORDER BY m.id",
         )
         .bind(&over.media_type)
         .bind(over.tmdb_id)
         .bind(over.tvdb_id)
-        .fetch_optional(&mut *tx)
+        .bind(&over.instance_name)
+        .bind(&over.instance_name)
+        .fetch_all(&mut *tx)
         .await?;
 
-        let Some(media_id) = media_id else {
+        if media_ids.is_empty() {
+            let place = over.instance_name.as_deref().map_or_else(
+                || "the library".to_string(),
+                |instance| format!("the library of '{instance}'"),
+            );
             report.skipped.push(format!(
-                "override for '{}' → '{}': that media is not in the library yet",
+                "override for '{}' → '{}': that media is not in {place} yet",
                 over.media_title, over.target_category
             ));
             continue;
-        };
+        }
 
         // The same two checks `POST /overrides` applies. An override
         // short-circuits the engine entirely, so one naming a category this
@@ -474,20 +557,73 @@ pub async fn import(
             continue;
         }
 
-        sqlx::query(
-            "INSERT INTO overrides (id, media_id, target_category, reason)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT(media_id) DO UPDATE SET
-                target_category = excluded.target_category,
-                reason = excluded.reason",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(&media_id)
-        .bind(&category)
-        .bind(&over.reason)
-        .execute(&mut *tx)
-        .await?;
-        report.overrides += 1;
+        if over.instance_name.is_none() && media_ids.len() > 1 {
+            report.skipped.push(format!(
+                "override for '{}' → '{}': the bundle names no instance, so it is pinned on \
+                 every copy ({})",
+                over.media_title,
+                over.target_category,
+                media_ids.len()
+            ));
+        }
+        for media_id in &media_ids {
+            sqlx::query(
+                "INSERT INTO overrides (id, media_id, target_category, reason)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT(media_id) DO UPDATE SET
+                    target_category = excluded.target_category,
+                    reason = excluded.reason",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(media_id)
+            .bind(&category)
+            .bind(&over.reason)
+            .execute(&mut *tx)
+            .await?;
+            report.overrides += 1;
+        }
+    }
+
+    // Rules last, once the instances they are scoped to exist under the names
+    // the bundle gives them.
+    let ids: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT name, id FROM instances")
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let mut restored = Vec::new();
+    for bundled in importable {
+        let scope = match &bundled.instance_names {
+            None => None,
+            Some(names) => {
+                let found: Vec<String> =
+                    names.iter().filter_map(|name| ids.get(name).cloned()).collect();
+                if found.is_empty() {
+                    report.skipped.push(format!(
+                        "rule '{}': scoped to instances this installation does not have ({})",
+                        bundled.rule.name,
+                        names.join(", ")
+                    ));
+                    continue;
+                }
+                Some(found)
+            }
+        };
+        restored
+            .push(crate::models::CreateRuleRequest { instance_ids: scope, ..bundled.rule.clone() });
+    }
+    // A replace in which no rule survives would delete every rule and add
+    // none, and the next pass would route the library to the fallback
+    // category, as `POST /rules/import` refuses to.
+    if req.replace_rules && !restored.is_empty() {
+        sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
+    } else if req.replace_rules && !bundle.rules.is_empty() {
+        report.skipped.push("rules: none could be restored, so the rules in place are kept".into());
+    }
+    for rule in &restored {
+        super::rules::insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
+        report.rules += 1;
     }
 
     tx.commit().await?;

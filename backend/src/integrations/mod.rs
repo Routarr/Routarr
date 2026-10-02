@@ -397,6 +397,37 @@ mod tests {
         assert!(!described.contains("api_key"), "the query string leaked: {described}");
     }
 
+    /// A connection the far end closes before answering is none of the named
+    /// failures, and its description is built from the deepest cause: the one
+    /// path where the error's own text, and the key in its URL, could get out.
+    #[tokio::test]
+    async fn a_connection_closed_before_the_answer_never_echoes_the_url_or_the_key() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                drop(socket);
+            }
+        });
+
+        let error = reqwest::Client::new()
+            .get(format!("http://{address}/3/movie/1?api_key=SUPERSECRET123"))
+            .send()
+            .await
+            .expect_err("a closed connection must fail");
+        assert!(error.to_string().contains("SUPERSECRET123"), "precondition changed: {error}");
+
+        let described = describe_transport_error(&error);
+        let named =
+            [TIMED_OUT, NAME_UNRESOLVED, UNREACHABLE, HANDSHAKE_FAILED, REDIRECT_LOOP, NOT_HTTP];
+        assert!(
+            !named.contains(&described.as_str()),
+            "a named failure, not the fallback: {described}"
+        );
+        assert!(!described.contains("SUPERSECRET123"), "the key leaked: {described}");
+        assert!(!described.contains("api_key"), "the query string leaked: {described}");
+    }
+
     /// A 200 that is not the API's JSON, as a captive portal or a cut body
     /// answers. reqwest puts the URL in a decode error, and a TMDb or OMDb key
     /// travels in that URL, so the description is built from the error's

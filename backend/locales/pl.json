@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Warunki (wszystkie)",
   "ConditionsAnyOf": "Warunki (co najmniej jeden)",
   "Confidence": "Pewność",
-  "ConfigImportResult": "Przywrócono. Ustawienia: {settings}, kategorie: {categories}, instancje: {instances}, powiązania: {folders}, wyjątki: {overrides}.",
+  "ConfigImportResult": "Przywrócono. Ustawienia: {settings}, kategorie: {categories}, instancje: {instances}, powiązania: {folders}, reguły: {rules}, wyjątki: {overrides}.",
   "ConfigImportSkipped": "Nieprzywrócone: {count}",
   "ConfigImportNeedsKey": "Instancje oczekujące na klucz API: {names}",
   "ConfirmApply": "Pozycje do przekierowania w Radarr/Sonarr: {count}",

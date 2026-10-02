@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Podmienky (všetky)",
   "ConditionsAnyOf": "Podmienky (aspoň jedna)",
   "Confidence": "Istota",
-  "ConfigImportResult": "Obnovené. Nastavenia: {settings}, kategórie: {categories}, inštancie: {instances}, prepojenia: {folders}, výnimky: {overrides}.",
+  "ConfigImportResult": "Obnovené. Nastavenia: {settings}, kategórie: {categories}, inštancie: {instances}, prepojenia: {folders}, pravidlá: {rules}, výnimky: {overrides}.",
   "ConfigImportSkipped": "Neobnovené: {count}",
   "ConfigImportNeedsKey": "Inštancie čakajúce na kľúč API: {names}",
   "ConfirmApply": "Položky na presmerovanie v Radarre/Sonarre: {count}",

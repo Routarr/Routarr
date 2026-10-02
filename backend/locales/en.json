@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Conditions (all of)",
   "ConditionsAnyOf": "Conditions (any of)",
   "Confidence": "Confidence",
-  "ConfigImportResult": "Restored. Settings: {settings}, categories: {categories}, instances: {instances}, mappings: {folders}, exceptions: {overrides}.",
+  "ConfigImportResult": "Restored. Settings: {settings}, categories: {categories}, instances: {instances}, mappings: {folders}, rules: {rules}, exceptions: {overrides}.",
   "ConfigImportSkipped": "Not restored: {count}",
   "ConfigImportNeedsKey": "Instances waiting for their API key: {names}",
   "ConfirmApply": "Items to be re-pointed in Radarr/Sonarr: {count}",

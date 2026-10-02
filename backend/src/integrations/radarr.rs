@@ -143,6 +143,14 @@ impl RadarrClient {
         match send_json(SERVICE, request).await {
             Ok(movie) => Ok(Some(movie)),
             Err(AppError::ExternalApi { status: 404, .. }) => Ok(None),
+            // Radarr answers an id TMDb does not know with a 500 naming its
+            // `MovieNotFoundException`: "Movie with tmdbId 1 was not found, it
+            // may have been removed from TMDb."
+            Err(AppError::ExternalApi { status: 500, ref message, .. })
+                if message.starts_with("Movie with ") && message.contains(" was not found") =>
+            {
+                Ok(None)
+            }
             Err(e) => Err(e),
         }
     }

@@ -29,7 +29,7 @@ async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
     assert!(!stored.contains("super-secret"), "the plaintext survived in the row");
 
     let body = settings(&app).await;
-    assert_eq!(body["tmdb_api_key"], "", "the value came back out");
+    assert!(body.get("tmdb_api_key").is_none(), "the value came back out");
     assert_eq!(body["tmdb_api_key_configured"], true, "the screen cannot tell one is set");
 
     // Every answer that speaks about the source, or about the settings.

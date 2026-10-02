@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Condições (todas)",
   "ConditionsAnyOf": "Condições (pelo menos uma)",
   "Confidence": "Confiança",
-  "ConfigImportResult": "Itens restaurados. Definições: {settings}, categorias: {categories}, instâncias: {instances}, associações: {folders}, exceções: {overrides}.",
+  "ConfigImportResult": "Itens restaurados. Definições: {settings}, categorias: {categories}, instâncias: {instances}, associações: {folders}, regras: {rules}, exceções: {overrides}.",
   "ConfigImportSkipped": "Não restaurados: {count}",
   "ConfigImportNeedsKey": "Instâncias à espera da chave de API: {names}",
   "ConfirmApply": "Itens a reapontar no Radarr/Sonarr: {count}",

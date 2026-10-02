@@ -723,6 +723,46 @@ mod tests {
         );
     }
 
+    /// Each namespace keeps its own rows: a series cached by its TheTVDB id, a
+    /// film by its IMDb id, and the same numbers under the other type go.
+    #[tokio::test]
+    async fn the_cache_keeps_what_a_tvdb_or_imdb_id_still_names() {
+        let state = AppState::for_tests().await;
+        seed_media(&state, "m1").await;
+        sqlx::query(
+            "UPDATE media SET media_type = 'series', tvdb_id = 76885, imdb_id = 'tt0213338'
+             WHERE id = 'm1'",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        for (source, id, kind) in [
+            ("tvdb", "76885", "series"),
+            ("omdb", "tt0213338", "series"),
+            ("tvdb", "76885", "movie"),
+            ("omdb", "tt0000001", "series"),
+        ] {
+            sqlx::query(
+                "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+                 VALUES (?, ?, ?, '2030-01-01')",
+            )
+            .bind(source)
+            .bind(id)
+            .bind(kind)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+
+        let report = purge(&state).await.unwrap();
+
+        assert_eq!(report.metadata_cache_removed, 2, "the orphans of either namespace stayed");
+        assert_eq!(
+            cache_rows(&state).await,
+            vec![("omdb".into(), "tt0213338".into()), ("tvdb".into(), "76885".into())]
+        );
+    }
+
     /// A resolution whose library key names no media any more would keep its
     /// cache row alive for ever, so it is pruned first and the cache follows.
     #[tokio::test]

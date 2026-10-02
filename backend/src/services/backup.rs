@@ -317,6 +317,18 @@ fn partial_path(archive: &Path) -> PathBuf {
     archive.with_file_name(format!(".{name}.partial"))
 }
 
+/// When the newest archive on disk was taken, as an instant of this process.
+///
+/// Read from the name, which `write_archive` stamps, rather than from the
+/// file's modification time, which a copy or a restore of the folder resets.
+pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
+    let newest = list(state).into_iter().next()?;
+    let stamp = newest.name.strip_prefix("routarr-backup-")?.strip_suffix(".zip")?;
+    let taken = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc();
+    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
+    tokio::time::Instant::now().checked_sub(age)
+}
+
 /// Every archive on disk, newest first.
 pub fn list(state: &AppState) -> Vec<BackupFile> {
     let dir = backup_dir(state);

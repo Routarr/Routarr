@@ -382,8 +382,12 @@ export const api = {
   // ---------------------------------------------------------- configuration
   /** Everything that cannot be regenerated from the Arrs. Never carries a key. */
   exportConfig: () => request<unknown>('/config/export'),
-  importConfig: (bundle: unknown) =>
-    request<ConfigImportReport>('/config/import', { method: 'POST', body: body({ bundle }) }),
+  /** `replaceRules`: the bundle's rules replace the rules in place rather than join them. */
+  importConfig: (bundle: unknown, replaceRules = false) =>
+    request<ConfigImportReport>('/config/import', {
+      method: 'POST',
+      body: body({ bundle, replace_rules: replaceRules }),
+    }),
 
   importRules: (bundle: RuleBundle, replace: boolean) =>
     request<{ imported: number; skipped: string[] }>('/rules/import', {

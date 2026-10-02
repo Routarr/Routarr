@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Condizioni (tutte)",
   "ConditionsAnyOf": "Condizioni (almeno una)",
   "Confidence": "Affidabilità",
-  "ConfigImportResult": "Elementi ripristinati. Impostazioni: {settings}, categorie: {categories}, istanze: {instances}, associazioni: {folders}, eccezioni: {overrides}.",
+  "ConfigImportResult": "Elementi ripristinati. Impostazioni: {settings}, categorie: {categories}, istanze: {instances}, associazioni: {folders}, regole: {rules}, eccezioni: {overrides}.",
   "ConfigImportSkipped": "Non ripristinati: {count}",
   "ConfigImportNeedsKey": "Istanze in attesa della chiave API: {names}",
   "ConfirmApply": "Elementi da ripuntare in Radarr/Sonarr: {count}",

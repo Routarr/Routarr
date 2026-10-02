@@ -7,15 +7,15 @@
 //! way: the question is asked before a request is approved, and a title asked
 //! about is not a title in the library.
 
-use std::collections::HashMap;
-
 use chrono::Utc;
 use serde::Serialize;
 use tokio::sync::Semaphore;
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrMedia;
-use crate::models::{ExternalId, Instance, Media, MediaMetadata, ProviderMetadata};
+use std::collections::HashMap;
+
+use crate::models::{ExternalId, Instance, Media, MediaMetadata};
 use crate::services::metadata::{self, Addressing};
 use crate::services::rate_limit::honour_retry_after;
 use crate::services::routing::{self, ItemRoute};
@@ -84,15 +84,25 @@ static AT_ONCE: Semaphore = Semaphore::const_new(2);
 
 /// Where the title goes on each enabled Arr of its kind, or on `instance`.
 ///
-/// `tags` are the labels a title the library does not hold would be added
-/// with, for the rules that read tags. With `enrich`, every source that can
-/// answer and has no cached answer is asked now.
+/// What a title the Arr does not hold yet would be added with, which the rules
+/// read: the lookup answers the Arr's defaults instead, a series not monitored
+/// and of the standard type, never added.
+#[derive(Debug, Default)]
+pub struct AddedWith {
+    pub tags: Vec<String>,
+    pub series_type: Option<String>,
+    pub monitored: Option<bool>,
+}
+
+/// `added` is what a title the Arr does not hold would be added with. With
+/// `enrich`, every source that can answer and has no cached answer is asked
+/// now.
 pub async fn place(
     state: &AppState,
     media_type: &str,
     id: &ExternalId,
     instance: Option<&str>,
-    tags: &[String],
+    added: &AddedWith,
     enrich: bool,
 ) -> AppResult<Placement> {
     let _turn = AT_ONCE
@@ -114,7 +124,7 @@ pub async fn place(
         let (media, source) = match held.iter().find(|media| media.instance_id == instance.id) {
             Some(media) => (media.clone(), "library"),
             None => match looked_up(state, &instance, id).await {
-                Ok(Some(item)) => (unheld(&instance, id, item, tags), "lookup"),
+                Ok(Some(item)) => (unheld(state, &instance, id, item, added).await?, "lookup"),
                 Ok(None) => continue,
                 Err(e) => {
                     if e.is_internal() {
@@ -129,7 +139,8 @@ pub async fn place(
                 }
             },
         };
-        let fresh = if enrich { answered_now(state, &media).await } else { HashMap::new() };
+        let fresh =
+            if enrich { answered_now(state, &media).await } else { routing::Fresh::default() };
         let decided = routing::route_one_with(&state.pool, &media, Utc::now(), fresh).await?;
         placement.answers.push(answer(state, &instance, &media, source, decided).await?);
     }
@@ -156,9 +167,36 @@ async fn looked_up(
 ///
 /// Its id names the instance and the title, so no exception, which is keyed by
 /// a real row, can apply to it. A title the Arr already holds keeps the
-/// folder and the files the Arr reports: the sync has only not read it yet.
-fn unheld(instance: &Instance, id: &ExternalId, item: ArrMedia, tags: &[String]) -> Media {
-    Media {
+/// folder, the files and the state the Arr reports, its tags named through the
+/// instance's tag catalogue: the sync has only not read it yet. One it does not
+/// hold is judged on what adding it sets.
+async fn unheld(
+    state: &AppState,
+    instance: &Instance,
+    id: &ExternalId,
+    item: ArrMedia,
+    added: &AddedWith,
+) -> AppResult<Media> {
+    let (tags, monitored, added_at, series_type) = if item.arr_id != 0 {
+        let catalogue: HashMap<i64, String> =
+            sqlx::query_as("SELECT arr_id, label FROM arr_tags WHERE instance_id = ?")
+                .bind(&instance.id)
+                .fetch_all(&state.pool)
+                .await?
+                .into_iter()
+                .collect();
+        let labels: Vec<String> =
+            item.tag_ids.iter().filter_map(|tag| catalogue.get(tag).cloned()).collect();
+        (labels, item.monitored, item.added, item.series_type)
+    } else {
+        (
+            added.tags.clone(),
+            added.monitored.unwrap_or(true),
+            Some(routing::format_timestamp(Utc::now())),
+            added.series_type.clone().or(item.series_type),
+        )
+    };
+    Ok(Media {
         id: format!("lookup:{}:{}:{}", instance.id, id.column(), id.value()),
         instance_id: instance.id.clone(),
         arr_id: item.arr_id,
@@ -171,29 +209,28 @@ fn unheld(instance: &Instance, id: &ExternalId, item: ArrMedia, tags: &[String])
         imdb_id: item.imdb_id,
         current_path: item.path,
         current_root_folder: item.root_folder_path,
-        monitored: item.monitored,
-        has_files: item.has_files,
+        monitored,
+        // Radarr's lookup carries no `hasFile`, which reads as a file: a title
+        // the Arr does not hold has none.
+        has_files: item.arr_id != 0 && item.has_files,
         status: item.status,
-        added_at: item.added,
-        series_type: item.series_type,
+        added_at,
+        series_type,
         size_on_disk: item.size_on_disk,
         season_count: item.season_count,
-        tags: serde_json::to_string(tags).ok(),
+        tags: serde_json::to_string(&tags).ok(),
         genres: serde_json::to_string(&item.genres).ok(),
         original_language: item.original_language,
         certification: item.certification,
         last_synced_at: None,
-    }
+    })
 }
 
 /// What each source able to answer says now about a title it has no cached
 /// answer for. A source that fails is left out: the placement is worked out
 /// with what the others said, and `unanswered_fields` shows the gap.
-async fn answered_now(
-    state: &AppState,
-    media: &Media,
-) -> HashMap<(String, String, String), ProviderMetadata> {
-    let mut fresh = HashMap::new();
+async fn answered_now(state: &AppState, media: &Media) -> routing::Fresh {
+    let mut fresh = routing::Fresh::default();
     let providers = state.metadata_order().await;
     let Ok(identifiers) = metadata::load_identifiers_of(&state.pool, media).await else {
         return fresh;
@@ -208,18 +245,27 @@ async fn answered_now(
         let key = |external: &str| {
             (source.id().to_string(), external.to_string(), media.media_type.clone())
         };
+        let searched =
+            (source.id().to_string(), media.media_type.clone(), metadata::local_key(media));
+        // A search on record that found nothing is not run again here: the
+        // enrichment pass searches again once the miss is old enough.
+        let missed = identifiers.get(&searched).is_some_and(Option::is_none);
         if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
             continue;
         }
         let pace = source.pace();
         let external = match (known, source.addressing()) {
             (Some(external), _) => external,
+            (None, Addressing::Search) if missed => continue,
             (None, Addressing::Search) => {
                 pace.acquire().await;
                 let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
                 honour_retry_after(&pace, &resolved).await;
                 match resolved {
-                    Ok(Some(external)) => external,
+                    Ok(Some(external)) => {
+                        fresh.identifiers.insert(searched, Some(external.clone()));
+                        external
+                    }
                     _ => continue,
                 }
             }
@@ -229,7 +275,7 @@ async fn answered_now(
         let fetched = source.fetch(&external, &media.media_type).await;
         honour_retry_after(&pace, &fetched).await;
         if let Ok(answer) = fetched {
-            fresh.insert(key(&external), answer);
+            fresh.metadata.insert(key(&external), answer);
         }
     }
     fresh

@@ -827,6 +827,192 @@ async fn applied(arr: &FakeArr) -> (TestApp, String) {
     (app, decision_id)
 }
 
+/// What the caller chose about the files reaches the Arr, on every route
+/// that moves and for both answers: a flag fixed anywhere on the way moves
+/// files nobody asked to move, or leaves behind files somebody did.
+#[tokio::test]
+async fn every_route_that_moves_sends_the_arr_the_files_choice_it_was_given() {
+    let every_question = ["batch", "capacity", "threshold", "unreachable"];
+    for move_files in [false, true] {
+        for route in ["apply", "apply-all", "revert"] {
+            let arr = FakeArr::start().await;
+            let (app, decision_id) =
+                if route == "revert" { applied(&arr).await } else { ready(&arr).await };
+            let simulation: String =
+                sqlx::query_scalar("SELECT simulation_id FROM decisions WHERE id = ?")
+                    .bind(&decision_id)
+                    .fetch_one(&app.state.pool)
+                    .await
+                    .unwrap();
+            let before = arr.recorded().writes.len();
+            let body = match route {
+                "apply-all" => serde_json::json!({
+                    "simulation_id": simulation, "move_files": move_files, "confirm": every_question
+                }),
+                _ => serde_json::json!({
+                    "decision_ids": [decision_id], "move_files": move_files, "confirm": every_question
+                }),
+            };
+
+            let answer = app.post(&format!("/api/v1/decisions/{route}"), body).await;
+
+            assert_eq!(answer.assert_ok()["applied"], 1, "{route} moving files {move_files}");
+            let recorded = arr.recorded();
+            let edits: Vec<_> = recorded.writes[before..]
+                .iter()
+                .filter(|w| w["rootFolderPath"].is_string())
+                .collect();
+            assert_eq!(edits.len(), 1, "{route}: {:?}", recorded.writes);
+            assert_eq!(edits[0]["moveFiles"], move_files, "{route} sent the wrong files choice");
+        }
+    }
+}
+
+/// One move at a time: an apply, an apply-all and a revert each refuse while
+/// another holds the lock, before writing anything, and go ahead once it is
+/// released.
+#[tokio::test]
+async fn every_route_that_moves_waits_for_the_move_already_running() {
+    let every_question = ["batch", "capacity", "threshold", "unreachable"];
+    for route in ["apply", "apply-all", "revert"] {
+        let arr = FakeArr::start().await;
+        let (app, decision_id) =
+            if route == "revert" { applied(&arr).await } else { ready(&arr).await };
+        let simulation: String =
+            sqlx::query_scalar("SELECT simulation_id FROM decisions WHERE id = ?")
+                .bind(&decision_id)
+                .fetch_one(&app.state.pool)
+                .await
+                .unwrap();
+        let body = match route {
+            "apply-all" => {
+                serde_json::json!({ "simulation_id": simulation, "confirm": every_question })
+            }
+            _ => serde_json::json!({ "decision_ids": [decision_id], "confirm": every_question }),
+        };
+        let path = format!("/api/v1/decisions/{route}");
+        let writes = arr.recorded().writes.len();
+
+        let running = app.state.jobs.try_lock("apply").expect("the lock is free");
+        let refused = app.post(&path, body.clone()).await;
+        assert_eq!(refused.status, axum::http::StatusCode::CONFLICT, "{route}: {:?}", refused.json);
+        assert!(refused.message().contains("already"), "{route}: {}", refused.message());
+        assert_eq!(arr.recorded().writes.len(), writes, "{route} wrote while another move ran");
+
+        drop(running);
+        assert_eq!(app.post(&path, body).await.assert_ok()["applied"], 1, "{route} once free");
+    }
+}
+
+/// A revert holds the guards an apply holds: the global dry run, an empty
+/// selection and the batch limit each refuse it before it writes.
+#[tokio::test]
+async fn a_revert_is_held_by_the_dry_run_and_the_batch_limit() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    let writes = arr.recorded().writes.len();
+    let by = Attribution::manual(None);
+    let all = executor::Confirmed::all();
+    let localizer = crate::localization::Localizer::new("en");
+    let refusal = |outcome: crate::error::AppResult<executor::ApplyReport>| match outcome {
+        Err(crate::error::AppError::BadRequest(message)) => message,
+        other => panic!("not refused: {other:?}"),
+    };
+
+    app.store_setting("global_dry_run", "true").await;
+    let ids = [decision_id.clone()];
+    let dry = executor::revert_decisions(&app.state, &ids, false, &all, &by);
+    assert_eq!(refusal(dry.await), localizer.translate("ErrorDryRunEnabled", &[]));
+
+    app.store_setting("global_dry_run", "false").await;
+    let none = executor::revert_decisions(&app.state, &[], false, &all, &by);
+    assert_eq!(refusal(none.await), localizer.translate("ErrorNoSelection", &[]));
+
+    app.store_setting("batch_limit", "1").await;
+    let two = [decision_id, "d-elsewhere".to_string()];
+    let over = executor::revert_decisions(&app.state, &two, false, &all, &by);
+    assert!(refusal(over.await).contains('1'), "the batch limit was not named");
+
+    assert_eq!(arr.recorded().writes.len(), writes, "a refused revert wrote");
+}
+
+/// An apply stamps its move in the shape every stored timestamp has, which is
+/// what a sync compares its read against: dropped, or written in another
+/// shape, a sync that read before the move puts the old path back.
+#[tokio::test]
+async fn an_apply_stamps_its_move_in_the_shape_a_sync_compares() {
+    let arr = FakeArr::start().await;
+    let (app, _decision_id) = applied(&arr).await;
+
+    let stamp: Option<String> = sqlx::query_scalar("SELECT moved_at FROM media WHERE id = 'm-1'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+
+    let stamp = stamp.expect("the apply left no stamp");
+    let moved = crate::services::routing::parse_timestamp(&stamp).expect("an unreadable stamp");
+    let age = chrono::Utc::now() - moved;
+    assert!(age.num_seconds().abs() < 60, "{stamp} is not the moment of the apply");
+    assert_eq!(stamp, crate::services::routing::format_timestamp(moved), "{stamp}");
+}
+
+/// Sonarr moves one series per call, and each answer settles its own title:
+/// a refused series fails alone, and the other is applied, its path relocated
+/// under the new folder since Sonarr does not answer one.
+#[tokio::test]
+async fn a_sonarr_batch_settles_each_series_on_its_own_answer() {
+    let arr = FakeArr::start().await;
+    arr.refuse_series(21);
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-s", "sonarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+         VALUES ('rf-ts', 'inst-s', 1, '/tv/standard', 1, 'standard'),
+                ('rf-ta', 'inst-s', 2, '/tv/anime', 1, 'anime')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+                            current_root_folder, monitored, has_files)
+         VALUES ('s-20', 'inst-s', 20, 'series', 'Cowboy Bebop',
+                 '/tv/standard/Cowboy Bebop (1998)', '/tv/standard', 1, 1),
+                ('s-21', 'inst-s', 21, 'series', 'Trigun', '/tv/standard/Trigun (1998)',
+                 '/tv/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+         VALUES ('o-20', 's-20', 'anime'), ('o-21', 's-21', 'anime')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status)
+         VALUES ('d-20', 's-20', 'Cowboy Bebop', 'series', 'inst-s', '/tv/standard',
+                 '/tv/anime', 'anime', 'move', 'pending'),
+                ('d-21', 's-21', 'Trigun', 'series', 'inst-s', '/tv/standard', '/tv/anime',
+                 'anime', 'move', 'pending')",
+    ])
+    .await;
+    app.store_setting("global_dry_run", "false").await;
+    let ids = ["d-20".to_string(), "d-21".to_string()];
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &ids,
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.failed), (1, 1), "{report:?}");
+    let statuses: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, status FROM decisions ORDER BY id")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(statuses, [("d-20".into(), "applied".into()), ("d-21".into(), "failed".into())]);
+    let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 's-20'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(path, "/tv/anime/Cowboy Bebop (1998)");
+}
+
 /// Records the state of the folder a revert goes back to, as the last sync
 /// saw it.
 async fn origin_folder(app: &TestApp, accessible: bool, free_space: i64) {
@@ -1179,6 +1365,177 @@ async fn pending_move(app: &TestApp, size: i64, source_free: i64, target_free: i
     "d1".to_string()
 }
 
+const SIX_GIB: i64 = 6 << 30;
+
+/// A second 6 GiB film beside `pending_move`'s, moving to `folder` on `i1`.
+async fn second_pending_move(app: &TestApp, category: &'static str) {
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+         current_root_folder, monitored, has_files, size_on_disk)
+         VALUES ('m2', 'i1', 11, 'movie', 'Bigger', '/movies/standard/Bigger',
+                 '/movies/standard', 1, 1, ?)",
+    )
+    .bind(SIX_GIB)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO overrides (id, media_id, target_category) VALUES ('o2', 'm2', ?)")
+        .bind(category)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+         current_root_folder, target_category, target_root_folder, action, status, reasons,
+         alternatives, confidence)
+         SELECT 'd2', 'm2', 'Bigger', 'movie', 'i1', '/movies/standard', ?, path, 'move',
+                'pending', '[]', '[]', 1.0
+         FROM root_folders WHERE instance_id = 'i1' AND category = ?",
+    )
+    .bind(category)
+    .bind(category)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+}
+
+async fn apply_both(app: &TestApp) -> TestResponse {
+    app.post(
+        "/api/v1/decisions/apply",
+        serde_json::json!({
+            "decision_ids": ["d1", "d2"], "move_files": true, "confirm": ["batch", "threshold"]
+        }),
+    )
+    .await
+}
+
+/// Each film fits the destination alone, the two together do not: the guard
+/// weighs what the whole apply writes there.
+#[tokio::test]
+async fn moves_that_each_fit_but_not_together_ask_about_capacity() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 10 << 30).await;
+    second_pending_move(&app, "anime").await;
+
+    let asked = apply_both(&app).await;
+
+    assert_eq!(asked.status, axum::http::StatusCode::CONFLICT, "{:?}", asked.json);
+    assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+}
+
+/// Every destination is weighed, not the first the query returns: a roomy
+/// folder first does not let a short one through after it.
+#[tokio::test]
+async fn the_capacity_question_names_a_short_destination_after_a_roomy_one() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 1 << 40).await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, arr_id, path, free_space,
+                                             accessible, category)
+                   VALUES ('rf-kids', 'i1', 3, '/movies/kids', 4294967296, 1, 'kids')"])
+        .await;
+    second_pending_move(&app, "kids").await;
+
+    let asked = apply_both(&app).await;
+
+    assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+    assert!(asked.message().contains("/movies/kids"), "{}", asked.message());
+    assert!(!asked.message().contains("/movies/anime"), "{}", asked.message());
+}
+
+/// Two Radarrs, each with one film bound for a folder of the same path, in one
+/// apply. Folders, moves and Arr ids belong to an instance, so each Arr hears
+/// only of its own film, and each folder weighs only its own instance's moves.
+async fn two_instances(app: &TestApp, first: &FakeArr, second: &FakeArr) {
+    app.seed_instance_at("inst-a", "radarr", &first.base_url).await;
+    app.seed_instance_at("inst-b", "radarr", &second.base_url).await;
+    for (instance, arr_id) in [("inst-a", 10), ("inst-b", 11)] {
+        for (folder, path, category, free) in [
+            ("src", "/movies/standard", "standard", 1_i64 << 40),
+            ("dst", "/movies/anime", "anime", 10 << 30),
+        ] {
+            sqlx::query(
+                "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space,
+                                           accessible, category)
+                 VALUES (?, ?, ?, ?, ?, 1, ?)",
+            )
+            .bind(format!("rf-{folder}-{instance}"))
+            .bind(instance)
+            .bind(if folder == "src" { 1 } else { 2 })
+            .bind(path)
+            .bind(free)
+            .bind(category)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+        }
+        let media = format!("m-{instance}");
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+             current_root_folder, monitored, has_files, size_on_disk)
+             VALUES (?, ?, ?, 'movie', 'Film', '/movies/standard/Film', '/movies/standard',
+                     1, 1, ?)",
+        )
+        .bind(&media)
+        .bind(instance)
+        .bind(arr_id)
+        .bind(SIX_GIB)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO overrides (id, media_id, target_category) VALUES (?, ?, 'anime')")
+            .bind(format!("o-{instance}"))
+            .bind(&media)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+             current_root_folder, target_category, target_root_folder, action, status,
+             reasons, alternatives, confidence)
+             VALUES (?, ?, 'Film', 'movie', ?, '/movies/standard', 'anime', '/movies/anime',
+                     'move', 'pending', '[]', '[]', 1.0)",
+        )
+        .bind(format!("d-{instance}"))
+        .bind(&media)
+        .bind(instance)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+    app.store_setting("global_dry_run", "false").await;
+}
+
+/// The Arr ids each editor call carried.
+fn edited(arr: &FakeArr) -> Vec<serde_json::Value> {
+    arr.recorded()
+        .writes
+        .iter()
+        .filter(|w| w["rootFolderPath"].is_string())
+        .map(|w| w["movieIds"].clone())
+        .collect()
+}
+
+#[tokio::test]
+async fn one_apply_across_two_instances_sends_each_arr_only_its_own_film() {
+    let (first, second) = (FakeArr::start().await, FakeArr::start().await);
+    let app = TestApp::new().await;
+    two_instances(&app, &first, &second).await;
+
+    let applied = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({
+                "decision_ids": ["d-inst-a", "d-inst-b"], "move_files": true,
+                "confirm": ["batch", "threshold"]
+            }),
+        )
+        .await;
+
+    assert_eq!(applied.assert_ok()["applied"], 2, "a folder weighed the other instance's film");
+    assert_eq!(edited(&first), [serde_json::json!([10])]);
+    assert_eq!(edited(&second), [serde_json::json!([11])]);
+}
+
 /// `confirmed` names the guardrail the caller looked at, so a test that answers
 /// the capacity question does not also answer the batch threshold.
 async fn apply(app: &TestApp, confirmed: &[&str]) -> TestResponse {
@@ -1258,47 +1615,32 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     assert_eq!(allowed.json["failed"], 1, "the move never reached the Arr: {}", allowed.json);
 }
 
-/// Answering one question must not answer the others.
-///
-/// Three guardrails ask through the same mechanism, and each asks under its own
-/// name and lifts only that name. Read as a single boolean, confirming a
-/// capacity shortfall would lift the batch threshold as well, silently, and the
-/// operator would never be shown the second fact.
+/// Every guardrail against every other: with all three asking about one move,
+/// answering the two others never answers the third.
 #[tokio::test]
-async fn confirming_one_guardrail_does_not_lift_another() {
+async fn no_guardrail_is_answered_by_the_others() {
     let app = TestApp::new().await;
     pending_move(&app, 100_000_000_000, 500_000_000_000, 10_000_000_000).await;
-    // Any count at all now exceeds the threshold, so both guardrails have
-    // something to say about the same single decision.
-    sqlx::query("UPDATE settings SET value = '0' WHERE key = 'confirmation_threshold'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.execute(&[
+        "UPDATE settings SET value = '0' WHERE key = 'confirmation_threshold'",
+        "UPDATE root_folders SET accessible = 0, last_accessible_at = '2026-09-20 08:00:00'
+          WHERE id = 'rf-dst'",
+    ])
+    .await;
+    let names = ["unreachable", "capacity", "threshold"];
 
-    let first = apply(&app, &[]).await;
-    assert_eq!(first.status, 409);
-    assert_eq!(
-        first.json["confirm"], "capacity",
-        "the refusal must name which guardrail asked: {}",
-        first.json
-    );
-
-    // The capacity question is answered, and the threshold has not been asked
-    // yet.
-    let second = apply(&app, &["capacity"]).await;
-    assert_eq!(second.status, 409, "confirming capacity applied the plan: {}", second.json);
-    assert_eq!(
-        second.json["confirm"], "threshold",
-        "confirming one guardrail waved the other through: {}",
-        second.json
-    );
-
-    // And answering a question nobody asked lifts nothing.
-    let unrelated = apply(&app, &["batch"]).await;
-    assert_eq!(unrelated.status, 409, "an unrelated name lifted a guardrail: {}", unrelated.json);
-
-    let applied = apply(&app, &["capacity", "threshold"]).await;
-    assert_eq!(applied.status, 200, "both answered, and it still refused: {}", applied.json);
+    // Asked in a fixed order, and a name no guardrail here goes by lifts none.
+    for unrelated in [&[][..], &["batch"][..]] {
+        let first = apply(&app, unrelated).await;
+        assert_eq!(first.json["confirm"], "unreachable", "{unrelated:?}: {}", first.json);
+    }
+    for asked in names {
+        let others: Vec<&str> = names.iter().copied().filter(|name| *name != asked).collect();
+        let answer = apply(&app, &others).await;
+        assert_eq!(answer.status, 409, "{others:?} applied the plan: {}", answer.json);
+        assert_eq!(answer.json["confirm"], asked, "{others:?} answered {asked}: {}", answer.json);
+    }
+    assert_eq!(apply(&app, &names).await.status, 200, "all three answered, and it still refused");
 }
 
 /// Applying a whole simulation asks the same question, scoped to the run

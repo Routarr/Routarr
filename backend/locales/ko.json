@@ -195,7 +195,7 @@
   "ConditionsAllOf": "조건 (모두)",
   "ConditionsAnyOf": "조건 (하나 이상)",
   "Confidence": "신뢰도",
-  "ConfigImportResult": "복원했습니다. 설정: {settings}, 카테고리: {categories}, 인스턴스: {instances}, 매핑: {folders}, 예외: {overrides}.",
+  "ConfigImportResult": "복원했습니다. 설정: {settings}, 카테고리: {categories}, 인스턴스: {instances}, 매핑: {folders}, 규칙: {rules}, 예외: {overrides}.",
   "ConfigImportSkipped": "복원되지 않음: {count}",
   "ConfigImportNeedsKey": "API 키 입력을 기다리는 인스턴스: {names}",
   "ConfirmApply": "Radarr/Sonarr에서 위치를 변경할 항목: {count}",

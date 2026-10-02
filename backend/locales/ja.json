@@ -195,7 +195,7 @@
   "ConditionsAllOf": "条件 (すべて)",
   "ConditionsAnyOf": "条件 (いずれか)",
   "Confidence": "確度",
-  "ConfigImportResult": "復元しました。設定: {settings}、カテゴリ: {categories}、インスタンス: {instances}、マッピング: {folders}、例外: {overrides}。",
+  "ConfigImportResult": "復元しました。設定: {settings}、カテゴリ: {categories}、インスタンス: {instances}、マッピング: {folders}、ルール: {rules}、例外: {overrides}。",
   "ConfigImportSkipped": "復元できなかった項目: {count}",
   "ConfigImportNeedsKey": "API キーの入力待ちのインスタンス: {names}",
   "ConfirmApply": "Radarr/Sonarr で参照先を変更する項目: {count}",

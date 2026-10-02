@@ -314,6 +314,15 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         }
     }
 
+    let reassigned = reassigned(&mut tx, &instance.id, &media).await?;
+    if !reassigned.is_empty() {
+        warn!(
+            instance = %instance.name,
+            count = reassigned.len(),
+            "Arr ids now name other titles: their exceptions and proposals were dropped"
+        );
+        retire_media(&mut tx, &reassigned).await?;
+    }
     for item in &media {
         upsert_media(&mut *tx, &instance.id, item, &tag_labels, &sync_token, &read_at).await?;
     }
@@ -329,11 +338,16 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         );
         (0, 0)
     } else {
+        // Only what was last seen before this pass began reading: the webhook
+        // writes a title the Arr added since under its own timestamp, and that
+        // title is absent from what was read here without being gone.
         let gone: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?",
+            "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?
+               AND (last_synced_at IS NULL OR last_synced_at < ?)",
         )
         .bind(&instance.id)
         .bind(&sync_token)
+        .bind(&read_at)
         .fetch_all(&mut *tx)
         .await?;
         let removed = retire_media(&mut tx, &gone).await?;
@@ -398,7 +412,11 @@ pub async fn sync_single_media(
         }
     };
 
-    upsert_media(&state.pool, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
+    let mut tx = state.pool.begin().await?;
+    let reassigned = reassigned(&mut tx, &instance.id, std::slice::from_ref(&item)).await?;
+    retire_media(&mut tx, &reassigned).await?;
+    upsert_media(&mut *tx, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
+    tx.commit().await?;
 
     Ok(Some(media_row_id(&instance.id, item.arr_id)))
 }
@@ -416,6 +434,42 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
 /// `media`. Superseded here, which is the state the list already hides. The
 /// one writer for both paths that lose a row: the full sync and a delete
 /// event.
+/// The rows whose Arr id now names another title than the one they describe.
+///
+/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
+/// again, and the row's exception and proposals were about the title the id
+/// used to name. Told apart by type and by an external id both sides know.
+async fn reassigned(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+    items: &[crate::integrations::adapter::ArrMedia],
+) -> AppResult<Vec<String>> {
+    type Known = (i64, String, Option<i64>, Option<i64>, Option<String>);
+    let known: std::collections::HashMap<i64, Known> = sqlx::query_as::<_, Known>(
+        "SELECT arr_id, media_type, tmdb_id, tvdb_id, imdb_id FROM media WHERE instance_id = ?",
+    )
+    .bind(instance_id)
+    .fetch_all(&mut **tx)
+    .await?
+    .into_iter()
+    .map(|row| (row.0, row))
+    .collect();
+    let differs =
+        |held: &Option<i64>, now: &Option<i64>| matches!((held, now), (Some(a), Some(b)) if a != b);
+    Ok(items
+        .iter()
+        .filter(|item| {
+            known.get(&item.arr_id).is_some_and(|(_, kind, tmdb, tvdb, imdb)| {
+                kind != item.media_type
+                    || differs(tmdb, &item.tmdb_id)
+                    || differs(tvdb, &item.tvdb_id)
+                    || matches!((imdb, &item.imdb_id), (Some(a), Some(b)) if a.trim() != b.trim())
+            })
+        })
+        .map(|item| media_row_id(instance_id, item.arr_id))
+        .collect())
+}
+
 pub async fn retire_media(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ids: &[String],

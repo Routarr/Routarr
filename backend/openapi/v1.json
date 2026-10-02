@@ -3702,12 +3702,30 @@
             }
           },
           {
-            "description": "The tag labels a title the library does not hold would be added with,\nseparated by commas, for the rules that read tags.",
+            "description": "The tag labels a title the Arr does not hold would be added with,\nseparated by commas, for the rules that read tags.",
             "in": "query",
             "name": "tags",
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "description": "The series type a series Sonarr does not hold would be added with:\n`standard`, `daily` or `anime`. Defaults to what Sonarr's lookup says.",
+            "in": "query",
+            "name": "series_type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Whether a title the Arr does not hold would be added monitored.\nDefaults to true, as Radarr and Sonarr add one.",
+            "in": "query",
+            "name": "monitored",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           },
           {

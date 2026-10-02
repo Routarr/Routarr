@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Умови (усі)",
   "ConditionsAnyOf": "Умови (хоча б одна)",
   "Confidence": "Впевненість",
-  "ConfigImportResult": "Відновлено. Налаштувань: {settings}, категорій: {categories}, екземплярів: {instances}, зіставлень: {folders}, винятків: {overrides}.",
+  "ConfigImportResult": "Відновлено. Налаштувань: {settings}, категорій: {categories}, екземплярів: {instances}, зіставлень: {folders}, правил: {rules}, винятків: {overrides}.",
   "ConfigImportSkipped": "Не відновлено: {count}",
   "ConfigImportNeedsKey": "Екземпляри, що очікують на ключ API: {names}",
   "ConfirmApply": "Елементів для перепризначення в Radarr/Sonarr: {count}",

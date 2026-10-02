@@ -424,15 +424,15 @@ pub async fn import(
 /// Loaded apart from the judging because an import validates a whole bundle:
 /// reading the categories, the mappings and the source coverage per rule would
 /// be a query per item on a path that already has all of them.
-struct Environment {
-    known: Vec<String>,
+pub(crate) struct Environment {
+    pub(crate) known: Vec<String>,
     mapped: Vec<String>,
     covered_fields: Vec<MetadataField>,
     localizer: crate::localization::Localizer,
     current_year: i64,
 }
 
-async fn environment(state: &AppState) -> AppResult<Environment> {
+pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
     Ok(Environment {
         known: sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
         mapped: sqlx::query_scalar(
@@ -451,7 +451,7 @@ async fn environment(state: &AppState) -> AppResult<Environment> {
 }
 
 /// Run the shared validator against one loaded environment.
-fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<ValidationIssue> {
+pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<ValidationIssue> {
     let target_category = req.target_category.trim().to_lowercase();
 
     rule_engine::validate_rule(
@@ -521,7 +521,7 @@ fn reject_on_error(issues: &[ValidationIssue]) -> AppResult<()> {
     ))
 }
 
-async fn insert_rule(
+pub(crate) async fn insert_rule(
     connection: &mut sqlx::SqliteConnection,
     id: &str,
     req: &CreateRuleRequest,
@@ -584,7 +584,7 @@ fn to_rule(id: String, req: &CreateRuleRequest) -> Rule {
     }
 }
 
-fn to_request(rule: Rule) -> CreateRuleRequest {
+pub(crate) fn to_request(rule: Rule) -> CreateRuleRequest {
     CreateRuleRequest {
         name: rule.name,
         description: rule.description,

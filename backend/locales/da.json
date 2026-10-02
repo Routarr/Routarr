@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Betingelser (alle)",
   "ConditionsAnyOf": "Betingelser (mindst én)",
   "Confidence": "Sikkerhed",
-  "ConfigImportResult": "Gendannet. Indstillinger: {settings}, kategorier: {categories}, instanser: {instances}, tilknytninger: {folders}, undtagelser: {overrides}.",
+  "ConfigImportResult": "Gendannet. Indstillinger: {settings}, kategorier: {categories}, instanser: {instances}, tilknytninger: {folders}, regler: {rules}, undtagelser: {overrides}.",
   "ConfigImportSkipped": "Ikke gendannet: {count}",
   "ConfigImportNeedsKey": "Instanser, der venter på deres API-nøgle: {names}",
   "ConfirmApply": "Elementer, der ompeges i Radarr/Sonarr: {count}",

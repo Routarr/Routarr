@@ -508,6 +508,60 @@ async fn a_single_instance_can_be_fetched_back() {
     app.get("/api/v1/instances/nope").await.assert_status(StatusCode::NOT_FOUND);
 }
 
+/// An edit stores what it was sent: the name, the switch and the interval,
+/// which `MAX_SYNC_INTERVAL_MINUTES` bounds.
+#[tokio::test]
+async fn editing_an_instance_stores_its_name_switch_and_interval() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let edit = |interval: i64| {
+        serde_json::json!({
+            "name": "Radarr 4K", "instance_type": "radarr", "base_url": "http://127.0.0.1:1",
+            "api_key": "", "enabled": false, "sync_interval_minutes": interval
+        })
+    };
+
+    app.put("/api/v1/instances/inst-1", edit(120)).await.assert_ok();
+    let stored = app.get("/api/v1/instances/inst-1").await.assert_ok().clone();
+    assert_eq!(
+        (&stored["name"], &stored["enabled"], &stored["sync_interval_minutes"]),
+        (&serde_json::json!("Radarr 4K"), &serde_json::json!(false), &serde_json::json!(120))
+    );
+
+    app.put("/api/v1/instances/inst-1", edit(100_000)).await.assert_ok();
+    let stored = app.get("/api/v1/instances/inst-1").await.assert_ok().clone();
+    assert_eq!(stored["sync_interval_minutes"], crate::jobs::MAX_SYNC_INTERVAL_MINUTES);
+}
+
+/// An instance pointed at another address or another kind of Arr has pending
+/// proposals naming the ids of the Arr it was: they are withdrawn, and the next
+/// simulation after a sync proposes again. A rename keeps them.
+#[tokio::test]
+async fn pointing_an_instance_elsewhere_withdraws_its_proposals() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          current_root_folder, target_root_folder,
+                                          target_category, action, status)
+                   VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', '/movies/standard',
+                           '/movies/anime', 'anime', 'move', 'pending')"])
+        .await;
+    let edit = |base_url: &str, api_key: &str| {
+        serde_json::json!({
+            "name": "Renamed", "instance_type": "radarr", "base_url": base_url,
+            "api_key": api_key, "enabled": true, "sync_interval_minutes": 60
+        })
+    };
+    let withdrawn = "SELECT superseded FROM decisions WHERE id = 'd-1'";
+
+    app.put("/api/v1/instances/inst-1", edit("http://127.0.0.1:1", "")).await.assert_ok();
+    assert_eq!(app.count(withdrawn).await, 0, "a rename withdrew the proposals");
+
+    let elsewhere = edit("http://127.0.0.1:2", "the-other-arrs-key");
+    app.put("/api/v1/instances/inst-1", elsewhere).await.assert_ok();
+    assert_eq!(app.count(withdrawn).await, 1, "the proposals outlived the address they name");
+}
+
 #[tokio::test]
 async fn updating_a_missing_rule_is_a_404() {
     let app = TestApp::new().await;
@@ -555,12 +609,91 @@ async fn reorder_rewrites_priorities_in_order() {
     .await
     .assert_ok();
 
-    let priority: i64 = sqlx::query_scalar("SELECT priority FROM rules WHERE id = ?")
-        .bind(&second)
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(priority, 10);
+    for (rule, expected) in [(&second, 10), (&first, 20)] {
+        let priority: i64 = sqlx::query_scalar("SELECT priority FROM rules WHERE id = ?")
+            .bind(rule)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+        assert_eq!(priority, expected, "the reorder did not give each rule its own place");
+    }
+}
+
+/// Every field a rule carries, none of them at its default.
+fn full_rule_body() -> serde_json::Value {
+    serde_json::json!({
+        "name": "Ghibli films",
+        "description": "Films from the studio, whatever their language",
+        "priority": 30,
+        "enabled": true,
+        "media_type": "movie",
+        "match_mode": "any",
+        "target_category": "kids",
+        "instance_ids": ["inst-1"],
+        "conditions": [
+            { "type": "keyword_contains", "value": ["studio ghibli"] },
+            { "type": "genre_contains", "value": ["Animation"] }
+        ],
+        "exclusions": [{ "type": "genre_contains", "value": ["Horror"] }]
+    })
+}
+
+/// The library, with the `kids` category `full_rule_body` routes to.
+async fn library_with_kids() -> TestApp {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/categories", serde_json::json!({ "name": "kids" })).await.assert_ok();
+    app
+}
+
+/// Each field of `full_rule_body` as `rule` holds it, but those `changed` names.
+fn assert_kept(rule: &serde_json::Value, changed: &[(&str, serde_json::Value)], what: &str) {
+    for (field, sent) in full_rule_body().as_object().unwrap() {
+        let expected = changed.iter().find(|(name, _)| name == field).map_or(sent, |(_, v)| v);
+        assert_eq!(&rule[field], expected, "{what} lost {field}");
+    }
+}
+
+#[tokio::test]
+async fn editing_a_rule_stores_every_field_it_was_sent() {
+    let app = library_with_kids().await;
+    let id = app.post("/api/v1/rules", anime_rule_body()).await.assert_ok()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    app.put(&format!("/api/v1/rules/{id}"), full_rule_body()).await.assert_ok();
+
+    let stored = app.get(&format!("/api/v1/rules/{id}")).await;
+    assert_kept(stored.assert_ok(), &[], "the edit");
+}
+
+#[tokio::test]
+async fn a_duplicate_and_an_export_keep_every_field_of_a_rule() {
+    let app = library_with_kids().await;
+    let id = app.post("/api/v1/rules", full_rule_body()).await.assert_ok()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let copy = app.post(&format!("/api/v1/rules/{id}/duplicate"), serde_json::json!({})).await;
+    let copy_changes =
+        [("name", serde_json::json!("Ghibli films (copy)")), ("enabled", serde_json::json!(false))];
+    assert_kept(copy.assert_ok(), &copy_changes, "the duplicate");
+
+    let bundle = app.get("/api/v1/rules/export").await.assert_ok().clone();
+    let replace = serde_json::json!({ "bundle": bundle, "replace": true });
+    app.post("/api/v1/rules/import", replace).await.assert_ok();
+    let rules = app.get("/api/v1/rules").await.assert_ok().clone();
+    let imported = rules
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|rule| rule["name"] == "Ghibli films")
+        .expect("the rule came back");
+    // Instance ids name this installation's instances, and a bundle travels.
+    let host_specific = [("instance_ids", serde_json::Value::Null)];
+    assert_kept(imported, &host_specific, "the export and import");
 }
 
 #[tokio::test]
@@ -819,15 +952,35 @@ async fn the_condition_catalog_is_served() {
 
 // ------------------------------------------------------------ categories
 
+/// Categories are joined by name with no foreign key, so each thing naming
+/// one keeps it: a rule, a folder mapping, an exception and a rule test, each
+/// alone. One nothing names goes.
 #[tokio::test]
 async fn a_category_in_use_cannot_be_deleted() {
+    let uses: [&'static str; 4] = [
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, exclusions,
+                            match_mode, target_category)
+         VALUES ('r-k', 'Kids', 10, 1, 'both', '[]', '[]', 'all', 'kids')",
+        "UPDATE root_folders SET category = 'kids' WHERE id = 'rf-1'",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-k', 'm-1', 'kids')",
+        "INSERT INTO rule_tests (id, name, media_type, media_json, evaluated_at, expected_category)
+         VALUES ('t-k', 'Totoro is for kids', 'movie', '{}', '2026-09-01 00:00:00', 'kids')",
+    ];
+    for using in uses {
+        let app = TestApp::new().await;
+        app.seed_library().await;
+        app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-kids', 'kids')", using])
+            .await;
+
+        let response = app.delete("/api/v1/categories/cat-kids").await;
+
+        response.assert_status(StatusCode::CONFLICT);
+        assert!(response.message().contains("still in use"), "{using}: {}", response.message());
+    }
     let app = TestApp::new().await;
     app.seed_library().await;
-    app.post("/api/v1/rules", anime_rule_body()).await.assert_ok();
-
-    let response = app.delete("/api/v1/categories/cat-anime").await;
-    response.assert_status(StatusCode::CONFLICT);
-    assert!(response.message().contains("still in use"));
+    app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-kids', 'kids')"]).await;
+    app.delete("/api/v1/categories/cat-kids").await.assert_ok();
 }
 
 #[tokio::test]
@@ -849,6 +1002,25 @@ async fn mapping_the_same_category_twice_on_one_instance_is_refused() {
         .put("/api/v1/root-folders/rf-1/category", serde_json::json!({ "category": "anime" }))
         .await;
     response.assert_status(StatusCode::CONFLICT);
+}
+
+/// The ambiguity is within one instance: a category mapped on each of two
+/// instances is one folder per instance, which is what routing reads.
+#[tokio::test]
+async fn one_category_is_mapped_once_on_each_instance() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_instance_at("inst-2", "radarr", "http://127.0.0.1:1").await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, arr_id, path, accessible)
+                   VALUES ('rf-other', 'inst-2', 1, '/data/anime', 1)"])
+        .await;
+
+    let mapped = app
+        .put("/api/v1/root-folders/rf-other/category", serde_json::json!({ "category": "anime" }))
+        .await;
+
+    mapped.assert_ok();
+    assert_eq!(app.count("SELECT COUNT(*) FROM root_folders WHERE category = 'anime'").await, 2);
 }
 
 #[tokio::test]
@@ -1163,10 +1335,13 @@ async fn valid_settings_are_stored() {
 }
 
 /// A client reading every setting and writing them all back, as a script
-/// backing them up does, is not refused on a fresh database.
+/// backing them up does, is not refused, and leaves a stored credential as it
+/// was: the credential is never read back, so it is never written over.
 #[tokio::test]
 async fn every_setting_read_can_be_written_back_as_it_came() {
     let app = TestApp::new().await;
+    let key = serde_json::json!({ "settings": { "tmdb_api_key": "a-tmdb-key" } });
+    app.put("/api/v1/settings", key).await.assert_ok();
     let read = app.get("/api/v1/settings").await.assert_ok().clone();
     let values: serde_json::Map<String, serde_json::Value> = read
         .as_object()
@@ -1177,6 +1352,8 @@ async fn every_setting_read_can_be_written_back_as_it_came() {
         .collect();
 
     app.put("/api/v1/settings", serde_json::json!({ "settings": values })).await.assert_ok();
+    let after = app.get("/api/v1/settings").await;
+    assert_eq!(after.assert_ok()["tmdb_api_key_configured"], true, "the write-back erased it");
 }
 
 // ------------------------------------------------------------ decisions
@@ -1860,6 +2037,22 @@ async fn the_badge_reports_what_the_last_probe_found() {
     );
 }
 
+/// A look without a probe leaves the last probe's findings as they were: the
+/// dashboard opens `/health?probe=false`, and erasing them there would hide an
+/// Arr that is down.
+#[tokio::test]
+async fn a_look_without_a_probe_keeps_what_the_last_probe_found() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+
+    app.get("/api/v1/health").await.assert_ok();
+    app.get("/api/v1/health?probe=false").await.assert_ok();
+
+    let warnings = warning_messages(app.get("/api/v1/status").await.assert_ok());
+    let down = warnings.iter().any(|w| w.contains("Fake radarr") && w.contains("is unreachable"));
+    assert!(down, "a look without a probe erased the probe's finding: {warnings:?}");
+}
+
 /// A verdict is replaced, never accumulated: an instance that answers again has
 /// to stop being reported, or the warning outlives the fault that caused it.
 #[tokio::test]
@@ -2006,13 +2199,30 @@ async fn a_search_wildcard_is_matched_literally() {
     );
 }
 
+/// A retention of 0 keeps everything, as the setting's help says: a purge
+/// reading it as a window deletes every log, task and proposal at once.
+#[tokio::test]
+async fn a_retention_of_zero_keeps_everything() {
+    let app = aged_rows().await;
+    app.store_setting("log_retention_days", "0").await;
+    app.store_setting("decision_retention_days", "0").await;
+
+    let response = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
+
+    let report = response.assert_ok();
+    for removed in ["logs_removed", "jobs_removed", "decisions_removed"] {
+        assert_eq!(report[removed], 0, "{removed}: {report}");
+    }
+}
+
 /// What outlived its retention goes, what is younger stays, and the report the
 /// Settings screen renders says how much went. Under the default windows, 90
 /// days for logs and jobs and 30 for proposals, each table holds a row a day
 /// past its window and a row a day inside it. A running job is never purged,
 /// however old.
-#[tokio::test]
-async fn purging_removes_what_outlived_its_retention_and_reports_it() {
+/// A row a day past each default window and a row a day inside it, and a
+/// running job older than any.
+async fn aged_rows() -> TestApp {
     let app = TestApp::new().await;
     app.seed_library().await;
     for statement in [
@@ -2032,6 +2242,12 @@ async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     ] {
         sqlx::query(statement).execute(&app.state.pool).await.unwrap();
     }
+    app
+}
+
+#[tokio::test]
+async fn purging_removes_what_outlived_its_retention_and_reports_it() {
+    let app = aged_rows().await;
 
     let response = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
     let report = response.assert_ok();

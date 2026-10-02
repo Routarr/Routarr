@@ -195,7 +195,7 @@
   "ConditionsAllOf": "الشروط (كلها)",
   "ConditionsAnyOf": "الشروط (أيّها)",
   "Confidence": "الثقة",
-  "ConfigImportResult": "تمت الاستعادة. الإعدادات: {settings}، الفئات: {categories}، النسخ: {instances}، الارتباطات: {folders}، الاستثناءات: {overrides}.",
+  "ConfigImportResult": "تمت الاستعادة. الإعدادات: {settings}، الفئات: {categories}، النسخ: {instances}، الارتباطات: {folders}، القواعد: {rules}، الاستثناءات: {overrides}.",
   "ConfigImportSkipped": "لم تُستعَد: {count}",
   "ConfigImportNeedsKey": "نسخ بانتظار مفتاح API الخاص بها: {names}",
   "ConfirmApply": "العناصر التي سيُعاد توجيهها في Radarr/Sonarr: {count}",

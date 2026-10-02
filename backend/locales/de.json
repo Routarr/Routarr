@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Bedingungen (alle)",
   "ConditionsAnyOf": "Bedingungen (mindestens eine)",
   "Confidence": "Konfidenz",
-  "ConfigImportResult": "Wiederhergestellt. Einstellungen: {settings}, Kategorien: {categories}, Instanzen: {instances}, Zuordnungen: {folders}, Ausnahmen: {overrides}.",
+  "ConfigImportResult": "Wiederhergestellt. Einstellungen: {settings}, Kategorien: {categories}, Instanzen: {instances}, Zuordnungen: {folders}, Regeln: {rules}, Ausnahmen: {overrides}.",
   "ConfigImportSkipped": "Nicht wiederhergestellt: {count}",
   "ConfigImportNeedsKey": "Instanzen, die auf ihren API-Schlüssel warten: {names}",
   "ConfirmApply": "In Radarr/Sonarr umzuhängende Einträge: {count}",

@@ -427,6 +427,33 @@ async fn every_route_that_moves_refuses_files_to_a_key_not_allowed_them() {
     }
 }
 
+/// A key's moves are logged under its name, its apply and its revert both:
+/// the Logs screen tells them from the owner's.
+#[tokio::test]
+async fn a_keys_apply_and_revert_are_logged_under_its_name() {
+    let arr = FakeArr::start().await;
+    let (app, body) = ready_to_move(&arr, "apply").await;
+    let every = ["batch", "threshold", "capacity", "unreachable"];
+    let key = json!({ "name": "cron", "scopes": ["operate"], "may_confirm": every });
+    let key = mint(&app, None, key).await;
+    let mut sent = body.clone();
+    sent["confirm"] = json!(every);
+
+    send(&app, "POST", "/api/v1/decisions/apply", Some(&key), Some(sent.clone())).await.assert_ok();
+    send(&app, "POST", "/api/v1/decisions/revert", Some(&key), Some(sent)).await.assert_ok();
+
+    let logged: Vec<(String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT action, actor, subject FROM execution_logs WHERE media_id = 'm-0'
+          ORDER BY executed_at, rowid",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    let as_cron =
+        |action: &str| (action.to_string(), Some("api".to_string()), Some("cron".to_string()));
+    assert_eq!(logged, [as_cron("move"), as_cron("revert")]);
+}
+
 /// Mark a folder as not answering, as a sync that found the NAS asleep does.
 async fn asleep(app: &TestApp, path: &str) {
     sqlx::query(

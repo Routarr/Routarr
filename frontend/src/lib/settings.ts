@@ -65,8 +65,8 @@ const CONFIGURED = '_configured';
 
 /**
  * `GET /settings` split in two: the values the form edits, and the sealed
- * settings that hold one, which the server answers with an empty value and a
- * `<key>_configured` boolean.
+ * settings that hold one, which the server leaves out and answers with a
+ * `<key>_configured` boolean only.
  */
 export function splitStored(stored: StoredSettings): { values: Settings; sealed: string[] } {
   const values: Settings = {};

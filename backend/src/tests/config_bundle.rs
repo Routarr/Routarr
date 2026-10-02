@@ -287,6 +287,121 @@ async fn a_mapping_whose_folder_is_not_synced_yet_is_reported_not_dropped() {
     );
 }
 
+/// A rule scoped to the configured installation's instance.
+async fn with_a_scoped_rule(app: &TestApp) {
+    let rule = serde_json::json!({
+        "name": "Ghibli", "media_type": "movie", "target_category": "kids",
+        "instance_ids": ["inst-1"], "exclusions": [{ "type": "genre_contains", "value": ["Horror"] }],
+        "conditions": [{ "type": "keyword_contains", "value": ["studio ghibli"] }]
+    });
+    app.post("/api/v1/rules", rule).await.assert_ok();
+}
+
+/// The rules travel with the rest, their instance scope by name: on another
+/// installation the instance has another id, and the rule follows it there.
+#[tokio::test]
+async fn the_configuration_brings_its_rules_back_scoped_to_the_same_instance() {
+    let source = configured().await;
+    with_a_scoped_rule(&source).await;
+    let bundle = export(&source).await;
+    let target = TestApp::new().await;
+
+    let report =
+        target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await;
+
+    assert_eq!(report.assert_ok()["rules"], 1, "{:?}", report.json);
+    let rules = target.get("/api/v1/rules").await.assert_ok().clone();
+    let rule = &rules[0];
+    assert_eq!(rule["name"], "Ghibli");
+    assert_eq!(rule["exclusions"][0]["value"][0], "Horror");
+    let instance: String = sqlx::query_scalar("SELECT id FROM instances WHERE name = 'Radarr'")
+        .fetch_one(&target.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(rule["instance_ids"], serde_json::json!([instance]), "the scope was lost");
+}
+
+/// As the Rules screen does: the bundle's rules join the ones in place, or
+/// replace them when asked, and a bundle with no rule replaces nothing.
+#[tokio::test]
+async fn the_configuration_rules_join_or_replace_the_rules_in_place() {
+    let source = configured().await;
+    with_a_scoped_rule(&source).await;
+    let bundle = export(&source).await;
+    let mut no_rules = bundle.clone();
+    no_rules["rules"] = serde_json::json!([]);
+
+    for (sent, replace, expected) in [(&bundle, false, 2), (&bundle, true, 1), (&no_rules, true, 1)]
+    {
+        let target = TestApp::new().await;
+        target.seed_library().await;
+        target.seed_anime_rule().await;
+        let request = serde_json::json!({ "bundle": sent, "replace_rules": replace });
+        target.post("/api/v1/config/import", request).await.assert_ok();
+        let rules = target.count("SELECT COUNT(*) FROM rules").await;
+        assert_eq!(
+            rules,
+            expected,
+            "replace {replace}, {} rule(s) sent",
+            sent["rules"].as_array().unwrap().len()
+        );
+    }
+}
+
+/// The same film held by a second instance, as a 4K Radarr holds it.
+async fn second_copy(app: &TestApp) {
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('inst-2', 'Radarr 4K', 'radarr', 'http://127.0.0.1:1', 'k', 1, 'tok-2')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tmdb_id, monitored,
+                            has_files)
+         VALUES ('m-2', 'inst-2', 10, 'movie', 'My Neighbor Totoro', 1988, 8392, 1, 1)",
+    ])
+    .await;
+}
+
+/// Two instances holding one film hold two titles, each with its own
+/// exception, and an exception comes back on the copy it was pinned on.
+#[tokio::test]
+async fn an_exception_comes_back_on_the_copy_it_was_pinned_on() {
+    let source = configured().await;
+    second_copy(&source).await;
+    source.execute(&["UPDATE overrides SET media_id = 'm-2' WHERE id = 'o-1'"]).await;
+    let bundle = export(&source).await;
+    let target = TestApp::new().await;
+    target.seed_library().await;
+    second_copy(&target).await;
+
+    let report =
+        target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await;
+
+    assert_eq!(report.assert_ok()["overrides"], 1);
+    let pinned: Vec<String> = sqlx::query_scalar("SELECT media_id FROM overrides")
+        .fetch_all(&target.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(pinned, ["m-2"], "the exception landed on the other instance's copy");
+}
+
+/// A bundle naming no instance cannot say which copy was meant: every copy is
+/// pinned, and the report says so.
+#[tokio::test]
+async fn an_exception_naming_no_instance_is_pinned_on_every_copy_and_said() {
+    let source = configured().await;
+    let mut bundle = export(&source).await;
+    bundle["overrides"][0].as_object_mut().unwrap().remove("instance_name");
+    let target = TestApp::new().await;
+    target.seed_library().await;
+    second_copy(&target).await;
+
+    let report =
+        target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await;
+
+    let report = report.assert_ok();
+    assert_eq!(target.count("SELECT COUNT(*) FROM overrides").await, 2);
+    assert!(report["skipped"].to_string().contains("every copy"), "{report}");
+}
+
 #[tokio::test]
 async fn an_override_lands_once_its_media_exists() {
     let source = configured().await;

@@ -132,7 +132,7 @@ async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
     assert!(stored.starts_with("enc:v1:"), "stored in the clear: {stored}");
 
     let body = app.get("/api/v1/settings").await.assert_ok().clone();
-    assert_eq!(body["notification_webhook_url"], "", "the address came back out");
+    assert!(body.get("notification_webhook_url").is_none(), "the address came back out");
     assert_eq!(body["notification_webhook_url_configured"], true);
     assert!(!body.to_string().contains("hook-secret"), "the secret is in the payload");
 }
@@ -162,6 +162,40 @@ async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
     let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
     crate::services::notify::send(&app.state, event).await;
     assert_eq!(receiver.messages().len(), 1, "the sealed address no longer delivers");
+}
+
+/// The signing secrets go through the same startup pass: one in the clear
+/// comes back sealed and opens to the same text, and one no key can open is
+/// the only copy, left byte for byte.
+#[tokio::test]
+async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept() {
+    let app = TestApp::new().await;
+    let foreign = crate::crypto::SecretBox::load(
+        Some("a-master-key-this-installation-never-had"),
+        None,
+        std::path::Path::new("/nonexistent"),
+    )
+    .unwrap()
+    .seal("whsec_the-only-copy")
+    .unwrap();
+    for secret in ["whsec_left-in-the-clear", foreign.as_str()] {
+        sqlx::query("INSERT INTO webhook_secrets (secret) VALUES (?)")
+            .bind(secret)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+    }
+
+    crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
+
+    let stored: Vec<String> =
+        sqlx::query_scalar("SELECT secret FROM webhook_secrets ORDER BY rowid")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert!(stored[0].starts_with("enc:v1:"), "left in the clear: {}", stored[0]);
+    assert_eq!(app.state.secrets.open(&stored[0]).unwrap(), "whsec_left-in-the-clear");
+    assert_eq!(stored[1], foreign, "the only copy of a signing secret was overwritten");
 }
 
 #[tokio::test]
