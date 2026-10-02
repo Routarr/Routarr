@@ -196,3 +196,52 @@ async fn a_series_is_placed_through_sonarr() {
     let unknown = app.get("/api/v1/route?type=series&tvdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 }
+
+/// An instance whose key cannot be opened fails for a reason that belongs to
+/// the operator's log, not to whoever asked: the decryption error names the
+/// variable that holds the master key. `/route` and the task list say that
+/// something failed inside, and the log keeps the detail.
+#[tokio::test]
+async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    radarr_library(&app, &arr).await;
+    let foreign = crate::crypto::SecretBox::load(
+        Some("a-master-key-this-installation-never-had"),
+        None,
+        std::path::Path::new("/nonexistent"),
+    )
+    .unwrap()
+    .seal("arr-key")
+    .unwrap();
+    sqlx::query("UPDATE instances SET api_key = ?")
+        .bind(&foreign)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    let placed = app.get("/api/v1/route?type=movie&tmdb=129").await;
+    let told = placed.json["errors"][0]["error"].as_str().unwrap_or_default().to_string();
+    assert!(!told.is_empty(), "{:?}", placed.json);
+    assert!(!told.to_lowercase().contains("decrypt"), "the caller read {told}");
+
+    app.post("/api/v1/instances/inst-1/sync", serde_json::json!({})).await;
+    let jobs = app.get("/api/v1/jobs?status=failed").await;
+    let failed = &jobs.assert_ok()["data"][0];
+    assert_eq!(failed["kind"], "sync", "{:?}", jobs.json);
+    let told = failed["error_message"].as_str().unwrap_or_default();
+    assert!(
+        !told.is_empty() && !told.to_lowercase().contains("decrypt"),
+        "the task list read {told}"
+    );
+
+    // A probe records what it found, and `/status`, which any key reads,
+    // repeats it.
+    let probed = app.get("/api/v1/health").await;
+    let status =
+        probed.assert_ok()["instances"][0]["status"].as_str().unwrap_or_default().to_string();
+    assert!(status.starts_with("error"), "{:?}", probed.json);
+    assert!(!status.to_lowercase().contains("decrypt"), "the probe told {status}");
+    let warnings = app.get("/api/v1/status").await.assert_ok()["warnings"].to_string();
+    assert!(!warnings.to_lowercase().contains("decrypt"), "/status told {warnings}");
+}

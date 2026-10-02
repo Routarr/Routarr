@@ -28,6 +28,11 @@ pub async fn run(
     answer(&state, prefers_async(&headers), work).await
 }
 
+/// The queue of previews, and how long it may grow: the two that run beside
+/// each other and two waiting their turn.
+const PREVIEW_QUEUE: &str = "preview";
+const MAX_QUEUED_PREVIEWS: usize = 2 * routing::MAX_CONCURRENT_LIBRARY_PASSES;
+
 async fn simulate(
     state: AppState,
     by: Attribution,
@@ -49,6 +54,22 @@ async fn simulate(
         }
     } else {
         None
+    };
+    // A preview waits for its pass rather than being refused, and with
+    // `Prefer: respond-async` it answers before it holds one: without a bound,
+    // a caller that does not wait queues them without end, and every apply
+    // behind them waits too. The place is kept until the pass has run.
+    let _queued = if req.persist {
+        None
+    } else {
+        match state.jobs.try_wait(PREVIEW_QUEUE, MAX_QUEUED_PREVIEWS) {
+            Some(place) => Some(place),
+            None => {
+                return Err(crate::error::AppError::Conflict(
+                    state.localizer().await.translate("ErrorPreviewsWaiting", &[]),
+                ));
+            }
+        }
     };
 
     let mut job =
@@ -99,7 +120,7 @@ async fn simulate(
             )
             .await
         }
-        Err(e) => job.fail(&e.to_string()).await,
+        Err(e) => job.fail(e).await,
     }
 
     outcome

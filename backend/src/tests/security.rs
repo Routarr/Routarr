@@ -597,7 +597,8 @@ async fn a_password_change_keeps_its_cleared_cookie_on_a_renewed_session() {
 
 /// A refused sign-in leaves a line naming where it came from, which is what a
 /// fail2ban filter reads, and never the password that was tried. Behind a
-/// proxy on the same network, where it came from is what the proxy forwarded.
+/// proxy listed in `ROUTARR_TRUSTED_PROXIES`, where it came from is what the
+/// proxy forwarded.
 #[tokio::test]
 async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password() {
     use axum::extract::ConnectInfo;
@@ -605,6 +606,9 @@ async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password()
     use tracing_subscriber::layer::SubscriberExt;
 
     let (app, _dir) = forms_app("refusal-log").await;
+    let mut config = (*app.state.config).clone();
+    config.trusted_proxies = vec![[172, 18, 0, 2].into()];
+    let app = TestApp::around(app.state.clone().with_config(config));
     let tried = "not the password at all";
     let mut request = Request::post("/api/v1/auth/login")
         .header("content-type", "application/json")
@@ -870,6 +874,7 @@ async fn a_cross_origin_write_is_refused_in_every_mode() {
     for mode in [AuthMode::None, AuthMode::External] {
         let mut config = crate::config::Config::for_tests();
         config.auth_mode = mode;
+        config.allowed_hosts = vec!["routarr.local".to_string()];
         let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
         let write = |origin: &str| {
             Request::post("/api/v1/simulate")
@@ -885,6 +890,90 @@ async fn a_cross_origin_write_is_refused_in_every_mode() {
         let own = app.send(write("http://routarr.local")).await.status;
         assert!(own.is_success(), "{mode:?}: this application's own write was refused: {own}");
     }
+}
+
+/// In `none`, a page of another site can make its own name resolve to
+/// Routarr's address (DNS rebinding), and the browser then treats its calls as
+/// same-origin. Routarr answers only to an address, `localhost`, or a name
+/// `ROUTARR_ALLOWED_HOSTS` lists. `external` leaves the host to its proxy.
+#[tokio::test]
+async fn in_none_mode_routarr_answers_only_to_its_own_names() {
+    use crate::config::AuthMode;
+
+    let mut config = crate::config::Config::for_tests();
+    config.auth_mode = AuthMode::None;
+    config.allowed_hosts = vec!["nas.lan".to_string()];
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+    let read = |host: &str| {
+        Request::get("/api/v1/backups").header("host", host).body(Body::empty()).unwrap()
+    };
+
+    let rebound = app.send(read("rebind.example:9876")).await;
+    assert_eq!(rebound.status, StatusCode::FORBIDDEN, "a rebound name read the backups");
+    assert!(rebound.message().contains("ROUTARR_ALLOWED_HOSTS"), "{}", rebound.message());
+    for own in ["127.0.0.1:9876", "localhost:9876", "[::1]:9876", "192.168.1.20", "NAS.lan:9876"] {
+        let answered = app.send(read(own)).await.status;
+        assert!(answered.is_success(), "{own} was refused: {answered}");
+    }
+
+    let mut config = crate::config::Config::for_tests();
+    config.auth_mode = AuthMode::External;
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+    assert!(app.send(read("routarr.example.com")).await.status.is_success());
+}
+
+/// An origin listed in `ROUTARR_CORS_ORIGINS` is one the operator trusts to
+/// call from a browser: it writes as Routarr's own pages do, asks not to wait
+/// with `Prefer`, and reads the task a 202 names in `Location`.
+#[tokio::test]
+async fn a_listed_origin_writes_and_follows_a_task_from_another_page() {
+    use crate::config::AuthMode;
+    use tower::ServiceExt;
+
+    let mut config = crate::config::Config::for_tests();
+    config.auth_mode = AuthMode::None;
+    config.cors_origins = vec!["https://dash.lan".to_string()];
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+
+    let write = Request::post("/api/v1/simulate")
+        .header("content-type", "application/json")
+        .header("origin", "https://dash.lan")
+        .header("host", "127.0.0.1:9876")
+        .body(Body::from("{}"))
+        .unwrap();
+    let written = app.send(write).await;
+    assert!(written.status.is_success(), "a listed origin's write was refused: {}", written.status);
+
+    let preflight = Request::builder()
+        .method("OPTIONS")
+        .uri("/api/v1/simulate")
+        .header("origin", "https://dash.lan")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type, prefer")
+        .body(Body::empty())
+        .unwrap();
+    let answered = app.router.clone().oneshot(preflight).await.unwrap();
+    let allowed = answered
+        .headers()
+        .get("access-control-allow-headers")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(allowed.contains("prefer"), "the preflight refuses Prefer: {allowed:?}");
+
+    let get = Request::get("/api/v1/status")
+        .header("origin", "https://dash.lan")
+        .header("host", "127.0.0.1:9876")
+        .body(Body::empty())
+        .unwrap();
+    let read = app.router.clone().oneshot(get).await.unwrap();
+    let exposed = read
+        .headers()
+        .get("access-control-expose-headers")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    assert!(exposed.contains("location"), "a 202's Location is hidden from the page: {exposed:?}");
 }
 
 /// Sends a write with the cookie and the given browser and proxy headers.
@@ -1879,4 +1968,40 @@ async fn the_webhook_token_never_reaches_the_log() {
         "positive control: the delivery and its failure were logged at all:\n{log}"
     );
     assert!(!log.contains(token), "the webhook token is in the log:\n{log}");
+}
+
+/// `routarr reset-account` is how a locked-out operator gets back in: the
+/// image has no `sqlite3`, and the server can keep running. The account takes
+/// a new password, printed and written beside the database, the old one stops
+/// working, and every session it had opened is closed.
+#[tokio::test]
+async fn resetting_the_account_gives_a_new_password_and_closes_every_session() {
+    use crate::services::accounts;
+
+    let app = TestApp::new().await;
+    let dir = super::TempDir::new("reset-account");
+    let password_path = dir.join("routarr.password");
+    accounts::ensure_account(&app.state.pool, &password_path).await.unwrap();
+    let old = std::fs::read_to_string(&password_path).unwrap();
+    sqlx::query(
+        "INSERT INTO sessions (id, subject, source, expires_at)
+         VALUES ('s-1', 'admin', 'forms', datetime('now', '+7 days'))",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let new = accounts::reset_account(&app.state.pool, &password_path).await.unwrap();
+
+    assert_ne!(new, old);
+    assert_eq!(std::fs::read_to_string(&password_path).unwrap(), new);
+    let (username, hash) = accounts::account(&app.state.pool).await.unwrap().expect("an account");
+    assert_eq!(username, accounts::DEFAULT_USERNAME);
+    assert!(accounts::verify_password(&new, &hash), "the new password does not sign in");
+    assert!(!accounts::verify_password(&old, &hash), "the old password still signs in");
+    let sessions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(sessions, 0, "a session survived the reset");
 }

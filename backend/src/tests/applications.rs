@@ -9,7 +9,9 @@ use super::fake_arr::FakeArr;
 use super::security::{OPEN, declared_routes};
 use super::{TestApp, TestResponse};
 use crate::api::applications::{GRANTS, scope_for};
+use crate::config::{AuthMode, Config, normalise_base_path};
 use crate::services::applications::Scope;
+use crate::state::AppState;
 
 const MASTER: &str = "master-key-for-the-owner";
 
@@ -89,6 +91,99 @@ async fn a_key_with_every_scope_still_reaches_no_route_of_the_owner() {
     let token =
         mint(&app, Some(MASTER), json!({ "name": "cron", "scopes": ["operate", "write"] })).await;
     walk(&app, &token, &[Scope::Operate, Scope::Write]).await;
+}
+
+/// What a key holding no scope beyond `read` is refused, written by hand
+/// rather than read from `GRANTS`: a grant lowered to `read` in the table
+/// leaves this list behind, and the walk above, which reads the table, would
+/// follow it.
+const BEYOND_READ: &[(&str, &str)] = &[
+    ("GET", "/api/v1/health"),
+    ("POST", "/api/v1/instances/sync"),
+    ("POST", "/api/v1/instances/probe/sync"),
+    ("POST", "/api/v1/simulate"),
+    ("POST", "/api/v1/decisions/apply"),
+    ("POST", "/api/v1/decisions/apply-all"),
+    ("POST", "/api/v1/decisions/revert"),
+    ("POST", "/api/v1/overrides"),
+    ("DELETE", "/api/v1/overrides/probe"),
+    ("PUT", "/api/v1/overrides/external"),
+    ("DELETE", "/api/v1/overrides/external"),
+];
+
+#[tokio::test]
+async fn a_read_key_changes_nothing_whatever_the_table_says() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token = mint(&app, Some(MASTER), json!({ "name": "homepage" })).await;
+
+    let writes: Vec<_> = declared_routes()
+        .into_iter()
+        .filter(|(method, path)| *method != "GET" && !OPEN.contains(&(*method, path.as_str())))
+        .collect();
+    assert!(writes.len() > 10, "only {} write route(s) parsed out of main.rs", writes.len());
+    let named = BEYOND_READ.iter().map(|(method, path)| (*method, path.to_string()));
+    for (method, path) in writes.into_iter().chain(named) {
+        let status = send(&app, method, &path, Some(&token), Some(json!({}))).await.status;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path} answered a read key {status}");
+    }
+}
+
+/// An operator chooses the master key, and one that starts like an
+/// application key is still the owner's.
+#[tokio::test]
+async fn a_master_key_shaped_like_an_application_key_keeps_the_owners_reach() {
+    let master = "rtr_the_owner_chose_this";
+    let app = TestApp::with_api_key(master).await;
+    let token = mint(&app, Some(master), json!({ "name": "homepage" })).await;
+
+    send(&app, "GET", "/api/v1/applications", Some(master), None).await.assert_ok();
+    let refused = send(&app, "GET", "/api/v1/applications", Some(&token), None).await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
+}
+
+#[tokio::test]
+async fn an_application_key_sent_as_a_bearer_token_is_held_to_its_scopes() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token = mint(&app, Some(MASTER), json!({ "name": "homepage" })).await;
+    let bearer = |method: &str, path: &str| {
+        Request::builder()
+            .method(method)
+            .uri(path)
+            .header(axum::http::header::AUTHORIZATION, format!("Bearer {token}"))
+            .header(axum::http::header::CONTENT_TYPE, "application/json")
+            .body(Body::from("{}"))
+            .unwrap()
+    };
+
+    assert_eq!(app.send(bearer("GET", "/api/v1/status")).await.status, StatusCode::OK);
+    for (method, path) in [("POST", "/api/v1/decisions/apply"), ("GET", "/api/v1/applications")] {
+        let status = app.send(bearer(method, path)).await.status;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path} answered a bearer read key");
+    }
+}
+
+/// Under a mount point the matched route carries the prefix, and the grant
+/// is still found by the part after `/api/v1`.
+#[tokio::test]
+async fn an_application_key_is_held_to_its_scopes_under_a_mount_point() {
+    let mut config = Config::for_tests();
+    config.api_key = Some(MASTER.to_string());
+    config.auth_mode = AuthMode::ApiKey;
+    config.base_path = normalise_base_path("/routarr");
+    let app = TestApp::around(AppState::for_tests().await.with_config(config));
+    let body = json!({ "name": "homepage" });
+    let minted = send(&app, "POST", "/routarr/api/v1/applications", Some(MASTER), Some(body)).await;
+    let token = minted.assert_ok()["token"].as_str().expect("a token").to_string();
+
+    send(&app, "GET", "/routarr/api/v1/status", Some(&token), None).await.assert_ok();
+    let one = send(&app, "GET", "/routarr/api/v1/media/probe", Some(&token), None).await;
+    assert_eq!(one.status, StatusCode::NOT_FOUND, "{:?}", one.json);
+    for (method, path) in
+        [("POST", "/routarr/api/v1/instances/probe/sync"), ("GET", "/routarr/api/v1/applications")]
+    {
+        let status = send(&app, method, path, Some(&token), Some(json!({}))).await.status;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path} answered a read key {status}");
+    }
 }
 
 /// A pinning bot cannot apply, and an applying cron cannot pin.
@@ -237,50 +332,229 @@ async fn an_application_leaves_its_name_on_the_tasks_and_decisions_it_starts() {
     }
 }
 
-/// A key not given a guardrail sees the question with `answerable: false`,
-/// and sending the name back does not lift it. The owner sees the same
-/// question marked answerable.
+/// The three routes that move files, each over two films a simulation
+/// proposes, with the body a caller sends and the guardrail it is asked first.
+/// The revert's films are applied by the owner beforehand. The threshold is
+/// set at one, so moving both asks it.
+const MOVING: [(&str, &str); 3] =
+    [("apply", "threshold"), ("apply-all", "batch"), ("revert", "threshold")];
+
+async fn ready_to_move(arr: &FakeArr, route: &str) -> (TestApp, Value) {
+    let app = TestApp::films_to_move(arr, 2).await;
+    let simulation = app.simulate().await;
+    let ids: Vec<String> =
+        sqlx::query_scalar("SELECT id FROM decisions WHERE simulation_id = ? ORDER BY id")
+            .bind(&simulation)
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let body = match route {
+        "apply-all" => json!({ "simulation_id": simulation }),
+        "apply" => json!({ "decision_ids": ids }),
+        _ => {
+            let all = json!({ "simulation_id": simulation, "confirm": ["batch"] });
+            let applied = send(&app, "POST", "/api/v1/decisions/apply-all", None, Some(all)).await;
+            assert_eq!(applied.assert_ok()["applied"], 2);
+            json!({ "decision_ids": ids })
+        }
+    };
+    app.store_setting("confirmation_threshold", "1").await;
+    (app, body)
+}
+
+/// A key not given a guardrail sees the question with `answerable: false` on
+/// every route that moves files, and sending the name back does not lift it.
+/// The owner sees the same question marked answerable, and a key given the
+/// name moves.
 #[tokio::test]
-async fn a_guardrail_a_key_was_not_given_is_referred_to_a_person() {
+async fn every_route_that_moves_refers_a_guardrail_the_key_was_not_given() {
+    for (route, asked) in MOVING {
+        let arr = FakeArr::start().await;
+        let (app, body) = ready_to_move(&arr, route).await;
+        let path = format!("/api/v1/decisions/{route}");
+        let before = arr.recorded().writes.len();
+        let bare = mint(&app, None, json!({ "name": "cron", "scopes": ["operate"] })).await;
+        let mut answered = body.clone();
+        answered["confirm"] = json!([asked]);
+
+        let referred = send(&app, "POST", &path, Some(&bare), Some(answered.clone())).await;
+        let referred = referred.assert_status(StatusCode::CONFLICT);
+        assert_eq!(referred["confirm"], asked, "{route}");
+        assert_eq!(referred["answerable"], false, "{route}");
+        assert_eq!(arr.recorded().writes.len(), before, "{route}: a refused key moved something");
+
+        let asked_owner = send(&app, "POST", &path, None, Some(body)).await;
+        let asked_owner = asked_owner.assert_status(StatusCode::CONFLICT);
+        assert_eq!(asked_owner["answerable"], true, "{route}");
+
+        let given = json!({ "name": "trusted", "scopes": ["operate"], "may_confirm": [asked] });
+        let given = mint(&app, None, given).await;
+        let moved = send(&app, "POST", &path, Some(&given), Some(answered)).await;
+        assert_eq!(moved.status, StatusCode::OK, "{route}: {:?}", moved.json);
+        assert!(
+            arr.recorded().writes.len() > before,
+            "{route}: the key given the name moved nothing"
+        );
+    }
+}
+
+/// A key that may not move files is refused before anything runs, on every
+/// route that moves them, however many questions it may answer. The same key
+/// leaving the files where they are moves the titles.
+#[tokio::test]
+async fn every_route_that_moves_refuses_files_to_a_key_not_allowed_them() {
+    for (route, _) in MOVING {
+        let arr = FakeArr::start().await;
+        let (app, body) = ready_to_move(&arr, route).await;
+        let path = format!("/api/v1/decisions/{route}");
+        let before = arr.recorded().writes.len();
+        let every = ["batch", "threshold", "capacity", "unreachable"];
+        let key = json!({ "name": "cron", "scopes": ["operate"], "may_confirm": every });
+        let key = mint(&app, None, key).await;
+        let mut sent = body.clone();
+        sent["confirm"] = json!(every);
+        sent["move_files"] = json!(true);
+
+        let refused = send(&app, "POST", &path, Some(&key), Some(sent.clone())).await;
+        assert_eq!(refused.status, StatusCode::FORBIDDEN, "{route}: {:?}", refused.json);
+        assert_eq!(refused.json["error"], "forbidden");
+        assert_eq!(arr.recorded().writes.len(), before, "{route}: files moved");
+
+        sent["move_files"] = json!(false);
+        let moved = send(&app, "POST", &path, Some(&key), Some(sent)).await;
+        assert_eq!(moved.status, StatusCode::OK, "{route}: {:?}", moved.json);
+        assert!(arr.recorded().writes.len() > before, "{route}: nothing moved");
+    }
+}
+
+/// Mark a folder as not answering, as a sync that found the NAS asleep does.
+async fn asleep(app: &TestApp, path: &str) {
+    sqlx::query(
+        "UPDATE root_folders SET accessible = 0, last_accessible_at = '2026-09-05 03:00:00'
+         WHERE rtrim(path, '/') = ?",
+    )
+    .bind(path)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+}
+
+/// The batch question states a sleeping destination rather than asking it
+/// apart. Answering it answers that fact too, so a key given the batch
+/// question alone meets it marked for a person, and a key given both answers
+/// the whole question.
+#[tokio::test]
+async fn the_batch_question_does_not_answer_a_guardrail_it_states() {
     let arr = FakeArr::start().await;
     let app = TestApp::films_to_move(&arr, 2).await;
     let simulation = app.simulate().await;
-    let bare = mint(&app, None, json!({ "name": "cron", "scopes": ["operate"] })).await;
-    let trusted = json!({ "name": "trusted", "scopes": ["operate"], "may_confirm": ["batch"] });
-    let trusted = mint(&app, None, trusted).await;
-    let body = json!({ "simulation_id": simulation, "confirm": ["batch"] });
+    asleep(&app, "/movies/anime").await;
+    let batch_only = json!({ "name": "cron", "scopes": ["operate"], "may_confirm": ["batch"] });
+    let batch_only = mint(&app, None, batch_only).await;
+    let apply_all = |confirm: Value| json!({ "simulation_id": simulation, "confirm": confirm });
 
-    let referred =
-        send(&app, "POST", "/api/v1/decisions/apply-all", Some(&bare), Some(body.clone())).await;
+    let referred = send(
+        &app,
+        "POST",
+        "/api/v1/decisions/apply-all",
+        Some(&batch_only),
+        Some(apply_all(json!(["batch"]))),
+    )
+    .await;
     let referred = referred.assert_status(StatusCode::CONFLICT);
-    assert_eq!(referred["error"], "confirmation_required");
     assert_eq!(referred["confirm"], "batch");
+    assert_eq!(referred["includes"], json!(["unreachable"]));
     assert_eq!(referred["answerable"], false);
-    assert!(arr.recorded().writes.is_empty(), "a refused key moved something");
+    assert!(arr.recorded().writes.is_empty(), "a key moved titles into a sleeping folder");
 
-    let asked = json!({ "simulation_id": simulation });
+    // The owner is asked the one question, and the names it states go back
+    // with it.
+    let asked = apply_all(json!([]));
     let asked = send(&app, "POST", "/api/v1/decisions/apply-all", None, Some(asked)).await;
-    assert_eq!(asked.assert_status(StatusCode::CONFLICT)["answerable"], true);
+    let asked = asked.assert_status(StatusCode::CONFLICT);
+    assert_eq!(asked["includes"], json!(["unreachable"]));
+    assert_eq!(asked["answerable"], true);
+    let half = apply_all(json!(["batch"]));
+    let half = send(&app, "POST", "/api/v1/decisions/apply-all", None, Some(half)).await;
+    assert_eq!(half.assert_status(StatusCode::CONFLICT)["confirm"], "batch");
 
-    let applied =
-        send(&app, "POST", "/api/v1/decisions/apply-all", Some(&trusted), Some(body)).await;
-    assert_eq!(applied.assert_ok()["applied"], 2);
+    let both = json!({ "name": "trusted", "scopes": ["operate"], "may_confirm": ["batch", "unreachable"] });
+    let both = mint(&app, None, both).await;
+    let whole = apply_all(json!(["batch", "unreachable"]));
+    let applied = send(&app, "POST", "/api/v1/decisions/apply-all", Some(&both), Some(whole)).await;
+    assert_eq!(applied.assert_ok()["candidates"], 2, "{:?}", applied.json);
 }
 
+/// `subject` holds a person's user name in `forms` and often an e-mail
+/// address in `oidc`. An application reads its own name and no one else's,
+/// on every list that carries it, while the owner reads them all.
 #[tokio::test]
-async fn a_key_not_allowed_to_move_files_is_refused_before_anything_moves() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::films_to_move(&arr, 1).await;
-    let simulation = app.simulate().await;
-    let token = json!({ "name": "cron", "scopes": ["operate"], "may_confirm": ["batch"] });
-    let token = mint(&app, None, token).await;
+async fn an_application_reads_its_own_name_and_no_one_elses() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.simulate().await;
+    let person = "alice@example.com";
+    for (id, trigger, subject) in [("j-person", "manual", person), ("j-app", "api", "dashboard")] {
+        sqlx::query(
+            "INSERT INTO jobs (id, kind, status, trigger, subject) VALUES (?, 'sync', 'success', ?, ?)",
+        )
+        .bind(id)
+        .bind(trigger)
+        .bind(subject)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query("UPDATE decisions SET actor = 'manual', subject = ?")
+        .bind(person)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO overrides (id, media_id, target_category, subject) VALUES ('o-1', 'm-1', 'anime', ?)")
+        .bind(person)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let token = mint(&app, None, json!({ "name": "dashboard" })).await;
 
-    let body = json!({ "simulation_id": simulation, "move_files": true, "confirm": ["batch"] });
-    let refused = send(&app, "POST", "/api/v1/decisions/apply-all", Some(&token), Some(body));
-    let refused = refused.await;
+    let jobs = send(&app, "GET", "/api/v1/jobs", Some(&token), None).await;
+    let jobs = jobs.assert_ok()["data"].as_array().unwrap().clone();
+    let named = |id: &str| jobs.iter().find(|job| job["id"] == id).unwrap()["subject"].clone();
+    assert_eq!(named("j-person"), Value::Null, "a key read who runs Routarr");
+    assert_eq!(named("j-app"), "dashboard");
+    let one = send(&app, "GET", "/api/v1/jobs/j-person", Some(&token), None).await;
+    assert_eq!(one.assert_ok()["subject"], Value::Null);
+    let decisions = send(&app, "GET", "/api/v1/decisions", Some(&token), None).await;
+    assert_eq!(decisions.assert_ok()["data"][0]["subject"], Value::Null);
+    let pins = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
+    assert_eq!(pins.assert_ok()[0]["subject"], Value::Null);
+
+    let owner = send(&app, "GET", "/api/v1/jobs/j-person", None, None).await;
+    assert_eq!(owner.assert_ok()["subject"], person, "the owner lost sight of who asked");
+    let owner = send(&app, "GET", "/api/v1/overrides", None, None).await;
+    assert_eq!(owner.assert_ok()[0]["subject"], person);
+}
+
+/// `enrich=true` asks every metadata source now, on the owner's quotas, as
+/// the `operate` probes of `/health` do. A read key places from what is
+/// cached, and asking the sources takes `operate`.
+#[tokio::test]
+async fn asking_the_sources_now_takes_the_operate_scope() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let reader = mint(&app, None, json!({ "name": "dashboard" })).await;
+    let operator = mint(&app, None, json!({ "name": "cron", "scopes": ["operate"] })).await;
+    let path = "/api/v1/route?type=movie&tmdb=1";
+    let enriched = "/api/v1/route?type=movie&tmdb=1&enrich=true";
+
+    let refused = send(&app, "GET", enriched, Some(&reader), None).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
-    assert_eq!(refused.json["error"], "forbidden");
-    assert!(arr.recorded().writes.is_empty());
+    assert_ne!(send(&app, "GET", path, Some(&reader), None).await.status, StatusCode::FORBIDDEN);
+    assert_ne!(
+        send(&app, "GET", enriched, Some(&operator), None).await.status,
+        StatusCode::FORBIDDEN
+    );
+    assert_ne!(send(&app, "GET", enriched, None, None).await.status, StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]

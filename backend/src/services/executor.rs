@@ -94,7 +94,8 @@ pub mod confirm {
 pub struct Confirmed(Vec<String>);
 
 impl Confirmed {
-    /// Nothing has been answered yet.
+    /// Nothing answered yet, for tests that assert the first question asked.
+    #[cfg(test)]
     pub fn none() -> Self {
         Self::default()
     }
@@ -183,13 +184,30 @@ pub async fn apply_simulation_in_batches(
         return Err(AppError::BadRequest(localizer.translate("ErrorNoSelection", &[])));
     }
 
-    if !confirmed.has(confirm::BATCH) {
-        // This path always asks, so a separate gate on reachability or
-        // capacity would be waved through by the same flag. Both graver facts
-        // are carried *into* the one question instead: a confirmation that
-        // omits one is worse than none, because it looks like it was
-        // considered. The interface shows the question as it comes, so it is
-        // asked whole, files included.
+    // This path always asks, and a sleeping or full destination is stated
+    // *in* its one question rather than asked apart: a confirmation that omits
+    // one is worse than none, because it looks like it was considered. Each
+    // stated guardrail is named in `includes` and has to come back beside
+    // `batch`, so a caller allowed to answer the count alone cannot wave the
+    // destination through with it. The interface shows the question as it
+    // comes and sends every name back, so a person is asked once.
+    let mut includes = Vec::new();
+    let mut facts = Vec::new();
+    for check in [
+        guard_reachable(state, CapacityScope::Simulation(simulation_id), confirmed).await,
+        guard_capacity(state, CapacityScope::Simulation(simulation_id), move_files, confirmed)
+            .await,
+    ] {
+        match check {
+            Err(AppError::ConfirmationRequired { kind, message, .. }) => {
+                includes.push(kind);
+                facts.push(message);
+            }
+            Err(other) => return Err(other),
+            Ok(()) => {}
+        }
+    }
+    if !confirmed.has(confirm::BATCH) || !includes.is_empty() {
         let mut message =
             localizer.translate("ConfirmApplyAll", &[("count", &ids.len().to_string())]);
         message.push_str(&if move_files {
@@ -197,22 +215,10 @@ pub async fn apply_simulation_in_batches(
         } else {
             ".".to_string()
         });
-        for check in [
-            guard_reachable(state, CapacityScope::Simulation(simulation_id), &Confirmed::none())
-                .await,
-            guard_capacity(
-                state,
-                CapacityScope::Simulation(simulation_id),
-                move_files,
-                &Confirmed::none(),
-            )
-            .await,
-        ] {
-            if let Err(AppError::ConfirmationRequired { message: fact, .. }) = check {
-                message = format!("{message}\n\n{fact}");
-            }
+        for fact in facts {
+            message = format!("{message}\n\n{fact}");
         }
-        return Err(AppError::ConfirmationRequired { kind: confirm::BATCH, message });
+        return Err(AppError::ConfirmationRequired { kind: confirm::BATCH, includes, message });
     }
 
     let Some(lock) = state.jobs.try_lock("apply") else {
@@ -247,7 +253,7 @@ pub async fn apply_simulation_in_batches(
             let moves = match load_pending_moves(&state.pool, batch).await {
                 Ok(moves) => moves,
                 Err(e) => {
-                    job.fail(&e.to_string()).await;
+                    job.fail(&e).await;
                     return Err(e);
                 }
             };
@@ -268,7 +274,7 @@ pub async fn apply_simulation_in_batches(
                     }
                 }
                 Err(e) => {
-                    job.fail(&e.to_string()).await;
+                    job.fail(&e).await;
                     return Err(e);
                 }
             }
@@ -373,7 +379,7 @@ async fn run_apply(
         let moves = match load_pending_moves(&state.pool, &ids).await {
             Ok(moves) => moves,
             Err(e) => {
-                job.fail(&e.to_string()).await;
+                job.fail(&e).await;
                 return Err(e);
             }
         };
@@ -392,7 +398,7 @@ async fn run_apply(
                 close_job(job, report.applied, report.failed, detail).await;
                 notify::send_later(&state, moves_completed(false, report));
             }
-            Err(e) => job.fail(&e.to_string()).await,
+            Err(e) => job.fail(e).await,
         }
 
         outcome
@@ -440,7 +446,7 @@ pub async fn revert_decisions(
         let moves = match load_revertible_moves(&state.pool, &ids).await {
             Ok(moves) => moves,
             Err(e) => {
-                job.fail(&e.to_string()).await;
+                job.fail(&e).await;
                 return Err(e);
             }
         };
@@ -459,7 +465,7 @@ pub async fn revert_decisions(
                 close_job(job, report.applied, report.failed, detail).await;
                 notify::send_later(&state, moves_completed(true, report));
             }
-            Err(e) => job.fail(&e.to_string()).await,
+            Err(e) => job.fail(e).await,
         }
 
         outcome
@@ -770,6 +776,7 @@ async fn guard_confirmation(
     let threshold: usize = state.setting("confirmation_threshold", 10usize).await;
     if count > threshold && !confirmed.has(confirm::THRESHOLD) {
         return Err(AppError::ConfirmationRequired {
+            includes: Vec::new(),
             kind: confirm::THRESHOLD,
             message: localizer.translate(
                 "ErrorConfirmationRequired",
@@ -828,6 +835,7 @@ async fn guard_reachable(
         // three days as a fault, and the operator is the one who knows their
         // hardware.
         return Err(AppError::ConfirmationRequired {
+            includes: Vec::new(),
             kind: confirm::UNREACHABLE,
             message: localizer.translate(
                 "ErrorTargetUnreachable",
@@ -862,14 +870,24 @@ const PROPOSED: &str = "d.status = 'pending' AND d.superseded = 0 AND d.action =
 /// The moves a revert may undo: applied, not undone yet, knowing where they
 /// came from, and the latest of their title's standing moves. Undoing an
 /// older one would send the title back to its first folder and skip the ones
-/// between. The decisions list reads it too, to draw a Revert button on
-/// exactly the rows it lets through.
+/// between. The title must still be where the move put it, or the revert
+/// pulls it out of a folder somebody chose since. The folder it goes back to
+/// must still be one of its instance's, since the guards weigh a destination
+/// through its `root_folders` row and ask nothing about a folder without one.
+/// The decisions list reads it too, to draw a Revert button on exactly the
+/// rows it lets through.
 pub(crate) const REVERTIBLE: &str =
     "d.status = 'applied' AND d.reverted_at IS NULL AND d.current_root_folder IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM decisions later
                       WHERE later.media_id = d.media_id AND later.id <> d.id
                         AND later.status = 'applied' AND later.reverted_at IS NULL
-                        AND later.applied_at > d.applied_at)";
+                        AND later.applied_at > d.applied_at)
+     AND EXISTS (SELECT 1 FROM media here
+                  WHERE here.id = d.media_id
+                    AND rtrim(here.current_root_folder, '/') = rtrim(d.target_root_folder, '/'))
+     AND EXISTS (SELECT 1 FROM root_folders back
+                  WHERE back.instance_id = d.instance_id
+                    AND rtrim(back.path, '/') = rtrim(d.current_root_folder, '/'))";
 
 impl CapacityScope<'_> {
     /// `None` for an empty selection, which there is nothing to weigh in.
@@ -970,6 +988,7 @@ async fn guard_capacity(
             if declared == 1 && incoming > 0 {
                 let localizer = state.localizer().await;
                 return Err(AppError::ConfirmationRequired {
+                    includes: Vec::new(),
                     kind: confirm::CAPACITY,
                     message: localizer.translate(
                         "ErrorCapacityUnknown",
@@ -982,6 +1001,7 @@ async fn guard_capacity(
         if incoming > free {
             let localizer = state.localizer().await;
             return Err(AppError::ConfirmationRequired {
+                includes: Vec::new(),
                 kind: confirm::CAPACITY,
                 message: localizer.translate(
                     "ErrorNotEnoughSpace",

@@ -211,7 +211,7 @@
   "ConfirmPurge": "¿Purgar decisiones, registros e historial de tareas fuera del periodo de retención?",
   "ConfirmRemoveKey": "¿Quitar la clave API? Los clientes que la usan dejan de funcionar de inmediato.",
   "ConfirmRemoveDestination": "¿Quitar el destino «{path}»? La categoría asignada a él deja de enrutarse ahí. No se borra nada del disco.",
-  "ConfirmRestore": "¿Restaurar {name}? Sustituye la base actual, la clave maestra y la clave de API. Nada cambia hasta reiniciar Routarr.",
+  "ConfirmRestore": "¿Restaurar {name}? Sustituye la base actual y la clave maestra. La clave de API, la contraseña y cada clave revocada desde entonces se mantienen como están hoy, y todos deben volver a iniciar sesión. Nada cambia hasta reiniciar Routarr.",
   "ConfirmRevert": "¿Mover «{title}» de vuelta a {path}?",
   "ConfirmRevertFiles": "¿Mover también los archivos de vuelta en el disco?",
   "ConfirmRotateKey": "¿Regenerar la clave API? Todo cliente que siga usando la actual dejará de funcionar hasta que se actualice.",
@@ -847,5 +847,7 @@
   "CertFromAge": "a partir de {age} años",
   "CertNotRated": "sin clasificar",
   "SettingsMetadataCoverage": "Caché y cobertura",
-  "DownloadBackup": "Descargar"
+  "DownloadBackup": "Descargar",
+  "SigningSecretUnreadable": "El secreto de firma no se puede abrir con la clave de esta instalación, así que no se envía ninguna notificación. Reemplaza el secreto.",
+  "ErrorPreviewsWaiting": "Ya hay vistas previas esperando su turno para leer la biblioteca. Inténtalo de nuevo cuando una haya terminado."
 }

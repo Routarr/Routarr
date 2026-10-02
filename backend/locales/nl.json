@@ -211,7 +211,7 @@
   "ConfirmPurge": "Beslissingen, logboeken en taakgeschiedenis buiten de bewaartermijn opruimen?",
   "ConfirmRemoveKey": "API-sleutel verwijderen? Clients die hem gebruiken werken meteen niet meer.",
   "ConfirmRemoveDestination": "Bestemming '{path}' verwijderen? Een categorie die eraan gekoppeld is, routeert er niet meer heen. Er wordt niets van de schijf verwijderd.",
-  "ConfirmRestore": "{name} herstellen? Dit vervangt de huidige database, hoofdsleutel en API-sleutel. Er verandert niets tot Routarr opnieuw start.",
+  "ConfirmRestore": "{name} herstellen? Dit vervangt de huidige database en hoofdsleutel. De API-sleutel, het wachtwoord en elke sindsdien ingetrokken sleutel blijven zoals ze nu zijn, en iedereen moet zich opnieuw aanmelden. Er verandert niets tot Routarr opnieuw start.",
   "ConfirmRevert": "'{title}' terugverplaatsen naar {path}?",
   "ConfirmRevertFiles": "Ook de bestanden op schijf terugverplaatsen?",
   "ConfirmRotateKey": "API-sleutel opnieuw genereren? Elke client die de huidige nog gebruikt, werkt niet meer tot hij is bijgewerkt.",
@@ -847,5 +847,7 @@
   "CertFromAge": "vanaf {age} jaar",
   "CertNotRated": "niet beoordeeld",
   "SettingsMetadataCoverage": "Cache en dekking",
-  "DownloadBackup": "Downloaden"
+  "DownloadBackup": "Downloaden",
+  "SigningSecretUnreadable": "Het ondertekeningsgeheim kan niet worden ontsleuteld met de sleutel van deze installatie, dus er wordt geen melding verstuurd. Vervang het geheim.",
+  "ErrorPreviewsWaiting": "Er wachten al voorbeeldweergaven op de bibliotheek. Probeer het opnieuw zodra er een klaar is."
 }

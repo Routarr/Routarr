@@ -211,7 +211,7 @@
   "ConfirmPurge": "Eliminare decisioni, registri e cronologia delle attività oltre il periodo di conservazione?",
   "ConfirmRemoveKey": "Rimuovere la chiave API? I client che la usano smettono subito di funzionare.",
   "ConfirmRemoveDestination": "Rimuovere la destinazione «{path}»? La categoria associata non vi instrada più. Sul disco non viene eliminato nulla.",
-  "ConfirmRestore": "Ripristinare {name}? Sostituisce database, chiave principale e chiave API attuali. Nulla cambia fino al riavvio di Routarr.",
+  "ConfirmRestore": "Ripristinare {name}? Sostituisce database e chiave principale attuali. La chiave API, la password e ogni chiave revocata da allora restano come oggi, e tutti devono accedere di nuovo. Nulla cambia fino al riavvio di Routarr.",
   "ConfirmRevert": "Spostare «{title}» di nuovo in {path}?",
   "ConfirmRevertFiles": "Riportare indietro anche i file sul disco?",
   "ConfirmRotateKey": "Rigenerare la chiave API? Ogni client che usa ancora quella attuale smetterà di funzionare finché non viene aggiornato.",
@@ -847,5 +847,7 @@
   "CertFromAge": "dai {age} anni",
   "CertNotRated": "non classificato",
   "SettingsMetadataCoverage": "Cache e copertura",
-  "DownloadBackup": "Scarica"
+  "DownloadBackup": "Scarica",
+  "SigningSecretUnreadable": "Il segreto di firma non può essere aperto con la chiave di questa installazione, quindi non viene inviata alcuna notifica. Sostituisci il segreto.",
+  "ErrorPreviewsWaiting": "Ci sono già anteprime in attesa del loro turno per leggere la libreria. Riprova quando una sarà terminata."
 }

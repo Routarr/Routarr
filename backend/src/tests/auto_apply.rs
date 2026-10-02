@@ -16,6 +16,7 @@ async fn library_with_one_move(arr: &FakeArr, has_files: bool) -> TestApp {
     let app = TestApp::new().await;
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     app.seed_route_to_anime().await;
+    app.seed_standard_folder().await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
          current_root_folder, monitored, has_files)

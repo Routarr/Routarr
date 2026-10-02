@@ -21,6 +21,9 @@ async fn app_with_files(label: &str) -> (TestApp, TempDir) {
 
     let mut config = crate::config::Config::for_tests();
     config.set_db_path(dir.join("routarr.db"));
+    // The file is the key, as on an installation that never set
+    // `ROUTARR_SECRET_KEY`: what the archive carries is what sealed the data.
+    config.secret_key = None;
     std::fs::write(config.secret_key_path(), "a-master-key").unwrap();
     std::fs::write(config.api_key_path(), "an-api-key").unwrap();
 
@@ -40,6 +43,23 @@ fn entries(archive: &std::path::Path) -> Vec<String> {
     let file = std::fs::File::open(archive).unwrap();
     let mut zip = zip::ZipArchive::new(file).unwrap();
     (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect()
+}
+
+/// With the master key in `ROUTARR_SECRET_KEY`, a `routarr.key` beside the
+/// database is a stale file, not the key anything is sealed with. The archive
+/// leaves it out and says it carries no key, so the restore warns rather than
+/// opening a database nothing can read.
+#[tokio::test]
+async fn a_key_from_the_environment_is_not_claimed_by_the_archive() {
+    let (app, dir) = app_with_files("environment-key").await;
+    let mut config = (*app.state.config).clone();
+    config.secret_key = Some("the-key-in-the-environment".to_string());
+    let app = TestApp::around(app.state.clone().with_config(config));
+
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let archive = dir.join("backups").join(&file.name);
+    assert!(!backup::read_manifest(&archive).unwrap().includes_master_key);
+    assert!(!entries(&archive).contains(&"routarr.key".to_string()), "a stale key file travelled");
 }
 
 #[tokio::test]
@@ -241,6 +261,157 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     pool.close().await;
 }
 
+/// A restore brings back the library of its day, not a credential the
+/// installation has withdrawn since: a key revoked because it leaked stays
+/// revoked, and the notifications keep the signing secrets of today.
+#[tokio::test]
+async fn a_restore_brings_back_no_credential_withdrawn_since() {
+    use crate::services::{applications, notify};
+
+    let (app, _dir) = app_with_files("credentials").await;
+    let new = applications::NewApplication {
+        name: "request-bot".into(),
+        scopes: Vec::new(),
+        may_confirm: Vec::new(),
+        may_move_files: false,
+    };
+    let leaked = applications::create(&app.state, new, None).await.unwrap();
+    notify::rotate_signing_secret(&app.state).await.unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    applications::revoke(&app.state.pool, &leaked.application.id).await.unwrap();
+    notify::rotate_signing_secret(&app.state).await.unwrap();
+    notify::rotate_signing_secret(&app.state).await.unwrap();
+    let today: Vec<String> =
+        sqlx::query_scalar("SELECT secret FROM webhook_secrets ORDER BY secret")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+    assert!(backup::apply_pending_restore(&config).await.unwrap());
+
+    let pool =
+        sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display())).await.unwrap();
+    let revoked: Option<String> =
+        sqlx::query_scalar("SELECT revoked_at FROM api_keys WHERE id = ?")
+            .bind(&leaked.application.id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(revoked.is_some(), "a revoked key came back with the restore");
+    let restored: Vec<String> =
+        sqlx::query_scalar("SELECT secret FROM webhook_secrets ORDER BY secret")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(restored, today, "the restore brought back a replaced signing secret");
+    pool.close().await;
+}
+
+/// The master API key and the account's password are today's too: one
+/// rotated or changed because it leaked is not brought back, and every session
+/// the archive held is closed, as a changed password closes them.
+#[tokio::test]
+async fn a_restore_keeps_todays_api_key_and_password_and_signs_everyone_out() {
+    let (app, _dir) = app_with_files("signins").await;
+    for statement in [
+        "INSERT INTO users (id, username, password_hash) VALUES ('u-1', 'admin', 'leaked-hash')",
+        "INSERT INTO sessions (id, subject, source, expires_at)
+         VALUES ('s-1', 'admin', 'forms', datetime('now', '+7 days'))",
+    ] {
+        sqlx::query(statement).execute(&app.state.pool).await.unwrap();
+    }
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    sqlx::query("UPDATE users SET password_hash = 'todays-hash'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM sessions").execute(&app.state.pool).await.unwrap();
+    let config = app.state.config.clone();
+    std::fs::write(config.api_key_path(), "rotated-key").unwrap();
+
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    app.state.pool.close().await;
+    assert!(backup::apply_pending_restore(&config).await.unwrap());
+
+    assert_eq!(std::fs::read_to_string(config.api_key_path()).unwrap(), "rotated-key");
+    let pool =
+        sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display())).await.unwrap();
+    let hash: String =
+        sqlx::query_scalar("SELECT password_hash FROM users").fetch_one(&pool).await.unwrap();
+    assert_eq!(hash, "todays-hash", "the restore brought back a changed password");
+    let sessions: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sessions").fetch_one(&pool).await.unwrap();
+    assert_eq!(sessions, 0, "a session the archive held came back");
+    pool.close().await;
+}
+
+/// A restore onto a host whose key file is not the archive's, as a new host
+/// generates one, brings the archive's back: every credential sealed under it
+/// opens again. Counting the restored rows would pass with the keys swapped
+/// or left behind, and the restore would open a database nothing can read.
+#[tokio::test]
+async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
+    let (app, _dir) = app_with_files("keys-travel").await;
+    let sealed = app.state.secrets.seal("the-radarr-key").unwrap();
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let config = app.state.config.clone();
+    std::fs::write(config.secret_key_path(), "a-new-hosts-key").unwrap();
+    std::fs::remove_file(config.api_key_path()).unwrap();
+
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    app.state.pool.close().await;
+    assert!(backup::apply_pending_restore(&config).await.unwrap());
+
+    let secrets = crate::crypto::SecretBox::load(None, None, &config.secret_key_path()).unwrap();
+    assert_eq!(
+        secrets.open(&sealed).unwrap(),
+        "the-radarr-key",
+        "the archive's key did not come back"
+    );
+    assert_eq!(std::fs::read_to_string(config.api_key_path()).unwrap(), "an-api-key");
+}
+
+/// On a host where `ROUTARR_SECRET_KEY` is set, that key wins at the next
+/// start over the `routarr.key` a restore brings back. An archive sealed under
+/// its key file would then restore credentials nothing can open, so it is
+/// refused while it can still be, naming the variable.
+#[tokio::test]
+async fn a_restore_the_next_start_could_not_open_is_refused() {
+    let (app, dir) = app_with_files("environment-wins").await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    let mut config = (*app.state.config).clone();
+    config.secret_key = Some("another-key-in-the-environment".to_string());
+    let app = TestApp::around(app.state.clone().with_config(config));
+    let refused = backup::stage_restore(&app.state, &file.name).await.expect_err("it was staged");
+    assert!(refused.to_string().contains("ROUTARR_SECRET_KEY"), "{refused}");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
+}
+
+/// Without the variable the next start opens with the key file the archive
+/// brings back. One that is not the key its credentials were sealed with, as
+/// an archive taken while the variable was set could carry, is refused too.
+#[tokio::test]
+async fn a_restore_whose_own_key_file_cannot_open_it_is_refused() {
+    let (app, dir) = app_with_files("stale-key-file").await;
+    let backups = dir.join("backups");
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let forged = "routarr-backup-20000101-000000.zip";
+    let stale = b"c3RhbGUta2V5LXRoYXQtc2VhbGVkLW5vdGhpbmctaGVyZQ==";
+    forge(&backups.join(&file.name), &backups.join(forged), "routarr.key", stale);
+
+    backup::stage_restore(&app.state, &file.name).await.expect("the archive as taken restores");
+    let refused = backup::stage_restore(&app.state, forged).await.expect_err("it was staged");
+    assert!(refused.to_string().contains("routarr.key"), "{refused}");
+}
+
 #[tokio::test]
 async fn nothing_is_applied_when_no_restore_is_pending() {
     let (app, _dir) = app_with_files("nopending").await;
@@ -424,13 +595,14 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
     // Two archives taken in one second would share a name.
     std::fs::rename(backups.join(&first.name), backups.join("routarr-backup-20000101-000000.zip"))
         .unwrap();
+    // A key in use stays, so the archive's is staged only on a host that has none.
+    std::fs::remove_file(app.state.config.api_key_path()).unwrap();
     backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip").await.unwrap();
     assert!(
         dir.join("routarr.api_key.restore-pending").exists(),
         "precondition: the first archive carries the API key"
     );
 
-    std::fs::remove_file(app.state.config.api_key_path()).unwrap();
     let second = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     assert!(
         !entries(&backups.join(&second.name)).contains(&"routarr.api_key".to_string()),
@@ -557,11 +729,7 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
     left.sort();
     assert_eq!(
         left,
-        [
-            "routarr.api_key.restore-pending",
-            "routarr.db.restore-pending",
-            "routarr.key.restore-pending"
-        ],
+        ["routarr.db.restore-pending", "routarr.key.restore-pending"],
         "the restore staged first did not survive a refused one"
     );
 }

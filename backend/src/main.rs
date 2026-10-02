@@ -38,8 +38,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let config = Config::from_env()?;
-    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
-        return healthcheck(&config).await;
+    match std::env::args().nth(1).as_deref() {
+        Some("healthcheck") => return healthcheck(&config).await,
+        Some("reset-account") => return reset_account(&config).await,
+        _ => {}
     }
     // Before anything binds a port: a value the server cannot honour should
     // stop it with a sentence naming the variable, not with a panic from a
@@ -182,6 +184,25 @@ async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> 
     } else {
         Err(format!("{} answered without the ping's status", config.ping_url()).into())
     }
+}
+
+/// `routarr reset-account`, for an operator locked out of the `forms` account:
+/// `docker exec routarr /app/routarr reset-account`. The image carries no
+/// `sqlite3`, and the server can keep running, since a sign-in reads the
+/// account each time.
+async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+    let pool = db::init_pool(config).await?;
+    let password = services::accounts::reset_account(&pool, &config.password_path()).await?;
+    pool.close().await;
+    println!(
+        "The account is reset. Sign in as '{}' with: {password}",
+        services::accounts::DEFAULT_USERNAME
+    );
+    println!(
+        "The password is also in {}. Every session was closed.",
+        config.password_path().display()
+    );
+    Ok(())
 }
 
 /// The one route authenticated by its path: Radarr cannot send a custom header,
@@ -597,6 +618,16 @@ fn cors_layer(config: &Config) -> CorsLayer {
             axum::http::header::CONTENT_TYPE,
             axum::http::header::AUTHORIZATION,
             axum::http::HeaderName::from_static("x-api-key"),
+            // `respond-async`, which the contract documents for a long call.
+            axum::http::HeaderName::from_static("prefer"),
+        ])
+        // What a page needs to follow a 202 and to report a failure: the task
+        // `Location` names, how long to wait, and the request's id for the log.
+        .expose_headers([
+            axum::http::header::LOCATION,
+            axum::http::header::RETRY_AFTER,
+            axum::http::HeaderName::from_static("preference-applied"),
+            axum::http::HeaderName::from_static("x-request-id"),
         ])
         .allow_credentials(true)
 }

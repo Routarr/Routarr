@@ -624,12 +624,20 @@ async fn probe_instance(state: &AppState, instance: &Instance) -> InstanceHealth
     let (status, version) = if !instance.enabled {
         ("disabled".to_string(), None)
     } else {
+        // What a probe found is shown to any key, through `/status`: an
+        // internal failure reads as one generic sentence and goes to the log.
+        let failed = |e: crate::error::AppError| {
+            if e.is_internal() {
+                tracing::warn!(instance = %instance.name, "The probe failed: {e}");
+            }
+            (format!("error: {}", e.public_message()), None)
+        };
         match state.adapter(instance) {
             Ok(adapter) => match adapter.test_connection().await {
                 Ok(s) => ("connected".to_string(), Some(s.version)),
-                Err(e) => (format!("error: {e}"), None),
+                Err(e) => failed(e),
             },
-            Err(e) => (format!("error: {e}"), None),
+            Err(e) => failed(e),
         }
     };
 

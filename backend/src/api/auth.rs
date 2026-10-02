@@ -102,12 +102,35 @@ impl Identity {
     /// answer it.
     pub fn refer(&self, error: AppError) -> AppError {
         match (error, &self.application) {
-            (AppError::ConfirmationRequired { kind, message }, Some(grant))
-                if !grant.may_answer(kind) =>
+            (AppError::ConfirmationRequired { kind, includes, message }, Some(grant))
+                if !grant.may_answer(kind)
+                    || !includes.iter().all(|name| grant.may_answer(name)) =>
             {
-                AppError::ConfirmationWithheld { kind, message }
+                AppError::ConfirmationWithheld { kind, includes, message }
             }
             (error, _) => error,
+        }
+    }
+
+    /// Whether this caller holds `scope`: an application its grant's, anyone
+    /// else every scope.
+    pub fn holds(&self, scope: crate::services::applications::Scope) -> bool {
+        match &self.application {
+            Some(grant) => {
+                scope == crate::services::applications::Scope::Read || grant.scopes.contains(&scope)
+            }
+            None => true,
+        }
+    }
+
+    /// Who asked, as this caller may read it. An application reads its own
+    /// name and no one else's: `subject` holds a person's user name in `forms`
+    /// and often an e-mail address in `oidc`, and a key handed to another
+    /// application must not learn who runs Routarr.
+    pub fn shown_subject(&self, subject: Option<String>) -> Option<String> {
+        match &self.application {
+            Some(grant) => subject.filter(|name| *name == grant.name),
+            None => subject,
         }
     }
 
@@ -162,8 +185,22 @@ pub async fn authenticate(
         // post here as easily as this application, so a write that carries no
         // API key is refused when its Origin says another site asked.
         mode @ (AuthMode::None | AuthMode::External) => {
-            if api_key_identity(&state, request.headers()).is_none() && !same_origin(&request) {
+            let keyless = api_key_identity(&state, request.headers()).is_none();
+            if keyless && !same_origin(&request, &state.config.cors_origins) {
                 return foreign_origin();
+            }
+            // A page of another site can make its own name resolve to this
+            // address, and the browser then calls it same-origin. Under
+            // `external` the proxy in front decides which names reach here.
+            if keyless
+                && mode == AuthMode::None
+                && let Some(host) = foreign_host(&state, &request)
+            {
+                return forbidden(&format!(
+                    "This Routarr runs with ROUTARR_AUTH=none and answers only to an address, \
+                     localhost or a name listed in ROUTARR_ALLOWED_HOSTS. Add {host} to \
+                     ROUTARR_ALLOWED_HOSTS to reach it by that name."
+                ));
             }
             Some(Identity::anonymous(mode))
         }
@@ -178,7 +215,9 @@ pub async fn authenticate(
                 // dangerous shapes and the JSON extractor refuses a form's
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
-                Some(_) if !same_origin(&request) => return foreign_origin(),
+                Some(_) if !same_origin(&request, &state.config.cors_origins) => {
+                    return foreign_origin();
+                }
                 Some((identity, renewed)) => {
                     renewal = renewed;
                     Some(identity)
@@ -232,6 +271,17 @@ fn unknown_application_key() -> Response {
 }
 
 /// The refusal of a write whose Origin is another site.
+/// The name a request was sent to, when it is neither an address, `localhost`
+/// nor a name the operator listed.
+fn foreign_host(state: &AppState, request: &Request<Body>) -> Option<String> {
+    let host = request.headers().get(axum::http::header::HOST)?.to_str().ok()?;
+    let name = crate::config::host_name(host);
+    let own = name.parse::<std::net::IpAddr>().is_ok()
+        || name == "localhost"
+        || state.config.allowed_hosts.contains(&name);
+    (!own).then_some(name)
+}
+
 fn foreign_origin() -> Response {
     forbidden(
         "This request did not come from Routarr: its Origin is not the host it was sent to. \
@@ -288,7 +338,7 @@ pub fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
 /// is `X-Forwarded-Host` rather than `Host`: nginx sends the upstream's own
 /// name as `Host` unless told otherwise, and compared against that, every
 /// write of every session behind it would be refused.
-fn same_origin(request: &Request<Body>) -> bool {
+fn same_origin(request: &Request<Body>, listed: &[String]) -> bool {
     if !matches!(*request.method(), Method::POST | Method::PUT | Method::DELETE | Method::PATCH) {
         return true;
     }
@@ -296,6 +346,12 @@ fn same_origin(request: &Request<Body>) -> bool {
     let Some(origin) = headers.get(axum::http::header::ORIGIN) else {
         return true;
     };
+    // An origin the operator listed in `ROUTARR_CORS_ORIGINS` calls as this
+    // application's own pages do: that is what listing it means.
+    if origin.to_str().is_ok_and(|origin| listed.iter().any(|allowed| allowed == origin)) {
+        return true;
+    }
+    let forwarded = headers.get("x-forwarded-host").is_some();
     let Some(host) = headers
         .get("x-forwarded-host")
         .or_else(|| headers.get(axum::http::header::HOST))
@@ -305,7 +361,19 @@ fn same_origin(request: &Request<Body>) -> bool {
     else {
         return false;
     };
-    origin.to_str().ok().is_some_and(|origin| origin_names(origin, host))
+    // `X-Forwarded-Host $host` in nginx drops the port, which the proxy states
+    // apart in `X-Forwarded-Port`.
+    let port = headers
+        .get("x-forwarded-port")
+        .and_then(|p| p.to_str().ok())
+        .and_then(|p| p.split(',').next())
+        .and_then(|p| p.trim().parse::<u16>().ok())
+        .filter(|_| forwarded && split_port(host).1.is_none());
+    let host = match port {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    origin.to_str().ok().is_some_and(|origin| origin_names(origin, &host))
 }
 
 /// Whether an `Origin` (`scheme://authority`) names `host`, port included.
@@ -449,34 +517,34 @@ fn unauthorized() -> Response {
         .into_response()
 }
 
-/// Where a request comes from: the peer, or the client a proxy on this machine
-/// or its network forwarded. `None` on a connection that carries no peer
-/// address, as a test's does.
+/// Where a request comes from: the peer, or the client a trusted proxy
+/// forwarded. `None` on a connection that carries no peer address, as a
+/// test's does.
 pub struct Client(pub Option<IpAddr>);
 
-impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Client {
+impl axum::extract::FromRequestParts<AppState> for Client {
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
-        _: &S,
+        state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let peer = parts
             .extensions
             .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
             .map(|axum::extract::ConnectInfo(address)| address.ip());
-        Ok(Self(client_address(peer, &parts.headers)))
+        Ok(Self(client_address(peer, &parts.headers, &state.config.trusted_proxies)))
     }
 }
 
 /// The client behind `peer`. A proxy appends the address it saw to
-/// `X-Forwarded-For`, so the last entry names the client, but only a proxy on
-/// this machine or its network is taken at its word: anyone else writing the
-/// header would choose whose share of the sign-in queue they fill and which
-/// address a ban lands on.
-fn client_address(peer: Option<IpAddr>, headers: &HeaderMap) -> Option<IpAddr> {
+/// `X-Forwarded-For`, so the last entry names the client, but only a proxy
+/// the operator listed is taken at its word: anyone else writing the header
+/// would choose whose share of the sign-in queue they fill.
+fn client_address(peer: Option<IpAddr>, headers: &HeaderMap, trusted: &[IpAddr]) -> Option<IpAddr> {
     let peer = peer?;
-    if !is_local(peer) {
+    let peer = peer.to_canonical();
+    if !trusted.contains(&peer) {
         return Some(peer);
     }
     let forwarded = headers
@@ -485,16 +553,6 @@ fn client_address(peer: Option<IpAddr>, headers: &HeaderMap) -> Option<IpAddr> {
         .and_then(|value| value.rsplit(',').next())
         .and_then(|last| last.trim().parse().ok());
     forwarded.or(Some(peer))
-}
-
-fn is_local(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
-        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
-            Some(v4) => is_local(IpAddr::V4(v4)),
-            None => v6.is_loopback() || v6.is_unique_local() || v6.is_unicast_link_local(),
-        },
-    }
 }
 
 /// Exchange a username and a password for a session cookie.
@@ -833,20 +891,45 @@ mod tests {
         }
     }
 
-    /// Only a proxy on this machine or its network names the client it
-    /// forwards. Anyone else writing the header would choose whose share of
-    /// the sign-in queue they fill, and which address a ban lands on.
+    /// nginx's usual `proxy_set_header X-Forwarded-Host $host` carries no port,
+    /// and a site on a port of its own gets every write refused. The port the
+    /// proxy states beside it, in `X-Forwarded-Port`, completes the host.
     #[test]
-    fn only_a_local_proxy_names_the_client_it_forwards() {
+    fn a_forwarded_port_completes_a_forwarded_host_without_one() {
+        let write = |port: Option<&str>| {
+            let mut request = Request::post("/api/v1/simulate")
+                .header("origin", "https://nas.lan:8443")
+                .header("host", "routarr:9876")
+                .header("x-forwarded-host", "nas.lan");
+            if let Some(port) = port {
+                request = request.header("x-forwarded-port", port);
+            }
+            request.body(Body::empty()).unwrap()
+        };
+        assert!(same_origin(&write(Some("8443")), &[]));
+        assert!(!same_origin(&write(Some("443")), &[]));
+        assert!(!same_origin(&write(None), &[]));
+    }
+
+    /// Only a proxy the operator names in `ROUTARR_TRUSTED_PROXIES` names the
+    /// client it forwards. Any other peer writing the header, a neighbour on
+    /// the same network included, would choose a new address on every attempt
+    /// and fill every place of the sign-in queue alone.
+    #[test]
+    fn only_a_trusted_proxy_names_the_client_it_forwards() {
         let mut headers = HeaderMap::new();
         headers.insert("x-forwarded-for", HeaderValue::from_static("192.0.2.1, 203.0.113.9"));
         let proxy: Option<IpAddr> = "172.18.0.2".parse().ok();
+        let neighbour: Option<IpAddr> = "192.168.1.40".parse().ok();
         let stranger: Option<IpAddr> = "198.51.100.7".parse().ok();
+        let trusted = [proxy.unwrap()];
 
-        assert_eq!(client_address(proxy, &headers), "203.0.113.9".parse().ok());
-        assert_eq!(client_address(stranger, &headers), stranger);
-        assert_eq!(client_address(proxy, &HeaderMap::new()), proxy);
-        assert_eq!(client_address(None, &headers), None);
+        assert_eq!(client_address(proxy, &headers, &trusted), "203.0.113.9".parse().ok());
+        assert_eq!(client_address(neighbour, &headers, &trusted), neighbour);
+        assert_eq!(client_address(stranger, &headers, &trusted), stranger);
+        assert_eq!(client_address(proxy, &headers, &[]), proxy);
+        assert_eq!(client_address(proxy, &HeaderMap::new(), &trusted), proxy);
+        assert_eq!(client_address(None, &headers, &trusted), None);
     }
 
     #[test]

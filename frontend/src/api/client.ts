@@ -83,6 +83,12 @@ export class ApiError extends Error {
    * shown.
    */
   readonly confirm: string | null;
+  /**
+   * The other guardrails the question states, as the batch question states a
+   * sleeping or full destination. Answering the question sends them back with
+   * `confirm`, or the server asks again.
+   */
+  readonly includes: string[];
 
   constructor(
     message: string,
@@ -90,12 +96,14 @@ export class ApiError extends Error {
     kind: string,
     requestId: string | null = null,
     confirm: string | null = null,
+    includes: string[] = [],
   ) {
     super(message);
     this.status = status;
     this.kind = kind;
     this.requestId = requestId;
     this.confirm = confirm;
+    this.includes = includes;
     this.name = 'ApiError';
   }
 
@@ -209,11 +217,13 @@ async function exchange<T>(
     let message = body || res.statusText;
     let kind = 'http_error';
     let confirm: string | null = null;
+    let includes: string[] = [];
     try {
       const json = JSON.parse(body) as Partial<ErrorBody>;
       message = json.message ?? json.error ?? message;
       kind = json.error ?? kind;
       confirm = typeof json.confirm === 'string' ? json.confirm : null;
+      includes = Array.isArray(json.includes) ? json.includes : [];
     } catch {
       // Not a JSON error envelope (proxy error page, empty body): keep the text.
     }
@@ -223,6 +233,7 @@ async function exchange<T>(
       kind,
       res.headers?.get?.('x-request-id') ?? null,
       confirm,
+      includes,
     );
   }
 

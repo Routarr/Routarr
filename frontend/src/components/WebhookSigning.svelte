@@ -69,6 +69,13 @@
   {/if}
 
   {#if signing.data}
+    {#if signing.data.signed && !signing.data.readable}
+      <!-- Nothing is sent while the secret cannot be opened, which reads as
+           signing from the date alone. -->
+      <div class="mb-3">
+        <WarningBanner message={t('SigningSecretUnreadable')} />
+      </div>
+    {/if}
     <p class="text-muted text-sm mb-3">
       {signing.data.signed && signing.data.since
         ? t('WebhookSignedSince', { since: formatTimestamp(signing.data.since, i18n.language) })

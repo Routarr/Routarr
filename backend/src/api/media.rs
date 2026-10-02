@@ -227,9 +227,20 @@ pub struct PlacementOptions {
 /// knows it.
 pub async fn place(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Query(title): Query<ExternalTitle>,
     Query(options): Query<PlacementOptions>,
 ) -> AppResult<Json<crate::services::placement::Placement>> {
+    let enrich = options.enrich.unwrap_or(false);
+    // Asking the sources now spends the owner's quotas, as the `operate`
+    // probes of `/health` do. What is cached is the read scope's.
+    if enrich && !identity.holds(crate::services::applications::Scope::Operate) {
+        return Err(AppError::Forbidden(
+            "enrich=true asks the metadata sources now and needs the operate scope. Leave it out \
+             to place from what is cached."
+                .into(),
+        ));
+    }
     let (media_type, id) = title.named()?;
     let tags: Vec<String> = options
         .tags
@@ -246,7 +257,7 @@ pub async fn place(
         &id,
         title.instance.as_deref(),
         &tags,
-        options.enrich.unwrap_or(false),
+        enrich,
     )
     .await?;
     Ok(Json(placement))

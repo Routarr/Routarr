@@ -46,11 +46,13 @@ pub struct Decision {
     pub actor: Option<String>,
     /// Who asked: an application's name, or the person a sign-in mode names.
     /// Null when nobody asked (the scheduler or a webhook), and under a mode
-    /// that names nobody.
+    /// that names nobody. An application key reads its own name and null for
+    /// anyone else.
     #[serde(default)]
     pub subject: Option<String>,
     /// Whether a revert may undo this move now: only the latest standing move
-    /// of a title is.
+    /// of a title is, while the title is still where it put it and the folder
+    /// it came from is still one of its instance's root folders.
     // `executor::REVERTIBLE` decides it.
     #[serde(default)]
     pub revertible: bool,

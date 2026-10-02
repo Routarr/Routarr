@@ -211,7 +211,7 @@
   "ConfirmPurge": "要清理保留期之外的决策、日志和任务历史吗？",
   "ConfirmRemoveKey": "移除 API 密钥？正在使用它的客户端会立即停止工作。",
   "ConfirmRemoveDestination": "要移除目标「{path}」吗？映射到它的分类将不再路由到这里。磁盘上的内容不会被删除。",
-  "ConfirmRestore": "恢复 {name}？将替换当前数据库、主密钥和 API 密钥。在重启 Routarr 之前不会有任何变化。",
+  "ConfirmRestore": "恢复 {name}？将替换当前数据库和主密钥。API 密钥、密码以及备份之后吊销的所有密钥都保持现状，所有人都需要重新登录。在重启 Routarr 之前不会有任何变化。",
   "ConfirmRevert": "要将「{title}」移动回 {path} 吗？",
   "ConfirmRevertFiles": "是否也把磁盘上的文件移回？",
   "ConfirmRotateKey": "重新生成 API 密钥？仍在使用当前密钥的客户端将无法工作，直到更新为止。",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age} 岁以上",
   "CertNotRated": "未分级",
   "SettingsMetadataCoverage": "缓存与覆盖范围",
-  "DownloadBackup": "下载"
+  "DownloadBackup": "下载",
+  "SigningSecretUnreadable": "本安装的密钥无法打开签名密钥，因此不会发送任何通知。请替换签名密钥。",
+  "ErrorPreviewsWaiting": "已有预览在等待读取媒体库。请在其中一个完成后重试。"
 }

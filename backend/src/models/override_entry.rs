@@ -10,6 +10,7 @@ pub struct OverrideEntry {
     pub reason: Option<String>,
     pub created_at: String,
     /// Who set it: an application's name, or the person a sign-in mode names.
+    /// An application key reads its own name and null for anyone else.
     pub subject: Option<String>,
 }
 

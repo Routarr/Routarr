@@ -211,7 +211,7 @@
   "ConfirmPurge": "Saklama süresi dışındaki kararlar, günlükler ve iş geçmişi temizlensin mi?",
   "ConfirmRemoveKey": "API anahtarı kaldırılsın mı? Onu kullanan istemciler hemen çalışmayı durdurur.",
   "ConfirmRemoveDestination": "'{path}' hedefi kaldırılsın mı? Ona eşleştirilen kategori artık oraya yönlendirmez. Diskten hiçbir şey silinmez.",
-  "ConfirmRestore": "{name} geri yüklensin mi? Mevcut veritabanının, ana anahtarın ve API anahtarının yerini alır. Routarr yeniden başlatılana kadar hiçbir şey değişmez.",
+  "ConfirmRestore": "{name} geri yüklensin mi? Mevcut veritabanının ve ana anahtarın yerini alır. API anahtarı, parola ve o zamandan beri geçersiz kılınan her anahtar bugünkü haliyle kalır. Herkesin yeniden oturum açması gerekir. Routarr yeniden başlatılana kadar hiçbir şey değişmez.",
   "ConfirmRevert": "«{title}» {path} konumuna geri taşınsın mı?",
   "ConfirmRevertFiles": "Diskteki dosyalar da geri taşınsın mı?",
   "ConfirmRotateKey": "API anahtarı yeniden oluşturulsun mu? Hâlâ mevcut anahtarı kullanan her istemci güncellenene kadar çalışmayı durdurur.",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age} yaş ve üzeri",
   "CertNotRated": "sınıflandırılmamış",
   "SettingsMetadataCoverage": "Önbellek ve kapsam",
-  "DownloadBackup": "İndir"
+  "DownloadBackup": "İndir",
+  "SigningSecretUnreadable": "İmzalama gizli anahtarı bu kurulumun anahtarıyla açılamıyor, bu nedenle hiçbir bildirim gönderilmiyor. Gizli anahtarı değiştirin.",
+  "ErrorPreviewsWaiting": "Kitaplığı okumak için sırada bekleyen önizlemeler zaten var. Biri bittiğinde yeniden deneyin."
 }

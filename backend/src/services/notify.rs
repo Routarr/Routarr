@@ -21,7 +21,7 @@ use hmac::{Hmac, KeyInit, Mac};
 use serde::Serialize;
 use sha2::Sha256;
 use tokio::sync::Semaphore;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::send_ok;
@@ -202,9 +202,9 @@ static RETRYING: Semaphore = Semaphore::const_new(32);
 /// attempt is awaited, bounded by the outbound HTTP timeout, and the retries a
 /// refusal earns run on a task of their own.
 pub async fn send(state: &AppState, event: Event) {
-    let Some(url) = webhook_url(state, &event).await else {
+    if webhook_url(state, event.kind()).await.is_none() {
         return;
-    };
+    }
     if let Some(setting) = event.asked_by()
         && !state.bool_setting(setting, false).await
     {
@@ -228,13 +228,8 @@ pub async fn send(state: &AppState, event: Event) {
     let Ok(body) = serde_json::to_string(&payload) else {
         return;
     };
-    let delivery = Delivery {
-        url,
-        id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
-        body,
-        keys: signing_keys(state).await,
-        kind: event.kind(),
-    };
+    let delivery =
+        Delivery { id: format!("msg_{}", uuid::Uuid::new_v4().simple()), body, kind: event.kind() };
 
     let retry_after = match delivery.attempt(state).await {
         Ok(()) => return,
@@ -280,48 +275,68 @@ pub fn send_later(state: &AppState, event: Event) {
     tokio::spawn(async move { send(&state, event).await });
 }
 
-async fn webhook_url(state: &AppState, event: &Event) -> Option<String> {
+async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {
     let stored = state.setting::<String>("notification_webhook_url", String::new()).await;
     if stored.trim().is_empty() {
-        debug!(event = event.kind(), "No notification webhook configured");
+        debug!(event = kind, "No notification webhook configured");
         return None;
     }
     match state.secrets.open(stored.trim()) {
         Ok(url) => Some(url),
         Err(e) => {
-            warn!(event = event.kind(), "The notification webhook could not be opened: {e}");
+            warn!(event = kind, "The notification webhook could not be opened: {e}");
             None
         }
     }
 }
 
 /// One message, tried as many times as it takes, under one id.
+///
+/// The address and the secrets are read again at each attempt, not kept from
+/// the first: a retry runs minutes later, and an address cleared or a secret
+/// replaced in between because it leaked must not be used again.
 struct Delivery {
-    url: String,
     id: String,
     body: String,
-    keys: Vec<Vec<u8>>,
     kind: &'static str,
 }
 
 impl Delivery {
     /// One attempt. `Err(Some(wait))` is worth another after at least `wait`,
     /// `Err(None)` is not: a 4xx other than 429 says the receiver refuses this
-    /// message, and it will refuse it again.
+    /// message, and it will refuse it again, and a cleared address or a secret
+    /// that cannot be read has nowhere safe to send it.
     async fn attempt(&self, state: &AppState) -> Result<(), Option<Option<Duration>>> {
+        let Some(url) = webhook_url(state, self.kind).await else {
+            return Err(None);
+        };
+        let keys = match signing_keys(state).await {
+            Signing::Unsigned => Vec::new(),
+            Signing::Keys(keys) => keys,
+            // Sent unsigned, the message would pass a receiver that checks a
+            // signature only when there is one.
+            Signing::Unreadable => {
+                error!(
+                    event = self.kind,
+                    "The signing secret cannot be opened with this installation's key, so the \
+                     notification is not sent. Replace the secret in Settings."
+                );
+                return Err(None);
+            }
+        };
         // Signed at each attempt: a receiver refuses a timestamp too old, and a
         // retry five minutes on would carry one.
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let mut request = state
             .http
-            .post(&self.url)
+            .post(&url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
             .header("webhook-id", &self.id)
             .header("webhook-timestamp", &timestamp)
             .body(self.body.clone());
-        if !self.keys.is_empty() {
-            request = request
-                .header("webhook-signature", sign(&self.keys, &self.id, &timestamp, &self.body));
+        if !keys.is_empty() {
+            request =
+                request.header("webhook-signature", sign(&keys, &self.id, &timestamp, &self.body));
         }
         // Through `send_ok`, which says why a send failed without the address:
         // a Discord or Slack webhook URL carries its secret in the path.
@@ -358,9 +373,19 @@ pub fn sign(keys: &[Vec<u8>], id: &str, timestamp: &str, body: &str) -> String {
         .join(" ")
 }
 
-/// The keys a notification is signed with: the newest secret, and the one it
-/// replaced for a day after, so a receiver can be updated without a gap.
-async fn signing_keys(state: &AppState) -> Vec<Vec<u8>> {
+/// What a notification is signed with.
+enum Signing {
+    /// No secret: the notification goes out unsigned, as the owner chose.
+    Unsigned,
+    /// The newest secret, and the one it replaced for a day after, so a
+    /// receiver can be updated without a gap.
+    Keys(Vec<Vec<u8>>),
+    /// A secret is set and the newest cannot be opened, as after a restore
+    /// beside another master key.
+    Unreadable,
+}
+
+async fn signing_keys(state: &AppState) -> Signing {
     let rows: Vec<(String, bool)> = sqlx::query_as(
         "SELECT secret, created_at > datetime('now', '-1 day')
            FROM webhook_secrets ORDER BY created_at DESC, rowid DESC LIMIT 2",
@@ -368,13 +393,17 @@ async fn signing_keys(state: &AppState) -> Vec<Vec<u8>> {
     .fetch_all(&state.pool)
     .await
     .unwrap_or_default();
-    let newest_is_fresh = rows.first().is_some_and(|(_, fresh)| *fresh);
-    rows.iter()
-        .enumerate()
-        .filter(|(at, _)| *at == 0 || newest_is_fresh)
-        .filter_map(|(_, (sealed, _))| state.secrets.open(sealed).ok())
-        .filter_map(|secret| crate::crypto::signing_key(&secret))
-        .collect()
+    let open = |sealed: &str| {
+        state.secrets.open(sealed).ok().and_then(|secret| crate::crypto::signing_key(&secret))
+    };
+    let Some((newest, fresh)) = rows.first() else {
+        return Signing::Unsigned;
+    };
+    let Some(newest) = open(newest) else {
+        return Signing::Unreadable;
+    };
+    let replaced = rows.get(1).filter(|_| *fresh).and_then(|(sealed, _)| open(sealed));
+    Signing::Keys(std::iter::once(newest).chain(replaced).collect())
 }
 
 /// Whether notifications are signed, and since when.
@@ -382,13 +411,17 @@ async fn signing_keys(state: &AppState) -> Vec<Vec<u8>> {
 pub struct SigningStatus {
     pub signed: bool,
     pub since: Option<String>,
+    /// False when a secret is set and cannot be opened with this
+    /// installation's key: nothing is sent until it is replaced.
+    pub readable: bool,
 }
 
 pub async fn signing_status(state: &AppState) -> AppResult<SigningStatus> {
     let since: Option<String> = sqlx::query_scalar("SELECT MAX(created_at) FROM webhook_secrets")
         .fetch_one(&state.pool)
         .await?;
-    Ok(SigningStatus { signed: since.is_some(), since })
+    let readable = !matches!(signing_keys(state).await, Signing::Unreadable);
+    Ok(SigningStatus { signed: since.is_some(), since, readable })
 }
 
 /// Make a new secret, keep the one it replaces for a day, and return it once.

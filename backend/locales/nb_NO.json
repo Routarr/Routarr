@@ -211,7 +211,7 @@
   "ConfirmPurge": "Rydde beslutninger, logger og jobbhistorikk utover oppbevaringsperioden?",
   "ConfirmRemoveKey": "Fjerne API-nøkkelen? Klienter som bruker den, slutter å virke umiddelbart.",
   "ConfirmRemoveDestination": "Fjerne målet «{path}»? En kategori koblet til det rutes ikke lenger dit. Ingenting slettes på disken.",
-  "ConfirmRestore": "Gjenopprette {name}? Det erstatter gjeldende database, hovednøkkel og API-nøkkel. Ingenting endres før Routarr startes på nytt.",
+  "ConfirmRestore": "Gjenopprette {name}? Det erstatter gjeldende database og hovednøkkel. API-nøkkelen, passordet og hver nøkkel som er tilbakekalt siden da, forblir som de er i dag, og alle må logge inn igjen. Ingenting endres før Routarr startes på nytt.",
   "ConfirmRevert": "Flytte «{title}» tilbake til {path}?",
   "ConfirmRevertFiles": "Skal filene på disken også flyttes tilbake?",
   "ConfirmRotateKey": "Generere API-nøkkelen på nytt? Enhver klient som fortsatt bruker den nåværende, slutter å virke til den oppdateres.",
@@ -847,5 +847,7 @@
   "CertFromAge": "fra {age} år",
   "CertNotRated": "ikke vurdert",
   "SettingsMetadataCoverage": "Buffer og dekning",
-  "DownloadBackup": "Last ned"
+  "DownloadBackup": "Last ned",
+  "SigningSecretUnreadable": "Signeringshemmeligheten kan ikke dekrypteres med nøkkelen til denne installasjonen, så ingen varsler sendes. Erstatt hemmeligheten.",
+  "ErrorPreviewsWaiting": "Forhåndsvisninger venter allerede på biblioteket. Prøv igjen når en av dem er ferdig."
 }

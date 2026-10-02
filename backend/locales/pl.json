@@ -211,7 +211,7 @@
   "ConfirmPurge": "Wyczyścić decyzje, dzienniki i historię zadań poza okresem przechowywania?",
   "ConfirmRemoveKey": "Usunąć klucz API? Klienci, którzy go używają, natychmiast przestaną działać.",
   "ConfirmRemoveDestination": "Usunąć cel \"{path}\"? Powiązana z nim kategoria nie będzie już tam kierować. Nic nie zostanie usunięte z dysku.",
-  "ConfirmRestore": "Przywrócić {name}? Zastąpi bieżącą bazę, klucz główny i klucz API. Nic się nie zmieni do ponownego uruchomienia Routarr.",
+  "ConfirmRestore": "Przywrócić {name}? Zastąpi bieżącą bazę i klucz główny. Klucz API, hasło i każdy klucz unieważniony od tamtej pory pozostaną takie, jakie są dziś, a wszyscy będą musieli zalogować się ponownie. Nic się nie zmieni do ponownego uruchomienia Routarr.",
   "ConfirmRevert": "Przenieść \"{title}\" z powrotem do {path}?",
   "ConfirmRevertFiles": "Przenieść z powrotem także pliki na dysku?",
   "ConfirmRotateKey": "Wygenerować klucz API ponownie? Każdy klient nadal używający obecnego przestanie działać do czasu aktualizacji.",
@@ -847,5 +847,7 @@
   "CertFromAge": "od {age} lat",
   "CertNotRated": "bez klasyfikacji",
   "SettingsMetadataCoverage": "Pamięć podręczna i zasięg",
-  "DownloadBackup": "Pobierz"
+  "DownloadBackup": "Pobierz",
+  "SigningSecretUnreadable": "Nie można otworzyć sekretu do podpisywania kluczem tej instalacji, więc żadne powiadomienie nie jest wysyłane. Zastąp sekret.",
+  "ErrorPreviewsWaiting": "Podglądy już czekają na dostęp do biblioteki. Spróbuj ponownie, gdy któryś z nich się zakończy."
 }

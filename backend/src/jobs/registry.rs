@@ -340,9 +340,12 @@ impl JobHandle {
 
     /// Mark the job failed on an error, whose text the Tasks screen shows as it
     /// is: it comes from the database, the network or an Arr, not from here.
-    pub async fn fail(mut self, error: &str) {
+    /// The log keeps the whole error, and the row what a caller may read of
+    /// it: any key reads the task list.
+    pub async fn fail(mut self, error: &crate::error::AppError) {
         self.settled = true;
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
+        let error = error.public_message();
         let _ = sqlx::query(
             "UPDATE jobs SET status = 'failed', error_message = ?, finished_at = datetime('now') WHERE id = ?",
         )

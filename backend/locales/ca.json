@@ -211,7 +211,7 @@
   "ConfirmPurge": "Vols purgar les decisions, els registres i l'historial de tasques fora del període de retenció?",
   "ConfirmRemoveKey": "Vols eliminar la clau API? Els clients que la fan servir deixaran de funcionar immediatament.",
   "ConfirmRemoveDestination": "Vols eliminar la destinació «{path}»? La categoria que hi està associada deixa d'encaminar-hi. No s'esborra res del disc.",
-  "ConfirmRestore": "Vols restaurar {name}? Substitueix la base actual, la clau mestra i la clau API. Res no canvia fins que Routarr es reinicia.",
+  "ConfirmRestore": "Vols restaurar {name}? Substitueix la base actual i la clau mestra. La clau API, la contrasenya i cada clau revocada des de llavors es mantenen tal com són avui, i tothom ha de tornar a iniciar la sessió. Res no canvia fins que Routarr es reinicia.",
   "ConfirmRevert": "Vols tornar a moure «{title}» a {path}?",
   "ConfirmRevertFiles": "Vols tornar a moure també els fitxers del disc?",
   "ConfirmRotateKey": "Vols regenerar la clau API? Qualsevol client que encara faci servir l'actual deixarà de funcionar fins que s'actualitzi.",
@@ -847,5 +847,7 @@
   "CertFromAge": "a partir de {age} anys",
   "CertNotRated": "sense classificar",
   "SettingsMetadataCoverage": "Memòria cau i cobertura",
-  "DownloadBackup": "Baixa"
+  "DownloadBackup": "Baixa",
+  "SigningSecretUnreadable": "El secret de signatura no es pot obrir amb la clau d'aquesta instal·lació, així que no s'envia cap notificació. Substitueix el secret.",
+  "ErrorPreviewsWaiting": "Ja hi ha previsualitzacions esperant el seu torn per llegir la biblioteca. Torna-ho a provar quan n'hagi acabat una."
 }

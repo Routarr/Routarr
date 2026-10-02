@@ -111,6 +111,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | Variable | Default | |
 |---|---|---|
 | `ROUTARR_AUTH` | `apikey` | `apikey`, `forms`, `oidc`, `external` or `none` |
+| `ROUTARR_ALLOWED_HOSTS` | *(empty)* | Under `none`, the host names Routarr answers to beside its addresses |
 | `ROUTARR_API_KEY` | *(generated)* | Sets the API key instead of generating one |
 | `ROUTARR_SECRET_KEY` | *(generated)* | Encrypts the stored Radarr/Sonarr keys |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
@@ -120,11 +121,18 @@ Every variable is listed and commented in [`backend/.env.example`](backend/.env.
 else is set from the **Settings** page.
 
 Behind a reverse proxy in `forms` or `oidc` mode, forward the public host and scheme
-(`X-Forwarded-Host`, `X-Forwarded-Proto`): the first is what a write from the browser is checked
-against, the second is what marks the session cookie `Secure`. A refused sign-in is logged and
-throttled by the client address, which a proxy on the same machine or network forwards as
-`X-Forwarded-For`. In `oidc` mode the provider and the
-redirect URL have to be `https://`, except on `localhost`.
+(`X-Forwarded-Host`, `X-Forwarded-Proto`), and the port in `X-Forwarded-Port` when it is not 80 or
+443: the host is what a write from the browser is checked against, the scheme what marks the
+session cookie `Secure`. A refused sign-in is logged, and sign-ins are checked at most three at a
+time per client address. List the proxy's address in `ROUTARR_TRUSTED_PROXIES` so the client it
+forwards in `X-Forwarded-For` is counted, not the proxy. In `oidc` mode the provider and the
+redirect URL have to be `https://`, except on `localhost`. In `external` mode, publish the port to
+the proxy alone: the proxy is what signs people in. In `forms` mode, a lost password is reset with
+`docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.
+
+In `none` mode Routarr answers to its addresses and `localhost`. Reached by a name, such as
+`nas.lan`, list it in `ROUTARR_ALLOWED_HOSTS`: a page of another site can make its own name point at
+Routarr's address, and the browser would then let it act as Routarr.
 
 ## Contributing
 

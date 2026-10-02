@@ -8,7 +8,6 @@
 //! about is not a title in the library.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
 
 use chrono::Utc;
 use serde::Serialize;
@@ -17,8 +16,8 @@ use tokio::sync::Semaphore;
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrMedia;
 use crate::models::{ExternalId, Instance, Media, MediaMetadata, ProviderMetadata};
-use crate::services::metadata::{self, Addressing, FetchingSource};
-use crate::services::rate_limit::RateLimiter;
+use crate::services::metadata::{self, Addressing};
+use crate::services::rate_limit::honour_retry_after;
 use crate::services::routing::{self, ItemRoute};
 use crate::services::rule_engine::{OVERRIDE_RULE_ID, in_order};
 use crate::state::AppState;
@@ -83,10 +82,6 @@ pub struct InstanceFailure {
 /// this route would otherwise hold them all at once.
 static AT_ONCE: Semaphore = Semaphore::const_new(2);
 
-/// The pace each source is asked at, shared by every placement. The pass that
-/// enriches the library paces itself, and these requests come on top of it.
-static PACES: LazyLock<Mutex<HashMap<&'static str, RateLimiter>>> = LazyLock::new(Default::default);
-
 /// Where the title goes on each enabled Arr of its kind, or on `instance`.
 ///
 /// `tags` are the labels a title the library does not hold would be added
@@ -122,10 +117,13 @@ pub async fn place(
                 Ok(Some(item)) => (unheld(&instance, id, item, tags), "lookup"),
                 Ok(None) => continue,
                 Err(e) => {
+                    if e.is_internal() {
+                        tracing::warn!(instance = %instance.name, "A placement lookup failed: {e}");
+                    }
                     placement.errors.push(InstanceFailure {
                         instance_id: instance.id.clone(),
                         instance_name: instance.name.clone(),
-                        error: e.to_string(),
+                        error: e.public_message(),
                     });
                     continue;
                 }
@@ -213,13 +211,14 @@ async fn answered_now(
         if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
             continue;
         }
-        let pace = pace_of(&source);
+        let pace = source.pace();
         let external = match (known, source.addressing()) {
             (Some(external), _) => external,
             (None, Addressing::Search) => {
                 pace.acquire().await;
-                let year = media.year;
-                match source.resolve(&media.title, year, &media.media_type).await {
+                let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
+                honour_retry_after(&pace, &resolved).await;
+                match resolved {
                     Ok(Some(external)) => external,
                     _ => continue,
                 }
@@ -227,16 +226,13 @@ async fn answered_now(
             (None, _) => continue,
         };
         pace.acquire().await;
-        if let Ok(answer) = source.fetch(&external, &media.media_type).await {
+        let fetched = source.fetch(&external, &media.media_type).await;
+        honour_retry_after(&pace, &fetched).await;
+        if let Ok(answer) = fetched {
             fresh.insert(key(&external), answer);
         }
     }
     fresh
-}
-
-fn pace_of(source: &FetchingSource) -> RateLimiter {
-    let mut paces = PACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    paces.entry(source.id()).or_insert_with(|| source.limiter()).clone()
 }
 
 async fn answer(

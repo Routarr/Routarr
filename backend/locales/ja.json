@@ -211,7 +211,7 @@
   "ConfirmPurge": "保持期間を過ぎた判定、ログ、ジョブ履歴を消去しますか？",
   "ConfirmRemoveKey": "API キーを削除しますか？使用中のクライアントは直ちに動作しなくなります。",
   "ConfirmRemoveDestination": "宛先「{path}」を削除しますか？この宛先にマッピングしたカテゴリは、そこへ振り分けられなくなります。ディスク上のものは削除されません。",
-  "ConfirmRestore": "{name} を復元しますか？現在のデータベース、マスターキー、API キーを置き換えます。Routarr を再起動するまで何も変わりません。",
+  "ConfirmRestore": "{name} を復元しますか？現在のデータベースとマスターキーを置き換えます。API キー、パスワード、バックアップ以降に失効させたすべてのキーは今のまま残り、全員がもう一度サインインします。Routarr を再起動するまで何も変わりません。",
   "ConfirmRevert": "「{title}」を元の {path} へ移動しますか？",
   "ConfirmRevertFiles": "ディスク上のファイルも戻しますか？",
   "ConfirmRotateKey": "API キーを再生成しますか？現在のキーを使っているクライアントは、更新するまで動作しなくなります。",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age}歳以上",
   "CertNotRated": "未分類",
   "SettingsMetadataCoverage": "キャッシュと網羅範囲",
-  "DownloadBackup": "ダウンロード"
+  "DownloadBackup": "ダウンロード",
+  "SigningSecretUnreadable": "署名シークレットをこのインストールの鍵で開けないため、通知は送信されません。シークレットを置き換えてください。",
+  "ErrorPreviewsWaiting": "ライブラリの読み取りを待っているプレビューがすでにあります。いずれかが完了してから、もう一度お試しください。"
 }

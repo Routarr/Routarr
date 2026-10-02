@@ -211,7 +211,7 @@
   "ConfirmPurge": "要清除保留期間之外的決策、記錄與工作歷程嗎？",
   "ConfirmRemoveKey": "移除 API 金鑰？正在使用它的用戶端會立即停止運作。",
   "ConfirmRemoveDestination": "要移除目標「{path}」嗎？對應到它的分類將不再路由到這裡。磁碟上的內容不會被刪除。",
-  "ConfirmRestore": "還原 {name}？將取代目前的資料庫、主金鑰與 API 金鑰。在重新啟動 Routarr 之前不會有任何變化。",
+  "ConfirmRestore": "還原 {name}？將取代目前的資料庫與主金鑰。API 金鑰、密碼以及備份之後撤銷的所有金鑰都維持現狀，所有人都需要重新登入。在重新啟動 Routarr 之前不會有任何變化。",
   "ConfirmRevert": "要將「{title}」移動回 {path} 嗎？",
   "ConfirmRevertFiles": "是否也將磁碟上的檔案移回？",
   "ConfirmRotateKey": "重新產生 API 金鑰？仍在使用目前金鑰的用戶端將無法運作，直到更新為止。",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age} 歲以上",
   "CertNotRated": "未分級",
   "SettingsMetadataCoverage": "快取與涵蓋範圍",
-  "DownloadBackup": "下載"
+  "DownloadBackup": "下載",
+  "SigningSecretUnreadable": "本安裝的金鑰無法開啟簽章金鑰，因此不會傳送任何通知。請取代簽章金鑰。",
+  "ErrorPreviewsWaiting": "已有預覽在等待讀取媒體庫。請在其中一個完成後再試一次。"
 }

@@ -211,7 +211,7 @@
   "ConfirmPurge": "Ryd beslutninger, logfiler og opgavehistorik ud over opbevaringsperioden?",
   "ConfirmRemoveKey": "Fjern API-nøglen? Klienter, der bruger den, holder straks op med at virke.",
   "ConfirmRemoveDestination": "Fjern destinationen \"{path}\"? En kategori knyttet til den router ikke længere dertil. Intet slettes på disken.",
-  "ConfirmRestore": "Gendan {name}? Det erstatter den nuværende database, hovednøglen og API-nøglen. Intet ændres, før Routarr genstartes.",
+  "ConfirmRestore": "Gendan {name}? Det erstatter den nuværende database og hovednøglen. API-nøglen, adgangskoden og hver nøgle, der er tilbagekaldt siden da, forbliver som i dag, og alle skal logge ind igen. Intet ændres, før Routarr genstartes.",
   "ConfirmRevert": "Flyt \"{title}\" tilbage til {path}?",
   "ConfirmRevertFiles": "Skal filerne på disken også flyttes tilbage?",
   "ConfirmRotateKey": "Generer API-nøglen igen? Enhver klient, der stadig bruger den nuværende, holder op med at virke, indtil den opdateres.",
@@ -847,5 +847,7 @@
   "CertFromAge": "fra {age} år",
   "CertNotRated": "ikke bedømt",
   "SettingsMetadataCoverage": "Cache og dækning",
-  "DownloadBackup": "Hent"
+  "DownloadBackup": "Hent",
+  "SigningSecretUnreadable": "Signeringshemmeligheden kan ikke dekrypteres med denne installations nøgle, så der sendes ingen notifikationer. Erstat hemmeligheden.",
+  "ErrorPreviewsWaiting": "Der venter allerede forhåndsvisninger på biblioteket. Prøv igen, når en af dem er færdig."
 }

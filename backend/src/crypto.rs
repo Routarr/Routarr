@@ -71,7 +71,21 @@ impl SecretBox {
         let raw = match configured {
             Some(k) => derive_key(k),
             None => {
-                let stored = std::fs::read_to_string(key_path).ok().map(|s| s.trim().to_string());
+                // Only a missing file makes a new key. One that cannot be read,
+                // or holds bytes that are not text, is somebody's key: written
+                // over, it would take every credential sealed under it.
+                let stored = match std::fs::read_to_string(key_path) {
+                    Ok(stored) => Some(stored.trim().to_string()),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(e) => {
+                        return Err(AppError::Config(format!(
+                            "cannot read the master key at {}: {e}. Fix the file or move it \
+                             aside, since a new key would leave every stored credential \
+                             unreadable",
+                            key_path.display()
+                        )));
+                    }
+                };
                 match stored.filter(|s| !s.is_empty()) {
                     Some(k) => derive_key(&k),
                     None => {

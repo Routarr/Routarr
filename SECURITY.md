@@ -104,6 +104,12 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   request states an origin that is not this one.** Nothing else stands between
   a page of another site and the API there: `none` asks for nothing, and in
   `external` the proxy in front has already signed the browser in.
+- **In `none` mode a request sent to a host name Routarr does not know is
+  refused.** A page of another site can make its own name resolve to Routarr's
+  address (DNS rebinding), and the browser then calls that origin its own.
+  Routarr answers to an address, `localhost` and the names
+  `ROUTARR_ALLOWED_HOSTS` lists. In `external` mode the proxy decides which names
+  reach it, so the port is bound to the proxy alone.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
   issuer, the audience, the expiry and the nonce it generated, and takes each
   sign-in attempt out of the table as it is used, so an authorisation code
@@ -140,6 +146,11 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   its archives contain none, and restoring one elsewhere leaves every sealed
   credential unreadable. The manifest records it, the restore returns it, and
   the interface warns on it rather than reporting a plain success.
+- **A restore brings back no credential withdrawn since the backup.** An
+  application key revoked, a signing secret replaced, the master API key
+  rotated or the password changed stay as they are today, and every session
+  the archive held is closed. Going back to last night undoes the damage of a
+  leaked key, not its revocation.
 - **The application makes no outbound request nobody asked for.** No telemetry,
   no fonts from a CDN, no analytics. Every response carries a CSP whose
   `connect-src` is `'self'`.

@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
+use crate::api::auth::Identity;
 use crate::api::{Page, paginate};
 use crate::error::{AppError, AppResult};
 use crate::jobs::registry::render_detail;
@@ -24,6 +25,7 @@ pub struct Job {
     /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
     pub trigger: String,
     /// Who asked: an application's name, or the person a sign-in mode names.
+    /// An application key reads its own name and null for anyone else.
     pub subject: Option<String>,
     pub instance_id: Option<String>,
     /// What the task did, in the interface language.
@@ -65,6 +67,10 @@ impl Job {
         self.result =
             self.stored_result.as_deref().and_then(|stored| serde_json::from_str(stored).ok());
         self
+    }
+
+    fn seen_by(self, identity: &Identity) -> Self {
+        Self { subject: identity.shown_subject(self.subject), ..self }
     }
 }
 
@@ -135,6 +141,7 @@ pub struct JobQuery {
 
 pub async fn list(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Query(query): Query<JobQuery>,
 ) -> AppResult<Json<Page<Job>>> {
     let (page, per_page, offset) = paginate(query.page, query.per_page);
@@ -166,13 +173,14 @@ pub async fn list(
     let jobs = list_query.bind(per_page).bind(offset).fetch_all(&state.pool).await?;
     let total = count_query.fetch_one(&state.pool).await?;
     let localizer = state.localizer().await;
-    let jobs = jobs.into_iter().map(|job| job.localized(&localizer)).collect();
+    let jobs = jobs.into_iter().map(|job| job.localized(&localizer).seen_by(&identity)).collect();
 
     Ok(Json(Page::new(jobs, page, per_page, total)))
 }
 
 pub async fn get_one(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Path(id): Path<String>,
 ) -> AppResult<Json<Job>> {
     let sql = format!("SELECT {JOB_COLUMNS} FROM jobs WHERE id = ?");
@@ -181,5 +189,5 @@ pub async fn get_one(
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Job {id} not found")))?;
-    Ok(Json(job.localized(&state.localizer().await)))
+    Ok(Json(job.localized(&state.localizer().await).seen_by(&identity)))
 }

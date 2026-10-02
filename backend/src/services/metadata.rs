@@ -330,13 +330,21 @@ impl FetchingSource {
     }
 
     /// The limiter for this source, ready to be shared across a pass.
-    pub fn limiter(&self) -> crate::services::rate_limit::RateLimiter {
-        match self.rate() {
-            Some((per_minute, burst)) => {
-                crate::services::rate_limit::RateLimiter::new(per_minute, burst)
-            }
-            None => crate::services::rate_limit::RateLimiter::unlimited(),
-        }
+    /// The one pace every request to this source waits on, the enrichment
+    /// pass's and `GET /route`'s alike: each at the full published rate, they
+    /// would ask twice as fast as the source allows, and its 429s stop a pass.
+    /// An endpoint with no published rate, as a test stand-in, is not paced.
+    pub fn pace(&self) -> crate::services::rate_limit::RateLimiter {
+        use crate::services::rate_limit::RateLimiter;
+        static PACES: std::sync::LazyLock<
+            std::sync::Mutex<std::collections::HashMap<&'static str, RateLimiter>>,
+        > = std::sync::LazyLock::new(Default::default);
+
+        let Some((per_minute, burst)) = self.rate() else {
+            return RateLimiter::unlimited();
+        };
+        let mut paces = PACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        paces.entry(self.id()).or_insert_with(|| RateLimiter::new(per_minute, burst)).clone()
     }
 
     /// How many of this source's requests may be in flight at once.
@@ -780,6 +788,21 @@ pub async fn load_cache_of(
 
 #[cfg(test)]
 mod tests {
+
+    /// Enrichment and `GET /route` spend one budget per source: each at the
+    /// full published rate, they would ask twice as fast as the source allows,
+    /// and its 429s would stop the enrichment pass.
+    #[tokio::test]
+    async fn every_path_to_a_source_spends_one_pace() {
+        use crate::integrations::anilist::{AniListClient, DEFAULT_BASE_URL};
+        let source =
+            FetchingSource::AniList(AniListClient::new(reqwest::Client::new(), DEFAULT_BASE_URL));
+        source.pace().penalise(std::time::Duration::from_millis(300)).await;
+        let started = std::time::Instant::now();
+        source.pace().acquire().await;
+        assert!(started.elapsed() >= std::time::Duration::from_millis(250), "two budgets");
+    }
+
     use super::*;
 
     #[test]

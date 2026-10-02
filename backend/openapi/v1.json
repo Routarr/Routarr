@@ -117,7 +117,7 @@
         "properties": {
           "confirm": {
             "$ref": "#/components/schemas/Confirmed",
-            "description": "Always asked: `batch`, whose one question states both the count and\nany capacity shortfall."
+            "description": "Always asked: `batch`, whose one question states the count and any\nsleeping or full destination, named in the answer's `includes`."
           },
           "move_files": {
             "description": "Move the files on disk with each title. A key needs to be allowed to.",
@@ -547,7 +547,7 @@
             ]
           },
           "revertible": {
-            "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is.",
+            "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is, while the title is still where it put it and the folder\nit came from is still one of its instance's root folders.",
             "type": "boolean"
           },
           "simulation_id": {
@@ -562,7 +562,7 @@
             "type": "string"
           },
           "subject": {
-            "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody.",
+            "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody. An application key reads its own name and null for\nanyone else.",
             "type": [
               "string",
               "null"
@@ -630,6 +630,16 @@
           "error": {
             "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `external_api_error`, or an\ninternal kind.",
             "type": "string"
+          },
+          "includes": {
+            "description": "Beside `confirm`: the other guardrails the question states, sent back\nin `confirm` with it to accept the question whole.",
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "message": {
             "description": "A sentence for a person, in the interface language. Never part of the\ncontract.",
@@ -866,7 +876,7 @@
             "type": "string"
           },
           "subject": {
-            "description": "Who asked: an application's name, or the person a sign-in mode names.",
+            "description": "Who asked: an application's name, or the person a sign-in mode names.\nAn application key reads its own name and null for anyone else.",
             "type": [
               "string",
               "null"
@@ -1397,7 +1407,7 @@
             ]
           },
           "subject": {
-            "description": "Who set it: an application's name, or the person a sign-in mode names.",
+            "description": "Who set it: an application's name, or the person a sign-in mode names.\nAn application key reads its own name and null for anyone else.",
             "type": [
               "string",
               "null"
@@ -1542,7 +1552,7 @@
                   ]
                 },
                 "revertible": {
-                  "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is.",
+                  "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is, while the title is still where it put it and the folder\nit came from is still one of its instance's root folders.",
                   "type": "boolean"
                 },
                 "simulation_id": {
@@ -1557,7 +1567,7 @@
                   "type": "string"
                 },
                 "subject": {
-                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody.",
+                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody. An application key reads its own name and null for\nanyone else.",
                   "type": [
                     "string",
                     "null"
@@ -1662,7 +1672,7 @@
                   "type": "string"
                 },
                 "subject": {
-                  "description": "Who asked: an application's name, or the person a sign-in mode names.",
+                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nAn application key reads its own name and null for anyone else.",
                   "type": [
                     "string",
                     "null"
@@ -2328,7 +2338,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. With a signing secret it is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. With a signing secret it is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -3740,7 +3750,7 @@
     },
     "/simulate": {
       "post": {
-        "description": "With `persist: true` the proposals are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.",
+        "description": "With `persist: true` the proposals are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.\nA preview, `persist: false`, waits its turn, and answers 409 while four\nare already running or waiting.",
         "operationId": "simulate",
         "parameters": [
           {

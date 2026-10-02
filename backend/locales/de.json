@@ -211,7 +211,7 @@
   "ConfirmPurge": "Entscheidungen, Protokolle und Aufgabenverlauf jenseits des Aufbewahrungszeitraums löschen?",
   "ConfirmRemoveKey": "API-Schlüssel entfernen? Clients, die ihn verwenden, funktionieren sofort nicht mehr.",
   "ConfirmRemoveDestination": "Ziel \"{path}\" entfernen? Eine diesem Ziel zugeordnete Kategorie leitet nicht mehr dorthin. Auf der Festplatte wird nichts gelöscht.",
-  "ConfirmRestore": "{name} wiederherstellen? Ersetzt die aktuelle Datenbank, den Hauptschlüssel und den API-Schlüssel. Nichts ändert sich bis zum Neustart von Routarr.",
+  "ConfirmRestore": "{name} wiederherstellen? Ersetzt die aktuelle Datenbank und den Hauptschlüssel. Der API-Schlüssel, das Passwort und jeder seither widerrufene Schlüssel bleiben, wie sie heute sind, und alle müssen sich erneut anmelden. Nichts ändert sich bis zum Neustart von Routarr.",
   "ConfirmRevert": "\"{title}\" zurück nach {path} verschieben?",
   "ConfirmRevertFiles": "Auch die Dateien auf der Festplatte zurückverschieben?",
   "ConfirmRotateKey": "API-Schlüssel neu erzeugen? Jeder Client, der noch den aktuellen verwendet, funktioniert bis zur Aktualisierung nicht mehr.",
@@ -847,5 +847,7 @@
   "CertFromAge": "ab {age} Jahren",
   "CertNotRated": "nicht eingestuft",
   "SettingsMetadataCoverage": "Cache und Abdeckung",
-  "DownloadBackup": "Herunterladen"
+  "DownloadBackup": "Herunterladen",
+  "SigningSecretUnreadable": "Das Signaturgeheimnis lässt sich mit dem Schlüssel dieser Installation nicht entschlüsseln, daher wird keine Benachrichtigung gesendet. Ersetzen Sie das Geheimnis.",
+  "ErrorPreviewsWaiting": "Es warten bereits Vorschauen auf die Bibliothek. Versuchen Sie es erneut, sobald eine abgeschlossen ist."
 }

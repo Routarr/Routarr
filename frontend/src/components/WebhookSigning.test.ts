@@ -25,12 +25,14 @@ const STRINGS = {
   ConfirmStopSigning: 'Stop signing notifications?',
   SigningStopped: 'Notifications are no longer signed.',
   ApiKeyMintedOnce: 'Copy it now.',
+  SigningSecretUnreadable: 'The secret cannot be read. Replace it.',
 };
 
-function show(signed: boolean) {
+function show(signed: boolean, readable = true) {
   vi.spyOn(api, 'webhookSigning').mockResolvedValue({
     signed,
     since: signed ? '2026-09-30 12:00:00' : null,
+    readable,
   });
   return renderWithI18n(WebhookSigning, {
     props: { outcome: createOutcome() },
@@ -73,5 +75,19 @@ describe('WebhookSigning', () => {
     await user.click(await screen.findByRole('button', { name: 'Stop signing' }));
     expect(await answerConfirmation()).toBe('Stop signing notifications?');
     await waitFor(() => expect(remove).toHaveBeenCalled());
+  });
+  /**
+   * A secret the installation cannot open sends nothing at all, so the card
+   * says so rather than that notifications are signed.
+   */
+  it('says when the secret cannot be read', async () => {
+    show(true, false);
+    expect(await screen.findByText('The secret cannot be read. Replace it.')).toBeTruthy();
+  });
+
+  it('says nothing of the kind while the secret opens', async () => {
+    show(true);
+    await screen.findByText(/Signed since/);
+    expect(screen.queryByText('The secret cannot be read. Replace it.')).toBeNull();
   });
 });

@@ -148,6 +148,13 @@ if docker exec "$NAME" sh -c 'test -w /app || test -w /app/routarr || test -w /a
 fi
 ok "leaves /app read-only to uid 1000"
 
+# The way back in for a locked-out operator, run where the README says, with
+# the server still running: the image carries no sqlite3 to do it by hand.
+reset=$(docker exec "$NAME" /app/routarr reset-account) || fail "reset-account failed"
+grep -qF 'The account is reset' <<<"$reset" || fail "reset-account printed no new password"
+docker exec "$NAME" test -s /data/routarr.password || fail "reset-account wrote no password file"
+ok "\`/app/routarr reset-account\` gives the account a new password"
+
 # Docker's first probe runs one interval (30s) after start.
 wait_for 60 "healthy status from the HEALTHCHECK" healthy
 ok "the HEALTHCHECK reports healthy"

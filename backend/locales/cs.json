@@ -211,7 +211,7 @@
   "ConfirmPurge": "Vyčistit rozhodnutí, protokoly a historii úloh mimo dobu uchování?",
   "ConfirmRemoveKey": "Odebrat klíč API? Klienti, kteří jej používají, okamžitě přestanou fungovat.",
   "ConfirmRemoveDestination": "Odebrat cíl \"{path}\"? Kategorie s ním propojená do něj přestane směrovat. Na disku se nic nesmaže.",
-  "ConfirmRestore": "Obnovit {name}? Nahradí aktuální databázi, hlavní klíč a klíč API. Nic se nezmění, dokud se Routarr nerestartuje.",
+  "ConfirmRestore": "Obnovit {name}? Nahradí aktuální databázi a hlavní klíč. Klíč API, heslo a každý od té doby zneplatněný klíč zůstanou tak, jak jsou dnes, a všichni se budou muset přihlásit znovu. Nic se nezmění, dokud se Routarr nerestartuje.",
   "ConfirmRevert": "Přesunout \"{title}\" zpět do {path}?",
   "ConfirmRevertFiles": "Přesunout zpět i soubory na disku?",
   "ConfirmRotateKey": "Vygenerovat klíč API znovu? Každý klient, který stále používá ten současný, přestane fungovat, dokud jej neaktualizujete.",
@@ -847,5 +847,7 @@
   "CertFromAge": "od {age} let",
   "CertNotRated": "nezařazeno",
   "SettingsMetadataCoverage": "Mezipaměť a pokrytí",
-  "DownloadBackup": "Stáhnout"
+  "DownloadBackup": "Stáhnout",
+  "SigningSecretUnreadable": "Tajný klíč pro podpis nelze otevřít klíčem této instalace, takže se žádné oznámení neodesílá. Nahraďte tajný klíč.",
+  "ErrorPreviewsWaiting": "Náhledy už čekají na přístup ke knihovně. Zkuste to znovu, až některý z nich skončí."
 }
