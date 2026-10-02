@@ -75,6 +75,10 @@ pub struct AppState {
     /// lock them out of their own login. It is a static document, and providers
     /// expect it to be cached.
     pub oidc_provider: Arc<tokio::sync::RwLock<Option<(crate::services::oidc::Provider, Instant)>>>,
+    /// The work that follows a full sync (enrichment, simulation, auto-apply),
+    /// whoever synced: one at a time, and waited for at shutdown
+    /// (`jobs::scheduler::follow_sync`).
+    pub post_sync: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
 }
 
 /// The settings table as it stood when it was read, by [`AppState::settings`].
@@ -450,6 +454,7 @@ impl AppState {
             api_key: Arc::new(std::sync::RwLock::new(resolve_api_key(&config))),
             sign_in: Arc::new(Default::default()),
             oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
+            post_sync: Arc::new(tokio::sync::Mutex::new(None)),
             config: Arc::new(config),
             pool,
         }

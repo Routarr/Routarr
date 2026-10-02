@@ -85,6 +85,9 @@ const STRINGS = {
   SettingNotificationWebhook: 'Notification webhook',
   Remove: 'Remove',
   ConfigImportResult: 'Restored: {settings} settings.',
+  ImportReplaceQuestion: 'Replace the rules, or add to them?',
+  ImportAppend: 'Add',
+  ImportReplace: 'Replace',
   ConfigImportSkipped: 'Not restored: {count}',
   ConfigImportNeedsKey: 'Instances waiting for their API key: {names}',
   ListSeparator: ', ',
@@ -450,7 +453,7 @@ describe('the notification webhook', () => {
    * placeholder says which, and a save that leaves it blank leaves it alone.
    */
   it('says an address is stored, and leaves it alone when saved blank', async () => {
-    mount({ notification_webhook_url: '', notification_webhook_url_configured: true });
+    mount({ notification_webhook_url_configured: true });
     await openSection('Automation');
 
     const field = await screen.findByLabelText('Notification webhook');
@@ -465,7 +468,7 @@ describe('the notification webhook', () => {
 
   /** Blank means "leave it", so removing one takes a button of its own. */
   it('removes a stored address at the next save', async () => {
-    mount({ notification_webhook_url: '', notification_webhook_url_configured: true });
+    mount({ notification_webhook_url_configured: true });
     await openSection('Automation');
 
     await fireEvent.click(
@@ -480,7 +483,7 @@ describe('the notification webhook', () => {
   });
 
   it('offers nothing to remove while no address is stored', async () => {
-    mount({ notification_webhook_url: '', notification_webhook_url_configured: false });
+    mount({ notification_webhook_url_configured: false });
     await openSection('Automation');
 
     await screen.findByLabelText('Notification webhook');
@@ -579,6 +582,7 @@ describe('importing a configuration', () => {
     instances: 0,
     root_folders: 0,
     overrides: 0,
+    rules: 0,
     skipped: [],
     needs_key: [],
   };
@@ -592,6 +596,28 @@ describe('importing a configuration', () => {
     });
     await userEvent.upload(input, file);
   }
+
+  /**
+   * A bundle carrying rules asks what the Rules screen asks of a rule file,
+   * and sends the answer: Cancel imports nothing.
+   */
+  it('asks whether the rules of a bundle replace the ones in place', async () => {
+    const importConfig = vi.spyOn(api, 'importConfig').mockResolvedValue({ ...BUNDLE, rules: 1 });
+    mount({});
+    await openSection('Maintenance');
+    const withRules = { version: 1, rules: [{ name: 'Anime' }] };
+
+    await importFile(withRules);
+    expect(await answerConfirmation(null)).toBe('Replace the rules, or add to them?');
+    await importFile(withRules);
+    await answerConfirmation('replace');
+    await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(1));
+    expect(importConfig).toHaveBeenLastCalledWith(withRules, true);
+
+    await importFile({ version: 1 });
+    await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(2));
+    expect(importConfig).toHaveBeenLastCalledWith({ version: 1 }, false);
+  });
 
   it('re-reads the settings it just overwrote', async () => {
     const getSettings = vi.spyOn(api, 'getSettings');
@@ -728,6 +754,7 @@ describe('importing a configuration', () => {
       instances: 0,
       root_folders: 0,
       overrides: 0,
+      rules: 0,
       skipped: ['setting "colour": unknown'],
       needs_key: [],
     });

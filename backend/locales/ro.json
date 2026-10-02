@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Condiții (toate)",
   "ConditionsAnyOf": "Condiții (cel puțin una)",
   "Confidence": "Încredere",
-  "ConfigImportResult": "Elemente restaurate. Setări: {settings}, categorii: {categories}, instanțe: {instances}, asocieri: {folders}, excepții: {overrides}.",
+  "ConfigImportResult": "Elemente restaurate. Setări: {settings}, categorii: {categories}, instanțe: {instances}, asocieri: {folders}, reguli: {rules}, excepții: {overrides}.",
   "ConfigImportSkipped": "Nerestaurate: {count}",
   "ConfigImportNeedsKey": "Instanțe care așteaptă cheia API: {names}",
   "ConfirmApply": "Elemente de reorientat în Radarr/Sonarr: {count}",

@@ -26,7 +26,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import WarningBanner from '../components/WarningBanner.svelte';
-  import { askConfirmation } from '../lib/confirm.svelte';
+  import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
   import { navigate } from '../lib/router.svelte';
@@ -360,9 +360,27 @@
     }
   }
 
+  /** Whether a bundle read from a file carries rules, which then need a question. */
+  function carriesRules(bundle: unknown): boolean {
+    const rules = (bundle as { rules?: unknown } | null)?.rules;
+    return Array.isArray(rules) && rules.length > 0;
+  }
+
   async function importConfig(file: File) {
     try {
-      const report = await api.importConfig(JSON.parse(await file.text()));
+      const parsed: unknown = JSON.parse(await file.text());
+      // The question the Rules screen asks of a rule file, with its three
+      // outcomes: Cancel imports nothing.
+      let replaceRules = false;
+      if (carriesRules(parsed)) {
+        const answer = await ask(t('ImportReplaceQuestion'), [
+          { label: 'ImportAppend', value: 'append' },
+          { label: 'ImportReplace', value: 'replace', danger: true },
+        ]);
+        if (answer === null) return;
+        replaceRules = answer === 'replace';
+      }
+      const report = await api.importConfig(parsed, replaceRules);
       // The import wrote every setting, so an edit begun before it goes now:
       // carried over the values read back, whenever that read succeeds, Save
       // would write it over the import.
@@ -375,6 +393,7 @@
         report.categories +
         report.instances +
         report.root_folders +
+        report.rules +
         report.overrides;
       const waiting = report.needs_key.length
         ? ` ${t('ConfigImportNeedsKey', { names: report.needs_key.join(t('ListSeparator')) })}`
@@ -385,6 +404,7 @@
           categories: report.categories,
           instances: report.instances,
           folders: report.root_folders,
+          rules: report.rules,
           overrides: report.overrides,
         }) + waiting;
       // Never swallowed: a restore that quietly drops half a backup is worse

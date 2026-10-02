@@ -391,6 +391,18 @@ impl TestApp {
 
     /// Write a setting straight into the table, as a hand edit or an older
     /// release leaves it: nothing validates or seals the value.
+    /// Run each statement on the test database, in order.
+    pub async fn execute(&self, statements: &[&'static str]) {
+        for statement in statements {
+            sqlx::query(*statement).execute(&self.state.pool).await.unwrap();
+        }
+    }
+
+    /// The single number `sql` selects.
+    pub async fn count(&self, sql: &'static str) -> i64 {
+        sqlx::query_scalar(sql).fetch_one(&self.state.pool).await.unwrap()
+    }
+
     pub async fn store_setting(&self, key: &str, value: &str) {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?)

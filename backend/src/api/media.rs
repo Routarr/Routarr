@@ -215,9 +215,15 @@ impl ExternalTitle {
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct PlacementOptions {
-    /// The tag labels a title the library does not hold would be added with,
+    /// The tag labels a title the Arr does not hold would be added with,
     /// separated by commas, for the rules that read tags.
     pub tags: Option<String>,
+    /// The series type a series Sonarr does not hold would be added with:
+    /// `standard`, `daily` or `anime`. Defaults to what Sonarr's lookup says.
+    pub series_type: Option<String>,
+    /// Whether a title the Arr does not hold would be added monitored.
+    /// Defaults to true, as Radarr and Sonarr add one.
+    pub monitored: Option<bool>,
     /// Ask every source that can answer and has no cached answer now, storing
     /// nothing. Slower, and paced by each source's limits. Defaults to false.
     pub enrich: Option<bool>,
@@ -251,12 +257,23 @@ pub async fn place(
         .filter(|tag| !tag.is_empty())
         .map(str::to_string)
         .collect();
+    let series_type = match options.series_type.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(kind @ ("standard" | "daily" | "anime")) => Some(kind.to_string()),
+        Some(other) => {
+            return Err(AppError::BadRequest(format!(
+                "series_type '{other}' is not one of standard, daily and anime."
+            )));
+        }
+    };
+    let added =
+        crate::services::placement::AddedWith { tags, series_type, monitored: options.monitored };
     let placement = crate::services::placement::place(
         &state,
         media_type,
         &id,
         title.instance.as_deref(),
-        &tags,
+        &added,
         enrich,
     )
     .await?;

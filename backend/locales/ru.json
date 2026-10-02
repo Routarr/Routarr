@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Условия (все)",
   "ConditionsAnyOf": "Условия (хотя бы одно)",
   "Confidence": "Уверенность",
-  "ConfigImportResult": "Восстановлено. Настроек: {settings}, категорий: {categories}, экземпляров: {instances}, сопоставлений: {folders}, исключений: {overrides}.",
+  "ConfigImportResult": "Восстановлено. Настроек: {settings}, категорий: {categories}, экземпляров: {instances}, сопоставлений: {folders}, правил: {rules}, исключений: {overrides}.",
   "ConfigImportSkipped": "Не восстановлено: {count}",
   "ConfigImportNeedsKey": "Экземпляры, ожидающие ключ API: {names}",
   "ConfirmApply": "Элементов для переназначения в Radarr/Sonarr: {count}",

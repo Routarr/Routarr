@@ -427,7 +427,16 @@ pub async fn route_one(
     media: &Media,
     now: chrono::DateTime<Utc>,
 ) -> AppResult<ItemRoute> {
-    route_one_with(pool, media, now, HashMap::new()).await
+    route_one_with(pool, media, now, Fresh::default()).await
+}
+
+/// What sources asked about one title said just now, never stored: their
+/// answers, and the id a source found by title resolved it to, without which
+/// the evaluation cannot tell that source's answer belongs to the title.
+#[derive(Default)]
+pub struct Fresh {
+    pub metadata: HashMap<(String, String, String), ProviderMetadata>,
+    pub identifiers: metadata::Identifiers,
 }
 
 /// `route_one`, with answers a source gave just now where the cache has none.
@@ -438,11 +447,14 @@ pub async fn route_one_with(
     pool: &SqlitePool,
     media: &Media,
     now: chrono::DateTime<Utc>,
-    fresh: HashMap<(String, String, String), ProviderMetadata>,
+    fresh: Fresh,
 ) -> AppResult<ItemRoute> {
     let mut ctx = load_context(pool, Scope::Item(media)).await?;
-    for (key, answer) in fresh {
+    for (key, answer) in fresh.metadata {
         ctx.metadata.entry(key).or_insert(answer);
+    }
+    for (key, external) in fresh.identifiers {
+        ctx.identifiers.entry(key).or_insert(external);
     }
     let route = route(&ctx, media, &ctx.rules, now);
     let override_category = ctx.overrides.get(&media.id).cloned();

@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Συνθήκες (όλες)",
   "ConditionsAnyOf": "Συνθήκες (τουλάχιστον μία)",
   "Confidence": "Βεβαιότητα",
-  "ConfigImportResult": "Επαναφέρθηκαν. Ρυθμίσεις: {settings}, κατηγορίες: {categories}, εγκαταστάσεις: {instances}, αντιστοιχίσεις: {folders}, εξαιρέσεις: {overrides}.",
+  "ConfigImportResult": "Επαναφέρθηκαν. Ρυθμίσεις: {settings}, κατηγορίες: {categories}, εγκαταστάσεις: {instances}, αντιστοιχίσεις: {folders}, κανόνες: {rules}, εξαιρέσεις: {overrides}.",
   "ConfigImportSkipped": "Δεν επαναφέρθηκαν: {count}",
   "ConfigImportNeedsKey": "Εγκαταστάσεις που περιμένουν το κλειδί API τους: {names}",
   "ConfirmApply": "Στοιχεία προς αναδρομολόγηση σε Radarr/Sonarr: {count}",

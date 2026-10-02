@@ -6,6 +6,7 @@ use serde_json::Value;
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::fake_sources::FakeSources;
 use super::fake_tmdb::FakeTmdb;
 use crate::jobs::Attribution;
 
@@ -184,6 +185,51 @@ async fn enrich_asks_a_source_for_what_the_rules_read_and_stores_nothing() {
     assert_eq!(count(&app, "metadata_cache").await, 0, "an enriched placement stored an answer");
 }
 
+/// The Radarr library, AniList as its one source, and a rule sending what
+/// AniList calls Japanese to `kids` before the anime rule.
+async fn library_on_anilist(arr: &FakeArr, sources: &FakeSources) -> TestApp {
+    let app = TestApp::new().await;
+    let mut config = crate::config::Config::for_tests();
+    config.anilist_base_url = sources.anilist_url();
+    let app = TestApp::around(app.state.clone().with_config(config));
+    radarr_library(&app, arr).await;
+    app.store_setting("metadata_providers", "anilist").await;
+    crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
+    app.seed_rule_on(serde_json::json!({ "type": "origin_country", "value": ["JP"] })).await;
+    app.execute(&["UPDATE rules SET priority = 1, target_category = 'kids' WHERE id = 'r-1'"])
+        .await;
+    app
+}
+
+/// A source found by title, as AniList is, answers under the id its search
+/// resolved. `enrich` reads that answer under that id, and stores neither.
+#[tokio::test]
+async fn enrich_reads_what_a_source_found_by_title_answers_and_stores_nothing() {
+    let (arr, sources) = (FakeArr::start().await, FakeSources::start().await);
+    let app = library_on_anilist(&arr, &sources).await;
+
+    let enriched = app.get("/api/v1/route?type=movie&tmdb=8392&enrich=true").await;
+
+    assert_eq!(only(enriched.assert_ok())["category"], "kids", "AniList's answer went unread");
+    assert_eq!(count(&app, "metadata_cache").await, 0, "an enriched placement stored an answer");
+    assert_eq!(count(&app, "source_identifiers").await, 0, "it stored what the search found");
+}
+
+/// A search on record that found nothing is not run again for a placement:
+/// the enrichment pass searches again once the miss is old enough.
+#[tokio::test]
+async fn enrich_does_not_search_again_for_a_title_a_search_missed() {
+    let (arr, sources) = (FakeArr::start().await, FakeSources::start().await);
+    let app = library_on_anilist(&arr, &sources).await;
+    app.execute(&["INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+                   VALUES ('anilist', 'movie', 'tmdb:8392', NULL)"])
+        .await;
+
+    app.get("/api/v1/route?type=movie&tmdb=8392&enrich=true").await.assert_ok();
+
+    assert!(sources.recorded().searches.is_empty(), "{:?}", sources.recorded().searches);
+}
+
 #[tokio::test]
 async fn a_series_is_placed_through_sonarr() {
     let arr = FakeArr::start().await;
@@ -195,6 +241,86 @@ async fn a_series_is_placed_through_sonarr() {
     assert_eq!(answer["title"], "Cowboy Bebop");
     let unknown = app.get("/api/v1/route?type=series&tvdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
+}
+
+/// A film Radarr does not hold has no file, though its lookup does not say so.
+#[tokio::test]
+async fn a_film_radarr_does_not_hold_is_judged_as_having_no_file() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    radarr_library(&app, &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "has_files", "value": false })).await;
+    app.execute(&["UPDATE rules SET priority = 1, target_category = 'kids' WHERE id = 'r-1'"])
+        .await;
+
+    let placed = app.get("/api/v1/route?type=movie&tmdb=129").await;
+
+    assert_eq!(only(placed.assert_ok())["category"], "kids", "read as a film with a file");
+}
+
+/// The Sonarr library, with `condition` sending a series to `anime`.
+async fn sonarr_library_routing_on(arr: &FakeArr, condition: Value) -> TestApp {
+    let app = TestApp::synced_from("sonarr", arr).await;
+    app.seed_rule_on(condition).await;
+    app.execute(&["UPDATE root_folders SET category = 'anime' WHERE path = '/movies/anime'"]).await;
+    app
+}
+
+/// A series Sonarr does not hold yet is judged on what adding it would set,
+/// not on the defaults its lookup answers: the type the caller names.
+#[tokio::test]
+async fn a_series_sonarr_does_not_hold_is_judged_on_the_type_it_would_be_added_with() {
+    let arr = FakeArr::start().await;
+    let app = sonarr_library_routing_on(
+        &arr,
+        serde_json::json!({ "type": "series_type_is", "value": ["anime"] }),
+    )
+    .await;
+
+    let as_looked_up = app.get("/api/v1/route?type=series&tvdb=81178").await;
+    assert_ne!(only(as_looked_up.assert_ok())["category"], "anime");
+    let as_added = app.get("/api/v1/route?type=series&tvdb=81178&series_type=anime").await;
+    assert_eq!(
+        only(as_added.assert_ok())["category"],
+        "anime",
+        "the type it is added with went unread"
+    );
+    let unknown = app.get("/api/v1/route?type=series&tvdb=81178&series_type=cartoon").await;
+    assert_eq!(unknown.status, StatusCode::BAD_REQUEST, "{:?}", unknown.json);
+}
+
+/// And added today, which the lookup's date for a title nobody added is not.
+#[tokio::test]
+async fn a_title_the_arr_does_not_hold_is_judged_as_added_today() {
+    let arr = FakeArr::start().await;
+    let app = sonarr_library_routing_on(
+        &arr,
+        serde_json::json!({ "type": "added_within_days", "value": 7 }),
+    )
+    .await;
+
+    let placed = app.get("/api/v1/route?type=series&tvdb=81178").await;
+    assert_eq!(only(placed.assert_ok())["category"], "anime");
+}
+
+/// A title the Arr holds and the last sync did not read keeps its own tags,
+/// which the tag catalogue names: the tags a caller sends are for a title
+/// that has none yet.
+#[tokio::test]
+async fn a_title_the_arr_holds_keeps_its_own_tags_before_it_is_synced() {
+    let arr = FakeArr::start().await;
+    let app = sonarr_library_routing_on(
+        &arr,
+        serde_json::json!({ "type": "tag_in", "value": ["anime"] }),
+    )
+    .await;
+    app.execute(&["DELETE FROM media"]).await;
+
+    let placed = app.get("/api/v1/route?type=series&tvdb=76885&tags=kids").await;
+
+    let answer = only(placed.assert_ok());
+    assert_eq!(answer["source"], "lookup");
+    assert_eq!(answer["category"], "anime", "{answer}");
 }
 
 /// An instance whose key cannot be opened fails for a reason that belongs to

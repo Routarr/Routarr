@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Betingelser (alle)",
   "ConditionsAnyOf": "Betingelser (minst én)",
   "Confidence": "Sikkerhet",
-  "ConfigImportResult": "Gjenopprettet. Innstillinger: {settings}, kategorier: {categories}, instanser: {instances}, koblinger: {folders}, unntak: {overrides}.",
+  "ConfigImportResult": "Gjenopprettet. Innstillinger: {settings}, kategorier: {categories}, instanser: {instances}, koblinger: {folders}, regler: {rules}, unntak: {overrides}.",
   "ConfigImportSkipped": "Ikke gjenopprettet: {count}",
   "ConfigImportNeedsKey": "Instanser som venter på API-nøkkelen: {names}",
   "ConfirmApply": "Elementer som pekes om i Radarr/Sonarr: {count}",

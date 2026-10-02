@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Voorwaarden (alle)",
   "ConditionsAnyOf": "Voorwaarden (minstens één)",
   "Confidence": "Zekerheid",
-  "ConfigImportResult": "Hersteld. Instellingen: {settings}, categorieën: {categories}, instanties: {instances}, koppelingen: {folders}, uitzonderingen: {overrides}.",
+  "ConfigImportResult": "Hersteld. Instellingen: {settings}, categorieën: {categories}, instanties: {instances}, koppelingen: {folders}, regels: {rules}, uitzonderingen: {overrides}.",
   "ConfigImportSkipped": "Niet hersteld: {count}",
   "ConfigImportNeedsKey": "Instanties die op hun API-sleutel wachten: {names}",
   "ConfirmApply": "Items die in Radarr/Sonarr worden omgezet: {count}",

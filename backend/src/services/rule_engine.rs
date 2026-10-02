@@ -1083,7 +1083,17 @@ mod tests {
     fn media_type_scope_is_respected() {
         let mut series_only = anime_rule();
         series_only.media_type = "series".into();
-        assert!(evaluate(&[series_only], None).winner.is_none());
+        assert!(evaluate(&[series_only.clone()], None).winner.is_none());
+
+        let mut movies_only = anime_rule();
+        movies_only.media_type = "movie".into();
+        assert_eq!(evaluate(&[movies_only], None).winner.unwrap().category, "anime");
+
+        let mut series = media();
+        series.media_type = "series".into();
+        let metadata = metadata();
+        let ctx = EvalContext { media: &series, metadata: Some(&metadata), now: now() };
+        assert_eq!(evaluate_rules(ctx, &[series_only], None).winner.unwrap().category, "anime");
     }
 
     #[test]
@@ -1349,8 +1359,14 @@ mod tests {
         );
         r.match_mode = MatchMode::Any;
 
-        let result = evaluate(&[r], None);
+        let result = evaluate(&[r.clone()], None);
         assert_eq!(result.winner.unwrap().category, "concerts");
+
+        r.conditions = vec![
+            Condition::GenreContains(vec!["Music".into()]),
+            Condition::KeywordContains(vec!["concert film".into()]),
+        ];
+        assert!(evaluate(&[r], None).winner.is_none(), "an any rule with nothing holding matched");
     }
 
     /// Explanation lines, rendered the way the API does.
@@ -1394,6 +1410,21 @@ mod tests {
         );
     }
 
+    /// Any one exclusion vetoes, wherever it sits in the list.
+    #[test]
+    fn the_second_exclusion_vetoes_as_well_as_the_first() {
+        let mut r = anime_rule();
+        r.exclusions = vec![
+            Condition::GenreContains(vec!["Horror".into()]),
+            Condition::KeywordContains(vec!["studio ghibli".into()]),
+        ];
+
+        let result = evaluate(&[r], None);
+        assert!(result.winner.is_none(), "the second exclusion was ignored");
+        let veto = result.excluded[0].excluded_by.as_ref().expect("a veto");
+        assert_eq!(veto.kind, "keyword_contains");
+    }
+
     #[test]
     fn a_non_matching_exclusion_leaves_the_rule_alone() {
         let mut r = anime_rule();
@@ -1424,6 +1455,18 @@ mod tests {
         .matched
     }
 
+    /// `condition` against the fixture as `adjust` leaves it.
+    fn matches_on(adjust: impl FnOnce(&mut Media), condition: Condition) -> bool {
+        let mut media = media();
+        adjust(&mut media);
+        let metadata = metadata();
+        evaluate_single_condition(
+            &condition,
+            EvalContext { media: &media, metadata: Some(&metadata), now: now() },
+        )
+        .matched
+    }
+
     fn matches_without_metadata(condition: Condition) -> bool {
         let media = media();
         evaluate_single_condition(
@@ -1443,12 +1486,17 @@ mod tests {
     fn negative_genre_condition_is_the_inverse() {
         assert!(!matches(Condition::GenreNotContains(vec!["Animation".into()])));
         assert!(matches(Condition::GenreNotContains(vec!["Horror".into()])));
+        // Any one of the values present refuses, not all of them.
+        assert!(!matches(Condition::GenreNotContains(vec!["Horror".into(), "Animation".into()])));
     }
 
     #[test]
     fn keyword_conditions_work_on_the_keyword_list() {
         assert!(matches(Condition::KeywordContains(vec!["Studio Ghibli".into()])));
         assert!(matches(Condition::KeywordNotContains(vec!["concert".into()])));
+        assert!(!matches(Condition::KeywordNotContains(vec!["studio ghibli".into()])));
+        // A genre is not a keyword.
+        assert!(matches(Condition::KeywordNotContains(vec!["Animation".into()])));
     }
 
     #[test]
@@ -1476,6 +1524,10 @@ mod tests {
         assert!(matches(Condition::YearRange { min: Some(1980), max: None }));
         assert!(matches(Condition::YearRange { min: None, max: Some(1990) }));
         assert!(!matches(Condition::YearRange { min: Some(1990), max: None }));
+        // The fixture's year is 1988: both bounds include it, neither reaches past it.
+        assert!(matches(Condition::YearRange { min: Some(1988), max: Some(1988) }));
+        assert!(!matches(Condition::YearRange { min: None, max: Some(1987) }));
+        assert!(!matches(Condition::YearRange { min: Some(1989), max: None }));
     }
 
     #[test]
@@ -1544,6 +1596,14 @@ mod tests {
         assert!(matches(Condition::Monitored(true)));
         assert!(matches(Condition::HasMetadata(true)));
         assert!(matches_without_metadata(Condition::HasMetadata(false)));
+        // The other side of each, on a title where the field differs.
+        assert!(matches_on(|m| m.has_files = false, Condition::HasFiles(false)));
+        assert!(!matches_on(|m| m.has_files = false, Condition::HasFiles(true)));
+        assert!(!matches(Condition::Monitored(false)));
+        assert!(matches_on(|m| m.monitored = false, Condition::Monitored(false)));
+        assert!(!matches_on(|m| m.monitored = false, Condition::Monitored(true)));
+        assert!(!matches(Condition::HasMetadata(false)));
+        assert!(!matches_without_metadata(Condition::HasMetadata(true)));
     }
 
     #[test]
@@ -1594,7 +1654,10 @@ mod tests {
         assert!(matches(Condition::TmdbIdIn(vec![8392, 1])));
         assert!(!matches(Condition::TmdbIdIn(vec![1])));
         assert!(matches(Condition::ImdbIdIn(vec!["TT0096283".into()])));
+        assert!(!matches(Condition::ImdbIdIn(vec!["tt0000001".into()])));
         assert!(!matches(Condition::TvdbIdIn(vec![1])), "media has no tvdb id");
+        assert!(matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1, 76885])));
+        assert!(!matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1])));
     }
 
     #[test]

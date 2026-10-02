@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Condicions (totes)",
   "ConditionsAnyOf": "Condicions (almenys una)",
   "Confidence": "Confiança",
-  "ConfigImportResult": "Restaurat. Configuració: {settings}, categories: {categories}, instàncies: {instances}, associacions: {folders}, excepcions: {overrides}.",
+  "ConfigImportResult": "Restaurat. Configuració: {settings}, categories: {categories}, instàncies: {instances}, associacions: {folders}, regles: {rules}, excepcions: {overrides}.",
   "ConfigImportSkipped": "No restaurats: {count}",
   "ConfigImportNeedsKey": "Instàncies pendents de la clau API: {names}",
   "ConfirmApply": "Elements que es reapuntaran a Radarr/Sonarr: {count}",

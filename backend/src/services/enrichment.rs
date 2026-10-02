@@ -121,7 +121,11 @@ async fn run_enrichment(
     // lose both.
     let breaker = Breaker::new();
 
-    let results: Vec<(String, String, Option<AppResult<ProviderMetadata>>)> = stream::iter(targets)
+    // Each answer is stored as it arrives, not once the pass ends: a pass over
+    // a large library takes hours, and a restart or one failed write before
+    // its end would otherwise throw away everything fetched, a day of a keyed
+    // source's quota included.
+    let mut results = stream::iter(targets)
         .map(|(external_id, media_type)| {
             let source = source.clone();
             let breaker = breaker.clone();
@@ -143,14 +147,14 @@ async fn run_enrichment(
                 (external_id, media_type, Some(outcome))
             }
         })
-        .buffer_unordered(source.concurrency(state.config.metadata_concurrency))
-        .collect()
-        .await;
+        .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
     let mut report = EnrichmentReport { considered: total, ..Default::default() };
     let mut rate_limited = false;
+    let mut index = 0;
 
-    for (index, (external_id, media_type, result)) in results.into_iter().enumerate() {
+    while let Some((external_id, media_type, result)) = results.next().await {
+        index += 1;
         let Some(result) = result else {
             report.skipped += 1;
             continue;
@@ -158,7 +162,7 @@ async fn run_enrichment(
 
         match result {
             Ok(data) => {
-                store_metadata(
+                let stored = store_metadata(
                     &state.pool,
                     source.id(),
                     &external_id,
@@ -166,8 +170,14 @@ async fn run_enrichment(
                     &data,
                     ttl_days,
                 )
-                .await?;
-                report.enriched += 1;
+                .await;
+                match stored {
+                    Ok(()) => report.enriched += 1,
+                    Err(e) => {
+                        warn!("Could not store {} {external_id} ({media_type}): {e}", source.id());
+                        report.failed += 1;
+                    }
+                }
             }
             Err(AppError::ExternalApi { status: 429, .. }) => {
                 rate_limited = true;
@@ -181,8 +191,8 @@ async fn run_enrichment(
 
         // Progress is only interesting at a coarse grain: one UPDATE per item
         // would cost more than the work it reports on.
-        if index % 25 == 0 {
-            job.progress(index + 1, total).await;
+        if index % 25 == 1 {
+            job.progress(index, total).await;
         }
     }
 
@@ -258,10 +268,6 @@ fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
     )
 }
 
-/// The outcome of one resolution attempt: its key, its media type, and either
-/// what the source answered or `None` for an attempt the breaker cut off.
-type Resolution = (String, String, Option<AppResult<Option<String>>>);
-
 /// One media row, reduced to what identifying it needs.
 type Candidate = (String, Option<i64>, String, Option<i64>, Option<i64>, Option<String>);
 
@@ -307,7 +313,8 @@ async fn resolve_identifiers(
 
     let breaker = Breaker::new();
 
-    let results: Vec<Resolution> = stream::iter(pending)
+    // Written down as each search answers, for the reason the fetch stage is.
+    let mut results = stream::iter(pending)
         .map(|(key, media_type, title, year)| {
             let source = source.clone();
             let breaker = breaker.clone();
@@ -327,12 +334,12 @@ async fn resolve_identifiers(
                 (key, media_type, Some(outcome))
             }
         })
-        .buffer_unordered(source.concurrency(state.config.metadata_concurrency))
-        .collect()
-        .await;
+        .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
     let mut abandoned = 0usize;
-    for (index, (key, media_type, outcome)) in results.into_iter().enumerate() {
+    let mut index = 0;
+    while let Some((key, media_type, outcome)) = results.next().await {
+        index += 1;
         let Some(outcome) = outcome else {
             abandoned += 1;
             continue;
@@ -340,14 +347,17 @@ async fn resolve_identifiers(
 
         match outcome {
             Ok(external_id) => {
-                metadata::remember_identifier(
+                let remembered = metadata::remember_identifier(
                     &state.pool,
                     source.id(),
                     &media_type,
                     &key,
                     external_id.as_deref(),
                 )
-                .await?;
+                .await;
+                if let Err(e) = remembered {
+                    warn!("Could not record what {key} is on {}: {e}", source.id());
+                }
             }
             // A failed search is *not* written down: it means the network
             // failed, not that the source has nothing, and the difference
@@ -355,8 +365,8 @@ async fn resolve_identifiers(
             Err(e) => warn!("Could not identify {key} on {}: {e}", source.id()),
         }
 
-        if index % 25 == 0 {
-            job.progress(index + 1, total).await;
+        if index % 25 == 1 {
+            job.progress(index, total).await;
         }
     }
     // The coarse steps above stop short of the end, and a pass left with

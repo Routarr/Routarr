@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Conditions (toutes)",
   "ConditionsAnyOf": "Conditions (au moins une)",
   "Confidence": "Confiance",
-  "ConfigImportResult": "Éléments restaurés. Réglages : {settings}, catégories : {categories}, instances : {instances}, associations : {folders}, exceptions : {overrides}.",
+  "ConfigImportResult": "Éléments restaurés. Réglages : {settings}, catégories : {categories}, instances : {instances}, associations : {folders}, règles : {rules}, exceptions : {overrides}.",
   "ConfigImportSkipped": "Non restaurés : {count}",
   "ConfigImportNeedsKey": "Instances en attente de leur clé d'API : {names}",
   "ConfirmApply": "Éléments à repointer dans Radarr/Sonarr : {count}",

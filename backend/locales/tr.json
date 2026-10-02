@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Koşullar (tümü)",
   "ConditionsAnyOf": "Koşullar (en az biri)",
   "Confidence": "Güven",
-  "ConfigImportResult": "Geri yüklendi. Ayarlar: {settings}, kategoriler: {categories}, örnekler: {instances}, eşleştirmeler: {folders}, istisnalar: {overrides}.",
+  "ConfigImportResult": "Geri yüklendi. Ayarlar: {settings}, kategoriler: {categories}, örnekler: {instances}, eşleştirmeler: {folders}, kurallar: {rules}, istisnalar: {overrides}.",
   "ConfigImportSkipped": "Geri yüklenmeyen: {count}",
   "ConfigImportNeedsKey": "API anahtarını bekleyen örnekler: {names}",
   "ConfirmApply": "Radarr/Sonarr'da yeniden yönlendirilecek öğeler: {count}",

@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Podmínky (všechny)",
   "ConditionsAnyOf": "Podmínky (alespoň jedna)",
   "Confidence": "Jistota",
-  "ConfigImportResult": "Obnoveno. Nastavení: {settings}, kategorie: {categories}, instance: {instances}, propojení: {folders}, výjimky: {overrides}.",
+  "ConfigImportResult": "Obnoveno. Nastavení: {settings}, kategorie: {categories}, instance: {instances}, propojení: {folders}, pravidla: {rules}, výjimky: {overrides}.",
   "ConfigImportSkipped": "Neobnoveno: {count}",
   "ConfigImportNeedsKey": "Instance čekající na klíč API: {names}",
   "ConfirmApply": "Položky k přesměrování v Radarru/Sonarru: {count}",

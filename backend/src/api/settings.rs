@@ -19,12 +19,12 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
     for (key, value) in rows {
         // A sealed value never leaves the process. The screen needs to know
         // whether one is set, not what it is, so it gets a boolean under a
-        // separate key and the value itself reads empty, which is also what
-        // makes the field safe to leave untouched on the next save.
+        // separate key and the key itself is left out: an empty string written
+        // back removes the credential, so a client saving what it read would
+        // erase every one.
         if is_secret(&key) {
             let configured = !value.trim().is_empty();
             settings.insert(format!("{key}_configured"), serde_json::Value::Bool(configured));
-            settings.insert(key, serde_json::Value::String(String::new()));
             continue;
         }
         settings.insert(key, serde_json::Value::String(value));

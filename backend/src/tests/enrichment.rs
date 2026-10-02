@@ -234,6 +234,25 @@ async fn one_failing_item_does_not_abort_the_pass() {
     assert_eq!(rows[0].0, 200, "the reachable item was still cached");
 }
 
+/// An answer that cannot be stored costs that one item, not the pass: the
+/// others are written as they arrive, and the next pass tries the failed one.
+#[tokio::test]
+async fn one_answer_that_cannot_be_stored_does_not_abort_the_pass() {
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
+    app.execute(&["CREATE TRIGGER a_full_disk BEFORE INSERT ON metadata_cache
+                   WHEN NEW.external_id = '100'
+                   BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END"])
+        .await;
+
+    let report = enrichment::enrich_all_media(&app.state, "manual").await.expect("the pass ended");
+
+    assert_eq!((report.enriched, report.failed), (1, 1));
+    let rows = cached(&app).await;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, 200, "the answer that could be stored was not");
+}
+
 #[tokio::test]
 async fn fresh_entries_are_not_re_fetched() {
     let tmdb = FakeTmdb::start().await;

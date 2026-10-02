@@ -91,20 +91,36 @@ pub async fn update(
         state.secrets.seal(req.api_key.trim())?
     };
 
+    let instance_type = req.instance_type.to_lowercase();
+    let mut tx = state.pool.begin().await?;
     sqlx::query(
         "UPDATE instances SET name = ?, instance_type = ?, base_url = ?, api_key = ?,
          enabled = ?, sync_interval_minutes = ?, updated_at = datetime('now')
          WHERE id = ?",
     )
     .bind(req.name.trim())
-    .bind(req.instance_type.to_lowercase())
+    .bind(&instance_type)
     .bind(&base_url)
     .bind(api_key)
     .bind(req.enabled)
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
     .bind(&id)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+    // A pending proposal names the ids of the Arr the instance pointed at, and
+    // another Arr gives those ids to other titles. The next sync tells which
+    // titles are still the same (`sync::reassigned`), and the next simulation
+    // proposes again.
+    if base_url != existing.base_url || instance_type != existing.instance_type {
+        sqlx::query(
+            "UPDATE decisions SET superseded = 1
+              WHERE instance_id = ? AND status = 'pending' AND superseded = 0",
+        )
+        .bind(&id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
 
     Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
 }
@@ -223,7 +239,14 @@ pub async fn sync_all(
     axum::Extension(identity): axum::Extension<Identity>,
 ) -> AppResult<Json<Vec<sync::SyncReport>>> {
     let by = identity.attribution();
-    let reports = detached(async move { sync::sync_all_instances(&state, &by).await }).await?;
+    let reports = detached(async move {
+        let reports = sync::sync_all_instances(&state, &by).await?;
+        if reports.iter().any(|report| report.error.is_none()) {
+            crate::jobs::scheduler::follow_sync(&state, &by.trigger).await;
+        }
+        Ok(reports)
+    })
+    .await?;
     Ok(Json(reports))
 }
 
@@ -236,7 +259,10 @@ pub async fn sync_now(
     let (task_state, by) = (state.clone(), identity.attribution());
     let work = async move {
         match sync::sync_instance(&task_state, &id, &by).await {
-            Ok(report) => Ok(report),
+            Ok(report) => {
+                crate::jobs::scheduler::follow_sync(&task_state, &by.trigger).await;
+                Ok(report)
+            }
             Err(error) => Err(explained(&task_state, &id, error).await),
         }
     };

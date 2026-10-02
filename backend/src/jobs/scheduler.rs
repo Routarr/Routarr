@@ -75,10 +75,6 @@ pub fn start_with(
         let mut last_sync: HashMap<String, tokio::time::Instant> = HashMap::new();
         let mut last_maintenance: Option<tokio::time::Instant> = None;
         let mut last_backup: Option<tokio::time::Instant> = None;
-        // The work a pass hands off (enrichment, simulation, auto-apply),
-        // running while the loop goes on syncing on time. Kept here so a
-        // shutdown waits for it rather than closing the pool under it.
-        let mut chain: Option<JoinHandle<()>> = None;
 
         loop {
             let pass = AssertUnwindSafe(tick(
@@ -86,7 +82,6 @@ pub fn start_with(
                 &mut last_sync,
                 &mut last_maintenance,
                 &mut last_backup,
-                &mut chain,
             ))
             .catch_unwind()
             .await;
@@ -104,7 +99,10 @@ pub fn start_with(
             let minutes: u64 = state.setting("scheduler_interval_minutes", 15u64).await;
             let wait = Duration::from_secs(minutes.min(24 * 60) * 60).max(timings.floor);
             if wait_or_stop(&mut shutdown, wait).await {
-                if let Some(running) = chain.take() {
+                // A sync route may have started the chain as well as a pass, so
+                // it is waited for whoever started it, rather than closed under.
+                let running = state.post_sync.lock().await.take();
+                if let Some(running) = running {
                     reap_within(&state, running, timings.grace).await;
                 }
                 info!("Background scheduler stopped");
@@ -169,13 +167,32 @@ async fn reap(state: &AppState, chain: JoinHandle<()>) {
     }
 }
 
+/// Start what follows a full sync, scheduled or asked for, unless the last
+/// one is still running: it reads the library when it starts, so what this
+/// sync wrote is picked up by the next one. Two never run at once, since each
+/// drains the same backlog at the same paced sources.
+pub async fn follow_sync(state: &AppState, trigger: &str) {
+    let mut slot = state.post_sync.lock().await;
+    match slot.as_ref() {
+        Some(running) if !running.is_finished() => {
+            debug!("The work after the last sync is still running, not starting another");
+        }
+        _ => {
+            if let Some(finished) = slot.take() {
+                reap(state, finished).await;
+            }
+            *slot = Some(spawn_post_sync(state.clone(), trigger.to_string()));
+        }
+    }
+}
+
 /// What follows a sync: enrich what is new, simulate, and apply what the
 /// unattended guardrails allow. On a task of its own, for the reason `tick`
-/// gives.
-fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
+/// gives, under the trigger of the sync it follows.
+fn spawn_post_sync(state: AppState, trigger: String) -> JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = enrichment::enrich_all_media(&state, TRIGGER_SCHEDULE).await {
-            error!("Scheduled enrichment failed: {e}");
+        if let Err(e) = enrichment::enrich_all_media(&state, &trigger).await {
+            error!("Enrichment after a sync failed: {e}");
         }
 
         // Keep the pending decision list current so the dashboard is meaningful
@@ -190,7 +207,7 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
             && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
         {
             let options = routing::SimulationOptions {
-                trigger: TRIGGER_SCHEDULE.to_string(),
+                trigger: trigger.clone(),
                 persist: true,
                 language: state.language().await,
                 ..Default::default()
@@ -209,17 +226,13 @@ fn spawn_post_sync(state: AppState) -> JoinHandle<()> {
                     // webhook configured, or an item added while Routarr was
                     // down. Same guardrails: only file-free media, capped, and
                     // nothing at all if the sweep is too large.
-                    if let Err(e) = auto_apply::apply_simulation(
-                        &state,
-                        &result.simulation_id,
-                        TRIGGER_SCHEDULE,
-                    )
-                    .await
+                    if let Err(e) =
+                        auto_apply::apply_simulation(&state, &result.simulation_id, &trigger).await
                     {
-                        error!("Scheduled auto-apply failed: {e}");
+                        error!("Auto-apply after a sync failed: {e}");
                     }
                 }
-                Err(e) => error!("Scheduled simulation failed: {e}"),
+                Err(e) => error!("Simulation after a sync failed: {e}"),
             }
         }
     })
@@ -246,7 +259,6 @@ pub(crate) async fn tick(
     last_sync: &mut HashMap<String, tokio::time::Instant>,
     last_maintenance: &mut Option<tokio::time::Instant>,
     last_backup: &mut Option<tokio::time::Instant>,
-    chain: &mut Option<JoinHandle<()>>,
 ) -> crate::error::AppResult<()> {
     #[cfg(test)]
     if PANIC_NEXT_TICK.with(|flag| flag.replace(false)) {
@@ -292,26 +304,20 @@ pub(crate) async fn tick(
         // Handed off, not awaited: the enrichment drains a whole backlog at a
         // paced source (hours, on a large anime library), and while the tick
         // waits for it no other instance syncs on time, no backup runs and no
-        // purge does. A chain still running from the last pass is left to
-        // finish. It reads the library when it starts, so what this pass
-        // synced is picked up by the next one.
-        match chain {
-            Some(running) if !running.is_finished() => {
-                debug!("The previous pass's enrichment is still running, not starting another");
-            }
-            _ => {
-                if let Some(finished) = chain.take() {
-                    reap(state, finished).await;
-                }
-                *chain = Some(spawn_post_sync(state.clone()));
-            }
-        }
+        // purge does.
+        follow_sync(state, TRIGGER_SCHEDULE).await;
     }
 
     // A backup is worth taking on its own cadence: it protects against losing
     // the database, which has nothing to do with whether anything synced.
     if state.bool_setting("backup_enabled", true).await {
         let hours: u64 = state.setting("backup_interval_hours", 24u64).await.clamp(1, 24 * 7);
+        // The first tick of a process counts from the newest archive on disk: a
+        // restart taking one at once prunes the oldest good one, and a few
+        // restarts after a bad change leave only copies of the damage.
+        if last_backup.is_none() {
+            *last_backup = backup::newest_taken(state);
+        }
         let due = last_backup.is_none_or(|last| {
             tokio::time::Instant::now().duration_since(last) >= Duration::from_secs(hours * 3600)
         });

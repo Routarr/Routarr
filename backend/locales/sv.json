@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Villkor (alla)",
   "ConditionsAnyOf": "Villkor (minst ett)",
   "Confidence": "Tillförlitlighet",
-  "ConfigImportResult": "Återställt. Inställningar: {settings}, kategorier: {categories}, instanser: {instances}, kopplingar: {folders}, undantag: {overrides}.",
+  "ConfigImportResult": "Återställt. Inställningar: {settings}, kategorier: {categories}, instanser: {instances}, kopplingar: {folders}, regler: {rules}, undantag: {overrides}.",
   "ConfigImportSkipped": "Inte återställda: {count}",
   "ConfigImportNeedsKey": "Instanser som väntar på sin API-nyckel: {names}",
   "ConfirmApply": "Objekt som pekas om i Radarr/Sonarr: {count}",

@@ -195,7 +195,7 @@
   "ConditionsAllOf": "条件（全部）",
   "ConditionsAnyOf": "条件（任一）",
   "Confidence": "置信度",
-  "ConfigImportResult": "已还原。设置：{settings}，分类：{categories}，实例：{instances}，映射：{folders}，例外：{overrides}。",
+  "ConfigImportResult": "已还原。设置：{settings}，分类：{categories}，实例：{instances}，映射：{folders}，规则：{rules}，例外：{overrides}。",
   "ConfigImportSkipped": "未还原：{count}",
   "ConfigImportNeedsKey": "等待 API 密钥的实例：{names}",
   "ConfirmApply": "将在 Radarr/Sonarr 中重新指向的条目：{count}",

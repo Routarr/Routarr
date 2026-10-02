@@ -597,8 +597,8 @@ export interface SyncReport {
 export type Settings = Record<string, string>;
 
 /**
- * `GET /settings`: every stored value as text. A sealed one reads empty, with
- * a `<key>_configured` boolean beside it saying whether one is stored.
+ * `GET /settings`: every stored value as text. A sealed one is left out, and
+ * a `<key>_configured` boolean says whether one is stored.
  */
 export type StoredSettings = Record<string, string | boolean>;
 
@@ -628,6 +628,7 @@ export interface ConfigImportReport {
   instances: number;
   root_folders: number;
   overrides: number;
+  rules: number;
   /** Everything not restored, and why. Never silent. */
   skipped: string[];
   /** The instances restored disabled, by name, each waiting for its API key. */

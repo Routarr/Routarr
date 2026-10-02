@@ -412,6 +412,50 @@ async fn a_restore_whose_own_key_file_cannot_open_it_is_refused() {
     assert!(refused.to_string().contains("routarr.key"), "{refused}");
 }
 
+/// A name taken from the URL never leaves the backup folder: the routes that
+/// download, delete and restore an archive each refuse one that climbs out,
+/// and the file it names, the master key here, is left as it was.
+#[tokio::test]
+async fn no_backup_route_reaches_a_file_outside_the_backup_folder() {
+    let (app, dir) = app_with_files("traversal").await;
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    let key = std::fs::read(dir.join("routarr.key")).unwrap();
+    let escaping = "/api/v1/backups/..%2Froutarr.key";
+
+    let read = app.get(escaping).await;
+    assert_eq!(read.status, axum::http::StatusCode::NOT_FOUND, "{:?}", read.json);
+    let deleted = app.delete(escaping).await;
+    assert_eq!(deleted.status, axum::http::StatusCode::NOT_FOUND, "{:?}", deleted.json);
+    let restored = app.post(&format!("{escaping}/restore"), serde_json::json!({})).await;
+    assert_eq!(restored.status, axum::http::StatusCode::NOT_FOUND, "{:?}", restored.json);
+
+    assert_eq!(std::fs::read(dir.join("routarr.key")).unwrap(), key, "the key was touched");
+    assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "something was staged");
+}
+
+/// A start applies a staged restore before it opens anything the archive
+/// replaces: the database it opens, and the master key it opens it with, are
+/// the archive's, not the ones on disk before the restart.
+#[tokio::test]
+async fn a_start_opens_the_restored_database_with_the_restored_key() {
+    let (app, dir) = app_with_files("start-order").await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    app.execute(&["DELETE FROM instances"]).await;
+    std::fs::write(dir.join("routarr.key"), "the-key-of-today").unwrap();
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+
+    let (_, pool, secrets) = crate::open_storage(&config).await.unwrap();
+
+    let sealed: String = sqlx::query_scalar("SELECT api_key FROM instances WHERE id = 'inst-1'")
+        .fetch_one(&pool)
+        .await
+        .expect("the database opened is not the restored one");
+    assert_eq!(secrets.open(&sealed).expect("opened with the key of before"), "arr-key");
+}
+
 #[tokio::test]
 async fn nothing_is_applied_when_no_restore_is_pending() {
     let (app, _dir) = app_with_files("nopending").await;
@@ -1006,14 +1050,12 @@ async fn a_backup_that_cannot_be_written_is_not_retried_every_tick() {
     let mut last_sync = std::collections::HashMap::new();
     let mut last_maintenance = None;
     let mut last_backup = None;
-    let mut chain = None;
     for _ in 0..2 {
         crate::jobs::scheduler::tick(
             &app.state,
             &mut last_sync,
             &mut last_maintenance,
             &mut last_backup,
-            &mut chain,
         )
         .await
         .expect("a failing backup must not fail the tick");
@@ -1026,6 +1068,42 @@ async fn a_backup_that_cannot_be_written_is_not_retried_every_tick() {
     .await
     .unwrap();
     assert_eq!(attempts, 1, "a failing backup was attempted {attempts} times in two ticks");
+}
+
+/// What worked is stamped as what failed is: a second tick inside every
+/// interval syncs nothing again, backs up nothing again and purges nothing
+/// again. A success left unstamped would run on every tick.
+#[tokio::test]
+async fn a_second_tick_inside_every_interval_repeats_nothing_that_worked() {
+    let (app, _dir) = app_with_files("working-cadence").await;
+    let arr = super::fake_arr::FakeArr::start().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.store_setting("backup_enabled", "true").await;
+
+    let mut last_sync = std::collections::HashMap::new();
+    let mut last_maintenance = None;
+    let mut last_backup = None;
+    for _ in 0..2 {
+        crate::jobs::scheduler::tick(
+            &app.state,
+            &mut last_sync,
+            &mut last_maintenance,
+            &mut last_backup,
+        )
+        .await
+        .expect("the tick itself must not fail");
+    }
+
+    for kind in ["sync", "backup", "maintenance"] {
+        let runs: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM jobs WHERE kind = ? AND trigger = 'schedule' AND status = 'success'",
+        )
+        .bind(kind)
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(runs, 1, "{kind} ran {runs} times in two ticks");
+    }
 }
 
 /// Backups on, everything else off, so the tick reaches the backup and nothing

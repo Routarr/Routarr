@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Ehdot (kaikki)",
   "ConditionsAnyOf": "Ehdot (vähintään yksi)",
   "Confidence": "Varmuus",
-  "ConfigImportResult": "Palautettu. Asetuksia: {settings}, luokkia: {categories}, instansseja: {instances}, kytkentöjä: {folders}, poikkeuksia: {overrides}.",
+  "ConfigImportResult": "Palautettu. Asetuksia: {settings}, luokkia: {categories}, instansseja: {instances}, kytkentöjä: {folders}, sääntöjä: {rules}, poikkeuksia: {overrides}.",
   "ConfigImportSkipped": "Ei palautettu: {count}",
   "ConfigImportNeedsKey": "API-avainta odottavat instanssit: {names}",
   "ConfirmApply": "Radarrissa/Sonarrissa uudelleen osoitettavia kohteita: {count}",

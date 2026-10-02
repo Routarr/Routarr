@@ -195,7 +195,7 @@
   "ConditionsAllOf": "Feltételek (mind)",
   "ConditionsAnyOf": "Feltételek (legalább egy)",
   "Confidence": "Megbízhatóság",
-  "ConfigImportResult": "Visszaállítva. Beállítások: {settings}, kategóriák: {categories}, példányok: {instances}, hozzárendelések: {folders}, kivételek: {overrides}.",
+  "ConfigImportResult": "Visszaállítva. Beállítások: {settings}, kategóriák: {categories}, példányok: {instances}, hozzárendelések: {folders}, szabályok: {rules}, kivételek: {overrides}.",
   "ConfigImportSkipped": "Nem állítható vissza: {count}",
   "ConfigImportNeedsKey": "API-kulcsra váró példányok: {names}",
   "ConfirmApply": "A Radarrban/Sonarrban átirányítandó elemek: {count}",

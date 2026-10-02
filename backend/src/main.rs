@@ -68,46 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .display()
     );
 
-    // Before the pool opens, since a restore swaps the database file itself,
-    // which cannot be done safely underneath live connections. And before the
-    // API key is read, since the archive can carry another one: read first,
-    // the old key is served until the restart after, when it changes under
-    // every client without a word.
-    services::backup::sweep_leftovers(&config);
-    if services::backup::apply_pending_restore(&config).await? {
-        info!("A staged backup was restored");
-    }
-
-    // Resolve authentication before anything can serve a request. An API that
-    // moves files must not be open because a variable was forgotten.
-    //
-    // The environment wins over the stored key rather than the other way round.
-    // The stored one is generated, not chosen: an operator who pins
-    // ROUTARR_API_KEY in their compose file after a first start would otherwise
-    // find the value they declared silently ignored in favour of a file they
-    // never wrote. Declared configuration outranks generated state, and that is
-    // also why a rotation is refused while the variable is set: it could not
-    // survive the next restart.
-    // The other modes need no key, but one minted from the interface for a
-    // script has to survive a restart: they read the stored one, never make one.
-    let api_key = if config.api_key.is_none() && config.auth_mode == AuthMode::ApiKey {
-        let path = config.api_key_path();
-        let (key, generated) = crypto::load_or_generate_api_key(&path)?;
-        if generated {
-            // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
-            info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
-        }
-        Some(key)
-    } else {
-        state::resolve_api_key(&config)
-    };
-
-    let pool = db::init_pool(&config).await?;
-    let secrets = crypto::SecretBox::load(
-        config.secret_key.as_deref(),
-        config.previous_secret_key.as_deref(),
-        &config.secret_key_path(),
-    )?;
+    let (api_key, pool, secrets) = open_storage(&config).await?;
     let job_registry = jobs::JobRegistry::new(pool.clone());
     job_registry.recover_orphans().await?;
 
@@ -120,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         api_key: Arc::new(std::sync::RwLock::new(api_key)),
         sign_in: Arc::new(Default::default()),
         oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
+        post_sync: Arc::new(tokio::sync::Mutex::new(None)),
         config: Arc::new(config),
     };
 
@@ -190,6 +152,55 @@ async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> 
 /// `docker exec routarr /app/routarr reset-account`. The image carries no
 /// `sqlite3`, and the server can keep running, since a sign-in reads the
 /// account each time.
+/// What a start reads from disk, in the one order that works: a staged
+/// restore first, since it swaps the database, the master key and the API key
+/// files, then what those files hold.
+pub(crate) async fn open_storage(
+    config: &config::Config,
+) -> error::AppResult<(Option<String>, sqlx::SqlitePool, crypto::SecretBox)> {
+    // Before the pool opens, since a restore swaps the database file itself,
+    // which cannot be done safely underneath live connections. And before the
+    // API key is read, since the archive can carry another one: read first,
+    // the old key is served until the restart after, when it changes under
+    // every client without a word.
+    services::backup::sweep_leftovers(config);
+    if services::backup::apply_pending_restore(config).await? {
+        info!("A staged backup was restored");
+    }
+
+    // Resolve authentication before anything can serve a request. An API that
+    // moves files must not be open because a variable was forgotten.
+    //
+    // The environment wins over the stored key rather than the other way round.
+    // The stored one is generated, not chosen: an operator who pins
+    // ROUTARR_API_KEY in their compose file after a first start would otherwise
+    // find the value they declared silently ignored in favour of a file they
+    // never wrote. Declared configuration outranks generated state, and that is
+    // also why a rotation is refused while the variable is set: it could not
+    // survive the next restart.
+    // The other modes need no key, but one minted from the interface for a
+    // script has to survive a restart: they read the stored one, never make one.
+    let api_key = if config.api_key.is_none() && config.auth_mode == AuthMode::ApiKey {
+        let path = config.api_key_path();
+        let (key, generated) = crypto::load_or_generate_api_key(&path)?;
+        if generated {
+            // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
+            info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
+        }
+        Some(key)
+    } else {
+        state::resolve_api_key(config)
+    };
+
+    let pool = db::init_pool(config).await?;
+    let secrets = crypto::SecretBox::load(
+        config.secret_key.as_deref(),
+        config.previous_secret_key.as_deref(),
+        &config.secret_key_path(),
+    )?;
+    Ok((api_key, pool, secrets))
+}
+
 async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let pool = db::init_pool(config).await?;
     let password = services::accounts::reset_account(&pool, &config.password_path()).await?;

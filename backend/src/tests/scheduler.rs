@@ -25,11 +25,10 @@ async fn tick(app: &TestApp) {
 }
 
 async fn tick_only(app: &TestApp) -> Option<tokio::task::JoinHandle<()>> {
-    let mut chain = None;
-    scheduler::tick(&app.state, &mut HashMap::new(), &mut None, &mut None, &mut chain)
+    scheduler::tick(&app.state, &mut HashMap::new(), &mut None, &mut None)
         .await
         .expect("the tick itself must not fail");
-    chain
+    app.state.post_sync.lock().await.take()
 }
 
 /// The jobs recorded by the scheduler, by kind.
@@ -135,10 +134,9 @@ async fn a_failing_instance_waits_its_interval_before_the_next_attempt() {
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.store_setting("backup_enabled", "false").await;
     let mut last_sync = HashMap::new();
-    let mut chain = None;
 
     for _ in 0..2 {
-        scheduler::tick(&app.state, &mut last_sync, &mut None, &mut None, &mut chain)
+        scheduler::tick(&app.state, &mut last_sync, &mut None, &mut None)
             .await
             .expect("the tick itself must not fail");
     }
@@ -316,6 +314,30 @@ async fn a_backup_is_decided_on_its_own_cadence() {
     );
 }
 
+/// The interval counts from the newest archive on disk, not from the start of
+/// the process: a restart taking one at once would prune a good archive, and a
+/// few restarts after a bad change would leave only copies of it.
+#[tokio::test]
+async fn a_restart_takes_no_backup_before_the_interval_since_the_last_one() {
+    let dir = super::TempDir::new("backup-cadence");
+    let mut config = crate::config::Config::for_tests();
+    config.data_dir = dir.to_path_buf();
+    let app = TestApp::around(crate::state::AppState::for_tests().await.with_config(config));
+    app.store_setting("auto_sync_enabled", "false").await;
+    app.store_setting("backup_enabled", "true").await;
+    let backups = backup::backup_dir(&app.state);
+    std::fs::create_dir_all(&backups).unwrap();
+    let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
+    std::fs::write(backups.join(format!("routarr-backup-{stamp}.zip")), b"taken before").unwrap();
+
+    tick(&app).await;
+
+    assert!(
+        !scheduled_jobs(&app).await.contains(&"backup".to_string()),
+        "a restart took a backup the interval did not call for"
+    );
+}
+
 #[tokio::test]
 async fn backups_disabled_means_none_is_attempted() {
     let arr = FakeArr::start().await;
@@ -396,12 +418,20 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
 #[tokio::test]
 async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     let arr = FakeArr::start().await;
+    // TMDb answers the library's one film slowly, so the enrichment is still
+    // running when a tick that hands it off returns.
+    let tmdb = super::fake_tmdb::FakeTmdb::with(vec![], vec![8392]).await;
+    let mut config = crate::config::Config::for_tests();
+    config.tmdb_api_key = Some("tmdb-key".into());
+    config.tmdb_base_url = format!("{}/3", tmdb.base_url);
     let app = ready(&arr).await;
+    let app = TestApp::around(app.state.clone().with_config(config));
 
     let chain = tick_only(&app).await;
     let kinds = scheduled_jobs(&app).await;
     assert!(kinds.contains(&"sync".to_string()), "nothing synced: {kinds:?}");
     let chain = chain.expect("a tick that synced hands back the work that follows");
+    assert!(!chain.is_finished(), "the tick waited for the enrichment before returning");
     chain.await.unwrap();
     let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
         .fetch_one(&app.state.pool)
