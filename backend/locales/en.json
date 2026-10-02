@@ -211,7 +211,7 @@
   "ConfirmPurge": "Purge decisions, logs and job history beyond the retention window?",
   "ConfirmRemoveKey": "Remove the API key? Clients using it stop working immediately.",
   "ConfirmRemoveDestination": "Remove the destination {path}? A category mapped to it no longer routes there. Nothing is deleted on disk.",
-  "ConfirmRestore": "Restore {name}? It replaces the current database, the master key and the API key. Nothing changes until Routarr is restarted.",
+  "ConfirmRestore": "Restore {name}? It replaces the current database and the master key. The API key, the password and every key revoked since stay as they are today, and everyone signs in again. Nothing changes until Routarr is restarted.",
   "ConfirmRevert": "Move \"{title}\" back to {path}?",
   "ConfirmRevertFiles": "Move the files on disk back as well?",
   "ConfirmRotateKey": "Regenerate the API key? Every client still using the current one stops working until it is updated.",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age} and over",
   "CertNotRated": "not rated",
   "SettingsMetadataCoverage": "Cache and coverage",
-  "DownloadBackup": "Download"
+  "DownloadBackup": "Download",
+  "SigningSecretUnreadable": "The signing secret cannot be opened with this installation's key, so no notification is sent. Replace the secret.",
+  "ErrorPreviewsWaiting": "Previews are already waiting for the library. Try again once one has finished."
 }

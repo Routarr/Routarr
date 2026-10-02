@@ -211,7 +211,7 @@
   "ConfirmPurge": "Cureți deciziile, jurnalele și istoricul sarcinilor din afara perioadei de păstrare?",
   "ConfirmRemoveKey": "Elimini cheia API? Clienții care o folosesc încetează imediat să funcționeze.",
   "ConfirmRemoveDestination": "Elimini destinația \"{path}\"? Categoria asociată nu mai direcționează acolo. Nimic nu se șterge de pe disc.",
-  "ConfirmRestore": "Restaurezi {name}? Înlocuiește baza actuală, cheia principală și cheia API. Nimic nu se schimbă până la repornirea Routarr.",
+  "ConfirmRestore": "Restaurezi {name}? Înlocuiește baza actuală și cheia principală. Cheia API, parola și orice cheie revocată de atunci rămân cum sunt azi, iar toată lumea trebuie să se autentifice din nou. Nimic nu se schimbă până la repornirea Routarr.",
   "ConfirmRevert": "Muți \"{title}\" înapoi în {path}?",
   "ConfirmRevertFiles": "Muți înapoi și fișierele de pe disc?",
   "ConfirmRotateKey": "Regenerezi cheia API? Orice client care încă o folosește pe cea actuală va înceta să funcționeze până la actualizare.",
@@ -847,5 +847,7 @@
   "CertFromAge": "vârsta minimă: {age}",
   "CertNotRated": "neclasificat",
   "SettingsMetadataCoverage": "Cache și acoperire",
-  "DownloadBackup": "Descarcă"
+  "DownloadBackup": "Descarcă",
+  "SigningSecretUnreadable": "Secretul de semnare nu poate fi deschis cu cheia acestei instalări, deci nu se trimite nicio notificare. Înlocuiește secretul.",
+  "ErrorPreviewsWaiting": "Există deja previzualizări care așteaptă să citească biblioteca. Încearcă din nou după ce una s-a terminat."
 }

@@ -239,7 +239,7 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
             )
             .await
         }
-        Err(e) => job.fail(&e.to_string()).await,
+        Err(e) => job.fail(e).await,
     }
 
     outcome

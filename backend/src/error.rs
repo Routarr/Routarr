@@ -39,15 +39,20 @@ pub enum AppError {
     /// answering one would answer them all: confirming "the destination is
     /// asleep" would also wave through "there is not enough room", silently,
     /// because only the first to fire is ever read.
+    ///
+    /// `includes` names the other guardrails the question states and answers
+    /// with it, as the batch question states a sleeping or full destination.
+    /// Each has to come back beside `kind`, or a caller that may answer the
+    /// first would answer the others without being allowed to.
     #[error("Confirmation required: {message}")]
-    ConfirmationRequired { kind: &'static str, message: String },
+    ConfirmationRequired { kind: &'static str, includes: Vec<&'static str>, message: String },
 
     /// A guardrail asked a caller not allowed to answer it: an application key
     /// that was not given that name. The same 409 and the same `confirm`, with
     /// `answerable: false`, so a script hands the question to a person instead
     /// of sending the name back to be refused again.
     #[error("Confirmation required from a person: {message}")]
-    ConfirmationWithheld { kind: &'static str, message: String },
+    ConfirmationWithheld { kind: &'static str, includes: Vec<&'static str>, message: String },
 
     /// The caller is known and may not do this.
     #[error("Forbidden: {0}")]
@@ -87,6 +92,47 @@ pub enum AppError {
     Internal(String),
 }
 
+impl AppError {
+    /// Whether the text is the operator's alone. `sqlx::Error` names
+    /// constraints, columns and sometimes the statement, `serde_json::Error`
+    /// quotes the input it choked on, and a configuration error names the key
+    /// setup. None of that helps whoever made the call, and the webhook is
+    /// reachable without a key, so a database failure there would describe
+    /// the schema to an anonymous caller.
+    pub fn is_internal(&self) -> bool {
+        matches!(
+            self,
+            AppError::Database(_)
+                | AppError::Serialization(_)
+                | AppError::Config(_)
+                | AppError::Internal(_)
+        )
+    }
+
+    /// The text a caller may read, in a response, a job row or a placement.
+    ///
+    /// The human sentence alone: the `error` field already carries the
+    /// machine-readable kind, and a prefix such as "Bad request:" would pin an
+    /// English word in front of an otherwise translated message. An internal
+    /// failure reads as one generic sentence, and its detail goes to the log
+    /// where it happens.
+    pub fn public_message(&self) -> String {
+        match self {
+            AppError::NotFound(message)
+            | AppError::BadRequest(message)
+            | AppError::Conflict(message)
+            | AppError::UpstreamDown(message)
+            | AppError::Forbidden(message)
+            | AppError::ConfirmationRequired { message, .. }
+            | AppError::ConfirmationWithheld { message, .. } => message.clone(),
+            internal if internal.is_internal() => {
+                "An internal error occurred. See the server log for details.".to_string()
+            }
+            other => other.to_string(),
+        }
+    }
+}
+
 /// Render an upstream failure so the cause survives into logs and API responses.
 ///
 /// Rendered by status alone, a deserialization failure and a refused connection
@@ -117,6 +163,10 @@ pub struct ErrorResponse {
     /// Beside `confirm`: whether this caller may send the name back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answerable: Option<bool>,
+    /// Beside `confirm`: the other guardrails the question states, sent back
+    /// in `confirm` with it to accept the question whole.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub includes: Option<Vec<&'static str>>,
 }
 
 impl IntoResponse for AppError {
@@ -140,43 +190,22 @@ impl IntoResponse for AppError {
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
         };
 
-        // The `error` field already carries the machine-readable kind, so the
-        // message is the human sentence alone. A prefix such as "Bad request:"
-        // would duplicate that and pin an English word in front of an
-        // otherwise translated message.
-        let message = match &self {
-            AppError::NotFound(message)
-            | AppError::BadRequest(message)
-            | AppError::Conflict(message)
-            | AppError::UpstreamDown(message)
-            | AppError::Forbidden(message)
-            | AppError::ConfirmationRequired { message, .. }
-            | AppError::ConfirmationWithheld { message, .. } => message.clone(),
+        if self.is_internal() {
+            log_error!("{self}");
+        }
+        let message = self.public_message();
 
-            // The underlying text is logged, never returned. `sqlx::Error`
-            // names constraints, columns and sometimes the statement, and
-            // `serde_json::Error` quotes the input it choked on. None of that
-            // helps whoever made the call, and the webhook is reachable without
-            // a key, so a database failure there would describe the schema to
-            // an anonymous caller. The kind is in the `error` field, and the
-            // detail is one `docker compose logs` away for the operator.
-            internal @ (AppError::Database(_)
-            | AppError::Serialization(_)
-            | AppError::Config(_)
-            | AppError::Internal(_)) => {
-                log_error!("{internal}");
-                "An internal error occurred. See the server log for details.".to_string()
+        let (confirm, answerable, includes) = match &self {
+            AppError::ConfirmationRequired { kind, includes, .. } => {
+                (Some(*kind), Some(true), Some(includes.clone()).filter(|i| !i.is_empty()))
             }
-
-            other => other.to_string(),
+            AppError::ConfirmationWithheld { kind, includes, .. } => {
+                (Some(*kind), Some(false), Some(includes.clone()).filter(|i| !i.is_empty()))
+            }
+            _ => (None, None, None),
         };
-
-        let (confirm, answerable) = match &self {
-            AppError::ConfirmationRequired { kind, .. } => (Some(*kind), Some(true)),
-            AppError::ConfirmationWithheld { kind, .. } => (Some(*kind), Some(false)),
-            _ => (None, None),
-        };
-        let body = ErrorResponse { error: error_type.to_string(), message, confirm, answerable };
+        let body =
+            ErrorResponse { error: error_type.to_string(), message, confirm, answerable, includes };
 
         (status, axum::Json(body)).into_response()
     }

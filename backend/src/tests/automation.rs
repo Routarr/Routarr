@@ -231,3 +231,32 @@ async fn each_warning_carries_a_stable_code_beside_its_message() {
     assert!(codes.contains(&"api_unauthenticated"), "{codes:?}");
     assert!(codes.contains(&"no_enabled_instance"), "{codes:?}");
 }
+
+/// An asynchronous preview answers 202 before it holds a library pass, so a
+/// caller that does not wait could otherwise queue them without end, and the
+/// applies and automatic routing behind them would wait for hours. Past a few
+/// waiting, a preview is refused before any task is made.
+#[tokio::test]
+async fn asynchronous_previews_queue_only_so_far() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let held = (
+        crate::services::routing::library_pass().await,
+        crate::services::routing::library_pass().await,
+    );
+
+    let mut statuses = Vec::new();
+    for _ in 0..6 {
+        let preview = preferring_async("/api/v1/simulate", json!({ "persist": false }));
+        statuses.push(app.send(preview).await.status);
+    }
+    let accepted = statuses.iter().filter(|status| **status == StatusCode::ACCEPTED).count();
+    let refused = statuses.iter().filter(|status| **status == StatusCode::CONFLICT).count();
+    assert_eq!((accepted, refused), (4, 2), "{statuses:?}");
+    let started: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE kind = 'simulate'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(started, 4, "a refused preview left a task behind");
+    drop(held);
+}

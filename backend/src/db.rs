@@ -274,6 +274,19 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
+    /// The SQLite the binary carries, at least the release that fixes
+    /// CVE-2025-6965, CVE-2025-29087 and CVE-2025-3277. `libsqlite3-sys`
+    /// bundles it, and RustSec does not flag a bundled copy, so nothing else
+    /// would notice the lock falling behind.
+    #[tokio::test]
+    async fn the_bundled_sqlite_has_its_known_flaws_fixed() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let version: String =
+            sqlx::query_scalar("SELECT sqlite_version()").fetch_one(&pool).await.unwrap();
+        let parts: Vec<u32> = version.split('.').map(|part| part.parse().unwrap()).collect();
+        assert!(parts >= vec![3, 50, 2], "SQLite {version} predates 3.50.2");
+    }
+
     /// A table rebuilt through a copy carries none of the original's indexes,
     /// so the lookups the sync and the enrichment make on these two tables
     /// are pinned by name.

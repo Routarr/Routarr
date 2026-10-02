@@ -13,7 +13,10 @@ use crate::state::AppState;
 type OverrideRow =
     (String, String, String, Option<String>, String, Option<String>, String, String, String);
 
-pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<OverrideWithMedia>>> {
+pub async fn list(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+) -> AppResult<Json<Vec<OverrideWithMedia>>> {
     let rows: Vec<OverrideRow> = sqlx::query_as(
         "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
          m.title, m.media_type, i.name
@@ -34,7 +37,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<OverrideW
                     target_category: r.2,
                     reason: r.3,
                     created_at: r.4,
-                    subject: r.5,
+                    subject: identity.shown_subject(r.5),
                 },
                 media_title: r.6,
                 media_type: r.7,

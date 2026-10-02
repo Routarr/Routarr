@@ -137,9 +137,7 @@ async fn check_status(
         service: service.to_string(),
         status,
         retry_after,
-        // Upstream bodies can be huge HTML error pages. The cap keeps the log and
-        // the API response readable and never echoes an unbounded payload back.
-        message: said_beyond_the_status.unwrap_or_else(|| truncate(&body, 500)),
+        message: said_beyond_the_status.unwrap_or_else(|| upstream_message(&body)),
     })
 }
 
@@ -340,6 +338,29 @@ pub(crate) fn directory_query(path: &str) -> &str {
     path.trim_end_matches('/')
 }
 
+/// What an upstream's error body says to whoever called Routarr.
+///
+/// Radarr and Sonarr answer `{"message", "description"}`, the description a
+/// .NET stack trace meant for their own operator, and a validation refusal as
+/// a list of fields each with its `errorMessage`. Anything else is kept as it
+/// came, capped: bodies can be huge HTML error pages, and the cap keeps the log
+/// and the API response readable.
+fn upstream_message(body: &str) -> String {
+    use serde_json::Value;
+    let said = match serde_json::from_str::<Value>(body) {
+        Ok(Value::Object(envelope)) => {
+            envelope.get("message").and_then(Value::as_str).map(str::to_string)
+        }
+        Ok(Value::Array(fields)) => {
+            let sentences: Vec<&str> =
+                fields.iter().filter_map(|field| field.get("errorMessage")?.as_str()).collect();
+            (!sentences.is_empty()).then(|| sentences.join(" "))
+        }
+        _ => None,
+    };
+    truncate(said.as_deref().unwrap_or(body), 500)
+}
+
 fn truncate(input: &str, max: usize) -> String {
     let trimmed = input.trim();
     if trimmed.chars().count() <= max {
@@ -454,6 +475,27 @@ mod tests {
         assert_eq!(parse(r#"{}"#), None, "an absent field must not fail the whole payload");
         assert_eq!(parse(r#"{"free_space": "unknown"}"#), None);
         assert_eq!(parse(r#"{"free_space": true}"#), None);
+    }
+
+    /// Radarr and Sonarr answer a failure with `message` and a
+    /// `description` holding a .NET stack trace, which is theirs alone.
+    #[test]
+    fn an_arr_error_keeps_its_message_and_drops_its_stack_trace() {
+        let body = r#"{"message":"Movie with tmdbId 999 was not found.","description":"NzbDrone.Core.Exceptions.MovieNotFoundException: at NzbDrone.Core.MetadataSource"}"#;
+        assert_eq!(upstream_message(body), "Movie with tmdbId 999 was not found.");
+    }
+
+    /// A validation refusal is a list of fields, each with its own sentence.
+    #[test]
+    fn a_validation_refusal_keeps_every_sentence() {
+        let body = r#"[{"propertyName":"Path","errorMessage":"Path is already configured"},{"propertyName":"Tags","errorMessage":"Tag does not exist"}]"#;
+        assert_eq!(upstream_message(body), "Path is already configured Tag does not exist");
+    }
+
+    #[test]
+    fn a_body_that_is_not_an_arr_envelope_is_kept_capped() {
+        assert_eq!(upstream_message("Bad Gateway"), "Bad Gateway");
+        assert!(upstream_message(&"x".repeat(900)).ends_with("(truncated)"));
     }
 
     #[test]

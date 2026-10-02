@@ -261,6 +261,7 @@ describe('what the screen refuses to do', () => {
       'confirmation_required',
       null,
       'batch',
+      ['unreachable'],
     );
     const applyAll = vi
       .spyOn(api, 'applyAllDecisions')
@@ -272,8 +273,9 @@ describe('what the screen refuses to do', () => {
 
     expect(await answerConfirmation()).toContain("'/mnt/nas' is not answering.");
     await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
+    // The one question answers what it states, so every name goes back.
     expect(nthCall(applyAll)[2]).toEqual([]);
-    expect(nthCall(applyAll, 1)[2]).toEqual(['batch']);
+    expect(nthCall(applyAll, 1)[2]).toEqual(['batch', 'unreachable']);
   });
 
   /** A second click while the confirmed apply writes would start another. */

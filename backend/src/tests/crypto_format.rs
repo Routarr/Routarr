@@ -28,3 +28,23 @@ async fn a_value_sealed_by_an_older_build_still_opens() {
     let opened = secrets(ITS_KEY).open(SEALED_BY_AN_OLDER_BUILD).unwrap();
     assert_eq!(opened, ITS_PLAINTEXT, "the stored format moved under an upgrade");
 }
+
+/// A key file that cannot be read as text, as `openssl rand 32 > routarr.key`
+/// writes it, is refused by name. Replaced by a new key, it would take every
+/// credential sealed under it, and the old key with them.
+#[test]
+fn a_master_key_file_that_cannot_be_read_is_refused_and_left_as_it_is() {
+    let dir = super::TempDir::new("unreadable-master-key");
+    let path = dir.join("routarr.key");
+    let raw = [0xffu8, 0xfe, 0x00, 0x9c, 0x41, 0x12, 0xc3, 0x28];
+    std::fs::write(&path, raw).unwrap();
+
+    let refused = SecretBox::load(None, None, &path);
+    assert!(refused.is_err(), "an unreadable key file was taken for no key at all");
+    assert_eq!(std::fs::read(&path).unwrap(), raw, "the key file was overwritten");
+
+    // A missing file is the one case that makes a new key.
+    std::fs::remove_file(&path).unwrap();
+    SecretBox::load(None, None, &path).unwrap();
+    assert!(path.exists());
+}

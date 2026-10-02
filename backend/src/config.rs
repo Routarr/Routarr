@@ -185,6 +185,12 @@ pub struct Config {
     pub oidc_redirect_url: Option<String>,
     /// Explicit CORS allow-list. Empty means "same-origin only" (no CORS layer).
     pub cors_origins: Vec<String>,
+    /// The host names Routarr answers to under `ROUTARR_AUTH=none`, beside an
+    /// address and `localhost`, lower case and without a port.
+    pub allowed_hosts: Vec<String>,
+    /// The proxies whose `X-Forwarded-For` names the client, for the sign-in
+    /// queue's share per client. Any other peer is the client itself.
+    pub trusted_proxies: Vec<std::net::IpAddr>,
     /// Timeout applied to every outbound call: the Arrs, the metadata sources,
     /// the identity provider and the notification webhook.
     pub http_timeout: Duration,
@@ -282,6 +288,32 @@ impl Config {
                     v.split(',')
                         .map(|s| s.trim().trim_end_matches('/').to_string())
                         .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            trusted_proxies: non_empty("ROUTARR_TRUSTED_PROXIES")
+                .map(|v| {
+                    v.split(',')
+                        .map(str::trim)
+                        .filter(|entry| !entry.is_empty())
+                        .map(|entry| {
+                            entry.parse::<std::net::IpAddr>().map(|ip| ip.to_canonical()).map_err(
+                                |_| {
+                                    AppError::Config(format!(
+                                        "'{entry}' in ROUTARR_TRUSTED_PROXIES is not an IP address"
+                                    ))
+                                },
+                            )
+                        })
+                        .collect::<AppResult<Vec<_>>>()
+                })
+                .transpose()?
+                .unwrap_or_default(),
+            allowed_hosts: non_empty("ROUTARR_ALLOWED_HOSTS")
+                .map(|v| {
+                    v.split(',')
+                        .map(|host| host_name(host.trim()))
+                        .filter(|host| !host.is_empty())
                         .collect()
                 })
                 .unwrap_or_default(),
@@ -464,6 +496,8 @@ impl Config {
             oidc_client_secret: None,
             oidc_redirect_url: None,
             cors_origins: vec![],
+            allowed_hosts: vec![],
+            trusted_proxies: vec![],
             http_timeout: Duration::from_millis(300),
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
             previous_secret_key: None,
@@ -486,6 +520,21 @@ impl Config {
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).ok().filter(|v| !v.is_empty()).unwrap_or_else(|| default.to_string())
+}
+
+/// A `Host` value without its port, in lower case: `NAS.lan:9876` is
+/// `nas.lan`, `[::1]:9876` is `::1`.
+pub fn host_name(host: &str) -> String {
+    let host = host.trim().to_ascii_lowercase();
+    if let Some(rest) = host.strip_prefix('[') {
+        return rest.split(']').next().unwrap_or_default().to_string();
+    }
+    match host.rsplit_once(':') {
+        Some((name, port)) if !name.contains(':') && port.chars().all(|c| c.is_ascii_digit()) => {
+            name.to_string()
+        }
+        _ => host,
+    }
 }
 
 fn non_empty(key: &str) -> Option<String> {

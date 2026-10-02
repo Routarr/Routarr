@@ -211,7 +211,7 @@
   "ConfirmPurge": "Rensa beslut, loggar och jobbhistorik bortom lagringsperioden?",
   "ConfirmRemoveKey": "Ta bort API-nyckeln? Klienter som använder den slutar fungera omedelbart.",
   "ConfirmRemoveDestination": "Ta bort målet \"{path}\"? En kategori kopplad till det routas inte längre dit. Inget raderas från disken.",
-  "ConfirmRestore": "Återställa {name}? Det ersätter nuvarande databas, huvudnyckel och API-nyckel. Inget ändras förrän Routarr startas om.",
+  "ConfirmRestore": "Återställa {name}? Det ersätter nuvarande databas och huvudnyckel. API-nyckeln, lösenordet och varje nyckel som återkallats sedan dess förblir som de är i dag, och alla måste logga in igen. Inget ändras förrän Routarr startas om.",
   "ConfirmRevert": "Flytta tillbaka \"{title}\" till {path}?",
   "ConfirmRevertFiles": "Ska filerna på disken också flyttas tillbaka?",
   "ConfirmRotateKey": "Generera om API-nyckeln? Varje klient som fortfarande använder den nuvarande slutar fungera tills den uppdateras.",
@@ -847,5 +847,7 @@
   "CertFromAge": "från {age} år",
   "CertNotRated": "ej klassificerad",
   "SettingsMetadataCoverage": "Cache och täckning",
-  "DownloadBackup": "Ladda ner"
+  "DownloadBackup": "Ladda ner",
+  "SigningSecretUnreadable": "Signeringshemligheten kan inte dekrypteras med den här installationens nyckel, så inga aviseringar skickas. Ersätt hemligheten.",
+  "ErrorPreviewsWaiting": "Förhandsvisningar väntar redan på biblioteket. Försök igen när en av dem är klar."
 }

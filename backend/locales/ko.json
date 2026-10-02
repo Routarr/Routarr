@@ -211,7 +211,7 @@
   "ConfirmPurge": "보존 기간이 지난 결정, 로그, 작업 기록을 정리할까요?",
   "ConfirmRemoveKey": "API 키를 제거할까요? 사용 중인 클라이언트는 즉시 작동하지 않습니다.",
   "ConfirmRemoveDestination": "대상 '{path}'을(를) 제거할까요? 여기에 매핑된 카테고리는 더 이상 이곳으로 라우팅되지 않습니다. 디스크에서는 아무것도 삭제되지 않습니다.",
-  "ConfirmRestore": "{name}을(를) 복원할까요? 현재 데이터베이스, 마스터 키, API 키를 대체합니다. Routarr를 다시 시작할 때까지 아무것도 바뀌지 않습니다.",
+  "ConfirmRestore": "{name}을(를) 복원할까요? 현재 데이터베이스와 마스터 키를 대체합니다. API 키, 비밀번호, 백업 이후 폐기한 모든 키는 지금 그대로 유지되며, 모두 다시 로그인합니다. Routarr를 다시 시작할 때까지 아무것도 바뀌지 않습니다.",
   "ConfirmRevert": "'{title}'을(를) {path}(으)로 다시 이동할까요?",
   "ConfirmRevertFiles": "디스크의 파일도 되돌릴까요?",
   "ConfirmRotateKey": "API 키를 재생성할까요? 현재 키를 사용하는 모든 클라이언트는 업데이트할 때까지 작동하지 않습니다.",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age}세 이상",
   "CertNotRated": "등급 미지정",
   "SettingsMetadataCoverage": "캐시 및 적용 범위",
-  "DownloadBackup": "다운로드"
+  "DownloadBackup": "다운로드",
+  "SigningSecretUnreadable": "이 설치본의 키로 서명 시크릿을 열 수 없으므로 알림을 보내지 않습니다. 시크릿을 교체하세요.",
+  "ErrorPreviewsWaiting": "라이브러리를 읽으려고 기다리는 미리 보기가 이미 있습니다. 하나가 끝난 후 다시 시도하세요."
 }

@@ -211,7 +211,7 @@
   "ConfirmPurge": "Kitakarítja a megőrzési időn túli döntéseket, naplókat és feladat-előzményeket?",
   "ConfirmRemoveKey": "Eltávolítja az API-kulcsot? Az azt használó kliensek azonnal működésképtelenné válnak.",
   "ConfirmRemoveDestination": "Eltávolítja a(z) \"{path}\" célt? A hozzá rendelt kategória többé nem oda irányít. A lemezről semmi sem törlődik.",
-  "ConfirmRestore": "Visszaállítja a(z) {name} mentést? Lecseréli a jelenlegi adatbázist, a főkulcsot és az API-kulcsot. Semmi nem változik a Routarr újraindításáig.",
+  "ConfirmRestore": "Visszaállítja a(z) {name} mentést? Lecseréli a jelenlegi adatbázist és a főkulcsot. Az API-kulcs, a jelszó és minden azóta érvénytelenített kulcs a mostani állapotában marad, és mindenkinek újra be kell jelentkeznie. Semmi nem változik a Routarr újraindításáig.",
   "ConfirmRevert": "Visszahelyezi a(z) \"{title}\" elemet ide: {path}?",
   "ConfirmRevertFiles": "A lemezen lévő fájlokat is visszamozgassuk?",
   "ConfirmRotateKey": "Újragenerálja az API-kulcsot? Minden kliens, amely még a jelenlegit használja, a frissítésig nem fog működni.",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age} éves kortól",
   "CertNotRated": "nincs besorolva",
   "SettingsMetadataCoverage": "Gyorsítótár és lefedettség",
-  "DownloadBackup": "Letöltés"
+  "DownloadBackup": "Letöltés",
+  "SigningSecretUnreadable": "Az aláírási titok nem nyitható meg ennek a telepítésnek a kulcsával, ezért semmilyen értesítés nem megy ki. Cserélje le a titkot.",
+  "ErrorPreviewsWaiting": "Már várakoznak előnézetek a könyvtár beolvasására. Próbálja újra, amint az egyik befejeződött."
 }

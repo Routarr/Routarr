@@ -417,6 +417,25 @@ async fn listening(app: &TestApp, receiver: &Receiver) {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
 }
 
+/// The case the Standard Webhooks libraries publish for their own signer:
+/// secret, message id, timestamp, body, and the signature every receiver built
+/// on them expects. The tests below check a delivery against `notify::sign`,
+/// which only proves the signer agrees with itself.
+const REFERENCE: [&str; 5] = [
+    "whsec_C2FVsBQIhrscChlQIMV+b5sSYspob7oD",
+    "msg_27UH4WbU6Z5A5EzD8u03UvzRbpk",
+    "1649367553",
+    r#"{"email":"test@example.com","username":"test_user"}"#,
+    "v1,tZ1I4/hDygAJgO5TYxiSd6Sd0kDW6hPenDe+bTa3Kkw=",
+];
+
+#[test]
+fn a_signature_is_the_one_standard_webhooks_receivers_expect() {
+    let [secret, id, timestamp, body, expected] = REFERENCE;
+    let signing = crate::crypto::signing_key(secret).expect("the reference secret is valid");
+    assert_eq!(notify::sign(&[signing], id, timestamp, body), expected);
+}
+
 /// Whether `signature` holds a `v1` entry made with `secret` over the rest.
 fn signed_with(secret: &str, delivery: &Delivery) -> bool {
     let key = crate::crypto::signing_key(secret).expect("a signing secret");
@@ -504,6 +523,66 @@ async fn a_failed_delivery_is_tried_again_and_a_refused_one_is_not() {
     notify::send(&app.state, recovered()).await;
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
     assert_eq!(refusing.deliveries().len(), 1, "a refused message was sent again");
+}
+
+/// A secret no key opens, as a database restored beside another master key
+/// leaves it, signs nothing. Sent unsigned, a message would pass any receiver
+/// that checks a signature only when one is there, so nothing is sent, and
+/// the status says the secret cannot be read rather than that it signs.
+#[tokio::test]
+async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    let foreign = crate::crypto::SecretBox::load(
+        Some("a-master-key-this-installation-never-had"),
+        None,
+        std::path::Path::new("/nonexistent"),
+    )
+    .unwrap()
+    .seal("whsec_QUJDREVGR0hJSktMTU5PUFFSU1RVVldY")
+    .unwrap();
+    sqlx::query("INSERT INTO webhook_secrets (secret) VALUES (?)")
+        .bind(&foreign)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+    notify::send(&app.state, recovered()).await;
+    assert!(receiver.deliveries().is_empty(), "an unsigned message went out");
+    let status = app.get("/api/v1/notifications/webhook-secret").await;
+    assert_eq!(status.assert_ok()["readable"], false, "{:?}", status.json);
+
+    // A secret made afterwards replaces it, and the messages go out signed.
+    let minted = app.post("/api/v1/notifications/webhook-secret", serde_json::json!({})).await;
+    let secret = minted.assert_ok()["secret"].as_str().unwrap().to_string();
+    notify::send(&app.state, recovered()).await;
+    assert!(signed_with(&secret, &receiver.awaiting(1).await[0]));
+    assert_eq!(app.get("/api/v1/notifications/webhook-secret").await.json["readable"], true);
+}
+
+/// A retry is signed with the secrets of its own time and sent to the address
+/// of its own time: a secret replaced because it leaked stops being the only
+/// one, and a cleared address receives nothing more.
+#[tokio::test]
+async fn a_retry_follows_the_secret_and_the_address_of_its_own_time() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::answering(&[503]).await;
+    listening(&app, &receiver).await;
+    let mint = || app.post("/api/v1/notifications/webhook-secret", serde_json::json!({}));
+    mint().await.assert_ok();
+
+    notify::send(&app.state, recovered()).await;
+    let new = mint().await.json["secret"].as_str().unwrap().to_string();
+    let retried = receiver.awaiting(2).await;
+    assert!(signed_with(&new, &retried[1]), "the retry ignored the new secret: {retried:?}");
+
+    let cleared = Receiver::answering(&[503]).await;
+    listening(&app, &cleared).await;
+    notify::send(&app.state, recovered()).await;
+    app.save_setting("notification_webhook_url", "").await.assert_ok();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(cleared.deliveries().len(), 1, "a cleared address was tried again");
 }
 
 /// What finished well reaches the webhook only when it asked for it.

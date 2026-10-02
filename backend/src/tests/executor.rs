@@ -87,10 +87,12 @@ async fn hanging_up_mid_apply_still_records_the_move() {
 
 /// An apply that cannot load its moves ends its job as failed. A `?` between
 /// `start` and the outcome would leave the row `running` until the next restart
-/// fails it as an orphan, and the Tasks screen would show a job in progress,
-/// with nothing to say why the apply answered an error.
+/// fails it as an orphan, and the Tasks screen would show a job in progress.
+/// The cause, a database error, goes to the log: any key reads the row.
 #[tokio::test]
 async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
+    use tracing_subscriber::layer::SubscriberExt;
+
     let arr = FakeArr::start().await;
     let (app, decision_id) = ready(&arr).await;
     // The one column only the loader reads, so the guards before the job pass.
@@ -99,9 +101,16 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
         .await
         .unwrap();
 
+    let capture = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    // For the thread, not the future: the job fails on a task of its own,
+    // which the test's single-threaded runtime runs on this same thread.
+    let _logging = tracing::subscriber::set_default(subscriber);
     let outcome =
         executor::apply_unattended(&app.state, &[decision_id], &Attribution::manual(None)).await;
     assert!(outcome.is_err(), "the loader was meant to fail: {outcome:?}");
+    assert!(capture.contents().contains("current_path"), "the log does not name the cause");
 
     let (status, error): (String, Option<String>) = sqlx::query_as(
         "SELECT status, error_message FROM jobs WHERE kind = 'apply' ORDER BY started_at DESC LIMIT 1",
@@ -110,7 +119,8 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     .await
     .unwrap();
     assert_eq!(status, "failed", "the Tasks screen must see the job end");
-    assert!(error.unwrap_or_default().contains("current_path"), "the failure names its cause");
+    let error = error.unwrap_or_default();
+    assert!(!error.is_empty() && !error.contains("current_path"), "the row reads {error}");
     assert!(app.state.jobs.try_lock("apply").is_some(), "the apply lock was left held");
 }
 
@@ -404,6 +414,7 @@ async fn ready(arr: &FakeArr) -> (TestApp, String) {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    app.seed_standard_folder().await;
     app.store_setting("global_dry_run", "false").await;
 
     let result = routing::run_simulation(
@@ -472,6 +483,10 @@ async fn only_the_latest_move_of_a_title_can_be_reverted() {
     .execute(&app.state.pool)
     .await
     .unwrap();
+    sqlx::query("UPDATE media SET current_root_folder = '/movies/standard' WHERE id = 'm-1'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
 
     let listed = app.get("/api/v1/decisions?status=applied").await;
     let revertible: std::collections::HashMap<String, bool> = listed.assert_ok()["data"]
@@ -812,12 +827,13 @@ async fn applied(arr: &FakeArr) -> (TestApp, String) {
     (app, decision_id)
 }
 
-/// Records the folder a revert goes back to, as the last sync saw it.
+/// Records the state of the folder a revert goes back to, as the last sync
+/// saw it.
 async fn origin_folder(app: &TestApp, accessible: bool, free_space: i64) {
     sqlx::query(
-        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, free_space,
-         last_accessible_at)
-         VALUES ('rf-1', 'inst-1', 1, '/movies/standard', ?, ?, '2026-09-20 08:00:00')",
+        "UPDATE root_folders SET accessible = ?, free_space = ?,
+                                 last_accessible_at = '2026-09-20 08:00:00'
+         WHERE path = '/movies/standard'",
     )
     .bind(accessible)
     .bind(free_space)
@@ -900,6 +916,58 @@ async fn a_revert_larger_than_the_threshold_asks_first() {
 
     assert_eq!(asked(&first), Some(executor::confirm::THRESHOLD), "{first:?}");
     assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote before asking");
+}
+
+/// A title moved since the apply, by hand in the Arr, sits where the operator
+/// put it, and a revert would pull it out of that folder, files included.
+#[tokio::test]
+async fn a_revert_leaves_alone_a_title_moved_since() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    sqlx::query(
+        "UPDATE media SET current_root_folder = '/movies/kept',
+                          current_path = '/movies/kept/My Neighbor Totoro (1988)'
+         WHERE id = 'm-1'",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let writes = arr.recorded().writes.len();
+
+    let listed = app.get("/api/v1/decisions?status=applied").await;
+    assert_eq!(listed.assert_ok()["data"][0]["revertible"], false, "{:?}", listed.json);
+    let ids = std::slice::from_ref(&decision_id);
+    let by = Attribution::manual(None);
+    let report =
+        executor::revert_decisions(&app.state, ids, true, &executor::Confirmed::all(), &by)
+            .await
+            .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
+    assert_eq!(arr.recorded().writes.len(), writes, "the title was pulled out of where it was put");
+}
+
+/// A folder the Arr no longer reports has no row for the guards to weigh, so
+/// a revert into it would be asked nothing before writing there.
+#[tokio::test]
+async fn a_revert_into_a_folder_the_instance_no_longer_has_is_skipped() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    sqlx::query("DELETE FROM root_folders WHERE path = '/movies/standard'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let writes = arr.recorded().writes.len();
+    let ids = std::slice::from_ref(&decision_id);
+    let by = Attribution::manual(None);
+
+    let report =
+        executor::revert_decisions(&app.state, ids, true, &executor::Confirmed::none(), &by)
+            .await
+            .unwrap();
+
+    assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
+    assert_eq!(arr.recorded().writes.len(), writes, "the revert wrote into a folder nobody offers");
 }
 
 /// Reverting is the one operation a user reaches for when something has

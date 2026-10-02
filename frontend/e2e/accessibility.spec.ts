@@ -55,18 +55,30 @@ async function seedRows(): Promise<void> {
     body: JSON.stringify({ name: 'Home Assistant', scopes: ['operate'], may_confirm: ['batch'] }),
   });
 
-  const { decisions } = (await apiWhenFree('/simulate', {
-    method: 'POST',
-    body: JSON.stringify({ persist: true }),
-  })) as { decisions: { id: string; media_title: string; action: string }[] };
+  const decisions = await simulate();
 
   // History keeps every move ever applied and no reset clears it, so a move is
   // applied once in a run rather than once per test: Akira moved in every test
-  // would fill the table with rows no installation holds.
+  // would fill the table with rows no installation holds, and every sweep would
+  // walk them.
   const { data: applied } = (await api('/decisions?status=applied&per_page=200')) as {
     data: { reverted_at: string | null }[];
   };
   if (applied.some((decision) => !decision.reverted_at)) return;
+  await moveAkira(decisions);
+}
+
+type Proposal = { id: string; media_title: string; action: string };
+
+async function simulate(): Promise<Proposal[]> {
+  const { decisions } = (await apiWhenFree('/simulate', {
+    method: 'POST',
+    body: JSON.stringify({ persist: true }),
+  })) as { decisions: Proposal[] };
+  return decisions;
+}
+
+async function moveAkira(decisions: Proposal[]): Promise<void> {
   const akira = decisions.find((d) => d.media_title === 'Akira' && d.action === 'move');
   if (!akira) throw new Error('the simulation proposes no move for Akira');
   // Nothing is written while the global dry run holds, and it holds again for
@@ -82,6 +94,18 @@ async function seedRows(): Promise<void> {
     body: JSON.stringify({ decision_ids: [akira.id], move_files: false, confirm: [] }),
   });
   await dryRun(true);
+}
+
+/**
+ * A move History offers to revert. The reset before each test makes the
+ * instance again, so the move the seed applied in an earlier test names a
+ * title the library no longer holds, and offers none.
+ */
+async function offerRevert(): Promise<void> {
+  const { data: applied } = (await api('/decisions?status=applied&per_page=200')) as {
+    data: { revertible: boolean }[];
+  };
+  if (!applied.some((decision) => decision.revertible)) await moveAkira(await simulate());
 }
 
 test.beforeEach(seedRows);
@@ -685,7 +709,7 @@ const MODALS: {
         .click(),
   },
   {
-    // Offered on a move the seed applied.
+    // Offered on the move `offerRevert` makes sure of.
     path: '/history',
     covers: 'pages/History.svelte',
     open: (p) =>
@@ -698,6 +722,7 @@ const MODALS: {
 
 test('every modal names itself and every control inside it', async ({ page }) => {
   const problems: string[] = [];
+  await offerRevert();
 
   for (const [index, modal] of MODALS.entries()) {
     await openScreen(page, modal.path);

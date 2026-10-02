@@ -144,7 +144,7 @@ async fn sync_instance_inner(
                 },
             )
             .await;
-            job.fail(&e.to_string()).await;
+            job.fail(e).await;
             if !was_failing {
                 notify::send(
                     state,

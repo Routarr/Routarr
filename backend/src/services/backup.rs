@@ -123,7 +123,7 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
 
     match &outcome {
         Ok(file) => job.succeed(Detail::new("JobDetailBackedUp").with("file", &file.name)).await,
-        Err(e) => job.fail(&e.to_string()).await,
+        Err(e) => job.fail(e).await,
     }
 
     if outcome.is_ok() {
@@ -164,19 +164,24 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
             .await?
             .unwrap_or_else(|| "unknown".to_string());
 
-    let master_key = state.config.secret_key_path();
+    // With the key in `ROUTARR_SECRET_KEY`, a `routarr.key` beside the database
+    // is a stale file, not what anything is sealed with: carried and announced,
+    // it would make a restore elsewhere open a database nothing can read,
+    // without the warning a missing key gets.
+    let master_key = Some(state.config.secret_key_path())
+        .filter(|path| state.config.secret_key.is_none() && path.exists());
     let manifest = BackupManifest {
         version: env!("CARGO_PKG_VERSION").to_string(),
         schema,
         created_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
-        includes_master_key: master_key.exists(),
+        includes_master_key: master_key.is_some(),
     };
 
     // Off the runtime, and the whole of it: deflating a library-sized database
     // holds a worker for as long as it takes. Everything the closure needs is
     // taken by value first, so nothing borrows `state` across the boundary.
     let (archive, snapshot_path) = (path.clone(), snapshot.clone());
-    let keys = [state.config.secret_key_path(), state.config.api_key_path()];
+    let keys = [master_key, Some(state.config.api_key_path())];
     let manifest_for_zip = manifest.clone();
     let result = tokio::task::spawn_blocking(move || {
         let _snapshot = snapshot_scaffold;
@@ -234,7 +239,7 @@ fn build_zip(
     path: &Path,
     snapshot: &Path,
     manifest: &BackupManifest,
-    keys: &[PathBuf; 2],
+    keys: &[Option<PathBuf>; 2],
 ) -> AppResult<()> {
     // Written under a name `list` does not show, and given its own only once
     // whole: a zip is readable as soon as it is finished, and `ZipWriter`
@@ -285,7 +290,7 @@ fn build_zip(
     // These two are a handful of bytes each, so reading them whole is not the
     // same question as the database above.
     for (entry, source) in [MASTER_KEY_ENTRY, API_KEY_ENTRY].iter().zip(keys) {
-        if let Ok(bytes) = std::fs::read(source) {
+        if let Some(Ok(bytes)) = source.as_ref().map(std::fs::read) {
             add(&mut zip, options, entry, &bytes)?;
         }
     }
@@ -464,6 +469,8 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
             "the archive's database cannot be restored: {reason}"
         )));
     }
+    keep_withdrawn_credentials(state, &staging_path(&state.config.db_path)).await?;
+    opened_by_the_next_start(state, &staging_path(&state.config.db_path)).await?;
 
     // A new restore replaces an earlier one entirely, and only once it is
     // known to be one: a file the new archive does not carry would otherwise
@@ -476,6 +483,12 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
     for target in paths.iter().rev() {
         let staging = staging_path(target);
         if !staged.holds(&staging) {
+            continue;
+        }
+        // The API key in use stays: whoever restores holds it, and one rotated
+        // because it leaked must not come back with the archive.
+        if *target == state.config.api_key_path() && target.exists() {
+            std::fs::remove_file(&staging).ok();
             continue;
         }
         if let Err(e) = std::fs::rename(&staging, pending_path(target)) {
@@ -638,6 +651,156 @@ fn is_leftover(name: &str) -> bool {
     partial || snapshot
 }
 
+/// Carry into a staged database what the installation has withdrawn since
+/// the backup was taken.
+///
+/// A restore undoes damage by going back to a day before it, and a key
+/// revoked because it leaked is part of the damage, not of the library: it
+/// stays revoked. The account's password is today's and no session survives.
+/// The signing secrets follow today's too, replaced ones included, so a
+/// receiver already given the new secret keeps accepting. A key the live
+/// database never held, as on a new host, comes back as the backup has it,
+/// and so do the backup's account and secrets when the live database holds
+/// none.
+async fn keep_withdrawn_credentials(state: &AppState, staged: &Path) -> AppResult<()> {
+    use sqlx::{ConnectOptions, Connection};
+
+    let revoked: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, revoked_at FROM api_keys WHERE revoked_at IS NOT NULL")
+            .fetch_all(&state.pool)
+            .await?;
+    let secrets: Vec<(String, String)> =
+        sqlx::query_as("SELECT secret, created_at FROM webhook_secrets")
+            .fetch_all(&state.pool)
+            .await?;
+    let accounts: Vec<(String, String, String, String, String)> =
+        sqlx::query_as("SELECT id, username, password_hash, created_at, updated_at FROM users")
+            .fetch_all(&state.pool)
+            .await?;
+
+    // A rollback journal, not a write-ahead log: the staged file is renamed
+    // alone, and a log beside it would be left behind with these writes in it.
+    let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(staged)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
+        .connect()
+        .await?;
+    let result: AppResult<()> = async {
+        let mut tx = connection.begin().await?;
+        // An archive from before a table existed has nothing to withdraw in
+        // it: the migration that creates the table starts it empty.
+        let holds = |table: &'static str| {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?)",
+            )
+            .bind(table)
+        };
+        if holds("api_keys").fetch_one(&mut *tx).await? {
+            for (id, revoked_at) in &revoked {
+                sqlx::query(
+                    "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+                )
+                .bind(revoked_at)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        // The password of today, and nobody signed in: a password changed
+        // because it leaked closed every session, and restoring the archive's
+        // would open them again.
+        if !accounts.is_empty() {
+            sqlx::query("DELETE FROM users").execute(&mut *tx).await?;
+            for (id, username, hash, created_at, updated_at) in &accounts {
+                sqlx::query(
+                    "INSERT INTO users (id, username, password_hash, created_at, updated_at)
+                     VALUES (?, ?, ?, ?, ?)",
+                )
+                .bind(id)
+                .bind(username)
+                .bind(hash)
+                .bind(created_at)
+                .bind(updated_at)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+        sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
+        if !secrets.is_empty() && holds("webhook_secrets").fetch_one(&mut *tx).await? {
+            sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
+            for (secret, created_at) in &secrets {
+                sqlx::query("INSERT INTO webhook_secrets (secret, created_at) VALUES (?, ?)")
+                    .bind(secret)
+                    .bind(created_at)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(())
+    }
+    .await;
+    connection.close().await.ok();
+    result
+}
+
+/// Refuse a restore whose credentials the next start could not open.
+///
+/// `ROUTARR_SECRET_KEY` wins over any `routarr.key` at start, the one a
+/// restore brings back included. An archive sealed under its key file, staged
+/// on a host that sets the variable, would open with every Arr, source and
+/// signing credential unreadable. Without the variable the next start opens
+/// with the key file the archive brings back, or the one in place when it
+/// brings none, and that file has to be the one its credentials were sealed
+/// with.
+async fn opened_by_the_next_start(state: &AppState, staged: &Path) -> AppResult<()> {
+    use sqlx::{ConnectOptions, Connection};
+
+    let config = &state.config;
+    let brought_back = staging_path(&config.secret_key_path());
+    let key_file = if brought_back.exists() { brought_back } else { config.secret_key_path() };
+    // Read here rather than by `SecretBox::load`, which writes a new key where
+    // it finds none: the check must leave the files as it found them.
+    let from_file = std::fs::read_to_string(&key_file)
+        .ok()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty());
+    let Some(key) = config.secret_key.clone().or(from_file) else {
+        return Ok(());
+    };
+    let next_start = crate::crypto::SecretBox::load(
+        Some(&key),
+        config.previous_secret_key.as_deref(),
+        &key_file,
+    )?;
+    let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(staged)
+        .read_only(true)
+        .connect()
+        .await?;
+    let sealed: Option<String> =
+        sqlx::query_scalar("SELECT api_key FROM instances WHERE api_key LIKE 'enc:%' LIMIT 1")
+            .fetch_optional(&mut connection)
+            .await?;
+    connection.close().await.ok();
+
+    let refusal = if config.secret_key.is_some() {
+        "the credentials in this archive cannot be opened with ROUTARR_SECRET_KEY, which the next \
+         start uses instead of the archive's routarr.key. Set ROUTARR_SECRET_KEY to the key the \
+         archive was taken with, or unset it, then restore again."
+    } else {
+        "the credentials in this archive cannot be opened with the routarr.key the next start \
+         would use. Set ROUTARR_SECRET_KEY to the key the archive was taken with, then restore \
+         again."
+    };
+    match sealed {
+        Some(sealed) if next_start.open(&sealed).is_err() => {
+            Err(AppError::BadRequest(refusal.into()))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Whether a file is a Routarr database this build can open.
 ///
 /// Opened read-only and immutable, so the check writes nothing beside the file.
@@ -781,7 +944,7 @@ mod tests {
             &archive,
             &snapshot,
             &manifest(),
-            &[dir.join("routarr.key"), dir.join("routarr.api_key")],
+            &[Some(dir.join("routarr.key")), Some(dir.join("routarr.api_key"))],
         );
 
         assert!(outcome.is_err(), "an archive was written over another");
@@ -799,7 +962,7 @@ mod tests {
             &dir.join("routarr-backup-20260101-000000.zip"),
             &dir.join(".missing.db"),
             &manifest(),
-            &[dir.join("routarr.key"), dir.join("routarr.api_key")],
+            &[Some(dir.join("routarr.key")), Some(dir.join("routarr.api_key"))],
         );
 
         assert!(outcome.is_err(), "the archive was written without its database");

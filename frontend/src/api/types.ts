@@ -447,12 +447,16 @@ export interface ErrorBody {
   confirm?: string;
   /** Beside `confirm`: whether this caller may send the name back. */
   answerable?: boolean;
+  /** Beside `confirm`: the other guardrails the question states. */
+  includes?: string[];
 }
 
 /** Whether the notification webhook is signed, and since when. */
 export interface WebhookSigningStatus {
   signed: boolean;
   since: string | null;
+  /** False when a secret is set that this installation cannot open. */
+  readable: boolean;
 }
 
 /** A scope beyond read, which every application key holds. */

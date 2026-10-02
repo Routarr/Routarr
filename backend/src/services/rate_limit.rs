@@ -113,6 +113,22 @@ impl RateLimiter {
     }
 }
 
+/// Hold the limiter back when a source states how long it wants to be left
+/// alone.
+///
+/// Pacing is a guess about someone else's limit. `Retry-After` is that someone
+/// telling us. When it arrives, every later request slows to match instead of
+/// spending its budget discovering the same thing again.
+pub async fn honour_retry_after<T>(limiter: &RateLimiter, outcome: &crate::error::AppResult<T>) {
+    if let Err(crate::error::AppError::ExternalApi {
+        retry_after: Some(seconds), service, ..
+    }) = outcome
+    {
+        tracing::warn!("{service} asked for {seconds}s before the next request, pacing after it");
+        limiter.penalise(Duration::from_secs(*seconds)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

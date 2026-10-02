@@ -12,14 +12,13 @@ use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::Duration;
 use tracing::{debug, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobHandle, JobKind};
 use crate::models::ProviderMetadata;
 use crate::services::metadata::{self, Addressing, FetchingSource};
-use crate::services::rate_limit::RateLimiter;
+use crate::services::rate_limit::{RateLimiter, honour_retry_after};
 use crate::state::AppState;
 
 /// Outcome of an enrichment pass.
@@ -82,7 +81,7 @@ pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<Enri
             )
             .await
         }
-        Err(e) => job.fail(&e.to_string()).await,
+        Err(e) => job.fail(e).await,
     }
 
     outcome.map(|()| report)
@@ -96,7 +95,7 @@ async fn run_enrichment(
     // A source that knows none of our identifiers has to find its own first.
     // A found identifier is kept, and a miss for `MISS_LIFETIME`, so this is
     // a first-pass cost, not a per-run one.
-    let limiter = source.limiter();
+    let limiter = source.pace();
 
     if source.addressing() == Addressing::Search {
         resolve_identifiers(state, source, job, &limiter).await?;
@@ -242,22 +241,6 @@ impl Breaker {
         if is_source_level_failure(outcome) {
             self.failures.fetch_add(1, Ordering::Relaxed);
         }
-    }
-}
-
-/// Hold the limiter back when a source states how long it wants to be left
-/// alone.
-///
-/// Pacing is a guess about someone else's limit. `Retry-After` is that someone
-/// telling us. When it arrives, the rest of the pass slows to match instead of
-/// spending its remaining breaker budget discovering the same thing four more
-/// times.
-async fn honour_retry_after<T>(limiter: &RateLimiter, outcome: &AppResult<T>) {
-    if let Err(AppError::ExternalApi { retry_after: Some(seconds), service, .. }) = outcome {
-        warn!(
-            "{service} asked for {seconds}s before the next request, pacing the rest of the pass"
-        );
-        limiter.penalise(Duration::from_secs(*seconds)).await;
     }
 }
 

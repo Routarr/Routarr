@@ -32,6 +32,8 @@ services:
       # use it only on a network where anything that can reach Routarr may also
       # move your files.
       - ROUTARR_AUTH=${ROUTARR_AUTH:-apikey}
+      - ROUTARR_ALLOWED_HOSTS=${ROUTARR_ALLOWED_HOSTS:-}
+      - ROUTARR_TRUSTED_PROXIES=${ROUTARR_TRUSTED_PROXIES:-}
       # Encrypts the stored Arr API keys. Generated into /data/routarr.key when
       # unset: back that file up with the database.
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}

@@ -56,8 +56,9 @@ needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are grant
 own. The owner's key reaches every operation.\n\n\
 A failure answers one envelope: `error`, a stable code, and `message`, a sentence in the \
 interface language that is not part of the contract. A move that crosses a guardrail answers \
-409 `confirmation_required` with the guardrail's name in `confirm`. Send that name back in \
-`confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\n\
+409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other \
+guardrails its question states. Send those names back in `confirm` to go ahead, or, when \
+`answerable` is false, leave the question to a person.\n\n\
 A call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits \
 for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the \
 task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its \
@@ -353,6 +354,8 @@ fn list_decisions() {}
 /// With `persist: true` the proposals are stored under the `simulation_id`
 /// this answers, replacing the pending ones of an earlier run. Only one
 /// persisting simulation runs at a time: another answers 409 until it ends.
+/// A preview, `persist: false`, waits its turn, and answers 409 while four
+/// are already running or waiting.
 #[utoipa::path(
     post,
     path = "/simulate",

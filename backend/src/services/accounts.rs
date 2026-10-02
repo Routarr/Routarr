@@ -262,6 +262,31 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
     Ok(())
 }
 
+/// Start the account again with a new password, as `routarr reset-account`
+/// does for an operator locked out: the password is written beside the
+/// database and handed back to be printed, and every session ends.
+pub async fn reset_account(
+    pool: &SqlitePool,
+    password_path: &std::path::Path,
+) -> AppResult<String> {
+    let password = crate::crypto::generate_secret()?;
+    let hash = hash_password(&password)?;
+    crate::crypto::write_private(password_path, password.as_bytes()).map_err(|e| {
+        AppError::Config(format!("cannot write the password to {}: {e}", password_path.display()))
+    })?;
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM users").execute(&mut *tx).await?;
+    sqlx::query("INSERT INTO users (id, username, password_hash) VALUES (?, ?, ?)")
+        .bind(Uuid::new_v4().to_string())
+        .bind(DEFAULT_USERNAME)
+        .bind(&hash)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(password)
+}
+
 /// Replace the account's password, and end every session it had opened.
 ///
 /// A password is changed because the old one is no longer trusted, so leaving

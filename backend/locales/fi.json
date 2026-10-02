@@ -211,7 +211,7 @@
   "ConfirmPurge": "Siivotaanko säilytysajan ylittävät päätökset, lokit ja tehtävähistoria?",
   "ConfirmRemoveKey": "Poistetaanko API-avain? Sitä käyttävät asiakkaat lakkaavat toimimasta heti.",
   "ConfirmRemoveDestination": "Poistetaanko kohde \"{path}\"? Siihen kytketty luokka ei enää reititä sinne. Levyltä ei poisteta mitään.",
-  "ConfirmRestore": "Palautetaanko {name}? Se korvaa nykyisen tietokannan, pääavaimen ja API-avaimen. Mikään ei muutu ennen Routarrin uudelleenkäynnistystä.",
+  "ConfirmRestore": "Palautetaanko {name}? Se korvaa nykyisen tietokannan ja pääavaimen. API-avain, salasana ja jokainen sen jälkeen mitätöity avain pysyvät sellaisina kuin ne ovat tänään, ja kaikkien on kirjauduttava sisään uudelleen. Mikään ei muutu ennen Routarrin uudelleenkäynnistystä.",
   "ConfirmRevert": "Siirretäänkö \"{title}\" takaisin polkuun {path}?",
   "ConfirmRevertFiles": "Siirretäänkö myös tiedostot levyllä takaisin?",
   "ConfirmRotateKey": "Luodaanko API-avain uudelleen? Jokainen nykyistä avainta käyttävä asiakas lakkaa toimimasta, kunnes se päivitetään.",
@@ -847,5 +847,7 @@
   "CertFromAge": "{age}-vuotiaasta alkaen",
   "CertNotRated": "luokittelematon",
   "SettingsMetadataCoverage": "Välimuisti ja kattavuus",
-  "DownloadBackup": "Lataa"
+  "DownloadBackup": "Lataa",
+  "SigningSecretUnreadable": "Allekirjoitussalaisuutta ei voi avata tämän asennuksen avaimella, joten ilmoituksia ei lähetetä. Korvaa salaisuus.",
+  "ErrorPreviewsWaiting": "Esikatseluja on jo jonossa kirjaston lukemista varten. Yritä uudelleen, kun yksi on valmis."
 }

@@ -55,6 +55,7 @@ const DECISION_COLUMNS: &str = "id, media_id, media_title, media_type, instance_
 
 pub async fn list(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Query(query): Query<DecisionQuery>,
 ) -> AppResult<Json<Page<Decision>>> {
     let (page, per_page, offset) = paginate(query.page, query.per_page);
@@ -118,7 +119,12 @@ pub async fn list(
     }
     let total = count_query.fetch_one(&state.pool).await?;
 
-    Ok(Json(Page::new(rows.into_iter().map(decision_from_row).collect(), page, per_page, total)))
+    let decisions = rows
+        .into_iter()
+        .map(decision_from_row)
+        .map(|decision| Decision { subject: identity.shown_subject(decision.subject), ..decision })
+        .collect();
+    Ok(Json(Page::new(decisions, page, per_page, total)))
 }
 
 /// Request to apply selected decisions.
@@ -143,8 +149,8 @@ pub struct ApplyAllRequest {
     /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]
     pub move_files: bool,
-    /// Always asked: `batch`, whose one question states both the count and
-    /// any capacity shortfall.
+    /// Always asked: `batch`, whose one question states the count and any
+    /// sleeping or full destination, named in the answer's `includes`.
     // A mass operation by definition, so the confirmation threshold has
     // nothing to say about it.
     #[serde(default)]

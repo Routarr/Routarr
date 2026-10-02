@@ -72,7 +72,8 @@ export function settle(value: string | null): void {
  * Several guardrails can refuse the same write, and each asks under its own
  * name: a blanket yes would answer all of them at once, so confirming "there
  * is not enough room" would also lift the batch threshold without showing it.
- * The list grows one name at a time, so nothing is lifted that was not read.
+ * The list grows by the names each question asked or stated in its text, so
+ * nothing is lifted that was not read.
  * `null` is a question declined, and nothing was written.
  */
 export async function answering<T>(
@@ -88,6 +89,6 @@ export async function answering<T>(
     const asking = err.confirm;
     const question = after ? `${err.message}\n\n${after}` : err.message;
     if (!(await askConfirmation(question, label))) return null;
-    return answering(send, label, after, [...answered, asking]);
+    return answering(send, label, after, [...answered, asking, ...err.includes]);
   }
 }

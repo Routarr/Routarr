@@ -291,6 +291,23 @@ describe('request bodies', () => {
     const failure = await api.applyDecisions(['a']).catch((err: unknown) => err);
     expect(failure).toBeInstanceOf(ApiError);
     expect((failure as ApiError).confirm).toBe('capacity');
+    expect((failure as ApiError).includes).toEqual([]);
+  });
+
+  it('carries the other guardrails a question states', async () => {
+    mockFetch({
+      ok: false,
+      status: 409,
+      body: {
+        error: 'confirmation_required',
+        message: '2 items will move. The NAS is asleep.',
+        confirm: 'batch',
+        includes: ['unreachable'],
+      },
+    });
+
+    const failure = await api.applyAllDecisions('s-1').catch((err: unknown) => err);
+    expect((failure as ApiError).includes).toEqual(['unreachable']);
   });
 });
 

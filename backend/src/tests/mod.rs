@@ -297,12 +297,26 @@ impl TestApp {
         self.list_tmdb().await;
     }
 
+    /// `/movies/standard` on `inst-1`, where the films `seed_route_to_anime`
+    /// moves sit, reported by the Arr as every root folder is. A revert writes
+    /// back into it, and skips a folder its instance no longer has.
+    pub async fn seed_standard_folder(&self) {
+        sqlx::query(
+            "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible)
+             VALUES ('rf-standard', 'inst-1', 1, '/movies/standard', 1)",
+        )
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+    }
+
     /// A library of `count` films the anime rule wants to move off `arr`,
     /// with the global dry run off, ready to apply.
     pub async fn films_to_move(arr: &fake_arr::FakeArr, count: usize) -> Self {
         let app = Self::new().await;
         app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
         app.seed_route_to_anime().await;
+        app.seed_standard_folder().await;
 
         for index in 0..count {
             sqlx::query(
