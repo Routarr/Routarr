@@ -1,7 +1,9 @@
 //! Root folder discovery and category mapping.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use serde::Serialize;
 
 use crate::error::{AppError, AppResult};

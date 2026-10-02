@@ -1,7 +1,9 @@
 //! Manual overrides: the human veto over the rule engine.
 
 use super::{Json, Query};
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use serde::Deserialize;
 use uuid::Uuid;
 
@@ -104,18 +106,22 @@ pub async fn unpin_external(
 ) -> AppResult<Json<Deleted>> {
     let copies = copies_of(&state, &title).await?;
     let mut tx = state.pool.begin().await?;
-    let mut deleted = 0;
+    // Only a copy whose pin went loses its proposals: a copy that had none
+    // keeps the ones somebody may be reviewing.
+    let mut unpinned = Vec::new();
     for media_id in &copies {
-        deleted += sqlx::query("DELETE FROM overrides WHERE media_id = ?")
+        let removed = sqlx::query("DELETE FROM overrides WHERE media_id = ?")
             .bind(media_id)
             .execute(&mut *tx)
             .await?
             .rows_affected();
+        if removed > 0 {
+            unpinned.push(media_id.as_str());
+        }
     }
-    let ids: Vec<&str> = copies.iter().map(String::as_str).collect();
-    crate::services::routing::supersede_pending(&mut tx, &ids).await?;
+    crate::services::routing::supersede_pending(&mut tx, &unpinned).await?;
     tx.commit().await?;
-    Ok(Json(Deleted { deleted: deleted > 0 }))
+    Ok(Json(Deleted { deleted: !unpinned.is_empty() }))
 }
 
 /// The library rows of the title `title` names.
@@ -135,8 +141,9 @@ async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<Str
     Ok(copies.into_iter().map(|media| media.id).collect())
 }
 
-/// Pin each title to `category`, replacing the pin it has, and withdraw its
-/// pending proposals, which the pin now decides.
+/// Pin each title to `category`, replacing the pin it has, and withdraw the
+/// pending proposals of each whose category changed, which the pin now
+/// decides. A pin repeating a title's category keeps what it produced.
 async fn pin(
     state: &AppState,
     media_ids: &[String],
@@ -155,7 +162,16 @@ async fn pin(
     }
 
     let mut tx = state.pool.begin().await?;
+    let mut changed = Vec::new();
     for media_id in media_ids {
+        let held: Option<String> =
+            sqlx::query_scalar("SELECT target_category FROM overrides WHERE media_id = ?")
+                .bind(media_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        if held.as_deref() != Some(category.as_str()) {
+            changed.push(media_id.as_str());
+        }
         sqlx::query(
             "INSERT INTO overrides (id, media_id, target_category, reason, subject)
              VALUES (?, ?, ?, ?, ?)
@@ -172,12 +188,11 @@ async fn pin(
         .execute(&mut *tx)
         .await?;
     }
-    let ids: Vec<&str> = media_ids.iter().map(String::as_str).collect();
-    crate::services::routing::supersede_pending(&mut tx, &ids).await?;
-    tx.commit().await?;
+    crate::services::routing::supersede_pending(&mut tx, &changed).await?;
 
     // Read back so the answer carries the rows that exist: on an upsert the
-    // stored id is the original one, not the one just generated.
+    // stored id is the original one, not the one just generated. Inside the
+    // transaction, so a pin made meanwhile is not read as this one.
     let mut pinned = Vec::with_capacity(media_ids.len());
     for media_id in media_ids {
         let row: (String, String, String, Option<String>, String, Option<String>) = sqlx::query_as(
@@ -185,7 +200,7 @@ async fn pin(
                  FROM overrides WHERE media_id = ?",
         )
         .bind(media_id)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
         pinned.push(OverrideEntry {
             id: row.0,
@@ -196,6 +211,7 @@ async fn pin(
             subject: row.5,
         });
     }
+    tx.commit().await?;
     Ok(pinned)
 }
 

@@ -72,6 +72,9 @@ struct FakeState {
     /// The series ids an update is refused for, as Sonarr refuses a path it
     /// cannot write.
     refused_series: Arc<Mutex<Vec<i64>>>,
+    /// The movie ids an edit naming any of them is refused for: Radarr moves
+    /// a batch in one request, and refuses it whole.
+    refused_movies: Arc<Mutex<Vec<i64>>>,
     /// Fields the film now has in the Arr, laid over its body.
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     /// Root folders reported beside the usual three.
@@ -88,6 +91,7 @@ pub struct FakeArr {
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     no_root_folders: Arc<std::sync::atomic::AtomicBool>,
     refused_series: Arc<Mutex<Vec<i64>>>,
+    refused_movies: Arc<Mutex<Vec<i64>>>,
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
@@ -178,9 +182,15 @@ impl FakeArr {
         self.more_root_folders.lock().expect("lock").push(folder);
     }
 
-    /// From now on an update of series `id` is refused.
+    /// From now on series `id` is held, and an update of it refused.
     pub fn refuse_series(&self, id: i64) {
         self.refused_series.lock().expect("lock").push(id);
+    }
+
+    /// From now on an edit naming movie `id` is refused, with every other
+    /// movie of its batch.
+    pub fn refuse_movie(&self, id: i64) {
+        self.refused_movies.lock().expect("lock").push(id);
     }
 
     /// The most requests this fake ever had open at the same moment.
@@ -208,6 +218,7 @@ impl FakeArr {
         let no_titles = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let no_root_folders = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let refused_series: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
+        let refused_movies: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
         let movie_edits = Arc::new(Mutex::new(serde_json::Map::new()));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
@@ -225,6 +236,7 @@ impl FakeArr {
             no_titles: Arc::clone(&no_titles),
             no_root_folders: Arc::clone(&no_root_folders),
             refused_series: Arc::clone(&refused_series),
+            refused_movies: Arc::clone(&refused_movies),
             movie_edits: Arc::clone(&movie_edits),
             more_root_folders: Arc::clone(&more_root_folders),
         };
@@ -235,8 +247,8 @@ impl FakeArr {
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
             .route("/api/v3/movie", get(movies))
-            .route("/api/v3/movie/lookup/tmdb", get(movie_lookup))
-            .route("/api/v3/movie/lookup/imdb", get(movie_lookup))
+            .route("/api/v3/movie/lookup/tmdb", get(movie_lookup_tmdb))
+            .route("/api/v3/movie/lookup/imdb", get(movie_lookup_imdb))
             .route("/api/v3/movie/{id}", get(movie_one))
             .route("/api/v3/movie/editor", put(movie_editor))
             .route("/api/v3/series/lookup", get(series_lookup))
@@ -269,6 +281,7 @@ impl FakeArr {
             no_titles,
             no_root_folders,
             refused_series,
+            refused_movies,
             movie_edits,
             more_root_folders,
             shutdown: Some(tx),
@@ -424,14 +437,26 @@ async fn hold_and_count(state: &FakeState) {
     state.in_flight.fetch_sub(1, Ordering::SeqCst);
 }
 
-async fn movies(State(state): State<FakeState>, headers: HeaderMap) -> Json<serde_json::Value> {
+/// The library, or with `tmdbId` the one film it holds under that id, as
+/// Radarr filters its list.
+async fn movies(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Json<serde_json::Value> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/movie");
     hold_and_count(&state).await;
     if state.no_titles.load(Ordering::SeqCst) {
         return Json(serde_json::json!([]));
     }
-    Json(serde_json::json!([totoro(&state)]))
+    let movie = totoro(&state);
+    match query.get("tmdbId") {
+        Some(asked) if asked.parse::<i64>().ok() != movie["tmdbId"].as_i64() => {
+            Json(serde_json::json!([]))
+        }
+        _ => Json(serde_json::json!([movie])),
+    }
 }
 
 /// The one movie by id: Totoro is 10, anything else is unknown to this Radarr.
@@ -482,35 +507,59 @@ fn totoro(state: &FakeState) -> serde_json::Value {
     movie
 }
 
-/// A movie by its TMDb or IMDb id, as Radarr's lookup answers: Totoro, which
-/// the library holds, Spirited Away, which it does not, and a 404 for any
-/// other.
-/// A miss answers 500 with the exception Radarr throws, not 404: what Radarr
-/// does for an id TMDb does not know (`MovieNotFoundException`).
-async fn movie_lookup(
+/// A film by its TMDb id, as Radarr's lookup answers: built afresh from TMDb,
+/// so with no id, no folder and no file even when the library holds it.
+/// Holding is what `GET /api/v3/movie?tmdbId=` tells. A miss answers 500
+/// with the exception Radarr throws (`MovieNotFoundException`), not 404.
+async fn movie_lookup_tmdb(
     State(state): State<FakeState>,
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     record_key(&state, &headers);
-    let (kind, asked) = match (query.get("tmdbId"), query.get("imdbId")) {
-        (Some(tmdb), _) => ("tmdbId", tmdb.clone()),
-        (None, Some(imdb)) => ("IMDBId", imdb.clone()),
-        (None, None) => ("tmdbId", String::new()),
-    };
+    let asked = query.get("tmdbId").cloned().unwrap_or_default();
     record_read(&state, &format!("/api/v3/movie/lookup/{asked}"));
     match asked.as_str() {
-        "8392" | "tt0096283" => Ok(Json(totoro(&state))),
-        "129" | "tt0245429" => Ok(Json(spirited_away())),
-        _ => {
-            let message = format!(
-                "Movie with {kind} {asked} was not found, it may have been removed from TMDb."
-            );
-            let description = format!("NzbDrone.Core.Exceptions.MovieNotFoundException: {message}");
-            let body = serde_json::json!({ "message": message, "description": description });
-            Err((StatusCode::INTERNAL_SERVER_ERROR, Json(body)))
-        }
+        "8392" => Ok(Json(as_looked_up(totoro(&state)))),
+        "129" => Ok(Json(spirited_away())),
+        _ => Err(movie_not_found("tmdbId", &asked)),
     }
+}
+
+/// The same by IMDb id, on its own path: an IMDb id sent to the TMDb path
+/// finds nothing, as in Radarr.
+async fn movie_lookup_imdb(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    record_key(&state, &headers);
+    let asked = query.get("imdbId").cloned().unwrap_or_default();
+    record_read(&state, &format!("/api/v3/movie/lookup/{asked}"));
+    match asked.as_str() {
+        "tt0096283" => Ok(Json(as_looked_up(totoro(&state)))),
+        "tt0245429" => Ok(Json(spirited_away())),
+        _ => Err(movie_not_found("IMDBId", &asked)),
+    }
+}
+
+/// A held film as the lookup answers it: what TMDb says, none of the
+/// library's own fields.
+fn as_looked_up(mut movie: serde_json::Value) -> serde_json::Value {
+    let fields = movie.as_object_mut().expect("an object");
+    for library_only in ["id", "path", "rootFolderPath", "hasFile", "sizeOnDisk", "tags", "added"] {
+        fields.remove(library_only);
+    }
+    fields.insert("monitored".into(), serde_json::json!(false));
+    movie
+}
+
+fn movie_not_found(kind: &str, asked: &str) -> (StatusCode, Json<serde_json::Value>) {
+    let message =
+        format!("Movie with {kind} {asked} was not found, it may have been removed from TMDb.");
+    let description = format!("NzbDrone.Core.Exceptions.MovieNotFoundException: {message}");
+    let body = serde_json::json!({ "message": message, "description": description });
+    (StatusCode::INTERNAL_SERVER_ERROR, Json(body))
 }
 
 /// A movie Radarr knows and does not hold: no id, no folder, and no `hasFile`,
@@ -543,7 +592,7 @@ async fn series_lookup(
     record_read(&state, &format!("/api/v3/series/lookup/{term}"));
     match term.as_str() {
         "tvdb:76885" => Json(serde_json::json!([bebop(&state, 20)])),
-        "tvdb:81178" => Json(serde_json::json!([mushishi()])),
+        "tvdb:81178" | "imdb:tt0807832" => Json(serde_json::json!([mushishi()])),
         _ => Json(serde_json::json!([])),
     }
 }
@@ -565,6 +614,11 @@ async fn movie_editor(
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), refusal()));
     }
+    let refused = state.refused_movies.lock().expect("lock").clone();
+    let ids = body["movieIds"].as_array().into_iter().flatten().filter_map(|id| id.as_i64());
+    if ids.clone().any(|id| refused.contains(&id)) {
+        return Err((StatusCode::BAD_REQUEST, refusal()));
+    }
     // Recorded first, then held: a test can see the edit arrive before the
     // Arr is done with it.
     if !state.hold.is_zero() {
@@ -572,21 +626,25 @@ async fn movie_editor(
     }
     // As Radarr answers: each movie edited, with the path it now has. Without
     // its files a movie keeps its folder name, with them the naming format
-    // may give it another.
+    // may give Totoro another. Any other id is one of `films_to_move`, whose
+    // folder is `Film <id>`.
     let root = body["rootFolderPath"].as_str().unwrap_or_default().trim_end_matches('/');
     let movie = totoro(&state);
     let kept = movie["path"].as_str().unwrap_or_default().rsplit('/').next().unwrap_or_default();
     let renamed = state.renames_to.lock().expect("lock").clone();
-    let folder = match renamed {
+    let totoro_folder = match renamed {
         Some(name) if body["moveFiles"].as_bool() == Some(true) => name,
         _ => kept.to_string(),
     };
-    let moved: Vec<serde_json::Value> = body["movieIds"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|id| id.as_i64() == movie["id"].as_i64())
-        .map(|id| serde_json::json!({ "id": id, "path": format!("{root}/{folder}") }))
+    let moved: Vec<serde_json::Value> = ids
+        .map(|id| {
+            let folder = if Some(id) == movie["id"].as_i64() {
+                totoro_folder.clone()
+            } else {
+                format!("Film {id}")
+            };
+            serde_json::json!({ "id": id, "path": format!("{root}/{folder}") })
+        })
         .collect();
     // 202, as Radarr's movie editor answers.
     Ok((StatusCode::ACCEPTED, Json(serde_json::Value::Array(moved))))
@@ -643,6 +701,7 @@ fn mushishi() -> serde_json::Value {
         "year": 2005,
         "tvdbId": 81178,
         "tmdbId": 26209,
+        "imdbId": "tt0807832",
         "monitored": false,
         "status": "ended",
         "added": "0001-01-01T00:00:00Z",
@@ -655,17 +714,23 @@ fn mushishi() -> serde_json::Value {
     })
 }
 
+/// The one series by id: Cowboy Bebop is 20, a series [`FakeArr::refuse_series`]
+/// names is held as well, and anything else is unknown to this Sonarr, unless
+/// a body was set to answer every id with.
 async fn series_one(
     State(state): State<FakeState>,
     headers: HeaderMap,
     Path(id): Path<i64>,
-) -> Json<serde_json::Value> {
+) -> Result<Json<serde_json::Value>, StatusCode> {
     record_key(&state, &headers);
     record_read(&state, &format!("/api/v3/series/{id}"));
     if let Some(body) = state.series_body.lock().expect("lock").clone() {
-        return Json(body);
+        return Ok(Json(body));
     }
-    Json(bebop(&state, id))
+    if id != 20 && !state.refused_series.lock().expect("lock").contains(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    Ok(Json(bebop(&state, id)))
 }
 
 async fn series_update(

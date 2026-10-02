@@ -6,7 +6,7 @@ use axum::http::{Request, StatusCode};
 use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
-use super::security::{OPEN, declared_routes};
+use super::security::{OPEN, declared_routes, route_template};
 use super::{TestApp, TestResponse};
 use crate::api::applications::{GRANTS, scope_for};
 use crate::config::{AuthMode, Config, normalise_base_path};
@@ -41,11 +41,6 @@ async fn send(
     app.send(request.unwrap()).await
 }
 
-/// The template a declared path was probed under, as `GRANTS` writes it.
-fn template(path: &str) -> String {
-    path.strip_prefix("/api/v1").unwrap_or(path).replace("probe", "{id}")
-}
-
 /// Every route but the open few, walked with `token`: each answers as the
 /// scopes decide, and a route `GRANTS` does not name is refused whatever the
 /// key holds.
@@ -58,7 +53,7 @@ async fn walk(app: &TestApp, token: &str, holds: &[Scope]) {
             continue;
         }
         let method_name: axum::http::Method = method.parse().unwrap();
-        let granted = scope_for(&method_name, &template(&path))
+        let granted = scope_for(&method_name, &route_template(&path))
             .is_some_and(|scope| scope == Scope::Read || holds.contains(&scope));
         let status = send(app, method, &path, Some(token), Some(json!({}))).await.status;
         if granted {
@@ -210,7 +205,7 @@ async fn each_scope_is_granted_on_its_own() {
 fn every_granted_route_is_declared() {
     let declared: Vec<(String, String)> = declared_routes()
         .into_iter()
-        .map(|(method, path)| (method.to_string(), template(&path)))
+        .map(|(method, path)| (method.to_string(), route_template(&path)))
         .collect();
     for (method, route, _) in GRANTS {
         assert!(

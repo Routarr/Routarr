@@ -182,8 +182,8 @@ async fn a_series_that_was_never_scanned_falls_back_to_the_slug() {
 }
 
 /// Sonarr moves one series per request, so the first refusal must not keep
-/// the next series from being asked: each is sent, and each refusal reported
-/// against its own id.
+/// the next series from being asked: each is asked, and each failure reported
+/// against its own id. The fake refuses the edit of 20 and holds no 21.
 #[tokio::test]
 async fn sonarr_reports_failures_per_item() {
     let arr = FakeArr::failing(409).await;
@@ -194,7 +194,13 @@ async fn sonarr_reports_failures_per_item() {
     let ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids, [20, 21]);
     assert!(results.iter().all(|(_, outcome)| outcome.is_err()));
-    assert_eq!(arr.recorded().writes.len(), 2, "one failure aborted the rest of the batch");
+    let recorded = arr.recorded();
+    assert_eq!(recorded.writes.len(), 1, "the edit of 20 was never sent");
+    assert!(
+        recorded.reads.contains(&"/api/v3/series/21".to_string()),
+        "one failure aborted the rest of the batch: {:?}",
+        recorded.reads
+    );
 }
 
 #[tokio::test]
@@ -280,4 +286,28 @@ async fn a_refused_rescan_does_not_skip_the_series_after_it() {
 
     assert!(outcome.is_err(), "the refused rescan went unreported");
     assert_eq!(*asked.lock().unwrap(), [1, 2, 3], "the series after the refused one were skipped");
+}
+
+/// A series Sonarr knows and does not hold is found by its TheTVDB id and by
+/// its IMDb id, each held to the id asked, and comes back as the lookup
+/// describes it: no Arr id, no folder, the type and monitoring it would be
+/// added with by default.
+#[tokio::test]
+async fn sonarr_finds_a_series_it_does_not_hold_by_either_id() {
+    use crate::models::ExternalId;
+    let arr = FakeArr::start().await;
+    let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
+
+    for id in [ExternalId::Tvdb(81178), ExternalId::Imdb("tt0807832".into())] {
+        let found = adapter.lookup(&id).await.unwrap().unwrap_or_else(|| panic!("{id:?} missed"));
+        assert_eq!(
+            (found.arr_id, found.title.as_str(), found.tvdb_id, found.imdb_id.as_deref()),
+            (0, "Mushishi", Some(81178), Some("tt0807832")),
+            "{id:?}"
+        );
+        assert_eq!(found.series_type.as_deref(), Some("standard"));
+        assert!(!found.monitored && found.path.is_none(), "{id:?}");
+    }
+    let unknown = adapter.lookup(&ExternalId::Tvdb(1)).await.unwrap();
+    assert!(unknown.is_none(), "an id nobody knows was found");
 }

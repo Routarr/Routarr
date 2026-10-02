@@ -78,6 +78,29 @@ where
     }
 }
 
+/// `axum::extract::Path` with the application's error envelope on rejection.
+///
+/// The stock extractor answers a segment it cannot decode (`%FF`, which is
+/// not UTF-8) with a `text/plain` 400 of its own. Every handler reads its path
+/// through this one instead.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Path<T>(pub T);
+
+impl<S, T> FromRequestParts<S> for Path<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        match axum::extract::Path::<T>::from_request_parts(parts, state).await {
+            Ok(axum::extract::Path(value)) => Ok(Self(value)),
+            Err(rejection) => Err(envelope(rejection.status(), rejection.body_text())),
+        }
+    }
+}
+
 /// The `{ error, message }` body every failure carries, for a status the
 /// error type has no variant for. A body over the cap stays a 413 and a wrong
 /// content type a 415, and the two shapes of "cannot parse this" are one 400.

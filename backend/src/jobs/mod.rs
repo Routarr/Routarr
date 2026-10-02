@@ -33,7 +33,8 @@ pub const TRIGGER_API: &str = "api";
 /// The longest interval an instance may be synced on, in minutes: a day.
 ///
 /// Every writer of `sync_interval_minutes` clamps to it and `scheduler::is_due`
-/// reads it, so the number on screen is the number that runs. Written once
+/// reads it, so the stored interval is the one compared. The sync itself runs
+/// on the first scheduler tick past it, so the tick is its grain. Written once
 /// because another site with its own `1440` is how the two drift apart.
 pub const MAX_SYNC_INTERVAL_MINUTES: i64 = 24 * 60;
 

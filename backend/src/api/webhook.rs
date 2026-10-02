@@ -6,7 +6,9 @@
 //! can be rotated from the Instances screen.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use serde::Deserialize;
 use std::time::Duration;
 use tracing::{info, warn};

@@ -5,7 +5,9 @@
 //! logic without HTTP.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};

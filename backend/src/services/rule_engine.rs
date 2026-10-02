@@ -202,7 +202,7 @@ fn confidence_for(evaluations: &[ConditionOutcome], mode: MatchMode) -> f32 {
 ///
 /// Every condition is always evaluated, even in `any` mode where an early exit
 /// would be cheaper: the non-matching ones are part of the explanation.
-fn evaluate_conditions(
+pub(crate) fn evaluate_conditions(
     conditions: &[Condition],
     mode: MatchMode,
     ctx: EvalContext<'_>,

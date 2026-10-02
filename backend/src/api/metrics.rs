@@ -12,6 +12,7 @@
 use axum::extract::State;
 use axum::http::header;
 use axum::response::{IntoResponse, Response};
+use sqlx::AssertSqlSafe;
 
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -54,6 +55,15 @@ fn arr_instance(id: &str, name: &str) -> String {
     format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
 }
 
+/// Each title's latest standing decision, over `decisions d`: what the
+/// engine wants for it now. An older one an apply left standing is history,
+/// and counted, it reads as a library still moving.
+const LATEST: &str = "d.superseded = 0
+    AND NOT EXISTS (SELECT 1 FROM decisions later
+                     WHERE later.media_id = d.media_id AND later.superseded = 0
+                       AND (later.decided_at > d.decided_at
+                            OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
+
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
     let mut families: Vec<Family> = Vec::new();
@@ -83,12 +93,12 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
 
     // Where the engine currently wants each item. Answers "is the library
     // drifting" without opening the interface.
-    let by_category: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT target_category, COUNT(*)
-           FROM decisions
-          WHERE superseded = 0 AND status IN ('pending', 'applied')
-          GROUP BY target_category",
-    )
+    let by_category: Vec<(String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT d.target_category, COUNT(*)
+           FROM decisions d
+          WHERE {LATEST} AND d.status IN ('pending', 'applied')
+          GROUP BY d.target_category"
+    )))
     .fetch_all(pool)
     .await?;
     families.push(Family {
@@ -100,9 +110,9 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    let by_status: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT status, COUNT(*) FROM decisions WHERE superseded = 0 GROUP BY status",
-    )
+    let by_status: Vec<(String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT d.status, COUNT(*) FROM decisions d WHERE {LATEST} GROUP BY d.status"
+    )))
     .fetch_all(pool)
     .await?;
     families.push(Family {

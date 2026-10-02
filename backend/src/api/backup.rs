@@ -6,7 +6,9 @@
 //! directory as the master key.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;

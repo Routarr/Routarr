@@ -63,13 +63,9 @@ async fn a_radarr_whose_library(movies: MethodRouter) -> String {
     .await
 }
 
-/// An address nothing listens at: a port bound, then let go.
-async fn nothing_listening() -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    drop(listener);
-    format!("http://{address}")
-}
+/// An address nothing listens at. A port bound and let go may be taken by
+/// another test in between, and port 1 needs a privilege nothing here has.
+const NOTHING_LISTENING: &str = "http://127.0.0.1:1";
 
 /// An address that takes the connection and never answers, as a host behind
 /// a firewall that drops rather than refuses.
@@ -101,11 +97,15 @@ async fn speaking_tls() -> String {
     format!("http://{address}")
 }
 
-/// Try values typed in the form, before anything is saved.
+/// Try values typed in the form for a Radarr, before anything is saved.
 async fn probe(app: &TestApp, base_url: &str) -> TestResponse {
+    probe_as(app, "radarr", base_url).await
+}
+
+async fn probe_as(app: &TestApp, instance_type: &str, base_url: &str) -> TestResponse {
     app.post(
         "/api/v1/instances/test",
-        json!({ "instance_type": "radarr", "base_url": base_url, "api_key": "typed-key" }),
+        json!({ "instance_type": instance_type, "base_url": base_url, "api_key": "typed-key" }),
     )
     .await
 }
@@ -260,7 +260,7 @@ async fn an_address_is_shown_with_its_credentials_masked() {
 #[tokio::test]
 async fn an_explanation_quotes_the_address_with_its_credentials_masked() {
     let app = TestApp::new().await;
-    let address = nothing_listening().await;
+    let address = NOTHING_LISTENING.to_string();
 
     let message = outage(&probe(&app, &behind_a_proxy(&address)).await);
 
@@ -349,7 +349,7 @@ async fn saved_credentials_do_not_follow_a_new_address() {
 #[tokio::test]
 async fn nothing_listening_at_localhost_is_explained_with_the_container_trap() {
     let app = TestApp::new().await;
-    let address = nothing_listening().await;
+    let address = NOTHING_LISTENING.to_string();
 
     let message = outage(&probe(&app, &address).await);
 
@@ -360,8 +360,7 @@ async fn nothing_listening_at_localhost_is_explained_with_the_container_trap() {
 
 #[tokio::test]
 async fn a_name_that_does_not_resolve_is_named() {
-    let app = TestApp::new().await;
-    // Reserved never to resolve (RFC 6761).
+    let app = TestApp::resolving_nothing().await;
     let address = "http://routarr-nowhere.invalid:7878";
 
     let message = outage(&probe(&app, address).await);
@@ -544,12 +543,44 @@ async fn a_sonarr_declared_as_a_radarr_is_named() {
     assert_eq!(message, expected);
 }
 
+/// The sentence names the application the operator declared, and the URL
+/// base a Sonarr is reached under.
+#[tokio::test]
+async fn a_sonarr_is_explained_as_a_sonarr() {
+    let app = TestApp::new().await;
+    let radarr = answering(
+        200,
+        &[("content-type", "application/json")],
+        r#"{"version":"5.2.6","appName":"Radarr"}"#,
+    )
+    .await;
+    let welcome = answering(200, &[("content-type", "text/html")], "<html>Welcome</html>").await;
+
+    let wrong_app = refusal(&probe_as(&app, "sonarr", &radarr).await);
+    let not_the_api = refusal(&probe_as(&app, "sonarr", &welcome).await);
+
+    let expected = said(
+        &app,
+        "ArrWrongApp",
+        &[("service", "Sonarr"), ("address", &radarr), ("found", "Radarr")],
+    )
+    .await;
+    assert_eq!(wrong_app, expected);
+    let expected = said(
+        &app,
+        "ArrNotTheApi",
+        &[("service", "Sonarr"), ("address", &welcome), ("base", "/sonarr")],
+    )
+    .await;
+    assert_eq!(not_the_api, expected);
+}
+
 /// A script driving the sync retries a 502 and gives up on a 400. The test of
 /// a saved instance explains as the probe does.
 #[tokio::test]
 async fn an_arr_that_is_down_answers_a_gateway_error() {
     let app = TestApp::new().await;
-    let address = nothing_listening().await;
+    let address = NOTHING_LISTENING.to_string();
     app.seed_instance_at("inst-1", "radarr", &address).await;
 
     let response = app.post("/api/v1/instances/inst-1/test", json!({})).await;
@@ -648,7 +679,7 @@ async fn a_library_failing_on_the_arrs_side_is_named() {
 #[tokio::test]
 async fn a_sync_with_nothing_listening_is_explained() {
     let app = TestApp::new().await;
-    let address = nothing_listening().await;
+    let address = NOTHING_LISTENING.to_string();
     app.seed_instance_at("inst-1", "radarr", &address).await;
 
     let response = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
@@ -695,7 +726,7 @@ async fn the_form_is_answered_in_the_readers_language() {
         said(&app, "InstanceNameRequired", &[]).await
     );
 
-    let address = nothing_listening().await;
+    let address = NOTHING_LISTENING.to_string();
     let params = [("service", "Radarr"), ("address", address.as_str())];
     let probed = probe(&app, &address).await;
     assert_eq!(

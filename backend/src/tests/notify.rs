@@ -105,6 +105,15 @@ impl Receiver {
         }
         panic!("{count} deliveries never arrived, {} did", self.deliveries().len());
     }
+
+    /// The messages once `count` have arrived.
+    async fn arrived(&self, count: usize) -> Vec<serde_json::Value> {
+        self.awaiting(count)
+            .await
+            .iter()
+            .map(|delivery| serde_json::from_str(&delivery.body).expect("a JSON body"))
+            .collect()
+    }
 }
 
 impl Drop for Receiver {
@@ -144,11 +153,7 @@ async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
 async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
     let receiver = Receiver::start().await;
     let app = TestApp::new().await;
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('notification_webhook_url', ?)")
-        .bind(&receiver.url)
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("notification_webhook_url", &receiver.url).await;
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
 
@@ -198,6 +203,26 @@ async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept
     assert_eq!(stored[1], foreign, "the only copy of a signing secret was overwritten");
 }
 
+/// A sync's notifications go out on their own task: a receiver slow to answer
+/// holds neither the sync's answer nor its lock, which a second sync then
+/// finds held.
+#[tokio::test]
+async fn a_slow_receiver_holds_neither_the_sync_nor_its_lock() {
+    let app = super::waiting_on_a_silent_webhook().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let by = crate::jobs::Attribution::manual(None);
+
+    let failed = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::services::sync::sync_instance(&app.state, "inst-1", &by),
+    )
+    .await
+    .expect("the sync waited for its notifications");
+
+    assert!(failed.is_err(), "the instance at port 1 answered");
+    assert!(app.state.jobs.try_lock("sync:inst-1").is_some(), "the lock outlived the sync");
+}
+
 #[tokio::test]
 async fn an_instance_going_down_notifies_once_not_on_every_tick() {
     let receiver = Receiver::start().await;
@@ -242,6 +267,8 @@ async fn coming_back_closes_the_loop() {
         &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
     )
     .await;
+    // Sent on a task of its own: waited for, so the recovery arrives second.
+    receiver.arrived(1).await;
 
     // Point it at a reachable Arr and sync again.
     sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
@@ -257,7 +284,7 @@ async fn coming_back_closes_the_loop() {
     .await
     .unwrap();
 
-    let messages = receiver.messages();
+    let messages = receiver.arrived(2).await;
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[1]["event"], "instance_recovered");
     assert_eq!(messages[1]["severity"], "info", "recovery is news, not an alarm");
@@ -299,7 +326,7 @@ async fn nothing_is_sent_once_the_webhook_is_cleared() {
         &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE),
     )
     .await;
-    assert_eq!(receiver.messages().len(), 1, "the unreachable instance was not notified");
+    assert_eq!(receiver.arrived(1).await.len(), 1, "the unreachable instance was not notified");
 
     app.save_setting("notification_webhook_url", "").await.assert_ok();
     sqlx::query("UPDATE instances SET base_url = ? WHERE id = 'inst-1'")
@@ -332,7 +359,7 @@ async fn the_payload_carries_the_aliases_the_usual_receivers_read() {
     )
     .await;
 
-    let message = receiver.messages().remove(0);
+    let message = receiver.arrived(1).await.remove(0);
     let text = message["message"].as_str().unwrap();
     // Discord reads `content`, Apprise reads `body`, Gotify reads `message`.
     // All three carry the same sentence so one webhook fits all of them.
@@ -368,7 +395,7 @@ async fn a_failing_webhook_does_not_break_the_sync() {
 
     assert!(report.media > 0, "the sync must succeed regardless");
     // The positive control: the recovery was sent, and failed.
-    assert_eq!(receiver.messages()[0]["event"], "instance_recovered");
+    assert_eq!(receiver.arrived(1).await[0]["event"], "instance_recovered");
 }
 
 /// Nothing answering at the address at all is a failure like any other.
@@ -381,6 +408,15 @@ async fn an_unreachable_webhook_does_not_fail_the_send() {
         .expect("an unreachable webhook held the caller");
 }
 
+/// A film not yet downloaded, routed to `anime`, on a Radarr that refuses the
+/// move, with automatic application armed.
+async fn an_unattended_move(app: &TestApp, arr: &FakeArr) -> String {
+    app.seed_one_film_to_move(arr, false).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.simulate().await
+}
+
 /// An unattended apply the Arr refused is the failure nobody is watching for,
 /// and the message says how many moves failed and the first reason.
 #[tokio::test]
@@ -388,22 +424,9 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
     let receiver = Receiver::start().await;
     let arr = FakeArr::refusing_unimported_movie(500).await;
     let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_route_to_anime().await;
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
-         current_root_folder, monitored, has_files)
-         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', 8392,
-                 '/movies/standard/Totoro (1988)', '/movies/standard', 1, 0)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-    app.store_setting("auto_apply_enabled", "true").await;
-    app.store_setting("global_dry_run", "false").await;
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+    let simulation = an_unattended_move(&app, &arr).await;
 
-    let simulation = app.simulate().await;
     let outcome =
         crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook").await;
 
@@ -411,12 +434,56 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
         matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 1),
         "{outcome:?}"
     );
-    let messages = receiver.messages();
+    let messages = receiver.arrived(1).await;
     assert_eq!(messages.len(), 1, "{messages:?}");
     assert_eq!(messages[0]["event"], "auto_apply_failed");
     assert_eq!(messages[0]["severity"], "error");
     let text = messages[0]["message"].as_str().unwrap();
     assert!(text.contains("Failures: 1") && text.contains("Totoro"), "{text}");
+}
+
+/// An unattended apply that moved everything raises no alarm. The instance
+/// found unreachable after it is the barrier: its message, sent later, is the
+/// first and only one to arrive.
+#[tokio::test]
+async fn an_unattended_apply_that_moved_everything_raises_no_alarm() {
+    let receiver = Receiver::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = TestApp::new().await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+    let simulation = an_unattended_move(&app, &arr).await;
+
+    let outcome =
+        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook").await;
+    assert!(
+        matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 0),
+        "{outcome:?}"
+    );
+    app.execute(&["UPDATE instances SET base_url = 'http://127.0.0.1:1'"]).await;
+    let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE);
+    let _ = sync::sync_instance(&app.state, "inst-1", &by).await;
+
+    let messages = receiver.arrived(1).await;
+    let events: Vec<&str> = messages.iter().filter_map(|m| m["event"].as_str()).collect();
+    assert_eq!(events, ["instance_unreachable"]);
+}
+
+/// And told on a task of its own: the webhook waits for the automatic apply,
+/// and a receiver slow to answer would hold that delivery and the ones queued
+/// behind it.
+#[tokio::test]
+async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
+    let arr = FakeArr::refusing_unimported_movie(500).await;
+    let app = super::waiting_on_a_silent_webhook().await;
+    let simulation = an_unattended_move(&app, &arr).await;
+
+    let applied = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook"),
+    )
+    .await;
+
+    assert!(applied.is_ok(), "the unattended apply waited for its notification");
 }
 
 #[tokio::test]

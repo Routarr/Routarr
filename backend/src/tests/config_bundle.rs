@@ -16,26 +16,14 @@ async fn configured() -> TestApp {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('batch_limit', '25')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("batch_limit", "25").await;
 
     // A sealed setting, so `no_api_key_leaves_the_installation` has something
     // to prove. Without one, the assertion on `enc:v1:` would pass over a bundle
     // that could not contain it, a test reporting a property it never
     // exercised.
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('tmdb_api_key', ?)
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(app.state.secrets.seal("tmdb-key-not-a-secret").unwrap())
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("tmdb_api_key", &app.state.secrets.seal("tmdb-key-not-a-secret").unwrap())
+        .await;
     sqlx::query(
         "INSERT INTO overrides (id, media_id, target_category, reason)
          VALUES ('o-1', 'm-1', 'kids', 'The rules read it as anime')",
@@ -346,6 +334,37 @@ async fn the_configuration_rules_join_or_replace_the_rules_in_place() {
             sent["rules"].as_array().unwrap().len()
         );
     }
+}
+
+/// The import judges as the routes do: a mapping or an exception naming its
+/// instance with a stray space still finds it, and a source the bundle enables
+/// without its key here is refused, as `PUT /settings` refuses it.
+#[tokio::test]
+async fn the_import_judges_names_and_sources_as_the_routes_do() {
+    let source = configured().await;
+    let mut bundle = export(&source).await;
+    bundle["root_folders"][0]["instance_name"] = serde_json::json!(" Radarr ");
+    bundle["overrides"][0]["instance_name"] = serde_json::json!("Radarr ");
+    let settings = bundle["settings"].as_array_mut().unwrap();
+    settings.retain(|setting| setting["key"] != "metadata_providers");
+    settings.push(serde_json::json!({ "key": "metadata_providers", "value": "arr,omdb" }));
+    let target = TestApp::new().await;
+    target.seed_library().await;
+    target.execute(&["UPDATE root_folders SET category = NULL"]).await;
+
+    let report =
+        target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await;
+
+    let report = report.assert_ok().clone();
+    assert!(report["root_folders"].as_i64().unwrap() > 0, "{report}");
+    assert_eq!(report["overrides"], 1, "{report}");
+    assert!(report["skipped"].to_string().contains("omdb"), "{report}");
+    let providers: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
+            .fetch_optional(&target.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(providers.as_deref(), Some("arr"), "a source with no key was enabled");
 }
 
 /// The same film held by a second instance, as a 4K Radarr holds it.

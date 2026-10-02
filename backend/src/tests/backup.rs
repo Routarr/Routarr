@@ -116,10 +116,7 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
 async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_it() {
     let (app, dir) = app_with_files("retention-ceiling").await;
 
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_retention_count', '200')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("backup_retention_count", "200").await;
     let backups = dir.join("backups");
     std::fs::create_dir_all(&backups).unwrap();
     for stamp in ["20260101-000000", "20260102-000000", "20260103-000000", "20260104-000000"] {
@@ -163,10 +160,7 @@ async fn a_retention_count_above_the_maximum_is_kept_until_the_operator_lowers_i
 async fn only_the_retained_count_survives_a_prune() {
     let (app, dir) = app_with_files("retention").await;
 
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('backup_retention_count', '2')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("backup_retention_count", "2").await;
 
     // The name carries a second-resolution timestamp, so three in the same
     // second would collide. They are written directly instead.
@@ -454,6 +448,57 @@ async fn a_start_opens_the_restored_database_with_the_restored_key() {
         .await
         .expect("the database opened is not the restored one");
     assert_eq!(secrets.open(&sealed).expect("opened with the key of before"), "arr-key");
+}
+
+/// An archive is named to the second, and a name already taken is refused at
+/// once, as a conflict, before a copy of the database is written for nothing.
+#[tokio::test]
+async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
+    let (app, dir) = app_with_files("same-second").await;
+    let backups = dir.join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    // Every second the call can land in is taken.
+    let now = chrono::Utc::now();
+    for ahead in 0..3 {
+        let stamp = (now + chrono::Duration::seconds(ahead)).format("%Y%m%d-%H%M%S");
+        std::fs::write(backups.join(format!("routarr-backup-{stamp}.zip")), b"taken").unwrap();
+    }
+
+    let refused = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await;
+
+    assert!(matches!(refused, Err(crate::error::AppError::Conflict(_))), "{refused:?}");
+    let left: Vec<String> = std::fs::read_dir(&backups)
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with('.'))
+        .collect();
+    assert_eq!(left, Vec::<String>::new(), "a copy was written for nothing");
+}
+
+/// A restore keeps the database it replaces, beside it as
+/// `routarr.db.pre-restore`: the wrong line picked in the list of archives
+/// would otherwise lose everything written since that archive.
+#[tokio::test]
+async fn a_restore_keeps_the_database_it_replaces() {
+    let (app, dir) = app_with_files("pre-restore").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-since', 'written-since')"]).await;
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+
+    assert!(backup::apply_pending_restore(&config).await.unwrap(), "nothing was applied");
+
+    let kept = dir.join("routarr.db.pre-restore");
+    let options = sqlx::sqlite::SqliteConnectOptions::new().filename(&kept).read_only(true);
+    let pool = sqlx::SqlitePool::connect_with(options).await.expect("no copy of the database");
+    let since: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM categories WHERE name = 'written-since'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(since, 1, "the copy lost what was written since the archive");
 }
 
 #[tokio::test]
@@ -1114,14 +1159,6 @@ async fn set_enabled(app: &TestApp) {
         ("auto_sync_enabled", "false"),
         ("backup_interval_hours", "24"),
     ] {
-        sqlx::query(
-            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .bind(key)
-        .bind(value)
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+        app.store_setting(key, value).await;
     }
 }

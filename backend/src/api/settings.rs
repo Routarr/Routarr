@@ -94,29 +94,44 @@ pub async fn update(
 
 /// Refuse to add a source that needs a key and has none: not in this save, not
 /// stored, not in the environment. It could answer nothing, and the health
-/// page could only warn about it. A source already listed stays: the Settings
-/// screen sends the whole list on every save, and refusing the list as it
-/// stands would refuse every setting until the source is removed.
+/// page could only warn about it.
 async fn refuse_a_source_without_its_key(
     state: &AppState,
     list: &str,
     saving: &HashMap<String, String>,
 ) -> AppResult<()> {
+    match sources_without_their_key(state, list, saving).await.first() {
+        Some(id) => Err(AppError::BadRequest(format!(
+            "'metadata_providers': '{id}' needs an API key before it can be enabled"
+        ))),
+        None => Ok(()),
+    }
+}
+
+/// The sources `list` adds that need a key and have none. A source already
+/// listed stays: the Settings screen sends the whole list on every save, and
+/// refusing the list as it stands would refuse every setting until the source
+/// is removed.
+pub(crate) async fn sources_without_their_key(
+    state: &AppState,
+    list: &str,
+    saving: &HashMap<String, String>,
+) -> Vec<String> {
     let settings = state.settings().await;
     let listed: Vec<&str> =
         AppState::metadata_order_from(&settings).iter().map(|source| source.id).collect();
-    let added = list.split(',').map(str::trim).filter(|id| !id.is_empty() && !listed.contains(id));
-    for id in added {
-        let Some(source) = crate::services::metadata::info(id).filter(|source| source.needs_key)
-        else {
-            continue;
-        };
-        let typed = saving.get(&format!("{id}_api_key")).is_some_and(|key| !key.trim().is_empty());
-        if !typed && state.provider_key_from(&settings, source.id).is_none() {
-            return Err(AppError::BadRequest(format!(
-                "'metadata_providers': '{id}' needs an API key before it can be enabled"
-            )));
-        }
-    }
-    Ok(())
+    list.split(',')
+        .map(str::trim)
+        .filter(|id| !id.is_empty() && !listed.contains(id))
+        .filter(|id| {
+            crate::services::metadata::info(id).is_some_and(|source| {
+                let typed =
+                    saving.get(&format!("{id}_api_key")).is_some_and(|key| !key.trim().is_empty());
+                source.needs_key
+                    && !typed
+                    && state.provider_key_from(&settings, source.id).is_none()
+            })
+        })
+        .map(str::to_string)
+        .collect()
 }

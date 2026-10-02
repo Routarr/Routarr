@@ -1,7 +1,9 @@
 //! Application keys: what the owner hands out, and what each one reaches.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use axum::http::{Method, StatusCode};
 
 use crate::api::auth::Identity;

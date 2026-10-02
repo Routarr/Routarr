@@ -150,7 +150,10 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   application key revoked, a signing secret replaced, the master API key
   rotated or the password changed stay as they are today, and every session
   the archive held is closed. Going back to last night undoes the damage of a
-  leaked key, not its revocation.
+  leaked key, not its revocation. The database and master key a restore
+  replaces are kept beside them, as `routarr.db.pre-restore` and
+  `routarr.key.pre-restore`, until the next restore: the key copy is as secret
+  as the key.
 - **The application makes no outbound request nobody asked for.** No telemetry,
   no fonts from a CDN, no analytics. Every response carries a CSP whose
   `connect-src` is `'self'`.

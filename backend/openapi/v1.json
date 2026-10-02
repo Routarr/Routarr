@@ -247,7 +247,7 @@
             "type": "integer"
           },
           "stopped_early": {
-            "description": "True when a slice failed and the remaining ones were abandoned.",
+            "description": "True when a slice failed, or could not be read once others had moved\ntitles, and the remaining ones were abandoned.",
             "type": "boolean"
           }
         },
@@ -866,7 +866,7 @@
             "type": "integer"
           },
           "result": {
-            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult` without `decisions`, which\n`GET /decisions?simulation_id=` lists. Null while the task runs, when\nit failed, and for a kind no call starts."
+            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. Null while the task runs, when it\nfailed, and for a kind no call starts."
           },
           "started_at": {
             "type": "string"
@@ -1662,7 +1662,7 @@
                   "type": "integer"
                 },
                 "result": {
-                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult` without `decisions`, which\n`GET /decisions?simulation_id=` lists. Null while the task runs, when\nit failed, and for a kind no call starts."
+                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. Null while the task runs, when it\nfailed, and for a kind no call starts."
                 },
                 "started_at": {
                   "type": "string"

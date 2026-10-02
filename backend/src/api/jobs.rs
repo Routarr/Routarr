@@ -1,7 +1,9 @@
 //! Tasks feed: the running and recent background jobs.
 
 use super::{Json, Query};
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use axum::http::{HeaderMap, HeaderName, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
@@ -42,9 +44,10 @@ pub struct Job {
     pub finished_at: Option<String>,
     /// What a finished task answered: the report the same call gives when the
     /// caller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,
-    /// or for a simulation its `SimulationResult` without `decisions`, which
-    /// `GET /decisions?simulation_id=` lists. Null while the task runs, when
-    /// it failed, and for a kind no call starts.
+    /// or for a simulation its `SimulationResult`. A stored simulation's comes
+    /// without `decisions`, which `GET /decisions?simulation_id=` lists, and a
+    /// preview's keeps the ones it returned. Null while the task runs, when it
+    /// failed, and for a kind no call starts.
     #[sqlx(skip)]
     pub result: Option<serde_json::Value>,
     #[serde(skip)]

@@ -96,6 +96,7 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
     assert_eq!(report.applied, 0);
     assert!(report.failed > 0);
     assert!(!report.errors.is_empty(), "the failure must be reported, not just counted");
+    assert_eq!(app.last_job_status("apply").await, "failed", "nothing done is a failed job");
 
     // What was never attempted is still pending, so the next simulation
     // reproposes it and nothing is silently lost.
@@ -105,6 +106,39 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
             .await
             .unwrap();
     assert_eq!(pending, 7, "the untouched slices stay in the queue");
+}
+
+/// A later slice that cannot be read for revalidation ends the run as a
+/// refused slice does: the titles earlier slices moved are reported, the job
+/// closes with its report, and the rest stays pending. The rules leave while
+/// the first slice's edit is held, so the second slice cannot load.
+#[tokio::test]
+async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_its_report() {
+    use std::time::Duration;
+
+    let arr = FakeArr::holding_edits(Duration::from_millis(300)).await;
+    let app = TestApp::films_to_move(&arr, 10).await.with_http_budget(Duration::from_secs(5));
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+
+    let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
+    let run =
+        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let rules_gone = async {
+        while arr.recorded().writes.is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        app.execute(&["ALTER TABLE rules RENAME TO rules_gone"]).await;
+    };
+    let (report, ()) = tokio::join!(run, rules_gone);
+
+    let report = report.expect("the moves already made were not reported");
+    assert!(report.stopped_early, "{report:?}");
+    assert_eq!((report.batches_run, report.applied), (1, 5), "{report:?}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 5);
+    assert_eq!(app.last_job_status("apply").await, "success");
+    let stored = app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'apply' AND result IS NOT NULL");
+    assert_eq!(stored.await, 1, "the job carries no report");
 }
 
 #[tokio::test]
@@ -159,11 +193,12 @@ async fn it_only_touches_what_its_own_simulation_proposed() {
     assert_eq!(report.applied, 4);
 }
 
+/// Radarr moves a batch in one request and answers every film with its new
+/// path, and each path belongs to the film it names.
 #[tokio::test]
-async fn progress_is_recorded_so_the_operations_queue_can_show_it() {
+async fn each_film_of_a_batch_takes_the_path_the_arr_answered_for_it() {
     let arr = FakeArr::start().await;
-    let app = TestApp::films_to_move(&arr, 12).await;
-    set_batch_limit(&app, 5).await;
+    let app = TestApp::films_to_move(&arr, 2).await;
     let simulation = app.simulate().await;
 
     executor::apply_simulation_in_batches(
@@ -176,15 +211,85 @@ async fn progress_is_recorded_so_the_operations_queue_can_show_it() {
     .await
     .unwrap();
 
-    let (current, total): (i64, i64) = sqlx::query_as(
-        "SELECT progress_current, progress_total FROM jobs
-          WHERE kind = 'apply' ORDER BY started_at DESC LIMIT 1",
+    let paths: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, current_path FROM media ORDER BY id")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        paths,
+        [
+            ("m-0".into(), "/movies/anime/Film 100".into()),
+            ("m-1".into(), "/movies/anime/Film 101".into())
+        ]
+    );
+}
+
+/// Progress is written as each slice ends, so the operations queue shows a
+/// run moving rather than one that jumps to its end. Each edit is held, so the
+/// count between two slices stands long enough to be read.
+#[tokio::test]
+async fn progress_is_recorded_as_each_slice_ends() {
+    use std::time::Duration;
+
+    let arr = FakeArr::holding_edits(Duration::from_millis(200)).await;
+    let app = TestApp::films_to_move(&arr, 12).await.with_http_budget(Duration::from_secs(5));
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+
+    let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
+    let run =
+        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let midway = async {
+        loop {
+            let job: Option<(i64, i64, String)> = sqlx::query_as(
+                "SELECT progress_current, progress_total, status FROM jobs WHERE kind = 'apply'",
+            )
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+            match job {
+                Some((current, total, status)) if status == "running" && current > 0 => {
+                    return Some((current, total));
+                }
+                Some((_, _, status)) if status != "running" => return None,
+                _ => tokio::time::sleep(Duration::from_millis(10)).await,
+            }
+        }
+    };
+    let (report, midway) = tokio::join!(run, midway);
+
+    report.unwrap();
+    let (current, total) = midway.expect("no slice was counted before the run ended");
+    assert_eq!(total, 12);
+    assert!(current < total, "{current} of {total} while running");
+}
+
+/// A run stops at the first refused slice however much moved before it, and
+/// what moved counts: the job succeeded, and its counts say what failed.
+#[tokio::test]
+async fn a_slice_refused_after_one_that_moved_ends_the_run() {
+    let arr = FakeArr::start().await;
+    // Film 005, in the second slice of five.
+    arr.refuse_movie(105);
+    let app = TestApp::films_to_move(&arr, 12).await;
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+
+    let report = executor::apply_simulation_in_batches(
+        &app.state,
+        &simulation,
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
     )
-    .fetch_one(&app.state.pool)
     .await
     .unwrap();
-    assert_eq!(total, 12);
-    assert!(current > 0, "progress must be reported as slices complete");
+
+    assert!(report.stopped_early, "{report:?}");
+    assert_eq!((report.batches_run, report.applied, report.failed), (2, 5, 5), "{report:?}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 2);
+    assert_eq!(app.last_job_status("apply").await, "success");
 }
 
 #[tokio::test]

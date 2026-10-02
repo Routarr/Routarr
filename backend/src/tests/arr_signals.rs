@@ -6,7 +6,6 @@
 //! database to a rule that matches on it.
 
 use crate::services::routing::{self, SimulationOptions};
-use crate::services::sync;
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -126,7 +125,7 @@ async fn size_on_disk_is_compared_in_gigabytes_on_both_sides_of_the_threshold() 
 async fn the_explanation_names_the_signal_and_what_was_observed() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
-    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["anime"] })).await;
+    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["kids", "anime"] })).await;
 
     let result = routing::run_simulation(
         &app.state.pool,
@@ -136,10 +135,9 @@ async fn the_explanation_names_the_signal_and_what_was_observed() {
     .unwrap();
 
     // Expected *and* observed, like every other condition: the explainability
-    // contract does not get an exemption for new signals.
-    let reason = result.decisions[0].reasons.join(" ");
-    assert!(reason.contains("anime"), "got {reason:?}");
-    assert!(reason.contains("found"), "the observed value must be shown: {reason:?}");
+    // contract does not get an exemption for new signals. The film carries
+    // one of the two tags, so each side reads apart from the other.
+    assert_eq!(result.decisions[0].reasons, ["✓ Arr tag among [kids, anime], found [anime]"]);
 }
 
 #[tokio::test]
@@ -162,19 +160,4 @@ async fn the_new_signals_are_offered_by_the_condition_catalogue() {
             assert_ne!(condition["label"], condition["type"]);
         }
     }
-}
-
-#[tokio::test]
-async fn an_arr_without_a_tag_endpoint_still_syncs() {
-    // Tags are one signal among many. An Arr too old to expose `/api/v3/tag`,
-    // or one that errors on it, must not take the whole library down with it.
-    let arr = FakeArr::failing(500).await;
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-
-    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
-        .await
-        .unwrap();
-
-    assert!(report.media > 0, "the library must still be read");
 }

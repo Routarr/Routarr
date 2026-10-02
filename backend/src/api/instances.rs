@@ -1,7 +1,9 @@
 //! Arr instance management.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use axum::http::HeaderMap;
 use axum::response::Response;
 use uuid::Uuid;
@@ -129,6 +131,13 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Not under a sync of it: its writes would fail on rows gone, and the
+    // failure would be notified for an instance that no longer exists.
+    let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
+        return Err(AppError::Conflict(
+            "This instance is being synced. Delete it once the sync has finished.".into(),
+        ));
+    };
     // One transaction: the proposals go with the instance or not at all.
     let mut tx = state.pool.begin().await?;
     crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
@@ -138,9 +147,43 @@ pub async fn remove(
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Instance {id} not found")));
     }
+
+    // Out of every rule's scope too. A rule scoped to this instance alone is
+    // switched off: left with no instance its scope would read as every one,
+    // and the rule would start routing libraries it was never written for.
+    let scoped: Vec<(String, String, bool)> = sqlx::query_as(
+        "SELECT id, instance_ids, enabled FROM rules
+          WHERE instance_ids IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(rules.instance_ids)
+                                                      WHERE json_each.value = ?)",
+    )
+    .bind(&id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut switched_off = Vec::new();
+    for (rule, ids, enabled) in scoped {
+        let left: Vec<String> = serde_json::from_str::<Vec<String>>(&ids)?
+            .into_iter()
+            .filter(|kept| *kept != id)
+            .collect();
+        if left.is_empty() {
+            sqlx::query("UPDATE rules SET instance_ids = NULL, enabled = 0 WHERE id = ?")
+                .bind(&rule)
+                .execute(&mut *tx)
+                .await?;
+            if enabled {
+                switched_off.push(rule);
+            }
+        } else {
+            sqlx::query("UPDATE rules SET instance_ids = ? WHERE id = ?")
+                .bind(serde_json::to_string(&left)?)
+                .bind(&rule)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(serde_json::json!({ "deleted": true, "rules_switched_off": switched_off })))
 }
 
 /// What a connection probe reports. A named struct rather than a `json!` so

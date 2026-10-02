@@ -62,9 +62,10 @@ pub async fn apply_simulation(
                 "Auto-applied routing decisions"
             );
             // An unattended write that the Arr refused is exactly what nobody
-            // is watching for.
+            // is watching for. Sent on its own task: the webhook waits for
+            // this apply, and a slow receiver would hold its delivery.
             if report.failed > 0 {
-                notify::send(
+                notify::send_later(
                     state,
                     notify::Event::AutoApplyFailed {
                         failed: report.failed,
@@ -75,8 +76,7 @@ pub async fn apply_simulation(
                             .map(|e| format!("{}: {}", e.media_title, e.message))
                             .unwrap_or_else(|| "unknown".into()),
                     },
-                )
-                .await;
+                );
             }
         }
         AutoApplyOutcome::OverCap { candidates, cap } => warn!(
@@ -125,13 +125,19 @@ async fn decide(
         return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
     }
 
+    // The turn first, then the files: read before a wait, "no file yet" may
+    // be stale by the time the apply runs, and the move would leave the file
+    // the Arr imported meanwhile behind.
+    let Some(turn) = executor::unattended_turn(state).await else {
+        return Ok(AutoApplyOutcome::Held("an apply kept running past the wait"));
+    };
     let without_files = still_without_files(state, candidates).await;
     if without_files.is_empty() {
         return Ok(AutoApplyOutcome::NothingToApply);
     }
 
     Ok(AutoApplyOutcome::Applied(
-        executor::apply_unattended(state, &without_files, &Attribution::unattended(trigger))
+        executor::apply_unattended(state, &without_files, &Attribution::unattended(trigger), turn)
             .await?,
     ))
 }

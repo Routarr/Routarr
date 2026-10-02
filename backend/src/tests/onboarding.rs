@@ -66,6 +66,9 @@ async fn each_step_ticks_itself_from_the_data() {
 
     assert!(!done(&steps(&app).await, "rule"));
     app.seed_anime_rule().await;
+    app.execute(&["UPDATE rules SET enabled = 0"]).await;
+    assert!(!done(&steps(&app).await, "rule"), "a switched-off rule routes nothing");
+    app.execute(&["UPDATE rules SET enabled = 1"]).await;
     assert!(done(&steps(&app).await, "rule"));
 
     assert!(!done(&steps(&app).await, "simulation"));

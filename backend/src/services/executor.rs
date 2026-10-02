@@ -12,6 +12,7 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::jobs::registry::JobLock;
 use crate::jobs::{Attribution, Detail, JobKind, detached};
 use crate::models::Instance;
 use crate::services::notify;
@@ -140,7 +141,33 @@ pub async fn apply_decisions(
     guard_reachable(state, CapacityScope::Decisions(decision_ids), confirmed).await?;
     guard_capacity(state, CapacityScope::Decisions(decision_ids), move_files, confirmed).await?;
     guard_confirmation(state, decision_ids.len(), confirmed).await?;
+    refuse_unknown_decisions(state, decision_ids).await?;
     run_apply(state, decision_ids, move_files, by).await
+}
+
+/// Refuse ids that name no decision, before a task starts: a run over nothing
+/// answering success tells a script its call worked. In English, since the
+/// interface sent the ids and no one typed them. After the guardrails, which
+/// ask about the moves that exist.
+async fn refuse_unknown_decisions(state: &AppState, decision_ids: &[String]) -> AppResult<()> {
+    let mut known = std::collections::HashSet::new();
+    for chunk in decision_ids.chunks(routing::BIND_CHUNK) {
+        let sql = format!(
+            "SELECT id FROM decisions WHERE id IN ({})",
+            crate::db::placeholders(chunk.len())
+        );
+        let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sql.as_str()));
+        for id in chunk {
+            query = query.bind(id);
+        }
+        known.extend(query.fetch_all(&state.pool).await?);
+    }
+    let unknown: Vec<&str> =
+        decision_ids.iter().filter(|id| !known.contains(*id)).map(String::as_str).collect();
+    if unknown.is_empty() {
+        return Ok(());
+    }
+    Err(AppError::BadRequest(format!("No decision has the id {}.", unknown.join(", "))))
 }
 
 /// Outcome of applying a whole simulation, slice by slice.
@@ -154,7 +181,8 @@ pub struct BatchApplyReport {
     /// Slices actually attempted, fewer than planned when one of them failed.
     pub batches_run: usize,
     pub batches_planned: usize,
-    /// True when a slice failed and the remaining ones were abandoned.
+    /// True when a slice failed, or could not be read once others had moved
+    /// titles, and the remaining ones were abandoned.
     pub stopped_early: bool,
     pub errors: Vec<ApplyError>,
 }
@@ -250,18 +278,14 @@ pub async fn apply_simulation_in_batches(
         for batch in ids.chunks(size) {
             // The lock is already held, so this goes straight to the writer
             // rather than through run_apply, which would try to take it again.
-            let moves = match load_pending_moves(&state.pool, batch).await {
-                Ok(moves) => moves,
-                Err(e) => {
-                    job.fail(&e).await;
-                    return Err(e);
+            let outcome = match load_pending_moves(&state.pool, batch).await {
+                Ok(moves) => {
+                    report.skipped += batch.len() - moves.len();
+                    report.batches_run += 1;
+                    execute_moves(&state, moves, move_files, MoveDirection::Forward, &by).await
                 }
+                Err(e) => Err(e),
             };
-            report.skipped += batch.len() - moves.len();
-
-            let outcome =
-                execute_moves(&state, moves, move_files, MoveDirection::Forward, &by).await;
-            report.batches_run += 1;
 
             match outcome {
                 Ok(slice) => {
@@ -272,6 +296,17 @@ pub async fn apply_simulation_in_batches(
                         report.stopped_early = true;
                         break;
                     }
+                }
+                // Earlier slices moved titles, so the run ends as at a refused
+                // slice and reports them: a bare error would hide moves that
+                // happened, and the job would carry no report of them.
+                Err(e) if report.applied > 0 => {
+                    error!(
+                        slices = report.batches_run,
+                        "An apply of a whole simulation stopped: {e}"
+                    );
+                    report.stopped_early = true;
+                    break;
                 }
                 Err(e) => {
                     job.fail(&e).await;
@@ -343,9 +378,22 @@ pub async fn apply_unattended(
     state: &AppState,
     decision_ids: &[String],
     by: &Attribution,
+    turn: JobLock,
 ) -> AppResult<ApplyReport> {
     guard_dry_run(state).await?;
-    run_apply(state, decision_ids, false, by).await
+    run_locked(state, decision_ids, false, by, turn).await
+}
+
+/// How long an unattended apply waits for the one running. The Arr queues a
+/// disk move as its own command, so an apply holds the lock for its API calls
+/// and its revalidation: minutes on a large library, not hours.
+const UNATTENDED_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// The apply lock for an unattended apply, waited for rather than refused:
+/// dropped, the correction of a film just added would wait for a sweep that
+/// may never come, while the file lands in the folder the rules do not want.
+pub async fn unattended_turn(state: &AppState) -> Option<JobLock> {
+    state.jobs.lock_within("apply", UNATTENDED_WAIT).await
 }
 
 /// The shared body of both apply paths: take the lock, record a job, write.
@@ -360,7 +408,17 @@ async fn run_apply(
             state.localizer().await.translate("ErrorApplyInProgress", &[]),
         ));
     };
+    run_locked(state, decision_ids, move_files, by, lock).await
+}
 
+/// An apply under a lock already held: record a job, write.
+async fn run_locked(
+    state: &AppState,
+    decision_ids: &[String],
+    move_files: bool,
+    by: &Attribution,
+    lock: JobLock,
+) -> AppResult<ApplyReport> {
     let mut job = state
         .jobs
         .start(
@@ -421,6 +479,7 @@ pub async fn revert_decisions(
     guard_reachable(state, CapacityScope::Reverting(decision_ids), confirmed).await?;
     guard_capacity(state, CapacityScope::Reverting(decision_ids), move_files, confirmed).await?;
     guard_confirmation(state, decision_ids.len(), confirmed).await?;
+    refuse_unknown_decisions(state, decision_ids).await?;
 
     let Some(lock) = state.jobs.try_lock("apply") else {
         return Err(AppError::Conflict(
@@ -1063,12 +1122,13 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
            AND d.superseded = 0
            AND d.action = 'move'
            AND d.target_root_folder IS NOT NULL
-           AND m.current_root_folder IS d.current_root_folder"
+           AND rtrim(m.current_root_folder, '/') IS rtrim(d.current_root_folder, '/')"
     );
     // The last clause is the revalidation: a decision names the folder the
     // item was in when it was proposed, and an item moved since (by hand, or
     // by an apply the row already reflects) is not the item it describes.
-    // `IS`, so two nulls compare equal.
+    // `IS`, so two nulls compare equal, and through `rtrim`, since an Arr
+    // reports the same folder with or without its trailing slash.
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
     for id in ids {
         query = query.bind(id);

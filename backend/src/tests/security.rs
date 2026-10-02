@@ -43,6 +43,12 @@ async fn delete_with_key(app: &TestApp, path: &str, key: &str) -> super::TestRes
 
 // ----------------------------------------------------- authentication
 
+/// The template a declared path was probed under, as `GRANTS` and the
+/// contract write it.
+pub(super) fn route_template(path: &str) -> String {
+    path.strip_prefix("/api/v1").unwrap_or(path).replace("probe", "{id}")
+}
+
 /// Every route the API declares, read out of `main.rs` itself.
 ///
 /// Both routers, not only `protected`: reading that one alone, a route *moved*
@@ -1874,11 +1880,7 @@ async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
     let secret = "hook-secret-8d2e";
     // Nothing listens on port 1, so the send fails in the transport.
     let url = format!("http://127.0.0.1:1/api/webhooks/123/{secret}");
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('notification_webhook_url', ?)")
-        .bind(&url)
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("notification_webhook_url", &url).await;
 
     let capture = LogCapture::default();
     let subscriber = tracing_subscriber::registry()

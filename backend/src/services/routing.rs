@@ -106,7 +106,8 @@ struct RoutingContext {
 /// report evaluates the current one: loaded apart from the evaluating, each
 /// of them costs one load however many rule sets it asks about.
 pub struct LoadedLibrary {
-    _pass: tokio::sync::SemaphorePermit<'static>,
+    /// `None` for one title, which loads its own context and no library.
+    _pass: Option<tokio::sync::SemaphorePermit<'static>>,
     /// What the load took, counted into every evaluation over it: a run's
     /// figure is load plus evaluation, whichever of the two ran it.
     loaded_in: std::time::Duration,
@@ -134,6 +135,23 @@ pub async fn load_library(
         }
     }
 
+    // One title, as the webhook asks after each delivery: its own context
+    // and no permit, or a season imported on a large library loads the whole
+    // cache once per episode, queued behind the previews.
+    if let Some([_]) = options.media_ids.as_deref() {
+        let media = load_media(
+            pool,
+            &options.instance_ids,
+            options.media_ids.as_deref(),
+            options.media_type.as_deref(),
+        )
+        .await?;
+        if let [item] = media.as_slice() {
+            let ctx = load_context(pool, Scope::Item(item)).await?;
+            return Ok(LoadedLibrary { _pass: None, loaded_in: started.elapsed(), ctx, media });
+        }
+    }
+
     let pass = library_pass().await;
     let ctx = load_context(pool, Scope::Library).await?;
     let media = load_media(
@@ -144,7 +162,7 @@ pub async fn load_library(
     )
     .await?;
 
-    Ok(LoadedLibrary { _pass: pass, loaded_in: started.elapsed(), ctx, media })
+    Ok(LoadedLibrary { _pass: Some(pass), loaded_in: started.elapsed(), ctx, media })
 }
 
 /// Run a full simulation and, when asked, persist the resulting decisions.
