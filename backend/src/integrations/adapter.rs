@@ -237,6 +237,12 @@ fn clone_error(e: &AppError) -> AppError {
     }
 }
 
+/// Radarr and Sonarr write a year they do not know as 0, which as a year
+/// would satisfy every `year_range` with a maximum.
+fn known_year(year: Option<i64>) -> Option<i64> {
+    year.filter(|year| *year > 0)
+}
+
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
     let has_files = m.has_files();
     ArrMedia {
@@ -244,7 +250,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         media_type: MOVIE,
         title: m.title,
         sort_title: m.sort_title,
-        year: m.year,
+        year: known_year(m.year),
         tmdb_id: m.tmdb_id,
         tvdb_id: None,
         imdb_id: m.imdb_id,
@@ -275,7 +281,7 @@ fn series_to_media(s: crate::integrations::sonarr::SonarrSeries) -> ArrMedia {
         media_type: SERIES,
         title: s.title,
         sort_title: s.sort_title,
-        year: s.year,
+        year: known_year(s.year),
         tmdb_id: s.tmdb_id,
         tvdb_id: s.tvdb_id,
         imdb_id: s.imdb_id,

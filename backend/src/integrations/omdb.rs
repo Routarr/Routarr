@@ -14,7 +14,7 @@ use serde::Deserialize;
 use tracing::debug;
 
 use super::{language, send_json};
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "OMDb";
 pub const DEFAULT_BASE_URL: &str = "https://www.omdbapi.com";
@@ -84,27 +84,45 @@ impl OmdbClient {
     pub async fn get_details(&self, imdb_id: &str) -> AppResult<OmdbDetails> {
         debug!("Fetching OMDb {imdb_id}");
         let raw: RawResponse = send_json(SERVICE, self.get(&[("i", imdb_id)])).await?;
-
-        if !is_found(&raw) {
-            // "Movie not found" is an answer. Caching it empty is what stops the
-            // next pass from asking again.
-            debug!("OMDb has nothing for {imdb_id}: {:?}", raw.error);
-            return Ok(OmdbDetails::default());
-        }
-
-        Ok(OmdbDetails {
-            genres: split_list(raw.genre.as_deref()),
-            original_language: raw.language.as_deref().and_then(language::first_language),
-            origin_countries: raw
-                .country
-                .as_deref()
-                .map(language::country_codes)
-                .unwrap_or_default(),
-            // OMDb writes "N/A" where it has nothing.
-            certification: raw.rated.filter(|value| usable(value)),
-            overview: raw.plot.filter(|value| usable(value)),
-        })
+        details_of(raw, imdb_id)
     }
+}
+
+/// The details a body carries, nothing for a miss, and an error for a refusal.
+fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
+    if !is_found(&raw) {
+        // A refused key or a spent quota is refused for every title alike, so
+        // it is an error, which the enrichment breaker counts, never a miss
+        // cached empty for days.
+        if let Some(error) = raw.error.as_deref().filter(|error| is_refusal(error)) {
+            return Err(AppError::ExternalApi {
+                service: SERVICE.into(),
+                status: 401,
+                message: error.to_string(),
+                retry_after: None,
+            });
+        }
+        // "Movie not found" is an answer. Caching it empty is what stops the
+        // next pass from asking again.
+        debug!("OMDb has nothing for {imdb_id}: {:?}", raw.error);
+        return Ok(OmdbDetails::default());
+    }
+
+    Ok(OmdbDetails {
+        genres: split_list(raw.genre.as_deref()),
+        original_language: raw.language.as_deref().and_then(language::first_language),
+        origin_countries: raw.country.as_deref().map(language::country_codes).unwrap_or_default(),
+        // OMDb writes "N/A" where it has nothing.
+        certification: raw.rated.filter(|value| usable(value)),
+        overview: raw.plot.filter(|value| usable(value)),
+    })
+}
+
+/// Whether OMDb's `Error` refuses the key ("Invalid API key!", "No API key
+/// provided.") or the quota ("Request limit reached!") rather than the title.
+fn is_refusal(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("api key") || error.contains("limit")
 }
 
 fn is_found(raw: &RawResponse) -> bool {
@@ -189,17 +207,33 @@ mod tests {
         assert!(raw.rated.filter(|v| usable(v)).is_none());
     }
 
-    #[test]
-    fn a_rejected_key_reads_as_not_found_rather_than_an_outage() {
-        let raw = RawResponse {
+    fn answering(error: &str) -> RawResponse {
+        RawResponse {
             response: Some("False".into()),
-            error: Some("Invalid API key!".into()),
+            error: Some(error.into()),
             genre: None,
             language: None,
             country: None,
             rated: None,
             plot: None,
-        };
-        assert!(!is_found(&raw));
+        }
+    }
+
+    /// A refused key or a spent quota is an error, which the breaker counts,
+    /// whether OMDb sends it with a 401 or a 200. A miss is an empty answer,
+    /// which is cached.
+    #[test]
+    fn a_refusal_is_an_error_and_a_miss_is_an_empty_answer() {
+        for refused in ["Invalid API key!", "No API key provided.", "Request limit reached!"] {
+            let outcome = details_of(answering(refused), "tt0096283");
+            assert!(
+                matches!(outcome, Err(AppError::ExternalApi { status: 401, .. })),
+                "{refused}: {outcome:?}"
+            );
+        }
+        for missed in ["Incorrect IMDb ID.", "Movie not found!"] {
+            let outcome = details_of(answering(missed), "tt0000001").expect(missed);
+            assert!(outcome.genres.is_empty() && outcome.certification.is_none(), "{missed}");
+        }
     }
 }

@@ -636,6 +636,36 @@ async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password()
     assert!(!log.contains(tried), "the password tried is in the log:\n{log}");
 }
 
+/// Every sign-in from one address takes a share of the queue and gives it
+/// back, wrong or right. A share kept would lock that address out after a few
+/// sign-ins, and behind a proxy the whole installation with it.
+#[tokio::test]
+async fn an_address_signs_in_after_any_number_of_attempts() {
+    use axum::extract::ConnectInfo;
+
+    let (app, _dir) = forms_app("shares").await;
+    let from = |password: &str| {
+        let body = serde_json::json!({ "username": "admin", "password": password });
+        let mut request = Request::post("/api/v1/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 9], 41000))));
+        request
+    };
+
+    for _ in 0..9 {
+        let refused = app.send(from("not the password at all")).await;
+        assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    }
+    let signed_in = app.send(from(&generated_password(&app))).await;
+
+    assert_eq!(signed_in.status, StatusCode::OK, "{}", signed_in.json);
+    assert_eq!(app.state.sign_in.clients_holding(), 0);
+}
+
 /// A request carrying the session, since `TestApp` sends no cookies.
 async fn with_session(
     app: &TestApp,
@@ -1094,6 +1124,44 @@ async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
     assert!(cleared.contains("Max-Age=0"), "{cleared}");
 }
 
+/// Signing out ends the session on the server, not only in the browser: the
+/// same cookie, copied before, answers 401 afterwards, and no row is left.
+#[tokio::test]
+async fn signing_out_ends_the_session_a_copied_cookie_carries() {
+    let (app, _dir) = forms_app("sign-out").await;
+    let session = open_session(&app).await;
+    let (before, _) =
+        with_session(&app, "GET", "/api/v1/status", &session, serde_json::json!({})).await;
+    assert_eq!(before, StatusCode::OK, "the control: the session answers before");
+
+    let (signed_out, _) =
+        with_session(&app, "POST", "/api/v1/auth/logout", &session, serde_json::json!({})).await;
+    assert!(signed_out.is_success(), "{signed_out}");
+
+    let (after, _) =
+        with_session(&app, "GET", "/api/v1/status", &session, serde_json::json!({})).await;
+    assert_eq!(after, StatusCode::UNAUTHORIZED);
+    assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 0);
+}
+
+/// A session lives as long as its cookie says, a week, on the server too: a
+/// row outliving it would keep a copied cookie valid long after the browser
+/// forgot it.
+#[tokio::test]
+async fn a_session_expires_on_the_server_when_its_cookie_does() {
+    let (app, _dir) = forms_app("lifetime").await;
+    open_session(&app).await;
+
+    let expires: String = sqlx::query_scalar("SELECT expires_at FROM sessions")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
+    let left = (expires - chrono::Utc::now()).num_minutes();
+    let week = crate::services::accounts::SESSION_DAYS * 24 * 60;
+    assert!((week - 5..=week).contains(&left), "{left} minutes left");
+}
+
 /// A decision has to name whoever asked for it, or "who moved my files" has no
 /// answer past "somebody, manually", which is the answer a session mode exists
 /// to improve on.
@@ -1425,13 +1493,17 @@ async fn a_key_the_environment_pins_is_not_rotated_here() {
 /// The whole flow against a provider on an ephemeral port: discovery, the
 /// authorization URL, the exchange, and the session it opens.
 async fn oidc_app(idp: &crate::tests::fake_oidc::FakeOidc) -> TestApp {
+    oidc_app_with_secret(idp, "shhh").await
+}
+
+async fn oidc_app_with_secret(idp: &crate::tests::fake_oidc::FakeOidc, secret: &str) -> TestApp {
     use crate::config::AuthMode;
 
     let mut config = crate::config::Config::for_tests();
     config.auth_mode = AuthMode::Oidc;
     config.oidc_issuer = Some(idp.issuer.clone());
     config.oidc_client_id = Some("routarr".into());
-    config.oidc_client_secret = Some("shhh".into());
+    config.oidc_client_secret = Some(secret.into());
     config.oidc_redirect_url = Some("http://routarr.local/api/v1/auth/oidc/callback".into());
 
     let state = crate::state::AppState::for_tests().await.with_config(config);
@@ -1521,6 +1593,13 @@ async fn a_sign_in_carries_pkce_and_the_nonce_to_the_provider() {
     assert!(!location.contains("code_verifier"), "{location}");
     assert!(location.contains(&format!("state={state}")), "{location}");
     assert!(location.contains(&format!("nonce={nonce}")), "{location}");
+    // The authorization code flow, and an ID token: a provider answers
+    // anything else with an error page.
+    let url = reqwest::Url::parse(&location).unwrap();
+    let asked: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+    assert_eq!(asked.get("response_type").map(String::as_str), Some("code"), "{location}");
+    let scopes = asked.get("scope").map(String::as_str).unwrap_or_default();
+    assert!(scopes.split(' ').any(|scope| scope == "openid"), "{location}");
 }
 
 /// The provider is asked to describe itself once, not once per request.
@@ -1591,6 +1670,42 @@ async fn a_flood_of_sign_ins_is_bounded_without_denying_the_next_one() {
     );
 }
 
+/// At the bound, an attempt started evicts exactly one, the oldest: the
+/// table stays at its size, and the attempt just started is never the one
+/// dropped.
+#[tokio::test]
+async fn a_full_table_of_attempts_drops_the_oldest_for_the_newest() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    // Each a second older than the next, all still valid.
+    sqlx::query(
+        "WITH RECURSIVE n(i) AS (SELECT 0 UNION ALL SELECT i + 1 FROM n WHERE i < 4095)
+         INSERT INTO oidc_flows (state, nonce, verifier, expires_at)
+         SELECT 'old-' || i, 'n', 'v', datetime('now', '+1 minute', '+' || i || ' seconds')
+           FROM n",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let started = start_flow(&app).await;
+
+    assert_eq!(app.count("SELECT COUNT(*) FROM oidc_flows").await, 4096);
+    let kept = |state: String| {
+        let pool = app.state.pool.clone();
+        async move {
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM oidc_flows WHERE state = ?")
+                .bind(state)
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+        }
+    };
+    assert_eq!(kept(started.state).await, 1, "the attempt just started was dropped");
+    assert_eq!(kept("old-0".into()).await, 0, "the oldest attempt stayed");
+    assert_eq!(kept("old-1".into()).await, 1, "more than the oldest went");
+}
+
 /// And finishing one does not ask again either.
 ///
 /// `start` and `finish` both need the endpoints, so an uncached document is two
@@ -1647,13 +1762,58 @@ async fn a_sound_callback_opens_a_session_naming_the_subject() {
     // The client proved the exchange with the verifier and its secret, and the
     // flow row is gone so the code cannot be presented twice.
     let exchange = idp.exchanges().pop().expect("one exchange");
-    assert_eq!(exchange.get("client_secret").map(String::as_str), Some("shhh"));
-    assert!(exchange.contains_key("code_verifier"), "{exchange:?}");
+    assert_eq!(exchange.basic, Some(("routarr".into(), "shhh".into())), "{exchange:?}");
+    assert!(!exchange.form.contains_key("client_secret"), "{exchange:?}");
+    assert!(exchange.form.contains_key("code_verifier"), "{exchange:?}");
     let left: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM oidc_flows")
         .fetch_one(&app.state.pool)
         .await
         .unwrap();
     assert_eq!(left, 0);
+}
+
+/// Signs in once through `idp`, and answers where the callback sent the
+/// browser.
+async fn signed_in_through(idp: &crate::tests::fake_oidc::FakeOidc, app: &TestApp) -> String {
+    let flow = start_flow(app).await;
+    idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
+    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let request = Request::get(&path)
+        .header(axum::http::header::COOKIE, &flow.cookie)
+        .body(Body::empty())
+        .unwrap();
+    let response = tower::ServiceExt::oneshot(app.router.clone(), request).await.unwrap();
+    response.headers()["location"].to_str().unwrap().to_string()
+}
+
+/// A provider that lists `client_secret_post` alone takes the credentials in
+/// the body, the one place it reads them.
+#[tokio::test]
+async fn a_provider_taking_the_secret_in_the_body_gets_it_there() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    idp.accept_only_post();
+    let app = oidc_app(&idp).await;
+
+    assert_eq!(signed_in_through(&idp, &app).await, "/");
+
+    let exchange = idp.exchanges().pop().expect("one exchange");
+    assert_eq!(exchange.basic, None, "{exchange:?}");
+    assert_eq!(exchange.form.get("client_id").map(String::as_str), Some("routarr"));
+    assert_eq!(exchange.form.get("client_secret").map(String::as_str), Some("shhh"));
+}
+
+/// A secret is any string a provider generates, and HTTP Basic joins the id
+/// and the secret with a colon: each is form-encoded first, or a secret
+/// holding a colon, a space or a percent sign reaches the provider altered.
+#[tokio::test]
+async fn a_secret_with_a_colon_reaches_the_provider_whole() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app_with_secret(&idp, "s:h h%2B+").await;
+
+    assert_eq!(signed_in_through(&idp, &app).await, "/");
+
+    let exchange = idp.exchanges().pop().expect("one exchange");
+    assert_eq!(exchange.basic, Some(("routarr".into(), "s:h h%2B+".into())), "{exchange:?}");
 }
 
 /// Each of these is a token that verifies cryptographically and still must not
@@ -1747,18 +1907,28 @@ async fn a_replayed_callback_opens_nothing() {
 // ------------------------------------------------------- webhook auth
 
 /// The webhook token is the only guard on the one unauthenticated route. It is
-/// compared in constant time. An empty stored token, a wrong token, and a token
-/// for the wrong instance must all fail closed as a 404, which also refuses to
-/// confirm whether the instance exists.
+/// compared in constant time. An empty stored token, a wrong token, a prefix
+/// of the right one or the right one extended, and a token for the wrong
+/// instance must all fail closed as a 404, which also refuses to confirm
+/// whether the instance exists. A prefix accepted would make the token one
+/// character long, found in a few dozen tries.
 #[tokio::test]
 async fn a_webhook_token_fails_closed() {
     let app = TestApp::new().await;
     app.seed_library().await; // inst-1, token "tok"
 
     let body = serde_json::json!({ "eventType": "Download", "movie": { "id": 1 } });
+    // The control: the right token is let through, so a 404 below is the
+    // token's doing and not the route's.
+    let accepted = app.post("/api/v1/webhook/inst-1/tok", body.clone()).await;
+    assert_ne!(accepted.status, StatusCode::NOT_FOUND, "the right token was refused");
+
     for (instance, token) in [
         ("inst-1", "wrong"),
         ("inst-1", ""),
+        ("inst-1", "t"),        // a prefix
+        ("inst-1", "to"),       // a longer prefix
+        ("inst-1", "tokX"),     // the token extended
         ("inst-1", "TOK"),      // wrong case
         ("inst-1", "tok%20"),   // decodes to "tok ", with a trailing space
         ("nonexistent", "tok"), // right token shape, unknown instance
@@ -1869,11 +2039,11 @@ async fn the_policy_permits_no_external_origin() {
 // ------------------------------------------------------------------ logging
 
 /// A Discord or Slack webhook URL carries its secret in the path: whoever reads
-/// it can post to the channel. A notification that fails is logged, and the
-/// line says why without the address.
+/// it can post to the channel. A notification that fails is logged at every
+/// attempt and once more when the retries run out, and no line names the
+/// address.
 #[tokio::test]
 async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
-    use tracing::instrument::WithSubscriber;
     use tracing_subscriber::layer::SubscriberExt;
 
     let app = TestApp::new().await;
@@ -1885,16 +2055,21 @@ async fn a_failed_notification_leaves_its_webhook_secret_out_of_the_log() {
     let capture = LogCapture::default();
     let subscriber = tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+    // For the thread, not the future: the retries run on a task of their own,
+    // which the test's single-threaded runtime runs on this same thread.
+    let _logging = tracing::subscriber::set_default(subscriber);
     let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
-    crate::services::notify::send(&app.state, event)
-        .with_subscriber(tracing::Dispatch::new(subscriber))
-        .await;
+    crate::services::notify::send(&app.state, event).await;
 
+    // The control: the last line the retries write, so every attempt is in.
+    let retried = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !capture.contents().contains("after every retry") {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
     let log = capture.contents();
-    assert!(
-        log.contains("instance_recovered"),
-        "positive control: the failed notification was logged at all:\n{log}"
-    );
+    assert!(retried.is_ok(), "the retries never ran out:\n{log}");
     assert!(!log.contains(secret), "the webhook secret is in the log:\n{log}");
 }
 

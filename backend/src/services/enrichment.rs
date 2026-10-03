@@ -259,11 +259,12 @@ impl Breaker {
 ///
 /// A 404 means "this source does not have that item" and says nothing about the
 /// next one. A 429, a 5xx or a transport failure means asking again right now is
-/// pointless, and those are the ones that trip the breaker.
+/// pointless, and a 401 or a 403 (a refused key, a spent quota) is answered to
+/// every item alike: those are the ones that trip the breaker.
 fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
     matches!(
         outcome,
-        Err(AppError::ExternalApi { status: 429 | 500 | 502..=504, .. })
+        Err(AppError::ExternalApi { status: 401 | 403 | 429 | 500 | 502..=504, .. })
             | Err(AppError::ExternalApi { status: 0, .. })
     )
 }

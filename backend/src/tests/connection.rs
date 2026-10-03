@@ -521,6 +521,28 @@ async fn a_redirect_loop_is_named_as_one() {
     assert_eq!(message, expected);
 }
 
+/// A link-local address is where a cloud host's metadata service answers,
+/// with the machine's credentials, and never where an Arr runs. Routarr does
+/// not connect there, written as a literal address or behind a name, and says
+/// why rather than waiting out a timeout.
+#[tokio::test]
+async fn a_link_local_address_is_refused_before_any_connection() {
+    let app = TestApp::new().await;
+    for address in ["http://169.254.169.254", "http://[fe80::1]:7878"] {
+        let message = refusal(&probe(&app, address).await);
+
+        let expected =
+            said(&app, "ArrLinkLocal", &[("service", "Radarr"), ("address", address)]).await;
+        assert_eq!(message, expected, "{address}");
+    }
+
+    // The control: an Arr named rather than written as an address is still
+    // reached through the resolver that keeps names off those ranges.
+    let arr = FakeArr::start().await;
+    let named = arr.base_url.replace("127.0.0.1", "localhost");
+    probe(&app, &named).await.assert_ok();
+}
+
 /// 7878 and 8989 are one digit apart in a person's memory.
 #[tokio::test]
 async fn a_sonarr_declared_as_a_radarr_is_named() {

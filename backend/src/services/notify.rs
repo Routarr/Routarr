@@ -62,7 +62,9 @@ impl Event {
         }
     }
 
-    /// The name the payload's `event` has always carried.
+    /// The payload's `event`, the one field naming what happened. A top-level
+    /// `type` beside it is what Apprise API refuses, since it reads `type` as
+    /// info, success, warning or failure.
     fn kind(&self) -> &'static str {
         match self {
             Event::InstanceUnreachable { .. } => "instance_unreachable",
@@ -72,19 +74,6 @@ impl Event {
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
-        }
-    }
-
-    /// The Standard Webhooks `type`, dotted.
-    fn event_type(&self) -> &'static str {
-        match self {
-            Event::InstanceUnreachable { .. } => "instance.unreachable",
-            Event::InstanceRecovered { .. } => "instance.recovered",
-            Event::AutoApplyFailed { .. } => "auto_apply.failed",
-            Event::SyncFailed { .. } => "sync.failed",
-            Event::SimulationCompleted { .. } => "simulation.completed",
-            Event::MovesCompleted { reverted: false, .. } => "apply.completed",
-            Event::MovesCompleted { reverted: true, .. } => "revert.completed",
         }
     }
 
@@ -156,10 +145,6 @@ pub struct Notification {
     /// `instance_recovered`, `auto_apply_failed`, `sync_failed`,
     /// `simulation_completed`, `apply_completed` or `revert_completed`.
     pub event: &'static str,
-    /// The same, dotted as Standard Webhooks writes it: `instance.unreachable`,
-    /// `sync.failed`, `apply.completed`...
-    #[serde(rename = "type")]
-    pub event_type: &'static str,
     /// When it happened, in RFC 3339.
     pub timestamp: String,
     /// `error`, `warning` or `info`.
@@ -178,6 +163,21 @@ pub struct Notification {
     /// titles moved.
     #[schema(value_type = Object)]
     pub data: serde_json::Value,
+}
+
+fn notification(event: &Event) -> Notification {
+    let message = event.message();
+    Notification {
+        event: event.kind(),
+        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        severity: event.severity(),
+        source: "routarr",
+        title: "Routarr",
+        content: message.clone(),
+        body: message.clone(),
+        message,
+        data: event.data(),
+    }
 }
 
 /// How long a failed delivery waits before each new attempt. The first
@@ -212,20 +212,7 @@ pub async fn send(state: &AppState, event: Event) {
         return;
     }
 
-    let message = event.message();
-    let payload = Notification {
-        event: event.kind(),
-        event_type: event.event_type(),
-        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        severity: event.severity(),
-        source: "routarr",
-        title: "Routarr",
-        content: message.clone(),
-        body: message.clone(),
-        message,
-        data: event.data(),
-    };
-    let Ok(body) = serde_json::to_string(&payload) else {
+    let Ok(body) = serde_json::to_string(&notification(&event)) else {
         return;
     };
     let delivery =
@@ -447,4 +434,81 @@ pub async fn rotate_signing_secret(state: &AppState) -> AppResult<String> {
 pub async fn remove_signing_secrets(state: &AppState) -> AppResult<()> {
     sqlx::query("DELETE FROM webhook_secrets").execute(&state.pool).await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod receivers {
+    use super::*;
+
+    /// One of each event, every variant the payload can carry.
+    fn every_event() -> Vec<Event> {
+        vec![
+            Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() },
+            Event::InstanceRecovered { instance: "Radarr".into() },
+            Event::AutoApplyFailed { failed: 1, applied: 0, first_error: "Totoro: no".into() },
+            Event::SyncFailed {
+                instance_id: "inst-1".into(),
+                instance: "Radarr".into(),
+                error: "refused".into(),
+            },
+            Event::SimulationCompleted { simulation_id: "s-1".into(), total: 3, moves: 1 },
+            Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0 },
+            Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0 },
+        ]
+    }
+
+    fn sent(event: &Event) -> serde_json::Value {
+        serde_json::to_value(notification(event)).unwrap()
+    }
+
+    /// Apprise API refuses with a 400 a `type` outside info, success, warning
+    /// and failure, a `format` outside text, markdown and html, and a request
+    /// with no `body` (apprise-api `views.py`).
+    #[test]
+    fn apprise_api_accepts_every_event() {
+        for event in every_event() {
+            let sent = sent(&event);
+            let typed = sent.get("type").map(|kind| kind.as_str().unwrap_or_default());
+            assert!(
+                typed.is_none_or(|kind| ["info", "success", "warning", "failure"].contains(&kind)),
+                "{sent}"
+            );
+            let format = sent.get("format").map(|format| format.as_str().unwrap_or_default());
+            assert!(format.is_none_or(|f| ["text", "markdown", "html"].contains(&f)), "{sent}");
+            assert!(sent["body"].as_str().is_some_and(|body| !body.is_empty()), "{sent}");
+        }
+    }
+
+    /// Discord refuses a message with no `content` (nor embed) and one over
+    /// 2000 characters.
+    #[test]
+    fn discord_accepts_every_event() {
+        for event in every_event() {
+            let sent = sent(&event);
+            let content = sent["content"].as_str().unwrap_or_default();
+            assert!(!content.is_empty() && content.chars().count() <= 2000, "{sent}");
+        }
+    }
+
+    /// Gotify refuses a message with no `message`, and a `priority` or a
+    /// `title` of the wrong type.
+    #[test]
+    fn gotify_accepts_every_event() {
+        for event in every_event() {
+            let sent = sent(&event);
+            assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");
+            assert!(sent.get("priority").is_none_or(serde_json::Value::is_i64), "{sent}");
+            assert!(sent.get("title").is_none_or(serde_json::Value::is_string), "{sent}");
+        }
+    }
+
+    /// ntfy publishes any body posted to a topic as its text, and turns one
+    /// over 4096 bytes into an attachment nobody reads in the notification.
+    #[test]
+    fn ntfy_shows_every_event_as_text() {
+        for event in every_event() {
+            let sent = serde_json::to_string(&notification(&event)).unwrap();
+            assert!(sent.len() <= 4096, "{} bytes", sent.len());
+        }
+    }
 }

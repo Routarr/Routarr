@@ -103,6 +103,12 @@ impl SignInThrottle {
         self.permits.available_permits()
     }
 
+    /// How many addresses hold a slot right now. Only a test asks.
+    #[cfg(test)]
+    pub fn clients_holding(&self) -> usize {
+        self.by_client.lock().unwrap_or_else(PoisonError::into_inner).len()
+    }
+
     /// Check a password, waiting for a permit and hashing off the runtime.
     ///
     /// `Err(Busy)` means the queue is full, which the caller answers with a
@@ -498,20 +504,23 @@ mod tests {
         assert!(flood.iter().any(|r| matches!(r, Err(Busy))), "the flood was never held back");
     }
 
-    /// A slot is given back however the check ends, or the endpoint refuses
-    /// everything after enough of them.
+    /// A slot is given back however the check ends, the queue's and the
+    /// address's alike, or the endpoint refuses everything after enough of
+    /// them, and one address after its share.
     #[tokio::test]
     async fn slots_come_back_after_every_outcome() {
         let throttle = SignInThrottle::default();
         let hash = hash_password("correct horse battery").unwrap();
+        let client = "198.51.100.7".parse().ok();
 
-        for _ in 0..(MAX_IN_FLIGHT * 2) {
-            assert!(matches!(throttle.verify("wrong", &hash, None).await, Ok(false)));
+        for _ in 0..(MAX_IN_FLIGHT * 2).max(PER_CLIENT * 3) {
+            assert!(matches!(throttle.verify("wrong", &hash, client).await, Ok(false)));
         }
         assert!(
-            matches!(throttle.verify("correct horse battery", &hash, None).await, Ok(true)),
+            matches!(throttle.verify("correct horse battery", &hash, client).await, Ok(true)),
             "the count leaked a slot"
         );
+        assert_eq!(throttle.clients_holding(), 0, "an address kept a slot it no longer uses");
     }
 
     #[test]
@@ -663,12 +672,16 @@ mod tests {
         assert!(verify_password("a new one", &hash));
     }
 
+    /// The purge takes the expired session and leaves the live one beside it,
+    /// which still answers: a purge reaching it would sign everyone out at
+    /// every maintenance pass.
     #[tokio::test]
     async fn an_expired_session_neither_answers_nor_lingers() {
         let pool = crate::db::test_pool().await;
         sqlx::query(
             "INSERT INTO sessions (id, subject, source, expires_at)
-             VALUES ('stale', 'admin', 'forms', datetime('now', '-1 day'))",
+             VALUES ('stale', 'admin', 'forms', datetime('now', '-1 day')),
+                    ('live', 'admin', 'forms', datetime('now', '+1 day'))",
         )
         .execute(&pool)
         .await
@@ -676,5 +689,6 @@ mod tests {
 
         assert!(live_session(&pool, "stale", "forms").await.unwrap().is_none());
         assert_eq!(purge_expired_sessions(&pool).await.unwrap(), 1);
+        assert!(live_session(&pool, "live", "forms").await.unwrap().is_some());
     }
 }

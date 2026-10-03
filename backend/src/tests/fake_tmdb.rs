@@ -35,6 +35,8 @@ struct FakeState {
     /// The `Retry-After` seconds the next item request is refused with, a 429
     /// answered once.
     throttle: Arc<Mutex<Option<u64>>>,
+    /// The status every item request answers, as TMDb does while it is down.
+    down: Option<u16>,
 }
 
 /// A film TMDb says is in Cantonese, which it writes `cn`.
@@ -55,22 +57,33 @@ impl FakeTmdb {
 
     /// `failing` answer 404 and `slow` answer after a delay.
     pub async fn with(failing: Vec<i64>, slow: Vec<i64>) -> Self {
-        Self::build(failing, slow, None).await
+        Self::build(failing, slow, None, None).await
     }
 
     /// A fake whose first item request is refused with a 429 asking for
     /// `seconds` of quiet, and which answers every request after it.
     pub async fn throttling_once(seconds: u64) -> Self {
-        Self::build(vec![], vec![], Some(seconds)).await
+        Self::build(vec![], vec![], Some(seconds), None).await
     }
 
-    async fn build(failing: Vec<i64>, slow: Vec<i64>, throttle: Option<u64>) -> Self {
+    /// A fake whose every item request answers `status`.
+    pub async fn down(status: u16) -> Self {
+        Self::build(vec![], vec![], None, Some(status)).await
+    }
+
+    async fn build(
+        failing: Vec<i64>,
+        slow: Vec<i64>,
+        throttle: Option<u64>,
+        down: Option<u16>,
+    ) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             failing: Arc::new(failing),
             slow: Arc::new(slow),
             throttle: Arc::new(Mutex::new(throttle)),
+            down,
         };
 
         let app = Router::new()
@@ -131,7 +144,7 @@ async fn movie(
         NO_LANGUAGE => "xx",
         _ => "ja",
     };
-    Json(serde_json::json!({
+    let mut movie = serde_json::json!({
         "id": id,
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
@@ -142,13 +155,37 @@ async fn movie(
         "status": "Released",
         "overview": "Un film.",
         "poster_path": "/p.jpg",
-        "keywords": { "keywords": [{ "id": 1, "name": "anime" }] },
-        "release_dates": { "results": [
+    });
+    appended(
+        &mut movie,
+        &query,
+        "keywords",
+        serde_json::json!({ "keywords": [{ "id": 1, "name": "anime" }] }),
+    );
+    appended(
+        &mut movie,
+        &query,
+        "release_dates",
+        serde_json::json!({ "results": [
             { "iso_3166_1": "US", "release_dates": [{ "certification": "PG" }] },
             { "iso_3166_1": "FR", "release_dates": [{ "certification": "Tous publics" }] }
-        ]}
-    }))
-    .into_response()
+        ]}),
+    );
+    Json(movie).into_response()
+}
+
+/// Add `block` under `name` when the request's `append_to_response` names it,
+/// as TMDb answers only the blocks it was asked for.
+fn appended(
+    body: &mut serde_json::Value,
+    query: &HashMap<String, String>,
+    name: &str,
+    block: serde_json::Value,
+) {
+    let asked = query.get("append_to_response").map(String::as_str).unwrap_or_default();
+    if asked.split(',').any(|appended| appended.trim() == name) {
+        body[name] = block;
+    }
 }
 
 async fn tv(
@@ -164,7 +201,7 @@ async fn tv(
         return StatusCode::NOT_FOUND.into_response();
     }
 
-    Json(serde_json::json!({
+    let mut series = serde_json::json!({
         "id": id,
         "name": format!("Series {id}"),
         "genres": [{ "id": 18, "name": "Drama" }],
@@ -173,11 +210,21 @@ async fn tv(
         "status": "Ended",
         "overview": "Une série.",
         "poster_path": "/s.jpg",
-        // TV keywords come back under `results`, not `keywords`.
-        "keywords": { "results": [{ "id": 2, "name": "documentary" }] },
-        "content_ratings": { "results": [{ "iso_3166_1": "US", "rating": "TV-14" }] }
-    }))
-    .into_response()
+    });
+    // TV keywords come back under `results`, not `keywords`.
+    appended(
+        &mut series,
+        &query,
+        "keywords",
+        serde_json::json!({ "results": [{ "id": 2, "name": "documentary" }] }),
+    );
+    appended(
+        &mut series,
+        &query,
+        "content_ratings",
+        serde_json::json!({ "results": [{ "iso_3166_1": "US", "rating": "TV-14" }] }),
+    );
+    Json(series).into_response()
 }
 
 /// Write the request down, and hand back the 429 a throttling fake owes.
@@ -199,6 +246,9 @@ async fn record(
         ));
     }
 
+    if let Some(status) = state.down {
+        return Some(StatusCode::from_u16(status).unwrap().into_response());
+    }
     let throttled = state.throttle.lock().expect("lock").take();
     if let Some(seconds) = throttled {
         let wait = [(header::RETRY_AFTER, seconds.to_string())];

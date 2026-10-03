@@ -153,7 +153,8 @@ impl MediaMetadata {
                 &mut merged.field_sources,
             );
 
-            if merged.field_sources.len() > before {
+            // A source may come twice, the Arr's English being offered last.
+            if merged.field_sources.len() > before && !merged.sources.iter().any(|s| s == source) {
                 merged.sources.push(source.to_string());
             }
         }

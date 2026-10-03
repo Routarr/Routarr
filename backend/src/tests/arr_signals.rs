@@ -140,6 +140,32 @@ async fn the_explanation_names_the_signal_and_what_was_observed() {
     assert_eq!(result.decisions[0].reasons, ["✓ Arr tag among [kids, anime], found [anime]"]);
 }
 
+/// Radarr and Sonarr write a title whose year they do not know as 0. Stored
+/// as a year, it satisfies every `year_range` with a maximum, and an undated
+/// title moves into the classics. The Radarr title is the control: dated, it
+/// matches.
+#[tokio::test]
+async fn a_title_whose_year_the_arr_does_not_know_matches_no_year_range() {
+    let rule = serde_json::json!({ "type": "year_range", "value": { "max": 1990 } });
+    let dated = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &dated).await;
+    app.seed_rule_on(rule.clone()).await;
+    assert_eq!(app.decided_category().await, "anime", "1988 is before 1990");
+
+    for kind in ["radarr", "sonarr"] {
+        let undated = FakeArr::start().await;
+        undated.edit_movie(serde_json::json!({ "year": 0 }));
+        undated.edit_series(serde_json::json!({ "year": 0 }));
+        let app = TestApp::synced_from(kind, &undated).await;
+        app.seed_rule_on(rule.clone()).await;
+
+        let year: Option<i64> =
+            sqlx::query_scalar("SELECT year FROM media").fetch_one(&app.state.pool).await.unwrap();
+        assert_eq!(year, None, "{kind} stored an unknown year as a year");
+        assert_ne!(app.decided_category().await, "anime", "{kind}: undated, and matched");
+    }
+}
+
 #[tokio::test]
 async fn the_new_signals_are_offered_by_the_condition_catalogue() {
     let app = TestApp::new().await;

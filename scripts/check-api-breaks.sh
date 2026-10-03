@@ -32,7 +32,7 @@ echo "Comparing $CONTRACT with $tag"
 # oasdiff reads no extension, and `x-routarr-scope` is part of what a key was
 # given: raised, it refuses a client the release let in, and lowered, it hands
 # every key already issued a reach nobody granted it.
-python3 - "$base" "$ROOT/$CONTRACT" <<'PY'
+python3 - "$base" "$ROOT/$CONTRACT" "$tag" <<'PY'
 import json
 import sys
 
@@ -56,7 +56,31 @@ changed = [
 ]
 for line in changed:
     print(f"error: x-routarr-scope changed on {line}")
-sys.exit(1 if changed else 0)
+
+# The notification webhook receives a `Notification`, and no operation returns
+# one, so oasdiff never compares it. A field it loses is a receiver broken.
+PAYLOADS = ["Notification"]
+# A removal agreed for the release after the tag named: the top-level `type`
+# is what Apprise API refuses with a 400, and `event` names the event.
+AGREED = {"v0.1.4": {"Notification.type"}}
+
+
+def fields(path, schema):
+    with open(path) as contract:
+        schemas = json.load(contract).get("components", {}).get("schemas", {})
+    return set(schemas.get(schema, {}).get("properties", {}))
+
+
+agreed = AGREED.get(sys.argv[3], set())
+removed = [
+    f"{schema}.{field}"
+    for schema in PAYLOADS
+    for field in sorted(fields(sys.argv[1], schema) - fields(sys.argv[2], schema))
+    if f"{schema}.{field}" not in agreed
+]
+for field in removed:
+    print(f"error: {field} is in the release's contract and no longer documented")
+sys.exit(1 if changed or removed else 0)
 PY
 # oasdiff grades a removed optional field as information, since a client may
 # not read it. The contract promises no documented field disappears, so

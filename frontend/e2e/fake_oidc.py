@@ -5,7 +5,8 @@ A real server the release binary can reach, as fake_arr.py is, beside the
 in-process one of backend/src/tests/fake_oidc.rs. It signs in whoever reaches its
 authorization endpoint, as a provider signs in the person at the keyboard, and
 gives a token only for a code it issued, to the client it was issued for, with
-the verifier its challenge was made from.
+the verifier its challenge was made from. Like a provider left at its defaults,
+it takes the client's credentials as HTTP Basic and refuses them in the body.
 
 The ID token is unsigned: Routarr checks its claims and not its signature,
 since the token arrives on the connection it opened to the token endpoint.
@@ -18,7 +19,7 @@ import os
 import secrets
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, unquote_plus, urlencode, urlsplit
 
 PORT = int(os.environ.get("OIDC_PORT", "7980"))
 ISSUER = f"http://127.0.0.1:{PORT}"
@@ -36,6 +37,17 @@ def b64url(data):
 
 def single(values):
     return {name: value[0] for name, value in values.items()}
+
+
+def basic_credentials(header):
+    """The client id and secret of a Basic header, form-decoded (RFC 6749 2.3.1)."""
+    if not header or not header.startswith("Basic "):
+        return None
+    try:
+        client, _, secret = base64.b64decode(header[6:]).decode().partition(":")
+    except ValueError:
+        return None
+    return unquote_plus(client), unquote_plus(secret)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -62,7 +74,12 @@ class Handler(BaseHTTPRequestHandler):
             )
         if url.path == "/authorize":
             asked = single(parse_qs(url.query))
-            if asked.get("client_id") != CLIENT_ID or asked.get("code_challenge_method") != "S256":
+            if (
+                asked.get("client_id") != CLIENT_ID
+                or asked.get("code_challenge_method") != "S256"
+                or asked.get("response_type") != "code"
+                or "openid" not in asked.get("scope", "").split()
+            ):
                 return self._send({"error": "invalid_request"}, 400)
             code = secrets.token_urlsafe(16)
             ISSUED[code] = asked
@@ -80,10 +97,14 @@ class Handler(BaseHTTPRequestHandler):
         form = single(parse_qs(self.rfile.read(length).decode()))
         asked = ISSUED.pop(form.get("code", ""), None)
         verifier = form.get("code_verifier", "").encode()
+        if form.get("grant_type") != "authorization_code":
+            return self._send({"error": "unsupported_grant_type"}, 400)
+        if "client_secret" in form or basic_credentials(
+            self.headers.get("Authorization")
+        ) != (CLIENT_ID, CLIENT_SECRET):
+            return self._send({"error": "invalid_client"}, 401)
         if (
             asked is None
-            or form.get("client_id") != CLIENT_ID
-            or form.get("client_secret") != CLIENT_SECRET
             or form.get("redirect_uri") != asked["redirect_uri"]
             or b64url(hashlib.sha256(verifier).digest()) != asked.get("code_challenge")
         ):

@@ -57,6 +57,9 @@ aes-gcm = "0.11"
 argon2 = { version = "0.6", features = ["getrandom"] }
 getrandom = "0.4"
 base64 = "0.23"
+# The client credentials of an OIDC token request are form-encoded before they
+# are sent as HTTP Basic (RFC 6749 §2.3.1). Already built for reqwest.
+form_urlencoded = "1"
 subtle = "2"
 sha2 = "0.11"
 # Signs the outgoing notification, as Standard Webhooks specifies.
