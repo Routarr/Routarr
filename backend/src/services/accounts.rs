@@ -42,7 +42,7 @@ const CONCURRENT_CHECKS: usize = 2;
 ///
 /// Past this they are refused immediately rather than held: a queue that grows
 /// with the flood is the flood, moved from the processor to the socket table.
-const MAX_IN_FLIGHT: usize = 10;
+pub(crate) const MAX_IN_FLIGHT: usize = 10;
 
 /// How many of those one client may hold.
 ///
@@ -293,11 +293,18 @@ pub async fn reset_account(
     Ok(password)
 }
 
-/// Replace the account's password, and end every session it had opened.
+/// Replace the account's password, end every session it had opened, and
+/// remove the file the first password was written to.
 ///
 /// A password is changed because the old one is no longer trusted, so leaving
-/// the sessions it opened alive would change nothing an attacker holds.
-pub async fn set_password(pool: &SqlitePool, password: &str) -> AppResult<()> {
+/// the sessions it opened alive would change nothing an attacker holds. The
+/// file holds a password that no longer opens anything, and read later it
+/// would send its reader to the wrong one.
+pub async fn set_password(
+    pool: &SqlitePool,
+    password_path: &std::path::Path,
+    password: &str,
+) -> AppResult<()> {
     // Hashing costs the same as verifying, so it belongs off the runtime for
     // the same reason, even on a route only the signed-in operator reaches.
     let owned = password.to_string();
@@ -314,7 +321,22 @@ pub async fn set_password(pool: &SqlitePool, password: &str) -> AppResult<()> {
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    if let Err(e) = std::fs::remove_file(password_path)
+        && e.kind() != std::io::ErrorKind::NotFound
+    {
+        tracing::warn!("Could not remove {}: {e}", password_path.display());
+    }
     Ok(())
+}
+
+/// What the table holds of a session: the digest of the id its cookie
+/// carries, so a copy of the database, a backup or a stolen disk, opens none.
+pub(crate) fn stored(id: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(b"routarr:session:v1:");
+    hasher.update(id.as_bytes());
+    hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Open a session and return its opaque id.
@@ -324,7 +346,7 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
         "INSERT INTO sessions (id, subject, source, expires_at)
          VALUES (?, ?, ?, datetime('now', ?))",
     )
-    .bind(&id)
+    .bind(stored(&id))
     .bind(subject)
     .bind(source)
     .bind(format!("+{SESSION_DAYS} days"))
@@ -357,7 +379,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
         "SELECT subject FROM sessions
          WHERE id = ? AND source = ? AND expires_at > datetime('now')",
     )
-    .bind(id)
+    .bind(stored(id))
     .bind(source)
     .fetch_optional(pool)
     .await?;
@@ -377,7 +399,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
          WHERE id = ? AND expires_at < datetime('now', ?)",
     )
     .bind(format!("+{SESSION_DAYS} days"))
-    .bind(id)
+    .bind(stored(id))
     .bind(format!("+{} days", SESSION_DAYS - 1))
     .execute(pool)
     .await
@@ -387,7 +409,7 @@ pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResul
 
 /// End one session.
 pub async fn close_session(pool: &SqlitePool, id: &str) -> AppResult<()> {
-    sqlx::query("DELETE FROM sessions WHERE id = ?").bind(id).execute(pool).await?;
+    sqlx::query("DELETE FROM sessions WHERE id = ?").bind(stored(id)).execute(pool).await?;
     Ok(())
 }
 
@@ -501,7 +523,10 @@ mod tests {
             tokio::join!(flood, throttle.verify("correct horse battery", &hash, other));
 
         assert!(matches!(signed_in, Ok(true)), "the other client was refused");
-        assert!(flood.iter().any(|r| matches!(r, Err(Busy))), "the flood was never held back");
+        // The flood's address took its three places and no more, so seven of
+        // its ten were held back.
+        let held_back = flood.iter().filter(|r| matches!(r, Err(Busy))).count();
+        assert_eq!(held_back, 7, "an address took more than three places");
     }
 
     /// A slot is given back however the check ends, the queue's and the
@@ -559,13 +584,15 @@ mod tests {
         // Fresh: nothing to extend, and no write to pay for.
         sqlx::query(
             "INSERT INTO sessions (id, subject, source, expires_at)
-             VALUES ('fresh', 'admin', 'forms', datetime('now', '+7 days'))",
+             VALUES (?, 'admin', 'forms', datetime('now', '+7 days'))",
         )
+        .bind(stored("fresh"))
         .execute(&pool)
         .await
         .unwrap();
         let before: Option<String> =
-            sqlx::query_scalar("SELECT last_used_at FROM sessions WHERE id = 'fresh'")
+            sqlx::query_scalar("SELECT last_used_at FROM sessions WHERE id = ?")
+                .bind(stored("fresh"))
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -574,7 +601,8 @@ mod tests {
             Some("admin")
         );
         let after: Option<String> =
-            sqlx::query_scalar("SELECT last_used_at FROM sessions WHERE id = 'fresh'")
+            sqlx::query_scalar("SELECT last_used_at FROM sessions WHERE id = ?")
+                .bind(stored("fresh"))
                 .fetch_one(&pool)
                 .await
                 .unwrap();
@@ -583,8 +611,9 @@ mod tests {
         // Close to the edge: extended, or a session in daily use would die.
         sqlx::query(
             "INSERT INTO sessions (id, subject, source, expires_at)
-             VALUES ('stale', 'admin', 'forms', datetime('now', '+2 hours'))",
+             VALUES (?, 'admin', 'forms', datetime('now', '+2 hours'))",
         )
+        .bind(stored("stale"))
         .execute(&pool)
         .await
         .unwrap();
@@ -592,11 +621,11 @@ mod tests {
             live_session(&pool, "stale", "forms").await.unwrap().map(|s| s.subject).as_deref(),
             Some("admin")
         );
-        let extended: String =
-            sqlx::query_scalar("SELECT expires_at FROM sessions WHERE id = 'stale'")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let extended: String = sqlx::query_scalar("SELECT expires_at FROM sessions WHERE id = ?")
+            .bind(stored("stale"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
         let cutoff: String =
             sqlx::query_scalar("SELECT datetime('now', '+6 days')").fetch_one(&pool).await.unwrap();
         assert!(extended > cutoff, "the window did not slide: {extended}");
@@ -665,7 +694,9 @@ mod tests {
         ensure_account(&pool, &dir.join("routarr.password")).await.unwrap();
 
         let id = open_session(&pool, "admin", "forms").await.unwrap();
-        set_password(&pool, "a new one").await.unwrap();
+        set_password(&pool, std::path::Path::new("/nonexistent/routarr.password"), "a new one")
+            .await
+            .unwrap();
 
         assert!(live_session(&pool, &id, "forms").await.unwrap().is_none());
         let (_, hash) = account(&pool).await.unwrap().unwrap();
@@ -680,9 +711,11 @@ mod tests {
         let pool = crate::db::test_pool().await;
         sqlx::query(
             "INSERT INTO sessions (id, subject, source, expires_at)
-             VALUES ('stale', 'admin', 'forms', datetime('now', '-1 day')),
-                    ('live', 'admin', 'forms', datetime('now', '+1 day'))",
+             VALUES (?, 'admin', 'forms', datetime('now', '-1 day')),
+                    (?, 'admin', 'forms', datetime('now', '+1 day'))",
         )
+        .bind(stored("stale"))
+        .bind(stored("live"))
         .execute(&pool)
         .await
         .unwrap();

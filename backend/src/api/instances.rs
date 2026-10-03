@@ -312,14 +312,23 @@ pub async fn sync_now(
     answer(&state, prefers_async(&headers), work).await
 }
 
-/// A failed sync, in the words of what answers at the instance's address.
+/// A failed sync, in the words of what answers at the instance's address,
+/// written on its task too: a caller that did not wait reads it there.
 async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
     let Some(cause) = connection::cause_of(&error) else {
         return error;
     };
-    match explain_sync_failure(state, id, cause).await {
+    let explained = match explain_sync_failure(state, id, cause).await {
         Ok(explained) | Err(explained) => explained,
+    };
+    if let Some(task) = crate::jobs::registry::announced() {
+        let _ = sqlx::query("UPDATE jobs SET error_message = ? WHERE id = ? AND status = 'failed'")
+            .bind(explained.public_message())
+            .bind(task)
+            .execute(&state.pool)
+            .await;
     }
+    explained
 }
 
 async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppResult<AppError> {
@@ -420,6 +429,12 @@ fn normalize_base_url(raw: &str, localizer: &Localizer) -> AppResult<String> {
     let base_url = raw.trim().trim_end_matches('/').to_string();
     if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
         return Err(AppError::BadRequest(localizer.translate("InstanceUrlScheme", &[])));
+    }
+    // The API's path is appended to the address: after a `?` or a `#` it would
+    // land in the query or the fragment, and the key would go to whatever path
+    // the address names.
+    if base_url.contains(['?', '#']) {
+        return Err(AppError::BadRequest(localizer.translate("InstanceUrlPlain", &[])));
     }
     Ok(base_url)
 }

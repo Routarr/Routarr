@@ -41,7 +41,10 @@ async fn post_raw(app: &TestApp, path: &str, body: Vec<u8>, content_type: &str) 
 }
 
 /// A hostile body must never 5xx, whatever the token: a valid token exercises
-/// the deserialiser and the whole handler, a bogus one the auth path.
+/// the deserialiser and the whole handler, a bogus one the auth path. With the
+/// right token a body is never answered as an unknown webhook: a 404 there
+/// would mean the route or the token check stopped it before the handler
+/// read anything, and the fuzz would test nothing.
 async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, note: &str) {
     for token in ["tok", "wrong-token", ""] {
         let path = format!("/api/v1/webhook/inst-1/{token}");
@@ -49,6 +52,10 @@ async fn assert_controlled(app: &TestApp, body: Vec<u8>, content_type: &str, not
         assert!(
             is_controlled(status),
             "{note} (token {token:?}) produced an uncontrolled {status}"
+        );
+        assert!(
+            token != "tok" || status != StatusCode::NOT_FOUND,
+            "{note} never reached the handler with the right token"
         );
     }
 }

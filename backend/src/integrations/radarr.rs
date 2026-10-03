@@ -16,6 +16,8 @@ pub struct RadarrClient {
     client: Client,
     base_url: String,
     api_key: String,
+    /// How long the whole library may take to list.
+    library_timeout: std::time::Duration,
 }
 
 /// Movie data from Radarr API.
@@ -103,7 +105,13 @@ impl RadarrClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
+            library_timeout: crate::http::LIBRARY_TIMEOUT,
         }
+    }
+
+    /// The same client, listing the library within `timeout`.
+    pub fn with_library_timeout(self, timeout: std::time::Duration) -> Self {
+        Self { library_timeout: timeout, ..self }
     }
 
     fn get(&self, path: &str) -> reqwest::RequestBuilder {
@@ -116,7 +124,7 @@ impl RadarrClient {
 
     pub async fn get_movies(&self) -> AppResult<Vec<RadarrMovie>> {
         debug!("Fetching movies from {}", crate::http::masked(&self.base_url));
-        send_json(SERVICE, self.get("/api/v3/movie")).await
+        send_json(SERVICE, self.get("/api/v3/movie").timeout(self.library_timeout)).await
     }
 
     /// One movie by id. A 404 surfaces as `ExternalApi { status: 404 }`.
@@ -192,9 +200,9 @@ impl RadarrClient {
         movie_ids: &[i64],
         root_folder_path: &str,
         move_files: bool,
-    ) -> AppResult<HashMap<i64, String>> {
+    ) -> AppResult<Option<HashMap<i64, String>>> {
         if movie_ids.is_empty() {
-            return Ok(HashMap::new());
+            return Ok(Some(HashMap::new()));
         }
 
         #[derive(Serialize)]
@@ -223,11 +231,13 @@ impl RadarrClient {
                 .json(&MovieEditorRequest { movie_ids, root_folder_path, move_files }),
         )
         .await?;
-        let edited = response.json::<Vec<Edited>>().await.unwrap_or_else(|_| {
+        // `None` for an answer that lists nothing: the films are taken as
+        // moved, their new path composed by the caller.
+        let Ok(edited) = super::json_within::<Vec<Edited>>(SERVICE, response).await else {
             debug!("Radarr's movie editor answered without the movies it edited");
-            Vec::new()
-        });
-        Ok(edited.into_iter().filter_map(|movie| Some((movie.id, movie.path?))).collect())
+            return Ok(None);
+        };
+        Ok(Some(edited.into_iter().filter_map(|movie| Some((movie.id, movie.path?))).collect()))
     }
 
     /// Trigger a rescan/refresh so Radarr picks up the new location.

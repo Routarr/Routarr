@@ -84,6 +84,26 @@ async fn the_api_answers_under_the_mount_point() {
     assert_eq!(status_of(&app, "/routarr/api/v1/ping").await, StatusCode::OK);
 }
 
+/// A task started without waiting is found at the address its answer gives,
+/// under the mount point as anywhere: a `Location` without it sends a client
+/// polling to a path nothing answers.
+#[tokio::test]
+async fn a_task_not_waited_for_is_located_under_the_mount_point() {
+    let app = mounted_at("/routarr").await;
+    let request = axum::http::Request::post("/routarr/api/v1/simulate")
+        .header("prefer", "respond-async")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from("{}"))
+        .unwrap();
+
+    let started = app.send(request).await;
+
+    let job = started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap().to_string();
+    let location = started.location().expect("no Location came back");
+    assert_eq!(location, format!("/routarr/api/v1/jobs/{job}"));
+    assert_eq!(status_of(&app, &location).await, StatusCode::OK);
+}
+
 #[tokio::test]
 async fn nothing_answers_outside_the_mount_point() {
     let app = mounted_at("/routarr").await;

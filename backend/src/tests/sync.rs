@@ -60,6 +60,21 @@ async fn hanging_up_mid_sync_still_finishes_the_sync() {
     assert!(media > 0, "the library was not stored");
 }
 
+/// A large library takes longer to list than a probe is given to answer: the
+/// listing has a budget of its own, so the sync still reads it.
+#[tokio::test]
+async fn a_library_slower_to_list_than_a_probe_is_still_read() {
+    let arr = FakeArr::holding_edits(std::time::Duration::from_millis(600)).await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .expect("the listing was cut at the probe's budget");
+
+    assert_eq!(report.media, 1);
+}
+
 /// The webhook path stamps its `read_at` *before* reading the Arr, as the full
 /// sync does before its first request. Stamped after, a move applied while that
 /// read is in flight would be older than the stamp, and the path the Arr

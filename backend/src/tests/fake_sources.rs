@@ -33,6 +33,8 @@ pub struct Recorded {
     /// The format each search was restricted to, per source: AniList's
     /// `format`, Jikan's `type`, `None` for an unrestricted search.
     pub formats: Vec<(&'static str, Option<String>)>,
+    /// When each AniList search arrived.
+    pub searched_at: Vec<std::time::Instant>,
 }
 
 /// The one work each source holds: My Neighbor Totoro, as AniList and
@@ -63,8 +65,12 @@ struct FakeState {
     tvdb_token: Arc<Mutex<u32>>,
     /// Whether TheTVDB has revoked the key: a login with it is refused.
     tvdb_revoked: Arc<Mutex<bool>>,
+    /// Whether a TheTVDB login answers a success that carries no token.
+    tvdb_empty_token: Arc<Mutex<bool>>,
     /// Whether the OMDb key has spent its daily quota.
     omdb_spent: Arc<Mutex<bool>>,
+    /// The `Retry-After` seconds the next AniList search is refused with.
+    search_throttle: Arc<Mutex<Option<u64>>>,
 }
 
 /// The one key the OMDb stand-in accepts.
@@ -75,7 +81,9 @@ pub struct FakeSources {
     recorded: Arc<Mutex<Recorded>>,
     tvdb_token: Arc<Mutex<u32>>,
     tvdb_revoked: Arc<Mutex<bool>>,
+    tvdb_empty_token: Arc<Mutex<bool>>,
     omdb_spent: Arc<Mutex<bool>>,
+    search_throttle: Arc<Mutex<Option<u64>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -108,6 +116,8 @@ impl FakeSources {
         let tvdb_token = Arc::new(Mutex::new(1));
         let tvdb_revoked = Arc::new(Mutex::new(false));
         let omdb_spent = Arc::new(Mutex::new(false));
+        let tvdb_empty_token = Arc::new(Mutex::new(false));
+        let search_throttle = Arc::new(Mutex::new(None));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             matching_year,
@@ -116,6 +126,8 @@ impl FakeSources {
             tvdb_token: Arc::clone(&tvdb_token),
             tvdb_revoked: Arc::clone(&tvdb_revoked),
             omdb_spent: Arc::clone(&omdb_spent),
+            tvdb_empty_token: Arc::clone(&tvdb_empty_token),
+            search_throttle: Arc::clone(&search_throttle),
         };
 
         let app = Router::new()
@@ -150,6 +162,8 @@ impl FakeSources {
             tvdb_token,
             tvdb_revoked,
             omdb_spent,
+            tvdb_empty_token,
+            search_throttle,
             shutdown: Some(tx),
         }
     }
@@ -160,10 +174,21 @@ impl FakeSources {
         *self.tvdb_token.lock().expect("token") += 1;
     }
 
+    /// What AniList does to a client going too fast: the next search is refused
+    /// with a 429 asking for `seconds` of quiet, and the ones after it answer.
+    pub fn throttle_next_search(&self, seconds: u64) {
+        *self.search_throttle.lock().expect("throttle") = Some(seconds);
+    }
+
     /// What OMDb does once a key has made its thousand requests of the day:
     /// every request is refused until the next.
     pub fn spend_omdb_quota(&self) {
         *self.omdb_spent.lock().expect("spent") = true;
+    }
+
+    /// From now on a TheTVDB login succeeds without handing a token.
+    pub fn answer_logins_without_a_token(&self) {
+        *self.tvdb_empty_token.lock().expect("empty") = true;
     }
 
     /// What TheTVDB does to a revoked key: its tokens stop working, and a login
@@ -209,9 +234,33 @@ fn record_details(state: &FakeState, source: &'static str, id: String) {
 
 // ------------------------------------------------------------------ AniList
 
+/// A search refused for going too fast, as the next one is after
+/// [`FakeSources::throttle_next_search`], or the answer.
 async fn anilist(
     State(state): State<FakeState>,
     Json(body): Json<serde_json::Value>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let searching = body["query"].as_str().unwrap_or_default().contains("Page(");
+    let throttled = searching.then(|| state.search_throttle.lock().expect("throttle").take());
+    if let Some(Some(seconds)) = throttled {
+        record(&state, "/anilist");
+        state.recorded.lock().expect("lock").searched_at.push(std::time::Instant::now());
+        let mut refused = (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(serde_json::json!({ "errors": [{ "message": "Too Many Requests." }] })),
+        )
+            .into_response();
+        refused.headers_mut().insert("retry-after", seconds.to_string().parse().unwrap());
+        return refused;
+    }
+    anilist_answer(state, body).await.into_response()
+}
+
+async fn anilist_answer(
+    state: FakeState,
+    body: serde_json::Value,
 ) -> (StatusCode, Json<serde_json::Value>) {
     record(&state, "/anilist");
     if let Some(status) = state.fail_with {
@@ -226,6 +275,7 @@ async fn anilist(
             let mut recorded = state.recorded.lock().expect("lock");
             recorded.searches.push(("anilist", search));
             recorded.formats.push(("anilist", format.clone()));
+            recorded.searched_at.push(std::time::Instant::now());
         }
         if state.graphql_error {
             return (
@@ -453,7 +503,11 @@ async fn tvdb_login(
         return Err(unauthorized());
     }
 
-    let token = format!("tvdb-token-{}", *state.tvdb_token.lock().expect("token"));
+    let token = if *state.tvdb_empty_token.lock().expect("empty") {
+        String::new()
+    } else {
+        format!("tvdb-token-{}", *state.tvdb_token.lock().expect("token"))
+    };
     Ok(Json(serde_json::json!({ "status": "success", "data": { "token": token } })))
 }
 

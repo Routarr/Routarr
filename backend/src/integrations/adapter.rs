@@ -97,6 +97,14 @@ impl ArrAdapter {
         }
     }
 
+    /// The same adapter, listing the library within `timeout`.
+    pub fn with_library_timeout(self, timeout: std::time::Duration) -> Self {
+        match self {
+            Self::Radarr(c) => Self::Radarr(c.with_library_timeout(timeout)),
+            Self::Sonarr(c) => Self::Sonarr(c.with_library_timeout(timeout)),
+        }
+    }
+
     pub async fn test_connection(&self) -> AppResult<ArrStatus> {
         let status = match self {
             Self::Radarr(c) => c.test_connection().await?,
@@ -187,9 +195,23 @@ impl ArrAdapter {
     ) -> Vec<(i64, AppResult<Option<String>>)> {
         match self {
             Self::Radarr(c) => {
-                match c.update_movies_root_folder(arr_ids, root_folder_path, move_files).await {
-                    Ok(mut paths) => arr_ids.iter().map(|id| (*id, Ok(paths.remove(id)))).collect(),
-                    Err(e) => arr_ids.iter().map(|id| (*id, Err(clone_error(&e)))).collect(),
+                let edited =
+                    c.update_movies_root_folder(arr_ids, root_folder_path, move_files).await;
+                match edited {
+                    // Radarr looks a batch up whole and fails it on one film it
+                    // no longer holds: each is asked alone, so the others move
+                    // and that one fails by itself.
+                    Err(e) if arr_ids.len() > 1 && lacks_a_film(&e) => {
+                        let mut results = Vec::with_capacity(arr_ids.len());
+                        for id in arr_ids {
+                            let alone = c
+                                .update_movies_root_folder(&[*id], root_folder_path, move_files)
+                                .await;
+                            results.extend(paired(&[*id], alone));
+                        }
+                        results
+                    }
+                    edited => paired(arr_ids, edited),
                 }
             }
             Self::Sonarr(c) => {
@@ -241,6 +263,61 @@ fn clone_error(e: &AppError) -> AppError {
 /// would satisfy every `year_range` with a maximum.
 fn known_year(year: Option<i64>) -> Option<i64> {
     year.filter(|year| *year > 0)
+}
+
+/// Each film of a Radarr edit with its outcome. A film an answer naming others
+/// leaves out was not moved. An answer naming none, empty or unreadable, says
+/// nothing about any one film, and leaves every film's new path to the caller.
+fn paired(
+    arr_ids: &[i64],
+    edited: AppResult<Option<std::collections::HashMap<i64, String>>>,
+) -> Vec<(i64, AppResult<Option<String>>)> {
+    match edited {
+        Ok(Some(mut paths)) if !paths.is_empty() => arr_ids
+            .iter()
+            .map(|id| {
+                let moved = paths.remove(id).map(Some).ok_or_else(|| AppError::ExternalApi {
+                    service: "Radarr".into(),
+                    status: 0,
+                    message: "Radarr's answer does not list this film as moved".into(),
+                    retry_after: None,
+                });
+                (*id, moved)
+            })
+            .collect(),
+        Ok(_) => arr_ids.iter().map(|id| (*id, Ok(None))).collect(),
+        Err(e) => arr_ids.iter().map(|id| (*id, Err(clone_error(&e)))).collect(),
+    }
+}
+
+#[cfg(test)]
+mod pairing {
+    use super::*;
+
+    /// An answer naming films settles each, one it leaves out failing, and an
+    /// empty or unreadable one settles none: each film is taken as moved.
+    #[test]
+    fn each_film_is_settled_by_an_answer_that_names_films_and_only_then() {
+        let named = std::collections::HashMap::from([(1, "/movies/anime/One".to_string())]);
+        let outcomes = paired(&[1, 2], Ok(Some(named)));
+        assert_eq!(outcomes[0].1.as_ref().unwrap().as_deref(), Some("/movies/anime/One"));
+        assert!(outcomes[1].1.is_err(), "a film left out was taken as moved");
+
+        for silent in [Some(std::collections::HashMap::new()), None] {
+            let outcomes = paired(&[1, 2], Ok(silent));
+            assert!(outcomes.iter().all(|(_, moved)| matches!(moved, Ok(None))));
+        }
+    }
+}
+
+/// Whether Radarr refused a batch for holding fewer of its films than it
+/// names, in the words its lookup of every id at once fails with.
+fn lacks_a_film(error: &AppError) -> bool {
+    matches!(
+        error,
+        AppError::ExternalApi { status: 500, message, .. }
+            if message.contains("Expected query to return")
+    )
 }
 
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {

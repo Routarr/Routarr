@@ -815,7 +815,8 @@ pub async fn change_password(
             .into_response();
     }
 
-    match accounts::set_password(&state.pool, &change.new_password).await {
+    let password_path = state.config.password_path();
+    match accounts::set_password(&state.pool, &password_path, &change.new_password).await {
         // Every session it had opened is gone, including this one: the point of
         // changing a password is that what the old one reached is now closed.
         Ok(()) => (

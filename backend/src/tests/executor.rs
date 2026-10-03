@@ -696,6 +696,10 @@ async fn an_apply_in_which_every_move_failed_is_a_failed_job() {
     .unwrap();
 
     assert_eq!(app.last_job_status("apply").await, "failed");
+    // Failed, and still holding the report of what it attempted.
+    let tasks = app.get("/api/v1/jobs?kind=apply").await;
+    let task = &tasks.assert_ok()["data"][0];
+    assert_eq!(task["result"]["failed"], 1, "{task}");
 }
 
 /// The same holds for a revert, whose job closes on its own path.

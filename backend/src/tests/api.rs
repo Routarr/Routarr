@@ -1732,6 +1732,25 @@ async fn explain_reads_a_rule_it_cannot_read_as_the_engine_does() {
     assert_eq!(trace["outcome"], "not_matched", "{trace}");
 }
 
+/// A rule its exclusion vetoes reads `excluded`, naming the exclusion, as the
+/// engine that set it aside reads it.
+#[tokio::test]
+async fn explain_names_the_exclusion_that_set_a_rule_aside() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    app.execute(&["UPDATE rules SET exclusions =
+                   '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]'"])
+        .await;
+
+    let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+
+    assert_eq!(explanation["target_category"], "standard");
+    let trace = &explanation["rule_traces"][0];
+    assert_eq!(trace["outcome"], "excluded", "{trace}");
+    assert!(trace["excluded_by"].as_str().unwrap_or_default().contains("Animation"), "{trace}");
+}
+
 #[tokio::test]
 async fn explain_on_unknown_media_is_a_404() {
     let app = TestApp::new().await;
@@ -2398,6 +2417,35 @@ async fn a_search_wildcard_is_matched_literally() {
         0,
         "o%o is not a substring of any title"
     );
+}
+
+/// The task list narrows on a status and on a kind, each documented in the
+/// contract, and on both at once.
+#[tokio::test]
+async fn the_task_list_narrows_on_a_status_and_a_kind() {
+    let app = TestApp::new().await;
+    app.execute(&["INSERT INTO jobs (id, kind, status) VALUES ('j-1', 'sync', 'failed'),
+                   ('j-2', 'sync', 'success'), ('j-3', 'apply', 'failed'), ('j-4', 'backup', 'success')"])
+        .await;
+    let ids = |path: &'static str| {
+        let app = &app;
+        async move {
+            let listed = app.get(path).await.assert_ok().clone();
+            let mut ids: Vec<String> = listed["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|job| job["id"].as_str().unwrap().to_string())
+                .collect();
+            ids.sort();
+            ids
+        }
+    };
+
+    assert_eq!(ids("/api/v1/jobs?status=failed").await, ["j-1", "j-3"]);
+    assert_eq!(ids("/api/v1/jobs?kind=sync").await, ["j-1", "j-2"]);
+    assert_eq!(ids("/api/v1/jobs?kind=sync&status=failed").await, ["j-1"]);
+    assert_eq!(ids("/api/v1/jobs").await, ["j-1", "j-2", "j-3", "j-4"]);
 }
 
 /// A retention of 0 keeps everything, as the setting's help says. It is saved

@@ -109,12 +109,15 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/api/v3/movie/editor"):
             payload = self._body()
             target = payload["rootFolderPath"]
+            edited = []
             for arr_id in payload["movieIds"]:
                 for item in MOVIES:
                     if item["id"] == arr_id:
                         item["rootFolderPath"] = target
                         item["path"] = f"{target}/{item['path'].rsplit('/', 1)[-1]}"
-            return self._send([])
+                        edited.append(item)
+            # Radarr answers 202 with every movie it edited, as they now are.
+            return self._send(edited, 202)
         self._send({}, 404)
 
     def do_POST(self):

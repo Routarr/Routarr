@@ -10,6 +10,66 @@ use super::http_client as client;
 
 // ------------------------------------------------------------------ Radarr
 
+/// An answer has a size beyond which it is not read: a hostile or intercepted
+/// address streaming without end stops at the cap, at once, rather than
+/// filling memory until the timeout, and an error body the same.
+#[tokio::test]
+async fn an_answer_without_end_stops_at_the_cap() {
+    use axum::routing::get;
+
+    let endless = || async {
+        let chunk = axum::body::Bytes::from(vec![b' '; 64 * 1024]);
+        let stream = futures::stream::repeat_with(move || Ok::<_, std::io::Error>(chunk.clone()));
+        axum::body::Body::from_stream(stream)
+    };
+    let app = axum::Router::new().route("/api/v3/system/status", get(endless)).route(
+        "/api/v3/tag",
+        get(move || async move { (axum::http::StatusCode::BAD_REQUEST, endless().await) }),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    // Five seconds to answer, so a read that went on until the timeout shows.
+    let config = crate::config::Config {
+        http_timeout: std::time::Duration::from_secs(5),
+        ..crate::config::Config::for_tests()
+    };
+    let radarr = RadarrClient::new(crate::http::build_client(&config).unwrap(), &address, "k");
+
+    let started = std::time::Instant::now();
+    let answered = radarr.test_connection().await;
+    let Err(AppError::ExternalApi { message, .. }) = &answered else {
+        panic!("an endless answer was read: {answered:?}");
+    };
+    assert!(message.contains("larger than"), "{message}");
+    let refused = radarr.get_tags().await;
+    assert!(matches!(refused, Err(AppError::ExternalApi { status: 400, .. })), "{refused:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+}
+
+/// A write redirected with a 301 or a 302 reaches its new address as a GET,
+/// without its body, and the GET's 200 would read as the write done. Refused,
+/// the move's rescan is reported as failed rather than lost without a word.
+#[tokio::test]
+async fn a_write_redirected_to_a_read_is_a_failure() {
+    use axum::routing::{get, post};
+
+    let app = axum::Router::new()
+        .route(
+            "/api/v3/command",
+            post(|| async { axum::response::Redirect::to("/api/v3/command/list") }),
+        )
+        .route("/api/v3/command/list", get(|| async { axum::Json(serde_json::json!([])) }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = format!("http://{}", listener.local_addr().unwrap());
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    let radarr = RadarrClient::new(client(), &address, "k");
+
+    let refreshed = radarr.refresh_movies(&[10]).await;
+
+    assert!(refreshed.is_err(), "a redirected rescan read as done: {refreshed:?}");
+}
+
 #[tokio::test]
 async fn radarr_sends_the_api_key_and_parses_the_status() {
     let arr = FakeArr::start().await;

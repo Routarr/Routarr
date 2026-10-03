@@ -209,11 +209,23 @@ async fn seed(pool: &SqlitePool, count: usize) {
     tx.commit().await.unwrap();
 }
 
+/// A library of `count` items described by the Arr and by two fetched
+/// sources, as most are once enrichment has run.
+async fn described_library(count: usize) -> SqlitePool {
+    let pool = library_pool().await;
+    seed(&pool, count).await;
+    seed_cache(&pool, count).await;
+    sqlx::query("INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb,omdb')")
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
 /// A simulation of `count` items, the statements it ran, and how many
 /// decisions it stored.
 async fn statements_for(count: usize, persist: bool) -> (usize, i64) {
-    let pool = library_pool().await;
-    seed(&pool, count).await;
+    let pool = described_library(count).await;
 
     let (result, statements) = statements_of(routing::run_simulation(
         &pool,
@@ -253,6 +265,32 @@ async fn a_simulation_does_not_query_once_per_media_item() {
         beyond_large <= beyond_small + 5,
         "beyond one per stored row, {beyond_large} statements against {beyond_small}: \
          storing the run queries per item"
+    );
+}
+
+/// An apply revalidates every move against what the rules decide now, for a
+/// slice of up to a thousand: the same handful of statements whatever the
+/// slice, the ids bound in chunks aside.
+#[tokio::test]
+async fn revalidating_moves_does_not_query_once_per_item() {
+    let mut counts = Vec::new();
+    for count in [200, 2000] {
+        let pool = described_library(count).await;
+        let ids: Vec<String> = (0..count).map(|i| format!("m-{i}")).collect();
+        let (targets, statements) = statements_of(routing::current_targets(&pool, &ids)).await;
+        assert_eq!(targets.unwrap().len(), count, "not every item was revalidated");
+        counts.push(statements);
+        pool.close().await;
+    }
+    let (small, large) = (counts[0], counts[1]);
+    println!("revalidated: 200 items in {small} statements, 2000 in {large}");
+    // Two statements bind the ids, a chunk of `BIND_CHUNK` at a time: a
+    // statement per chunk is the growth allowed, a statement per item is not.
+    let chunk = routing::BIND_CHUNK;
+    let more_chunks = 2000_usize.div_ceil(chunk) - 200_usize.div_ceil(chunk);
+    assert!(
+        large <= small + 2 * more_chunks,
+        "{large} statements for 2000 items against {small} for 200"
     );
 }
 

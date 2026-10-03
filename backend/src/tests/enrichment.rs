@@ -220,7 +220,7 @@ async fn the_same_title_in_two_instances_is_fetched_once() {
 
 #[tokio::test]
 async fn one_failing_item_does_not_abort_the_pass() {
-    let tmdb = FakeTmdb::with(vec![100], vec![]).await;
+    let tmdb = FakeTmdb::erroring(vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
     let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
@@ -295,11 +295,24 @@ async fn media_without_an_external_id_is_skipped() {
     assert!(tmdb.recorded().paths.is_empty());
 }
 
+/// TMDb listed with no key is asked nothing: every request would be refused.
+/// The same library with a key is asked, the control.
 #[tokio::test]
 async fn enrichment_is_a_no_op_without_an_api_key() {
-    let app = TestApp::new().await;
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-    assert_eq!(report.considered, 0);
+    let tmdb = FakeTmdb::start().await;
+    let keyed = library(&tmdb, &[(1, "movie", 100)]).await;
+    let keyless = TestApp::around(keyed.state.clone().with_config(crate::config::Config {
+        tmdb_api_key: None,
+        ..(*keyed.state.config).clone()
+    }));
+    keyless.store_setting("metadata_providers", "arr,tmdb").await;
+
+    let report = enrichment::enrich_all_media(&keyless.state, "manual").await.unwrap();
+    assert_eq!(report.considered, 0, "{report:?}");
+    assert!(tmdb.recorded().paths.is_empty(), "a keyless source was asked");
+
+    enrichment::enrich_all_media(&keyed.state, "manual").await.unwrap();
+    assert!(!tmdb.recorded().paths.is_empty(), "the control: the keyed source was asked");
 }
 
 #[tokio::test]
@@ -392,8 +405,13 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
     let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
     assert_eq!(report.skipped, 0, "{report:?}");
-    assert_eq!(tmdb.recorded().paths.len(), 11, "{:?}", tmdb.recorded().paths);
-    assert_eq!(report.enriched, 1, "{report:?}");
+    let asked = tmdb.recorded().paths.clone();
+    assert_eq!(asked.len(), 11, "{asked:?}");
+    // Each answered, ten of them with nothing.
+    assert_eq!(report.enriched, 11, "{report:?}");
+    let described: Vec<i64> =
+        cached(&app).await.into_iter().filter(|row| row.2 != "[]").map(|row| row.0).collect();
+    assert_eq!(described, [500]);
 }
 
 /// TMDb down answers every title alike: the fetching stage stops at the
@@ -434,4 +452,18 @@ async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
         let left = (expires - chrono::Utc::now()).num_hours();
         assert!((days * 24 - 2..=days * 24).contains(&left), "{setting:?}: {left} hours");
     }
+}
+
+/// A title TMDb does not have is an answer like any other: cached for the
+/// cache's lifetime, so the next pass does not ask again.
+#[tokio::test]
+async fn a_title_tmdb_does_not_have_is_not_asked_again_next_pass() {
+    let tmdb = FakeTmdb::with(vec![7], vec![]).await;
+    let app = library(&tmdb, &[(1, "movie", 7)]).await;
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let asked = tmdb.recorded().paths.clone();
+    assert_eq!(asked.len(), 1, "{asked:?}");
 }

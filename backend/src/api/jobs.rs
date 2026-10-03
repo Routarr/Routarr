@@ -22,7 +22,7 @@ pub struct Job {
     /// `sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,
     /// `maintenance` or `scheduler`.
     pub kind: String,
-    /// `queued`, `running`, `success`, `failed` or `cancelled`.
+    /// `running`, `success` or `failed`.
     pub status: String,
     /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
     pub trigger: String,
@@ -46,8 +46,9 @@ pub struct Job {
     /// caller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,
     /// or for a simulation its `SimulationResult`. A stored simulation's comes
     /// without `decisions`, which `GET /decisions?simulation_id=` lists, and a
-    /// preview's keeps the ones it returned. Null while the task runs, when it
-    /// failed, and for a kind no call starts.
+    /// preview's keeps the ones it returned. An apply or a revert that failed
+    /// keeps the report of what it attempted. Null while the task runs, when
+    /// any other task failed, and for a kind no call starts.
     #[sqlx(skip)]
     pub result: Option<serde_json::Value>,
     #[serde(skip)]

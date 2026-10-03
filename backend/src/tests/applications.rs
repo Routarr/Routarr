@@ -245,6 +245,11 @@ async fn a_revoked_or_unknown_key_is_refused_even_where_nothing_is_asked() {
 
     let revoked = send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await;
     assert_eq!(revoked.status, StatusCode::NO_CONTENT);
+    // Gone from the list, and revoked once only.
+    let listed = send(&app, "GET", "/api/v1/applications", None, None).await;
+    assert_eq!(listed.assert_ok().as_array().unwrap().len(), 0, "a revoked key is still listed");
+    let again = send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await;
+    assert_eq!(again.status, StatusCode::NOT_FOUND, "a key was revoked twice");
 
     let refused = send(&app, "GET", "/api/v1/status", Some(&token), None).await;
     assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "a revoked key fell through");
@@ -464,6 +469,41 @@ async fn a_keys_apply_and_revert_are_logged_under_its_name() {
     let as_cron =
         |action: &str| (action.to_string(), Some("api".to_string()), Some("cron".to_string()));
     assert_eq!(logged, [as_cron("move"), as_cron("revert")]);
+
+    // A whole simulation applied through the key, the third route that moves.
+    let arr = FakeArr::start().await;
+    let (app, mut body) = ready_to_move(&arr, "apply-all").await;
+    let key =
+        mint(&app, None, json!({ "name": "cron", "scopes": ["operate"], "may_confirm": every }))
+            .await;
+    body["confirm"] = json!(every);
+    send(&app, "POST", "/api/v1/decisions/apply-all", Some(&key), Some(body)).await.assert_ok();
+    let logged: Vec<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT DISTINCT actor, subject FROM execution_logs")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(logged, [(Some("api".to_string()), Some("cron".to_string()))]);
+}
+
+/// A title pinned by the id another service knows it by names the
+/// application that pinned it, as a pin by the library's id does.
+#[tokio::test]
+async fn a_pin_by_external_id_names_the_application_that_set_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 1).await;
+    let token = mint(&app, None, json!({ "name": "request-bot", "scopes": ["write"] })).await;
+
+    let path = "/api/v1/overrides/external?type=movie&tmdb=8392";
+    let pinned =
+        send(&app, "PUT", path, Some(&token), Some(json!({ "target_category": "anime" }))).await;
+
+    assert_eq!(pinned.assert_ok()[0]["subject"], "request-bot");
+    let stored: Option<String> = sqlx::query_scalar("SELECT subject FROM overrides")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(stored.as_deref(), Some("request-bot"));
 }
 
 /// Mark a folder as not answering, as a sync that found the NAS asleep does.
@@ -607,6 +647,52 @@ async fn a_pin_names_the_application_that_set_it() {
     assert_eq!(set.assert_ok()["subject"], "request-bot");
     let listed = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
     assert_eq!(listed.assert_ok()[0]["subject"], "request-bot");
+}
+
+/// A key names who made it: the master key is `apikey`, and an open mode,
+/// where nobody signed in, names nobody.
+#[tokio::test]
+async fn a_key_names_who_made_it() {
+    let keyed = TestApp::with_api_key(MASTER).await;
+    mint(&keyed, Some(MASTER), json!({ "name": "homepage" })).await;
+    let listed = send(&keyed, "GET", "/api/v1/applications", Some(MASTER), None).await;
+    assert_eq!(listed.assert_ok()[0]["created_by"], "apikey");
+
+    let open = TestApp::new().await;
+    mint(&open, None, json!({ "name": "homepage" })).await;
+    let listed = send(&open, "GET", "/api/v1/applications", None, None).await;
+    assert_eq!(listed.assert_ok()[0]["created_by"], Value::Null);
+}
+
+/// The last use is written at most once a minute: a use within the minute
+/// leaves it, one past it moves it.
+#[tokio::test]
+async fn the_last_use_is_written_at_most_once_a_minute() {
+    let app = TestApp::new().await;
+    let token = mint(&app, None, json!({ "name": "homepage" })).await;
+    let last_use = || async {
+        sqlx::query_scalar::<_, String>("SELECT last_used_at FROM api_keys")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+    };
+
+    app.execute(&["UPDATE api_keys SET last_used_at = datetime('now', '-30 seconds')"]).await;
+    let recent = last_use().await;
+    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert_eq!(last_use().await, recent, "a use within the minute was written");
+
+    app.execute(&["UPDATE api_keys SET last_used_at = datetime('now', '-2 minutes')"]).await;
+    let old = last_use().await;
+    send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
+    for _ in 0..100 {
+        if last_use().await != old {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("a use past the minute was not written");
 }
 
 #[tokio::test]
