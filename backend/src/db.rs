@@ -22,10 +22,12 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("009_application_keys", include_str!("../migrations/009_application_keys.sql")),
     ("010_job_result", include_str!("../migrations/010_job_result.sql")),
     ("011_webhook_secrets", include_str!("../migrations/011_webhook_secrets.sql")),
+    ("012_hashed_sessions", include_str!("../migrations/012_hashed_sessions.sql")),
+    ("013_opened_by", include_str!("../migrations/013_opened_by.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.
-pub async fn init_pool(config: &Config) -> Result<SqlitePool, sqlx::Error> {
+pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     if let Err(e) = std::fs::create_dir_all(&config.data_dir)
         && e.kind() != std::io::ErrorKind::AlreadyExists
     {
@@ -107,9 +109,54 @@ pub async fn checkpoint_and_close(pool: &SqlitePool) {
     pool.close().await;
 }
 
-/// Apply any migration not yet recorded in `_migrations`.
-pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    apply_migrations(pool, MIGRATIONS).await
+/// Apply any migration not yet recorded in `_migrations`, after refusing a
+/// database a newer release migrated.
+pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
+    refuse_a_newer_schema(pool).await?;
+    apply_migrations(pool, MIGRATIONS).await?;
+    Ok(record_this_release(pool).await?)
+}
+
+/// Every release records itself as having opened the database, and one that
+/// finds a newer release recorded stops: run on, it would read and write a
+/// schema it does not know. Migration names cannot tell, since builds from
+/// before the first release used names no release lists, and a database
+/// without the record, opened only by releases before it, passes.
+async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()> {
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_opened_by')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !recorded {
+        return Ok(());
+    }
+    let versions: Vec<String> =
+        sqlx::query_scalar("SELECT version FROM _opened_by").fetch_all(pool).await?;
+    let this = release(env!("CARGO_PKG_VERSION"));
+    match versions.iter().filter(|v| release(v) > this).max_by_key(|v| release(v)) {
+        None => Ok(()),
+        Some(newer) => Err(crate::error::AppError::Config(format!(
+            "the database was opened by Routarr v{newer}, newer than this v{}. Start that \
+             release again, or restore a backup this one took",
+            env!("CARGO_PKG_VERSION")
+        ))),
+    }
+}
+
+/// Record this release as one that opened the database.
+async fn record_this_release(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT OR IGNORE INTO _opened_by (version) VALUES (?)")
+        .bind(env!("CARGO_PKG_VERSION"))
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// A version as numbers to compare, `0.1.10` after `0.1.9`. A part that is
+/// not a number counts as 0.
+fn release(version: &str) -> Vec<u64> {
+    version.split(['.', '-']).take(3).map(|part| part.parse().unwrap_or(0)).collect()
 }
 
 /// Apply the migrations up to `last` included, leaving the schema of the
@@ -273,6 +320,33 @@ pub async fn test_pool() -> SqlitePool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A database a newer release migrated is refused, naming the migration
+    /// this build does not know, rather than read and written as if its
+    /// schema were this build's.
+    #[tokio::test]
+    async fn a_database_a_newer_release_opened_is_refused() {
+        let pool = test_pool().await;
+        // Names no release lists, as builds before the first one wrote: no
+        // reason to refuse.
+        sqlx::query("INSERT INTO _migrations (name) VALUES ('019_from_before_the_first_release')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.expect("an older database was refused");
+        sqlx::query("INSERT INTO _opened_by (version) VALUES ('99.0.0')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let refused = run_migrations(&pool).await;
+
+        let Err(crate::error::AppError::Config(message)) = refused else {
+            panic!("a newer schema was opened: {refused:?}");
+        };
+        assert!(message.contains("v99.0.0"), "{message}");
+        assert!(release("0.1.10") > release("0.1.9"));
+    }
 
     /// The SQLite the binary carries, at least the release that fixes
     /// CVE-2025-6965, CVE-2025-29087 and CVE-2025-3277. `libsqlite3-sys`

@@ -266,10 +266,16 @@ pub struct JobHandle {
     result: Option<String>,
 }
 
+/// The first job a piece of work started, and where to say its id.
+struct Started {
+    tell: Option<tokio::sync::oneshot::Sender<String>>,
+    id: Option<String>,
+}
+
 tokio::task_local! {
     /// Where the first job a piece of work starts says its id, for a caller
     /// that answers as soon as the work has begun (`api::jobs::answer`).
-    static STARTED: std::cell::RefCell<Option<tokio::sync::oneshot::Sender<String>>>;
+    static STARTED: std::cell::RefCell<Started>;
 }
 
 /// Run `work`, saying through `started` the id of the first job it starts.
@@ -279,13 +285,21 @@ pub async fn announcing<T>(
     started: tokio::sync::oneshot::Sender<String>,
     work: impl std::future::Future<Output = T>,
 ) -> T {
-    STARTED.scope(std::cell::RefCell::new(Some(started)), work).await
+    STARTED.scope(std::cell::RefCell::new(Started { tell: Some(started), id: None }), work).await
+}
+
+/// The id of the first job the running work started, when it runs under
+/// [`announcing`]: the task a caller polls for the work's outcome.
+pub fn announced() -> Option<String> {
+    STARTED.try_with(|started| started.borrow().id.clone()).ok().flatten()
 }
 
 fn announce(id: &str) {
     let _ = STARTED.try_with(|started| {
-        if let Some(started) = started.borrow_mut().take() {
-            let _ = started.send(id.to_string());
+        let mut started = started.borrow_mut();
+        if let Some(tell) = started.tell.take() {
+            started.id = Some(id.to_string());
+            let _ = tell.send(id.to_string());
         }
     });
 }

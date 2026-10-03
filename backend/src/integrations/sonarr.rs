@@ -15,6 +15,8 @@ pub struct SonarrClient {
     client: Client,
     base_url: String,
     api_key: String,
+    /// How long the whole library may take to list.
+    library_timeout: std::time::Duration,
 }
 
 /// Series data from Sonarr API.
@@ -97,7 +99,13 @@ impl SonarrClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
+            library_timeout: crate::http::LIBRARY_TIMEOUT,
         }
+    }
+
+    /// The same client, listing the library within `timeout`.
+    pub fn with_library_timeout(self, timeout: std::time::Duration) -> Self {
+        Self { library_timeout: timeout, ..self }
     }
 
     fn get(&self, path: &str) -> reqwest::RequestBuilder {
@@ -110,7 +118,7 @@ impl SonarrClient {
 
     pub async fn get_series(&self) -> AppResult<Vec<SonarrSeries>> {
         debug!("Fetching series from {}", crate::http::masked(&self.base_url));
-        send_json(SERVICE, self.get("/api/v3/series")).await
+        send_json(SERVICE, self.get("/api/v3/series").timeout(self.library_timeout)).await
     }
 
     /// One series by id. A 404 surfaces as `ExternalApi { status: 404 }`.

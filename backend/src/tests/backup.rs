@@ -450,6 +450,40 @@ async fn a_start_opens_the_restored_database_with_the_restored_key() {
     assert_eq!(secrets.open(&sealed).expect("opened with the key of before"), "arr-key");
 }
 
+/// Everything a start writes beside the database holds a secret or the data:
+/// the master key, the generated password, the database and its sidecars,
+/// each readable by the owner alone.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_start_leaves_every_file_it_writes_readable_by_its_owner_alone() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new("modes");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    config.secret_key = None;
+    config.auth_mode = crate::config::AuthMode::Forms;
+
+    let (_, pool, _) = crate::open_storage(&config).await.unwrap();
+    crate::services::accounts::ensure_account(&pool, &config.password_path()).await.unwrap();
+    sqlx::query("INSERT INTO categories (id, name) VALUES ('c-1', 'written')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    for file in ["routarr.db", "routarr.key", "routarr.password"] {
+        let mode = std::fs::metadata(dir.join(file)).expect(file).permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "{file} is readable by others: {:o}", mode & 0o777);
+    }
+    for sidecar in ["routarr.db-wal", "routarr.db-shm"] {
+        if let Ok(metadata) = std::fs::metadata(dir.join(sidecar)) {
+            let mode = metadata.permissions().mode();
+            assert_eq!(mode & 0o777, 0o600, "{sidecar} is readable by others: {:o}", mode & 0o777);
+        }
+    }
+    pool.close().await;
+}
+
 /// An archive is named to the second, and a name already taken is refused at
 /// once, as a conflict, before a copy of the database is written for nothing.
 #[tokio::test]

@@ -447,13 +447,13 @@ async fn an_oversized_body_is_refused() {
 fn only_none_opts_out_and_anything_else_keeps_the_key() {
     use crate::config::AuthMode;
 
-    assert_eq!(AuthMode::from_env("none"), AuthMode::None);
-    assert_eq!(AuthMode::from_env("NONE"), AuthMode::None);
+    assert_eq!(AuthMode::parse("none").0, AuthMode::None);
+    assert_eq!(AuthMode::parse("NONE").0, AuthMode::None);
 
-    assert_eq!(AuthMode::from_env("apikey"), AuthMode::ApiKey);
-    assert_eq!(AuthMode::from_env(""), AuthMode::ApiKey);
+    assert_eq!(AuthMode::parse("apikey").0, AuthMode::ApiKey);
+    assert_eq!(AuthMode::parse("").0, AuthMode::ApiKey);
     for undocumented in ["disabled", "required", "nome", "off"] {
-        assert_eq!(AuthMode::from_env(undocumented), AuthMode::ApiKey, "{undocumented}");
+        assert_eq!(AuthMode::parse(undocumented).0, AuthMode::ApiKey, "{undocumented}");
     }
 }
 
@@ -465,8 +465,8 @@ fn only_none_opts_out_and_anything_else_keeps_the_key() {
 async fn external_asks_for_nothing_and_says_so() {
     use crate::config::AuthMode;
 
-    assert_eq!(AuthMode::from_env("external"), AuthMode::External);
-    assert_eq!(AuthMode::from_env("proxy"), AuthMode::External);
+    assert_eq!(AuthMode::parse("external").0, AuthMode::External);
+    assert_eq!(AuthMode::parse("proxy").0, AuthMode::External);
 
     let mut config = crate::config::Config::for_tests();
     config.auth_mode = AuthMode::External;
@@ -558,7 +558,7 @@ async fn a_session_close_to_expiry_gets_a_fresh_cookie() {
     assert_eq!(read(cookie.clone()).await, None, "a session with days left was re-issued");
 
     sqlx::query("UPDATE sessions SET expires_at = datetime('now', '+2 hours') WHERE id = ?")
-        .bind(&id)
+        .bind(crate::services::accounts::stored(&id))
         .execute(&app.state.pool)
         .await
         .unwrap();
@@ -736,6 +736,40 @@ async fn a_password_too_short_to_have_been_set_is_refused_without_hashing() {
         .assert_status(StatusCode::UNAUTHORIZED);
 }
 
+/// Refused before the queue, not after a hash: with every place in the
+/// sign-in queue taken, a short password is still answered 401 at once,
+/// where a password of a length that could be the stored one meets the full
+/// queue.
+#[tokio::test]
+async fn a_short_password_is_refused_before_it_queues_for_a_hash() {
+    use crate::services::accounts::{MAX_IN_FLIGHT, hash_password};
+
+    let (app, _dir) = forms_app("short-queue").await;
+    let hash = hash_password("correct horse battery").unwrap();
+    let mut holding = Vec::new();
+    for _ in 0..MAX_IN_FLIGHT {
+        let (throttle, hash) = (app.state.sign_in.clone(), hash.clone());
+        holding.push(tokio::spawn(async move {
+            throttle.verify("a wrong password of length", &hash, None).await
+        }));
+    }
+    while app.state.sign_in.in_flight() < MAX_IN_FLIGHT {
+        tokio::task::yield_now().await;
+    }
+
+    let login = |password: &'static str| {
+        app.post(
+            "/api/v1/auth/login",
+            serde_json::json!({ "username": "admin", "password": password }),
+        )
+    };
+    login("short").await.assert_status(StatusCode::UNAUTHORIZED);
+    login("long enough to be the password").await.assert_status(StatusCode::SERVICE_UNAVAILABLE);
+    for held in holding {
+        held.abort();
+    }
+}
+
 /// A flood of simultaneous sign-ins must not take the application down with it,
 /// and must not stop the operator signing in either. Unbounded, twenty at once
 /// would run twenty argon2 hashes in parallel, a core and about 19 MiB each,
@@ -853,8 +887,9 @@ async fn a_session_is_honoured_only_by_the_mode_that_opened_it() {
     // gone back to the local account.
     sqlx::query(
         "INSERT INTO sessions (id, subject, source, expires_at)
-         VALUES ('from-the-provider', 'someone', 'oidc', datetime('now', '+1 day'))",
+         VALUES (?, 'someone', 'oidc', datetime('now', '+1 day'))",
     )
+    .bind(crate::services::accounts::stored("from-the-provider"))
     .execute(&oidc.state.pool)
     .await
     .unwrap();
@@ -1124,6 +1159,25 @@ async fn the_session_cookie_is_secure_when_the_browser_came_over_https() {
     assert!(cleared.contains("Max-Age=0"), "{cleared}");
 }
 
+/// What the database holds of a session opens nothing: a copy of the file, a
+/// backup or a stolen disk, yields no live session. The cookie does, and the
+/// row is only its digest.
+#[tokio::test]
+async fn a_session_row_read_from_the_database_opens_nothing() {
+    let (app, _dir) = forms_app("stored-sessions").await;
+    let cookie = open_session(&app).await;
+    let stored: String =
+        sqlx::query_scalar("SELECT id FROM sessions").fetch_one(&app.state.pool).await.unwrap();
+
+    let copied = format!("routarr_session={stored}");
+    let (status, _) =
+        with_session(&app, "GET", "/api/v1/status", &copied, serde_json::json!({})).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "the stored id opened a session");
+    let (status, _) =
+        with_session(&app, "GET", "/api/v1/status", &cookie, serde_json::json!({})).await;
+    assert_eq!(status, StatusCode::OK, "the control: the cookie itself still opens it");
+}
+
 /// Signing out ends the session on the server, not only in the browser: the
 /// same cookie, copied before, answers 401 afterwards, and no row is left.
 #[tokio::test]
@@ -1272,6 +1326,10 @@ async fn the_password_changes_only_against_the_current_one() {
     let (status, _) =
         with_session(&app, "GET", "/api/v1/status", &session, serde_json::Value::Null).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED, "the old session survived the change");
+
+    // The file the first password was written to no longer holds the password,
+    // so it goes: read later, it would hand out one that opens nothing.
+    assert!(!app.state.config.password_path().exists(), "the first password stayed on disk");
 
     // The old password no longer opens anything, the new one does.
     app.post("/api/v1/auth/login", serde_json::json!({ "username": "admin", "password": current }))
@@ -1537,6 +1595,87 @@ async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     );
 }
 
+/// The authorization endpoint is the one a browser is sent to: served in the
+/// clear, the code and the state travel unencrypted, so it is refused as the
+/// token endpoint is. A document describing another issuer than the one it
+/// was fetched from is refused too: a redirect has moved the conversation.
+#[tokio::test]
+async fn a_provider_misdescribing_itself_is_refused_naming_what_to_fix() {
+    let clear = crate::tests::fake_oidc::FakeOidc::start().await;
+    clear.advertise_authorization_at("http://idp.example");
+    let app = oidc_app(&clear).await;
+    let refused = crate::services::oidc::start(&app.state).await.err().map(|e| e.to_string());
+    let refused = refused.expect("an authorization endpoint in the clear was accepted");
+    assert!(refused.contains("authorization_endpoint"), "{refused}");
+
+    let renamed = crate::tests::fake_oidc::FakeOidc::start().await;
+    renamed.call_itself("https://elsewhere.example");
+    let app = oidc_app(&renamed).await;
+    let refused = crate::services::oidc::start(&app.state).await.err().map(|e| e.to_string());
+    let refused = refused.expect("a document naming another issuer was accepted");
+    assert!(refused.contains("elsewhere.example"), "{refused}");
+}
+
+/// A redirect address registered as `https://` says the browser comes over
+/// TLS, for a proxy that forwards no scheme: the session cookie is `Secure`,
+/// and over plain HTTP it is not.
+#[tokio::test]
+async fn an_https_redirect_address_makes_the_session_cookie_secure() {
+    for (redirect, secure) in [
+        ("https://routarr.example/api/v1/auth/oidc/callback", true),
+        ("http://routarr.local/api/v1/auth/oidc/callback", false),
+    ] {
+        let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+        let app = oidc_app(&idp).await;
+        let config = crate::config::Config {
+            oidc_redirect_url: Some(redirect.into()),
+            ..(*app.state.config).clone()
+        };
+        let app = TestApp::around(app.state.clone().with_config(config));
+        let flow = start_flow(&app).await;
+        idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
+
+        let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+        let request = Request::get(&path)
+            .header(axum::http::header::COOKIE, &flow.cookie)
+            .body(Body::empty())
+            .unwrap();
+        let response = tower::ServiceExt::oneshot(app.router.clone(), request).await.unwrap();
+        let session = response
+            .headers()
+            .get_all(axum::http::header::SET_COOKIE)
+            .iter()
+            .map(|value| value.to_str().unwrap().to_string())
+            .find(|cookie| cookie.starts_with("routarr_session="))
+            .expect("no session cookie");
+        assert_eq!(session.contains("; Secure"), secure, "{redirect}: {session}");
+    }
+}
+
+/// An attempt lives ten minutes: started, it expires that far out, and past
+/// it the provider's answer opens nothing.
+#[tokio::test]
+async fn a_sign_in_attempt_lives_ten_minutes() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let flow = start_flow(&app).await;
+    let expires: String = sqlx::query_scalar("SELECT expires_at FROM oidc_flows")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
+    let left = (expires - chrono::Utc::now()).num_seconds();
+    assert!((9 * 60..=10 * 60).contains(&left), "{left} seconds left");
+
+    app.execute(&["UPDATE oidc_flows SET expires_at = datetime('now', '-1 second')"]).await;
+    idp.will_claim(serde_json::json!({ "nonce": flow.nonce }));
+    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let response = callback(&app, Some(&flow.cookie), &path).await;
+
+    assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
+    assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 0);
+}
+
 /// Start a sign-in as a browser would, and keep what it would keep: the
 /// cookie that ties it to this browser, the `state` in the redirect, and the
 /// nonce the provider is to echo, read from the row as the test's stand-in for
@@ -1753,10 +1892,11 @@ async fn a_sound_callback_opens_a_session_naming_the_subject() {
         .iter()
         .map(|value| value.to_str().unwrap())
         .collect();
-    assert!(
-        cookies.iter().any(|c| c.starts_with(&format!("routarr_session={id};"))),
-        "{cookies:?}"
-    );
+    let handed = cookies
+        .iter()
+        .find_map(|c| c.strip_prefix("routarr_session=")?.split(';').next())
+        .expect("no session cookie was handed");
+    assert_eq!(crate::services::accounts::stored(handed), id, "{cookies:?}");
     assert!(cookies.iter().any(|c| c.starts_with("routarr_oidc=;")), "{cookies:?}");
 
     // The client proved the exchange with the verifier and its secret, and the
@@ -1826,6 +1966,11 @@ async fn a_token_failing_any_claim_opens_nothing() {
         serde_json::json!({ "exp": 1 }),
         serde_json::json!({ "nonce": "another attempt" }),
         serde_json::json!({ "iss": "https://elsewhere.example" }),
+        // No nonce at all ties the token to no attempt.
+        serde_json::json!({ "nonce": null }),
+        // Issued to other clients only, or to this one on another's behalf.
+        serde_json::json!({ "aud": ["other-a", "other-b"] }),
+        serde_json::json!({ "aud": ["routarr", "other-a"], "azp": "other-a" }),
     ] {
         let idp = crate::tests::fake_oidc::FakeOidc::start().await;
         let app = oidc_app(&idp).await;
@@ -1846,6 +1991,29 @@ async fn a_token_failing_any_claim_opens_nothing() {
             .unwrap();
         assert_eq!(sessions, 0, "{bad} opened a session");
     }
+}
+
+/// A token issued to this client among others, its `azp` naming this one, is
+/// as good as one issued to it alone. With no `preferred_username` the
+/// session is named after the token's `sub`.
+#[tokio::test]
+async fn a_token_naming_this_client_among_others_opens_a_session_named_after_its_subject() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let flow = start_flow(&app).await;
+    idp.will_claim(serde_json::json!({
+        "nonce": flow.nonce, "aud": ["routarr", "other-a"], "azp": "routarr"
+    }));
+
+    let path = format!("/api/v1/auth/oidc/callback?code=abc&state={}", flow.state);
+    let response = callback(&app, Some(&flow.cookie), &path).await;
+
+    assert_eq!(response.location().as_deref(), Some("/"));
+    let subject: String = sqlx::query_scalar("SELECT subject FROM sessions")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(subject, "user-42");
 }
 
 /// The browser that started the attempt carries its `state` in a cookie, and

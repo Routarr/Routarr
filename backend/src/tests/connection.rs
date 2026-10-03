@@ -543,6 +543,30 @@ async fn a_link_local_address_is_refused_before_any_connection() {
     probe(&app, &named).await.assert_ok();
 }
 
+/// Routarr appends the API's path to the address, so a query or a fragment in
+/// it would carry that path into the query and send the key to whatever path
+/// the address names. Both are refused, on the probe and on a save.
+#[tokio::test]
+async fn an_address_with_a_query_or_a_fragment_is_refused() {
+    let app = TestApp::new().await;
+    let arr = FakeArr::start().await;
+    let expected = said(&app, "InstanceUrlPlain", &[]).await;
+    for address in [format!("{}/x?y=", arr.base_url), format!("{}/#radarr", arr.base_url)] {
+        assert_eq!(refusal(&probe(&app, &address).await), expected, "{address}");
+        let created = app
+            .post(
+                "/api/v1/instances",
+                json!({ "name": "Radarr", "instance_type": "radarr", "base_url": address,
+                        "api_key": "k" }),
+            )
+            .await;
+        assert_eq!(refusal(&created), expected, "{address}");
+    }
+    assert!(arr.recorded().api_keys.is_empty(), "the key went out");
+    // The control: the same address, plain, is accepted.
+    probe(&app, &arr.base_url).await.assert_ok();
+}
+
 /// 7878 and 8989 are one digit apart in a person's memory.
 #[tokio::test]
 async fn a_sonarr_declared_as_a_radarr_is_named() {
@@ -610,6 +634,38 @@ async fn an_arr_that_is_down_answers_a_gateway_error() {
     let expected =
         said(&app, "ArrUnreachableLoopback", &[("service", "Radarr"), ("address", &address)]).await;
     assert_eq!(outage(&response), expected);
+}
+
+/// A sync started without waiting fails with the same explanation the
+/// waited call answers, read from its task: a script polling the task gets
+/// the sentence a person would have been shown.
+#[tokio::test]
+async fn a_sync_not_waited_for_keeps_the_explanation_on_its_task() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", NOTHING_LISTENING).await;
+    let waited = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
+    let explained = outage(&waited);
+
+    let request = axum::http::Request::post("/api/v1/instances/inst-1/sync")
+        .header("prefer", "respond-async")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let started = app.send(request).await;
+    let task = started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap().to_string();
+    let ended = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let job = app.get(&format!("/api/v1/jobs/{task}")).await.assert_ok().clone();
+            if job["status"] != "running" {
+                return job;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("the task never ended");
+
+    assert_eq!(ended["status"], "failed");
+    assert_eq!(ended["error_message"], explained.as_str());
 }
 
 /// The first sync runs as the form closes, so its failure is the one most

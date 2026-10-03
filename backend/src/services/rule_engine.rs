@@ -1167,6 +1167,26 @@ mod tests {
         .matched
     }
 
+    /// Sonarr's series type is one of a few words: any of the condition's
+    /// values may name it, in any case and with stray spaces, and a title
+    /// with no series type, a film among them, matches none.
+    #[test]
+    fn a_series_type_matches_any_of_its_values_whatever_their_case() {
+        use Condition::SeriesTypeIs;
+        let values = |list: &[&str]| SeriesTypeIs(list.iter().map(|v| v.to_string()).collect());
+        let series = |kind: Option<&str>| Media {
+            media_type: "series".into(),
+            series_type: kind.map(str::to_string),
+            ..media()
+        };
+
+        assert!(holds(values(&["standard", " ANIME "]), &series(Some("anime"))));
+        assert!(holds(values(&["daily", "anime"]), &series(Some("Anime"))));
+        assert!(!holds(values(&["standard", "daily"]), &series(Some("anime"))));
+        assert!(!holds(values(&["anime"]), &series(None)));
+        assert!(!holds(values(&[""]), &series(Some(" "))));
+    }
+
     #[test]
     fn requiring_every_keyword_needs_each_of_them() {
         let both = vec!["anime".into(), "Studio Ghibli".into()];
@@ -1898,6 +1918,68 @@ mod tests {
             env(&known, &[], ALL_FIELDS),
         );
         assert!(issues.iter().any(|i| !i.is_error() && i.key == "ValidationCategoryUnmapped"));
+    }
+
+    /// Each field of a draft is refused when it cannot make a rule: an empty
+    /// name, a media type that is none, no condition at all, no category.
+    #[test]
+    fn a_draft_missing_what_a_rule_needs_is_refused_field_by_field() {
+        let known = ["anime".to_string()];
+        let genre = [Condition::GenreContains(vec!["Animation".into()])];
+        let refused = |name, media_type, conditions: &[Condition], target| {
+            let draft = RuleDraft {
+                name,
+                media_type,
+                match_mode: MatchMode::All,
+                conditions,
+                exclusions: &[],
+                target_category: target,
+            };
+            let issues = validate_rule(draft, env(&known, &known, ALL_FIELDS));
+            issues.into_iter().filter(|i| i.is_error()).map(|i| i.key).collect::<Vec<_>>()
+        };
+
+        assert_eq!(refused("  ", "both", &genre, "anime"), ["ValidationNameEmpty"]);
+        assert_eq!(refused("Anime", "films", &genre, "anime"), ["ValidationMediaType"]);
+        assert_eq!(refused("Anime", "both", &[], "anime"), ["ValidationNoConditions"]);
+        assert_eq!(refused("Anime", "both", &genre, " "), ["ValidationCategoryEmpty"]);
+        assert!(refused("Anime", "both", &genre, "anime").is_empty(), "the control was refused");
+    }
+
+    /// Every pair that can never hold together, each beside a pair that can.
+    #[test]
+    fn each_kind_of_contradiction_is_caught_and_only_it() {
+        use Condition::*;
+        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        let cases = [
+            (Monitored(true), Monitored(false), Monitored(true)),
+            (HasMetadata(true), HasMetadata(false), HasMetadata(true)),
+            (
+                KeywordContains(list(&["mecha"])),
+                KeywordNotContains(list(&["Mecha"])),
+                KeywordNotContains(list(&["isekai"])),
+            ),
+            (
+                KeywordContainsAll(list(&["mecha", "space"])),
+                KeywordNotContains(list(&["space"])),
+                KeywordNotContains(list(&["isekai"])),
+            ),
+            (
+                OriginalLanguage(list(&["ja"])),
+                OriginalLanguageNot(list(&["JA", "ko"])),
+                OriginalLanguageNot(list(&["ko"])),
+            ),
+            (
+                CurrentRootFolder("/movies/anime".into()),
+                CurrentRootFolder("/movies/standard".into()),
+                CurrentRootFolder("/movies/anime/".into()),
+            ),
+        ];
+        for (first, contradicting, compatible) in cases {
+            assert!(contradicts(&first, &contradicting), "{first:?} beside {contradicting:?}");
+            assert!(contradicts(&contradicting, &first), "{contradicting:?} beside {first:?}");
+            assert!(!contradicts(&first, &compatible), "{first:?} beside {compatible:?}");
+        }
     }
 
     #[test]

@@ -774,8 +774,6 @@ async fn record_failure(
     log_execution(&state.pool, by, direction.action(), "failed", false, Some(message), mv).await;
 }
 
-/// Close a job on what it did. Nothing done while something failed is a
-/// failure, whatever the count reads, or the Tasks screen shows it in green.
 /// What the webhook is told when an apply or a revert finishes.
 fn moves_completed(reverted: bool, report: &ApplyReport) -> notify::Event {
     notify::Event::MovesCompleted {
@@ -786,6 +784,8 @@ fn moves_completed(reverted: bool, report: &ApplyReport) -> notify::Event {
     }
 }
 
+/// Close a job on what it did. Nothing done while something failed is a
+/// failure, whatever the count reads, or the Tasks screen shows it in green.
 async fn close_job(job: crate::jobs::JobHandle, done: usize, failed: usize, detail: Detail) {
     if done == 0 && failed > 0 {
         job.fail_with(detail).await;

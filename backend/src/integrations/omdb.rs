@@ -203,8 +203,14 @@ mod tests {
 
         let raw: RawResponse = serde_json::from_str(json).unwrap();
         assert!(is_found(&raw));
-        assert!(split_list(raw.genre.as_deref()).is_empty());
-        assert!(raw.rated.filter(|v| usable(v)).is_none());
+        // Every field read as the client reads it, so none of the "N/A" turns
+        // into a value a rule could match.
+        let details = details_of(raw, "tt0000001").unwrap();
+        assert!(details.genres.is_empty(), "{:?}", details.genres);
+        assert_eq!(details.original_language, None);
+        assert!(details.origin_countries.is_empty(), "{:?}", details.origin_countries);
+        assert_eq!(details.certification, None);
+        assert_eq!(details.overview, None);
     }
 
     fn answering(error: &str) -> RawResponse {

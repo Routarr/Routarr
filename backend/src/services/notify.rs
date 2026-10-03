@@ -8,9 +8,10 @@
 //!
 //! One mechanism, not a gallery of connectors: a POST of JSON to a URL the user
 //! configures. The payload carries the same text under the field names the usual
-//! receivers read (`content` for Discord, `message` for Gotify and ntfy, `body`
-//! for Apprise), alongside Routarr's own structured fields for anything that
-//! parses properly. With a signing secret it is signed as Standard Webhooks
+//! receivers read (`content` for Discord, `message` for Gotify, `body` for
+//! Apprise, and `title` and `message` for ntfy, whose address turns on its
+//! templates to read them), alongside Routarr's own structured fields for
+//! anything that parses properly. With a signing secret it is signed as Standard Webhooks
 //! specifies, so a receiver can tell it came from Routarr.
 
 use std::time::Duration;
@@ -157,6 +158,9 @@ pub struct Notification {
     pub message: String,
     /// The message again, where Discord reads it.
     pub content: String,
+    /// Always `{"parse": []}`: Discord pings nobody a title names, an
+    /// `@everyone` in it included.
+    pub allowed_mentions: AllowedMentions,
     /// The message again, where Apprise reads it.
     pub body: String,
     /// Ids and counts for a program: the instance, the simulation, how many
@@ -174,10 +178,18 @@ fn notification(event: &Event) -> Notification {
         source: "routarr",
         title: "Routarr",
         content: message.clone(),
+        allowed_mentions: AllowedMentions::default(),
         body: message.clone(),
         message,
         data: event.data(),
     }
+}
+
+/// What Discord may ping for a message: nothing.
+#[derive(Debug, Default, Serialize, utoipa::ToSchema)]
+pub struct AllowedMentions {
+    /// Always empty.
+    pub parse: Vec<String>,
 }
 
 /// How long a failed delivery waits before each new attempt. The first
@@ -189,18 +201,32 @@ const RETRIES: [Duration; 3] =
 const RETRIES: [Duration; 3] =
     [Duration::from_millis(10), Duration::from_millis(20), Duration::from_millis(30)];
 
-/// Deliveries waiting to be tried again. A webhook down for a while holds one
-/// task per event, so the count is bounded, and an event past it is logged
-/// and dropped rather than queued without end. Lost on restart.
-static RETRYING: Semaphore = Semaphore::const_new(32);
+/// The notifications of one installation, sent one at a time.
+pub struct Queue {
+    /// Held through a delivery and its retries: a newer event never lands
+    /// before an older one still being retried, which would leave a channel
+    /// on the wrong state.
+    turn: tokio::sync::Mutex<()>,
+    /// Deliveries being sent or waiting their turn. A webhook down for a
+    /// while holds one per event, so the count is bounded, and an event past
+    /// it is logged and dropped rather than queued without end. Lost on
+    /// restart.
+    pending: Semaphore,
+}
+
+impl Default for Queue {
+    fn default() -> Self {
+        Self { turn: tokio::sync::Mutex::new(()), pending: Semaphore::new(32) }
+    }
+}
 
 /// Post an event to the configured webhook, if there is one and it asked for
 /// this kind.
 ///
 /// Never returns an error and never propagates one: a notification that cannot
-/// be delivered must not fail the sync or the apply that produced it. The first
-/// attempt is awaited, bounded by the outbound HTTP timeout, and the retries a
-/// refusal earns run on a task of their own.
+/// be delivered must not fail the sync or the apply that produced it. It
+/// waits its turn behind the deliveries before it, retries included, so a
+/// caller that must not wait sends through [`send_later`].
 pub async fn send(state: &AppState, event: Event) {
     if webhook_url(state, event.kind()).await.is_none() {
         return;
@@ -218,41 +244,23 @@ pub async fn send(state: &AppState, event: Event) {
     let delivery =
         Delivery { id: format!("msg_{}", uuid::Uuid::new_v4().simple()), body, kind: event.kind() };
 
-    let retry_after = match delivery.attempt(state).await {
-        Ok(()) => return,
-        Err(retry_after) => retry_after,
-    };
-    let Some(retry_after) = retry_after else {
-        return;
-    };
-    let Ok(waiting) = RETRYING.try_acquire() else {
+    let Ok(_pending) = state.notifications.pending.try_acquire() else {
         warn!(event = delivery.kind, "Too many notifications are waiting, this one is dropped");
         return;
     };
-    waiting.forget();
-    let state = state.clone();
-    tokio::spawn(async move {
-        let _released = Released;
-        let mut wait = retry_after;
-        for delay in RETRIES {
-            tokio::time::sleep(wait.map_or(delay, |asked| asked.max(delay))).await;
-            match delivery.attempt(&state).await {
-                Ok(()) => return,
-                Err(Some(asked)) => wait = asked,
-                Err(None) => return,
-            }
+    let _turn = state.notifications.turn.lock().await;
+    let mut wait = match delivery.attempt(state).await {
+        Ok(()) | Err(None) => return,
+        Err(Some(asked)) => asked,
+    };
+    for delay in RETRIES {
+        tokio::time::sleep(wait.map_or(delay, |asked| asked.max(delay))).await;
+        match delivery.attempt(state).await {
+            Ok(()) | Err(None) => return,
+            Err(Some(asked)) => wait = asked,
         }
-        warn!(event = delivery.kind, "Notification not delivered after every retry");
-    });
-}
-
-/// Gives back the place a retrying delivery held, however its task ends.
-struct Released;
-
-impl Drop for Released {
-    fn drop(&mut self) {
-        RETRYING.add_permits(1);
     }
+    warn!(event = delivery.kind, "Notification not delivered after every retry");
 }
 
 /// `send`, on a task of its own, for an event a caller must not wait on: the
@@ -461,6 +469,32 @@ mod receivers {
         serde_json::to_value(notification(event)).unwrap()
     }
 
+    /// Each event names itself, says how serious it is, and carries the ids
+    /// and counts a program reads, never prose.
+    #[test]
+    fn each_event_carries_its_name_its_severity_and_its_data() {
+        use serde_json::json;
+        let expected = [
+            ("instance_unreachable", "error", json!({ "instance": "Radarr" })),
+            ("instance_recovered", "info", json!({ "instance": "Radarr" })),
+            ("auto_apply_failed", "error", json!({ "failed": 1, "applied": 0 })),
+            ("sync_failed", "error", json!({ "instance_id": "inst-1", "instance": "Radarr" })),
+            (
+                "simulation_completed",
+                "info",
+                json!({ "simulation_id": "s-1", "total": 3, "moves": 1 }),
+            ),
+            ("apply_completed", "warning", json!({ "applied": 1, "failed": 1, "skipped": 0 })),
+            ("revert_completed", "info", json!({ "applied": 1, "failed": 0, "skipped": 0 })),
+        ];
+        for (event, (name, severity, data)) in every_event().iter().zip(expected) {
+            let sent = sent(event);
+            assert_eq!(sent["event"], name, "{sent}");
+            assert_eq!(sent["severity"], severity, "{sent}");
+            assert_eq!(sent["data"], data, "{sent}");
+        }
+    }
+
     /// Apprise API refuses with a 400 a `type` outside info, success, warning
     /// and failure, a `format` outside text, markdown and html, and a request
     /// with no `body` (apprise-api `views.py`).
@@ -477,6 +511,16 @@ mod receivers {
             assert!(format.is_none_or(|f| ["text", "markdown", "html"].contains(&f)), "{sent}");
             assert!(sent["body"].as_str().is_some_and(|body| !body.is_empty()), "{sent}");
         }
+    }
+
+    /// A title is whatever the Arr holds, `@everyone` included, and Discord
+    /// pings what a message names unless `allowed_mentions` says otherwise.
+    #[test]
+    fn a_title_naming_everyone_pings_nobody_on_discord() {
+        let event = Event::InstanceRecovered { instance: "@everyone @here <@&1>".into() };
+        let sent = sent(&event);
+        assert!(sent["content"].as_str().unwrap().contains("@everyone"), "{sent}");
+        assert_eq!(sent["allowed_mentions"], serde_json::json!({ "parse": [] }), "{sent}");
     }
 
     /// Discord refuses a message with no `content` (nor embed) and one over

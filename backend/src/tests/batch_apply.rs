@@ -228,6 +228,58 @@ async fn each_film_of_a_batch_takes_the_path_the_arr_answered_for_it() {
 /// Progress is written as each slice ends, so the operations queue shows a
 /// run moving rather than one that jumps to its end. Each edit is held, so the
 /// count between two slices stands long enough to be read.
+/// Radarr looks a batch's films up together and fails the whole edit on one
+/// it no longer holds. The others still move, and that one fails alone.
+#[tokio::test]
+async fn a_film_radarr_no_longer_holds_fails_alone() {
+    let arr = FakeArr::start().await;
+    arr.forget_movie(101);
+    let app = TestApp::films_to_move(&arr, 3).await;
+    let simulation = app.simulate().await;
+
+    let report = apply(&app, &simulation).await;
+
+    assert_eq!((report.applied, report.failed), (2, 1), "{report:?}");
+    let failed: Vec<String> =
+        sqlx::query_scalar("SELECT media_id FROM decisions WHERE status = 'failed'")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(failed, ["m-1"]);
+}
+
+/// A film Radarr's answer leaves out was not moved, whatever the answer says
+/// about the others, and is not recorded as moved.
+#[tokio::test]
+async fn a_film_the_answer_leaves_out_is_not_recorded_as_moved() {
+    let arr = FakeArr::start().await;
+    arr.leave_out_of_the_answer(101);
+    let app = TestApp::films_to_move(&arr, 2).await;
+    let simulation = app.simulate().await;
+
+    let report = apply(&app, &simulation).await;
+
+    assert_eq!((report.applied, report.failed), (1, 1), "{report:?}");
+    let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 'm-1'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(path, "/movies/standard/Film 101", "the film left out was recorded as moved");
+}
+
+/// Apply a whole simulation, every guardrail confirmed.
+async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::BatchApplyReport {
+    executor::apply_simulation_in_batches(
+        &app.state,
+        simulation,
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap()
+}
+
 #[tokio::test]
 async fn progress_is_recorded_as_each_slice_ends() {
     use std::time::Duration;

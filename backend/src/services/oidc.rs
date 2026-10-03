@@ -207,6 +207,9 @@ struct Claims {
     exp: i64,
     #[serde(default)]
     nonce: Option<String>,
+    /// The client the token was issued at the request of, when it names one.
+    #[serde(default)]
+    azp: Option<String>,
     #[serde(default)]
     preferred_username: Option<String>,
 }
@@ -278,7 +281,11 @@ pub async fn finish(state: &AppState, code: &str, flow_state: &str) -> AppResult
     if claims.iss.trim_end_matches('/') != provider.issuer.trim_end_matches('/') {
         return Err(AppError::BadRequest("The token names another issuer.".into()));
     }
-    if !claims.aud.contains(client_id) {
+    // An audience this client shares with others is accepted only when the
+    // client that asked for the token, if the token names one, is this one
+    // (OpenID Connect Core, section 3.1.3.7).
+    if !claims.aud.contains(client_id) || claims.azp.as_deref().is_some_and(|azp| azp != client_id)
+    {
         return Err(AppError::BadRequest("The token was issued for another client.".into()));
     }
     if claims.exp <= chrono::Utc::now().timestamp() {

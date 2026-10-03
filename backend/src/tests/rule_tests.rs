@@ -108,9 +108,46 @@ async fn a_case_still_runs_after_its_media_row_is_gone() {
     assert_eq!(outcome["passed"], 1, "the snapshot stopped being enough: {outcome}");
 }
 
+/// A case is kept across upgrades, so a snapshot written by the first release,
+/// in the shape its media and metadata had then, still reads and still runs.
+#[tokio::test]
+async fn a_case_written_by_the_first_release_still_runs() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    // `Media` and `MediaMetadata` as v0.1.0 serialised them.
+    let media = r#"{"id":"m-1","instance_id":"inst-1","arr_id":10,"media_type":"movie",
+        "title":"My Neighbor Totoro","sort_title":null,"year":1988,"tmdb_id":8392,
+        "tvdb_id":null,"imdb_id":null,"current_path":"/movies/standard/Totoro",
+        "current_root_folder":"/movies/standard","monitored":true,"has_files":true,
+        "status":"released","added_at":null,"series_type":null,"size_on_disk":null,
+        "season_count":null,"tags":null,"genres":null,"original_language":null,
+        "certification":null,"last_synced_at":"2026-09-21 10:00:00"}"#;
+    let metadata = r#"{"genres":["Animation"],"keywords":[],"original_language":"ja",
+        "origin_countries":["JP"],"certification":"G","status":"Released","overview":null,
+        "poster_path":null,"field_sources":{"genres":"tmdb","original_language":"tmdb"},
+        "sources":["tmdb"]}"#;
+    sqlx::query(
+        "INSERT INTO rule_tests (id, name, media_type, media_json, metadata_json, evaluated_at,
+                                 expected_category, source_media_title)
+         VALUES ('t-1', 'Totoro stays in anime', 'movie', ?, ?, '2026-09-21 10:00:00', 'anime',
+                 'My Neighbor Totoro')",
+    )
+    .bind(media)
+    .bind(metadata)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let outcome = run(&app).await;
+
+    assert_eq!(outcome["passed"], 1, "{outcome}");
+}
+
 /// An override is a human decision about one item and short-circuits the
 /// engine. Folding it into a case would let a pinned exception hide a rule that
-/// had stopped working.
+/// had stopped working: here the exception says what the case expects, so
+/// only the rules, gone, can fail it.
 #[tokio::test]
 async fn an_override_does_not_mask_what_the_rules_decide() {
     let app = TestApp::new().await;
@@ -119,7 +156,7 @@ async fn an_override_does_not_mask_what_the_rules_decide() {
     pin(&app, "Akira stays in anime", "m-1", None).await;
 
     sqlx::query(
-        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm-1', 'kids')",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o1', 'm-1', 'anime')",
     )
     .execute(&app.state.pool)
     .await

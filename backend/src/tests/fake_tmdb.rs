@@ -28,8 +28,10 @@ pub struct Recorded {
 #[derive(Clone)]
 struct FakeState {
     recorded: Arc<Mutex<Recorded>>,
-    /// Ids that answer with an error instead of a payload.
+    /// Ids TMDb does not have: they answer 404.
     failing: Arc<Vec<i64>>,
+    /// Ids TMDb fails on: they answer 500.
+    erroring: Arc<Vec<i64>>,
     /// Ids that answer slowly, to force out-of-order completion.
     slow: Arc<Vec<i64>>,
     /// The `Retry-After` seconds the next item request is refused with, a 429
@@ -57,22 +59,28 @@ impl FakeTmdb {
 
     /// `failing` answer 404 and `slow` answer after a delay.
     pub async fn with(failing: Vec<i64>, slow: Vec<i64>) -> Self {
-        Self::build(failing, slow, None, None).await
+        Self::build(failing, vec![], slow, None, None).await
     }
 
     /// A fake whose first item request is refused with a 429 asking for
     /// `seconds` of quiet, and which answers every request after it.
     pub async fn throttling_once(seconds: u64) -> Self {
-        Self::build(vec![], vec![], Some(seconds), None).await
+        Self::build(vec![], vec![], vec![], Some(seconds), None).await
     }
 
     /// A fake whose every item request answers `status`.
     pub async fn down(status: u16) -> Self {
-        Self::build(vec![], vec![], None, Some(status)).await
+        Self::build(vec![], vec![], vec![], None, Some(status)).await
+    }
+
+    /// A fake that fails on `erroring` with a 500 and answers every other id.
+    pub async fn erroring(erroring: Vec<i64>) -> Self {
+        Self::build(vec![], erroring, vec![], None, None).await
     }
 
     async fn build(
         failing: Vec<i64>,
+        erroring: Vec<i64>,
         slow: Vec<i64>,
         throttle: Option<u64>,
         down: Option<u16>,
@@ -81,6 +89,7 @@ impl FakeTmdb {
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             failing: Arc::new(failing),
+            erroring: Arc::new(erroring),
             slow: Arc::new(slow),
             throttle: Arc::new(Mutex::new(throttle)),
             down,
@@ -135,6 +144,9 @@ async fn movie(
     }
     if state.failing.contains(&id) {
         return StatusCode::NOT_FOUND.into_response();
+    }
+    if state.erroring.contains(&id) {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     // Two ids answer TMDb's two codes outside ISO 639-1: `cn`, its Cantonese,
@@ -199,6 +211,9 @@ async fn tv(
     }
     if state.failing.contains(&id) {
         return StatusCode::NOT_FOUND.into_response();
+    }
+    if state.erroring.contains(&id) {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
     let mut series = serde_json::json!({

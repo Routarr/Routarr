@@ -14,6 +14,22 @@
         ],
         "type": "object"
       },
+      "AllowedMentions": {
+        "description": "What Discord may ping for a message: nothing.",
+        "properties": {
+          "parse": {
+            "description": "Always empty.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "parse"
+        ],
+        "type": "object"
+      },
       "AlternativeDecision": {
         "description": "An alternative decision that was considered but not selected.",
         "properties": {
@@ -866,13 +882,13 @@
             "type": "integer"
           },
           "result": {
-            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. Null while the task runs, when it\nfailed, and for a kind no call starts."
+            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, and for a kind no call starts."
           },
           "started_at": {
             "type": "string"
           },
           "status": {
-            "description": "`queued`, `running`, `success`, `failed` or `cancelled`.",
+            "description": "`running`, `success` or `failed`.",
             "type": "string"
           },
           "subject": {
@@ -1333,6 +1349,10 @@
       "Notification": {
         "description": "What the notification webhook receives.",
         "properties": {
+          "allowed_mentions": {
+            "$ref": "#/components/schemas/AllowedMentions",
+            "description": "Always `{\"parse\": []}`: Discord pings nobody a title names, an\n`@everyone` in it included."
+          },
           "body": {
             "description": "The message again, where Apprise reads it.",
             "type": "string"
@@ -1378,6 +1398,7 @@
           "title",
           "message",
           "content",
+          "allowed_mentions",
           "body",
           "data"
         ],
@@ -1657,13 +1678,13 @@
                   "type": "integer"
                 },
                 "result": {
-                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. Null while the task runs, when it\nfailed, and for a kind no call starts."
+                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, and for a kind no call starts."
                 },
                 "started_at": {
                   "type": "string"
                 },
                 "status": {
-                  "description": "`queued`, `running`, `success`, `failed` or `cancelled`.",
+                  "description": "`running`, `success` or `failed`.",
                   "type": "string"
                 },
                 "subject": {

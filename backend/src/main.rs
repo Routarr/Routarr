@@ -49,6 +49,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.validate()?;
     init_tracing(&config);
     log_panics();
+    for note in &config.startup_notes {
+        warn!("{note}");
+    }
 
     info!("Starting Routarr v{}", env!("CARGO_PKG_VERSION"));
 
@@ -82,6 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sign_in: Arc::new(Default::default()),
         oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
+        notifications: Arc::default(),
         config: Arc::new(config),
     };
 

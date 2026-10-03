@@ -11,6 +11,10 @@ use std::time::Duration;
 use crate::config::Config;
 use crate::error::{AppError, AppResult};
 
+/// How long a whole library may take to list by default, see
+/// `Config::library_timeout`.
+pub const LIBRARY_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Whether an address is link-local: 169.254.0.0/16 and fe80::/10, the IPv4
 /// form inside an IPv6 one included. A cloud host's metadata service answers
 /// there with the machine's own credentials, and no Arr, metadata source,

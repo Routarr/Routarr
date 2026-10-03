@@ -25,10 +25,10 @@ use tokio::time::Instant;
 struct State {
     /// Available tokens. Negative means requests are queued ahead of this one.
     tokens: f64,
+    /// When the bucket last refilled, or, after a `Retry-After`, the moment the
+    /// source named: in the future, nothing refills and nothing goes out
+    /// before it.
     last_refill: Instant,
-    /// Set by `penalise`, when a source states how long it wants to be left
-    /// alone. Nothing goes out before this, whatever the bucket says.
-    not_before: Option<Instant>,
 }
 
 /// Paces requests to one source. Cloning shares the same allowance, which is
@@ -48,11 +48,7 @@ impl RateLimiter {
     pub fn new(per_minute: u32, burst: u32) -> Self {
         let capacity = burst.max(1) as f64;
         Self {
-            state: Arc::new(Mutex::new(State {
-                tokens: capacity,
-                last_refill: Instant::now(),
-                not_before: None,
-            })),
+            state: Arc::new(Mutex::new(State { tokens: capacity, last_refill: Instant::now() })),
             rate: (per_minute.max(1) as f64) / 60.0,
             capacity,
         }
@@ -79,36 +75,31 @@ impl RateLimiter {
         let mut state = self.state.lock().await;
         let now = Instant::now();
 
-        let elapsed = now.saturating_duration_since(state.last_refill).as_secs_f64();
-        state.tokens = (state.tokens + elapsed * self.rate).min(self.capacity);
-        state.last_refill = now;
+        if now > state.last_refill {
+            let elapsed = (now - state.last_refill).as_secs_f64();
+            state.tokens = (state.tokens + elapsed * self.rate).min(self.capacity);
+            state.last_refill = now;
+        }
 
+        // Counted from the later of now and the moment a `Retry-After` named,
+        // so the waiters it held leave at the source's rate from that moment
+        // rather than all at once.
         state.tokens -= 1.0;
-        let bucket_wait = if state.tokens >= 0.0 {
-            Duration::ZERO
-        } else {
-            Duration::from_secs_f64(-state.tokens / self.rate)
-        };
-
-        // An explicit `Retry-After` outranks the bucket: the source knows
-        // something about its own state that arithmetic here cannot.
-        let penalty_wait = state
-            .not_before
-            .map(|until| until.saturating_duration_since(now))
-            .unwrap_or(Duration::ZERO);
-
-        bucket_wait.max(penalty_wait)
+        let owed = Duration::from_secs_f64((-state.tokens).max(0.0) / self.rate);
+        (state.last_refill + owed).saturating_duration_since(now)
     }
 
-    /// Hold everything back for `delay`, because the source asked.
+    /// Hold everything back for `delay`, because the source asked, and let one
+    /// request out at its end, the next at the source's rate after it.
     ///
     /// Only ever extends: two concurrent 429s must not let the shorter one
     /// shorten the longer one's wait.
     pub async fn penalise(&self, delay: Duration) {
         let mut state = self.state.lock().await;
         let until = Instant::now() + delay;
-        if state.not_before.is_none_or(|current| until > current) {
-            state.not_before = Some(until);
+        if until > state.last_refill {
+            state.last_refill = until;
+            state.tokens = state.tokens.min(1.0);
         }
     }
 }
@@ -197,6 +188,21 @@ mod tests {
 
         let wait = limiter.reserve().await;
         assert!(wait >= Duration::from_secs(29), "the source's own delay was ignored: {wait:?}");
+    }
+
+    /// After a `Retry-After`, the waiters leave one at a time at the source's
+    /// rate, from the moment it named, not all together at that moment.
+    #[tokio::test(start_paused = true)]
+    async fn the_waiters_held_by_a_retry_after_leave_paced() {
+        let limiter = RateLimiter::new(60, 5);
+        limiter.penalise(Duration::from_secs(30)).await;
+
+        let mut waits = Vec::new();
+        for _ in 0..3 {
+            waits.push(limiter.reserve().await.as_secs());
+        }
+
+        assert_eq!(waits, [30, 31, 32]);
     }
 
     #[tokio::test(start_paused = true)]

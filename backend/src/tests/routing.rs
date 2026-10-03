@@ -218,12 +218,23 @@ async fn an_override_wins_over_the_rules() {
     .await
     .unwrap();
 
-    let result = simulate(&app, persisting()).await;
+    let stored = SimulationOptions { persist_unchanged: true, ..persisting() };
+    let result = simulate(&app, stored).await;
 
     assert_eq!(result.overrides_applied, 1);
     assert_eq!(result.already_correct, 1);
     assert!(result.decisions[0].is_override);
     assert_eq!(result.decisions[0].confidence, 1.0);
+    // Stored as the exception it is, not as the rule it outranked.
+    let (rule, reasons): (Option<String>, String) =
+        sqlx::query_as("SELECT matched_rule_name, reasons FROM decisions")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    let localizer = app.state.localizer().await;
+    assert_eq!(rule, Some(localizer.translate("ManualOverrideRuleName", &[])));
+    let reasons: Vec<String> = serde_json::from_str(&reasons).unwrap();
+    assert_eq!(reasons, [localizer.translate("ReasonManualOverride", &[])]);
 }
 
 #[tokio::test]
@@ -294,13 +305,24 @@ async fn simulations_are_grouped_by_id() {
 async fn filtering_by_media_type_happens_in_sql() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title,
+                                      current_root_folder)
+                   VALUES ('m-2', 'inst-1', 2, 'series', 'Trigun', '/tv/standard')"])
+        .await;
 
-    let result = simulate(
-        &app,
-        SimulationOptions { media_type: Some("series".into()), ..Default::default() },
-    )
-    .await;
-    assert_eq!(result.total_media, 0);
+    for (kind, titles) in [
+        (Some("series"), ["Trigun"].as_slice()),
+        (Some("movie"), &["My Neighbor Totoro"]),
+        (None, &["My Neighbor Totoro", "Trigun"]),
+    ] {
+        let options =
+            SimulationOptions { media_type: kind.map(str::to_string), ..Default::default() };
+        let result = simulate(&app, options).await;
+        let mut evaluated: Vec<&str> =
+            result.decisions.iter().map(|d| d.media_title.as_str()).collect();
+        evaluated.sort_unstable();
+        assert_eq!(evaluated, titles, "{kind:?}");
+    }
 }
 
 #[tokio::test]
@@ -660,4 +682,53 @@ async fn the_explanation_names_the_folder_the_simulation_proposes() {
         );
         assert_eq!(shown, proposed, "the panel and the simulation disagree on {media_id}");
     }
+}
+
+/// The plan weighs what it sends to each folder: bytes crossing from another
+/// filesystem count against the free space, bytes from a folder reporting the
+/// same free space are a rename and do not, and a folder that cannot take
+/// what it is sent comes first.
+#[tokio::test]
+async fn the_plan_weighs_what_each_folder_receives() {
+    let app = TestApp::new().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+        "INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime'), ('cat-kids', 'kids')",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category, free_space)
+         VALUES ('rf-s', 'inst-1', 1, '/movies/standard', 1, 'standard', 5000),
+                ('rf-a', 'inst-1', 2, '/movies/anime', 1, 'anime', 2000),
+                ('rf-k', 'inst-1', 3, '/movies/kids', 1, 'kids', 5000)",
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, target_category,
+                            match_mode)
+         VALUES ('r-a', 'Anime', 10, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]', 'anime', 'all'),
+                ('r-k', 'Kids', 20, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Family\"]}]', 'kids', 'all')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            size_on_disk, genres, monitored, has_files)
+         VALUES ('m-1', 'inst-1', 1, 'movie', 'One', '/movies/standard', 1500, '[\"Animation\"]', 1, 1),
+                ('m-2', 'inst-1', 2, 'movie', 'Two', '/movies/standard', 1000, '[\"Animation\"]', 1, 1),
+                ('m-3', 'inst-1', 3, 'movie', 'Three', '/movies/standard', 700, '[\"Family\"]', 1, 1)",
+    ])
+    .await;
+
+    let plan = simulate(&app, SimulationOptions::default()).await;
+
+    let weighed: Vec<(String, i64, i64, i64, usize, bool)> = plan
+        .capacity
+        .iter()
+        .map(|c| {
+            let (path, incoming, same, free) =
+                (c.path.clone(), c.incoming_bytes, c.same_filesystem_bytes, c.free_bytes);
+            (path, incoming, same, free, c.items, c.fits)
+        })
+        .collect();
+    assert_eq!(
+        weighed,
+        [
+            ("/movies/anime".into(), 2500, 0, 2000, 2, false),
+            ("/movies/kids".into(), 0, 700, 5000, 1, true),
+        ]
+    );
 }
