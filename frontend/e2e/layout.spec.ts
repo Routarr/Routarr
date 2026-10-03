@@ -97,12 +97,17 @@ test.describe('table cells stay on one line', () => {
     const title = page.locator('td .cell-title', { hasText: 'My Neighbor Totoro' });
     await expect(title).toBeVisible();
     await expect(title).toHaveAttribute('title', 'My Neighbor Totoro');
-    const lines = await title.evaluate((node) => {
-      const range = document.createRange();
-      range.selectNodeContents(node);
-      return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
-    });
-    expect(lines).toBe(1);
+    // Polled: the run redraws the table, and a row measured mid-redraw has no
+    // line at all.
+    await expect
+      .poll(() =>
+        title.evaluate((node) => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+        }),
+      )
+      .toBe(1);
   });
 
   test('a timestamp is written the way the language writes it', async ({ page }) => {
