@@ -5,6 +5,11 @@
 //! keeps the test setup to a single line. Everything is recorded, so a test can
 //! assert on what actually went over the wire rather than on what the client
 //! meant to send.
+//!
+//! Each source holds one work, under the id the real one gives it, and answers
+//! any other id as that source answers a miss. A client asking with the wrong
+//! id, column or path then reads nothing, rather than the one work every id
+//! would otherwise describe.
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
@@ -22,16 +27,32 @@ pub struct Recorded {
     pub searches: Vec<(&'static str, String)>,
     /// Credentials the client presented, per source.
     pub credentials: Vec<(&'static str, String)>,
+    /// The id each details read asked for, per source. TheTVDB's carries its
+    /// kind, `movies/<id>` or `series/<id>`.
+    pub details: Vec<(&'static str, String)>,
+    /// The format each search was restricted to, per source: AniList's
+    /// `format`, Jikan's `type`, `None` for an unrestricted search.
+    pub formats: Vec<(&'static str, Option<String>)>,
 }
+
+/// The one work each source holds: My Neighbor Totoro, as AniList and
+/// MyAnimeList number it, its IMDb id, and the TheTVDB id the test library
+/// gives it. AniList and Jikan also hold their id 1, Cowboy Bebop, a series,
+/// which a search restricted to films never answers, and which their probes
+/// ask for.
+pub const ANILIST_ID: i64 = 523;
+pub const MAL_ID: &str = "523";
+pub const IMDB_ID: &str = "tt0096283";
+pub const TVDB_ID: &str = "76885";
 
 #[derive(Clone)]
 struct FakeState {
     recorded: Arc<Mutex<Recorded>>,
     /// When false, the search answers with a work whose year does not match.
     matching_year: bool,
-    /// When set, every route answers with this status instead of a payload, the
-    /// "the source is down" case the real Jikan produces whenever MyAnimeList is
-    /// unavailable.
+    /// When set, every route of every source answers with this status instead
+    /// of a payload, the "the source is down" case the real Jikan produces
+    /// whenever MyAnimeList is unavailable.
     fail_with: Option<u16>,
     /// When set, AniList answers 200 with `data: null` and an `errors` list,
     /// which is how GraphQL reports a failure.
@@ -42,13 +63,19 @@ struct FakeState {
     tvdb_token: Arc<Mutex<u32>>,
     /// Whether TheTVDB has revoked the key: a login with it is refused.
     tvdb_revoked: Arc<Mutex<bool>>,
+    /// Whether the OMDb key has spent its daily quota.
+    omdb_spent: Arc<Mutex<bool>>,
 }
+
+/// The one key the OMDb stand-in accepts.
+pub const OMDB_KEY: &str = "omdb-key";
 
 pub struct FakeSources {
     pub base_url: String,
     recorded: Arc<Mutex<Recorded>>,
     tvdb_token: Arc<Mutex<u32>>,
     tvdb_revoked: Arc<Mutex<bool>>,
+    omdb_spent: Arc<Mutex<bool>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -80,6 +107,7 @@ impl FakeSources {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let tvdb_token = Arc::new(Mutex::new(1));
         let tvdb_revoked = Arc::new(Mutex::new(false));
+        let omdb_spent = Arc::new(Mutex::new(false));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             matching_year,
@@ -87,6 +115,7 @@ impl FakeSources {
             graphql_error,
             tvdb_token: Arc::clone(&tvdb_token),
             tvdb_revoked: Arc::clone(&tvdb_revoked),
+            omdb_spent: Arc::clone(&omdb_spent),
         };
 
         let app = Router::new()
@@ -100,8 +129,7 @@ impl FakeSources {
             // TheTVDB: a login, then bearer-authenticated reads.
             .route("/tvdb/login", post(tvdb_login))
             .route("/tvdb/genres", get(tvdb_genres))
-            .route("/tvdb/movies/{id}/extended", get(tvdb_record))
-            .route("/tvdb/series/{id}/extended", get(tvdb_record))
+            .route("/tvdb/{kind}/{id}/extended", get(tvdb_record))
             .with_state(state);
 
         let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake sources");
@@ -121,6 +149,7 @@ impl FakeSources {
             recorded,
             tvdb_token,
             tvdb_revoked,
+            omdb_spent,
             shutdown: Some(tx),
         }
     }
@@ -129,6 +158,12 @@ impl FakeSources {
     /// working, and only a new login gets a working one.
     pub fn expire_tvdb_token(&self) {
         *self.tvdb_token.lock().expect("token") += 1;
+    }
+
+    /// What OMDb does once a key has made its thousand requests of the day:
+    /// every request is refused until the next.
+    pub fn spend_omdb_quota(&self) {
+        *self.omdb_spent.lock().expect("spent") = true;
     }
 
     /// What TheTVDB does to a revoked key: its tokens stop working, and a login
@@ -168,56 +203,106 @@ fn record(state: &FakeState, path: &str) {
     state.recorded.lock().expect("lock").paths.push(path.to_string());
 }
 
+fn record_details(state: &FakeState, source: &'static str, id: String) {
+    state.recorded.lock().expect("lock").details.push((source, id));
+}
+
 // ------------------------------------------------------------------ AniList
 
 async fn anilist(
     State(state): State<FakeState>,
     Json(body): Json<serde_json::Value>,
-) -> Json<serde_json::Value> {
+) -> (StatusCode, Json<serde_json::Value>) {
     record(&state, "/anilist");
+    if let Some(status) = state.fail_with {
+        return (StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({})));
+    }
     let query = body["query"].as_str().unwrap_or_default();
 
     if query.contains("Page(") {
         let search = body["variables"]["search"].as_str().unwrap_or_default().to_string();
-        state.recorded.lock().expect("lock").searches.push(("anilist", search));
+        let format = body["variables"]["format"].as_str().map(str::to_string);
+        {
+            let mut recorded = state.recorded.lock().expect("lock");
+            recorded.searches.push(("anilist", search));
+            recorded.formats.push(("anilist", format.clone()));
+        }
         if state.graphql_error {
-            return Json(serde_json::json!({
-                "data": null,
-                "errors": [{ "message": "Internal Server Error", "status": 500 }]
-            }));
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "data": null,
+                    "errors": [{ "message": "Internal Server Error", "status": 500 }]
+                })),
+            );
         }
 
         let year = if state.matching_year { 1988 } else { 1972 };
-        return Json(serde_json::json!({
-            "data": { "Page": { "media": [{
-                "id": 523,
-                "startDate": { "year": year },
-                // The library says "My Neighbor Totoro", and AniList indexes the
-                // romaji first. Matching has to survive that.
-                "title": {
-                    "romaji": "Tonari no Totoro",
-                    "english": "My Neighbor Totoro",
-                    "native": "となりのトトロ"
-                },
-                "synonyms": ["Totoro"]
-            }] } }
-        }));
+        // The series first: a search for a film that is not restricted to
+        // films finds it, and only the title then keeps it apart.
+        let bebop = serde_json::json!({
+            "id": 1,
+            "format": "TV",
+            "startDate": { "year": 1998 },
+            "title": { "romaji": "Cowboy Bebop", "english": "Cowboy Bebop" },
+            "synonyms": []
+        });
+        let series = if format.as_deref() == Some("MOVIE") { None } else { Some(bebop) };
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "data": { "Page": { "media": series.into_iter().chain([serde_json::json!({
+                    "id": ANILIST_ID,
+                    "format": "MOVIE",
+                    "startDate": { "year": year },
+                    // The library says "My Neighbor Totoro", and AniList indexes the
+                    // romaji first. Matching has to survive that.
+                    "title": {
+                        "romaji": "Tonari no Totoro",
+                        "english": "My Neighbor Totoro",
+                        "native": "となりのトトロ"
+                    },
+                    "synonyms": ["Totoro"]
+                })]).collect::<Vec<_>>() } }
+            })),
+        );
     }
 
-    Json(serde_json::json!({
-        "data": { "Media": {
-            "genres": ["Adventure", "Slice of Life"],
-            "countryOfOrigin": "JP",
-            "status": "FINISHED",
-            "description": "Two sisters meet a forest spirit.",
-            "tags": [
-                { "name": "Iyashikei", "rank": 90 },
-                { "name": "Rural", "rank": 75 },
-                // Below the agreement floor: noise in a rule, and dropped.
-                { "name": "Time Skip", "rank": 12 }
-            ]
-        } }
-    }))
+    // The probe writes its id into the query, a details read passes it as a
+    // variable.
+    let id = &body["variables"]["id"];
+    let id = id.as_i64().or_else(|| query.contains("Media(id: 1)").then_some(1));
+    record_details(&state, "anilist", id.map_or_else(|| "null".into(), |id| id.to_string()));
+    if id == Some(1) {
+        return (StatusCode::OK, Json(serde_json::json!({ "data": { "Media": { "id": 1 } } })));
+    }
+    // AniList answers an id it does not hold with a 404 and `Media: null`.
+    if id != Some(ANILIST_ID) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "data": { "Media": null },
+                "errors": [{ "message": "Not Found.", "status": 404 }]
+            })),
+        );
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "data": { "Media": {
+                "genres": ["Adventure", "Slice of Life"],
+                "countryOfOrigin": "JP",
+                "status": "FINISHED",
+                "description": "Two sisters meet a forest spirit.",
+                "tags": [
+                    { "name": "Iyashikei", "rank": 90 },
+                    { "name": "Rural", "rank": 75 },
+                    // Below the agreement floor: noise in a rule, and dropped.
+                    { "name": "Time Skip", "rank": 12 }
+                ]
+            } }
+        })),
+    )
 }
 
 // -------------------------------------------------------------------- Jikan
@@ -231,14 +316,33 @@ async fn jikan_search(
         return Err(StatusCode::from_u16(status).unwrap());
     }
     let search = params.get("q").cloned().unwrap_or_default();
-    state.recorded.lock().expect("lock").searches.push(("jikan", search));
+    let restricted = params.get("type").cloned();
+    {
+        let mut recorded = state.recorded.lock().expect("lock");
+        recorded.searches.push(("jikan", search));
+        recorded.formats.push(("jikan", restricted.clone()));
+    }
 
     // Jikan's `year` is the broadcast season, null for a film: the release
-    // year is the start of `aired`.
+    // year is the start of `aired`. The series first, as AniList's.
     let released = if state.matching_year { 1988 } else { 1972 };
+    let bebop = serde_json::json!({
+        "mal_id": 1,
+        "type": "TV",
+        "year": 1998,
+        "aired": {
+            "from": "1998-04-03T00:00:00+00:00",
+            "prop": { "from": { "day": 3, "month": 4, "year": 1998 } }
+        },
+        "title": "Cowboy Bebop",
+        "title_english": "Cowboy Bebop",
+        "titles": [{ "title": "Cowboy Bebop" }]
+    });
+    let series = if restricted.as_deref() == Some("movie") { None } else { Some(bebop) };
     Ok(Json(serde_json::json!({
-        "data": [{
+        "data": series.into_iter().chain([serde_json::json!({
             "mal_id": 523,
+            "type": "Movie",
             "year": null,
             "aired": {
                 "from": format!("{released}-04-16T00:00:00+00:00"),
@@ -248,7 +352,7 @@ async fn jikan_search(
             "title_english": "My Neighbor Totoro",
             "title_japanese": "となりのトトロ",
             "titles": [{ "title": "Totoro" }]
-        }]
+        })]).collect::<Vec<_>>()
     })))
 }
 
@@ -259,6 +363,13 @@ async fn jikan_details(
     record(&state, &format!("/jikan/anime/{id}/full"));
     if let Some(status) = state.fail_with {
         return Err(StatusCode::from_u16(status).unwrap());
+    }
+    record_details(&state, "jikan", id.clone());
+    if id == "1" {
+        return Ok(Json(serde_json::json!({ "data": { "mal_id": 1, "title": "Cowboy Bebop" } })));
+    }
+    if id != MAL_ID {
+        return Err(StatusCode::NOT_FOUND);
     }
     Ok(Json(serde_json::json!({
         "data": {
@@ -278,26 +389,51 @@ async fn jikan_details(
 async fn omdb(
     State(state): State<FakeState>,
     Query(params): Query<HashMap<String, String>>,
-) -> Json<serde_json::Value> {
+) -> (StatusCode, Json<serde_json::Value>) {
     record(&state, "/omdb");
-    if let Some(key) = params.get("apikey") {
-        state.recorded.lock().expect("lock").credentials.push(("omdb", key.clone()));
+    if let Some(status) = state.fail_with {
+        return (StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({})));
+    }
+    let key = params.get("apikey").cloned().unwrap_or_default();
+    state.recorded.lock().expect("lock").credentials.push(("omdb", key.clone()));
+    // OMDb refuses a key it does not know, and one past its quota, with a 401
+    // and the same body shape as a miss.
+    let refusal = if key != OMDB_KEY {
+        Some("Invalid API key!")
+    } else if *state.omdb_spent.lock().expect("spent") {
+        Some("Request limit reached!")
+    } else {
+        None
+    };
+    if let Some(error) = refusal {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "Response": "False", "Error": error })),
+        );
     }
 
-    // OMDb answers 200 with Response=False for an unknown id.
-    if params.get("i").map(String::as_str) == Some("tt0000000") {
-        return Json(serde_json::json!({ "Response": "False", "Error": "Incorrect IMDb ID." }));
+    let id = params.get("i").cloned().unwrap_or_default();
+    record_details(&state, "omdb", id.clone());
+    // OMDb answers 200 with Response=False for an id it does not hold.
+    if id != IMDB_ID {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "Response": "False", "Error": "Incorrect IMDb ID." })),
+        );
     }
 
-    Json(serde_json::json!({
-        "Response": "True",
-        "Genre": "Animation, Family, Fantasy",
-        // Names, not codes: the whole reason the client normalises.
-        "Language": "Japanese, English",
-        "Country": "Japan",
-        "Rated": "G",
-        "Plot": "Two sisters meet a forest spirit."
-    }))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "Response": "True",
+            "Genre": "Animation, Family, Fantasy",
+            // Names, not codes: the whole reason the client normalises.
+            "Language": "Japanese, English",
+            "Country": "Japan",
+            "Rated": "G",
+            "Plot": "Two sisters meet a forest spirit."
+        })),
+    )
 }
 
 // ------------------------------------------------------------------ TheTVDB
@@ -307,6 +443,9 @@ async fn tvdb_login(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     record(&state, "/tvdb/login");
+    if let Some(status) = state.fail_with {
+        return Err((StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({}))));
+    }
     let key = body["apikey"].as_str().unwrap_or_default().to_string();
     let pin = body["pin"].as_str().unwrap_or_default().to_string();
     state.recorded.lock().expect("lock").credentials.push(("tvdb", format!("{key}/{pin}")));
@@ -343,14 +482,26 @@ async fn tvdb_genres(
     Ok(Json(serde_json::json!({ "data": [{ "id": 27, "name": "Anime" }] })))
 }
 
+/// A film or a series, `kind` being `movies` or `series`. The one work is held
+/// under both, so the library's film and its series read alike.
 async fn tvdb_record(
     State(state): State<FakeState>,
     headers: HeaderMap,
-    Path(id): Path<String>,
+    Path((kind, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     record(&state, &format!("/tvdb/{id}/extended"));
+    if let Some(status) = state.fail_with {
+        return Err((StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({}))));
+    }
     if !holds_the_token(&state, &headers) {
         return Err(unauthorized());
+    }
+    record_details(&state, "tvdb", format!("{kind}/{id}"));
+    if !matches!(kind.as_str(), "movies" | "series") || id != TVDB_ID {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "status": "failure", "message": "NotFoundException" })),
+        ));
     }
     Ok(Json(serde_json::json!({
         "data": {

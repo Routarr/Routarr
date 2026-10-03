@@ -168,6 +168,11 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   server does not start: reqwest's defaults follow ten redirects anywhere with
   no timeout, so a fallback would silently discard both properties on the one
   path that carries a credential.
+- **Nothing is sent to a link-local address** (169.254.0.0/16, fe80::/10),
+  where a cloud host's metadata service hands out the machine's credentials.
+  The check is made on the address a connection is about to use, so a name
+  that resolves there later is refused as well as an address typed in. The
+  loopback and private ranges, where Arrs live, stay reachable.
 - **Transport errors are described from the error's source chain**, never from
   `reqwest`'s own `Display`, which embeds the URL and therefore any `?api_key=`
   in it.
@@ -197,7 +202,7 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **The API key is a full-access credential.** Whoever holds it can download a
   backup, which carries the master key, and can point a connection test or the
   outbound notification at any `http(s)` address the server can reach, the
-  local network included. Treat it as you would the Arr's own, and give another
+  local network included, link-local addresses aside. Treat it as you would the Arr's own, and give another
   application a key of its own instead, which reaches none of that.
 - **That includes replacing the key itself.** `POST /auth/api-key` sits behind
   the same middleware, so a stolen key can rotate itself. In `apikey` mode,

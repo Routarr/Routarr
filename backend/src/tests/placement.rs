@@ -70,6 +70,98 @@ async fn a_title_the_library_holds_goes_where_the_simulation_sends_it() {
     assert_eq!(explained.assert_ok()["target_category"], answer["category"]);
 }
 
+/// Each answer a request bot acts on, over the one fixture: a title already
+/// where it belongs is left alone, one whose category has no folder is
+/// skipped, a declared folder says so, a pin settles the title whatever the
+/// rules read, and a field only an exclusion reads is still named unanswered,
+/// since answered, it could send the title elsewhere.
+#[tokio::test]
+async fn each_answer_a_caller_acts_on_comes_back_as_such() {
+    struct Case {
+        name: &'static str,
+        setup: &'static [&'static str],
+        action: &'static str,
+        category: &'static str,
+        folder: Value,
+        pinned: bool,
+        unanswered: Value,
+    }
+    let arr_folder = serde_json::json!({ "path": "/movies/anime", "origin": "arr" });
+    let cases = [
+        Case {
+            name: "already there",
+            setup: &["UPDATE media SET current_root_folder = '/movies/anime'"],
+            action: "none",
+            category: "anime",
+            folder: arr_folder.clone(),
+            pinned: false,
+            unanswered: serde_json::json!([]),
+        },
+        Case {
+            name: "no folder for its category",
+            setup: &["UPDATE root_folders SET category = NULL WHERE path = '/movies/anime'"],
+            action: "skip",
+            category: "anime",
+            folder: Value::Null,
+            pinned: false,
+            unanswered: serde_json::json!([]),
+        },
+        Case {
+            name: "a declared folder",
+            setup: &[
+                "UPDATE root_folders SET category = NULL WHERE path = '/movies/anime'",
+                "INSERT INTO root_folders (id, instance_id, path, accessible, origin, category)
+                 VALUES ('rf-d', 'inst-1', '/movies/anime/films', 1, 'declared', 'anime')",
+            ],
+            action: "move",
+            category: "anime",
+            folder: serde_json::json!({ "path": "/movies/anime/films", "origin": "declared" }),
+            pinned: false,
+            unanswered: serde_json::json!([]),
+        },
+        Case {
+            name: "a pin",
+            setup: &[
+                "INSERT INTO overrides (id, media_id, target_category)
+                 SELECT 'o-1', id, 'kids' FROM media",
+                "UPDATE rules SET exclusions = '[{\"type\":\"keyword_contains\",\"value\":[\"live action\"]}]'",
+            ],
+            action: "move",
+            category: "kids",
+            folder: serde_json::json!({ "path": "/movies/kids", "origin": "arr" }),
+            pinned: true,
+            unanswered: serde_json::json!([]),
+        },
+        Case {
+            name: "an exclusion on a field no source answers",
+            setup: &[
+                "UPDATE rules SET exclusions = '[{\"type\":\"keyword_contains\",\"value\":[\"live action\"]}]'",
+            ],
+            action: "move",
+            category: "anime",
+            folder: arr_folder.clone(),
+            pinned: false,
+            unanswered: serde_json::json!(["keywords"]),
+        },
+    ];
+
+    for case in cases {
+        let arr = FakeArr::start().await;
+        let app = TestApp::new().await;
+        radarr_library(&app, &arr).await;
+        app.execute(case.setup).await;
+
+        let placed = app.get("/api/v1/route?type=movie&tmdb=8392").await;
+        let answer = only(placed.assert_ok());
+
+        assert_eq!(answer["action"], case.action, "{}: {answer}", case.name);
+        assert_eq!(answer["category"], case.category, "{}", case.name);
+        assert_eq!(answer["root_folder"], case.folder, "{}", case.name);
+        assert_eq!(answer["is_override"], case.pinned, "{}", case.name);
+        assert_eq!(answer["unanswered_fields"], case.unanswered, "{}", case.name);
+    }
+}
+
 #[tokio::test]
 async fn a_title_only_the_arr_knows_is_looked_up_and_placed_without_being_stored() {
     let arr = FakeArr::start().await;

@@ -47,12 +47,27 @@ pub const FLOW_MINUTES: i64 = 10;
 /// against a flood nobody ever sees on a homelab port.
 const MAX_PENDING_FLOWS: i64 = 4096;
 
-/// The two endpoints a sign-in needs, as the provider states them.
+/// The two endpoints a sign-in needs, as the provider states them, and how
+/// its token endpoint takes the client's credentials.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Provider {
     pub issuer: String,
     pub authorization_endpoint: String,
     pub token_endpoint: String,
+    #[serde(default)]
+    pub token_endpoint_auth_methods_supported: Vec<String>,
+}
+
+impl Provider {
+    /// Whether the credentials go in the body. HTTP Basic is what OpenID
+    /// Connect Discovery reads when a provider lists nothing, and the one a
+    /// provider left at its defaults accepts (Authelia refuses a secret in the
+    /// body), so the body is used only where Basic is not offered.
+    fn takes_the_secret_in_the_body(&self) -> bool {
+        let offers =
+            |method: &str| self.token_endpoint_auth_methods_supported.iter().any(|m| m == method);
+        offers("client_secret_post") && !offers("client_secret_basic")
+    }
 }
 
 /// How long the provider's description is trusted without asking again.
@@ -239,19 +254,24 @@ pub async fn finish(state: &AppState, code: &str, flow_state: &str) -> AppResult
     let client_secret = require(&state.config.oidc_client_secret, "ROUTARR_OIDC_CLIENT_SECRET")?;
     let redirect_uri = require(&state.config.oidc_redirect_url, "ROUTARR_OIDC_REDIRECT_URL")?;
 
-    let form = [
+    let mut form = vec![
         ("grant_type", "authorization_code"),
         ("code", code),
         ("redirect_uri", redirect_uri),
-        ("client_id", client_id),
-        ("client_secret", client_secret),
         ("code_verifier", &verifier),
     ];
-    let tokens: TokenResponse = crate::integrations::send_json(
-        "oidc",
-        state.http.post(&provider.token_endpoint).form(&form),
-    )
-    .await?;
+    let request = state.http.post(&provider.token_endpoint);
+    let request = if provider.takes_the_secret_in_the_body() {
+        form.extend([("client_id", client_id), ("client_secret", client_secret)]);
+        request
+    } else {
+        // Each form-encoded before the two are joined (RFC 6749 §2.3.1): a
+        // secret holding a colon would otherwise split in the wrong place.
+        let encoded =
+            |value: &str| form_urlencoded::byte_serialize(value.as_bytes()).collect::<String>();
+        request.basic_auth(encoded(client_id), Some(encoded(client_secret)))
+    };
+    let tokens: TokenResponse = crate::integrations::send_json("oidc", request.form(&form)).await?;
 
     let claims = decode_claims(&tokens.id_token)?;
 

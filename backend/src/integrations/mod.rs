@@ -22,6 +22,7 @@ const UNREACHABLE: &str = "connection refused or host unreachable";
 const HANDSHAKE_FAILED: &str = "the TLS handshake failed";
 const NOT_HTTP: &str = "the server did not answer in HTTP";
 const REDIRECT_LOOP: &str = "the server redirects in a loop";
+const LINK_LOCAL: &str = "the address is link-local";
 const UNREADABLE: &str = "unreadable ";
 
 /// What a refusal with a status says beyond it, written and read back here
@@ -47,6 +48,8 @@ pub(crate) enum Transport {
     RedirectLoop,
     /// Something answered 2xx with a body that is not what the API returns.
     Unreadable,
+    /// The address is link-local, where Routarr does not connect.
+    LinkLocal,
 }
 
 /// The transport failure a status-0 `ExternalApi` message states, if any.
@@ -58,6 +61,7 @@ pub(crate) fn transport_failure(message: &str) -> Option<Transport> {
         HANDSHAKE_FAILED => Some(Transport::HandshakeFailed),
         NOT_HTTP => Some(Transport::NotHttp),
         REDIRECT_LOOP => Some(Transport::RedirectLoop),
+        LINK_LOCAL => Some(Transport::LinkLocal),
         other if other.starts_with(UNREADABLE) => Some(Transport::Unreadable),
         _ => None,
     }
@@ -112,7 +116,23 @@ async fn check_status(
     service: &'static str,
     request: reqwest::RequestBuilder,
 ) -> AppResult<reqwest::Response> {
-    let response = request.send().await.map_err(|e| AppError::ExternalApi {
+    let refused = |message: String| AppError::ExternalApi {
+        service: service.to_string(),
+        status: 0,
+        message,
+        retry_after: None,
+    };
+    let (client, request) = request.build_split();
+    let request = request.map_err(|e| refused(describe_transport_error(&e)))?;
+    // A literal address never reaches the resolver that keeps names off the
+    // link-local ranges, so it is checked here, the one way out.
+    let literal = request.url().host_str().and_then(|host| {
+        host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>().ok()
+    });
+    if literal.is_some_and(crate::http::is_link_local) {
+        return Err(refused(LINK_LOCAL.to_string()));
+    }
+    let response = client.execute(request).await.map_err(|e| AppError::ExternalApi {
         service: service.to_string(),
         status: 0,
         message: describe_transport_error(&e),
@@ -202,6 +222,10 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 fn describe_transport_error(e: &reqwest::Error) -> String {
     if e.is_timeout() {
         return TIMED_OUT.to_string();
+    }
+    // Before the resolver's own failure, which carries it.
+    if in_chain(e, &|error| error.is::<crate::http::LinkLocal>()) {
+        return LINK_LOCAL.to_string();
     }
     // The connector resolves the name, opens the socket and runs the TLS
     // handshake, and all three fail as one kind of error.

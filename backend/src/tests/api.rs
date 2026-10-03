@@ -2400,13 +2400,16 @@ async fn a_search_wildcard_is_matched_literally() {
     );
 }
 
-/// A retention of 0 keeps everything, as the setting's help says: a purge
-/// reading it as a window deletes every log, task and proposal at once.
+/// A retention of 0 keeps everything, as the setting's help says. It is saved
+/// through the Settings screen's own route and survives the bounds every start
+/// enforces: a minimum of one day there would delete every log, task and
+/// proposal older than a day at the next start.
 #[tokio::test]
 async fn a_retention_of_zero_keeps_everything() {
     let app = aged_rows().await;
-    app.store_setting("log_retention_days", "0").await;
-    app.store_setting("decision_retention_days", "0").await;
+    app.save_setting("log_retention_days", "0").await.assert_ok();
+    app.save_setting("decision_retention_days", "0").await.assert_ok();
+    crate::services::maintenance::converge_setting_bounds(&app.state).await.unwrap();
 
     let response = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
 
@@ -2416,11 +2419,6 @@ async fn a_retention_of_zero_keeps_everything() {
     }
 }
 
-/// What outlived its retention goes, what is younger stays, and the report the
-/// Settings screen renders says how much went. Under the default windows, 90
-/// days for logs and jobs and 30 for proposals, each table holds a row a day
-/// past its window and a row a day inside it. A running job is never purged,
-/// however old.
 /// A row a day past each default window and a row a day inside it, and a
 /// running job older than any.
 async fn aged_rows() -> TestApp {
@@ -2448,6 +2446,11 @@ async fn aged_rows() -> TestApp {
     app
 }
 
+/// What outlived its retention goes, what is younger stays, and the report the
+/// Settings screen renders says how much went. Under the default windows, 90
+/// days for logs and jobs and 30 for proposals, each table holds a row a day
+/// past its window and a row a day inside it. A running job is never purged,
+/// however old.
 #[tokio::test]
 async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     let app = aged_rows().await;

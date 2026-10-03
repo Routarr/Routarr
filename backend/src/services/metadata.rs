@@ -839,6 +839,39 @@ mod tests {
         );
     }
 
+    /// The year agrees within one year either way, no further, and a candidate
+    /// that does not know its year is refused when the library knows it. A
+    /// title of punctuation alone matches nothing, and the first candidate
+    /// that matches is the one taken.
+    #[test]
+    fn a_candidate_is_taken_on_its_title_and_a_year_within_one() {
+        let totoro = |id: &str, year: Option<i64>| {
+            (id.to_string(), year, vec!["Tonari no Totoro".to_string(), "Totoro".to_string()])
+        };
+        for (library_year, candidate_year, taken) in [
+            (Some(1988), Some(1988), true),
+            (Some(1988), Some(1989), true),
+            (Some(1988), Some(1987), true),
+            (Some(1988), Some(1990), false),
+            (Some(1988), Some(1986), false),
+            (Some(1988), None, false),
+            (None, Some(1988), true),
+            (None, None, true),
+        ] {
+            let picked = pick_candidate("Totoro", library_year, [totoro("a-1", candidate_year)]);
+            assert_eq!(picked.is_some(), taken, "{library_year:?} against {candidate_year:?}");
+        }
+
+        assert_eq!(pick_candidate("!?", None, [("a-1".into(), None, vec!["!?".into()])]), None);
+        let several = [
+            ("other".to_string(), Some(1988), vec!["Kiki's Delivery Service".to_string()]),
+            totoro("too-old", Some(1970)),
+            totoro("first", Some(1988)),
+            totoro("second", Some(1988)),
+        ];
+        assert_eq!(pick_candidate("Totoro", Some(1988), several), Some("first".into()));
+    }
+
     #[test]
     fn adding_tmdb_covers_every_field() {
         let fields = covered_fields(&[info(ARR).unwrap(), info(TMDB).unwrap()]);

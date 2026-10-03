@@ -77,6 +77,8 @@ struct FakeState {
     refused_movies: Arc<Mutex<Vec<i64>>>,
     /// Fields the film now has in the Arr, laid over its body.
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    /// Fields the series now has in the Arr, laid over its body.
+    series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     /// Root folders reported beside the usual three.
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
 }
@@ -93,6 +95,7 @@ pub struct FakeArr {
     refused_series: Arc<Mutex<Vec<i64>>>,
     refused_movies: Arc<Mutex<Vec<i64>>>,
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
@@ -177,6 +180,14 @@ impl FakeArr {
         }
     }
 
+    /// From now on the series has these fields, as an edit in the Arr leaves it.
+    pub fn edit_series(&self, edits: serde_json::Value) {
+        let mut held = self.series_edits.lock().expect("lock");
+        for (field, value) in edits.as_object().expect("an object of fields") {
+            held.insert(field.clone(), value.clone());
+        }
+    }
+
     /// From now on the root folder listing reports `folder` as well.
     pub fn report_root_folder(&self, folder: serde_json::Value) {
         self.more_root_folders.lock().expect("lock").push(folder);
@@ -220,6 +231,7 @@ impl FakeArr {
         let refused_series: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
         let refused_movies: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
         let movie_edits = Arc::new(Mutex::new(serde_json::Map::new()));
+        let series_edits = Arc::new(Mutex::new(serde_json::Map::new()));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
         let state = FakeState {
@@ -238,6 +250,7 @@ impl FakeArr {
             refused_series: Arc::clone(&refused_series),
             refused_movies: Arc::clone(&refused_movies),
             movie_edits: Arc::clone(&movie_edits),
+            series_edits: Arc::clone(&series_edits),
             more_root_folders: Arc::clone(&more_root_folders),
         };
 
@@ -283,6 +296,7 @@ impl FakeArr {
             refused_series,
             refused_movies,
             movie_edits,
+            series_edits,
             more_root_folders,
             shutdown: Some(tx),
         }
@@ -664,7 +678,7 @@ async fn series_list(
 }
 
 fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
-    serde_json::json!({
+    let mut series = serde_json::json!({
         "id": id,
         "titleSlug": "cowboy-bebop",
         "seasonFolder": true,
@@ -690,7 +704,11 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "genres": ["Animation", "Action"],
         "originalLanguage": { "id": 8, "name": "Japanese" },
         "certification": "TV-14"
-    })
+    });
+    for (field, value) in state.series_edits.lock().expect("lock").iter() {
+        series[field] = value.clone();
+    }
+    series
 }
 
 /// A series Sonarr knows and does not hold, as its lookup answers one: no id,

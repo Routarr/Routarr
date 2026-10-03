@@ -378,3 +378,60 @@ async fn enriched_metadata_reaches_the_rule_engine() {
     assert_eq!(after.moves_required, 1);
     assert_eq!(after.decisions[0].target_root_folder.as_deref(), Some("/movies/anime"));
 }
+
+/// A 404 says TMDb does not have that title, and nothing about the next one:
+/// ten unknown titles in a row leave the eleventh to be asked and stored.
+#[tokio::test]
+async fn titles_tmdb_does_not_have_never_cut_it_off() {
+    let unknown: Vec<i64> = (1..=10).collect();
+    let tmdb = FakeTmdb::with(unknown.clone(), vec![]).await;
+    let mut items: Vec<(i64, &str, i64)> = unknown.iter().map(|id| (*id, "movie", *id)).collect();
+    items.push((11, "movie", 500));
+    let app = library(&tmdb, &items).await;
+
+    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    assert_eq!(report.skipped, 0, "{report:?}");
+    assert_eq!(tmdb.recorded().paths.len(), 11, "{:?}", tmdb.recorded().paths);
+    assert_eq!(report.enriched, 1, "{report:?}");
+}
+
+/// TMDb down answers every title alike: the fetching stage stops at the
+/// breaker instead of asking once per title, and leaves the rest to the next
+/// pass.
+#[tokio::test]
+async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
+    let tmdb = FakeTmdb::down(503).await;
+    let items: Vec<(i64, &str, i64)> = (1..=20).map(|id| (id, "movie", id)).collect();
+    let app = library(&tmdb, &items).await;
+
+    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let asked = tmdb.recorded().paths.len();
+    assert!(asked <= 12, "{asked} requests for 20 titles to a source that was down");
+    assert!(report.skipped > 0, "{report:?}");
+}
+
+/// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
+/// when nothing is set. Counted otherwise, every pass refetches the whole
+/// library, or a stale answer outlives the setting by months.
+#[tokio::test]
+async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
+    for (setting, days) in [(None, 7), (Some("30"), 30)] {
+        let tmdb = FakeTmdb::start().await;
+        let app = library(&tmdb, &[(1, "movie", 100)]).await;
+        if let Some(value) = setting {
+            app.save_setting("metadata_cache_ttl_days", value).await.assert_ok();
+        }
+
+        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+        let expires: String = sqlx::query_scalar("SELECT expires_at FROM metadata_cache")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+        let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
+        let left = (expires - chrono::Utc::now()).num_hours();
+        assert!((days * 24 - 2..=days * 24).contains(&left), "{setting:?}: {left} hours");
+    }
+}

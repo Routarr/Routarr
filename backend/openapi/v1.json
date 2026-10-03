@@ -1368,15 +1368,10 @@
           "title": {
             "description": "Always `Routarr`.",
             "type": "string"
-          },
-          "type": {
-            "description": "The same, dotted as Standard Webhooks writes it: `instance.unreachable`,\n`sync.failed`, `apply.completed`...",
-            "type": "string"
           }
         },
         "required": [
           "event",
-          "type",
           "timestamp",
           "severity",
           "source",

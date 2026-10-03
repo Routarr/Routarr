@@ -23,7 +23,7 @@ async fn library(sources: &FakeSources, order: &str) -> TestApp {
     config.anilist_base_url = sources.anilist_url();
     config.jikan_base_url = sources.jikan_url();
     config.omdb_base_url = sources.omdb_url();
-    config.omdb_api_key = Some("omdb-key".into());
+    config.omdb_api_key = Some(super::fake_sources::OMDB_KEY.into());
     config.tvdb_base_url = sources.tvdb_url();
     config.tvdb_api_key = Some("tvdb-key".into());
     config.tvdb_pin = Some("1234".into());
@@ -53,6 +53,17 @@ async fn library(sources: &FakeSources, order: &str) -> TestApp {
     app
 }
 
+/// The ids a source was asked to describe, in order.
+fn asked(sources: &FakeSources, source: &str) -> Vec<String> {
+    let recorded = sources.recorded();
+    recorded
+        .details
+        .iter()
+        .filter(|(asked, _)| *asked == source)
+        .map(|(_, id)| id.clone())
+        .collect()
+}
+
 /// What one source cached for the single film.
 async fn cached(app: &TestApp, source: &str) -> Option<(String, String, Option<String>, String)> {
     sqlx::query_as(
@@ -74,6 +85,7 @@ async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
 
     enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
+    assert_eq!(asked(&sources, "omdb"), ["tt0096283"]);
     let (genres, _, certification, countries) = cached(&app, "omdb").await.expect("cached");
     assert_eq!(genres, r#"["Animation","Family","Fantasy"]"#);
     assert_eq!(certification.as_deref(), Some("G"));
@@ -85,6 +97,39 @@ async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
     assert!(
         recorded.credentials.iter().any(|(source, key)| *source == "omdb" && key == "omdb-key")
     );
+}
+
+/// A spent quota refuses every title alike, so the pass stops at the
+/// breaker rather than spending the next day's quota asking, and nothing is
+/// cached: each title is asked again once the quota is back.
+#[tokio::test]
+async fn a_spent_omdb_quota_stops_the_pass_and_caches_nothing() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "omdb").await;
+    for index in 0..30 {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, imdb_id)
+             VALUES (?, 'inst-1', ?, 'movie', ?, ?)",
+        )
+        .bind(format!("m-q{index}"))
+        .bind(100 + index)
+        .bind(format!("Film {index}"))
+        .bind(format!("tt{:07}", 1000 + index))
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+    sources.spend_omdb_quota();
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let asked = sources.recorded().paths.iter().filter(|path| *path == "/omdb").count();
+    assert!(asked < 31, "every title was asked: {asked}");
+    let cached: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(cached, 0, "a refusal was cached as a miss");
 }
 
 #[tokio::test]
@@ -175,6 +220,7 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
     .await
     .unwrap();
 
+    assert_eq!(asked(&sources, "tvdb"), ["movies/76885"]);
     assert_eq!(row.0.as_deref(), Some("ja"), "jpn -> ja");
     assert_eq!(row.1, r#"["JP"]"#, "jpn -> JP");
     // Two ratings offered: the configured region order decides, and the default
@@ -202,12 +248,53 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     // second Radarr is not searched for twice.
     assert_eq!(resolved.0, "tmdb:8392");
     assert_eq!(resolved.1.as_deref(), Some("523"));
+    assert_eq!(asked(&sources, "anilist"), ["523"], "another work was described");
 
     let (genres, keywords, _, countries) = cached(&app, "anilist").await.expect("cached");
     assert_eq!(genres, r#"["Adventure","Slice of Life"]"#);
     assert_eq!(countries, r#"["JP"]"#);
     // Community tags make the keywords, minus the ones nobody agrees with.
     assert_eq!(keywords, r#"["Iyashikei","Rural"]"#);
+}
+
+/// A film is searched among films and a series among everything else, on
+/// both sources that search: restricted to films, a TV anime is never found,
+/// and unrestricted, the film is searched among series as well.
+#[tokio::test]
+async fn a_film_is_searched_among_films_and_a_series_among_the_rest() {
+    for (source, films) in [("anilist", "MOVIE"), ("jikan", "movie")] {
+        let sources = FakeSources::start().await;
+        let app = library(&sources, source).await;
+        app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, year,
+                                          tvdb_id)
+               VALUES ('m-2', 'inst-1', 20, 'series', 'Cowboy Bebop', 1998, 76885)"])
+            .await;
+
+        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+        let resolved: Vec<(String, Option<String>)> = sqlx::query_as(
+            "SELECT local_key, external_id FROM source_identifiers WHERE source = ?
+              ORDER BY local_key",
+        )
+        .bind(source)
+        .fetch_all(&app.state.pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            resolved,
+            [("tmdb:8392".into(), Some("523".into())), ("tvdb:76885".into(), Some("1".into()))],
+            "{source}"
+        );
+        let mut formats: Vec<Option<String>> = sources
+            .recorded()
+            .formats
+            .iter()
+            .filter(|(asked, _)| *asked == source)
+            .map(|(_, format)| format.clone())
+            .collect();
+        formats.sort();
+        assert_eq!(formats, [None, Some(films.to_string())], "{source}");
+    }
 }
 
 #[tokio::test]
@@ -380,6 +467,7 @@ async fn jikan_themes_and_demographics_become_keywords() {
 
     enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
+    assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
     // The vocabulary an anime library is actually sorted by, and which TMDb
@@ -411,6 +499,42 @@ async fn every_source_contributes_what_only_it_has() {
     assert_eq!(field_sources["certification"], "jikan");
     // Neither anime source reports a language, and OMDb is the first that does.
     assert_eq!(field_sources["original_language"], "omdb");
+}
+
+/// Radarr and Sonarr report English for any original language outside the
+/// fifty-seven they know (Cantonese, which TMDb writes `cn`, Malay, Swahili),
+/// so their English is the one answer a later source may correct. Any other
+/// language they report stands, as the order says, and their English stands
+/// where no other source knows the language.
+#[tokio::test]
+async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "arr,omdb").await;
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    for (order, arr_says, read, from) in [
+        ("arr,omdb", "en", "ja", "omdb"),
+        ("arr,omdb", "ko", "ko", "arr"),
+        ("arr", "en", "en", "arr"),
+    ] {
+        app.store_setting("metadata_providers", order).await;
+        // Genres too, so the Arr answers in every case and is listed once
+        // although its English comes last.
+        sqlx::query("UPDATE media SET original_language = ?, genres = '[\"Animation\"]'")
+            .bind(arr_says)
+            .execute(&app.state.pool)
+            .await
+            .unwrap();
+
+        let media = app.get("/api/v1/media/m-1").await;
+        let metadata = &media.assert_ok()["metadata"];
+
+        assert_eq!(metadata["original_language"], read, "{order}, the Arr saying {arr_says}");
+        assert_eq!(metadata["field_sources"]["original_language"], from, "{order}, {arr_says}");
+        let sources = metadata["sources"].as_array().unwrap();
+        let named: Vec<&str> = sources.iter().filter_map(|s| s.as_str()).collect();
+        assert_eq!(named.iter().filter(|s| **s == "arr").count(), 1, "{named:?}");
+    }
 }
 
 #[tokio::test]
@@ -536,13 +660,15 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
     for arr_id in 100..(100 + count) {
         sqlx::query(
             "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tmdb_id,
-             monitored, has_files)
-             VALUES (?, 'inst-1', ?, 'movie', ?, 1988, ?, 1, 1)",
+             tvdb_id, imdb_id, monitored, has_files)
+             VALUES (?, 'inst-1', ?, 'movie', ?, 1988, ?, ?, ?, 1, 1)",
         )
         .bind(format!("m-{arr_id}"))
         .bind(arr_id)
         .bind(format!("Film {arr_id}"))
         .bind(1000 + arr_id)
+        .bind(2000 + arr_id)
+        .bind(format!("tt{:07}", 3000 + arr_id))
         .execute(&app.state.pool)
         .await
         .unwrap();
@@ -555,24 +681,25 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
 /// next pass. A source that has refused five times in one pass is down, so
-/// Routarr stops asking.
+/// Routarr stops asking, a searching source in its resolution stage and an
+/// addressed one in its fetching stage.
 #[tokio::test]
 async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
-    let sources = FakeSources::failing(504).await;
-    let app = library_of(&sources, "jikan", 20).await;
+    for source in ["jikan", "anilist", "omdb", "tvdb"] {
+        let sources = FakeSources::failing(504).await;
+        let app = library_of(&sources, source, 20).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
 
-    // Nothing was enriched, which is expected, but the point is *how* it
-    // failed: the requests that went out are a handful, not one per item. For a
-    // searching source the storm happens in the resolution stage, so that is
-    // where the count is taken.
-    assert_eq!(report.enriched, 0);
-    let attempts = sources.recorded().paths.len();
-    assert!(
-        attempts <= 12,
-        "{attempts} requests went out to a source that was down (20 items in the library)"
-    );
+        // Nothing was enriched, which is expected, but the point is *how* it
+        // failed: the requests that went out are a handful, not one per item.
+        assert_eq!(report.enriched, 0, "{source}");
+        let attempts = sources.recorded().paths.len();
+        assert!(
+            attempts <= 12,
+            "{attempts} requests went out to {source}, which was down (21 items in the library)"
+        );
+    }
 }
 
 /// The breaker must not fire on an ordinary miss: a source answering "I do not

@@ -701,7 +701,8 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
 /// Collapse every enabled source's answer for one item.
 ///
 /// The order is the user's, and per field the first source that has a value
-/// keeps it. `arr` is answered from the row itself (it is the only source that
+/// keeps it, the Arr's English original language aside, which only fills the
+/// field when nothing else does. `arr` is answered from the row itself (it is the only source that
 /// never costs a request), and a fetched source only contributes when the item
 /// carries an identifier in that source's namespace *and* the cache holds it.
 pub(crate) fn resolve_metadata(
@@ -710,11 +711,19 @@ pub(crate) fn resolve_metadata(
     cache: &HashMap<(String, String, String), ProviderMetadata>,
     identifiers: &metadata::Identifiers,
 ) -> Option<MediaMetadata> {
-    let mut parts: Vec<(&str, ProviderMetadata)> = Vec::with_capacity(providers.len());
+    let mut parts: Vec<(&str, ProviderMetadata)> = Vec::with_capacity(providers.len() + 1);
+    let mut arrs_english = None;
 
     for provider in providers {
         if provider.id == metadata::ARR {
-            parts.push((provider.id, metadata::from_media(media)));
+            let mut from_arr = metadata::from_media(media);
+            // Radarr and Sonarr report English for every original language
+            // outside the fifty-seven they know, so their English is offered
+            // last, where it fills the field only when no other source knows.
+            if from_arr.original_language.as_deref() == Some("en") {
+                arrs_english = from_arr.original_language.take();
+            }
+            parts.push((provider.id, from_arr));
             continue;
         }
 
@@ -725,6 +734,12 @@ pub(crate) fn resolve_metadata(
         if let Some(cached) = cache.get(&key) {
             parts.push((provider.id, cached.clone()));
         }
+    }
+    if arrs_english.is_some() {
+        parts.push((
+            metadata::ARR,
+            ProviderMetadata { original_language: arrs_english, ..Default::default() },
+        ));
     }
 
     MediaMetadata::merge(parts)

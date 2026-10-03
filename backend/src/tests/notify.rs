@@ -43,6 +43,16 @@ impl Receiver {
 
     /// A receiver answering these statuses in turn, then 200.
     async fn answering(statuses: &[u16]) -> Self {
+        Self::build(statuses, std::time::Duration::ZERO).await
+    }
+
+    /// A receiver taking `delay` to answer its first delivery with `status`,
+    /// then answering 200 at once.
+    async fn slow_then(status: u16, delay: std::time::Duration) -> Self {
+        Self::build(&[status], delay).await
+    }
+
+    async fn build(statuses: &[u16], first_delay: std::time::Duration) -> Self {
         let received = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&received);
         let answers = Arc::new(Mutex::new(statuses.iter().copied().collect::<VecDeque<u16>>()));
@@ -62,6 +72,10 @@ impl Receiver {
                         signature: header("webhook-signature"),
                         body,
                     });
+                    let first = sink.lock().expect("lock").len() == 1;
+                    if first && !first_delay.is_zero() {
+                        tokio::time::sleep(first_delay).await;
+                    }
                     let status = answers.lock().expect("lock").pop_front().unwrap_or(200);
                     (StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({ "ok": true })))
                 }
@@ -574,7 +588,7 @@ async fn a_notification_is_signed_with_the_secret_shown_once() {
     assert!(delivery.id.starts_with("msg_"), "{delivery:?}");
     assert!(signed_with(&secret, &delivery), "{delivery:?}");
     let body: serde_json::Value = serde_json::from_str(&delivery.body).unwrap();
-    assert_eq!(body["type"], "instance.recovered");
+    assert_eq!(body["event"], "instance_recovered");
     assert_eq!(body["data"]["instance"], "Radarr");
 
     let removed = app.delete("/api/v1/notifications/webhook-secret").await;
@@ -703,7 +717,89 @@ async fn a_completion_is_sent_only_to_a_webhook_that_asked_for_it() {
     let simulation = simulated.assert_ok()["simulation_id"].clone();
     receiver.awaiting(1).await;
     let message = &receiver.messages()[0];
-    assert_eq!(message["type"], "simulation.completed");
+    assert_eq!(message["event"], "simulation_completed");
     assert_eq!(message["data"]["simulation_id"], simulation);
     assert_eq!(message["data"]["moves"], 1);
+}
+
+/// An apply and a revert each announce themselves under their own name, with
+/// their counts, and only to a webhook that asked for completions.
+#[tokio::test]
+async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
+    use crate::services::executor::{self, Confirmed};
+
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 1).await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    let by = crate::jobs::Attribution::manual(None);
+    let pending = || async {
+        app.simulate().await;
+        let id: String = sqlx::query_scalar("SELECT id FROM decisions WHERE status = 'pending'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+        vec![id]
+    };
+
+    let quiet = pending().await;
+    executor::apply_decisions(&app.state, &quiet, false, &Confirmed::all(), &by).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(receiver.deliveries().is_empty(), "a completion nobody asked for was sent");
+
+    app.save_setting("notify_moves_completed", "true").await.assert_ok();
+    executor::revert_decisions(&app.state, &quiet, false, &Confirmed::all(), &by).await.unwrap();
+    let reverted = &receiver.arrived(1).await[0];
+    assert_eq!(reverted["event"], "revert_completed");
+    assert_eq!(reverted["data"], serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0 }));
+
+    let again = pending().await;
+    executor::apply_decisions(&app.state, &again, false, &Confirmed::all(), &by).await.unwrap();
+    let applied = &receiver.arrived(2).await[1];
+    assert_eq!(applied["event"], "apply_completed");
+    assert_eq!(applied["data"], serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0 }));
+}
+
+/// A failed sync is told every time once asked for, beside the one message
+/// an instance going unreachable always earns.
+#[tokio::test]
+async fn a_failed_sync_is_told_every_time_once_asked_for() {
+    let receiver = Receiver::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    listening(&app, &receiver).await;
+    let by = crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE);
+
+    let _ = sync::sync_instance(&app.state, "inst-1", &by).await;
+    assert_eq!(receiver.arrived(1).await[0]["event"], "instance_unreachable");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(receiver.deliveries().len(), 1, "a failed sync nobody asked for was sent");
+
+    app.save_setting("notify_sync_failed", "true").await.assert_ok();
+    let _ = sync::sync_instance(&app.state, "inst-1", &by).await;
+    let failed = &receiver.arrived(2).await[1];
+    assert_eq!(failed["event"], "sync_failed");
+    let name = app.state.instance("inst-1").await.unwrap().name;
+    assert_eq!(failed["data"], serde_json::json!({ "instance_id": "inst-1", "instance": name }));
+}
+
+/// A Standard Webhooks receiver refuses a `webhook-timestamp` more than a few
+/// minutes from its own clock, in seconds. Each attempt is stamped when it is
+/// sent: a retry carrying the first attempt's stamp is refused once the
+/// retries reach minutes. The first answer takes over a second, so the retry
+/// falls in another second.
+#[tokio::test]
+async fn each_attempt_is_stamped_in_seconds_when_it_is_sent() {
+    let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(5));
+    let receiver = Receiver::slow_then(503, std::time::Duration::from_millis(1100)).await;
+    listening(&app, &receiver).await;
+
+    notify::send(&app.state, recovered()).await;
+
+    let deliveries = receiver.awaiting(2).await;
+    let stamps: Vec<i64> =
+        deliveries.iter().map(|d| d.timestamp.parse().expect(&d.timestamp)).collect();
+    let now = chrono::Utc::now().timestamp();
+    assert!(stamps.iter().all(|stamp| (now - stamp).abs() <= 5), "{stamps:?} against {now}");
+    assert!(stamps[1] > stamps[0], "the retry carried the first attempt's stamp: {stamps:?}");
 }

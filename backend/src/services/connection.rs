@@ -38,6 +38,8 @@ pub enum Cause {
     KeyRefused,
     /// Something in front of the Arr asks for its own sign-in.
     SignInInFront,
+    /// The address is link-local, where Routarr does not connect.
+    LinkLocal,
     /// The request was refused before it reached the Arr (HTTP 403).
     RefusedInFront,
     /// A proxy in front answers, and cannot reach the Arr, with this status.
@@ -74,6 +76,7 @@ pub fn cause_of(error: &AppError) -> Option<Cause> {
     match *status {
         0 => match integrations::transport_failure(message)? {
             Transport::NameUnresolved => Some(Cause::NameUnresolved),
+            Transport::LinkLocal => Some(Cause::LinkLocal),
             Transport::Unreachable => Some(Cause::Unreachable),
             Transport::TimedOut => Some(Cause::TimedOut),
             Transport::HandshakeFailed => Some(Cause::HandshakeFailed),
@@ -161,6 +164,7 @@ pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer)
             vec![("service", service), ("address", address), ("base", url_base.as_str())],
         ),
         Cause::KeyRefused => ("ArrKeyRefused", vec![("service", service)]),
+        Cause::LinkLocal => ("ArrLinkLocal", vec![("service", service), ("address", address)]),
         Cause::SignInInFront => ("ArrProxySignIn", vec![("service", service)]),
         Cause::RefusedInFront => ("ArrProxyRefused", vec![("service", service)]),
         Cause::UnreachableBehind(code) => {

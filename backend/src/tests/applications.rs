@@ -157,6 +157,23 @@ async fn an_application_key_sent_as_a_bearer_token_is_held_to_its_scopes() {
     }
 }
 
+/// A key already stored is admitted by its token: the row below is built by
+/// hand, its hash written out from SHA-256 itself, so a change to the label,
+/// the encoding or the hex case of the digest refuses every key in service.
+#[tokio::test]
+async fn a_key_stored_by_hand_is_admitted_by_its_token() {
+    let app = TestApp::with_api_key(MASTER).await;
+    app.execute(&["INSERT INTO api_keys (id, name, secret_hash, scopes, may_confirm,
+                                         may_move_files, created_by)
+           VALUES ('k-1', 'homepage', 'a5c025dbc98bb2ecde41b35bcc38bf4a1229caba397033a9aa76a47ec604ce7b', '[\"read\"]', '[]', 0, 'apikey')"])
+        .await;
+
+    let admitted = send(&app, "GET", "/api/v1/status", Some("rtr_k-1_already-stored"), None).await;
+    assert_eq!(admitted.status, StatusCode::OK, "{}", admitted.json);
+    let refused = send(&app, "GET", "/api/v1/status", Some("rtr_k-1_already-storeD"), None).await;
+    assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "the control: another secret");
+}
+
 /// Under a mount point the matched route carries the prefix, and the grant
 /// is still found by the part after `/api/v1`.
 #[tokio::test]

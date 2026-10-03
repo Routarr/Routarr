@@ -337,13 +337,10 @@ mod tests {
         assert!(!key.may_answer(confirm::CAPACITY));
     }
 
+    /// The digest of `a` as SHA-256 writes it, label included, in lower-case
+    /// hex: a key stored by one build is admitted by the next.
     #[test]
-    fn the_digest_is_labelled_and_stable() {
-        assert_eq!(digest("a"), digest("a"));
-        assert_ne!(digest("a"), digest("b"));
-        let mut plain = Sha256::new();
-        plain.update(b"a");
-        let unlabelled: String = plain.finalize().iter().map(|b| format!("{b:02x}")).collect();
-        assert_ne!(digest("a"), unlabelled, "an unlabelled hash of the same secret must differ");
+    fn the_digest_is_the_labelled_sha256_in_lower_case_hex() {
+        assert_eq!(digest("a"), "af935298aaa0bc96b8eee0e01dd228c76fc52bd2a142bc0d20c7c1e457383c19");
     }
 }
