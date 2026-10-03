@@ -396,8 +396,40 @@ export interface RuleTrace {
   conditions: ConditionOutcome[];
 }
 
+/**
+ * The stored media row an explanation carries, as the backend holds it. Not a
+ * library list item: no instance name, no category, no metadata flag. The
+ * list fields are JSON arrays in a string, as they are stored.
+ */
+export interface ExplainedMedia {
+  id: string;
+  instance_id: string;
+  arr_id: number;
+  media_type: MediaType;
+  title: string;
+  sort_title: string | null;
+  year: number | null;
+  tmdb_id: number | null;
+  tvdb_id: number | null;
+  imdb_id: string | null;
+  current_path: string | null;
+  current_root_folder: string | null;
+  monitored: boolean;
+  has_files: boolean;
+  status: string | null;
+  added_at: string | null;
+  series_type: string | null;
+  size_on_disk: number | null;
+  season_count: number | null;
+  tags: string | null;
+  genres: string | null;
+  original_language: string | null;
+  certification: string | null;
+  last_synced_at: string | null;
+}
+
 export interface Explanation {
-  media: MediaListItem & { current_path: string | null; added_at: string | null };
+  media: ExplainedMedia;
   metadata: MediaMetadata | null;
   override_category: string | null;
   target_category: string;

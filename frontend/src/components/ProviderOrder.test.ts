@@ -26,6 +26,10 @@ const STRINGS = {
   ProviderNeedsKey: 'Needs a key',
   ProviderNoKeyNeeded: 'No key needed',
   ProviderInactive: 'inactive',
+  FacetGenres: 'Genres',
+  FacetKeywords: 'Keywords',
+  FacetLanguages: 'Original languages',
+  ListSeparator: ' ; ',
 };
 
 function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
@@ -40,6 +44,31 @@ function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
     ...over,
   } as MetadataProvider;
 }
+
+/** What enabling a source brings, in the reader's words rather than the engine's identifiers. */
+it('names the fields a source supplies by their captions', async () => {
+  renderWithI18n(ProviderOrder, {
+    props: {
+      id: 'sources',
+      catalogue: [
+        provider({
+          needs_key: false,
+          configured: true,
+          fields: ['genres', 'keywords', 'original_language'],
+        }),
+      ],
+      value: 'tmdb',
+      onChange: vi.fn(),
+      keys: {},
+      onKeyChange: vi.fn(),
+    },
+    strings: STRINGS,
+  });
+
+  expect(
+    await screen.findByText(/No key needed · Genres ; Keywords ; Original languages/),
+  ).toBeTruthy();
+});
 
 describe('a credential is edited in the row of the source it unlocks', () => {
   /**

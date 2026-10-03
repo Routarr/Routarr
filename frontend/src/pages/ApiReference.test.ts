@@ -42,11 +42,26 @@ const DOC: OpenApiDocument = {
         summary: 'Apply chosen proposals',
         tags: ['proposals'],
         'x-routarr-scope': 'operate',
-        parameters: [{ name: 'Prefer', in: 'header', required: false }],
+        parameters: [
+          {
+            name: 'Prefer',
+            in: 'header',
+            required: false,
+            description: 'Send `respond-async` to be answered at once.',
+          },
+        ],
+        responses: { '202': { description: 'Started, with the job in `Location`.' } },
       },
     },
   },
-  components: { schemas: { Pong: { type: 'object', properties: { status: { type: 'string' } } } } },
+  components: {
+    schemas: {
+      Pong: {
+        type: 'object',
+        properties: { status: { type: 'string', description: 'Always `ok`.' } },
+      },
+    },
+  },
 };
 
 function show() {
@@ -82,6 +97,20 @@ describe('ApiReference', () => {
     const english = [...container.querySelectorAll('[lang="en"]')];
     expect(english.length).toBeGreaterThan(2);
     for (const element of english) expect(element.getAttribute('dir')).toBe('ltr');
+  });
+
+  /** A field, a parameter and an answer name code as the operation text does. */
+  it('marks code in every description, not only in the operation text', async () => {
+    const { container } = show();
+    await screen.findByText('X-Api-Key');
+
+    for (const code of ['respond-async', 'Location', 'ok']) {
+      expect(screen.getByText(code).tagName).toBe('CODE');
+    }
+    const shown = [...container.querySelectorAll('td, .api-responses li')].map(
+      (node) => node.textContent ?? '',
+    );
+    expect(shown.some((text) => text.includes('`'))).toBe(false);
   });
 
   it('narrows the operations to what the search names', async () => {

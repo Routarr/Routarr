@@ -10,10 +10,11 @@ import type { AuthMode } from '../api/types';
 import { FIELDS } from '../lib/settings';
 import Settings from './Settings.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
-import { interceptLinks } from '../lib/router.svelte';
+import { interceptLinks, navigate, router } from '../lib/router.svelte';
 import { onboardingStatus } from '../test/fixtures';
 import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
+import { captureDownloads } from '../test/downloads';
 
 /**
  * Settings is where unattended writing gets armed, so the warning that says so
@@ -45,6 +46,7 @@ const STRINGS = {
   GuideOptionalDoneNext: 'Optional step done. Next: {next}',
   SettingsTabMaintenance: 'Maintenance',
   UnsavedChanges: 'Unsaved changes: {count}',
+  ConfirmLeaveUnsaved: 'Leave without saving? Unsaved changes: {count}',
   SavesEverySection: 'Every section is saved together',
   DiscardChanges: 'Discard',
   Save: 'Save',
@@ -72,6 +74,7 @@ const STRINGS = {
   ConfirmRemoveKey: 'Remove the key?',
   ApiKeyRemoved: 'API key removed.',
   PurgeNow: 'Purge now',
+  ExportConfig: 'Export configuration',
   ConfirmPurge: 'Remove everything past its retention?',
   PurgeResult: '{decisions} decisions, {logs} logs, {jobs} jobs removed',
   Backups: 'Backups',
@@ -163,6 +166,7 @@ async function save(): Promise<Record<string, string>> {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   withBase(null);
   publishOnboarding(null);
 });
@@ -171,7 +175,9 @@ describe('the unattended-writing warning', () => {
   it('stays quiet while dry run is on', async () => {
     mount({ global_dry_run: 'true', auto_apply_enabled: 'true' });
 
-    await screen.findByRole('heading', { name: 'Settings', level: 1 });
+    // The tabs, not the heading: the heading draws before the settings load,
+    // and an absence checked then holds whatever the loaded screen does.
+    await screen.findByRole('tab', { name: 'Routing' });
     expect(screen.queryByText('Automatic application is armed')).toBeNull();
   });
 
@@ -195,7 +201,7 @@ describe('the save bar', () => {
   it('is absent until something is edited', async () => {
     mount({ global_dry_run: 'true' });
 
-    await screen.findByRole('heading', { name: 'Settings', level: 1 });
+    await screen.findByRole('tab', { name: 'Routing' });
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
@@ -243,6 +249,58 @@ describe('the save bar', () => {
     await save();
 
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
+  });
+
+  /** Leaving drops the draft the bar counts, so the reader is asked first. */
+  it('asks before leaving with unsaved changes, and stays on Cancel', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await screen.findByText('Unsaved changes: 1');
+
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe('Leave without saving? Unsaved changes: 1');
+
+    expect(router.path).not.toBe('/rules');
+    expect(screen.getByText('Unsaved changes: 1')).toBeTruthy();
+  });
+
+  it('leaves once the reader agrees to drop the changes', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await screen.findByText('Unsaved changes: 1');
+
+    navigate('/rules');
+    await answerConfirmation();
+
+    expect(router.path).toBe('/rules');
+  });
+
+  it('leaves without a question when nothing is pending', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+
+    navigate('/rules');
+
+    await waitFor(() => expect(router.path).toBe('/rules'));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('holds the tab open while changes are pending, and only then', async () => {
+    mount({ global_dry_run: 'true' });
+    await openSection('Routing');
+    const unloading = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(unloading()).toBe(false);
+
+    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await screen.findByText('Unsaved changes: 1');
+
+    expect(unloading()).toBe(true);
   });
 
   it('puts the draft back when the change is discarded', async () => {
@@ -494,6 +552,51 @@ describe('the notification webhook', () => {
   });
 });
 
+/**
+ * A source's key lives in the source's row, where a blank field keeps the
+ * stored one: without a Remove there, a key stays sealed behind a disabled
+ * source for good.
+ */
+describe("a source's stored key", () => {
+  it('is removed at the next save', async () => {
+    mount({ metadata_providers: 'arr', tmdb_api_key_configured: true });
+    await openSection('Metadata');
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDb' }));
+
+    const field = screen.getByLabelText('TMDb');
+    await waitFor(() => expect(document.activeElement).toBe(field));
+    expect(field.getAttribute('placeholder')).toBe('Removed when you save');
+    expect(screen.queryByRole('button', { name: 'Remove – TMDb' })).toBeNull();
+    expect((await save()).tmdb_api_key).toBe('');
+  });
+
+  it('offers nothing to remove while no key is stored', async () => {
+    mount({ metadata_providers: 'arr' });
+    await openSection('Metadata');
+
+    await screen.findByLabelText('TMDb');
+    expect(screen.queryByRole('button', { name: 'Remove – TMDb' })).toBeNull();
+  });
+});
+
+/** The configuration a reader versions or carries over, readable, under a name of its own. */
+it('exports the configuration as a readable file', async () => {
+  vi.spyOn(api, 'exportConfig').mockResolvedValue({ version: 1, settings: { batch_limit: '25' } });
+  const saved = captureDownloads();
+  mount({});
+  await openSection('Maintenance');
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Export configuration' }));
+
+  await waitFor(() => expect(saved).toHaveLength(1));
+  expect(saved[0]?.name).toBe('routarr-config.json');
+  expect(JSON.parse(await saved[0]!.blob.text())).toEqual({
+    version: 1,
+    settings: { batch_limit: '25' },
+  });
+});
+
 describe('housekeeping', () => {
   /**
    * The purge is not undoable and its button sits beside two that are (export
@@ -521,11 +624,14 @@ describe('housekeeping', () => {
     });
     mount({});
     await openSection('Maintenance');
+    const before = statusRevision();
 
     await fireEvent.click(await screen.findByRole('button', { name: /purge/i }));
     await answerConfirmation();
 
     await waitFor(() => expect(purge).toHaveBeenCalledTimes(1));
+    // The navigation counts pending decisions, some of which the purge removed.
+    await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
   });
 });
 

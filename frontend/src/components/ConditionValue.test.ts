@@ -20,6 +20,8 @@ const STRINGS = {
   Yes: 'Yes',
   No: 'No',
   PlaceholderNumberList: 'e.g. 2019, 2020',
+  NotIdentifiers: 'Not an id: {values}',
+  ListSeparator: ', ',
   PlaceholderStringList: 'comma separated',
   PlaceholderPath: '/movies/anime',
   PlaceholderYearFrom: 'from',
@@ -163,6 +165,23 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(to, { target: { value: '1999' } });
     expect(onChange).toHaveBeenLastCalledWith({ min: null, max: 1999 });
+  });
+
+  /** Dropped without a word, `603, 6O4` saves one id and the second title is never routed. */
+  it('names an entry it cannot read as an id, and marks the field', async () => {
+    const onChange = vi.fn();
+    show({ spec: spec({ value_type: 'number_list', label: 'TMDb id' }), value: [], onChange });
+    const field = screen.getByLabelText('TMDb id');
+
+    await fireEvent.input(field, { target: { value: '603, 6O4' } });
+
+    expect(onChange).toHaveBeenLastCalledWith([603]);
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAccessibleDescription('Not an id: 6O4');
+
+    await fireEvent.input(field, { target: { value: '603, 604' } });
+    expect(field).not.toHaveAttribute('aria-invalid');
+    expect(screen.queryByText(/Not an id/)).toBeNull();
   });
 
   it('reads an empty year bound as no bound rather than as zero', async () => {

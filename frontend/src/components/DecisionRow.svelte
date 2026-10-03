@@ -43,7 +43,7 @@
     <!-- The shape and the colour for the eye, the word for a screen reader,
          which reads an unnamed icon as nothing. -->
     {#if decision.action === 'move'}
-      <ArrowRight size={16} class="text-warning" aria-hidden="true" />
+      <ArrowRight size={16} class="text-warning dir-aware" aria-hidden="true" />
       <span class="visually-hidden">{t('ActionMove')}</span>
     {:else if decision.action === 'skip'}
       <Ban size={16} class="text-danger" aria-hidden="true" />

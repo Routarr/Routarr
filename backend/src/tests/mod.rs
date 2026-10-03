@@ -608,6 +608,28 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogCapture {
     }
 }
 
+/// A POST asking not to wait (`Prefer: respond-async`): it answers 202 once its
+/// task has started.
+pub fn preferring_async(path: &str, body: serde_json::Value) -> Request<Body> {
+    Request::post(path)
+        .header("prefer", "respond-async")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap()
+}
+
+/// The task, once it has finished.
+pub async fn finished(app: &TestApp, id: &str) -> serde_json::Value {
+    for _ in 0..200 {
+        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
+        if task.assert_ok()["status"] != "running" {
+            return task.json;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the task {id} never finished");
+}
+
 /// The warnings of a `/status` or `/health` answer, as the reader sees them.
 #[track_caller]
 pub fn warning_messages(body: &serde_json::Value) -> Vec<String> {

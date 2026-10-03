@@ -7,6 +7,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp } from '../api/format';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -81,7 +82,11 @@
     }
   }
 
-  async function revoke(id: string, keyName: string) {
+  // A revoked key takes its row and the pressed Revoke with it: the key now in
+  // its place takes the focus, else the one before, else the table.
+  const revokeId = (index: number) => `applications-revoke-${index}`;
+
+  async function revoke(id: string, keyName: string, index: number) {
     const question = t('ConfirmRevokeApplication', { name: keyName });
     if (!(await askConfirmation(question, 'RevokeKey'))) return;
     try {
@@ -89,6 +94,7 @@
       if (minted?.id === id) minted = null;
       outcome.succeed(t('ApplicationRevoked', { name: keyName }));
       await applications.reload();
+      void handFocus(revokeId(index), revokeId(index - 1), 'applications-table');
     } catch (err) {
       outcome.fail(err);
     }
@@ -127,7 +133,7 @@
   {/if}
 
   <div class="card">
-    <TableRegion label={t('Applications')}>
+    <TableRegion label={t('Applications')} id="applications-table">
       <table>
         <caption class="visually-hidden">{t('Applications')}</caption>
         <thead>
@@ -147,14 +153,18 @@
           {:else if rows.length === 0 && !applications.error}
             <tr><td colspan="7"><EmptyState>{t('NoApplications')}</EmptyState></td></tr>
           {:else}
-            {#each rows as application (application.id)}
+            {#each rows as application, index (application.id)}
               <tr>
                 <td><strong>{application.name}</strong></td>
                 <td>
-                  <span class="badge badge-value">{t('ScopeRead')}</span>
-                  {#each application.scopes as scope (scope)}
-                    <span class="badge badge-value">{t(scopeKey(scope))}</span>
-                  {/each}
+                  <!-- A wrapping row with a gap, as chips are elsewhere: stacked in
+                       a narrow column, bare badges touch. -->
+                  <div class="flex flex-wrap gap-1">
+                    <span class="badge badge-value">{t('ScopeRead')}</span>
+                    {#each application.scopes as scope (scope)}
+                      <span class="badge badge-value">{t(scopeKey(scope))}</span>
+                    {/each}
+                  </div>
                 </td>
                 <td class="text-muted">
                   {application.may_confirm.length === 0
@@ -179,10 +189,11 @@
                 </td>
                 <td>
                   <button
+                    id={revokeId(index)}
                     class="btn btn-danger btn-sm"
                     aria-label="{t('RevokeKey')} – {application.name}"
                     title={t('RevokeKey')}
-                    onclick={() => void revoke(application.id, application.name)}
+                    onclick={() => void revoke(application.id, application.name, index)}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -275,7 +286,11 @@
           <button type="button" class="btn btn-secondary" onclick={() => (creating = false)}>
             {t('Cancel')}
           </button>
-          <button type="submit" class="btn btn-primary">{t('CreateKey')}</button>
+          <!-- Held without a name, as every other form here holds its submit
+               until the required field is filled. -->
+          <button type="submit" class="btn btn-primary" disabled={!name.trim()}
+            >{t('CreateKey')}</button
+          >
         </div>
       </form>
     </Modal>

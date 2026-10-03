@@ -6,8 +6,8 @@
 
 use crate::services::sync;
 
-use super::TestApp;
 use super::fake_arr::FakeArr;
+use super::{TestApp, finished, preferring_async};
 
 /// A reverse proxy that times out, or a tab closed, drops the request. The
 /// sync it started runs to its end: rolled back with the request, the library
@@ -617,6 +617,52 @@ async fn the_sync_all_route_covers_every_enabled_instance() {
     // One report per instance, in a list: the shape the Instances screen reads.
     let reports = body.assert_ok().as_array().unwrap().clone();
     assert_eq!(reports.len(), 2, "got {reports:?}");
+}
+
+/// Asked not to wait, a sync of every instance answers its own task, which
+/// ends holding one report per instance. Following the first instance's task
+/// instead would answer one report where the call answers two.
+#[tokio::test]
+async fn a_sync_of_every_instance_can_be_followed_to_every_report() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-2", "sonarr", &arr.base_url).await;
+
+    let started = app.send(preferring_async("/api/v1/instances/sync", serde_json::json!({}))).await;
+    assert_eq!(started.status, axum::http::StatusCode::ACCEPTED, "{:?}", started.json);
+    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+
+    assert_eq!(task["kind"], "sync_all");
+    assert_eq!(task["status"], "success");
+    let reports = task["result"].as_array().expect("the task holds no reports");
+    let synced: Vec<&str> = reports.iter().map(|r| r["instance_id"].as_str().unwrap()).collect();
+    assert_eq!(synced, ["inst-1", "inst-2"]);
+    // Each instance keeps its own task beside it.
+    let each = app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'sync'").await;
+    assert_eq!(each, 2);
+}
+
+/// Port 1 on the loopback: nothing answers there, and no resolver is asked.
+const NOWHERE: &str = "http://127.0.0.1:1";
+
+/// Every instance failing is a failed task, which still says why instance by
+/// instance. One of two failing is a partial result, not a failure.
+#[tokio::test]
+async fn a_sync_of_every_instance_fails_only_when_every_instance_does() {
+    let up = FakeArr::start().await;
+    for (second, outcome) in [(NOWHERE, "failed"), (up.base_url.as_str(), "success")] {
+        let app = TestApp::new().await;
+        app.seed_instance_at("inst-1", "radarr", NOWHERE).await;
+        app.seed_instance_at("inst-2", "radarr", second).await;
+
+        let started =
+            app.send(preferring_async("/api/v1/instances/sync", serde_json::json!({}))).await;
+        let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+
+        assert_eq!(task["status"], outcome, "{task}");
+        assert_eq!(task["result"].as_array().map(Vec::len), Some(2), "{task}");
+    }
 }
 
 /// Syncing every instance syncs the enabled ones: a switched-off instance is

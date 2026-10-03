@@ -4,7 +4,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { api, ApiError } from '../api/client';
-import type { Category, ConditionCatalog, LibraryFacets, Rule } from '../api/types';
+import type { Category, ConditionCatalog, LibraryFacets, Rule, RuleHealth } from '../api/types';
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
@@ -43,6 +43,14 @@ const STRINGS = {
   ImportResult: 'Rules imported: {count}',
   ImportSkipped: ', skipped: {count}',
   ImportReplaceQuestion: 'Replace the rules, or add to them?',
+  RuleAnalysisUnavailable: 'The rule analysis could not be read.',
+  RuleShadowed: 'Under {rule}',
+  RuleDuplicateOf: 'Same as {rule}',
+  RuleMatchedNothing: 'Matches nothing',
+  ConditionSummary: '{caption}: {values}',
+  ConditionRange: '{min} → {max}',
+  ConditionRangeOpen: 'any',
+  Retry: 'Retry',
   ImportAppend: 'Add',
   ImportReplace: 'Replace',
 };
@@ -97,16 +105,64 @@ function rule(over: Partial<Rule> = {}): Rule {
   };
 }
 
+const NO_FACETS = {
+  total_media: 0,
+  without_metadata: 0,
+  vocabularies: { original_languages: [], origin_countries: [] },
+  genres: [],
+  original_languages: [],
+  origin_countries: [],
+  certifications: [],
+  tags: [],
+  series_types: [],
+  root_folders: [],
+} as unknown as LibraryFacets;
+
+/** The two diagnostics answer unless a test has already said otherwise. */
 function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en') {
   vi.spyOn(api, 'getRules').mockResolvedValue(rules);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getConditionCatalog').mockResolvedValue(served);
+  if (!vi.isMockFunction(api.getRuleHealth)) {
+    vi.spyOn(api, 'getRuleHealth').mockResolvedValue({ total_media: 0, rules: [] });
+  }
+  if (!vi.isMockFunction(api.getLibraryFacets)) {
+    vi.spyOn(api, 'getLibraryFacets').mockResolvedValue(NO_FACETS);
+  }
   return renderWithI18n(Rules, { strings: STRINGS, language });
 }
 
 afterEach(() => vi.restoreAllMocks());
 
 describe('Rules', () => {
+  /**
+   * The badges and the library panel come from two diagnostics the list does
+   * without. Failed silently, they look exactly like a healthy rule set.
+   */
+  it('says the rule analysis is missing, and reads it again on Retry', async () => {
+    const report = vi
+      .spyOn(api, 'getRuleHealth')
+      .mockRejectedValueOnce(new Error('timed out'))
+      .mockResolvedValue({ total_media: 0, rules: [] });
+    show([rule({ id: 'r1', name: 'Anime' })]);
+
+    const warning = await screen.findByText('The rule analysis could not be read.');
+    await fireEvent.click(within(warning.closest('.banner') as HTMLElement).getByText('Retry'));
+
+    await waitFor(() =>
+      expect(screen.queryByText('The rule analysis could not be read.')).toBeNull(),
+    );
+    expect(report).toHaveBeenCalledTimes(2);
+  });
+
+  it('says nothing of the kind when the analysis answers', async () => {
+    show([rule({ id: 'r1', name: 'Anime' })]);
+    await screen.findByRole('button', { name: 'Duplicate – Anime' });
+    await waitFor(() => expect(api.getLibraryFacets).toHaveBeenCalled());
+
+    expect(screen.queryByText('The rule analysis could not be read.')).toBeNull();
+  });
+
   /** A label over a hidden input takes no focus, so the import is a button. */
   it('offers the import as a button that opens the file picker', async () => {
     show([]);
@@ -533,5 +589,74 @@ describe('Rules', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'New rule' }));
+  });
+});
+
+/** A deleted rule takes its row and the pressed Delete: the next rule's takes the focus. */
+it('hands the focus to the rule that took the place of the deleted one', async () => {
+  const first = rule({ id: 'r1', name: 'First' });
+  const next = rule({ id: 'r2', name: 'Next' });
+  show([first, next]);
+  vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete – First' }));
+  vi.spyOn(api, 'getRules').mockResolvedValue([next]);
+  await answerConfirmation();
+
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete – Next' })),
+  );
+});
+
+/**
+ * What each rule decides, read off the health report: a rule under a broader
+ * one, a copy of another, and one that matches nothing each say so on the row,
+ * the first two by the rule to look at.
+ */
+describe('the rule health badges', () => {
+  const verdict = (over: Partial<RuleHealth>): RuleHealth => ({
+    rule_id: 'r1',
+    rule_name: 'Anime',
+    priority: 10,
+    enabled: true,
+    won: 0,
+    shadowed: 0,
+    vetoed: 0,
+    shadowed_by: null,
+    matched_nothing: false,
+    ambiguous_with: null,
+    duplicate_of: null,
+    ...over,
+  });
+
+  it.each([
+    [
+      'a shadowed rule names the rule taking its items',
+      { shadowed: 4, shadowed_by: 'Movies' },
+      'Under Movies',
+    ],
+    ['a duplicate names the rule it repeats', { duplicate_of: 'Anime copy' }, 'Same as Anime copy'],
+    ['a rule that matches nothing says so', { matched_nothing: true }, 'Matches nothing'],
+  ])('%s', async (_, over, badge) => {
+    vi.spyOn(api, 'getRuleHealth').mockResolvedValue({
+      total_media: 12,
+      rules: [verdict(over)],
+    });
+    show([rule({ id: 'r1', name: 'Anime' })]);
+
+    const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
+    expect(await within(row).findByText(badge)).toBeTruthy();
+  });
+
+  it('marks nothing on a rule that decides', async () => {
+    vi.spyOn(api, 'getRuleHealth').mockResolvedValue({
+      total_media: 12,
+      rules: [verdict({ won: 3 })],
+    });
+    show([rule({ id: 'r1', name: 'Anime' })]);
+
+    const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
+    await waitFor(() => expect(api.getRuleHealth).toHaveBeenCalled());
+    expect(within(row).queryByText(/Under|Same as|Matches nothing/)).toBeNull();
   });
 });

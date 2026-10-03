@@ -11,6 +11,7 @@
   import Modal from '../components/Modal.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
@@ -29,12 +30,17 @@
   const overrides = $derived(bundle.data?.overrides ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
 
-  async function remove(id: string, title: string) {
+  // A removed exception takes its row and the pressed Delete with it: the one
+  // now in its place takes the focus, else the one before, else the table.
+  const deleteId = (index: number) => `overrides-delete-${index}`;
+
+  async function remove(id: string, title: string, index: number) {
     if (!(await askConfirmation(t('ConfirmDeleteOverride', { title }), 'Delete'))) return;
     try {
       await api.deleteOverride(id);
       outcome.succeed(t('OverrideRemoved'));
       await bundle.reload();
+      void handFocus(deleteId(index), deleteId(index - 1), 'overrides-table');
     } catch (err) {
       outcome.fail(err);
     }
@@ -57,6 +63,7 @@
   function openCreate() {
     search = '';
     results = [];
+    searched = false;
     selected = null;
     chosenCategory = null;
     reason = '';
@@ -67,6 +74,9 @@
   // Inside the dialog, for the same reason `Instances` keeps its own: the page
   // banner is under the modal, dimmed and inert.
   let dialogError = $state<string | null>(null);
+  // A search that found nothing says so: an empty answer and a click that did
+  // nothing look the same otherwise.
+  let searched = $state(false);
 
   async function find(event: SubmitEvent) {
     event.preventDefault();
@@ -74,6 +84,7 @@
     try {
       const page = await api.getMedia({ search, per_page: 15 });
       results = page.data;
+      searched = true;
     } catch (err) {
       dialogError = describeError(err);
     }
@@ -123,7 +134,7 @@
   <OutcomeBanner {outcome} />
 
   <div class="card">
-    <TableRegion label={t('Overrides')}>
+    <TableRegion label={t('Overrides')} id="overrides-table">
       <table>
         <caption class="visually-hidden">{t('Overrides')}</caption>
         <thead>
@@ -142,7 +153,7 @@
           {:else if overrides.length === 0 && !bundle.error}
             <tr><td colspan="6"><EmptyState>{t('NoOverrides')}</EmptyState></td></tr>
           {:else}
-            {#each overrides as override (override.id)}
+            {#each overrides as override, index (override.id)}
               <tr>
                 <td>
                   <strong>{override.media_title}</strong>
@@ -165,7 +176,8 @@
                     class="btn btn-danger btn-sm"
                     aria-label="{t('Delete')} – {override.media_title}"
                     title={t('Delete')}
-                    onclick={() => void remove(override.id, override.media_title)}
+                    id={deleteId(index)}
+                    onclick={() => void remove(override.id, override.media_title, index)}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -244,6 +256,8 @@
             </tbody>
           </table>
         </TableRegion>
+      {:else if searched}
+        <p class="text-muted text-sm mt-4">{t('NoMediaMatches')}</p>
       {/if}
 
       {#if selected}

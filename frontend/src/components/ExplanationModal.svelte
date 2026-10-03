@@ -13,6 +13,12 @@
   /** Condition-by-condition trace of why a media item lands where it does. */
   let { data, onClose }: { data: Explanation; onClose: () => void } = $props();
 
+  // The sources line holds arrows that mirror between its values, so the
+  // summary is cut where the values go and drawn around them.
+  const sourcesLine = $derived(
+    t('ConditionSummary', { caption: t('MetadataSources'), values: '\u0000' }).split('\u0000'),
+  );
+
   /**
    * Pinning is one click because the panel already holds the whole answer.
    *
@@ -118,7 +124,7 @@
       <p class="text-muted text-md mt-2">
         {t('MetadataSummary', {
           language: data.metadata.original_language ?? t('None'),
-          countries: data.metadata.origin_countries.join(', ') || t('None'),
+          countries: data.metadata.origin_countries.join(t('ListSeparator')) || t('None'),
           certification: data.metadata.certification ?? t('None'),
         })}
       </p>
@@ -131,10 +137,9 @@
            source this is obvious. With several it is the only way to know
            whether a genre came from the library or from TMDb. -->
       <p class="text-muted text-sm mt-2">
-        {t('MetadataSources')}:
-        {#each data.metadata.sources as source, index (source)}
+        {sourcesLine[0]}{#each data.metadata.sources as source, index (source)}
           {#if index > 0}<span class="dir-aware"> → </span>{/if}{source}
-        {/each}
+        {/each}{sourcesLine[1]}
       </p>
     </div>
   {:else}

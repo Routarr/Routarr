@@ -90,6 +90,15 @@ describe('Applications', () => {
     expect(within(row).getByText('never')).toBeTruthy();
   });
 
+  /** Who made a key, under the day it was made, as on the other screens. */
+  it('names who created a key under its creation date', async () => {
+    show([application({ created_by: 'owner' })]);
+
+    const row = (await screen.findByText('n8n')).closest('tr') as HTMLElement;
+    const made = within(row).getByText('owner');
+    expect(made.closest('td')?.classList.contains('cell-timestamp')).toBe(true);
+  });
+
   it('makes a key and shows its token once, then no more once revoked', async () => {
     const user = userEvent.setup();
     show([]);
@@ -244,6 +253,21 @@ describe('Applications', () => {
     expect(screen.getByText('rtr_k1_secret')).toBeTruthy();
   });
 
+  it('holds Create until the key has a name', async () => {
+    const user = userEvent.setup();
+    show([]);
+
+    await user.click(await screen.findByRole('button', { name: 'New key' }));
+    const dialog = await screen.findByRole('dialog');
+    const create = within(dialog).getByRole('button', { name: 'Create a key' });
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+
+    await user.type(within(dialog).getByLabelText('Name'), '  ');
+    expect((create as HTMLButtonElement).disabled).toBe(true);
+    await user.type(within(dialog).getByLabelText('Name'), 'n8n');
+    expect((create as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('keeps the dialog open with the refusal when a name is taken', async () => {
     const user = userEvent.setup();
     show([]);
@@ -260,4 +284,20 @@ describe('Applications', () => {
       await within(dialog).findByText('Another application key is already called n8n.'),
     ).toBeTruthy();
   });
+});
+
+/** A revoked key takes its row and the pressed Revoke: the next key's takes the focus. */
+it('hands the focus to the key that took the place of the revoked one', async () => {
+  const user = userEvent.setup();
+  const next = application({ id: 'k2', name: 'cron' });
+  show([application(), next]);
+  vi.spyOn(api, 'revokeApplication').mockResolvedValue(undefined);
+
+  await user.click(await screen.findByRole('button', { name: 'Revoke – n8n' }));
+  vi.spyOn(api, 'getApplications').mockResolvedValue([next]);
+  await answerConfirmation();
+
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Revoke – cron' })),
+  );
 });

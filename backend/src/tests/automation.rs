@@ -2,14 +2,11 @@
 //! gives it, pinning it that way, following long work without waiting for
 //! it, and warnings a script can tell apart.
 
-use std::time::Duration;
-
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::StatusCode;
 use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
-use super::{TestApp, TestResponse};
+use super::{TestApp, TestResponse, finished, preferring_async};
 use crate::api::jobs::prefers_async;
 
 /// Totoro twice: on `inst-1` as the library seeds it, and on a second Radarr.
@@ -145,26 +142,6 @@ async fn a_pin_or_unpin_that_changes_nothing_keeps_the_proposals() {
     let second = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-2";
     assert_eq!(app.delete(second).await.assert_ok()["deleted"], false);
     assert_eq!(standing("m-2").await, other, "an unpin that removed nothing withdrew proposals");
-}
-
-fn preferring_async(path: &str, body: Value) -> Request<Body> {
-    Request::post(path)
-        .header("prefer", "respond-async")
-        .header("content-type", "application/json")
-        .body(Body::from(body.to_string()))
-        .unwrap()
-}
-
-/// The task, once it has finished.
-async fn finished(app: &TestApp, id: &str) -> Value {
-    for _ in 0..200 {
-        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
-        if task.assert_ok()["status"] != "running" {
-            return task.json;
-        }
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
-    panic!("the task {id} never finished");
 }
 
 /// A preview stores no decision, so its task keeps them: asked to answer at

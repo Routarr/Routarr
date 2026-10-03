@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 
 import { test, expect, openScreen, screenShown } from './fixtures';
+import { SCREENS } from './screens';
 
 /**
  * Routarr mounted under a sub-path, the Servarr "URL base" convention.
@@ -53,7 +54,8 @@ test('every link carries the prefix, and a ctrl-click stays under it @subpath', 
   const hrefs = await page
     .locator('a[href^="/"]')
     .evaluateAll((anchors) => anchors.map((a) => a.getAttribute('href') ?? ''));
-  expect(hrefs.length).toBeGreaterThanOrEqual(13);
+  // Every screen's entry at least: a shortfall is a link the check never met.
+  expect(hrefs.length).toBeGreaterThanOrEqual(SCREENS.length);
   for (const href of hrefs) {
     expect(href, `${href} leaves the mount point`).toMatch(new RegExp(`^${BASE}(/|$)`));
   }
@@ -68,6 +70,14 @@ test('every link carries the prefix, and a ctrl-click stays under it @subpath', 
   expect(new URL(opened.url()).pathname.startsWith(`${BASE}/`)).toBe(true);
   await screenShown(opened, opened.url());
   await opened.close();
+});
+
+/** The contract's download is a link of its own, drawn on the reference alone. */
+test('the contract downloads through the prefix @subpath', async ({ page }) => {
+  await openScreen(page, `${BASE}/reference`);
+
+  const download = page.getByRole('link', { name: 'Download openapi.json' });
+  await expect(download).toHaveAttribute('href', `${BASE}/api/v1/openapi.json`);
 });
 
 test('the API is reached through the prefix @subpath', async ({ page }) => {

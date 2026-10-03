@@ -19,6 +19,7 @@ import { answerConfirmation } from '../test/confirm';
 const STRINGS = {
   Overrides: 'Overrides',
   NewOverride: 'New override',
+  NoMediaMatches: 'Nothing matches.',
   NoOverrides: 'No override yet',
   Delete: 'Delete',
   Search: 'Search',
@@ -191,6 +192,19 @@ describe('Overrides', () => {
     expect(await screen.findByLabelText('Force category for "Perfect Blue"')).toBeTruthy();
   });
 
+  it('says a search found nothing, rather than seeming to ignore the click', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([]));
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    expect(screen.queryByText('Nothing matches.')).toBeNull();
+    await fireEvent.input(search, { target: { value: 'nothing' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+
+    expect(await screen.findByText('Nothing matches.')).toBeTruthy();
+  });
+
   it('shows a refused pin inside the dialog rather than behind it', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
     vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));
@@ -262,4 +276,21 @@ describe('Overrides', () => {
       await screen.findByRole('searchbox', { name: 'Search the library by title' }),
     );
   });
+});
+
+/** A removed exception takes its row and the pressed Delete: the next one's takes the focus. */
+it('hands the focus to the exception that took the place of the removed one', async () => {
+  const next = override({ id: 'o2', media_title: 'Perfect Blue' });
+  show([override(), next]);
+  vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
+
+  await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
+  vi.spyOn(api, 'getOverrides').mockResolvedValue([next]);
+  await answerConfirmation();
+
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: 'Delete – Perfect Blue' }),
+    ),
+  );
 });

@@ -1,10 +1,11 @@
-import { describe, it, expect, vi, afterEach, onTestFinished } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { paginated } from '../test/fixtures';
+import { captureDownloads } from '../test/downloads';
 import { api } from '../api/client';
 import type { LogEntry } from '../api/types';
 import Logs from './Logs.svelte';
@@ -54,29 +55,6 @@ function entry(over: Partial<LogEntry> = {}): LogEntry {
 }
 
 const show = () => renderWithI18n(Logs, { strings: STRINGS });
-
-/**
- * The browser's half of a download, which jsdom has none of: the object URL
- * the file is saved through, and the click that saves it. Hands back what was
- * saved. Both are put back when the test finishes, so no other test inherits a
- * `URL` that pretends to save.
- */
-function saving(): Blob[] {
-  const saved: Blob[] = [];
-  Object.assign(URL, {
-    createObjectURL: (blob: Blob) => {
-      saved.push(blob);
-      return 'blob:routarr/logs';
-    },
-    revokeObjectURL: () => {},
-  });
-  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-  onTestFinished(() => {
-    Reflect.deleteProperty(URL, 'createObjectURL');
-    Reflect.deleteProperty(URL, 'revokeObjectURL');
-  });
-  return saved;
-}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -141,7 +119,7 @@ describe('Activity log', () => {
     localStorage.setItem('routarr.apiKey', 'the-key');
     const fetcher = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['a,b']) });
     vi.stubGlobal('fetch', fetcher);
-    const saved = saving();
+    const saved = captureDownloads();
 
     show();
     await fireEvent.click(await screen.findByRole('button', { name: /export csv/i }));
@@ -150,6 +128,28 @@ describe('Activity log', () => {
     expect((nthCall(fetcher)[1] as { headers: Record<string, string> }).headers['X-Api-Key']).toBe(
       'the-key',
     );
+  });
+
+  /** The file holds what the screen shows: the search and the outcome go with it. */
+  it('exports what the filters show, under the name of the log', async () => {
+    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
+    const exportLogs = vi.spyOn(api, 'exportLogs').mockResolvedValue(new Blob(['a,b']));
+    const saved = captureDownloads();
+    show();
+
+    await userEvent.type(await screen.findByLabelText('Search title or details'), 'akira');
+    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
+    await waitFor(() =>
+      expect(api.getLogs).toHaveBeenLastCalledWith(
+        expect.objectContaining({ search: 'akira', success: true }),
+        expect.anything(),
+      ),
+    );
+    await userEvent.click(screen.getByRole('button', { name: /export csv/i }));
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(nthCall(exportLogs)[0]).toMatchObject({ search: 'akira', success: true });
+    expect(saved[0]?.name).toBe('routarr-logs.csv');
   });
 
   /** The log is paged by the server, and the pager asks it for the next page. */
@@ -253,7 +253,7 @@ describe('Activity log', () => {
         .mockResolvedValueOnce({ ok: false, status: 503, text: async () => '' })
         .mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['a,b']) }),
     );
-    const saved = saving();
+    const saved = captureDownloads();
 
     show();
     const exportCsv = await screen.findByRole('button', { name: /export csv/i });

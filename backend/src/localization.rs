@@ -524,7 +524,8 @@ mod tests {
         use crate::jobs::JobKind::*;
         Some(match previous {
             None => Sync,
-            Some(Sync) => Enrich,
+            Some(Sync) => SyncAll,
+            Some(SyncAll) => Enrich,
             Some(Enrich) => Simulate,
             Some(Simulate) => Apply,
             Some(Apply) => Revert,
@@ -551,11 +552,14 @@ mod tests {
         let mut visited = 0;
         while let Some(current) = kind {
             let name = current.as_str();
-            let key = format!("Job{}{}", name[..1].to_uppercase(), &name[1..]);
+            // `sync_all` reads `JobSyncAll`, as the Tasks screen builds it.
+            let key: String = std::iter::once("Job".to_string())
+                .chain(name.split('_').map(|word| word[..1].to_uppercase() + &word[1..]))
+                .collect();
             assert!(english.get(&key).is_some(), "{key} is missing from en.json");
             visited += 1;
             kind = next_job_kind(Some(current));
         }
-        assert_eq!(visited, 8, "the walk visited {visited} kinds");
+        assert_eq!(visited, 9, "the walk visited {visited} kinds");
     }
 }

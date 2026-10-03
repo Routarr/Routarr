@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, within } from '@testing-library/svelte';
+import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { health, healthInstance, onboardingStatus, warning } from '../test/fixtures';
@@ -47,6 +48,22 @@ afterEach(() => {
 });
 
 describe('Dashboard', () => {
+  /** After a blip the reader asks again from the banner, as on every other screen. */
+  it('offers Retry when the dashboard could not be read', async () => {
+    const getHealth = vi
+      .spyOn(api, 'getHealth')
+      .mockRejectedValueOnce(new Error('Connection refused'))
+      .mockRejectedValueOnce(new Error('Connection refused'))
+      .mockResolvedValue(health());
+    show();
+
+    const banner = await screen.findByRole('alert');
+    await userEvent.click(within(banner).getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('No instance configured')).toBeTruthy();
+    expect(getHealth).toHaveBeenCalledTimes(4);
+  });
+
   it('sends every link through the mount point a reverse proxy adds', async () => {
     withBase('/routarr/');
     bothReturn(health());

@@ -1,4 +1,5 @@
 import type {
+  ExplainedMedia,
   Decision,
   Health,
   Instance,
@@ -178,6 +179,37 @@ export function media(over: Partial<MediaListItem> = {}): MediaListItem {
     computed_category: 'anime',
     override_category: null,
     has_metadata: true,
+    ...over,
+  };
+}
+
+/** The stored row an explanation carries, which is not a library list item. */
+export function explainedMedia(over: Partial<ExplainedMedia> = {}): ExplainedMedia {
+  return {
+    id: 'm1',
+    instance_id: 'i1',
+    arr_id: 1,
+    media_type: 'movie',
+    title: 'Akira',
+    sort_title: 'akira',
+    year: 1988,
+    tmdb_id: 149,
+    tvdb_id: null,
+    imdb_id: 'tt0094625',
+    current_path: '/data/films/Akira',
+    current_root_folder: '/data/films',
+    monitored: true,
+    has_files: true,
+    status: 'released',
+    added_at: null,
+    series_type: null,
+    size_on_disk: null,
+    season_count: null,
+    tags: null,
+    genres: null,
+    original_language: null,
+    certification: null,
+    last_synced_at: '2026-08-27 10:00:00',
     ...over,
   };
 }

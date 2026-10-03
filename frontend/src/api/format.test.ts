@@ -40,6 +40,14 @@ describe('localName', () => {
     expect(localName('language', 'qaa', 'fr')).toBeNull();
   });
 
+  /** TMDb still sends these, and the browser names each after its successor. */
+  it('leaves a code that no longer exists to the caller', () => {
+    for (const code of ['SU', 'DD', 'YU', 'CS', 'AN']) {
+      expect(localName('region', code, 'en')).toBeNull();
+    }
+    expect(localName('region', 'RU', 'en')).toBe('Russia (RU)');
+  });
+
   /** A shipped language code with a region is written with `_`, which Intl refuses. */
   it('names in a language whose code carries a region', () => {
     expect(localName('language', 'fr', 'nb_NO')).toBe('fransk (fr)');
@@ -127,33 +135,40 @@ describe('formatBytes', () => {
 });
 
 describe('describeCondition', () => {
-  const words = { separator: ', ', empty: 'none' };
+  // French spacing and an en dash, so a literal colon or arrow shows.
+  const words = {
+    separator: ', ',
+    empty: 'none',
+    summary: (caption: string, values: string) => `${caption} : ${values}`,
+    range: (min: string, max: string) => `${min} – ${max}`,
+    open: 'any',
+  };
 
   it('joins list values', () => {
     expect(
       describeCondition({ type: 'genre_contains', value: ['Animation', 'Family'] }, words),
-    ).toBe('genre_contains: Animation, Family');
+    ).toBe('genre_contains : Animation, Family');
   });
 
   it('marks an empty list, which can never match', () => {
     expect(describeCondition({ type: 'genre_contains', value: [] }, words)).toBe(
-      'genre_contains: none',
+      'genre_contains : none',
     );
   });
 
-  it('renders open-ended year ranges', () => {
+  it("renders open-ended year ranges in the reader's words", () => {
     expect(describeCondition({ type: 'year_range', value: { min: 1980, max: null } }, words)).toBe(
-      'year_range: 1980 → *',
+      'year_range : 1980 – any',
     );
     expect(describeCondition({ type: 'year_range', value: { min: null, max: null } }, words)).toBe(
-      'year_range: * → *',
+      'year_range : any – any',
     );
   });
 
   it('renders scalars', () => {
-    expect(describeCondition({ type: 'has_files', value: true }, words)).toBe('has_files: true');
+    expect(describeCondition({ type: 'has_files', value: true }, words)).toBe('has_files : true');
     expect(describeCondition({ type: 'added_within_days', value: 7 }, words)).toBe(
-      'added_within_days: 7',
+      'added_within_days : 7',
     );
   });
 
@@ -166,14 +181,14 @@ describe('describeCondition', () => {
     const named = describeCondition(
       { type: 'original_language', value: ['ja', 'ko'] },
       {
+        ...words,
         label: 'Original language is',
         separator: '، ',
-        empty: 'none',
         name: (value) => (value === 'ja' ? 'Japanese (ja)' : value),
       },
     );
 
-    expect(named).toBe('Original language is: Japanese (ja)، ko');
+    expect(named).toBe('Original language is : Japanese (ja)، ko');
   });
 });
 

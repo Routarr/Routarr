@@ -2,8 +2,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
+import { SCREENS } from '../lib/routes';
 import { renderWithI18n } from '../test/render';
-import { media as film } from '../test/fixtures';
+import { media as film, explainedMedia } from '../test/fixtures';
 import type { MediaListItem } from '../api/types';
 import { api } from '../api/client';
 import { router } from '../lib/router.svelte';
@@ -75,7 +76,7 @@ describe('CommandPalette', () => {
     const options = await screen.findAllByRole('option');
     // Every screen, and nothing else: an empty field proposes where to go
     // rather than an empty box.
-    expect(options).toHaveLength(15);
+    expect(options).toHaveLength(SCREENS.length);
     expect(options[0]).toHaveTextContent('Dashboard');
   });
 
@@ -195,7 +196,12 @@ describe('CommandPalette', () => {
       pagination: { page: 1, per_page: 5, total: 1 },
     } as never);
     const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
-      media: { ...media(), current_path: '/movies/standard/Spirited Away', added_at: null },
+      media: explainedMedia({
+        id: 'm-1',
+        title: 'Spirited Away',
+        year: 2001,
+        current_path: '/movies/standard/Spirited Away',
+      }),
       // `null` rather than an empty object: the panel renders a different
       // branch for a title nothing has enriched, and it is the branch that
       // needs no fixture of its own.
@@ -216,7 +222,7 @@ describe('CommandPalette', () => {
     await fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
     await fireEvent.keyDown(screen.getByRole('combobox'), { key: 'Enter' });
 
-    await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1'));
+    await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal)));
     // The router never moved: the question was answered where it was asked.
     expect(router.path).not.toBe('/media');
   });
@@ -282,7 +288,12 @@ describe('CommandPalette', () => {
       pagination: { page: 1, per_page: 5, total: 1, total_pages: 1 },
     });
     vi.spyOn(api, 'explainMedia').mockResolvedValue({
-      media: { ...media(), current_path: '/movies/standard/Spirited Away', added_at: null },
+      media: explainedMedia({
+        id: 'm-1',
+        title: 'Spirited Away',
+        year: 2001,
+        current_path: '/movies/standard/Spirited Away',
+      }),
       metadata: null,
       override_category: null,
       target_category: 'anime',

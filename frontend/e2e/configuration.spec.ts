@@ -1,4 +1,4 @@
-import { test, expect, api, API, ARR } from './fixtures';
+import { test, expect, api, openScreen, writesDuring, API, ARR } from './fixtures';
 
 /**
  * The screens that configure the routing: root folders, exceptions, the rule
@@ -233,13 +233,17 @@ test.describe('application keys', () => {
   test('a key made on the screen reads, is held to its scopes and dies revoked', async ({
     page,
   }) => {
-    await page.goto('/applications');
+    await openScreen(page, '/applications');
     await page.getByRole('button', { name: 'New key' }).click();
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Name').fill('n8n');
+    // Ticked through the screen: a checkbox wired to nothing would send a key
+    // that cannot operate, and the simulation below would answer 403.
+    await dialog.getByRole('checkbox', { name: /^operate/ }).check();
     await dialog.getByRole('button', { name: 'Create a key' }).click();
 
-    const token = (await page.locator('code.mono').textContent())?.trim() ?? '';
+    // Read as the reader reads it, the one token on the page.
+    const token = ((await page.getByText(/^rtr_\S+$/).textContent()) ?? '').trim();
     expect(token).toMatch(/^rtr_/);
     const call = (path: string, method = 'GET') =>
       fetch(`${API}${path}`, {
@@ -249,7 +253,8 @@ test.describe('application keys', () => {
       });
 
     expect((await call('/status')).status).toBe(200);
-    expect((await call('/simulate', 'POST')).status).toBe(403);
+    expect((await call('/simulate', 'POST')).status).not.toBe(403);
+    expect((await call('/overrides', 'POST')).status).toBe(403);
     expect((await call('/settings')).status).toBe(403);
 
     await page.getByRole('button', { name: 'Revoke – n8n' }).click();
@@ -383,16 +388,20 @@ test.describe('backups', () => {
    * listed, delete it) against the real binary writing a real archive.
    */
   test('taking a backup produces one that is listed and removable', async ({ page }) => {
-    await page.goto('/settings#maintenance');
-    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    // The archives already there, which another spec's Back up now leaves: the
+    // one this click makes is the one name that was not.
+    const names = async () =>
+      ((await api('/backups')) as { backups: { name: string }[] }).backups.map((b) => b.name);
+    const before = new Set(await names());
+    await openScreen(page, '/settings#maintenance');
 
     await page.getByRole('button', { name: 'Back up now' }).click();
 
-    const entry = page.getByText(/^routarr-backup-/);
-    await expect(entry.first()).toBeVisible();
+    await expect.poll(async () => (await names()).filter((n) => !before.has(n))).toHaveLength(1);
+    const name = (await names()).find((n) => !before.has(n))!;
+    await expect(page.getByText(name)).toBeVisible();
 
     // Removable, and the list reflects it without a reload.
-    const name = (await entry.first().textContent())!.trim();
     await page.getByLabel(`Delete – ${name}`).click();
     // Deleting is the one irreversible half of the pair: a restore is staged
     // and undone by not restarting, a deleted archive is the only copy.
@@ -570,7 +579,10 @@ test.describe('a deletion asked about', () => {
     await page.getByRole('button', { name: 'Delete – Stays put' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Delete the rule "Stays put"?');
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    const writes = await writesDuring(page, () =>
+      dialog.getByRole('button', { name: 'Cancel' }).click(),
+    );
+    expect(writes).toEqual([]);
 
     await expect(dialog).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Delete – Stays put' })).toBeVisible();

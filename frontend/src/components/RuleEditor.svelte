@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { FlaskConical } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { conditionAppliesTo, defaultConditionValue } from '../api/conditions';
@@ -13,6 +14,7 @@
     RulePreview,
   } from '../api/types';
   import { describeError } from '../lib/async.svelte';
+  import { askConfirmation } from '../lib/confirm.svelte';
   import { t } from '../lib/i18n.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -66,6 +68,16 @@
   // time the parent re-rendered.
   // svelte-ignore state_referenced_locally
   let draft = $state<RuleDraft>({ ...initial });
+  // The draft as it opened, as text: whether closing drops any work.
+  // svelte-ignore state_referenced_locally
+  const opened = JSON.stringify(initial);
+  const unsaved = $derived(JSON.stringify(draft) !== opened);
+
+  /** Escape, the close button and Cancel: a half-written rule is asked about first. */
+  async function close() {
+    if (unsaved && !(await askConfirmation(t('ConfirmDiscardRule'), 'DiscardChanges'))) return;
+    onClose();
+  }
   let preview = $state<RulePreview | null>(null);
   let busy = $state<'save' | 'preview' | null>(null);
   let error = $state<string | null>(null);
@@ -142,6 +154,16 @@
     edited = true;
   }
 
+  // A condition field that names what it could not read: the draft holds only
+  // what it could, so saving would drop the rest unseen. Counted on the form,
+  // where every condition field draws, after each edit has redrawn it.
+  let form = $state<HTMLFormElement | null>(null);
+  let unreadable = $state(0);
+  async function recount() {
+    await tick();
+    unreadable = form?.querySelectorAll('.condition-row [aria-invalid="true"]').length ?? 0;
+  }
+
   function addCondition(list: 'conditions' | 'exclusions', type: string) {
     const spec = specs.get(type);
     if (!spec) return;
@@ -169,6 +191,7 @@
   function removeCondition(list: 'conditions' | 'exclusions', index: number) {
     draft[list] = draft[list].filter((_, i) => i !== index);
     touched();
+    void recount();
   }
 
   async function runPreview() {
@@ -221,7 +244,7 @@
 
 <Modal
   label={t(ruleId ? 'EditRule' : 'CreateRule')}
-  {onClose}
+  onClose={() => void close()}
   maxWidth={860}
   maxHeight="88vh"
   initialFocus="rules-rule-name"
@@ -231,7 +254,7 @@
     <h2 class="modal-title">{t(ruleId ? 'EditRule' : 'CreateRule')}</h2>
     <button
       class="btn btn-secondary btn-sm"
-      onclick={onClose}
+      onclick={() => void close()}
       aria-label={t('Dismiss')}
       title={t('Dismiss')}
     >
@@ -246,7 +269,7 @@
        handler, so it speaks over the editor's translated verdict rather than
        instead of it. `required` stays: it is the semantics, not the bubble.
        The same reasoning keeps `window.confirm` out of this codebase. -->
-  <form onsubmit={save} novalidate>
+  <form bind:this={form} novalidate onsubmit={save} oninput={() => void recount()}>
     <div class="form-group">
       <label class="form-label" for="rules-rule-name">{t('RuleName')}</label>
       <input
@@ -409,7 +432,9 @@
     </div>
 
     <div class="dialog-actions">
-      <button type="button" class="btn btn-secondary" onclick={onClose}>{t('Cancel')}</button>
+      <button type="button" class="btn btn-secondary" onclick={() => void close()}>
+        {t('Cancel')}
+      </button>
       <div class="flex gap-2">
         <button
           type="button"
@@ -423,7 +448,7 @@
         <button
           type="submit"
           class="btn btn-primary"
-          disabled={busy !== null || blocking || !wholePriority}
+          disabled={busy !== null || blocking || !wholePriority || unreadable > 0}
         >
           {busy === 'save' ? t('Saving') : t('SaveRule')}
         </button>

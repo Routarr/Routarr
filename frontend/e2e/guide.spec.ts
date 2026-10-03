@@ -47,7 +47,9 @@ test('a step opens the screen that does it, with its dialog ready', async ({ pag
 
   await page.getByRole('link', { name: 'Create a rule' }).click();
 
-  await expect(page.getByRole('dialog')).toBeVisible();
+  // The rule editor itself, not any dialog: a confirmation or an error would
+  // also be one.
+  await expect(page.getByRole('dialog', { name: 'Create routing rule' })).toBeVisible();
   // Taken out of the address, so a reload does not open the editor again.
   await expect(page).toHaveURL(/\/rules$/);
 });

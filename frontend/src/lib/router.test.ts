@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach, onTestFinished } from 'vitest';
-import { href, interceptLinks, isCurrent, navigate, router } from './router.svelte';
+import { guardLeaving, href, interceptLinks, isCurrent, navigate, router } from './router.svelte';
 import { withBase } from '../test/base';
 import { click } from '../test/links';
 
@@ -229,5 +229,75 @@ describe('intercepting links', () => {
 
     expect(click(link('/instances'))).toBe(false);
     expect(router.path).toBe('/');
+  });
+});
+
+/**
+ * A screen holding unsaved work is asked before it goes: by a link, by a
+ * screen's own navigation, by Back. A move within the screen asks nothing.
+ */
+describe('a screen that guards its work', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  function guarded(answer: boolean) {
+    const asked = vi.fn((to: string) => {
+      void to;
+      return Promise.resolve(answer);
+    });
+    onTestFinished(guardLeaving(asked));
+    return asked;
+  }
+
+  beforeEach(() => navigate('/settings'));
+
+  it('stays when the screen keeps its work', async () => {
+    const asked = guarded(false);
+
+    navigate('/rules');
+    await settle();
+
+    expect(asked).toHaveBeenCalledWith('/rules');
+    expect(router.path).toBe('/settings');
+  });
+
+  it('goes once the screen lets it', async () => {
+    guarded(true);
+
+    navigate('/rules');
+    await settle();
+
+    expect(router.path).toBe('/rules');
+  });
+
+  it('asks nothing for another section of the same screen', () => {
+    const asked = guarded(false);
+
+    navigate('/settings#routing');
+
+    expect(asked).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe('#routing');
+  });
+
+  it('puts the address back when Back is refused', async () => {
+    onTestFinished(interceptLinks());
+    guarded(false);
+
+    window.history.pushState({}, '', '/rules');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+    await settle();
+
+    expect(router.path).toBe('/settings');
+    expect(window.location.pathname).toBe('/settings');
+  });
+
+  it('asks nothing once the screen has gone', async () => {
+    const asked = vi.fn(() => Promise.resolve(false));
+    guardLeaving(asked)();
+
+    navigate('/rules');
+    await settle();
+
+    expect(asked).not.toHaveBeenCalled();
+    expect(router.path).toBe('/rules');
   });
 });

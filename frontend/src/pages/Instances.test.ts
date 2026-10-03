@@ -553,6 +553,9 @@ describe('Instances', () => {
     await fireEvent.submit(url.closest('form') as HTMLFormElement);
 
     expect(await screen.findByText('Instance updated')).toBeTruthy();
+    // The sync would follow the list's reload, which the message precedes.
+    await waitFor(() => expect(api.getInstances).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sync).not.toHaveBeenCalled();
   });
 
@@ -564,6 +567,9 @@ describe('Instances', () => {
     await addInstance('Films');
 
     expect(await screen.findByText('Instance added')).toBeTruthy();
+    // The sync would follow the list's reload, which the message precedes.
+    await waitFor(() => expect(api.getInstances).toHaveBeenCalledTimes(2));
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(sync).not.toHaveBeenCalled();
   });
 
@@ -912,4 +918,39 @@ describe('Instances', () => {
 
     expect(document.activeElement).toBe(screen.getByLabelText('Name'));
   });
+});
+
+/** A deleted instance takes its row and its menu: the next row's menu takes the focus. */
+it('hands the focus to the instance that took the place of the deleted one', async () => {
+  const next = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
+  show([instance(), next]);
+  vi.spyOn(api, 'deleteInstance').mockResolvedValue(undefined);
+
+  await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+  await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+  vi.spyOn(api, 'getInstances').mockResolvedValue([next]);
+  await answerConfirmation();
+
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: /Actions – Sonarr/ })),
+  );
+});
+
+/** A row's Test connection asks the server about that instance and says what answered. */
+it('tests the connection of the instance whose row was used', async () => {
+  const sonarr = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
+  show([instance(), sonarr]);
+  const probe = vi.spyOn(api, 'testInstance').mockResolvedValue({
+    success: true,
+    version: '4.0.1',
+    app_name: 'Sonarr',
+    root_folders: 2,
+    inaccessible_root_folders: 0,
+  });
+
+  await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));
+  await fireEvent.click(await screen.findByRole('menuitem', { name: 'Test connection' }));
+
+  expect(await screen.findByText('Sonarr: connected (v4.0.1), root folders: 2')).toBeTruthy();
+  expect(probe).toHaveBeenCalledExactlyOnceWith('i2');
 });

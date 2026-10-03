@@ -119,13 +119,28 @@ export function parseStringList(input: string): string[] {
     .reduce<string[]>((kept, value) => addValue(kept, value), []);
 }
 
+/**
+ * An external identifier as typed: digits only. `Number` alone reads `0x25B`
+ * and `1e3` as numbers, and `6O4` as nothing, which drops a title unseen.
+ */
+const isIdentifier = (part: string) => /^\d+$/.test(part) && Number(part) > 0;
+
 /** Same, for external identifiers: whole numbers above zero, once each. */
 export function parseNumberList(input: string): number[] {
   const ids = input
     .split(',')
-    .map((part) => Number(part.trim()))
-    .filter((value) => Number.isInteger(value) && value > 0);
+    .map((part) => part.trim())
+    .filter(isIdentifier)
+    .map(Number);
   return [...new Set(ids)];
+}
+
+/** What `parseNumberList` drops from a list as typed, for the field to name. */
+export function rejectedNumbers(input: string): string[] {
+  return input
+    .split(',')
+    .map((part) => part.trim())
+    .filter((part) => part !== '' && !isIdentifier(part));
 }
 
 /**

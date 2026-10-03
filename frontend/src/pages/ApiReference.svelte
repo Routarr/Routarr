@@ -73,13 +73,15 @@
   const schemas = $derived(Object.keys(spec.data?.components?.schemas ?? {}).sort());
 </script>
 
+{#snippet spans(text: string)}
+  {#each inline(text) as part, at (at)}
+    {#if part.code}<code class="mono">{part.text}</code>{:else}{part.text}{/if}
+  {/each}
+{/snippet}
+
 {#snippet prose(text: string)}
   {#each paragraphs(text) as paragraph, index (index)}
-    <p lang="en" dir="ltr" class="api-prose">
-      {#each inline(paragraph) as part, at (at)}
-        {#if part.code}<code class="mono">{part.text}</code>{:else}{part.text}{/if}
-      {/each}
-    </p>
+    <p lang="en" dir="ltr" class="api-prose">{@render spans(paragraph)}</p>
   {/each}
 {/snippet}
 
@@ -101,7 +103,7 @@
             <td class="mono">{row.name}</td>
             <td class="mono">{row.type}</td>
             <td>{t(row.required ? 'Yes' : 'No')}</td>
-            <td lang="en" dir="ltr">{row.description}</td>
+            <td lang="en" dir="ltr">{@render spans(row.description)}</td>
           </tr>
         {/each}
       </tbody>
@@ -144,7 +146,7 @@
                   <td class="mono">{parameter.in}</td>
                   <td class="mono">{typeLabel(parameter.schema)}</td>
                   <td>{t(parameter.required ? 'Yes' : 'No')}</td>
-                  <td lang="en" dir="ltr">{parameter.description ?? ''}</td>
+                  <td lang="en" dir="ltr">{@render spans(parameter.description ?? '')}</td>
                 </tr>
               {/each}
             </tbody>
@@ -166,7 +168,8 @@
           <li>
             <code class="mono">{response.code}</code>
             {#if response.schema}<code class="mono">{typeLabel(response.schema)}</code>{/if}
-            <span lang="en" dir="ltr" class="text-muted">{response.description}</span>
+            <span lang="en" dir="ltr" class="text-muted">{@render spans(response.description)}</span
+            >
           </li>
         {/each}
       </ul>
@@ -198,7 +201,7 @@
   />
 
   {#if spec.loading && !spec.data}
-    <Loading />
+    <div class="card"><Loading /></div>
   {:else if spec.data}
     {@const doc = spec.data}
     <div class="card">
@@ -206,13 +209,15 @@
       {@render prose(doc.info.description ?? '')}
     </div>
 
-    <div class="card">
+    <div class="toolbar">
       <SearchField bind:value={search} placeholder={t('ApiSearch')} label={t('ApiSearch')} />
     </div>
 
     {#each groups as group (group.tag)}
       <section class="card">
-        <h2 class="card-title">{t(TAGS[group.tag] ?? group.tag)}</h2>
+        <div class="card-header">
+          <h2 class="card-title">{t(TAGS[group.tag] ?? group.tag)}</h2>
+        </div>
         {@render prose(group.description)}
         {#each group.operations as op (op.id)}
           {@render operation(doc, op)}
@@ -225,7 +230,9 @@
     {/each}
 
     <section class="card">
-      <h2 class="card-title">{t('ApiSchemas')}</h2>
+      <div class="card-header">
+        <h2 class="card-title">{t('ApiSchemas')}</h2>
+      </div>
       {#each schemas as name (name)}
         {@const schema = doc.components?.schemas?.[name] ?? {}}
         {@const rows = fields(schema, doc)}

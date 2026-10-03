@@ -54,6 +54,45 @@ test.describe('right to left', () => {
     expect(drawn).toEqual({ dir: 'rtl', left: '2px', bottom: '2px', right: '0px', top: '0px' });
   });
 
+  /**
+   * The select arrow and the facets chevron point down whatever the writing:
+   * the arrow's two halves keep their order at the other end, and the chevron
+   * keeps its physical sides.
+   */
+  test('a select arrow and the facets chevron still point down', async ({ page }) => {
+    await setLanguage('ar');
+    await page.goto('/rules');
+    await expect(page.locator('.facet-panel > summary')).toBeVisible();
+
+    const drawn = await page.evaluate(() => {
+      const select = document.createElement('select');
+      select.className = 'form-select';
+      document.querySelector('main')!.append(select);
+      const [first, second] = getComputedStyle(select)
+        .backgroundPosition.split(',')
+        .map((position) => parseFloat(position));
+      select.remove();
+      const chevron = getComputedStyle(
+        document.querySelector('.facet-panel > summary')!,
+        '::after',
+      );
+      return {
+        halvesInOrder: first! < second!,
+        right: chevron.borderRightWidth,
+        bottom: chevron.borderBottomWidth,
+      };
+    });
+    expect(drawn).toEqual({ halvesInOrder: true, right: '2px', bottom: '2px' });
+  });
+
+  /** A path is a machine format, read left to right whatever the page. */
+  test('a path typed into a field runs left to right', async ({ page }) => {
+    await setLanguage('ar');
+    await page.goto('/root-folders');
+
+    await expect(page.locator('#declare-path')).toHaveCSS('direction', 'ltr');
+  });
+
   /** An arrow means "towards", so it turns around when the writing does. */
   test('every arrow in the explanation points the way the text reads', async ({ page }) => {
     await setLanguage('ar');
@@ -77,6 +116,30 @@ test.describe('right to left', () => {
     });
     expect(arrows.length).toBeGreaterThan(0);
     expect(arrows.filter((transform) => transform !== 'matrix(-1, 0, 0, 1, 0, 0)')).toEqual([]);
+  });
+
+  /** Unmirrored, a proposed move points from the target back to the current folder. */
+  test("a proposal's move arrow points the way the text reads", async ({ page }) => {
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Akira',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: ['akira'] }],
+        exclusions: [],
+      }),
+    });
+    await setLanguage('ar');
+    await page.goto('/simulation');
+    await page.getByRole('button', { name: 'تشغيل المحاكاة' }).click();
+
+    const arrow = page.locator('tbody svg.text-warning').first();
+    await expect(arrow).toBeVisible();
+    await expect(arrow).toHaveCSS('transform', 'matrix(-1, 0, 0, 1, 0, 0)');
   });
 
   test('the shell mirrors and nothing spills off the side', async ({ page }) => {

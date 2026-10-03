@@ -23,11 +23,12 @@ function byteSymbol(locale: string): string | undefined {
 }
 
 /**
- * The language setting as `Intl` reads it. The dictionaries are named
- * `nb_NO` or `zh_TW`, and `Intl` refuses the underscore: each formatter would
- * throw, and fall back to the server's English.
+ * The language setting as `Intl` and the page's `lang` read it. The
+ * dictionaries are named `nb_NO` or `zh_TW`, and `Intl` refuses the
+ * underscore: each formatter would throw, and fall back to the server's
+ * English. Neither is a language tag a browser picks a font or a voice from.
  */
-const bcp47 = (language: string) => language.replace('_', '-');
+export const bcp47 = (language: string) => language.replace('_', '-');
 
 /**
  * An address without the `user:pass@` before its host, which a browser
@@ -58,6 +59,15 @@ export const LOG_ACTION_KEY: Record<LogAction, string> = {
   revert: 'Revert',
 };
 
+/** The caption of each field a metadata source supplies, as the facets panel names it. */
+export const METADATA_FIELD_KEY: Record<string, string> = {
+  genres: 'FacetGenres',
+  keywords: 'FacetKeywords',
+  original_language: 'FacetLanguages',
+  origin_countries: 'FacetCountries',
+  certification: 'FacetCertifications',
+};
+
 /** The dictionary key naming a kind of title. */
 export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Movies' : 'Series');
 
@@ -67,6 +77,13 @@ export const mediaTypeKey = (type: MediaType): string => (type === 'movie' ? 'Mo
  * that it failed in the reader's language, and its title holds this.
  */
 export const failureDetail = (status: string): string => status.replace(/^error: /, '');
+
+/**
+ * A path placed in a sentence, in a first strong isolate: in a right-to-left
+ * message its leading slash otherwise lands at the far end, and its segments
+ * read in the message's direction.
+ */
+export const isolated = (text: string): string => `\u2068${text}\u2069`;
 
 /**
  * Human-readable size in the reader's language, or a hyphen when the Arr did
@@ -139,6 +156,12 @@ export interface ConditionWords {
   separator: string;
   /** Said of a list with no value, which can never match. */
   empty: string;
+  /** A caption and its values, as `t('ConditionSummary')` writes them. */
+  summary: (caption: string, values: string) => string;
+  /** A range, as `t('ConditionRange')` writes it. */
+  range: (min: string, max: string) => string;
+  /** An open bound of a range. */
+  open: string;
   /** The name a stored value is shown under, where it has one. */
   name?: (value: string) => string;
 }
@@ -150,14 +173,15 @@ export function describeCondition(condition: Condition, words: ConditionWords): 
 
   if (Array.isArray(value)) {
     const named = value.map((each) => (words.name ? words.name(String(each)) : String(each)));
-    return `${caption}: ${named.length > 0 ? named.join(words.separator) : words.empty}`;
+    return words.summary(caption, named.length > 0 ? named.join(words.separator) : words.empty);
   }
   if (value && typeof value === 'object') {
     const range = value as { min?: number | null; max?: number | null };
-    return `${caption}: ${range.min ?? '*'} → ${range.max ?? '*'}`;
+    const bound = (year: number | null | undefined) => (year == null ? words.open : String(year));
+    return words.summary(caption, words.range(bound(range.min), bound(range.max)));
   }
   if (value === undefined || value === null) return caption;
-  return `${caption}: ${String(value)}`;
+  return words.summary(caption, String(value));
 }
 
 /**
@@ -270,8 +294,16 @@ export function localName(
   language: string,
 ): string | null {
   try {
+    const region = code.toUpperCase();
+    // A code that no longer exists is named after the country that replaced
+    // it, `SU` as Russia and `DD` as Germany, so the picker would offer two
+    // Russias and a rule on `RU` would miss every Soviet film. Left to the
+    // caller, which names it from the server's table.
+    if (type === 'region' && Intl.getCanonicalLocales(`und-${region}`)[0] !== `und-${region}`) {
+      return null;
+    }
     const names = new Intl.DisplayNames([bcp47(language)], { type, fallback: 'none' });
-    const name = names.of(type === 'region' ? code.toUpperCase() : code);
+    const name = names.of(type === 'region' ? region : code);
     return name ? `${name} (${code})` : null;
   } catch {
     return null;

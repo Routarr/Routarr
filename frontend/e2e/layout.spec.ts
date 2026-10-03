@@ -1,6 +1,7 @@
 import type { Locator } from '@playwright/test';
 
-import { test, expect, api, openScreen } from './fixtures';
+import { test, expect, api, openScreen, unfold } from './fixtures';
+import { seedRows } from './seed';
 import { SCREENS as ROUTES } from './screens';
 
 /**
@@ -145,8 +146,13 @@ test.describe('on a phone', () => {
     test(`${path} fits a 375px screen and its tables scroll inside their region`, async ({
       page,
     }) => {
+      // With a row in every table, once loaded: a heading over an empty table
+      // fits any screen.
+      await seedRows();
       await page.setViewportSize({ width: 375, height: 812 });
       await openScreen(page, path);
+      await page.waitForLoadState('networkidle');
+      await unfold(page);
 
       const overflow = await page.evaluate(
         () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -347,6 +353,45 @@ test.describe('on a phone', () => {
   });
 });
 
+test.describe('spacing the reset takes away', () => {
+  /** The reset takes every paragraph's margin, and thirty lines read as one block. */
+  test("the reference's paragraphs stand apart", async ({ page }) => {
+    await openScreen(page, '/reference');
+
+    const gap = await page.evaluate(() => {
+      const [first, second] = document.querySelectorAll('.api-prose');
+      if (!first || !second) return null;
+      return second.getBoundingClientRect().top - first.getBoundingClientRect().bottom;
+    });
+    expect(gap).not.toBeNull();
+    expect(gap!).toBeGreaterThanOrEqual(6);
+  });
+
+  /** In a narrow column, bare badges stack and touch. */
+  test("a key's scope badges keep apart however they wrap", async ({ page }) => {
+    await api('/applications', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Every scope', scopes: ['operate', 'write'], may_confirm: [] }),
+    });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/applications');
+
+    const row = page.getByRole('row', { name: /Every scope/ });
+    const gaps = await row.locator('.badge').evaluateAll((badges) => {
+      const boxes = badges.map((badge) => badge.getBoundingClientRect());
+      return boxes.slice(1).map((box, i) => {
+        const before = boxes[i]!;
+        const sameLine = Math.abs(box.top - before.top) < 4;
+        return sameLine ? box.left - before.right : box.top - before.bottom;
+      });
+    });
+    expect(gaps).toHaveLength(2);
+    for (const gap of gaps) expect(gap).toBeGreaterThanOrEqual(4);
+    const keys = (await api('/applications')) as { id: string }[];
+    for (const key of keys) await api(`/applications/${key.id}`, { method: 'DELETE' });
+  });
+});
+
 test.describe('buttons are one size', () => {
   /**
    * Without a fixed height the same `btn btn-primary` renders at three sizes:
@@ -357,9 +402,12 @@ test.describe('buttons are one size', () => {
   test('every button on every page shares its size', async ({ page }) => {
     const regular = new Map<number, string>();
     const small = new Map<number, string>();
+    // The row actions are buttons too, and an empty table draws none.
+    await seedRows();
 
     for (const path of ROUTES) {
       await openScreen(page, path);
+      await page.waitForLoadState('networkidle');
 
       const found = await page.evaluate(() =>
         [...document.querySelectorAll('.btn')]
