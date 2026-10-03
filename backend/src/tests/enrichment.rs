@@ -192,10 +192,7 @@ async fn results_are_filed_against_the_media_they_belong_to() {
 async fn certifications_and_countries_are_extracted() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
-    sqlx::query("INSERT INTO settings (key, value) VALUES ('certification_regions', 'FR, US')")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    app.store_setting("certification_regions", "FR, US").await;
 
     enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
     let rows = cached(&app).await;

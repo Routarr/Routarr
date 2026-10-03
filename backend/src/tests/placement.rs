@@ -241,6 +241,28 @@ async fn a_series_is_placed_through_sonarr() {
     assert_eq!(answer["title"], "Cowboy Bebop");
     let unknown = app.get("/api/v1/route?type=series&tvdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
+
+    // Named by TMDb, a series is found in the library alone: Sonarr's lookup
+    // does not take that id, and saying so per instance is no answer.
+    let by_tmdb = app.get("/api/v1/route?type=series&tmdb=30991").await;
+    let found = by_tmdb.assert_ok();
+    assert_eq!(found["answers"].as_array().unwrap().len(), 1, "{found}");
+    assert_eq!(found["errors"], serde_json::json!([]), "{found}");
+    let unknown = app.get("/api/v1/route?type=series&tmdb=1").await;
+    assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{:?}", unknown.json);
+}
+
+/// TheTVDB knows series alone: a movie named by a TheTVDB id is refused.
+#[tokio::test]
+async fn a_movie_named_by_a_tvdb_id_is_refused() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    radarr_library(&app, &arr).await;
+
+    let refused = app.get("/api/v1/route?type=movie&tvdb=76885").await;
+
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.json);
+    assert!(arr.recorded().reads.iter().all(|read| !read.contains("lookup")), "Radarr was asked");
 }
 
 /// A film Radarr does not hold has no file, though its lookup does not say so.
@@ -320,6 +342,28 @@ async fn a_title_the_arr_holds_keeps_its_own_tags_before_it_is_synced() {
 
     let answer = only(placed.assert_ok());
     assert_eq!(answer["source"], "lookup");
+    assert_eq!(answer["category"], "anime", "{answer}");
+}
+
+/// The same through Radarr, whose lookup builds the film afresh with no id:
+/// that Radarr holds it is read from its library, and the film keeps its own
+/// tags and folder.
+#[tokio::test]
+async fn a_film_radarr_holds_keeps_its_own_tags_before_it_is_synced() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.seed_rule_on(serde_json::json!({ "type": "tag_in", "value": ["anime"] })).await;
+    app.execute(&[
+        "UPDATE root_folders SET category = 'anime' WHERE path = '/movies/anime'",
+        "DELETE FROM media",
+    ])
+    .await;
+
+    let placed = app.get("/api/v1/route?type=movie&tmdb=8392&tags=kids").await;
+
+    let answer = only(placed.assert_ok());
+    assert_eq!(answer["source"], "lookup");
+    assert_eq!(answer["current_root_folder"], "/movies/standard", "{answer}");
     assert_eq!(answer["category"], "anime", "{answer}");
 }
 

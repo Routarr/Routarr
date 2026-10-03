@@ -7,7 +7,7 @@ use axum::http::{Method, StatusCode};
 use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
-use super::security::declared_routes;
+use super::security::{declared_routes, route_template};
 use super::{TestApp, TestResponse};
 use crate::api::applications::GRANTS;
 use crate::api::contract::{self, SCOPE_EXTENSION, for_each_operation};
@@ -87,10 +87,7 @@ fn every_granted_route_is_documented_with_its_scope_and_nothing_else_is() {
 fn every_documented_operation_is_a_declared_route() {
     let declared: BTreeSet<(String, String)> = declared_routes()
         .into_iter()
-        .map(|(method, path)| {
-            let route = path.strip_prefix("/api/v1").unwrap_or(&path).replace("probe", "{id}");
-            (method.to_string(), route)
-        })
+        .map(|(method, path)| (method.to_string(), route_template(&path)))
         .collect();
     for (method, path, _) in operations() {
         assert!(
@@ -116,11 +113,12 @@ async fn the_contract_is_served_without_a_key_under_its_mount_point() {
     assert_eq!(served.assert_ok()["servers"], json!([{ "url": "/routarr/api/v1" }]));
 }
 
-/// Holds each answer to the schema the contract states for its operation and
-/// status, and remembers which operations it saw.
+/// Holds each answer to the status the call expects and to the schema the
+/// contract states for it, and remembers which successes it saw: an error
+/// validated against the shared envelope does not stand for a success.
 struct Checker {
     document: Value,
-    seen: BTreeSet<(String, String)>,
+    seen: BTreeSet<(String, String, String)>,
 }
 
 impl Checker {
@@ -128,8 +126,14 @@ impl Checker {
         Self { document: described(), seen: BTreeSet::new() }
     }
 
-    fn check(&mut self, method: &str, route: &str, response: &TestResponse) {
+    fn check(&mut self, method: &str, route: &str, expected: u16, response: &TestResponse) {
         let status = response.status.as_str().to_string();
+        assert_eq!(
+            response.status.as_u16(),
+            expected,
+            "{method} {route} answered {status}: {}",
+            response.json
+        );
         let responses = &self.document["paths"][route][method.to_lowercase()]["responses"];
         assert!(responses.is_object(), "{method} {route} is not documented");
         let documented = if responses[&status].is_object() { &status } else { "default" };
@@ -149,8 +153,36 @@ impl Checker {
             errors.join("\n"),
             response.json
         );
-        self.seen.insert((method.to_string(), route.to_string()));
+        if response.status.is_success() {
+            self.seen.insert((method.to_string(), route.to_string(), status));
+        }
     }
+
+    /// Every success status the contract documents, by operation.
+    fn documented_successes(&self) -> BTreeSet<(String, String, String)> {
+        let mut successes = BTreeSet::new();
+        for (path, item) in self.document["paths"].as_object().unwrap() {
+            for (method, operation) in item.as_object().unwrap() {
+                let Some(responses) = operation["responses"].as_object() else { continue };
+                for status in responses.keys().filter(|status| status.starts_with('2')) {
+                    successes.insert((method.to_uppercase(), path.clone(), status.clone()));
+                }
+            }
+        }
+        successes
+    }
+}
+
+/// The task, once it has stopped running.
+async fn finished(app: &TestApp, id: &str) {
+    for _ in 0..200 {
+        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
+        if task.json["status"] != "running" {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    panic!("the task {id} never finished");
 }
 
 /// Every operation the contract documents is called once, and what it
@@ -174,54 +206,64 @@ async fn every_documented_operation_answers_as_its_schema_says() {
         ("/media/{id}/explain", "/api/v1/media/m-0/explain"),
         ("/route", "/api/v1/route?type=movie&tmdb=8392&instance=inst-1"),
     ] {
-        checker.check("GET", route, &app.get(path).await);
+        checker.check("GET", route, 200, &app.get(path).await);
     }
     // A refusal answers the shared envelope.
     let missing = app.get("/api/v1/media/nothing-here").await;
     assert_eq!(missing.status, StatusCode::NOT_FOUND);
-    checker.check("GET", "/media/{id}", &missing);
+    checker.check("GET", "/media/{id}", 404, &missing);
 
     let metrics = app.raw("/api/v1/metrics").await;
     assert_eq!(metrics.status(), StatusCode::OK);
     let content_type = metrics.headers()[axum::http::header::CONTENT_TYPE].to_str().unwrap();
     assert!(content_type.starts_with("text/plain"), "{content_type}");
-    checker.seen.insert(("GET".into(), "/metrics".into()));
+    checker.seen.insert(("GET".into(), "/metrics".into(), "200".into()));
 
     let simulated = app.post("/api/v1/simulate", json!({ "persist": true })).await;
-    checker.check("POST", "/simulate", &simulated);
+    checker.check("POST", "/simulate", 200, &simulated);
     let simulation = simulated.json["simulation_id"].as_str().unwrap().to_string();
     let pending = app.get("/api/v1/decisions?status=pending").await;
-    checker.check("GET", "/decisions", &pending);
+    checker.check("GET", "/decisions", 200, &pending);
     let first = pending.json["data"][0]["id"].as_str().unwrap().to_string();
 
     let body = json!({ "decision_ids": [first], "confirm": every_guardrail });
-    checker.check("POST", "/decisions/apply", &app.post("/api/v1/decisions/apply", body).await);
+    checker.check(
+        "POST",
+        "/decisions/apply",
+        200,
+        &app.post("/api/v1/decisions/apply", body).await,
+    );
     let asked = app.post("/api/v1/decisions/apply-all", json!({ "simulation_id": simulation }));
     let asked = asked.await;
     assert_eq!(asked.status, StatusCode::CONFLICT);
-    checker.check("POST", "/decisions/apply-all", &asked);
-    let body = json!({ "simulation_id": simulation, "confirm": ["batch"] });
+    checker.check("POST", "/decisions/apply-all", 409, &asked);
+    let body = json!({ "simulation_id": simulation, "confirm": every_guardrail });
     let applied = app.post("/api/v1/decisions/apply-all", body).await;
-    checker.check("POST", "/decisions/apply-all", &applied);
+    checker.check("POST", "/decisions/apply-all", 200, &applied);
     let body = json!({ "decision_ids": [first], "confirm": every_guardrail });
-    checker.check("POST", "/decisions/revert", &app.post("/api/v1/decisions/revert", body).await);
+    checker.check(
+        "POST",
+        "/decisions/revert",
+        200,
+        &app.post("/api/v1/decisions/revert", body).await,
+    );
 
     let pin = json!({ "media_id": "m-1", "target_category": "anime", "reason": "a test" });
     let set = app.post("/api/v1/overrides", pin).await;
-    checker.check("POST", "/overrides", &set);
-    checker.check("GET", "/overrides", &app.get("/api/v1/overrides").await);
+    checker.check("POST", "/overrides", 200, &set);
+    checker.check("GET", "/overrides", 200, &app.get("/api/v1/overrides").await);
     let exception = set.json["id"].as_str().unwrap();
     let removed = app.delete(&format!("/api/v1/overrides/{exception}")).await;
-    checker.check("DELETE", "/overrides/{id}", &removed);
+    checker.check("DELETE", "/overrides/{id}", 200, &removed);
     let external = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
     let pin = json!({ "target_category": "anime" });
-    checker.check("PUT", "/overrides/external", &app.put(external, pin).await);
-    checker.check("DELETE", "/overrides/external", &app.delete(external).await);
+    checker.check("PUT", "/overrides/external", 200, &app.put(external, pin).await);
+    checker.check("DELETE", "/overrides/external", 200, &app.delete(external).await);
 
     let synced = app.post("/api/v1/instances/sync", json!({})).await;
-    checker.check("POST", "/instances/sync", &synced);
+    checker.check("POST", "/instances/sync", 200, &synced);
     let synced = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
-    checker.check("POST", "/instances/{id}/sync", &synced);
+    checker.check("POST", "/instances/{id}/sync", 200, &synced);
     // An answer that does not wait has a schema of its own.
     let started = app
         .send(
@@ -232,14 +274,59 @@ async fn every_documented_operation_answers_as_its_schema_says() {
         )
         .await;
     assert_eq!(started.status, StatusCode::ACCEPTED);
-    checker.check("POST", "/instances/{id}/sync", &started);
+    checker.check("POST", "/instances/{id}/sync", 202, &started);
 
     let tasks = app.get("/api/v1/jobs").await;
-    checker.check("GET", "/jobs", &tasks);
+    checker.check("GET", "/jobs", 200, &tasks);
     let task = started.json["job_id"].as_str().unwrap();
-    checker.check("GET", "/jobs/{id}", &app.get(&format!("/api/v1/jobs/{task}")).await);
+    checker.check("GET", "/jobs/{id}", 200, &app.get(&format!("/api/v1/jobs/{task}")).await);
 
-    let documented: BTreeSet<(String, String)> =
-        operations().into_iter().map(|(method, path, _)| (method.to_string(), path)).collect();
-    assert_eq!(checker.seen, documented, "an operation the contract documents went unchecked");
+    // The sync is followed by the work after it, whose simulation holds the
+    // lock a persisting one takes: waited for, or `/simulate` below meets it.
+    finished(&app, task).await;
+    let followed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            let chain = app.state.post_sync.lock().await.take();
+            if let Some(chain) = chain {
+                return chain.await.unwrap();
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
+    followed.await.expect("the sync was never followed");
+
+    // The answers that do not wait, each a schema of its own.
+    let pending = app.get("/api/v1/decisions?status=pending").await;
+    let ids: Vec<Value> =
+        pending.json["data"].as_array().unwrap().iter().map(|d| d["id"].clone()).collect();
+    let proposals = app.post("/api/v1/simulate", json!({ "persist": true })).await;
+    assert_eq!(proposals.status, StatusCode::OK, "{}", proposals.json);
+    for (route, body) in [
+        ("/simulate", json!({ "persist": false })),
+        (
+            "/decisions/apply",
+            json!({ "decision_ids": [ids[0].clone()], "confirm": every_guardrail }),
+        ),
+        (
+            "/decisions/revert",
+            json!({ "decision_ids": [ids[0].clone()], "confirm": every_guardrail }),
+        ),
+        (
+            "/decisions/apply-all",
+            json!({ "simulation_id": proposals.json["simulation_id"], "confirm": every_guardrail }),
+        ),
+    ] {
+        let request = axum::http::Request::post(format!("/api/v1{route}"))
+            .header("prefer", "respond-async")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(body.to_string()))
+            .unwrap();
+        let started = app.send(request).await;
+        checker.check("POST", route, 202, &started);
+        finished(&app, started.json["job_id"].as_str().unwrap()).await;
+    }
+
+    let documented = checker.documented_successes();
+    let missed: Vec<_> = documented.difference(&checker.seen).collect();
+    assert!(missed.is_empty(), "documented successes never checked: {missed:?}");
 }

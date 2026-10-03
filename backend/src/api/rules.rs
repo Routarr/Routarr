@@ -1,7 +1,9 @@
 //! Rule administration: CRUD, validation, import/export and impact preview.
 
 use super::Json;
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use serde::Serialize;
 use sqlx::AssertSqlSafe;
 use uuid::Uuid;
@@ -430,6 +432,8 @@ pub(crate) struct Environment {
     covered_fields: Vec<MetadataField>,
     localizer: crate::localization::Localizer,
     current_year: i64,
+    /// The ids a rule's scope may name.
+    instances: Vec<String>,
 }
 
 pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
@@ -447,6 +451,7 @@ pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
         covered_fields: metadata::covered_fields(&state.metadata_providers().await),
         localizer: state.localizer().await,
         current_year: i64::from(chrono::Utc::now().year()),
+        instances: sqlx::query_scalar("SELECT id FROM instances").fetch_all(&state.pool).await?,
     })
 }
 
@@ -475,6 +480,16 @@ pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<Validatio
         issue.message = describe_issue(&env.localizer, &issue.key, &issue.params);
         issue
     })
+    // An id the interface sent, never one somebody typed, so in English.
+    .chain(req.instance_ids.iter().flatten().filter(|id| !env.instances.contains(id)).map(|id| {
+        ValidationIssue {
+            severity: "error".into(),
+            field: "instance_ids".into(),
+            key: "UnknownInstance".into(),
+            params: std::collections::BTreeMap::new(),
+            message: format!("No instance has the id {id}."),
+        }
+    }))
     .collect()
 }
 

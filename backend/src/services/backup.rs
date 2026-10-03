@@ -57,6 +57,8 @@ const MANIFEST_ENTRY: &str = "manifest.json";
 
 /// Marker telling the next startup that a restore is pending.
 const PENDING_SUFFIX: &str = ".restore-pending";
+/// What a restore sets the replaced file aside as, one generation.
+const PRE_RESTORE: &str = ".pre-restore";
 
 /// A restore being written. Never applied: only a complete set whose database
 /// has been checked is renamed to the pending suffix.
@@ -145,6 +147,14 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
     let name = format!("routarr-backup-{stamp}.zip");
     let path = dir.join(&name);
+    // Named to the second: a name already taken is refused before a copy of
+    // the whole database is written for nothing. Checked again at the end,
+    // since the name can be taken meanwhile.
+    if path.exists() {
+        return Err(AppError::Conflict(
+            "A backup was taken this second. Try again in a moment.".into(),
+        ));
+    }
 
     // A consistent snapshot of the live database, WAL included. The temporary
     // file sits beside the archive so the copy never lands somewhere the
@@ -899,12 +909,26 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
             continue;
         }
 
-        // The WAL and shared-memory files belong to the *old* database. Left in
-        // place next to a restored file, SQLite would try to replay them over
-        // it and refuse to open, or worse, succeed.
-        for suffix in ["-wal", "-shm"] {
-            std::fs::remove_file(with_suffix(&target, suffix)).ok();
+        // The file replaced is kept one generation, as `<target>.pre-restore`:
+        // the wrong line picked in the list would otherwise lose everything
+        // written since that archive. Its WAL goes with it under the name
+        // SQLite looks for beside the copy, since it holds the latest writes.
+        // Left in place next to the restored file, SQLite would replay it over
+        // the restore. The shared-memory file is rebuilt, and goes.
+        if target.exists() {
+            let kept = with_suffix(&target, PRE_RESTORE);
+            std::fs::rename(&target, &kept).map_err(|e| {
+                AppError::Config(format!("cannot set {} aside: {e}", target.display()))
+            })?;
+            let wal = with_suffix(&target, "-wal");
+            if wal.exists() {
+                std::fs::rename(&wal, with_suffix(&kept, "-wal")).ok();
+            } else {
+                std::fs::remove_file(with_suffix(&kept, "-wal")).ok();
+            }
+            info!("The file restored over is kept at {}", kept.display());
         }
+        std::fs::remove_file(with_suffix(&target, "-shm")).ok();
 
         std::fs::rename(&staged, &target)
             .map_err(|e| AppError::Config(format!("cannot restore {}: {e}", target.display())))?;

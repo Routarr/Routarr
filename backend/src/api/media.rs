@@ -1,7 +1,9 @@
 //! Media explorer and per-item explainability.
 
 use super::{Json, Query};
-use axum::extract::{Path, State};
+use axum::extract::State;
+
+use super::Path;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
@@ -124,18 +126,21 @@ pub async fn list(
         filters.push_str(" AND m.title LIKE ? ESCAPE '\\'");
         binds.push(format!("%{}%", crate::db::escape_like(v)));
     }
+    // Both read the latest standing decision, the one `computed_category`
+    // below shows: an older one an apply left standing is history.
     if let Some(v) = &query.category {
-        // Filter on the category the engine last proposed, not on a stored column.
         filters.push_str(
-            " AND EXISTS (SELECT 1 FROM decisions d
-                          WHERE d.media_id = m.id AND d.superseded = 0 AND d.target_category = ?)",
+            " AND (SELECT d.target_category FROM decisions d
+                    WHERE d.media_id = m.id AND d.superseded = 0
+                    ORDER BY d.decided_at DESC LIMIT 1) = ?",
         );
         binds.push(v.clone());
     }
     if query.unmatched.unwrap_or(false) {
         filters.push_str(
-            " AND NOT EXISTS (SELECT 1 FROM decisions d
-                              WHERE d.media_id = m.id AND d.superseded = 0 AND d.matched_rule_id IS NOT NULL)",
+            " AND COALESCE((SELECT d.matched_rule_id IS NOT NULL FROM decisions d
+                             WHERE d.media_id = m.id AND d.superseded = 0
+                             ORDER BY d.decided_at DESC LIMIT 1), 0) = 0",
         );
     }
 
@@ -207,6 +212,12 @@ impl ExternalTitle {
                     "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
                 )
             })?;
+        // TheTVDB knows series alone, and no movie carries its id.
+        if self.media_type == "movie" && matches!(id, ExternalId::Tvdb(_)) {
+            return Err(AppError::BadRequest(
+                "A movie is named by its `tmdb` or `imdb` id.".into(),
+            ));
+        }
         Ok((&self.media_type, id))
     }
 }
@@ -379,24 +390,13 @@ pub async fn explain(
     let winner_id = evaluation.winner.as_ref().map(|w| w.rule_id.clone());
     let mut rule_traces = Vec::new();
 
-    for rule in &rules {
-        if !rule.enabled
-            || !rule.covers_media_type(&media.media_type)
-            || !rule.covers_instance(&media.instance_id)
-        {
-            continue;
-        }
-
-        let conditions: Vec<rule_engine::ConditionOutcome> = rule
-            .conditions
-            .iter()
-            .map(|c| localizer.localize_outcome(rule_engine::evaluate_single_condition(c, ctx)))
-            .collect();
-
-        let matched = match rule.match_mode {
-            MatchMode::All => conditions.iter().all(|c| c.matched),
-            MatchMode::Any => conditions.iter().any(|c| c.matched),
-        };
+    // The rules the engine considers, in its order, and its own reading of
+    // each: a second definition here would call matched what it never fires.
+    for rule in rule_engine::in_order(&rules, &media) {
+        let (matched, outcomes) =
+            rule_engine::evaluate_conditions(&rule.conditions, rule.match_mode, ctx);
+        let conditions: Vec<rule_engine::ConditionOutcome> =
+            outcomes.into_iter().map(|outcome| localizer.localize_outcome(outcome)).collect();
 
         let excluded_by = if matched {
             rule.exclusions

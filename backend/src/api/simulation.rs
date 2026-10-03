@@ -38,6 +38,23 @@ async fn simulate(
     by: Attribution,
     req: SimulationRequest,
 ) -> AppResult<SimulationResult> {
+    // Refused before any task starts, as every refusal is: answered at once,
+    // a caller would otherwise hold a task that only fails.
+    let instances = req.instance_ids.as_ref().map_or(0, Vec::len);
+    if instances > routing::BIND_CHUNK {
+        return Err(crate::error::AppError::BadRequest(format!(
+            "instance_ids names more than {} ids",
+            routing::BIND_CHUNK
+        )));
+    }
+    if let Some(kind) = req.media_type.as_deref()
+        && !matches!(kind, "movie" | "series")
+    {
+        return Err(crate::error::AppError::BadRequest(
+            "media_type is `movie` or `series`.".into(),
+        ));
+    }
+
     // One *persisting* pass at a time (see `jobs::FULL_SIMULATION`). What the
     // lock protects is the writing: two passes each supersede the other's
     // pending decisions and the later commit wins. A run that persists
@@ -106,11 +123,15 @@ async fn simulate(
                     },
                 );
             }
-            // The counts, without the decisions: a task row is not where a
-            // thousand proposals are kept, and `/decisions` lists them.
+            // A stored run keeps the counts alone: a task row is not where a
+            // thousand proposals are kept, and `/decisions` lists them. A
+            // preview stores none, so its task keeps the ones it returned,
+            // within `max_returned`, or they would be nowhere at all.
             if let Ok(mut summary) = serde_json::to_value(result) {
-                summary["decisions"] = serde_json::json!([]);
-                summary["returned"] = serde_json::json!(0);
+                if req.persist {
+                    summary["decisions"] = serde_json::json!([]);
+                    summary["returned"] = serde_json::json!(0);
+                }
                 job.report(&summary);
             }
             job.succeed(

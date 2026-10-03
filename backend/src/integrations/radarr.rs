@@ -140,19 +140,28 @@ impl RadarrClient {
                 ));
             }
         };
-        match send_json(SERVICE, request).await {
-            Ok(movie) => Ok(Some(movie)),
-            Err(AppError::ExternalApi { status: 404, .. }) => Ok(None),
+        let found: RadarrMovie = match send_json(SERVICE, request).await {
+            Ok(movie) => movie,
+            Err(AppError::ExternalApi { status: 404, .. }) => return Ok(None),
             // Radarr answers an id TMDb does not know with a 500 naming its
             // `MovieNotFoundException`: "Movie with tmdbId 1 was not found, it
             // may have been removed from TMDb."
             Err(AppError::ExternalApi { status: 500, ref message, .. })
                 if message.starts_with("Movie with ") && message.contains(" was not found") =>
             {
-                Ok(None)
+                return Ok(None);
             }
-            Err(e) => Err(e),
-        }
+            Err(e) => return Err(e),
+        };
+        // The lookup builds the film afresh from TMDb, with no id, folder or
+        // tags even when the library holds it: the library is asked for that.
+        let Some(tmdb) = found.tmdb_id else {
+            return Ok(Some(found));
+        };
+        let held: Vec<RadarrMovie> =
+            send_json(SERVICE, self.get("/api/v3/movie").query(&[("tmdbId", tmdb.to_string())]))
+                .await?;
+        Ok(Some(held.into_iter().next().unwrap_or(found)))
     }
 
     /// Get the tag catalogue: a media row only carries numeric ids.

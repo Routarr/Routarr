@@ -310,13 +310,46 @@ impl TestApp {
         .unwrap();
     }
 
+    /// `arr` as the Radarr `inst-1`, the anime rule and the folder its films
+    /// leave.
+    async fn seed_routing_off(&self, arr: &fake_arr::FakeArr) {
+        self.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+        self.seed_route_to_anime().await;
+        self.seed_standard_folder().await;
+    }
+
+    /// The film `arr` holds as id 10, `m-1`, which the anime rule wants to move.
+    /// `has_files` is what the last sync recorded, and the fake is what Radarr
+    /// answers now: auto-apply writes only when both say there is no file, so
+    /// `false` goes with [`fake_arr::FakeArr::with_unimported_movie`].
+    pub async fn one_film_to_move(arr: &fake_arr::FakeArr, has_files: bool) -> Self {
+        let app = Self::new().await;
+        app.seed_one_film_to_move(arr, has_files).await;
+        app
+    }
+
+    /// [`Self::one_film_to_move`], seeded into this harness.
+    pub async fn seed_one_film_to_move(&self, arr: &fake_arr::FakeArr, has_files: bool) {
+        self.seed_routing_off(arr).await;
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+             current_root_folder, monitored, has_files)
+             VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', 8392,
+                     '/movies/standard/My Neighbor Totoro (1988)', '/movies/standard', 1, ?)",
+        )
+        .bind(has_files)
+        .execute(&self.state.pool)
+        .await
+        .unwrap();
+    }
+
     /// A library of `count` films the anime rule wants to move off `arr`,
-    /// with the global dry run off, ready to apply.
+    /// with the global dry run off, ready to apply. Film `n` is `m-n`, Arr id
+    /// `100 + n`, in the folder `Film <its Arr id>`, the one the fake's editor
+    /// answers for it.
     pub async fn films_to_move(arr: &fake_arr::FakeArr, count: usize) -> Self {
         let app = Self::new().await;
-        app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-        app.seed_route_to_anime().await;
-        app.seed_standard_folder().await;
+        app.seed_routing_off(arr).await;
 
         for index in 0..count {
             sqlx::query(
@@ -327,7 +360,7 @@ impl TestApp {
             .bind(format!("m-{index}"))
             .bind(index as i64 + 100)
             .bind(format!("Film {index:03}"))
-            .bind(format!("/movies/standard/Film {index:03}"))
+            .bind(format!("/movies/standard/Film {}", index + 100))
             .execute(&app.state.pool)
             .await
             .unwrap();
@@ -403,6 +436,17 @@ impl TestApp {
         sqlx::query_scalar(sql).fetch_one(&self.state.pool).await.unwrap()
     }
 
+    /// The status of the latest job of `kind`, as the Tasks screen reads it.
+    pub async fn last_job_status(&self, kind: &str) -> String {
+        sqlx::query_scalar(
+            "SELECT status FROM jobs WHERE kind = ? ORDER BY started_at DESC LIMIT 1",
+        )
+        .bind(kind)
+        .fetch_one(&self.state.pool)
+        .await
+        .unwrap()
+    }
+
     pub async fn store_setting(&self, key: &str, value: &str) {
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?)
@@ -475,6 +519,24 @@ pub async fn database_through(last: &str) -> sqlx::SqlitePool {
     pool
 }
 
+/// An application whose notification webhook accepts the connection and never
+/// answers, with an outbound timeout long enough that a caller awaiting a
+/// notification is seen waiting.
+pub async fn waiting_on_a_silent_webhook() -> TestApp {
+    let silent = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = silent.local_addr().unwrap();
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((socket, _)) = silent.accept().await {
+            held.push(socket);
+        }
+    });
+    let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(30));
+    let hook = format!("http://{address}/hook");
+    app.save_setting("notification_webhook_url", &hook).await.assert_ok();
+    app
+}
+
 /// One enabled instance, written in the initial schema's terms, which every
 /// later schema reads.
 ///
@@ -484,6 +546,37 @@ pub async fn database_through(last: &str) -> sqlx::SqlitePool {
 pub const AN_INSTANCE: &str = "INSERT INTO instances
     (id, name, instance_type, base_url, api_key, enabled, webhook_token)
     VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'secret', 1, 'tok')";
+
+/// A resolver that knows no name. A test about a name that does not resolve
+/// asks it rather than the host's resolver, which may be slow, absent or, on a
+/// homelab, answer.
+pub struct NoNames;
+
+impl reqwest::dns::Resolve for NoNames {
+    fn resolve(&self, _: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        Box::pin(async { Err("no name resolves here".into()) })
+    }
+}
+
+impl TestApp {
+    /// The same harness, its outbound calls allowed `budget`, for a test
+    /// holding one open longer than the 300 ms of `Config::for_tests`.
+    pub fn with_http_budget(self, budget: std::time::Duration) -> Self {
+        let mut config = (*self.state.config).clone();
+        config.http_timeout = budget;
+        let mut state = self.state.with_config(config.clone());
+        state.http = crate::http::build_client(&config).unwrap();
+        Self::around(state)
+    }
+
+    /// A harness whose client resolves no name.
+    pub async fn resolving_nothing() -> Self {
+        let mut state = AppState::for_tests().await;
+        state.http =
+            reqwest::Client::builder().dns_resolver(std::sync::Arc::new(NoNames)).build().unwrap();
+        Self::around(state)
+    }
+}
 
 /// Collects what a `tracing` subscriber writes, so a test can read the log a
 /// request produced rather than trust that nothing sensitive is in it.

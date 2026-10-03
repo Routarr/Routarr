@@ -76,13 +76,11 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     })
     .await;
     assert!(released.is_ok(), "the apply lock was left held");
-    let job: String = sqlx::query_scalar(
-        "SELECT status FROM jobs WHERE kind = 'apply' ORDER BY started_at DESC LIMIT 1",
-    )
-    .fetch_one(&app.state.pool)
-    .await
-    .unwrap();
-    assert_eq!(job, "success", "the Tasks screen must see the job end");
+    assert_eq!(
+        app.last_job_status("apply").await,
+        "success",
+        "the Tasks screen must see the job end"
+    );
 }
 
 /// An apply that cannot load its moves ends its job as failed. A `?` between
@@ -107,8 +105,13 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     // For the thread, not the future: the job fails on a task of its own,
     // which the test's single-threaded runtime runs on this same thread.
     let _logging = tracing::subscriber::set_default(subscriber);
-    let outcome =
-        executor::apply_unattended(&app.state, &[decision_id], &Attribution::manual(None)).await;
+    let outcome = executor::apply_unattended(
+        &app.state,
+        &[decision_id],
+        &Attribution::manual(None),
+        executor::unattended_turn(&app.state).await.expect("the lock is free"),
+    )
+    .await;
     assert!(outcome.is_err(), "the loader was meant to fail: {outcome:?}");
     assert!(capture.contents().contains("current_path"), "the log does not name the cause");
 
@@ -140,9 +143,14 @@ async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied(
     .await
     .unwrap();
 
-    let report = executor::apply_unattended(&app.state, &[decision_id], &Attribution::manual(None))
-        .await
-        .unwrap();
+    let report = executor::apply_unattended(
+        &app.state,
+        &[decision_id],
+        &Attribution::manual(None),
+        executor::unattended_turn(&app.state).await.expect("the lock is free"),
+    )
+    .await
+    .unwrap();
 
     assert_eq!((report.applied, report.skipped), (0, 1), "{report:?}");
     assert!(arr.recorded().writes.is_empty(), "the Arr was written to for a stale decision");
@@ -400,21 +408,31 @@ async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
     assert!(!newer, "the item's newer proposal was retired with the stale one");
 }
 
-/// A library wired to a fake Radarr, with dry-run off and one pending move.
-async fn ready(arr: &FakeArr) -> (TestApp, String) {
-    let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_route_to_anime().await;
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
-         current_root_folder, monitored, has_files)
-         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', 8392,
-                 '/movies/standard/My Neighbor Totoro (1988)', '/movies/standard', 1, 1)",
+/// An Arr reports a root folder with or without its trailing slash, so a sync
+/// writing the same folder with a slash leaves the title where its proposal
+/// found it, and the proposal stands.
+#[tokio::test]
+async fn a_folder_reported_again_with_a_trailing_slash_keeps_its_proposal() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    app.execute(&["UPDATE media SET current_root_folder = '/movies/standard/'"]).await;
+
+    let report = executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
     )
-    .execute(&app.state.pool)
     .await
     .unwrap();
-    app.seed_standard_folder().await;
+
+    assert_eq!((report.applied, report.skipped), (1, 0), "{report:?}");
+}
+
+/// A library wired to a fake Radarr, with dry-run off and one pending move.
+async fn ready(arr: &FakeArr) -> (TestApp, String) {
+    let app = TestApp::one_film_to_move(arr, true).await;
     app.store_setting("global_dry_run", "false").await;
 
     let result = routing::run_simulation(
@@ -677,11 +695,33 @@ async fn an_apply_in_which_every_move_failed_is_a_failed_job() {
     .await
     .unwrap();
 
-    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'apply'")
-        .fetch_one(&app.state.pool)
+    assert_eq!(app.last_job_status("apply").await, "failed");
+}
+
+/// The same holds for a revert, whose job closes on its own path.
+#[tokio::test]
+async fn a_revert_in_which_every_move_failed_is_a_failed_job() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = applied(&arr).await;
+    let refusing = FakeArr::failing(500).await;
+    sqlx::query("UPDATE instances SET base_url = ?")
+        .bind(&refusing.base_url)
+        .execute(&app.state.pool)
         .await
         .unwrap();
-    assert_eq!(status, "failed");
+
+    let report = executor::revert_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.applied, report.failed), (0, 1), "{report:?}");
+    assert_eq!(app.last_job_status("revert").await, "failed");
 }
 
 /// A proposal left from before its instance was switched off is not applied:
@@ -1000,6 +1040,8 @@ async fn a_sonarr_batch_settles_each_series_on_its_own_answer() {
     .unwrap();
 
     assert_eq!((report.applied, report.failed), (1, 1), "{report:?}");
+    // Something was done, so the job succeeded: its counts say what failed.
+    assert_eq!(app.last_job_status("apply").await, "success");
     let statuses: Vec<(String, String)> =
         sqlx::query_as("SELECT id, status FROM decisions ORDER BY id")
             .fetch_all(&app.state.pool)
@@ -1220,7 +1262,7 @@ async fn a_decision_cannot_be_reverted_twice() {
     )
     .await
     .unwrap();
-    executor::revert_decisions(
+    let first = executor::revert_decisions(
         &app.state,
         std::slice::from_ref(&decision_id),
         false,
@@ -1229,6 +1271,7 @@ async fn a_decision_cannot_be_reverted_twice() {
     )
     .await
     .unwrap();
+    assert_eq!((first.requested, first.applied), (1, 1), "the first revert did nothing");
     let second = executor::revert_decisions(
         &app.state,
         &[decision_id],
@@ -1247,19 +1290,44 @@ async fn a_decision_cannot_be_reverted_twice() {
 async fn a_pending_decision_cannot_be_reverted() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = ready(&arr).await;
+    let ids = std::slice::from_ref(&decision_id);
+    let by = Attribution::manual(None);
 
-    let report = executor::revert_decisions(
-        &app.state,
-        &[decision_id],
-        false,
-        &executor::Confirmed::none(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
+    let report =
+        executor::revert_decisions(&app.state, ids, false, &executor::Confirmed::none(), &by)
+            .await
+            .unwrap();
 
-    assert_eq!(report.applied, 0);
+    assert_eq!((report.requested, report.applied, report.skipped), (1, 0, 1));
     assert!(arr.recorded().writes.is_empty());
+    // The control: applied, the same decision reverts.
+    let applied =
+        executor::apply_decisions(&app.state, ids, false, &executor::Confirmed::all(), &by)
+            .await
+            .unwrap();
+    assert_eq!((applied.requested, applied.applied), (1, 1));
+    let reverted =
+        executor::revert_decisions(&app.state, ids, false, &executor::Confirmed::none(), &by)
+            .await
+            .unwrap();
+    assert_eq!(reverted.applied, 1, "the fixture cannot revert at all");
+}
+
+/// The unattended path holds the global dry run as an apply does: it is the
+/// one an operator is not watching.
+#[tokio::test]
+async fn an_unattended_apply_is_held_by_the_dry_run() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = ready(&arr).await;
+    app.store_setting("global_dry_run", "true").await;
+    let turn = executor::unattended_turn(&app.state).await.expect("the lock is free");
+
+    let refused =
+        executor::apply_unattended(&app.state, &[decision_id], &Attribution::manual(None), turn)
+            .await;
+
+    assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))), "{refused:?}");
+    assert!(arr.recorded().writes.is_empty(), "the dry run let an unattended move through");
 }
 
 #[tokio::test]
@@ -1743,17 +1811,22 @@ async fn a_destination_reporting_no_free_space_is_not_guessed_at() {
 }
 
 #[tokio::test]
-async fn the_revert_route_refuses_an_unknown_decision_without_a_panic() {
+async fn the_moving_routes_refuse_an_unknown_decision() {
     let app = TestApp::new().await;
-    let body = app
-        .post(
-            "/api/v1/decisions/revert",
-            serde_json::json!({ "decision_ids": ["nope"], "move_files": false }),
-        )
-        .await;
-    // A refusal that says so: not a 500, and not a success over nothing.
-    assert_eq!(body.status, axum::http::StatusCode::BAD_REQUEST, "got {}", body.message());
-    assert!(!body.message().is_empty(), "the refusal says nothing");
+    // Off, or the dry-run refusal would answer for the unknown id.
+    app.store_setting("global_dry_run", "false").await;
+    for route in ["apply", "revert"] {
+        let body = app
+            .post(
+                &format!("/api/v1/decisions/{route}"),
+                serde_json::json!({ "decision_ids": ["nope"], "move_files": false }),
+            )
+            .await;
+        // A refusal that names the id: not a 500, and not a success over nothing.
+        assert_eq!(body.status, axum::http::StatusCode::BAD_REQUEST, "{route}: {}", body.json);
+        assert!(body.message().contains("nope"), "{route}: {}", body.message());
+    }
+    assert_eq!(app.count("SELECT COUNT(*) FROM jobs").await, 0, "a task ran over nothing");
 }
 
 /// `apply` and `sync:{instance}` are different job locks, so an application and
@@ -1827,9 +1900,11 @@ async fn a_sync_that_read_after_the_move_still_follows_the_arr() {
         .await
         .unwrap();
 
-    let root: String = sqlx::query_scalar("SELECT current_root_folder FROM media WHERE id = 'm-1'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
+    let (root, path): (String, String) =
+        sqlx::query_as("SELECT current_root_folder, current_path FROM media WHERE id = 'm-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
     assert_eq!(root, "/movies/standard", "upstream stopped being authoritative");
+    assert_eq!(path, "/movies/standard/My Neighbor Totoro (1988)", "the path stayed behind");
 }

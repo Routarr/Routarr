@@ -16,8 +16,10 @@ use super::fake_arr::FakeArr;
 async fn hanging_up_mid_sync_still_finishes_the_sync() {
     use std::time::Duration;
 
+    // The listing is held so the hang-up lands while it is in flight, under
+    // a budget it cannot reach on a loaded machine.
     let arr = FakeArr::holding_edits(Duration::from_millis(200)).await;
-    let app = TestApp::new().await;
+    let app = TestApp::new().await.with_http_budget(Duration::from_secs(5));
     app.seed_instance_at("inst-held", "radarr", &arr.base_url).await;
 
     {
@@ -65,16 +67,9 @@ async fn hanging_up_mid_sync_still_finishes_the_sync() {
 #[tokio::test]
 async fn a_webhook_read_started_before_a_move_does_not_put_the_old_path_back() {
     let arr = FakeArr::holding_edits(std::time::Duration::from_millis(2500)).await;
-    let app = TestApp::new().await;
     // The hold has to straddle a whole second, since the stamps compare at
-    // that resolution, and the test client's 300 ms budget would cut it off.
-    let mut config = crate::config::Config::for_tests();
-    config.http_timeout = std::time::Duration::from_secs(5);
-    let app = TestApp::around(crate::state::AppState {
-        http: crate::http::build_client(&config).expect("test http client"),
-        config: std::sync::Arc::new(config),
-        ..app.state.clone()
-    });
+    // that resolution.
+    let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(5));
     app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
     let instance = app.state.instance("inst-1").await.unwrap();
 
@@ -262,6 +257,32 @@ async fn media_removed_upstream_is_removed_locally() {
 /// An Arr answering no title while it still reports its folders is restoring,
 /// or a base URL points elsewhere: the titles stay, and their exceptions with
 /// them, since deleting a title cascades to its exception.
+/// A library leaving an Arr outnumbers what one statement binds, so the
+/// retirement runs in chunks and the report counts every one of them.
+#[tokio::test]
+async fn a_sync_retiring_more_rows_than_one_statement_binds_retires_and_counts_them_all() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let gone = crate::services::routing::BIND_CHUNK + 1;
+    sqlx::query(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+         INSERT INTO media (id, instance_id, arr_id, media_type, title)
+         SELECT 'm-inst-1-' || (1000 + i), 'inst-1', 1000 + i, 'movie', 'Gone ' || i FROM n",
+    )
+    .bind(gone as i64)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+
+    let report = sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    assert_eq!(report.removed, gone as u64);
+    assert_eq!(app.count("SELECT COUNT(*) FROM media").await, 1, "a chunk was left behind");
+}
+
 #[tokio::test]
 async fn an_arr_answering_no_title_keeps_the_library() {
     let arr = FakeArr::start().await;
@@ -305,6 +326,40 @@ async fn an_arr_answering_no_root_folder_keeps_the_folders_and_their_categories(
         .count("SELECT COUNT(*) FROM root_folders WHERE id = 'rf-anime' AND category = 'anime'")
         .await;
     assert_eq!(mapped, 1, "the folder or its category went with an empty answer");
+}
+
+/// The unreachable warning and its question print when a folder last
+/// answered, so a pass stamps that time on a folder that answers and leaves it
+/// on one that does not.
+#[tokio::test]
+async fn a_sync_stamps_when_a_folder_answered_and_keeps_it_while_it_does_not() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, arr_id, path, accessible,
+                                             last_accessible_at)
+           VALUES ('rf-inst-1-2', 'inst-1', 2, '/movies/anime', 1, '2026-09-05 03:00:00')"])
+        .await;
+
+    sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let asleep: (bool, Option<String>) = sqlx::query_as(
+        "SELECT accessible, last_accessible_at FROM root_folders WHERE path = '/movies/anime'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(asleep, (false, Some("2026-09-05 03:00:00".into())), "the last answer moved");
+    let awake: (Option<String>, String) = sqlx::query_as(
+        "SELECT last_accessible_at, last_synced_at FROM root_folders
+          WHERE path = '/movies/standard'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(awake.0.as_ref(), Some(&awake.1), "a folder that answered was not stamped");
 }
 
 /// A title the webhook writes while a full sync is reading the Arr was not in
@@ -549,6 +604,25 @@ async fn the_sync_all_route_covers_every_enabled_instance() {
     assert_eq!(reports.len(), 2, "got {reports:?}");
 }
 
+/// Syncing every instance syncs the enabled ones: a switched-off instance is
+/// one its owner stopped, and is left alone.
+#[tokio::test]
+async fn syncing_every_instance_leaves_a_disabled_one_alone() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-off", "radarr", &arr.base_url).await;
+    app.execute(&["UPDATE instances SET enabled = 0 WHERE id = 'inst-off'"]).await;
+
+    let reports = sync::sync_all_instances(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let synced: Vec<&str> = reports.iter().map(|r| r.instance_id.as_str()).collect();
+    assert_eq!(synced, ["inst-1"]);
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE instance_id = 'inst-off'").await, 0);
+}
+
 #[tokio::test]
 async fn the_connectivity_route_answers_with_the_version_it_found() {
     let arr = FakeArr::start().await;
@@ -559,7 +633,9 @@ async fn the_connectivity_route_answers_with_the_version_it_found() {
     let report = body.assert_ok();
     assert_eq!(report["success"], true, "got {report}");
     assert!(report["version"].is_string(), "got {report}");
-    assert!(report["root_folders"].as_i64().unwrap() > 0, "got {report}");
+    assert_eq!(report["root_folders"], 3, "got {report}");
+    // `/movies/anime` reports itself not accessible, and the form says so.
+    assert_eq!(report["inaccessible_root_folders"], 1, "got {report}");
 }
 
 /// A `for` loop with an `.await` in it syncs instances one after another. The
@@ -569,26 +645,30 @@ async fn the_connectivity_route_answers_with_the_version_it_found() {
 ///
 /// The fake counts how many listings it ever had open at once. A sequential
 /// caller can only ever reach one, whatever the machine is doing, because it
-/// does not issue the second request until the first has answered.
+/// does not issue the second request until the first has answered. Past the
+/// bound, a pass would hold every connection of the pool at once.
 #[tokio::test]
-async fn syncing_every_instance_does_them_at_the_same_time() {
+async fn syncing_every_instance_does_them_at_the_same_time_within_the_bound() {
     let arr = FakeArr::observing_concurrency().await;
     let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_instance_at("inst-2", "radarr", &arr.base_url).await;
-    app.seed_instance_at("inst-3", "sonarr", &arr.base_url).await;
+    let instances = sync::SYNC_CONCURRENCY + 2;
+    for index in 0..instances {
+        let kind = if index % 2 == 0 { "radarr" } else { "sonarr" };
+        app.seed_instance_at(&format!("inst-{index}"), kind, &arr.base_url).await;
+    }
 
     let reports = sync::sync_all_instances(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
-    assert_eq!(reports.len(), 3, "every instance should report");
+    assert_eq!(reports.len(), instances, "every instance should report");
     assert!(
         arr.max_concurrent() >= 2,
         "the fake never had more than {} request open at once, which is what a \
          sequential loop produces",
         arr.max_concurrent()
     );
+    assert!(arr.max_concurrent() <= sync::SYNC_CONCURRENCY, "{} at once", arr.max_concurrent());
 }
 
 /// Concurrency must not reach the caller as reordering: the reports are what
@@ -598,11 +678,14 @@ async fn syncing_every_instance_does_them_at_the_same_time() {
 /// `buffer_unordered` would not.
 #[tokio::test]
 async fn the_reports_keep_the_order_the_instances_were_listed_in() {
-    let arr = FakeArr::observing_concurrency().await;
+    // The first listed answers last, so a loop yielding in completion order
+    // puts it at the end.
+    let slow = FakeArr::holding_edits(std::time::Duration::from_millis(150)).await;
+    let fast = FakeArr::start().await;
     let app = TestApp::new().await;
-    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
-    app.seed_instance_at("inst-2", "sonarr", &arr.base_url).await;
-    app.seed_instance_at("inst-3", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-1", "radarr", &slow.base_url).await;
+    app.seed_instance_at("inst-2", "sonarr", &fast.base_url).await;
+    app.seed_instance_at("inst-3", "radarr", &fast.base_url).await;
 
     let expected: Vec<String> =
         app.state.instances(true).await.unwrap().iter().map(|i| i.id.clone()).collect();
@@ -862,10 +945,11 @@ async fn a_declared_path_adopted_under_a_taken_id_does_not_fail_the_sync() {
     assert_eq!(category_of(&app, "/movies/kids").await.as_deref(), Some("kids"));
 }
 
-/// A failing tag endpoint must not strip the library of its tags: every
-/// `tag_in` rule would stop matching until a later pass read them again. The
-/// catalogue the last good pass stored resolves the ids meanwhile, for a full
-/// sync and for the webhook's one item alike.
+/// A failing tag endpoint fails no sync, since tags are one signal among
+/// many, and strips the library of no tag: every `tag_in` rule would stop
+/// matching until a later pass read them again. The catalogue the last good
+/// pass stored resolves the ids meanwhile, for a full sync and for the
+/// webhook's one item alike.
 #[tokio::test]
 async fn a_failing_tag_endpoint_keeps_the_tags_the_last_pass_read() {
     let arr = FakeArr::start().await;

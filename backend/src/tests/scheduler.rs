@@ -88,23 +88,24 @@ async fn disabling_auto_sync_still_leaves_housekeeping_running() {
     );
 }
 
+/// Enrichment and simulation are work proportional to the library, and
+/// running them on an unchanged one every quarter of an hour is pure waste:
+/// with the syncs switched off, or with every one failing, nothing follows.
+/// `a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it` is the
+/// control, a tick that synced and handed the work on.
 #[tokio::test]
 async fn nothing_downstream_runs_when_nothing_synced() {
     let arr = FakeArr::start().await;
-    let app = ready(&arr).await;
-    app.store_setting("auto_sync_enabled", "false").await;
+    let switched_off = ready(&arr).await;
+    switched_off.store_setting("auto_sync_enabled", "false").await;
+    let failing = TestApp::new().await;
+    failing.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    failing.store_setting("backup_enabled", "false").await;
 
-    tick(&app).await;
-
-    // Enrichment and simulation are work proportional to the library, and
-    // running them on an unchanged one every quarter of an hour is pure waste.
-    let kinds = scheduled_jobs(&app).await;
-    assert!(!kinds.contains(&"enrich".to_string()), "enriched for nothing: {kinds:?}");
-    let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(decisions, 0, "simulated for nothing");
+    for app in [&switched_off, &failing] {
+        assert!(tick_only(app).await.is_none(), "work followed a tick that synced nothing");
+    }
+    assert_eq!(failing.last_job_status("sync").await, "failed", "the sync was never tried");
 }
 
 #[tokio::test]
@@ -234,7 +235,9 @@ async fn ready_to_apply(arr: &FakeArr) -> TestApp {
 }
 
 /// The control that gives the two tests below their meaning: with both switches
-/// thrown, the scheduler really does write to the Arr on its own.
+/// thrown, the scheduler really does write to the Arr on its own. The write is
+/// recorded as the schedule's and nobody's: "who moved this" never names a
+/// person who was not there.
 #[tokio::test]
 async fn the_scheduler_applies_when_both_switches_allow_it() {
     let arr = FakeArr::with_unimported_movie().await;
@@ -248,6 +251,18 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
         !arr.recorded().writes.is_empty(),
         "the fixture cannot produce a write, so the guardrail tests would prove nothing"
     );
+    let job: (String, Option<String>) =
+        sqlx::query_as("SELECT trigger, subject FROM jobs WHERE kind = 'apply'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(job, ("schedule".into(), None));
+    let logged: Vec<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT actor, subject FROM execution_logs")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(logged, [(Some("schedule".into()), None)]);
 }
 
 /// The scheduler is the path that can write without anyone asking, so the
@@ -438,10 +453,55 @@ async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
         .await
         .unwrap();
     assert!(decisions > 0, "the chain did not simulate");
+}
 
-    // Nothing synced, nothing to follow.
-    app.store_setting("auto_sync_enabled", "false").await;
-    assert!(tick_only(&app).await.is_none());
+/// The chain reads the library when it starts, so one still running when the
+/// next sync ends picks up what that sync wrote, and none starts beside it:
+/// two would drain the same backlog at the same paced sources.
+#[tokio::test]
+async fn a_sync_ending_while_its_chain_runs_starts_no_second_one() {
+    let arr = FakeArr::start().await;
+    let app = ready(&arr).await;
+    let running = tokio::spawn(std::future::pending::<()>());
+    let id = running.id();
+    *app.state.post_sync.lock().await = Some(running);
+
+    // Bounded: waiting on the running chain never ends.
+    let followed = std::time::Duration::from_secs(5);
+    let started = tokio::time::timeout(followed, scheduler::follow_sync(&app.state, "schedule"));
+    assert!(started.await.is_ok(), "the sync waited for the running chain");
+
+    let kept = app.state.post_sync.lock().await.take().expect("the running chain was dropped");
+    assert_eq!(kept.id(), id, "another chain took the place of the running one");
+    kept.abort();
+}
+
+/// A chain that panicked ends in its `JoinHandle` and nowhere else, so the
+/// next sync it would have followed records the panic where the Tasks screen
+/// reads, then starts its own.
+#[tokio::test]
+async fn a_chain_that_panicked_is_recorded_when_the_next_one_starts() {
+    let arr = FakeArr::start().await;
+    let app = ready(&arr).await;
+    let blew_up = tokio::spawn(async { panic!("the chain blew up") });
+    while !blew_up.is_finished() {
+        tokio::task::yield_now().await;
+    }
+    let id = blew_up.id();
+    *app.state.post_sync.lock().await = Some(blew_up);
+
+    scheduler::follow_sync(&app.state, "schedule").await;
+
+    let detail: Option<String> = sqlx::query_scalar(
+        "SELECT detail FROM jobs WHERE kind = 'scheduler' AND status = 'failed'",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
+    assert!(detail.unwrap_or_default().contains("the chain blew up"), "the panic went unrecorded");
+    let next = app.state.post_sync.lock().await.take().expect("no chain started");
+    assert_ne!(next.id(), id);
+    next.await.expect("the new chain must not panic");
 }
 
 /// Asking the scheduler to stop must actually stop it, and quickly.
@@ -467,6 +527,51 @@ async fn the_scheduler_stops_when_asked() {
         ended.is_ok(),
         "the scheduler was still running five seconds after being asked to stop"
     );
+}
+
+/// Between two passes the loop waits for as long as the setting says, an hour
+/// here, and a stop arriving then ends it at once rather than after the wait.
+#[tokio::test]
+async fn the_scheduler_stops_between_two_passes_when_asked() {
+    let arr = FakeArr::start().await;
+    let app = ready(&arr).await;
+    app.store_setting("scheduler_interval_minutes", "60").await;
+
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let timings =
+        scheduler::Timings { settle: std::time::Duration::from_millis(10), ..Default::default() };
+    let handle = scheduler::start_with(app.state.clone(), stopped, timings);
+    let first_pass = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while !scheduled_jobs(&app).await.contains(&"maintenance".to_string()) {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(first_pass.is_ok(), "the first pass never ended");
+
+    stop.send(true).unwrap();
+
+    tokio::time::timeout(std::time::Duration::from_secs(5), handle)
+        .await
+        .expect("the scheduler waited out the hour")
+        .expect("the scheduler task panicked");
+}
+
+/// The warning counts the passes that failed in the last day: one older says
+/// nothing about whether it is still happening.
+#[tokio::test]
+async fn a_pass_that_failed_more_than_a_day_ago_is_not_counted() {
+    let app = TestApp::new().await;
+    app.execute(&["INSERT INTO jobs (id, kind, status, trigger, started_at)
+           VALUES ('j-old', 'scheduler', 'failed', 'schedule', datetime('now', '-25 hours')),
+                  ('j-new', 'scheduler', 'failed', 'schedule', datetime('now', '-23 hours'))"])
+        .await;
+
+    let status = app.get("/api/v1/status").await;
+    let warnings = warning_messages(status.assert_ok());
+
+    let one = app.state.localizer().await.translate("WarnSchedulerPanicked", &[("count", "1")]);
+    assert!(warnings.contains(&one), "{warnings:?}");
 }
 
 /// A panicked pass has to leave evidence where somebody will find it.

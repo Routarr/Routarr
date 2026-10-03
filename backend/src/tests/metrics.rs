@@ -50,6 +50,28 @@ async fn every_family_declares_its_help_and_type() {
     }
 }
 
+/// The decision gauges count where each title stands now, its latest
+/// standing decision, not the applied history an apply leaves standing.
+#[tokio::test]
+async fn the_decision_gauges_count_each_titles_latest_decision() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          target_category, action, status, decided_at)
+                   VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
+                           'applied', '2026-09-01 10:00:00'),
+                          ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', 'move',
+                           'pending', '2026-09-02 10:00:00')"])
+        .await;
+
+    let body = scrape(&app).await;
+
+    assert!(body.contains("routarr_decisions_by_category{category=\"standard\"} 1"), "{body}");
+    assert!(!body.contains("routarr_decisions_by_category{category=\"anime\"}"), "{body}");
+    assert!(body.contains("routarr_decisions_by_status{status=\"pending\"} 1"), "{body}");
+    assert!(!body.contains("routarr_decisions_by_status{status=\"applied\"}"), "{body}");
+}
+
 #[tokio::test]
 async fn the_library_is_reported_per_instance_and_type() {
     let app = TestApp::new().await;
@@ -88,6 +110,33 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
         body.contains(r#"routarr_instance_up{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#),
         "got:\n{body}"
     );
+}
+
+/// An instance switched off is told apart from one that is down, and each
+/// job outcome is a series of its own, so a run of failed applies can alert.
+#[tokio::test]
+async fn the_enabled_switch_and_each_job_outcome_are_series() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
+         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'secret', 0, 'tok2')",
+        "INSERT INTO jobs (id, kind, status) VALUES ('j-1', 'sync', 'success'),
+                ('j-2', 'sync', 'success'), ('j-3', 'apply', 'failed'), ('j-4', 'apply', 'success')",
+    ])
+    .await;
+
+    let body = scrape(&app).await;
+
+    for line in [
+        r#"routarr_instance_enabled{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#,
+        r#"routarr_instance_enabled{arr_instance="Sonarr",arr_instance_id="inst-2"} 0"#,
+        r#"routarr_jobs_total{kind="sync",status="success"} 2"#,
+        r#"routarr_jobs_total{kind="apply",status="failed"} 1"#,
+        r#"routarr_jobs_total{kind="apply",status="success"} 1"#,
+    ] {
+        assert!(body.lines().any(|l| l == line), "{line} missing from:\n{body}");
+    }
 }
 
 /// Prometheus sets `instance` on every scraped series to the target it

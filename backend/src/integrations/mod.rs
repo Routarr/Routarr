@@ -379,7 +379,10 @@ mod tests {
     /// must not contain it.
     #[tokio::test]
     async fn a_transport_failure_never_echoes_the_url_or_the_key() {
-        let client = reqwest::Client::new();
+        let client = reqwest::Client::builder()
+            .dns_resolver(std::sync::Arc::new(crate::tests::NoNames))
+            .build()
+            .unwrap();
         let error = client
             .get("http://routarr-nonexistent.invalid/3/movie/1?api_key=SUPERSECRET123")
             .send()

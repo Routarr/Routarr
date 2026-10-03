@@ -35,7 +35,7 @@ pub struct SyncReport {
 /// connection would stall the interface polling `/status` behind a 15-second
 /// acquire timeout, on the screen someone is watching precisely because a
 /// sync is running.
-const SYNC_CONCURRENCY: usize = 4;
+pub(crate) const SYNC_CONCURRENCY: usize = 4;
 
 /// Synchronize every enabled instance, isolating per-instance failures.
 pub async fn sync_all_instances(state: &AppState, by: &Attribution) -> AppResult<Vec<SyncReport>> {
@@ -115,6 +115,8 @@ async fn sync_instance_inner(
 
     let outcome = do_sync(state, instance).await;
 
+    // The notifications go out on their own task: awaited here, a receiver
+    // slow to answer would hold the sync's answer and its lock.
     match &outcome {
         Ok(report) => {
             update_sync_status(&state.pool, &instance.id, "success").await;
@@ -126,34 +128,31 @@ async fn sync_instance_inner(
             )
             .await;
             if was_failing {
-                notify::send(
+                notify::send_later(
                     state,
                     notify::Event::InstanceRecovered { instance: instance.name.clone() },
-                )
-                .await;
+                );
             }
         }
         Err(e) => {
             update_sync_status(&state.pool, &instance.id, &format!("error: {e}")).await;
-            notify::send(
+            notify::send_later(
                 state,
                 notify::Event::SyncFailed {
                     instance_id: instance.id.clone(),
                     instance: instance.name.clone(),
                     error: e.to_string(),
                 },
-            )
-            .await;
+            );
             job.fail(e).await;
             if !was_failing {
-                notify::send(
+                notify::send_later(
                     state,
                     notify::Event::InstanceUnreachable {
                         instance: instance.name.clone(),
                         error: e.to_string(),
                     },
-                )
-                .await;
+                );
             }
         }
     }

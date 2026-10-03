@@ -114,6 +114,39 @@ async fn a_pin_by_external_id_withdraws_the_pending_proposals() {
     assert_eq!(after, 0);
 }
 
+/// Only what a pin or an unpin changes loses its proposals: pinning again to
+/// the category a copy already has, or unpinning a copy that had no pin,
+/// leaves the proposals somebody may be reviewing.
+#[tokio::test]
+async fn a_pin_or_unpin_that_changes_nothing_keeps_the_proposals() {
+    let app = two_copies().await;
+    app.seed_anime_rule().await;
+    let first = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-1";
+    let pin = json!({ "target_category": "anime" });
+    put(&app, first, pin.clone()).await.assert_ok();
+    app.simulate().await;
+    let standing = |media: &'static str| {
+        let app = &app;
+        async move {
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM decisions WHERE media_id = ? AND superseded = 0",
+            )
+            .bind(media)
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap()
+        }
+    };
+    let (pinned, other) = (standing("m-1").await, standing("m-2").await);
+    assert!(pinned > 0 && other > 0, "the simulation proposed nothing to keep");
+
+    put(&app, first, pin).await.assert_ok();
+    assert_eq!(standing("m-1").await, pinned, "repeating a pin withdrew what it produced");
+    let second = "/api/v1/overrides/external?type=movie&tmdb=8392&instance=inst-2";
+    assert_eq!(app.delete(second).await.assert_ok()["deleted"], false);
+    assert_eq!(standing("m-2").await, other, "an unpin that removed nothing withdrew proposals");
+}
+
 fn preferring_async(path: &str, body: Value) -> Request<Body> {
     Request::post(path)
         .header("prefer", "respond-async")
@@ -132,6 +165,73 @@ async fn finished(app: &TestApp, id: &str) -> Value {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     panic!("the task {id} never finished");
+}
+
+/// A preview stores no decision, so its task keeps them: asked to answer at
+/// once, a preview's caller finds the proposals in the task's result.
+#[tokio::test]
+async fn an_asynchronous_preview_keeps_its_decisions_in_the_task() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+
+    let body = json!({ "persist": false });
+    let started = app.send(preferring_async("/api/v1/simulate", body)).await;
+    assert_eq!(started.status, StatusCode::ACCEPTED, "{:?}", started.json);
+    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+
+    let decisions = task["result"]["decisions"].as_array().expect("decisions in the result");
+    assert!(!decisions.is_empty(), "the preview's proposals were dropped: {task}");
+    assert_eq!(task["result"]["returned"], decisions.len());
+}
+
+/// A request no library can satisfy is refused before any task starts, so a
+/// caller asking for an answer at once gets the refusal, not a task that fails.
+#[tokio::test]
+async fn a_simulation_asked_for_what_cannot_be_is_refused_before_its_task() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let too_many: Vec<String> =
+        (0..=crate::services::routing::BIND_CHUNK).map(|i| format!("i-{i}")).collect();
+
+    for body in [json!({ "instance_ids": too_many }), json!({ "media_type": "film" })] {
+        let refused = app.send(preferring_async("/api/v1/simulate", body.clone())).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.json);
+    }
+    assert_eq!(app.count("SELECT COUNT(*) FROM jobs").await, 0, "a refused request left a task");
+}
+
+/// Every call that starts long work answers 202 at once when asked to, and
+/// its finished task holds the report the waited call gives: an apply, an
+/// apply-all, a revert and the sync of one instance.
+#[tokio::test]
+async fn every_long_call_answered_at_once_leaves_its_report_on_the_task() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 1).await;
+    let simulation = app.simulate().await;
+    let decision: String = sqlx::query_scalar("SELECT id FROM decisions WHERE simulation_id = ?")
+        .bind(&simulation)
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    let every = ["batch", "threshold", "capacity", "unreachable"];
+    let at_once = |path: &'static str, body: Value, counted: &'static str| {
+        let app = &app;
+        async move {
+            let started = app.send(preferring_async(path, body)).await;
+            assert_eq!(started.status, StatusCode::ACCEPTED, "{path}: {:?}", started.json);
+            let task = finished(app, started.json["job_id"].as_str().unwrap()).await;
+            assert_eq!(task["status"], "success", "{path}: {task}");
+            assert_eq!(task["result"][counted], 1, "{path} left no report: {task}");
+        }
+    };
+
+    let ids = json!({ "decision_ids": [decision], "confirm": every });
+    at_once("/api/v1/decisions/apply", ids.clone(), "applied").await;
+    at_once("/api/v1/decisions/revert", ids, "applied").await;
+    let whole = json!({ "simulation_id": app.simulate().await, "confirm": every });
+    at_once("/api/v1/decisions/apply-all", whole, "applied").await;
+    at_once("/api/v1/instances/inst-1/sync", json!({}), "media").await;
 }
 
 #[tokio::test]

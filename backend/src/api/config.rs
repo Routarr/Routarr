@@ -289,6 +289,19 @@ pub async fn import(
         }
     }
 
+    // A source the bundle enables that needs a key this installation lacks is
+    // left out of the list, and said, as `PUT /settings` refuses it. Keys never
+    // travel, so refusing the whole list would lose it on every restore. Read
+    // before the transaction opens, for the reason the rules below are judged
+    // there.
+    let mut keyless = Vec::new();
+    for setting in bundle.settings.iter().filter(|s| s.key == "metadata_providers") {
+        let empty = std::collections::HashMap::new();
+        keyless.extend(
+            super::settings::sources_without_their_key(&state, &setting.value, &empty).await,
+        );
+    }
+
     // Judged before the transaction opens, against the categories as they will
     // be once it commits: a pool of one connection, which the tests run on,
     // cannot serve the reads judging needs while a transaction holds it.
@@ -340,6 +353,20 @@ pub async fn import(
             report.skipped.push(format!("setting {:?}: {e}", setting.key));
             continue;
         }
+        let mut value = setting.value.clone();
+        if key == "metadata_providers" && !keyless.is_empty() {
+            for id in &keyless {
+                report.skipped.push(format!(
+                    "source '{id}' has no key here: set its key, then enable the source"
+                ));
+            }
+            value = value
+                .split(',')
+                .map(str::trim)
+                .filter(|id| !keyless.iter().any(|keyless| keyless == id))
+                .collect::<Vec<_>>()
+                .join(",");
+        }
 
         sqlx::query(
             "INSERT INTO settings (key, value) VALUES (?, ?)
@@ -349,7 +376,7 @@ pub async fn import(
         // Trimmed, as `PUT /settings` stores it. The gate above validates the
         // trimmed value, so binding the raw one would let `"anime "` pass a
         // check that `"anime"` answered and land as a name no category holds.
-        .bind(setting.value.trim())
+        .bind(value.trim())
         .execute(&mut *tx)
         .await?;
         report.settings += 1;
@@ -469,7 +496,7 @@ pub async fn import(
         let taken: Option<String> = sqlx::query_scalar(
             "SELECT path FROM root_folders
               WHERE category = ?
-                AND instance_id = (SELECT id FROM instances WHERE name = ?)
+                AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))
                 AND rtrim(path, '/') <> rtrim(?, '/')
               LIMIT 1",
         )
@@ -489,7 +516,7 @@ pub async fn import(
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ?
               WHERE rtrim(path, '/') = rtrim(?, '/')
-                AND instance_id = (SELECT id FROM instances WHERE name = ?)",
+                AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))",
         )
         .bind(&category)
         .bind(&mapping.path)
@@ -520,7 +547,7 @@ pub async fn import(
               WHERE m.media_type = ?
                 AND ((m.tmdb_id IS NOT NULL AND m.tmdb_id = ?)
                      OR (m.tvdb_id IS NOT NULL AND m.tvdb_id = ?))
-                AND (? IS NULL OR i.name = ?)
+                AND (? IS NULL OR TRIM(i.name) = TRIM(?))
               ORDER BY m.id",
         )
         .bind(&over.media_type)

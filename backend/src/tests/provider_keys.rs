@@ -147,13 +147,7 @@ async fn a_listed_source_without_its_key_does_not_block_a_save() {
 async fn the_resealing_pass_covers_the_metadata_keys_too() {
     let app = TestApp::new().await;
     // Plaintext, as a database upgraded from before sealing would hold.
-    sqlx::query(
-        "INSERT INTO settings (key, value, updated_at) VALUES ('omdb_api_key', 'bare', datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("omdb_api_key", "bare").await;
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();
 
@@ -186,14 +180,7 @@ async fn a_settings_secret_no_key_can_open_is_left_exactly_as_it_was() {
     .unwrap()
     .seal("tmdb-only-copy")
     .unwrap();
-    sqlx::query(
-        "INSERT INTO settings (key, value, updated_at) VALUES ('tmdb_api_key', ?, datetime('now'))
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .bind(&foreign)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("tmdb_api_key", &foreign).await;
     assert!(app.state.secrets.open(&foreign).is_err(), "the fixture key is readable after all");
 
     crate::services::maintenance::reseal_secrets(&app.state).await.unwrap();

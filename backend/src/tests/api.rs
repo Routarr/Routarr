@@ -456,27 +456,51 @@ async fn a_query_that_cannot_be_parsed_still_gets_the_error_envelope() {
 /// The scan finds a handler added later that reads its query through the
 /// stock extractor, which the test above would not know to ask.
 #[test]
-fn no_handler_takes_the_stock_query_extractor() {
-    let takes_stock = |source: &str| {
-        source.contains("axum::extract::Query")
+fn no_handler_takes_a_stock_extractor_the_envelope_wraps() {
+    // Every spelling that names axum's own: through the full path, a module
+    // imported as `extract`, a brace list, or a lone `use`.
+    let takes_stock = |source: &str, name: &str| {
+        source.contains(&format!("extract::{name}"))
             || source.lines().any(|line| {
-                line.trim_start().starts_with("use axum::extract::{")
-                    && line.split(|c: char| !c.is_alphanumeric()).any(|word| word == "Query")
+                let line = line.trim_start();
+                line.starts_with("use axum::extract::{")
+                    && line.split(|c: char| !c.is_alphanumeric()).any(|word| word == name)
             })
     };
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api");
     let mut read = 0;
     for entry in std::fs::read_dir(&dir).unwrap() {
         let path = entry.unwrap().path();
-        // Where `api::Query` wraps the stock extractor.
+        // Where `api::Query` and `api::Path` wrap the stock extractors.
         if path.ends_with("mod.rs") {
             continue;
         }
         let source = std::fs::read_to_string(&path).unwrap();
         read += 1;
-        assert!(!takes_stock(&source), "{} takes axum's Query: use api::Query", path.display());
+        for name in ["Query", "Path"] {
+            assert!(!takes_stock(&source, name), "{} takes axum's {name}", path.display());
+        }
     }
     assert!(read > 10, "read {read} files under {}", dir.display());
+    for (spelling, name) in [
+        ("use axum::extract::Query;", "Query"),
+        ("use axum::extract;\nfn f(_: extract::Path<String>) {}", "Path"),
+        ("use axum::extract::{Path, State};", "Path"),
+    ] {
+        assert!(takes_stock(spelling, name), "{spelling} went unseen");
+    }
+}
+
+/// A path segment that is not text answers the error envelope, as every other
+/// refusal does, not a line of plain text.
+#[tokio::test]
+async fn a_path_that_cannot_be_read_answers_the_error_envelope() {
+    let app = TestApp::new().await;
+
+    let refused = app.get("/api/v1/rules/%FF").await;
+
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST);
+    assert!(refused.json["error"].is_string(), "{:?}", refused.json);
 }
 
 #[tokio::test]
@@ -531,6 +555,56 @@ async fn editing_an_instance_stores_its_name_switch_and_interval() {
     app.put("/api/v1/instances/inst-1", edit(100_000)).await.assert_ok();
     let stored = app.get("/api/v1/instances/inst-1").await.assert_ok().clone();
     assert_eq!(stored["sync_interval_minutes"], crate::jobs::MAX_SYNC_INTERVAL_MINUTES);
+}
+
+/// A rule names instances that exist: an unknown id is refused, and deleting
+/// an instance takes it out of every rule's scope. A rule scoped to that
+/// instance alone is switched off rather than widened to every instance,
+/// which an empty scope means.
+#[tokio::test]
+async fn a_rule_scope_follows_the_instances_that_exist() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_instance_at("inst-2", "radarr", "http://127.0.0.1:1").await;
+    let scoped = |name: &str, ids: serde_json::Value| {
+        let mut body = anime_rule_body();
+        body["name"] = serde_json::json!(name);
+        body["instance_ids"] = ids;
+        body
+    };
+
+    let unknown = app.post("/api/v1/rules", scoped("Ghost", serde_json::json!(["nope"]))).await;
+    unknown.assert_status(StatusCode::BAD_REQUEST);
+    let both = scoped("Both", serde_json::json!(["inst-1", "inst-2"]));
+    let both =
+        app.post("/api/v1/rules", both).await.assert_ok()["id"].as_str().unwrap().to_string();
+    let only = scoped("Only the second", serde_json::json!(["inst-2"]));
+    let only =
+        app.post("/api/v1/rules", only).await.assert_ok()["id"].as_str().unwrap().to_string();
+
+    app.delete("/api/v1/instances/inst-2").await.assert_ok();
+
+    let both = app.get(&format!("/api/v1/rules/{both}")).await.assert_ok().clone();
+    assert_eq!(both["instance_ids"], serde_json::json!(["inst-1"]));
+    assert_eq!(both["enabled"], true);
+    let only = app.get(&format!("/api/v1/rules/{only}")).await.assert_ok().clone();
+    assert_eq!(only["enabled"], false, "a rule for a deleted instance now routes every one");
+}
+
+/// An instance being synced is not deleted under its sync, whose writes would
+/// then fail on rows gone and notify a failure for an instance that is gone.
+#[tokio::test]
+async fn an_instance_is_not_deleted_while_it_syncs() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    let syncing = app.state.jobs.try_lock("sync:inst-1").expect("the lock is free");
+    let refused = app.delete("/api/v1/instances/inst-1").await;
+    refused.assert_status(StatusCode::CONFLICT);
+    assert_eq!(app.count("SELECT COUNT(*) FROM instances WHERE id = 'inst-1'").await, 1);
+
+    drop(syncing);
+    app.delete("/api/v1/instances/inst-1").await.assert_ok();
 }
 
 /// An instance pointed at another address or another kind of Arr has pending
@@ -951,6 +1025,105 @@ async fn the_condition_catalog_is_served() {
 }
 
 // ------------------------------------------------------------ categories
+
+/// The library list pages by title, and a later page carries on where the
+/// first stopped, with the total the screen numbers its pages from.
+#[tokio::test]
+async fn the_library_list_pages_past_the_first() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored,
+                                      has_files)
+                   VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira', 1, 1),
+                          ('m-3', 'inst-1', 12, 'movie', 'Perfect Blue', 1, 1)"])
+        .await;
+
+    let second = app.get("/api/v1/media?per_page=2&page=2").await;
+
+    let second = second.assert_ok();
+    let titles: Vec<&str> =
+        second["data"].as_array().unwrap().iter().map(|m| m["title"].as_str().unwrap()).collect();
+    assert_eq!(titles, ["Perfect Blue"]);
+    assert_eq!(second["pagination"]["total"], 3);
+}
+
+/// Each filter the decisions list documents narrows it, the title search
+/// included: one spelled wrong in the list's builder shows every row, or none.
+#[tokio::test]
+async fn each_decision_filter_narrows_the_list() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          target_category, action, status, simulation_id)
+                   VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
+                           'sim-1'),
+                          ('d-2', 'm-2', 'Akira', 'series', 'inst-2', 'standard', 'none',
+                           'applied', 'sim-2')"])
+        .await;
+
+    for (filter, expected) in [
+        ("instance_id=inst-2", "d-2"),
+        ("media_type=series", "d-2"),
+        ("status=pending", "d-1"),
+        ("category=anime", "d-1"),
+        ("action=none", "d-2"),
+        ("simulation_id=sim-1", "d-1"),
+        ("search=kir", "d-2"),
+    ] {
+        let listed = app.get(&format!("/api/v1/decisions?{filter}")).await;
+        let listed = listed.assert_ok();
+        let ids: Vec<&str> =
+            listed["data"].as_array().unwrap().iter().map(|d| d["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, [expected], "{filter}");
+    }
+}
+
+/// The library's category and "unmatched" filters read the latest standing
+/// decision, the one the list shows beside each title, not an older one an
+/// apply left standing.
+#[tokio::test]
+async fn the_library_filters_read_the_latest_decision() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          target_category, matched_rule_id, action, status,
+                                          decided_at)
+                   VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'r-1', 'move',
+                           'applied', '2026-09-01 10:00:00'),
+                          ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', NULL, 'none',
+                           'pending', '2026-09-02 10:00:00')"])
+        .await;
+    let total = |query: &'static str| {
+        let app = &app;
+        async move { app.get(query).await.assert_ok()["pagination"]["total"].clone() }
+    };
+
+    assert_eq!(total("/api/v1/media?category=anime").await, 0, "an older decision matched");
+    assert_eq!(total("/api/v1/media?category=standard").await, 1);
+    assert_eq!(total("/api/v1/media?unmatched=true").await, 1, "the latest matched nothing");
+}
+
+/// The category list counts, beside each category, the rules sending titles
+/// to it and the folders it is mapped onto: what the Categories screen shows
+/// before somebody deletes one.
+#[tokio::test]
+async fn the_category_list_counts_each_categorys_rules_and_folders() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/rules", anime_rule_body()).await.assert_ok();
+    let mut second = anime_rule_body();
+    second["name"] = serde_json::json!("Anime again");
+    app.post("/api/v1/rules", second).await.assert_ok();
+
+    let listed = app.get("/api/v1/categories").await.assert_ok().clone();
+
+    let usage = |name: &str| {
+        let entry = listed.as_array().unwrap().iter().find(|c| c["name"] == name).unwrap();
+        (entry["rule_count"].clone(), entry["root_folder_count"].clone())
+    };
+    assert_eq!(usage("anime"), (serde_json::json!(2), serde_json::json!(1)));
+    assert_eq!(usage("standard"), (serde_json::json!(0), serde_json::json!(1)));
+}
 
 /// Categories are joined by name with no foreign key, so each thing naming
 /// one keeps it: a rule, a folder mapping, an exception and a rule test, each
@@ -1538,6 +1711,27 @@ async fn explain_reports_the_default_when_nothing_matches() {
     assert_eq!(explanation["confidence"], 0.0);
 }
 
+/// A rule whose conditions cannot be read loads with none, and the engine
+/// never fires such a rule: the explanation says the same, not "matched".
+#[tokio::test]
+async fn explain_reads_a_rule_it_cannot_read_as_the_engine_does() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+                                      exclusions, match_mode, target_category)
+                   VALUES ('r-broken', 'Broken', 10, 1, 'both', 'not json', '[]', 'all', 'anime')",
+    ])
+    .await;
+
+    let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+
+    assert_eq!(explanation["target_category"], "standard");
+    let trace = &explanation["rule_traces"][0];
+    assert_eq!(trace["matched"], false, "{trace}");
+    assert_eq!(trace["outcome"], "not_matched", "{trace}");
+}
+
 #[tokio::test]
 async fn explain_on_unknown_media_is_a_404() {
     let app = TestApp::new().await;
@@ -1865,6 +2059,19 @@ async fn logs_are_listed_newest_first_and_filtered_as_asked() {
     // The LIKE wildcard is data, not a wildcard.
     let literal = app.get("/api/v1/logs?search=%25").await;
     assert_eq!(literal.assert_ok()["pagination"]["total"], 0);
+
+    // A later page carries on where the first stopped.
+    let second = app.get("/api/v1/logs?per_page=2&page=2").await;
+    let second = second.assert_ok();
+    let ids: Vec<&str> =
+        second["data"].as_array().unwrap().iter().map(|e| e["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["log-1"]);
+    assert_eq!(second["pagination"]["total_pages"], 2);
+
+    // The file an operator hands on holds what the screen filtered.
+    let exported = app.text("/api/v1/logs/export?success=false").await;
+    assert_eq!(exported.lines().count(), 2, "{exported}");
+    assert!(exported.contains("\"Akira\""), "{exported}");
 }
 
 #[tokio::test]
@@ -2129,13 +2336,7 @@ async fn health_reports_actionable_warnings() {
     let app = TestApp::new().await;
     // Listed while it had a key, gone since: the API refuses to add a source
     // with no key, and a key removed afterwards is how one stays listed.
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('metadata_providers', 'arr,tmdb')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("metadata_providers", "arr,tmdb").await;
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
 
@@ -2238,7 +2439,9 @@ async fn aged_rows() -> TestApp {
          VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
                  datetime('now', '-31 days')),
                 ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'pending',
-                 datetime('now', '-29 days'))",
+                 datetime('now', '-29 days')),
+                ('d-failed-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'failed',
+                 datetime('now', '-400 days'))",
     ] {
         sqlx::query(statement).execute(&app.state.pool).await.unwrap();
     }
@@ -2258,7 +2461,8 @@ async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     for (table, kept) in [
         ("execution_logs", vec!["log-new"]),
         ("jobs", vec!["job-new", "job-running"]),
-        ("decisions", vec!["d-new"]),
+        // A failed move is the audit trail, whatever its age.
+        ("decisions", vec!["d-failed-old", "d-new"]),
     ] {
         let left: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {table} WHERE id LIKE '%-old' OR id LIKE '%-new' OR id LIKE '%-running'
@@ -2323,14 +2527,8 @@ async fn a_save_the_screen_sends_is_refused_until_a_start_converges_the_stale_va
     let app = TestApp::new().await;
 
     // What an installation running the previous version could hold.
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('backup_interval_hours', '5000'),
-                                                  ('scheduler_interval_minutes', '2880')
-         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("backup_interval_hours", "5000").await;
+    app.store_setting("scheduler_interval_minutes", "2880").await;
 
     app.put(
         "/api/v1/settings",
@@ -2375,17 +2573,6 @@ async fn every_ranged_key_is_raised_and_only_a_bounded_one_is_lowered() {
         "the table is what this reads, and it holds both kinds"
     );
 
-    async fn store(pool: &sqlx::SqlitePool, key: &str, value: i64) {
-        sqlx::query(
-            "INSERT INTO settings (key, value) VALUES (?, ?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .bind(key)
-        .bind(value.to_string())
-        .execute(pool)
-        .await
-        .unwrap();
-    }
     async fn stored(pool: &sqlx::SqlitePool, key: &str) -> String {
         sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -2397,7 +2584,8 @@ async fn every_ranged_key_is_raised_and_only_a_bounded_one_is_lowered() {
     for above in [true, false] {
         let side = if above { "above" } else { "below" };
         for (key, min, max, _) in &ranged {
-            store(&app.state.pool, key, if above { max + 1 } else { min - 1 }).await;
+            let out_of_bounds = if above { max + 1 } else { min - 1 };
+            app.store_setting(key, &out_of_bounds.to_string()).await;
         }
 
         let converged =
@@ -2422,13 +2610,7 @@ async fn every_ranged_key_is_raised_and_only_a_bounded_one_is_lowered() {
 async fn a_setting_that_is_not_a_number_is_left_for_validation_to_refuse() {
     let app = TestApp::new().await;
 
-    sqlx::query(
-        "INSERT INTO settings (key, value) VALUES ('batch_limit', 'many')
-                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.store_setting("batch_limit", "many").await;
 
     assert_eq!(crate::services::maintenance::converge_setting_bounds(&app.state).await.unwrap(), 0);
     let still: String = sqlx::query_scalar("SELECT value FROM settings WHERE key = 'batch_limit'")
@@ -2539,6 +2721,31 @@ async fn a_delete_event_retires_the_item_and_what_pointed_at_it() {
             .await
             .unwrap();
     assert_eq!((status.as_str(), superseded), ("pending", true), "the proposal still stands");
+}
+
+/// Sonarr's `SeriesDelete` retires a series as `MovieDelete` retires a film.
+#[tokio::test]
+async fn a_series_delete_event_retires_the_series() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "sonarr", &arr.base_url).await;
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, current_path,
+                                      current_root_folder)
+           VALUES ('m-inst-1-21', 'inst-1', 21, 'series', 'Trigun', '/tv/standard/Trigun',
+                   '/tv/standard')"])
+        .await;
+
+    let body = app
+        .post(
+            "/api/v1/webhook/inst-1/tok",
+            serde_json::json!({ "eventType": "SeriesDelete", "series": { "id": 21 } }),
+        )
+        .await
+        .assert_ok()
+        .clone();
+
+    assert_eq!(body["retired"], 1, "{body}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM media WHERE id = 'm-inst-1-21'").await, 0);
 }
 
 /// A synchronisation that read the Arr before the deletion would put the row
@@ -2677,6 +2884,34 @@ async fn a_simulation_scoped_to_more_instances_than_one_statement_binds_is_refus
     let ids: Vec<String> = (0..33_000).map(|n| format!("inst-{n}")).collect();
     let response = app.post("/api/v1/simulate", serde_json::json!({ "instance_ids": ids })).await;
     assert_eq!(response.status, 400, "{}", response.json);
+}
+
+/// A simulation of one title, which the webhook runs per delivery, reads that
+/// title's context alone and holds no library-pass permit: a season imported
+/// on a large library would otherwise load the whole cache per episode, queued
+/// behind the previews.
+#[tokio::test]
+async fn a_one_title_simulation_waits_for_no_library_pass() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    let _first = crate::services::routing::library_pass().await;
+    let _second = crate::services::routing::library_pass().await;
+    let options = crate::services::routing::SimulationOptions {
+        media_ids: Some(vec!["m-1".to_string()]),
+        persist: true,
+        ..Default::default()
+    };
+
+    let simulated = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        crate::services::routing::run_simulation(&app.state.pool, options),
+    )
+    .await
+    .expect("the one-title simulation waited for a library pass")
+    .unwrap();
+
+    assert_eq!(simulated.moves_required, 1, "the title's own context did not route it");
 }
 
 /// Every whole-library pass (a preview, a health report, a sweep) holds one of
