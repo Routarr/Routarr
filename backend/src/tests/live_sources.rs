@@ -9,7 +9,7 @@
 //!
 //! ```bash
 //! cargo test live_sources -- --ignored --nocapture --test-threads=1   # keyless only
-//! OMDB_API_KEY=… TVDB_API_KEY=… cargo test live_sources -- --ignored  # everything
+//! TMDB_API_KEY=… OMDB_API_KEY=… TVDB_API_KEY=… cargo test live_sources -- --ignored  # everything
 //! ```
 //!
 //! A source with no credential skips itself rather than failing, so the keyless
@@ -20,6 +20,7 @@ use crate::config::Config;
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
+use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 
 /// A real HTTP client with the project's own timeouts and redirect policy, so
@@ -126,6 +127,27 @@ async fn jikan_answers_the_shape_the_client_expects() {
 }
 
 #[tokio::test]
+#[ignore = "hits the real TMDb API; needs TMDB_API_KEY"]
+async fn tmdb_answers_the_shape_the_client_expects() {
+    let Ok(key) = std::env::var("TMDB_API_KEY") else {
+        eprintln!("skipped: TMDB_API_KEY is not set");
+        return;
+    };
+
+    let tmdb =
+        TmdbClient::new(client(), &key, crate::config::DEFAULT_TMDB_BASE_URL, &["US".to_string()]);
+
+    let details = tmdb.get_details(8392, "movie").await.expect("TMDb details");
+    assert!(details.genres.iter().any(|genre| genre == "Animation"), "{:?}", details.genres);
+    assert_eq!(details.original_language.as_deref(), Some("ja"), "language drifted");
+    assert_eq!(details.origin_countries, vec!["JP"], "country drifted");
+    // The appended blocks: asked for, and answered.
+    assert!(!details.keywords.is_empty(), "no keywords came back");
+    assert!(details.certification.is_some(), "no certification came back");
+    println!("TMDb 8392: {:?} / {:?}", details.genres, details.certification);
+}
+
+#[tokio::test]
 #[ignore = "hits the real OMDb API; needs OMDB_API_KEY"]
 async fn omdb_answers_the_shape_the_client_expects() {
     let Ok(key) = std::env::var("OMDB_API_KEY") else {
@@ -184,7 +206,10 @@ async fn jikan_survives_a_burst_at_the_configured_concurrency() {
 
     let jikan = JikanClient::new(client(), crate::integrations::jikan::DEFAULT_BASE_URL);
 
-    let outcomes: Vec<_> = stream::iter(1..=12i64)
+    // Ids MyAnimeList holds: its numbering has gaps, and an id it does not
+    // hold answers 404, which is not what this burst is about.
+    let held = [1i64, 5, 6, 7, 8, 15, 16, 17, 18, 19, 20, 21];
+    let outcomes: Vec<_> = stream::iter(held)
         .map(|id| {
             let jikan = jikan.clone();
             async move { (id, jikan.get_details(id).await) }

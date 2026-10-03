@@ -96,8 +96,10 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   service to no one.
 - **The `forms` mode stores its single password with argon2id** and opens
   opaque server-side sessions, never signed tokens: revoking one is a delete,
-  which a self-validating token cannot offer. Changing the password ends every
-  session it had opened. The cookie is `HttpOnly`, `SameSite=Lax` and scoped to
+  which a self-validating token cannot offer. A session is stored by the
+  SHA-256 digest of its id, so a copy of the database opens none. Changing the
+  password ends every session it had opened and removes `routarr.password`,
+  which held the first one. The cookie is `HttpOnly`, `SameSite=Lax` and scoped to
   the mount point, and a write carrying it is refused when the request states an
   origin that is not this one.
 - **In `none` and `external` modes a write with no API key is refused when the

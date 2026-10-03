@@ -43,6 +43,8 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
   request bot learns the folder the rules choose, and nothing is stored.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
   or Apprise, signed as Standard Webhooks specifies when a receiver checks where they come from.
+  ntfy reads them through its templates: give it
+  `https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}`.
 - **26 languages**.
 
 ## Quick start

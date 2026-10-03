@@ -159,6 +159,12 @@ async fn run_enrichment(
             report.skipped += 1;
             continue;
         };
+        // A source that does not have the item says so with a 404. That is an
+        // answer, cached empty like OMDb's miss, or every pass asks again.
+        let result = match result {
+            Err(AppError::ExternalApi { status: 404, .. }) => Ok(ProviderMetadata::default()),
+            other => other,
+        };
 
         match result {
             Ok(data) => {

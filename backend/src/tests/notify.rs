@@ -9,6 +9,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
 use tokio::net::TcpListener;
@@ -41,7 +42,8 @@ impl Receiver {
         Self::answering(&[]).await
     }
 
-    /// A receiver answering these statuses in turn, then 200.
+    /// A receiver answering these statuses in turn, then 200. A 429 asks for
+    /// a second's quiet in its `Retry-After`, as a rate-limited receiver does.
     async fn answering(statuses: &[u16]) -> Self {
         Self::build(statuses, std::time::Duration::ZERO).await
     }
@@ -77,7 +79,15 @@ impl Receiver {
                         tokio::time::sleep(first_delay).await;
                     }
                     let status = answers.lock().expect("lock").pop_front().unwrap_or(200);
-                    (StatusCode::from_u16(status).unwrap(), Json(serde_json::json!({ "ok": true })))
+                    let mut answer = (
+                        StatusCode::from_u16(status).unwrap(),
+                        Json(serde_json::json!({ "ok": true })),
+                    )
+                        .into_response();
+                    if status == 429 {
+                        answer.headers_mut().insert("retry-after", "1".parse().unwrap());
+                    }
+                    answer
                 }
             }),
         );
@@ -682,21 +692,24 @@ async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
 #[tokio::test]
 async fn a_retry_follows_the_secret_and_the_address_of_its_own_time() {
     let app = TestApp::new().await;
-    let receiver = Receiver::answering(&[503]).await;
+    // A second's quiet asked before each retry, the time to change things.
+    let receiver = Receiver::answering(&[429]).await;
     listening(&app, &receiver).await;
     let mint = || app.post("/api/v1/notifications/webhook-secret", serde_json::json!({}));
     mint().await.assert_ok();
 
-    notify::send(&app.state, recovered()).await;
+    notify::send_later(&app.state, recovered());
+    receiver.awaiting(1).await;
     let new = mint().await.json["secret"].as_str().unwrap().to_string();
     let retried = receiver.awaiting(2).await;
     assert!(signed_with(&new, &retried[1]), "the retry ignored the new secret: {retried:?}");
 
-    let cleared = Receiver::answering(&[503]).await;
+    let cleared = Receiver::answering(&[429]).await;
     listening(&app, &cleared).await;
-    notify::send(&app.state, recovered()).await;
+    notify::send_later(&app.state, recovered());
+    cleared.awaiting(1).await;
     app.save_setting("notification_webhook_url", "").await.assert_ok();
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
     assert_eq!(cleared.deliveries().len(), 1, "a cleared address was tried again");
 }
 
@@ -802,4 +815,125 @@ async fn each_attempt_is_stamped_in_seconds_when_it_is_sent() {
     let now = chrono::Utc::now().timestamp();
     assert!(stamps.iter().all(|stamp| (now - stamp).abs() <= 5), "{stamps:?} against {now}");
     assert!(stamps[1] > stamps[0], "the retry carried the first attempt's stamp: {stamps:?}");
+}
+
+/// A refused delivery is retried before anything sent after it: otherwise an
+/// `instance_unreachable` retried ten seconds on lands after the
+/// `instance_recovered` that followed it, and the channel ends on the wrong
+/// state.
+#[tokio::test]
+async fn a_retried_notification_never_lands_after_a_newer_one() {
+    let receiver = Receiver::answering(&[503]).await;
+    let app = TestApp::new().await;
+    listening(&app, &receiver).await;
+    let unreachable =
+        Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() };
+
+    notify::send_later(&app.state, unreachable);
+    notify::send_later(&app.state, recovered());
+
+    let events: Vec<String> = receiver
+        .arrived(3)
+        .await
+        .iter()
+        .map(|message| message["event"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(events, ["instance_unreachable", "instance_unreachable", "instance_recovered"]);
+}
+
+/// A delivery refused for good is tried four times, once and then after each
+/// of the three waits, and no more. A 429 is retried after the quiet its
+/// `Retry-After` asks for. Every attempt is signed over its own timestamp.
+#[tokio::test]
+async fn a_refused_delivery_is_tried_four_times_each_signed_for_itself() {
+    let app = TestApp::new().await;
+    let refusing = Receiver::answering(&[500, 500, 500, 500, 500]).await;
+    listening(&app, &refusing).await;
+    let minted = app.post("/api/v1/notifications/webhook-secret", serde_json::json!({})).await;
+    let secret = minted.assert_ok()["secret"].as_str().unwrap().to_string();
+
+    notify::send(&app.state, recovered()).await;
+
+    let tried = refusing.deliveries();
+    assert_eq!(tried.len(), 4, "{tried:?}");
+    assert!(tried.iter().all(|delivery| signed_with(&secret, delivery)), "{tried:?}");
+
+    let throttling = Receiver::answering(&[429]).await;
+    listening(&app, &throttling).await;
+    let started = std::time::Instant::now();
+    notify::send(&app.state, recovered()).await;
+    assert_eq!(throttling.deliveries().len(), 2, "a 429 was not retried");
+    assert!(started.elapsed() >= std::time::Duration::from_secs(1), "{:?}", started.elapsed());
+}
+
+/// Deliveries wait their turn up to a bound: past thirty-two pending, an event
+/// is dropped rather than queued without end, and once the queue has drained
+/// the places are given back.
+#[tokio::test]
+async fn deliveries_queue_up_to_a_bound_and_give_their_places_back() {
+    let app = TestApp::new().await.with_http_budget(std::time::Duration::from_secs(5));
+    // The first answer takes a while, so the ones after it queue behind it.
+    let receiver = Receiver::slow_then(200, std::time::Duration::from_millis(500)).await;
+    listening(&app, &receiver).await;
+
+    notify::send_later(&app.state, recovered());
+    receiver.awaiting(1).await;
+    for _ in 0..33 {
+        notify::send_later(&app.state, recovered());
+    }
+    receiver.awaiting(32).await;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(receiver.deliveries().len(), 32, "the queue was not bounded at 32");
+
+    notify::send(&app.state, recovered()).await;
+    assert_eq!(receiver.deliveries().len(), 33, "a place was never given back");
+}
+
+/// The simulation that follows a scheduled sync is announced like one asked
+/// for, and a preview, which stores nothing, is not announced at all.
+#[tokio::test]
+async fn a_scheduled_simulation_is_announced_and_a_preview_is_not() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.store_setting("backup_enabled", "false").await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    app.save_setting("notify_simulation_completed", "true").await.assert_ok();
+
+    app.post("/api/v1/simulate", serde_json::json!({ "persist": false })).await.assert_ok();
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(receiver.deliveries().is_empty(), "a preview was announced");
+
+    crate::jobs::scheduler::tick(
+        &app.state,
+        &mut std::collections::HashMap::new(),
+        &mut None,
+        &mut None,
+    )
+    .await
+    .unwrap();
+    let chain = app.state.post_sync.lock().await.take().expect("the sync was not followed");
+    chain.await.unwrap();
+
+    let announced = &receiver.arrived(1).await[0];
+    assert_eq!(announced["event"], "simulation_completed", "{announced}");
+}
+
+/// ntfy shows a JSON body posted to a topic as it came, unless the address
+/// turns on its templates, which read `title` and `message` from the body.
+/// The address the help gives for ntfy is saved and posted to as written.
+#[tokio::test]
+async fn an_ntfy_address_with_its_templates_is_saved_and_posted_to() {
+    let receiver = Receiver::start().await;
+    let app = TestApp::new().await;
+    let ntfy =
+        format!("{}?template=yes&title={{{{.title}}}}&message={{{{.message}}}}", receiver.url);
+    app.save_setting("notification_webhook_url", &ntfy).await.assert_ok();
+
+    notify::send(&app.state, recovered()).await;
+
+    let delivered = &receiver.arrived(1).await[0];
+    assert_eq!(delivered["title"], "Routarr");
+    assert!(delivered["message"].as_str().is_some_and(|m| !m.is_empty()), "{delivered}");
 }

@@ -23,7 +23,19 @@ const HANDSHAKE_FAILED: &str = "the TLS handshake failed";
 const NOT_HTTP: &str = "the server did not answer in HTTP";
 const REDIRECT_LOOP: &str = "the server redirects in a loop";
 const LINK_LOCAL: &str = "the address is link-local";
+const WRITE_REDIRECTED: &str =
+    "the write was redirected, and would reach the new address as a read";
 const UNREADABLE: &str = "unreadable ";
+
+/// The most of an answer read before the request is given up: a library of
+/// many thousand titles is tens of megabytes, and an address streaming
+/// without end must not fill memory first.
+#[cfg(not(test))]
+const MAX_BODY: usize = 256 << 20;
+#[cfg(test)]
+const MAX_BODY: usize = 1 << 20;
+/// The most of an error body read: what is shown of it is cut far shorter.
+const MAX_ERROR_BODY: usize = 64 << 10;
 
 /// What a refusal with a status says beyond it, written and read back here
 /// like the transport failures: the host a stopped redirect leads to, and a
@@ -89,19 +101,49 @@ pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     request: reqwest::RequestBuilder,
 ) -> AppResult<T> {
     let response = check_status(service, request).await?;
-    response.json::<T>().await.map_err(|e| AppError::ExternalApi {
+    json_within(service, response).await
+}
+
+/// The JSON a successful answer carries, read up to [`MAX_BODY`].
+pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    response: reqwest::Response,
+) -> AppResult<T> {
+    let failed = |message: String| AppError::ExternalApi {
         service: service.to_string(),
         status: 0,
-        // Only a body that arrived whole and did not decode is unreadable. A
-        // body that stopped coming, timed out or cut, is a transport failure,
-        // although reqwest files both under `is_decode`.
-        message: if in_chain(&e, &|error| error.is::<serde_json::Error>()) {
-            format!("{UNREADABLE}{service} response: {}", deepest_cause(&e))
-        } else {
-            describe_transport_error(&e)
-        },
+        message,
         retry_after: None,
-    })
+    };
+    let body = match read_up_to(response, MAX_BODY).await {
+        Ok((body, false)) => body,
+        Ok((_, true)) => {
+            return Err(failed(format!("the answer is larger than {} MiB", MAX_BODY >> 20)));
+        }
+        // A body that stopped coming, timed out or cut, is a transport
+        // failure, and only one that arrived whole and did not decode is
+        // unreadable.
+        Err(e) => return Err(failed(describe_transport_error(&e))),
+    };
+    serde_json::from_slice(&body)
+        .map_err(|e| failed(format!("{UNREADABLE}{service} response: {e}")))
+}
+
+/// The body, up to `cap` bytes, and whether more was coming.
+async fn read_up_to(
+    mut response: reqwest::Response,
+    cap: usize,
+) -> Result<(Vec<u8>, bool), reqwest::Error> {
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        let room = cap - body.len();
+        if chunk.len() > room {
+            body.extend_from_slice(&chunk[..room]);
+            return Ok((body, true));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok((body, false))
 }
 
 /// Send a request and only assert that it succeeded.
@@ -132,12 +174,19 @@ async fn check_status(
     if literal.is_some_and(crate::http::is_link_local) {
         return Err(refused(LINK_LOCAL.to_string()));
     }
+    let (method, sent_to) = (request.method().clone(), request.url().clone());
     let response = client.execute(request).await.map_err(|e| AppError::ExternalApi {
         service: service.to_string(),
         status: 0,
         message: describe_transport_error(&e),
         retry_after: None,
     })?;
+    // A 301, 302 or 303 turns a write into a GET without its body, and the
+    // GET's success is not the write's. The redirect policy follows only
+    // within the origin, so an answer from another address was redirected.
+    if !method.is_safe() && response.url() != &sent_to {
+        return Err(refused(WRITE_REDIRECTED.to_string()));
+    }
 
     if response.status().is_success() {
         return Ok(response);
@@ -152,7 +201,10 @@ async fn check_status(
             (status == 401 && challenged_in_front(&response, service))
                 .then(|| SIGN_IN_IN_FRONT.to_string())
         });
-    let body = response.text().await.unwrap_or_default();
+    let body = read_up_to(response, MAX_ERROR_BODY)
+        .await
+        .map(|(body, _)| String::from_utf8_lossy(&body).into_owned())
+        .unwrap_or_default();
     Err(AppError::ExternalApi {
         service: service.to_string(),
         status,
@@ -397,6 +449,23 @@ fn truncate(input: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A wait in seconds, up to five minutes. Longer, or a date, is not
+    /// honoured: a sleep nobody can interrupt is not how a pass should spend
+    /// an hour.
+    #[test]
+    fn a_retry_after_is_read_in_seconds_up_to_five_minutes() {
+        let asked = |value: &str| {
+            let mut headers = reqwest::header::HeaderMap::new();
+            headers.insert(reqwest::header::RETRY_AFTER, value.parse().unwrap());
+            parse_retry_after(&headers)
+        };
+        assert_eq!(asked(" 5 "), Some(5));
+        assert_eq!(asked("300"), Some(300));
+        assert_eq!(asked("301"), None);
+        assert_eq!(asked("Wed, 21 Oct 2026 07:28:00 GMT"), None);
+        assert_eq!(parse_retry_after(&reqwest::header::HeaderMap::new()), None);
+    }
 
     /// `reqwest`'s own message embeds the URL, and the TMDb URL embeds the key.
     /// Whatever the failure, the description handed to the log and to the API

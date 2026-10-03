@@ -300,6 +300,69 @@ mod tests {
         assert!(!is_v4_token("eyJnotajwt"));
     }
 
+    /// A captured-shape TMDb movie, appended blocks included, through the
+    /// real types: the fields the client ignores, a release with an empty
+    /// certification before the rated one, and `origin_country` beside the
+    /// production countries. A change in TMDb's shape surfaces here.
+    #[test]
+    fn a_real_shape_movie_payload_deserialises() {
+        let json = r#"{
+          "adult": false, "id": 8392, "imdb_id": "tt0096283",
+          "title": "My Neighbor Totoro", "original_title": "となりのトトロ",
+          "original_language": "ja", "origin_country": ["JP"],
+          "genres": [{"id": 16, "name": "Animation"}, {"id": 10751, "name": "Family"}],
+          "production_countries": [{"iso_3166_1": "JP", "name": "Japan"}],
+          "status": "Released", "overview": "Two sisters move to the country.",
+          "poster_path": "/rtGDOeG9LzoerkDGZF9dnVeLppL.jpg", "runtime": 86,
+          "keywords": {"keywords": [{"id": 1721, "name": "fight"}, {"id": 9663, "name": "sequel"}]},
+          "release_dates": {"results": [
+            {"iso_3166_1": "US", "release_dates": [
+              {"certification": "", "iso_639_1": "", "note": "", "release_date": "1989-05-07T00:00:00.000Z", "type": 3},
+              {"certification": "G", "iso_639_1": "", "note": "", "release_date": "1993-05-07T00:00:00.000Z", "type": 3}
+            ]},
+            {"iso_3166_1": "JP", "release_dates": [
+              {"certification": "G", "iso_639_1": "ja", "note": "", "release_date": "1988-04-16T00:00:00.000Z", "type": 3}
+            ]}
+          ]}
+        }"#;
+
+        let raw: RawMovie = serde_json::from_str(json).unwrap();
+
+        assert_eq!(
+            raw.genres.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+            ["Animation", "Family"]
+        );
+        assert_eq!(raw.original_language.as_deref(), Some("ja"));
+        assert_eq!(countries(raw.origin_country, raw.production_countries), ["JP"]);
+        assert_eq!(merge_keywords(raw.keywords), ["fight", "sequel"]);
+        assert_eq!(
+            pick_movie_certification(&raw.release_dates, &["US".to_string()]).as_deref(),
+            Some("G")
+        );
+    }
+
+    /// A region whose TV rating is blank has no rating: the next region in
+    /// the order answers, and none at all leaves the field empty.
+    #[test]
+    fn a_blank_tv_rating_falls_through_to_the_next_region() {
+        let ratings = |pairs: &[(&str, &str)]| ContentRatingsBlock {
+            results: pairs
+                .iter()
+                .map(|(country, rating)| ContentRating {
+                    iso_3166_1: country.to_string(),
+                    rating: rating.to_string(),
+                })
+                .collect(),
+        };
+        let regions = ["US".to_string(), "FR".to_string()];
+
+        let blank_first = ratings(&[("US", "  "), ("FR", "-12")]);
+        assert_eq!(pick_tv_certification(&blank_first, &regions).as_deref(), Some("-12"));
+        let rated_first = ratings(&[("FR", "-12"), ("US", "TV-14")]);
+        assert_eq!(pick_tv_certification(&rated_first, &regions).as_deref(), Some("TV-14"));
+        assert_eq!(pick_tv_certification(&ratings(&[("US", "")]), &regions), None);
+    }
+
     #[test]
     fn merges_movie_and_tv_keyword_shapes() {
         let block = KeywordsBlock {

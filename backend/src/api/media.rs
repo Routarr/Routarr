@@ -398,15 +398,13 @@ pub async fn explain(
         let conditions: Vec<rule_engine::ConditionOutcome> =
             outcomes.into_iter().map(|outcome| localizer.localize_outcome(outcome)).collect();
 
-        let excluded_by = if matched {
-            rule.exclusions
-                .iter()
-                .map(|c| rule_engine::evaluate_single_condition(c, ctx))
-                .find(|c| c.matched)
-                .map(|c| localizer.localize_outcome(c).expected)
-        } else {
-            None
-        };
+        // The engine's own veto, not a second reading of the exclusions.
+        let excluded_by = evaluation
+            .excluded
+            .iter()
+            .find(|set_aside| set_aside.rule_id == rule.id)
+            .and_then(|set_aside| set_aside.excluded_by.clone())
+            .map(|veto| localizer.localize_outcome(veto).expected);
 
         let outcome = if Some(&rule.id) == winner_id.as_ref() {
             "winner"

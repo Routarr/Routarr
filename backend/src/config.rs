@@ -69,25 +69,38 @@ impl AuthMode {
         }
     }
 
-    /// Read `ROUTARR_AUTH`.
+    /// The mode a value of `ROUTARR_AUTH` names, and whether it named none.
     ///
     /// Anything unrecognised falls back to the API key rather than to nothing:
     /// a typo must not be the way an installation ends up open.
-    pub fn from_env(raw: &str) -> Self {
+    pub fn parse(raw: &str) -> (Self, bool) {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "none" => Self::None,
-            "oidc" | "openid" => Self::Oidc,
-            "forms" | "form" => Self::Forms,
-            "external" | "proxy" => Self::External,
-            "apikey" | "api_key" | "" => Self::ApiKey,
-            other => {
-                // The variable is named apart from its value: the sample-env
-                // check scans this file for a quoted `ROUTARR_*` and would read
-                // an interpolated message as a variable of its own.
-                tracing::warn!("Unknown authentication mode '{other}', using the API key");
-                Self::ApiKey
-            }
+            "none" => (Self::None, false),
+            "oidc" | "openid" => (Self::Oidc, false),
+            "forms" | "form" => (Self::Forms, false),
+            "external" | "proxy" => (Self::External, false),
+            "apikey" | "api_key" | "" => (Self::ApiKey, false),
+            _ => (Self::ApiKey, true),
         }
+    }
+}
+
+/// The level `raw` names, and whether it named none, `info` standing in.
+/// `warning` is read as `warn`, the word the log filter knows: unread, it
+/// would leave the filter at its default without a word.
+fn log_level_from(raw: &str) -> (String, bool) {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "warning" => ("warn".into(), false),
+        level @ ("trace" | "debug" | "info" | "warn" | "error" | "off") => (level.into(), false),
+        _ => ("info".into(), true),
+    }
+}
+
+/// The format `raw` names, and whether it named none, `text` standing in.
+fn log_format_from(raw: &str) -> (String, bool) {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        format @ ("text" | "json") => (format.into(), false),
+        _ => ("text".into(), true),
     }
 }
 
@@ -120,7 +133,7 @@ fn validate_origin(origin: &str) -> AppResult<()> {
     // Named through a constant rather than inline: the sample-env check scans
     // this file for a quoted `ROUTARR_*` and reads the whole literal as a
     // variable, so a message beginning with the name would be reported as an
-    // undocumented variable of its own. Same reason as `AuthMode::from_env`.
+    // undocumented variable of its own. Same reason as `Config::from_env`.
     const VARIABLE: &str = "ROUTARR_CORS_ORIGINS";
     let bad = |why: &str| AppError::Config(format!("{VARIABLE}: '{origin}' {why}"));
 
@@ -159,6 +172,9 @@ pub struct Config {
     pub log_level: String,
     /// `text` (default) or `json`, which is easier to ship to a log collector.
     pub log_format: String,
+    /// What was read and set aside for a default, said as warnings once the
+    /// log is up: read before it, nothing would hear them.
+    pub startup_notes: Vec<String>,
     pub frontend_dir: PathBuf,
     pub tmdb_api_key: Option<String>,
     /// `ROUTARR_API_KEY`, which pins the key and wins over the stored one.
@@ -194,6 +210,10 @@ pub struct Config {
     /// Timeout applied to every outbound call: the Arrs, the metadata sources,
     /// the identity provider and the notification webhook.
     pub http_timeout: Duration,
+    /// Timeout for listing a whole library, where `http_timeout` holds every
+    /// other call: tens of thousands of titles from a NAS take far longer than
+    /// a probe is given to answer.
+    pub library_timeout: Duration,
     /// Master key sealing the stored secrets (the Arr and metadata source keys).
     /// Generated beside the database if absent.
     pub secret_key: Option<String>,
@@ -262,22 +282,46 @@ impl Config {
     /// default in its place: with the default, `ROUTARR_PORT=987 6` would run
     /// on 9876 while the operator believes their port is in force.
     pub fn from_env() -> AppResult<Self> {
-        let db_path = std::env::var("ROUTARR_DB_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| PathBuf::from("./data/routarr.db"));
+        let db_path =
+            path_or(std::env::var("ROUTARR_DB_PATH").ok(), || PathBuf::from("./data/routarr.db"));
+        // Each variable is named apart from its value: the sample-env check
+        // scans this file for a quoted `ROUTARR_*` and would read a message
+        // beginning with the name as a variable of its own.
+        let mut startup_notes = Vec::new();
+        let raw_auth = env_or("ROUTARR_AUTH", "apikey");
+        let (auth_mode, unknown) = AuthMode::parse(&raw_auth);
+        if unknown {
+            let variable = "ROUTARR_AUTH";
+            startup_notes.push(format!(
+                "{variable} is '{raw_auth}', which no mode is called: the API key is required"
+            ));
+        }
+        let raw_level = env_or("ROUTARR_LOG_LEVEL", "info");
+        let (log_level, unknown) = log_level_from(&raw_level);
+        if unknown {
+            let variable = "ROUTARR_LOG_LEVEL";
+            startup_notes
+                .push(format!("{variable} is '{raw_level}', which no level is called: info"));
+        }
+        let raw_format = env_or("ROUTARR_LOG_FORMAT", "text");
+        let (log_format, unknown) = log_format_from(&raw_format);
+        if unknown {
+            let variable = "ROUTARR_LOG_FORMAT";
+            startup_notes
+                .push(format!("{variable} is '{raw_format}', neither text nor json: text"));
+        }
         Ok(Self {
             host: env_or("ROUTARR_HOST", "0.0.0.0"),
             port: env_parse("ROUTARR_PORT", 9876)?,
             data_dir: data_dir_for(&db_path),
             db_path,
-            log_level: env_or("ROUTARR_LOG_LEVEL", "info"),
-            log_format: env_or("ROUTARR_LOG_FORMAT", "text"),
-            frontend_dir: std::env::var("ROUTARR_FRONTEND_DIR")
-                .map(PathBuf::from)
-                .unwrap_or_else(|_| default_frontend_dir()),
+            log_level,
+            log_format,
+            startup_notes,
+            frontend_dir: path_or(std::env::var("ROUTARR_FRONTEND_DIR").ok(), default_frontend_dir),
             tmdb_api_key: non_empty("TMDB_API_KEY"),
             api_key: non_empty("ROUTARR_API_KEY"),
-            auth_mode: AuthMode::from_env(&env_or("ROUTARR_AUTH", "apikey")),
+            auth_mode,
             oidc_issuer: non_empty("ROUTARR_OIDC_ISSUER")
                 .map(|v| v.trim_end_matches('/').to_string()),
             oidc_client_id: non_empty("ROUTARR_OIDC_CLIENT_ID"),
@@ -321,6 +365,7 @@ impl Config {
                 "ROUTARR_HTTP_TIMEOUT_SECS",
                 DEFAULT_HTTP_TIMEOUT_SECS,
             )?),
+            library_timeout: crate::http::LIBRARY_TIMEOUT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
             // Bounds how many requests are *open* per source, and `rate_limit`
@@ -484,6 +529,7 @@ impl Config {
             data_dir: std::env::temp_dir().join(format!("routarr-tests-{}", std::process::id())),
             log_level: "error".into(),
             log_format: "text".into(),
+            startup_notes: Vec::new(),
             frontend_dir: PathBuf::from("/nonexistent"),
             tmdb_api_key: None,
             api_key: None,
@@ -499,6 +545,7 @@ impl Config {
             allowed_hosts: vec![],
             trusted_proxies: vec![],
             http_timeout: Duration::from_millis(300),
+            library_timeout: Duration::from_millis(900),
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
             previous_secret_key: None,
             metadata_concurrency: 2,
@@ -537,6 +584,16 @@ pub fn host_name(host: &str) -> String {
     }
 }
 
+/// A path variable, or its default when unset or blank: an empty
+/// `ROUTARR_DB_PATH` would open a private temporary database per pooled
+/// connection, and an empty frontend directory would switch to API only.
+fn path_or(raw: Option<String>, default: impl FnOnce() -> PathBuf) -> PathBuf {
+    raw.map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(default)
+}
+
 fn non_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }
@@ -561,6 +618,33 @@ fn parse_setting<T: std::str::FromStr>(key: &str, raw: Option<String>, default: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A blank path is no path: unset, the default stands.
+    #[test]
+    fn a_blank_path_variable_reads_as_unset() {
+        let default = || PathBuf::from("./data/routarr.db");
+        for blank in [Some(String::new()), Some("   ".into()), None] {
+            assert_eq!(path_or(blank.clone(), default), default(), "{blank:?}");
+        }
+        assert_eq!(
+            path_or(Some(" /srv/routarr.db ".into()), default),
+            PathBuf::from("/srv/routarr.db")
+        );
+    }
+
+    /// A value read and set aside is said once logging is up: a typo in the
+    /// mode keeps the API key and says so, `warning` is the level it names,
+    /// and an unknown level or format falls back with a word.
+    #[test]
+    fn a_value_not_understood_is_said_rather_than_swallowed() {
+        assert_eq!(AuthMode::parse("nome"), (AuthMode::ApiKey, true));
+        assert_eq!(AuthMode::parse("oidc"), (AuthMode::Oidc, false));
+        assert_eq!(log_level_from("warning"), ("warn".to_string(), false));
+        assert_eq!(log_level_from("DEBUG"), ("debug".to_string(), false));
+        assert_eq!(log_level_from("verbose"), ("info".to_string(), true));
+        assert_eq!(log_format_from("JSON"), ("json".to_string(), false));
+        assert_eq!(log_format_from("pretty"), ("text".to_string(), true));
+    }
 
     /// The image's probe reads this address. Written raw from the variable,
     /// `routarr` would give `:9876routarr` and a container unhealthy for ever,

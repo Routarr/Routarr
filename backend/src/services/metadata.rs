@@ -839,6 +839,35 @@ mod tests {
         );
     }
 
+    /// A found id is kept for good, a miss for thirty days: one a day short of
+    /// them is still remembered, one a day past them is searched again.
+    #[tokio::test]
+    async fn a_miss_is_remembered_thirty_days_and_a_found_id_for_good() {
+        let pool = crate::db::test_pool().await;
+        sqlx::query(
+            "INSERT INTO source_identifiers (source, media_type, local_key, external_id, resolved_at)
+             VALUES ('anilist', 'movie', 'found-long-ago', '523', datetime('now', '-400 days')),
+                    ('anilist', 'movie', 'missed-29-days-ago', NULL, datetime('now', '-29 days')),
+                    ('anilist', 'movie', 'missed-31-days-ago', NULL, datetime('now', '-31 days')),
+                    ('jikan', 'movie', 'another-source', '1', datetime('now'))",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let mut known: Vec<String> =
+            resolved_keys(&pool, "anilist").await.unwrap().into_iter().collect();
+        known.sort();
+
+        assert_eq!(
+            known,
+            [
+                resolution_key("movie", "found-long-ago"),
+                resolution_key("movie", "missed-29-days-ago")
+            ]
+        );
+    }
+
     /// The year agrees within one year either way, no further, and a candidate
     /// that does not know its year is refused when the library knows it. A
     /// title of punctuation alone matches nothing, and the first candidate

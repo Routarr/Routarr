@@ -32,6 +32,10 @@ struct FakeState {
     exchanges: Arc<Mutex<Vec<Exchange>>>,
     discoveries: Arc<AtomicUsize>,
     endpoints: Arc<Mutex<Option<String>>>,
+    /// Where the discovery document places the authorization endpoint alone.
+    authorization_at: Arc<Mutex<Option<String>>>,
+    /// The issuer the discovery document names, when not its own.
+    named_issuer: Arc<Mutex<Option<String>>>,
     /// Whether the provider advertises `client_secret_post` alone.
     post_only: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -58,6 +62,8 @@ pub struct FakeOidc {
     /// Where the discovery document places the two endpoints, when not at the
     /// issuer itself.
     endpoints: Arc<Mutex<Option<String>>>,
+    authorization_at: Arc<Mutex<Option<String>>>,
+    named_issuer: Arc<Mutex<Option<String>>>,
     shutdown: Option<tokio::sync::oneshot::Sender<()>>,
 }
 
@@ -71,6 +77,8 @@ impl FakeOidc {
         let exchanges = Arc::new(Mutex::new(Vec::new()));
         let discoveries = Arc::new(AtomicUsize::new(0));
         let endpoints = Arc::new(Mutex::new(None));
+        let authorization_at = Arc::new(Mutex::new(None));
+        let named_issuer = Arc::new(Mutex::new(None));
         let post_only = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let state = FakeState {
             issuer: issuer.clone(),
@@ -78,6 +86,8 @@ impl FakeOidc {
             exchanges: Arc::clone(&exchanges),
             discoveries: Arc::clone(&discoveries),
             endpoints: Arc::clone(&endpoints),
+            authorization_at: Arc::clone(&authorization_at),
+            named_issuer: Arc::clone(&named_issuer),
             post_only: Arc::clone(&post_only),
         };
 
@@ -95,7 +105,27 @@ impl FakeOidc {
                 .await;
         });
 
-        Self { issuer, claims, exchanges, post_only, discoveries, endpoints, shutdown: Some(tx) }
+        Self {
+            issuer,
+            claims,
+            exchanges,
+            post_only,
+            discoveries,
+            endpoints,
+            authorization_at,
+            named_issuer,
+            shutdown: Some(tx),
+        }
+    }
+
+    /// Describe the authorization endpoint alone as living at `base`.
+    pub fn advertise_authorization_at(&self, base: &str) {
+        *self.authorization_at.lock().expect("authorization") = Some(base.to_string());
+    }
+
+    /// Describe the provider as `issuer`, which is not where it answers.
+    pub fn call_itself(&self, issuer: &str) {
+        *self.named_issuer.lock().expect("issuer") = Some(issuer.to_string());
     }
 
     /// From now on the provider advertises `client_secret_post` alone, takes
@@ -136,9 +166,12 @@ impl Drop for FakeOidc {
 async fn discovery(State(state): State<FakeState>) -> Json<serde_json::Value> {
     state.discoveries.fetch_add(1, Ordering::SeqCst);
     let base = state.endpoints.lock().expect("endpoints").clone().unwrap_or(state.issuer.clone());
+    let authorization =
+        state.authorization_at.lock().expect("authorization").clone().unwrap_or(base.clone());
+    let issuer = state.named_issuer.lock().expect("issuer").clone().unwrap_or(state.issuer.clone());
     let mut document = serde_json::json!({
-        "issuer": state.issuer,
-        "authorization_endpoint": format!("{base}/authorize"),
+        "issuer": issuer,
+        "authorization_endpoint": format!("{authorization}/authorize"),
         "token_endpoint": format!("{base}/token"),
     });
     // Left out otherwise, as many providers do: OpenID Connect Discovery then

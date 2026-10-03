@@ -79,6 +79,8 @@ pub struct AppState {
     /// whoever synced: one at a time, and waited for at shutdown
     /// (`jobs::scheduler::follow_sync`).
     pub post_sync: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// The notifications waiting to be sent, in order (`services::notify`).
+    pub notifications: Arc<crate::services::notify::Queue>,
 }
 
 /// The settings table as it stood when it was read, by [`AppState::settings`].
@@ -156,7 +158,8 @@ impl AppState {
     /// Build an Arr client for a stored instance, decrypting its API key.
     pub fn adapter(&self, instance: &Instance) -> AppResult<ArrAdapter> {
         let api_key = self.secrets.open(&instance.api_key)?;
-        ArrAdapter::for_instance(self.http.clone(), instance, &api_key)
+        Ok(ArrAdapter::for_instance(self.http.clone(), instance, &api_key)?
+            .with_library_timeout(self.config.library_timeout))
     }
 
     /// Every setting as stored, read in one statement.
@@ -455,6 +458,7 @@ impl AppState {
             sign_in: Arc::new(Default::default()),
             oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
             post_sync: Arc::new(tokio::sync::Mutex::new(None)),
+            notifications: Arc::default(),
             config: Arc::new(config),
             pool,
         }

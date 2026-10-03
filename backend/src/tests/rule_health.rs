@@ -189,7 +189,67 @@ async fn twins_on_different_instances_are_not_duplicates_and_reordered_condition
     assert_eq!(rule(body, "Swapped")["duplicate_of"], "Everywhere");
 }
 
-// -------------------------------------------------------------------- facets
+/// Rules alike but for their exclusions, their match mode or their media type
+/// decide different things, and are not called duplicates. A name shared at
+/// two priorities is no ambiguity: the priority settles the order.
+#[tokio::test]
+async fn rules_differing_in_any_one_respect_are_not_duplicates() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let condition = r#"[{"type":"title_contains","value":["totoro"]}]"#;
+    let veto = r#"[{"type":"genre_contains","value":["Horror"]}]"#;
+    for (id, name, priority, exclusions, mode, media_type) in [
+        ("r-1", "Plain", 10, "[]", "all", "both"),
+        ("r-2", "Vetoing", 20, veto, "all", "both"),
+        ("r-3", "Any", 30, "[]", "any", "both"),
+        ("r-4", "Films", 40, "[]", "all", "movie"),
+        ("r-5", "Plain", 50, veto, "any", "series"),
+    ] {
+        sqlx::query(
+            "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, exclusions,
+             target_category, match_mode)
+             VALUES (?, ?, ?, 1, ?, ?, ?, 'anime', ?)",
+        )
+        .bind(id)
+        .bind(name)
+        .bind(priority)
+        .bind(media_type)
+        .bind(condition)
+        .bind(exclusions)
+        .bind(mode)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
+
+    let body = app.get("/api/v1/rules/health").await;
+    let entries = body.assert_ok()["rules"].as_array().unwrap().clone();
+    for entry in &entries {
+        assert!(entry["duplicate_of"].is_null(), "called a duplicate: {entry}");
+        assert!(entry["ambiguous_with"].is_null(), "called ambiguous: {entry}");
+    }
+}
+
+/// A rule its exclusion sets aside counts its vetoes, and is not reported as
+/// one that matches nothing.
+#[tokio::test]
+async fn a_rule_its_exclusion_sets_aside_counts_the_vetoes() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[r#"INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+                     exclusions, target_category, match_mode)
+                     VALUES ('r-1', 'Vetoed', 10, 1, 'both',
+                             '[{"type":"title_contains","value":["totoro"]}]',
+                             '[{"type":"title_contains","value":["neighbor"]}]', 'anime', 'all')"#])
+        .await;
+
+    let body = app.get("/api/v1/rules/health").await;
+    let vetoed = rule(body.assert_ok(), "Vetoed");
+    assert_eq!(vetoed["vetoed"], 1, "{vetoed}");
+    assert_eq!(vetoed["matched_nothing"], false, "{vetoed}");
+}
+
+// -------------------------------------------------------------------- facets// -------------------------------------------------------------------- facets
 
 /// `U` and `TV-PG` say nothing to most readers, and this panel exists to show
 /// what the library holds.

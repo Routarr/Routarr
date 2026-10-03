@@ -39,9 +39,10 @@ pub fn meaning(code: &str) -> Option<Meaning> {
         "TV-Y7" => Meaning::From(7),
         "PG-13" => Meaning::From(13),
         "TV-14" => Meaning::From(14),
-        // Both mean "an adult must be present under 17" in the American
-        // systems, which is the only place either is issued.
-        "R" | "TV-MA" => Meaning::From(17),
+        // "An adult must be present under 17" in the American television
+        // system, the only one issuing it. `R` is left bare: the MPA's
+        // seventeen is Canada's eighteen.
+        "TV-MA" => Meaning::From(17),
         "NC-17" | "X" | "R18+" | "18+" => Meaning::From(18),
         "12A" => Meaning::From(12),
         "15A" => Meaning::From(15),
@@ -66,9 +67,12 @@ mod tests {
     fn a_letter_code_is_named_only_where_the_systems_agree() {
         assert!(matches!(meaning("U"), Some(Meaning::AllAges)));
         assert!(matches!(meaning("tv-pg"), Some(Meaning::Guidance)));
-        assert!(matches!(meaning("R"), Some(Meaning::From(17))));
+        assert!(matches!(meaning("TV-MA"), Some(Meaning::From(17))));
         // Fifteen-and-over in Australia, something else in the United States.
         assert!(meaning("M").is_none());
+        // Seventeen-and-over with an adult in the United States, eighteen in
+        // Canada.
+        assert!(meaning("R").is_none());
         assert!(meaning("Sortie nationale").is_none());
     }
 

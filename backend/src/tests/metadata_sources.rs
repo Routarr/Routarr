@@ -327,36 +327,26 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
 async fn the_three_metadata_counters_agree_on_one_library() {
     let arr = FakeArr::start().await;
     let app = TestApp::synced_from("radarr", &arr).await;
-    // Half described by the Arr, half by nothing at all.
-    sqlx::query(
-        "UPDATE media SET genres = '[]' WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    // The synced film described by the Arr, two more by nothing at all.
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, genres)
+                   VALUES ('m-bare-1', 'inst-1', 501, 'movie', 'Bare One', '[]'),
+                          ('m-bare-2', 'inst-1', 502, 'movie', 'Bare Two', NULL)"])
+        .await;
     set_order(&app, "arr").await;
 
     let listed = app.get("/api/v1/media?per_page=100").await.assert_ok().clone();
     let without =
         listed["data"].as_array().unwrap().iter().filter(|m| m["has_metadata"] == false).count()
             as i64;
+    assert_eq!(without, 2, "the column: {listed}");
 
     let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
     assert_eq!(
         health["metadata"]["media_missing_metadata"], without,
         "the diagnostics count and the library column disagree"
     );
-
-    let warning = warning_messages(&health)
-        .into_iter()
-        .find(|w| w.contains("no metadata") || w.contains("Metadata"));
-    if without > 0 {
-        let warning = warning.expect("a library with undescribed items warns about them");
-        assert!(
-            warning.contains(&without.to_string()),
-            "the warning counts differently from the column: {warning}"
-        );
-    }
+    let warning = app.state.localizer().await.translate("WarnMissingMetadata", &[("count", "2")]);
+    assert!(warning_messages(&health).contains(&warning), "{health}");
 }
 
 /// A cached row is not the same as a cached *answer*.

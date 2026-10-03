@@ -33,6 +33,17 @@ pub struct Recorded {
     pub reads: Vec<String>,
 }
 
+/// The ids the movie editor treats apart.
+#[derive(Clone, Default)]
+struct EditorQuirks {
+    /// Refused with every other movie of their batch.
+    refused: Vec<i64>,
+    /// Gone from the library.
+    forgotten: Vec<i64>,
+    /// Edited and left out of the answer.
+    unreported: Vec<i64>,
+}
+
 #[derive(Clone)]
 struct FakeState {
     recorded: Arc<Mutex<Recorded>>,
@@ -72,9 +83,8 @@ struct FakeState {
     /// The series ids an update is refused for, as Sonarr refuses a path it
     /// cannot write.
     refused_series: Arc<Mutex<Vec<i64>>>,
-    /// The movie ids an edit naming any of them is refused for: Radarr moves
-    /// a batch in one request, and refuses it whole.
-    refused_movies: Arc<Mutex<Vec<i64>>>,
+    /// How the movie editor answers particular ids.
+    editor: Arc<Mutex<EditorQuirks>>,
     /// Fields the film now has in the Arr, laid over its body.
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     /// Fields the series now has in the Arr, laid over its body.
@@ -93,7 +103,7 @@ pub struct FakeArr {
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     no_root_folders: Arc<std::sync::atomic::AtomicBool>,
     refused_series: Arc<Mutex<Vec<i64>>>,
-    refused_movies: Arc<Mutex<Vec<i64>>>,
+    editor: Arc<Mutex<EditorQuirks>>,
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
@@ -201,7 +211,18 @@ impl FakeArr {
     /// From now on an edit naming movie `id` is refused, with every other
     /// movie of its batch.
     pub fn refuse_movie(&self, id: i64) {
-        self.refused_movies.lock().expect("lock").push(id);
+        self.editor.lock().expect("lock").refused.push(id);
+    }
+
+    /// From now on movie `id` is gone from the library: an edit naming it
+    /// fails whole, as Radarr's lookup of a batch fails on one id it lacks.
+    pub fn forget_movie(&self, id: i64) {
+        self.editor.lock().expect("lock").forgotten.push(id);
+    }
+
+    /// From now on an edit naming movie `id` succeeds without listing it.
+    pub fn leave_out_of_the_answer(&self, id: i64) {
+        self.editor.lock().expect("lock").unreported.push(id);
     }
 
     /// The most requests this fake ever had open at the same moment.
@@ -229,7 +250,7 @@ impl FakeArr {
         let no_titles = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let no_root_folders = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let refused_series: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
-        let refused_movies: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
+        let editor = Arc::new(Mutex::new(EditorQuirks::default()));
         let movie_edits = Arc::new(Mutex::new(serde_json::Map::new()));
         let series_edits = Arc::new(Mutex::new(serde_json::Map::new()));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
@@ -248,7 +269,7 @@ impl FakeArr {
             no_titles: Arc::clone(&no_titles),
             no_root_folders: Arc::clone(&no_root_folders),
             refused_series: Arc::clone(&refused_series),
-            refused_movies: Arc::clone(&refused_movies),
+            editor: Arc::clone(&editor),
             movie_edits: Arc::clone(&movie_edits),
             series_edits: Arc::clone(&series_edits),
             more_root_folders: Arc::clone(&more_root_folders),
@@ -294,7 +315,7 @@ impl FakeArr {
             no_titles,
             no_root_folders,
             refused_series,
-            refused_movies,
+            editor,
             movie_edits,
             series_edits,
             more_root_folders,
@@ -628,11 +649,22 @@ async fn movie_editor(
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), refusal()));
     }
-    let refused = state.refused_movies.lock().expect("lock").clone();
+    let quirks = state.editor.lock().expect("lock").clone();
     let ids = body["movieIds"].as_array().into_iter().flatten().filter_map(|id| id.as_i64());
-    if ids.clone().any(|id| refused.contains(&id)) {
+    if ids.clone().any(|id| quirks.refused.contains(&id)) {
         return Err((StatusCode::BAD_REQUEST, refusal()));
     }
+    let held = ids.clone().filter(|id| !quirks.forgotten.contains(id)).count();
+    if held < ids.clone().count() {
+        // Radarr's own words, from the lookup of every id at once.
+        let message =
+            format!("Expected query to return {} rows but returned {held}", ids.clone().count());
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            serde_json::json!({ "message": message }).to_string(),
+        ));
+    }
+    let ids = ids.filter(move |id| !quirks.unreported.contains(id));
     // Recorded first, then held: a test can see the edit arrive before the
     // Arr is done with it.
     if !state.hold.is_zero() {

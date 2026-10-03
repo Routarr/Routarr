@@ -173,12 +173,14 @@ impl JikanClient {
     }
 }
 
-/// `"R - 17+ (violence & profanity)"` -> `"R - 17+"`.
+/// `"R - 17+ (violence & profanity)"` -> `"R"`, `"PG-13 - Teens 13 or older"`
+/// -> `"PG-13"`.
 ///
-/// A `certification_in` rule is written against a rating, not against a
-/// parenthesised justification.
+/// A `certification_in` rule is written against a code, as the other sources
+/// give theirs, not against MyAnimeList's words for it. The code ends at the
+/// first ` - `, which a code itself never holds.
 fn shorten_rating(rating: &str) -> String {
-    rating.split('(').next().unwrap_or(rating).trim().to_string()
+    rating.split(" - ").next().unwrap_or(rating).trim().to_string()
 }
 
 fn titles_of(raw: &RawAnime) -> Vec<String> {
@@ -232,15 +234,26 @@ mod tests {
         assert_eq!(raw.year, None);
         assert!(titles_of(&raw).contains(&"My Neighbor Totoro".to_string()));
         assert_eq!(raw.genres.len(), 1);
-        assert_eq!(shorten_rating(raw.rating.as_deref().unwrap()), "G - All Ages");
+        assert_eq!(shorten_rating(raw.rating.as_deref().unwrap()), "G");
         // Themes and demographics are the keyword vocabulary.
         assert_eq!(raw.themes[0].name, "Iyashikei");
         assert_eq!(raw.demographics[0].name, "Kids");
     }
 
+    /// MyAnimeList writes each rating as a code and its words. The code alone
+    /// is kept, the one a `certification_in` rule is written against, as the
+    /// other sources give theirs.
     #[test]
-    fn a_rating_keeps_only_what_a_rule_can_name() {
-        assert_eq!(shorten_rating("R - 17+ (violence & profanity)"), "R - 17+");
-        assert_eq!(shorten_rating("PG-13 - Teens 13 or older"), "PG-13 - Teens 13 or older");
+    fn a_rating_keeps_only_the_code_a_rule_names() {
+        for (written, code) in [
+            ("G - All Ages", "G"),
+            ("PG - Children", "PG"),
+            ("PG-13 - Teens 13 or older", "PG-13"),
+            ("R - 17+ (violence & profanity)", "R"),
+            ("R+ - Mild Nudity", "R+"),
+            ("Rx - Hentai", "Rx"),
+        ] {
+            assert_eq!(shorten_rating(written), code, "{written}");
+        }
     }
 }

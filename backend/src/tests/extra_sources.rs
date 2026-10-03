@@ -473,8 +473,8 @@ async fn jikan_themes_and_demographics_become_keywords() {
     // The vocabulary an anime library is actually sorted by, and which TMDb
     // does not express at all.
     assert_eq!(keywords, r#"["iyashikei","kids"]"#);
-    // "G - All Ages" keeps only what a rule can name.
-    assert_eq!(certification.as_deref(), Some("G - All Ages"));
+    // "G - All Ages" keeps the code a rule names.
+    assert_eq!(certification.as_deref(), Some("G"));
 }
 
 // ------------------------------------------------------------- all together
@@ -677,6 +677,71 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
     app
 }
 
+/// A work a source does not have is an answer like any other: cached for the
+/// cache's lifetime, so the next pass does not ask again. TheTVDB is asked by
+/// the library's id, AniList and Jikan by one an earlier search resolved.
+#[tokio::test]
+async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
+    for source in ["tvdb", "anilist", "jikan"] {
+        let sources = FakeSources::start().await;
+        let app = library(&sources, source).await;
+        app.execute(&[
+            "UPDATE media SET tvdb_id = 999",
+            "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+             VALUES ('anilist', 'movie', 'tmdb:8392', '999'), ('jikan', 'movie', 'tmdb:8392', '999')",
+        ])
+        .await;
+
+        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+        assert_eq!(asked(&sources, source).len(), 1, "{source}: {:?}", asked(&sources, source));
+    }
+}
+
+/// A revoked TheTVDB key is refused at every login. The pass stops at the
+/// breaker rather than spending a refused login on every title, and a login
+/// answering without a token is a refusal too: no read goes out with an
+/// empty bearer.
+#[tokio::test]
+async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
+    let revoked = FakeSources::start().await;
+    revoked.revoke_tvdb_key();
+    let app = library_of(&revoked, "tvdb", 20).await;
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let logins = revoked.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
+    assert!(logins <= 8, "{logins} refused logins for 21 titles");
+
+    let tokenless = FakeSources::start().await;
+    tokenless.answer_logins_without_a_token();
+    let app = library_of(&tokenless, "tvdb", 3).await;
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let recorded = tokenless.recorded();
+    assert!(recorded.paths.contains(&"/tvdb/login".to_string()), "the control: no login");
+    let reads: Vec<&String> = recorded.paths.iter().filter(|p| p.ends_with("/extended")).collect();
+    assert!(reads.is_empty(), "a read went out without a token: {reads:?}");
+}
+
+/// A `Retry-After` received while searching holds the searches after it
+/// back, as one received while fetching holds the fetches: the search after
+/// a 429 asking for a second of quiet leaves at least a second after it.
+#[tokio::test]
+async fn a_retry_after_received_while_searching_holds_the_next_search() {
+    let sources = FakeSources::start().await;
+    let app = library_of(&sources, "anilist", 1).await;
+    // One search at a time, so the second leaves after the first is answered.
+    let config = crate::config::Config { metadata_concurrency: 1, ..(*app.state.config).clone() };
+    let app = TestApp::around(app.state.clone().with_config(config));
+    sources.throttle_next_search(1);
+
+    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+
+    let arrivals = sources.recorded().searched_at.clone();
+    assert!(arrivals.len() >= 2, "{} searches", arrivals.len());
+    let gap = arrivals[1] - arrivals[0];
+    assert!(gap >= std::time::Duration::from_secs(1), "the next search left after {gap:?}");
+}
+
 /// Jikan answers `504` for *every* request whenever MyAnimeList is down.
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
@@ -737,18 +802,24 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let mut config = crate::config::Config::for_tests();
     config.anilist_base_url = crate::integrations::anilist::DEFAULT_BASE_URL.into();
     config.jikan_base_url = crate::integrations::jikan::DEFAULT_BASE_URL.into();
+    config.omdb_base_url = crate::integrations::omdb::DEFAULT_BASE_URL.into();
+    config.omdb_api_key = Some("omdb-key".into());
     let app = TestApp::around(AppState::for_tests().await.with_config(config));
-    app.store_setting("metadata_providers", "anilist,jikan").await;
+    app.store_setting("metadata_providers", "anilist,jikan,omdb").await;
 
-    let rates: Vec<(&str, Option<(u32, u32)>)> = app
-        .state
-        .metadata_sources()
-        .await
-        .iter()
-        .map(|source| (source.id(), source.rate()))
-        .collect();
+    let sources = app.state.metadata_sources().await;
+    let rates: Vec<(&str, Option<(u32, u32)>)> =
+        sources.iter().map(|source| (source.id(), source.rate())).collect();
+    assert_eq!(
+        rates,
+        vec![("anilist", Some((90, 5))), ("jikan", Some((60, 3))), ("omdb", Some((300, 10)))]
+    );
 
-    assert_eq!(rates, vec![("anilist", Some((90, 5))), ("jikan", Some((60, 3)))]);
+    // A concurrency setting is a ceiling: Jikan, unofficial and documented at
+    // a handful a second, keeps two in flight whatever it says.
+    let concurrency: Vec<(&str, usize)> =
+        sources.iter().map(|source| (source.id(), source.concurrency(8))).collect();
+    assert_eq!(concurrency, vec![("anilist", 8), ("jikan", 2), ("omdb", 8)]);
 }
 
 /// A verdict must not outlive its subject.
