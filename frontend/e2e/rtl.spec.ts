@@ -27,6 +27,33 @@ test.describe('right to left', () => {
   // reset before every test puts `ui_language` back to English, and a page
   // measured after it would be left to right.
 
+  /**
+   * A tick is not "towards" anything, so it must not mirror. Drawn with
+   * logical borders, right to left keeps the other two and turns it into a
+   * chevron.
+   */
+  test('a ticked checkbox draws the same tick right to left', async ({ page }) => {
+    await setLanguage('ar');
+    await page.goto('/settings#automation');
+
+    const drawn = await page.evaluate(() => {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      box.checked = true;
+      document.querySelector('main')!.append(box);
+      const tick = getComputedStyle(box, '::after');
+      const sides = {
+        left: tick.borderLeftWidth,
+        bottom: tick.borderBottomWidth,
+        right: tick.borderRightWidth,
+        top: tick.borderTopWidth,
+      };
+      box.remove();
+      return { dir: document.documentElement.dir, ...sides };
+    });
+    expect(drawn).toEqual({ dir: 'rtl', left: '2px', bottom: '2px', right: '0px', top: '0px' });
+  });
+
   /** An arrow means "towards", so it turns around when the writing does. */
   test('every arrow in the explanation points the way the text reads', async ({ page }) => {
     await setLanguage('ar');

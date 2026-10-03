@@ -248,7 +248,6 @@ describe('Rules', () => {
     const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });
     await fireEvent.change(input, { target: { files: [file] } });
     await answerConfirmation(null);
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(importRules).not.toHaveBeenCalled();
     expect(screen.getByText('Rule duplicated')).toBeTruthy();
@@ -470,16 +469,33 @@ describe('Rules', () => {
     expect((await screen.findAllByText('Genre contains')).length).toBeGreaterThan(0);
   });
 
-  async function importFile(result: { imported: number; skipped: string[] }) {
-    vi.spyOn(api, 'importRules').mockResolvedValue(result);
+  async function importFile(
+    result: { imported: number; skipped: string[] },
+    answer: 'append' | 'replace' = 'append',
+  ) {
+    const importRules = vi.spyOn(api, 'importRules').mockResolvedValue(result);
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
     await screen.findByRole('button', { name: 'Duplicate – Anime' });
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });
     await fireEvent.change(input, { target: { files: [file] } });
-    await answerConfirmation('append');
+    await answerConfirmation(answer);
+    return importRules;
   }
+
+  /** Replace deletes every rule first, so the answer must reach the request as given. */
+  it('adds the file to the rules when Add is chosen', async () => {
+    const importRules = await importFile({ imported: 1, skipped: [] });
+    await waitFor(() => expect(importRules).toHaveBeenCalledTimes(1));
+    expect(nthCall(importRules)[1]).toBe(false);
+  });
+
+  it('replaces the rules only when Replace is chosen', async () => {
+    const importRules = await importFile({ imported: 1, skipped: [] }, 'replace');
+    await waitFor(() => expect(importRules).toHaveBeenCalledTimes(1));
+    expect(nthCall(importRules)[1]).toBe(true);
+  });
 
   /** An import that brought in no rule at all is a failure, not a count of zero. */
   it('reports an import that skipped every rule as a failure', async () => {

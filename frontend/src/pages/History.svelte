@@ -161,7 +161,7 @@
         <tbody>
           {#if history.loading && decisions.length === 0}
             <TableSkeleton columns={8} />
-          {:else if decisions.length === 0}
+          {:else if decisions.length === 0 && !history.error}
             <tr><td colspan="8"><EmptyState>{t('NoDecisionRecorded')}</EmptyState></td></tr>
           {:else}
             {#each decisions as decision (decision.id)}
@@ -185,12 +185,16 @@
                   {/if}
                 </td>
                 <td>
-                  <strong>{decision.media_title}</strong>
+                  <strong class="cell-title" title={decision.media_title}
+                    >{decision.media_title}</strong
+                  >
                   <div class="text-muted text-sm">{decision.instance_name}</div>
                 </td>
                 <td><span class="badge badge-value">{decision.target_category}</span></td>
                 <td class="mono text-sm">
-                  {decision.target_root_folder ?? t('None')}
+                  <span class="cell-path" title={decision.target_root_folder ?? undefined}>
+                    <bdi>{decision.target_root_folder ?? t('None')}</bdi>
+                  </span>
                 </td>
                 <td>{decision.matched_rule_name ?? t('DefaultCategoryFallback')}</td>
                 <td><Confidence value={decision.confidence} /></td>

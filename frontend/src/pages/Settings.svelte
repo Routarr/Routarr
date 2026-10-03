@@ -529,7 +529,7 @@
                    character, so it would otherwise take the page's. -->
               <div class="mb-3">
                 <WarningBanner message={t('ApiKeyMintedOnce')} />
-                <code class="mono">{minted}</code>
+                <code class="mono secret-once">{minted}</code>
               </div>
             {/if}
 

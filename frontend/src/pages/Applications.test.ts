@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
+import { nthCall } from '../test/spy';
 import { ApiError, api } from '../api/client';
 import type { Application, NewApplication } from '../api/types';
 import Applications from './Applications.svelte';
@@ -27,6 +28,8 @@ const STRINGS = {
   ScopeWrite: 'write',
   GuardrailBatch: 'Apply a whole simulation',
   GuardrailCapacity: 'Not enough room at the destination',
+  GuardrailThreshold: 'More moves than the threshold',
+  Cancel: 'Cancel',
   CreateKey: 'Create a key',
   ApplicationTokenFor: 'Key for {name}',
   ApplicationCreated: 'Key created for {name}.',
@@ -102,7 +105,7 @@ describe('Applications', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
 
     await waitFor(() => expect(create).toHaveBeenCalled());
-    const sent: NewApplication = create.mock.calls[0]![0];
+    const sent: NewApplication = nthCall(create)[0];
     expect(sent).toEqual({
       name: 'n8n',
       scopes: ['write'],
@@ -146,12 +149,99 @@ describe('Applications', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
 
     await waitFor(() => expect(create).toHaveBeenCalled());
-    expect(create.mock.calls[0]![0]).toEqual({
+    expect(nthCall(create)[0]).toEqual({
       name: 'cron',
       scopes: [],
       may_confirm: [],
       may_move_files: false,
     });
+  });
+
+  it('sends the guardrails and the file move ticked for a key that operates', async () => {
+    const user = userEvent.setup();
+    show([]);
+    const create = vi
+      .spyOn(api, 'createApplication')
+      .mockResolvedValue({ ...application(), token: 'rtr_k1_secret' });
+
+    await user.click(await screen.findByRole('button', { name: 'New key' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'n8n');
+    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText('Not enough room at the destination'));
+    await user.click(within(dialog).getByLabelText('Apply a whole simulation'));
+    await user.click(within(dialog).getByLabelText('May move files on disk'));
+    await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
+
+    await waitFor(() => expect(create).toHaveBeenCalled());
+    expect(nthCall(create)[0]).toEqual({
+      name: 'n8n',
+      scopes: ['operate'],
+      may_confirm: ['capacity', 'batch'],
+      may_move_files: true,
+    });
+    // The token is read on the page, not under a dialog left open over it.
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByText('rtr_k1_secret')).toBeTruthy();
+  });
+
+  it('starts every new key from an empty form', async () => {
+    const user = userEvent.setup();
+    show([]);
+    vi.spyOn(api, 'createApplication').mockResolvedValue({ ...application(), token: 'rtr_k1_a' });
+
+    await user.click(await screen.findByRole('button', { name: 'New key' }));
+    let dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'n8n');
+    await user.click(within(dialog).getByLabelText(/^operate/));
+    await user.click(within(dialog).getByLabelText('Apply a whole simulation'));
+    await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    await user.click(screen.getByRole('button', { name: 'New key' }));
+    dialog = await screen.findByRole('dialog');
+    expect((within(dialog).getByLabelText('Name') as HTMLInputElement).value).toBe('');
+    expect((within(dialog).getByLabelText(/^operate/) as HTMLInputElement).checked).toBe(false);
+    const batch = within(dialog).getByLabelText('Apply a whole simulation') as HTMLInputElement;
+    expect(batch.checked).toBe(false);
+  });
+
+  it('keeps a key whose revocation was cancelled', async () => {
+    const user = userEvent.setup();
+    show([application()]);
+    const revoke = vi.spyOn(api, 'revokeApplication').mockResolvedValue(undefined);
+
+    await user.click(await screen.findByRole('button', { name: 'Revoke – n8n' }));
+    await answerConfirmation(null);
+
+    expect(revoke).not.toHaveBeenCalled();
+    expect(screen.getByText('n8n')).toBeTruthy();
+  });
+
+  it('keeps the token just made on screen when another key is revoked', async () => {
+    const user = userEvent.setup();
+    const older = application({ id: 'k0', name: 'cron' });
+    show([older]);
+    vi.spyOn(api, 'createApplication').mockResolvedValue({
+      ...application(),
+      token: 'rtr_k1_secret',
+    });
+    const revoke = vi.spyOn(api, 'revokeApplication').mockResolvedValue(undefined);
+
+    await user.click(await screen.findByRole('button', { name: 'New key' }));
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Name'), 'n8n');
+    vi.spyOn(api, 'getApplications').mockResolvedValue([older, application()]);
+    await user.click(within(dialog).getByRole('button', { name: 'Create a key' }));
+    expect(await screen.findByText('rtr_k1_secret')).toBeTruthy();
+
+    vi.spyOn(api, 'getApplications').mockResolvedValue([application()]);
+    await user.click(screen.getByRole('button', { name: 'Revoke – cron' }));
+    await answerConfirmation();
+
+    expect(revoke).toHaveBeenCalledWith('k0');
+    await waitFor(() => expect(screen.queryByText('cron')).toBeNull());
+    expect(screen.getByText('rtr_k1_secret')).toBeTruthy();
   });
 
   it('keeps the dialog open with the refusal when a name is taken', async () => {

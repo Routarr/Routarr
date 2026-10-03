@@ -36,6 +36,7 @@ const STRINGS = {
   BatchApplyReport: 'Applied in batches: {applied} of {candidates}',
   BatchApplyStopped: 'Stopped at batch {run} of {planned}: {applied} of {candidates} applied',
   Dismiss: 'Dismiss',
+  MoveFilesLabel: 'Move the files on disk too',
 };
 
 function simulation(decisions: Decision[]): SimulationResult {
@@ -182,6 +183,55 @@ describe('what the screen shows', () => {
   });
 });
 
+/**
+ * Whether the Arr moves the files on disk is the one choice an apply cannot
+ * take back, and it travels as a flag no other part of the screen shows.
+ */
+describe('the file move', () => {
+  const ok = { requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] };
+
+  it('is left off unless ticked', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    expect(nthCall(apply)[1]).toBe(false);
+  });
+
+  it('goes with the selected moves once ticked', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByLabelText('Move the files on disk too'));
+    await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
+
+    await waitFor(() => expect(apply).toHaveBeenCalledTimes(1));
+    expect(nthCall(apply)[1]).toBe(true);
+  });
+
+  it('goes with Apply all once ticked, and stays off without it', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    const applyAll = vi.spyOn(api, 'applyAllDecisions').mockResolvedValue(batchReport);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
+    await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(1));
+    expect(nthCall(applyAll)[1]).toBe(false);
+
+    await fireEvent.click(await screen.findByLabelText('Move the files on disk too'));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
+    await waitFor(() => expect(applyAll).toHaveBeenCalledTimes(2));
+    expect(nthCall(applyAll, 1)[1]).toBe(true);
+  });
+});
+
 describe('what the screen refuses to do', () => {
   it('applies nothing when nothing is selected', async () => {
     const apply = vi.spyOn(api, 'applyDecisions');
@@ -206,7 +256,6 @@ describe('what the screen refuses to do', () => {
 
     // The question says how many, so a user who miscounted stops here.
     expect(await answerConfirmation(null)).toMatch(/1/);
-    await new Promise((resolve) => setTimeout(resolve, 0));
     // Asked, and never answered: the one request carried no answer.
     expect(applyAll).toHaveBeenCalledTimes(1);
     expect(nthCall(applyAll)[2]).toEqual([]);

@@ -585,7 +585,9 @@ fn repeated_value(condition: &Condition) -> Option<String> {
 }
 
 /// Latin letters that carry a mark, reduced to the letter underneath. Only the
-/// one-to-one cases: `ß` and `œ` expand, and no genre needs them.
+/// one-to-one cases: `ß` and `œ` expand, and no genre needs them. The rule
+/// editor holds a copy (`FOLDED` in `frontend/src/api/conditions.ts`), and
+/// `normalise_value_cases.json` holds both to the same answers.
 fn fold_diacritic(c: char) -> char {
     match c {
         'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
@@ -1347,6 +1349,19 @@ mod tests {
         // And it normalises rather than guessing: an abbreviation is its own
         // value, not a synonym of the words it stands for.
         assert_ne!(normalise_value("Sci-Fi"), normalise_value("Science Fiction"));
+    }
+
+    /// The rule editor folds with its own copy (`canonicalKey` in
+    /// `frontend/src/api/conditions.ts`) to refuse a value given twice, and
+    /// reads this same table: a pair one side joins and the other keeps apart
+    /// is a value the editor drops or a rule the engine refuses.
+    #[test]
+    fn the_folding_the_rule_editor_shares_is_the_one_matching_uses() {
+        let cases: Vec<(String, String)> =
+            serde_json::from_str(include_str!("normalise_value_cases.json")).unwrap();
+        for (raw, folded) in cases {
+            assert_eq!(normalise_value(&raw), folded, "{raw:?}");
+        }
     }
 
     #[test]

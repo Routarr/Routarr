@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { invalidateStatus } from '../lib/status.svelte';
@@ -320,6 +320,34 @@ describe('Layout', () => {
     const wide = show();
     await screen.findByRole('button', { name: 'Open navigation' });
     expect((wide.container.querySelector('#sidebar') as HTMLElement).inert).toBe(false);
+  });
+
+  /** Below the breakpoint an open drawer covers the page, and is used as a dialog is. */
+  it('takes the focus into an open drawer and the page out of reach under it', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    vi.stubGlobal('matchMedia', () => ({
+      matches: true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { container } = show();
+    const main = container.querySelector('main') as HTMLElement;
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(container.querySelector('#sidebar a')));
+    expect(main.inert).toBe(true);
+    await fireEvent.keyDown(window, { key: 'Escape' });
+    expect(main.inert).toBe(false);
+  });
+
+  it('leaves the page reachable beside the rail above the breakpoint', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    const { container } = show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Open navigation' }));
+
+    expect((container.querySelector('main') as HTMLElement).inert).toBe(false);
   });
 
   /**

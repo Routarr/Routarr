@@ -92,7 +92,7 @@
         <tbody>
           {#if jobsPage.loading && jobs.length === 0}
             <TableSkeleton columns={7} />
-          {:else if jobs.length === 0}
+          {:else if jobs.length === 0 && !jobsPage.error}
             <tr>
               <td colspan="7"><EmptyState>{t('NoTaskYet')}</EmptyState></td>
             </tr>

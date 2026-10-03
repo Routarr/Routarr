@@ -172,9 +172,23 @@ test.describe('rule bundles', () => {
     expect(roundTrip).toBeDefined();
     expect(roundTrip?.instance_ids ?? null).toBeNull();
 
-    // Wiped through the API, restored through the interface.
+    // Wiped through the API, restored through the interface beside a rule
+    // written since: Append keeps it, and Replace would delete it.
     const rules = (await api('/rules')) as { id: string }[];
     for (const rule of rules) await api(`/rules/${rule.id}`, { method: 'DELETE' });
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Written since',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 7,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: ['akira'] }],
+        exclusions: [],
+      }),
+    });
 
     await page.reload();
     const chooser = page.waitForEvent('filechooser');
@@ -187,6 +201,7 @@ test.describe('rule bundles', () => {
     await expect(page.getByText('Round trip')).toBeVisible();
     const restored = (await api('/rules')) as { name: string; priority: number }[];
     expect(restored.find((r) => r.name === 'Round trip')?.priority).toBe(42);
+    expect(restored.map((r) => r.name)).toContain('Written since');
   });
 });
 

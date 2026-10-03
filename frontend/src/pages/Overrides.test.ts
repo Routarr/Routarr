@@ -210,6 +210,25 @@ describe('Overrides', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('already pinned');
   });
 
+  it('pins once however often Pin it is pressed', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue(
+      paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
+    );
+    const create = vi.spyOn(api, 'createOverride').mockReturnValue(new Promise(() => {}));
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    await fireEvent.input(search, { target: { value: 'perfect' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await fireEvent.click(await screen.findByText('Perfect Blue'));
+    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    await fireEvent.click(pin);
+    await fireEvent.click(pin);
+
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
   it('pins the item that was picked, in the category that was picked', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
     vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));

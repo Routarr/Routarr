@@ -115,6 +115,9 @@ function mount(
   });
   // The backups card loads on mount, and unmocked it would reach the network.
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
+  // The signing card loads with the Automation section, and its failure would
+  // pass through every test of that section unseen.
+  vi.spyOn(api, 'webhookSigning').mockResolvedValue({ signed: false, since: null, readable: true });
   vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({
     providers: [
       {
@@ -865,6 +868,28 @@ describe('the API key card', () => {
     cleanup();
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
     expect(await screen.findByRole('button', { name: 'Remove the key' })).toBeInTheDocument();
+  });
+
+  it('keeps the key when its removal is cancelled', async () => {
+    const remove = vi.spyOn(api, 'deleteApiKey');
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
+    expect(await answerConfirmation(null)).toBe('Remove the key?');
+
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('removes the key once confirmed, and forgets the copy this browser held', async () => {
+    localStorage.setItem('routarr.apiKey', 'the-old-one');
+    const remove = vi.spyOn(api, 'deleteApiKey').mockResolvedValue(undefined as never);
+    mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
+    await answerConfirmation();
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('routarr.apiKey') ?? '').toBe('');
   });
 });
 

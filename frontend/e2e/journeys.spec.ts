@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 
-import { test, expect, api, apiWhenFree, screenShown, ARR } from './fixtures';
+import { test, expect, api, apiWhenFree, openScreen, screenShown, ARR } from './fixtures';
 
 /**
  * The journeys a user actually walks, against the real binary. These exist to
@@ -11,6 +11,12 @@ import { test, expect, api, apiWhenFree, screenShown, ARR } from './fixtures';
 
 test.describe('navigation', () => {
   test('every sidebar entry reaches a page that renders', async ({ page }) => {
+    // Counted by hand: a sidebar link navigates without loading a page, so
+    // `waitForLoadState('networkidle')` answers at once, before the loads.
+    let inFlight = 0;
+    page.on('request', () => (inFlight += 1));
+    page.on('requestfinished', () => (inFlight -= 1));
+    page.on('requestfailed', () => (inFlight -= 1));
     await page.goto('/');
 
     // Read the entries from the sidebar itself rather than restating the route
@@ -25,8 +31,10 @@ test.describe('navigation', () => {
       await link.click();
 
       // A rendered page has its own title, not the not-found page's, and no
-      // error banner.
+      // error banner once its loads have answered: the heading draws before
+      // them, and a load answering 500 shows its banner after.
       await screenShown(page, label);
+      await expect.poll(() => inFlight, { message: `${label} never settles` }).toBe(0);
       await expect(page.getByRole('alert'), `${label} shows an error`).toHaveCount(0);
     }
   });
@@ -329,6 +337,37 @@ test.describe('guardrails are visible', () => {
   });
 });
 
+test.describe('the API reference', () => {
+  /**
+   * Built from the contract the binary serves: an operation the screen drops,
+   * a method it does not read, is one an outside application cannot find.
+   */
+  test('shows every operation the contract holds', async ({ page }) => {
+    const contract = (await api('/openapi.json')) as { paths: Record<string, object> };
+    const methods = ['get', 'post', 'put', 'patch', 'delete'];
+    const expected = Object.entries(contract.paths)
+      .flatMap(([path, item]) =>
+        Object.keys(item)
+          .filter((key) => methods.includes(key))
+          .map((method) => `${method.toUpperCase()} ${path}`),
+      )
+      .sort();
+
+    await openScreen(page, '/reference');
+    await expect(page.locator('details.api-operation').first()).toBeVisible();
+
+    // An operation's summary opens on its method badge, a schema's on its name.
+    const shown = await page.locator('details.api-operation > summary').evaluateAll((summaries) =>
+      summaries.flatMap((summary) => {
+        const method = summary.querySelector('.badge')?.textContent?.trim();
+        const path = summary.querySelector('code')?.textContent?.trim();
+        return method ? [`${method} ${path}`] : [];
+      }),
+    );
+    expect(shown.sort()).toEqual(expected);
+  });
+});
+
 test.describe('reclassifying a whole library', () => {
   test('apply all reaches past the displayed list, in batches', async ({ page }) => {
     await api('/settings', {
@@ -372,6 +411,43 @@ test.describe('reclassifying a whole library', () => {
     }[];
     const moved = movies.filter((m) => m.rootFolderPath === '/movies/anime').map((m) => m.title);
     expect(moved.sort()).toEqual(['Akira', 'My Neighbor Totoro', 'Perfect Blue']);
+    // Left unticked, no batch asked Radarr to move a file on disk.
+    const edits = (await (await fetch(`${ARR}/__edits`)).json()) as { moveFiles: boolean }[];
+    expect(edits.length).toBeGreaterThan(0);
+    expect(edits.every((edit) => edit.moveFiles === false)).toBe(true);
+  });
+
+  test('moves the files on disk when the box asks for it', async ({ page }) => {
+    await api('/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
+    });
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Akira',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: ['akira'] }],
+        exclusions: [],
+      }),
+    });
+
+    await page.goto('/simulation');
+    await page.getByRole('button', { name: /run simulation/i }).click();
+    await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
+    await page.getByLabel(/Move the files on disk too/).check();
+    await page.getByRole('button', { name: /apply selected/i }).click();
+
+    await expect(page.locator('.banner-success')).toBeVisible();
+    const edits = (await (await fetch(`${ARR}/__edits`)).json()) as {
+      movieIds: number[];
+      moveFiles: boolean;
+    }[];
+    expect(edits).toEqual([{ movieIds: [2], moveFiles: true }]);
   });
 
   /**

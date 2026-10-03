@@ -55,6 +55,10 @@ const STRINGS = {
   WebhookUrlCopied: 'Webhook URL copied',
   WebhookUrlCopyFailed: 'The browser blocked the clipboard. Webhook URL: {url}',
   WebhookUrl: 'Webhook URL',
+  Delete: 'Delete',
+  Saving: 'Saving…',
+  ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
+  InstanceDeleted: 'Instance deleted',
 };
 
 const show = (list: ReturnType<typeof instance>[]) => {
@@ -110,6 +114,39 @@ describe('Instances', () => {
 
     expect(await answerConfirmation(null)).toBe('Rotate the webhook token of "Radarr"?');
     expect(rotate).not.toHaveBeenCalled();
+  });
+
+  /** The delete takes the instance's titles, mappings and exceptions with it. */
+  it('deletes nothing when the deletion is cancelled', async () => {
+    const remove = vi.spyOn(api, 'deleteInstance');
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Radarr/ }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+
+    expect(await answerConfirmation(null)).toBe(
+      'Delete "Radarr" with its titles, mappings and exceptions?',
+    );
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('deletes the instance whose row was used once confirmed', async () => {
+    const sonarr = instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' });
+    show([instance(), sonarr]);
+    const remove = vi.spyOn(api, 'deleteInstance').mockResolvedValue(undefined);
+    const before = statusRevision();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));
+    await fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    vi.spyOn(api, 'getInstances').mockResolvedValue([instance()]);
+    expect(await answerConfirmation()).toContain('"Sonarr"');
+
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+    expect(nthCall(remove)[0]).toBe('i2');
+    expect(await screen.findByText('Instance deleted')).toBeTruthy();
+    await waitFor(() => expect(screen.queryByText('Sonarr')).toBeNull());
+    // The shell counts instances in its warnings, and hears of a removal only here.
+    expect(statusRevision()).toBeGreaterThan(before);
   });
 
   /** Only enabled instances sync, so with none there is nothing a click could do. */
@@ -413,6 +450,20 @@ describe('Instances', () => {
     await fireEvent.input(key, { target: { value: 'secret' } });
     await fireEvent.submit(key.closest('form') as HTMLFormElement);
   }
+
+  /** The server accepts a second instance of the same name, synced and routed twice. */
+  it('adds an instance once however often the form is submitted', async () => {
+    const create = vi.spyOn(api, 'createInstance').mockReturnValue(new Promise(() => {}));
+    show([]);
+
+    await addInstance('Films');
+    const form = screen.getByLabelText('API key').closest('form') as HTMLFormElement;
+    await fireEvent.submit(form);
+
+    expect(create).toHaveBeenCalledTimes(1);
+    const button = within(form).getByRole('button', { name: 'Saving…' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
 
   /**
    * Left to the scheduler, a new instance waits up to a whole pass with no

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import { AlertTriangle, ListChecks, Menu, Search } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
@@ -107,6 +107,17 @@
     query.addEventListener('change', follow);
     return () => query.removeEventListener('change', follow);
   });
+
+  // An open drawer covers the page below the breakpoint, so it takes the focus
+  // and the page under the scrim leaves the tab order, as under a dialog. The
+  // toggle follows the drawer in the document, and left there the focus walks
+  // controls nobody can see before it reaches a link.
+  async function toggleDrawer() {
+    drawer = !drawer;
+    if (!drawer || !narrow) return;
+    await tick();
+    document.querySelector<HTMLElement>('#sidebar a')?.focus();
+  }
 
   let palette = $state(false);
 
@@ -270,13 +281,13 @@
       <div class="sidebar-scrim" onclick={() => (drawer = false)} aria-hidden="true"></div>
     {/if}
 
-    <main class="main-content" id="main" tabindex="-1">
+    <main class="main-content" id="main" tabindex="-1" inert={narrow && drawer}>
       <header class="topbar">
         <div class="flex items-center gap-2">
           <button
             bind:this={drawerToggle}
             class="btn btn-ghost btn-sm sidebar-toggle"
-            onclick={() => (drawer = !drawer)}
+            onclick={() => void toggleDrawer()}
             aria-label={t('OpenNavigation')}
             aria-expanded={drawer}
             aria-controls="sidebar"

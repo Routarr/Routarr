@@ -129,6 +129,25 @@ describe('deleting a case', () => {
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
   }
 
+  it('deletes nothing when the deletion is cancelled', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue([CASE, OTHER]);
+    const remove = vi.spyOn(api, 'deleteRuleTest');
+    renderWithI18n(RuleTests, { strings: STRINGS });
+
+    await userEvent.click(
+      await screen.findByRole('button', { name: 'Delete – Perfect Blue stays anime' }),
+    );
+    await answerConfirmation(null);
+
+    expect(remove).not.toHaveBeenCalled();
+  });
+
+  it('deletes the case whose row was used', async () => {
+    await deleteFirst(new Promise(() => {}));
+
+    expect(api.deleteRuleTest).toHaveBeenCalledExactlyOnceWith('t1');
+  });
+
   it('keeps the list on screen while it reloads', async () => {
     await deleteFirst(new Promise(() => {}));
 

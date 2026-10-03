@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ApiError, api, getApiKey, setApiKey } from './client';
+import { withBase } from '../test/base';
 
 interface FakeResponse {
   ok?: boolean;
@@ -604,5 +605,25 @@ describe('a failing response', () => {
     const failure = (await api.downloadBackup('gone.zip').catch((e: unknown) => e)) as ApiError;
     expect(failure.message).toBe('No such backup');
     expect(failure.kind).toBe('not_found');
+  });
+});
+
+/**
+ * The sign-in with a provider is a link the browser follows, so it carries the
+ * mount point itself. The base is read once, as the module loads, which is why
+ * this test loads a fresh copy under one.
+ */
+describe('the provider sign-in link', () => {
+  afterEach(() => {
+    withBase(null);
+    vi.resetModules();
+  });
+
+  it('keeps the mount point', async () => {
+    withBase('/routarr/');
+    vi.resetModules();
+    const { api: mounted } = await import('./client');
+
+    expect(mounted.oidcStartUrl()).toBe('/routarr/api/v1/auth/oidc/start');
   });
 });

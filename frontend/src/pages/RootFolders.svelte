@@ -119,14 +119,21 @@
    * root folder per Arr is what an operator keeps there, and the targets
    * beneath it are named here.
    */
+  let declaring = $state(false);
+
   async function declare(event: SubmitEvent) {
     event.preventDefault();
-    if (!target || !targetPath.trim()) return;
-    const declared = await act(
-      () => api.declareRootFolder(target, targetPath.trim()),
-      t('DestinationDeclared', { path: targetPath.trim() }),
-    );
-    if (declared) targetPath = '';
+    if (!target || !targetPath.trim() || declaring) return;
+    declaring = true;
+    try {
+      const declared = await act(
+        () => api.declareRootFolder(target, targetPath.trim()),
+        t('DestinationDeclared', { path: targetPath.trim() }),
+      );
+      if (declared) targetPath = '';
+    } finally {
+      declaring = false;
+    }
   }
 
   async function createCategory(event: SubmitEvent) {
@@ -201,7 +208,7 @@
         <tbody>
           {#if bundle.loading && folders.length === 0}
             <TableSkeleton columns={7} />
-          {:else if folders.length === 0}
+          {:else if folders.length === 0 && !bundle.error}
             <tr><td colspan="7"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
           {:else}
             {#each folders as folder (folder.id)}
@@ -314,8 +321,12 @@
           placeholder={t('DeclareDestinationPlaceholder')}
         />
       </div>
-      <button class="btn btn-secondary" type="submit" disabled={!targetPath.trim() || !target}>
-        {t('AddDestination')}
+      <button
+        class="btn btn-secondary"
+        type="submit"
+        disabled={!targetPath.trim() || !target || declaring}
+      >
+        {declaring ? t('Saving') : t('AddDestination')}
       </button>
     </form>
     <p class="text-muted text-sm mt-1">{t('DeclareDestinationHelp')}</p>

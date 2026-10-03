@@ -27,8 +27,11 @@ test('no page writes an error or a warning to the console @console', async ({ pa
     }
   });
 
+  // Each screen's loads answered before the next opens: the heading draws
+  // first, and a sweep that moved on then would hear none of their failures.
   for (const path of SCREENS) {
     await openScreen(page, path);
+    await page.waitForLoadState('networkidle');
   }
 
   expect(noise, `the console was not silent:\n${[...new Set(noise)].join('\n')}`).toHaveLength(0);

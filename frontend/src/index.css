@@ -1326,6 +1326,19 @@ a {
   position: relative;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-subtle);
+  /* The width an empty table's message is held to: the visible part of this
+     box, not the table scrolling inside it. */
+  container-type: inline-size;
+}
+
+/* An empty table spans its six or seven columns past a phone's edge, and its
+   message, centred across them, starts out of view. Held to the visible width
+   and to the start of the scroll, it reads whole where the reader is looking.
+   28px is the cell's inline padding. */
+td > .empty-state {
+  position: sticky;
+  inset-inline-start: 0;
+  max-width: calc(100cqi - 28px);
 }
 
 table {
@@ -1509,14 +1522,16 @@ input[type='checkbox']:checked {
 }
 
 /* Drawn rather than a glyph: a character would inherit the font, and the tick
-   would then change shape with the language. */
+   would then change shape with the language. Physical sides, not logical: the
+   rotation is physical, and right to left the logical sides keep the other two
+   borders and draw a chevron. */
 input[type='checkbox']:checked::after {
   content: '';
   width: 9px;
   height: 5px;
   border: 2px solid var(--bg-base);
-  border-block-start: 0;
-  border-inline-end: 0;
+  border-top: 0;
+  border-right: 0;
   transform: translateY(-1px) rotate(-45deg);
 }
 
@@ -1912,6 +1927,20 @@ td * {
   padding-inline-start: 10px;
   font-size: 13px;
 }
+/* On a phone the caption's 190px and the picker beside it run past the
+   dialog's edge, Delete with them, so the caption takes a line of its own. */
+@media (max-width: 560px) {
+  .condition-row {
+    flex-wrap: wrap;
+  }
+  .condition-row > .condition-caption {
+    flex-basis: 100%;
+    min-width: 0;
+  }
+  .condition-row > .condition-value {
+    min-width: 0;
+  }
+}
 /* Where a pair's selector stands, the fixed answer for a single-valued axis:
    the same height and inset as the selector, so the values line up either way. */
 .condition-quantifier {
@@ -2032,15 +2061,25 @@ td * {
 
 /* A command meant for a terminal, so one click selects all of it: a drag that
    stops a character short pastes a path that does not exist. */
-.gate-command {
+.gate-command,
+.secret-once {
   display: block;
-  margin: 6px 0 20px;
   padding: 8px 12px;
   background-color: var(--bg-input);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   overflow-wrap: anywhere;
   user-select: all;
+}
+
+.gate-command {
+  margin: 6px 0 20px;
+}
+
+/* A key or secret shown once: a token has no break point, and unwrapped it
+   pushes a phone's page sideways and cuts the only readable copy. */
+.secret-once {
+  margin-top: 8px;
 }
 
 /* Settings sections. A strip of tabs rather than one long column: every

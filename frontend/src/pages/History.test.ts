@@ -195,7 +195,6 @@ describe('History', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
     await answerConfirmation(null);
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(revertDecisions).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('alert')).toBeNull();
   });

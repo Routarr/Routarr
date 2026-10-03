@@ -269,7 +269,7 @@
                the rows, and the focus with them, after every action on a rule. -->
           {#if bundle.loading && rules.length === 0}
             <TableSkeleton columns={7} />
-          {:else if rules.length === 0}
+          {:else if rules.length === 0 && !bundle.error}
             <tr><td colspan="7"><EmptyState>{t('NoRulesYet')}</EmptyState></td></tr>
           {:else}
             {#each rules as rule, index (rule.id)}

@@ -79,8 +79,11 @@
     }
   }
 
+  let saving = $state(false);
+
   async function save() {
-    if (!selected) return;
+    if (!selected || saving) return;
+    saving = true;
     try {
       await api.createOverride({
         media_id: selected.id,
@@ -92,6 +95,8 @@
       await bundle.reload();
     } catch (err) {
       dialogError = describeError(err);
+    } finally {
+      saving = false;
     }
   }
 </script>
@@ -134,7 +139,7 @@
         <tbody>
           {#if bundle.loading && overrides.length === 0}
             <TableSkeleton columns={6} />
-          {:else if overrides.length === 0}
+          {:else if overrides.length === 0 && !bundle.error}
             <tr><td colspan="6"><EmptyState>{t('NoOverrides')}</EmptyState></td></tr>
           {:else}
             {#each overrides as override (override.id)}
@@ -273,8 +278,8 @@
 
       <div class="dialog-actions">
         <button class="btn btn-secondary" onclick={() => (creating = false)}>{t('Cancel')}</button>
-        <button class="btn btn-primary" onclick={save} disabled={!selected}>
-          {t('CreateOverride')}
+        <button class="btn btn-primary" onclick={save} disabled={!selected || saving}>
+          {saving ? t('Saving') : t('CreateOverride')}
         </button>
       </div>
     </Modal>

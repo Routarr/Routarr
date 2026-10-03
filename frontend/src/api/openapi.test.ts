@@ -64,6 +64,20 @@ const DOC: OpenApiDocument = {
         responses: {},
       },
     },
+    '/overrides/by-external-id/{source}/{id}': {
+      put: {
+        operationId: 'pin',
+        tags: ['library'],
+        'x-routarr-scope': 'write',
+        responses: {},
+      },
+      delete: {
+        operationId: 'unpin',
+        tags: ['library'],
+        'x-routarr-scope': 'write',
+        responses: {},
+      },
+    },
   },
   components: {
     schemas: {
@@ -113,7 +127,21 @@ describe('the API reference', () => {
 
   it('reads the scope, and none for the operation needing no key', () => {
     const scopes = Object.fromEntries(operations(DOC).map((op) => [op.id, op.scope]));
-    expect(scopes).toEqual({ apply: 'operate', ping: null, place: 'read' });
+    expect(scopes).toEqual({
+      apply: 'operate',
+      ping: null,
+      place: 'read',
+      pin: 'write',
+      unpin: 'write',
+    });
+  });
+
+  it('keeps every method a path carries', () => {
+    const pinning = operations(DOC).filter((op) => op.path.startsWith('/overrides/'));
+    expect(pinning.map((op) => [op.method, op.id])).toEqual([
+      ['put', 'pin'],
+      ['delete', 'unpin'],
+    ]);
   });
 
   it('writes types in a notation no language has to translate', () => {
