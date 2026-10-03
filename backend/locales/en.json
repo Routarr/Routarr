@@ -40,6 +40,7 @@
   "ApiReference": "API reference",
   "ApiReferenceSubtitle": "The operations another application may call, with the scope each needs, as this version describes them.",
   "ApiReferenceEnglish": "The descriptions are written in English, like the API they describe.",
+  "ApiReferenceKeys": "Each call sends a key made on the {screen} screen, in its X-Api-Key header.",
   "ApiDownloadSpec": "Download openapi.json",
   "ApiSearch": "Search the operations",
   "ApiNoMatch": "No operation matches.",

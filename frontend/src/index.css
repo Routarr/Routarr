@@ -1717,6 +1717,14 @@ td * {
   color: var(--status-success);
 }
 
+/* A link inside a sentence: underlined, since its colour alone does not tell
+   it from the words around it. */
+.text-link {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 /* An address that opens the Arr's own interface. Underlined in the border
    colour so a column of addresses stays quiet until one is pointed at. */
 .instance-link {
@@ -3274,8 +3282,8 @@ select.form-select {
 .api-prose {
   max-width: 72ch;
 }
-/* The reset takes every paragraph's margin, and the introduction's thirty lines
-   otherwise read as one block. */
+/* The reset takes every paragraph's margin, and the paragraphs of one
+   description otherwise read as one block. */
 .api-prose + .api-prose {
   margin-block-start: var(--space-3);
 }

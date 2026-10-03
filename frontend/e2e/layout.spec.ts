@@ -354,19 +354,6 @@ test.describe('on a phone', () => {
 });
 
 test.describe('spacing the reset takes away', () => {
-  /** The reset takes every paragraph's margin, and thirty lines read as one block. */
-  test("the reference's paragraphs stand apart", async ({ page }) => {
-    await openScreen(page, '/reference');
-
-    const gap = await page.evaluate(() => {
-      const [first, second] = document.querySelectorAll('.api-prose');
-      if (!first || !second) return null;
-      return second.getBoundingClientRect().top - first.getBoundingClientRect().bottom;
-    });
-    expect(gap).not.toBeNull();
-    expect(gap!).toBeGreaterThanOrEqual(6);
-  });
-
   /** In a narrow column, bare badges stack and touch. */
   test("a key's scope badges keep apart however they wrap", async ({ page }) => {
     await api('/applications', {

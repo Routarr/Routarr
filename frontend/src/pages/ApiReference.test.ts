@@ -21,6 +21,8 @@ const STRINGS = {
   ApiSearch: 'Search the operations',
   ApiNoMatch: 'No operation matches.',
   ApiParameters: 'Parameters',
+  Applications: 'Applications',
+  ApiReferenceKeys: 'Each call sends a key made on the {screen} screen.',
   ApiExample: 'Example',
   Name: 'Name',
   Yes: 'Yes',
@@ -28,7 +30,7 @@ const STRINGS = {
 };
 
 const DOC: OpenApiDocument = {
-  info: { title: 'Routarr API', version: '1', description: 'Send `X-Api-Key`.' },
+  info: { title: 'Routarr API', version: '1', description: 'A long `introduction`.' },
   servers: [{ url: '/api/v1' }],
   tags: [
     { name: 'status', description: 'Whether Routarr is up.' },
@@ -84,15 +86,32 @@ describe('ApiReference', () => {
 
   it('marks the contract prose as English and its code as code', async () => {
     show();
-    const code = await screen.findByText('X-Api-Key');
+    const code = await screen.findByText('respond-async');
     expect(code.tagName).toBe('CODE');
     expect(code.closest('[lang="en"]')).not.toBeNull();
+  });
+
+  /**
+   * The contract's introduction is a page of English before the first
+   * operation: it stays in the downloaded document, and the screen says only
+   * where the key comes from.
+   */
+  it('leaves the introduction to the document and points to where keys are made', async () => {
+    show();
+    await screen.findByText('/ping');
+
+    expect(screen.queryByText(/A long/)).toBeNull();
+    const link = screen.getByRole('link', { name: 'Applications' });
+    expect(link).toHaveAttribute('href', '/applications');
+    expect(link.closest('p')).toHaveTextContent(
+      'Each call sends a key made on the Applications screen.',
+    );
   });
 
   /** `lang` sets no direction, and in Arabic English prose inherits right to left. */
   it('lays the English prose out left to right whatever the page direction', async () => {
     const { container } = show();
-    await screen.findByText('X-Api-Key');
+    await screen.findByText('respond-async');
 
     const english = [...container.querySelectorAll('[lang="en"]')];
     expect(english.length).toBeGreaterThan(2);
@@ -102,7 +121,7 @@ describe('ApiReference', () => {
   /** A field, a parameter and an answer name code as the operation text does. */
   it('marks code in every description, not only in the operation text', async () => {
     const { container } = show();
-    await screen.findByText('X-Api-Key');
+    await screen.findByText('respond-async');
 
     for (const code of ['respond-async', 'Location', 'ok']) {
       expect(screen.getByText(code).tagName).toBe('CODE');
