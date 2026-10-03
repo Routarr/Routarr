@@ -58,10 +58,10 @@ npm audit --audit-level=high
 
 Full stack: `docker compose up -d --build`. The site's commands are in `.claude/rules/site.md`.
 
-The Rust build tree is a RAM tmpfs (`CARGO_TARGET_DIR` under `/ramdisk`), so nothing may assume
-where the binary is. `.devcontainer/prune.sh` runs at every container start and attach and may
-delete build artefacts, so a slower rebuild now and then is expected. On "no space left on
-device", run `bash .devcontainer/prune.sh --status` first.
+The Rust build tree is under `/ramdisk` (`CARGO_TARGET_DIR`), a RAM tmpfs or, on a small machine,
+a link to disk, so nothing may assume where the binary is. `.devcontainer/prune.sh` runs at every
+container start and attach and may delete build artefacts, so a slower rebuild now and then is
+expected. On "no space left on device", run `bash .devcontainer/prune.sh --status` first.
 
 A release is a `v*` tag pushed on a commit whose CI is green, as `CONTRIBUTING.md` describes.
 `release.yml` refuses any other commit and opens a draft release.

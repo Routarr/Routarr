@@ -26,11 +26,14 @@ browser. Open the repository in it and `postCreateCommand` does the rest.
 Without it, you need Rust 1.98 (rustup reads
 [`backend/rust-toolchain.toml`](backend/rust-toolchain.toml)) and Node 24.
 
-Inside it, the Rust build tree lives in a 16 GiB RAM disk at `/ramdisk` rather
-than on your disk. `CARGO_TARGET_DIR` points there, and everything in it is
-gone when the container stops, at the price of one cold `cargo build` when it
+Inside it, the Rust build tree lives in a RAM disk at `/ramdisk` rather than
+on your disk. The RAM disk is half your machine's memory, and the build tree is
+kept under 24 GiB of it. `CARGO_TARGET_DIR` points there, and everything in it
+is gone when the container stops, at the price of one cold `cargo build` when it
 comes back. Nothing on your machine has to be prepared for that: the container
-runtime makes the mount. Three commands are worth knowing:
+runtime makes the mount. On a machine with less than 16 GB of RAM, the build
+tree goes to disk instead and survives a restart. Three commands are worth
+knowing:
 
 ```bash
 bash .devcontainer/prune.sh --status   # how full it is, and what is using it

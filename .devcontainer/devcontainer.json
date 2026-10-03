@@ -38,26 +38,23 @@
   },
   "runArgs": [
     "--init",
-    // A 16 GiB ramdisk made by the container runtime: nothing to prepare on
-    // the host, and no privileges or CAP_SYS_ADMIN needed. Docker and Podman
-    // both accept this `--mount` form.
+    // A ramdisk made by the container runtime: nothing to prepare on the
+    // host, and no privileges or CAP_SYS_ADMIN needed. Docker and Podman both
+    // accept this `--mount` form.
     //
-    // Size in bytes because `16g` is the unit the two runtimes have read
-    // differently. It is declared *here* and nowhere else: `ramdisk.sh` reads
-    // this line rather than restating the figure, so its size check cannot
-    // drift from the mount and warn about one that is exactly what was asked.
-    //
-    // A tmpfs occupies only what is written to it, so the figure is a ceiling
-    // and not a reservation. It has to clear one coverage pass, one test build
-    // and one `--release` build coexisting, with room enough that `prune.sh` is
-    // the spare rather than the mechanism.
+    // No `tmpfs-size`, on purpose: the kernel then sizes a tmpfs at half the
+    // RAM it sees, which follows the machine where any figure written here
+    // would suit one and starve or crowd the next. A tmpfs occupies only what
+    // is written to it, so the size is a ceiling and not a reservation.
+    // `prune.sh` holds the build tree under 24 GiB whatever the ceiling, and
+    // `ramdisk.sh` sends the build to disk on a machine with too little RAM.
     //
     // The contents are gone on stop, rebuild or recreate. That is the trade:
     // the Rust build tree is gigabytes of small files rewritten constantly,
     // which is the worst shape of data for a copy-on-write filesystem, and the
     // price of losing it is one cold `cargo build`.
     "--mount",
-    "type=tmpfs,destination=/ramdisk,tmpfs-size=17179869184,tmpfs-mode=1777"
+    "type=tmpfs,destination=/ramdisk,tmpfs-mode=1777"
   ],
   "containerEnv": {
     "CARGO_HOME": "/cargo",

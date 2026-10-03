@@ -37,9 +37,23 @@ size_kb() { du -sk "$1" 2>/dev/null | cut -f1 || echo 0; }
 
 # Which filesystem a path actually sits on. `--target` resolves to the mount
 # holding it, so this answers for a directory that does not exist yet as well.
-fs_of() { findmnt -no FSTYPE --target "$1" 2>/dev/null || echo unknown; }
-# How full that filesystem is, as a bare integer.
-fill_pct() { df --output=pcent "$1" 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0; }
+# `readlink -f` first: on a machine with little RAM the build tree on the
+# ramdisk is a link to disk, and the link itself sits on the tmpfs.
+fs_of() { findmnt -no FSTYPE --target "$(readlink -f "$1")" 2>/dev/null || echo unknown; }
+
+# The tmpfs is half the RAM, so on a large machine a percentage of it alone
+# lets the build tree grow far past anything a build needs, in memory the rest
+# of the machine could use.
+RAM_BUDGET_KB=$((24 * 1024 * 1024))
+# How much of the ramdisk's budget is used, as a bare integer: its size, or
+# RAM_BUDGET_KB when it is larger.
+fill_pct() {
+  local used size
+  read -r used size < <(df -k --output=used,size "$1" 2>/dev/null | tail -1) || { echo 0; return; }
+  [ "${size:-0}" -gt "$RAM_BUDGET_KB" ] && size=$RAM_BUDGET_KB
+  [ "${size:-0}" -gt 0 ] || { echo 0; return; }
+  echo $(( used * 100 / size ))
+}
 
 # Guarded rather than trusting the caller: an empty argument would expand to
 # `rm -rf /`, and this runs unattended.
@@ -75,7 +89,7 @@ prune_once() {
   # Where the tree lives decides what "too big" means. On disk, growth costs
   # disk. On a tmpfs it costs the build: a full one fails the compile with
   # ENOSPC, which reads as a broken toolchain. So the ramdisk is measured by how
-  # full it is, and acted on well before it is.
+  # much of its budget is used, and acted on well before it is full.
   target="${CARGO_TARGET_DIR:-${root:+$root/backend/target}}"
   if [ -n "$target" ] && [ -d "$target" ]; then
     if [ "$(fs_of "$target")" = "tmpfs" ]; then
@@ -88,12 +102,12 @@ prune_once() {
       # makes, which is the largest single thing that lands here.
       if [ "$(fill_pct "$target")" -ge 75 ]; then
         for spill in "$target"/*/incremental "$target/llvm-cov-target"; do
-          drop "$spill" "ramdisk over 75% full"
+          drop "$spill" "ramdisk over 75% of its budget"
         done
         # Re-measured: dropping the cheap caches is usually enough, and
         # `debug` costs minutes to rebuild.
         if [ "$(fill_pct "$target")" -ge 90 ]; then
-          drop "$target/debug" "ramdisk still over 90% full after the cheap sweep"
+          drop "$target/debug" "ramdisk still over 90% of its budget after the cheap sweep"
         fi
       fi
     else
@@ -137,6 +151,7 @@ case "${1:-}" in
     # Read-only. The first thing to run when a build reports no space left.
     if [ "$(fs_of "$RAMDISK")" = "tmpfs" ]; then
       df -h "$RAMDISK" | tail -1 | awk '{print "ramdisk: " $2 " total, " $3 " used, " $4 " free (" $5 ")"}'
+      echo "ramdisk: $(fill_pct "$RAMDISK")% of the build tree's budget used"
       du -sh "$RAMDISK"/* 2>/dev/null | sort -rh | head -5 | sed 's/^/  /'
     else
       echo "ramdisk: $RAMDISK is not a tmpfs, see .devcontainer/ramdisk.sh" >&2
