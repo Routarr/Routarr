@@ -166,7 +166,7 @@
 
   /* The fill keeps its orange: `.btn-primary` writes #111 on it either way.
      The text form darkens to stay legible on white. */
-  --accent-strong: #b45309;
+  --accent-strong: #a14a07;
   --facet-bar: rgba(17, 20, 26, 0.07);
 
   --status-success: #047857;
@@ -217,7 +217,7 @@
     --text-muted: #686f7d;
     --text-nav: #3f4653;
 
-    --accent-strong: #b45309;
+    --accent-strong: #a14a07;
 
     --status-success: #047857;
     --status-success-bg: rgba(4, 120, 87, 0.12);
@@ -1046,6 +1046,10 @@ a {
   background-color: var(--bg-card-hover);
   border-inline-start-color: var(--accent-strong);
 }
+/* The muted colour falls under AA on the current row's ground. */
+.palette-row.is-current :is(.palette-hint, .palette-meta) {
+  color: var(--text-secondary);
+}
 
 .palette-name {
   flex: 1;
@@ -1272,10 +1276,14 @@ a {
    variable, which is long in every language, and a field squeezed next to a
    button is a field nobody can read what they typed into. */
 .source-key {
+  display: flex;
+  gap: var(--space-2);
   margin-block-start: var(--space-2);
 }
 
 .source-key .form-input {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   padding-block: 7px;
 }
@@ -1424,10 +1432,16 @@ fieldset.form-group > legend {
   color: var(--text-muted);
 }
 
+/* The help of a choice, set as Settings sets a field's help, and apart from
+   the first choice when it stands under the group's name. */
 .form-hint {
   display: block;
+  margin-top: 4px;
   font-size: 12px;
   color: var(--text-muted);
+}
+p.form-hint {
+  margin-block: 0 8px;
 }
 
 /* A row of fields sitting side by side. Labels translate to wildly different
@@ -1701,6 +1715,14 @@ td * {
   margin: var(--space-3) 0 0;
   font-size: 13px;
   color: var(--status-success);
+}
+
+/* A link inside a sentence: underlined, since its colour alone does not tell
+   it from the words around it. */
+.text-link {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 /* An address that opens the Arr's own interface. Underlined in the border
@@ -2971,11 +2993,14 @@ select.form-select {
     5px 5px;
   background-repeat: no-repeat;
 }
+/* Moved to the other end, the two halves keep their order: the first draws the
+   wedge's left side and must stay on the left. Swapped, they draw two outward
+   corners with a gap. */
 [dir='rtl'] select.form-input,
 [dir='rtl'] select.form-select {
   background-position:
-    18px 50%,
-    13px 50%;
+    13px 50%,
+    18px 50%;
 }
 
 /* Distribution panels: what the library carries, per axis a condition reads.
@@ -3011,8 +3036,10 @@ select.form-select {
   width: 7px;
   height: 7px;
   margin-inline-start: auto;
-  border-inline-end: 2px solid var(--text-muted);
-  border-block-end: 2px solid var(--text-muted);
+  /* Physical sides, as the checkbox tick: the rotation is physical, and right
+     to left the logical sides make it point sideways. */
+  border-right: 2px solid var(--text-muted);
+  border-bottom: 2px solid var(--text-muted);
   transform: rotate(45deg) translate(-2px, -2px);
   transition: transform var(--transition);
 }
@@ -3254,6 +3281,11 @@ select.form-select {
 }
 .api-prose {
   max-width: 72ch;
+}
+/* The reset takes every paragraph's margin, and the paragraphs of one
+   description otherwise read as one block. */
+.api-prose + .api-prose {
+  margin-block-start: var(--space-3);
 }
 .api-responses {
   list-style: none;

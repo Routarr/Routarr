@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { job, paginated } from '../test/fixtures';
+import { nthCall } from '../test/spy';
 import { api } from '../api/client';
 import Jobs from './Jobs.svelte';
 
@@ -21,11 +22,14 @@ const STRINGS = {
   AutoRefreshing: 'Refreshing',
   NoTaskYet: 'Nothing has run yet',
   JobSync: 'Library sync',
+  JobSyncAll: 'Every instance synced',
   TriggerSchedule: 'Scheduled',
   TriggerApi: 'application',
   StatusRunning: 'Running',
   StatusSuccess: 'Succeeded',
   None: '-',
+  Next: 'Next',
+  TaskCount: 'Tasks: {count}',
 };
 
 const show = () => renderWithI18n(Jobs, { strings: STRINGS });
@@ -36,6 +40,31 @@ afterEach(() => {
 });
 
 describe('Tasks', () => {
+  /** A kind of two words reads its own label, not its raw name. */
+  it('names a task whose kind has two words', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));
+    show();
+
+    expect(await screen.findByText('Every instance synced')).toBeTruthy();
+  });
+
+  /** Fifty tasks are half a day of syncs, and last night's failure sits on a later page. */
+  it('reaches the tasks past the first page, and goes back to it on a filter', async () => {
+    const getJobs = vi
+      .spyOn(api, 'getJobs')
+      .mockResolvedValue(paginated([job()], { total: 120, total_pages: 3 }));
+    show();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getJobs).toHaveBeenCalledTimes(2));
+    expect(nthCall(getJobs, 1)[0]).toMatchObject({ page: 2, per_page: 50 });
+    expect(screen.getByText(/Tasks: 120/)).toBeTruthy();
+
+    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'running');
+    await waitFor(() => expect(getJobs).toHaveBeenCalledTimes(3));
+    expect(nthCall(getJobs, 2)[0]).toMatchObject({ status: 'running', page: 1 });
+  });
+
   it('names a job by what it did, not by the identifier it is stored under', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job()]));
     show();

@@ -3,6 +3,7 @@ import { screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { captureDownloads } from '../test/downloads';
 import { answerConfirmation } from '../test/confirm';
 import { ApiError, api } from '../api/client';
 import type { RestoreResult } from '../api/types';
@@ -53,7 +54,25 @@ function mount() {
   return outcome;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+/** Fetched with the key, since the archive holds the master key, and saved under its own name. */
+it('downloads the archive of its row under its name', async () => {
+  vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [FILE], retention_count: 7 });
+  const archive = new Blob(['zip']);
+  const fetched = vi.spyOn(api, 'downloadBackup').mockResolvedValue(archive);
+  const saved = captureDownloads();
+  renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+  await userEvent.click(await screen.findByRole('button', { name: `Download – ${FILE.name}` }));
+
+  await waitFor(() => expect(saved).toHaveLength(1));
+  expect(fetched).toHaveBeenCalledWith(FILE.name);
+  expect(saved[0]).toEqual({ name: FILE.name, blob: archive });
+});
 
 /**
  * "No backup yet" tells the operator there is nothing to restore. Said of a

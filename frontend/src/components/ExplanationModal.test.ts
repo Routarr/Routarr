@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, screen, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { media } from '../test/fixtures';
+import { explainedMedia } from '../test/fixtures';
 import type { Explanation } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
@@ -20,6 +20,9 @@ const STRINGS = {
   ManualOverride: 'manual override',
   MetadataTitle: 'Metadata',
   MetadataSources: 'Sources',
+  // French spacing, so a literal colon or comma in the markup shows.
+  ConditionSummary: '{caption} : {values}',
+  ListSeparator: ' ; ',
   MetadataSummary: 'Language: {language} · Countries: {countries} · Certification: {certification}',
   MetadataFromSource: 'from {source}',
   NoMetadataCached: 'No metadata cached',
@@ -38,7 +41,7 @@ const STRINGS = {
 
 function explanation(over: Partial<Explanation> = {}): Explanation {
   return {
-    media: { ...media(), current_path: '/data/films/Akira', added_at: null },
+    media: explainedMedia({ current_path: '/data/films/Akira' }),
     metadata: null,
     override_category: null,
     target_category: 'anime',
@@ -113,7 +116,7 @@ describe('ExplanationModal', () => {
           genres: ['Animation'],
           keywords: ['cyberpunk'],
           original_language: 'ja',
-          origin_countries: ['JP'],
+          origin_countries: ['JP', 'KR'],
           certification: 'R',
           sources: ['arr', 'tmdb'],
         } as Explanation['metadata'],
@@ -121,8 +124,8 @@ describe('ExplanationModal', () => {
     );
 
     expect(screen.getByText('Animation')).toBeTruthy();
-    expect(screen.getByText(/Language: ja/)).toBeTruthy();
-    expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources: arr\s*→\s*tmdb$/);
+    expect(screen.getByText(/Language: ja/)).toHaveTextContent(/Countries: JP ; KR/);
+    expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
   });
 
   it('says no rule applies rather than showing an empty list', () => {

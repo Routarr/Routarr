@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
-import { media, paginated } from '../test/fixtures';
+import { media, paginated, explainedMedia } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
-import type { MediaListItem } from '../api/types';
+import type { Explanation, MediaListItem } from '../api/types';
 import MediaExplorer from './MediaExplorer.svelte';
 
 /**
@@ -108,7 +108,7 @@ describe('Media explorer', () => {
 
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
-      media: { ...media({ id: 'm7' }), current_path: '/data/films/Akira', added_at: null },
+      media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }),
       metadata: null,
       override_category: null,
       target_category: 'anime',
@@ -122,7 +122,7 @@ describe('Media explorer', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
 
-    await waitFor(() => expect(explain).toHaveBeenCalledWith('m7'));
+    await waitFor(() => expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal)));
   });
 
   /**
@@ -180,12 +180,41 @@ describe('Media explorer', () => {
     expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 
+  /** Two quick clicks: the explanation shown is the one asked for last. */
+  it('shows the explanation of the title asked about last', async () => {
+    show([media({ id: 'm7', title: 'Akira' }), media({ id: 'm8', title: 'Perfect Blue' })]);
+    let first: (value: Explanation) => void = () => {};
+    const explanation = (id: string, title: string): Explanation => ({
+      media: explainedMedia({ id, title }),
+      metadata: null,
+      override_category: null,
+      target_category: 'anime',
+      target_root_folder: '/data/anime',
+      action: 'move',
+      confidence: 1,
+      winning_rule: null,
+      rule_traces: [],
+    });
+    vi.spyOn(api, 'explainMedia')
+      .mockReturnValueOnce(new Promise((resolve) => (first = resolve)))
+      .mockResolvedValueOnce(explanation('m8', 'Perfect Blue'));
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Why? – Perfect Blue' }));
+    const dialog = await screen.findByRole('dialog');
+    first(explanation('m7', 'Akira'));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(within(screen.getByRole('dialog')).queryByText(/Akira/)).toBeNull();
+    expect(within(dialog).getByText(/Perfect Blue/)).toBeTruthy();
+  });
+
   it('takes a failed explanation off screen once the next one is read', async () => {
     show([media({ id: 'm7', title: 'Perfect Blue' })]);
     vi.spyOn(api, 'explainMedia')
       .mockRejectedValueOnce(new ApiError('The rules could not be evaluated', 409, 'conflict'))
       .mockResolvedValueOnce({
-        media: { ...media({ id: 'm7' }), current_path: '/data/films/Perfect Blue', added_at: null },
+        media: explainedMedia({ id: 'm7', current_path: '/data/films/Perfect Blue' }),
         metadata: null,
         override_category: null,
         target_category: 'anime',

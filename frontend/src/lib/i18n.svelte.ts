@@ -1,4 +1,5 @@
 import { api } from '../api/client';
+import { bcp47 } from '../api/format';
 
 type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
@@ -18,12 +19,28 @@ const state = $state({
   direction: 'ltr' as 'ltr' | 'rtl',
 });
 
+/**
+ * The placeholders that hold a count, grouped the way the language groups
+ * digits, `12 345` beside a size written `6,3 GB`. Only these: a year in
+ * `{min}` or an id in `{value}` grouped would read `2,026`.
+ */
+const COUNTS = new Set(['count', 'total']);
+
+function shown(name: string, value: Params[string] | undefined): string {
+  if (typeof value !== 'number' || !COUNTS.has(name)) return String(value);
+  try {
+    return new Intl.NumberFormat(bcp47(state.language)).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
 // One pass over the template: a value is never read again, so a `{name}`
 // inside it stays as written.
 function substitute(template: string, params?: Params): string {
   if (!params || !template.includes('{')) return template;
   return template.replace(/\{(\w+)\}/g, (whole, name: string) =>
-    Object.hasOwn(params, name) ? String(params[name]) : whole,
+    Object.hasOwn(params, name) ? shown(name, params[name]) : whole,
   );
 }
 
@@ -55,7 +72,7 @@ export async function loadDictionary(): Promise<void> {
     const response = await api.getLocalization();
     state.strings = response.strings;
     state.language = response.language;
-    document.documentElement.lang = response.language;
+    document.documentElement.lang = bcp47(response.language);
     // The backend owns the script list, so adding an RTL language there turns
     // the interface around with nothing to change here.
     state.direction = response.direction;

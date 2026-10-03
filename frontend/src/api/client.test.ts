@@ -195,11 +195,31 @@ describe('error handling', () => {
     expect(error.kind).toBe('not_found');
   });
 
-  it('falls back to the raw text when the body is not our envelope', async () => {
-    // A reverse proxy error page, for instance.
+  /** A proxy's error page is HTML, and shown raw it fills every banner with markup. */
+  it('keeps nothing of a body that is not the envelope', async () => {
     mockFetch({ ok: false, status: 502, body: '<html>Bad Gateway</html>' });
 
-    await expect(api.getRules()).rejects.toThrow('<html>Bad Gateway</html>');
+    const error = (await api.getRules().catch((e) => e)) as ApiError;
+    expect(error).toMatchObject({ status: 502, kind: 'http_error', message: '' });
+  });
+
+  /** The header that makes several proxies answer 401 rather than redirect. */
+  it('asks for JSON', async () => {
+    const spy = mockFetch({ body: [], headers: { 'content-type': 'application/json' } });
+    await api.getRules();
+
+    expect(fetchCall(spy).options.headers.Accept).toBe('application/json');
+  });
+
+  it.each([
+    ['followed to a sign-in page', { redirected: true }, 'application/json'],
+    ['answered with a page in place of the answer', {}, 'text/html; charset=utf-8'],
+  ])('takes an answer %s for what it is', async (_, extra, type) => {
+    const spy = mockFetch({ body: '<html>Sign in</html>', headers: { 'content-type': type } });
+    spy.mockResolvedValue({ ...(await spy.getMockImplementation()!()), ...extra });
+
+    const error = (await api.getRules().catch((e) => e)) as ApiError;
+    expect(error).toMatchObject({ kind: 'unexpected_answer' });
   });
 
   it('recognises the confirmation prompt so the UI can re-ask', async () => {
@@ -625,5 +645,104 @@ describe('the provider sign-in link', () => {
     const { api: mounted } = await import('./client');
 
     expect(mounted.oidcStartUrl()).toBe('/routarr/api/v1/auth/oidc/start');
+  });
+});
+
+/**
+ * A long write is followed through its job rather than waited for: cut at the
+ * request bound, an apply over a whole library would read as a server that
+ * never answered while the server finished it.
+ */
+describe('a write followed through its job', () => {
+  const answer = (status: number, payload: unknown) => ({
+    ok: status < 400,
+    status,
+    statusText: '',
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: async () => payload,
+    text: async () => JSON.stringify(payload),
+  });
+  const job = (status: string, over: Record<string, unknown> = {}) =>
+    answer(200, { id: 'j1', status, result: null, error_message: null, ...over });
+  const report = { requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] };
+
+  afterEach(() => vi.useRealTimers());
+
+  it('asks not to wait, then reads the report the job kept', async () => {
+    vi.useFakeTimers();
+    const spy = vi
+      .fn()
+      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(job('running'))
+      .mockResolvedValueOnce(job('success', { result: report }));
+    vi.stubGlobal('fetch', spy);
+
+    const applied = api.applyDecisions(['d1']);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(applied).resolves.toEqual(report);
+    expect(fetchCall(spy).options.headers.Prefer).toBe('respond-async');
+    expect(spy.mock.calls.slice(1).map(([url]) => url)).toEqual([
+      '/api/v1/jobs/j1',
+      '/api/v1/jobs/j1',
+    ]);
+  });
+
+  it('takes a report answered at once as it is', async () => {
+    const spy = vi.fn().mockResolvedValueOnce(answer(200, report));
+    vi.stubGlobal('fetch', spy);
+
+    await expect(api.revertDecisions(['d1'])).resolves.toEqual(report);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the report of a job that failed on its own count', async () => {
+    vi.useFakeTimers();
+    const refused = { ...report, applied: 0, failed: 1 };
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(job('failed', { result: refused })),
+    );
+
+    const applied = api.applyAllDecisions('s1');
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await expect(applied).resolves.toEqual(refused);
+  });
+
+  it('fails with what the job ran into', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(job('failed', { error_message: 'Radarr answered 401' })),
+    );
+
+    const synced = api.syncInstance('i1').catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(await synced).toMatchObject({ kind: 'job_failed', message: 'Radarr answered 401' });
+  });
+
+  it('hands a guardrail question back before any job starts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        answer(409, {
+          error: 'confirmation_required',
+          message: '12 items exceed the threshold.',
+          confirm: 'batch',
+        }),
+      ),
+    );
+
+    const error = (await api.applyAllDecisions('s1').catch((e) => e)) as ApiError;
+    expect(error.needsConfirmation).toBe(true);
+    expect(error.confirm).toBe('batch');
   });
 });

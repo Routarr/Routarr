@@ -29,6 +29,7 @@
   import EmptyState from '../components/EmptyState.svelte';
   import FileButton from '../components/FileButton.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
+  import WarningBanner from '../components/WarningBanner.svelte';
   import RuleEditor from '../components/RuleEditor.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
@@ -61,7 +62,12 @@
     instance_ids: null,
   });
 
+  // Set when a tolerated diagnostic failed: without a word, a list with no
+  // badge and no library panel reads exactly as a healthy rule set.
+  let analysisFailed = $state(false);
+
   const bundle = createAsync(async (signal) => {
+    analysisFailed = false;
     const [rules, categories, catalog, health] = await Promise.all([
       api.getRules(signal),
       api.getCategories(signal),
@@ -75,7 +81,10 @@
       // Tolerated rather than awaited hard: the report evaluates the whole
       // library, and a rule list that refuses to render because a diagnostic
       // failed is worse than a rule list without badges.
-      api.getRuleHealth(signal).catch(() => null),
+      api.getRuleHealth(signal).catch(() => {
+        analysisFailed = true;
+        return null;
+      }),
     ]);
     return { rules, categories, catalog, health };
   });
@@ -83,7 +92,12 @@
   // What the library carries, read once when the screen opens: an aggregation
   // over the whole library that no action on a rule changes. Tolerated like
   // the health report, and for the same reason.
-  const library = createAsync((signal) => api.getLibraryFacets(signal).catch(() => null));
+  const library = createAsync((signal) =>
+    api.getLibraryFacets(signal).catch(() => {
+      analysisFailed = true;
+      return null;
+    }),
+  );
 
   const health = $derived(
     new Map((bundle.data?.health?.rules ?? []).map((entry) => [entry.rule_id, entry])),
@@ -113,6 +127,9 @@
       label: spec?.label,
       separator: t('ListSeparator'),
       empty: t('None'),
+      summary: (caption, values) => t('ConditionSummary', { caption, values }),
+      range: (min, max) => t('ConditionRange', { min, max }),
+      open: t('ConditionRangeOpen'),
       name: (value) => nameIn(spec?.suggestions, value),
     });
   }
@@ -165,6 +182,10 @@
       outcome.fail(err);
     }
   }
+
+  // A deleted rule takes its row and the pressed Delete with it: the rule now
+  // in its place takes the focus, else the one before, else the table.
+  const deleteId = (index: number) => `rules-delete-${index}`;
 
   async function move(index: number, direction: -1 | 1) {
     const from = rules[index];
@@ -240,6 +261,12 @@
     onRetry={() => void bundle.reload()}
   />
   <OutcomeBanner {outcome} />
+  {#if analysisFailed}
+    <WarningBanner
+      message={t('RuleAnalysisUnavailable')}
+      onRetry={() => void Promise.all([bundle.reload(), library.reload()])}
+    />
+  {/if}
   <GuideStepBanner step="rule" />
 
   <!-- Before the rules, not after: it is what you consult in order to write
@@ -250,7 +277,7 @@
   {/if}
 
   <div class="card">
-    <TableRegion label={t('RulesEngine')}>
+    <TableRegion label={t('RulesEngine')} id="rules-table">
       <table>
         <caption class="visually-hidden">{t('RulesEngine')}</caption>
         <thead>
@@ -391,6 +418,7 @@
                       <Copy size={14} />
                     </button>
                     <button
+                      id={deleteId(index)}
                       class="btn btn-danger btn-sm"
                       title={t('Delete')}
                       aria-label="{t('Delete')} – {rule.name}"
@@ -401,7 +429,8 @@
                             'Delete',
                           )
                         ) {
-                          void act(() => api.deleteRule(rule.id), t('RuleDeleted'));
+                          await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
+                          void handFocus(deleteId(index), deleteId(index - 1), 'rules-table');
                         }
                       }}
                     >

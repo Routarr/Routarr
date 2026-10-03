@@ -29,7 +29,7 @@
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
-  import { navigate } from '../lib/router.svelte';
+  import { guardLeaving, navigate } from '../lib/router.svelte';
   import { downloadJson } from '../lib/download';
 
   const bundle = createAsync(async (signal) => {
@@ -211,6 +211,22 @@
     ),
   );
 
+  // Leaving by a link, Back or the browser drops the draft, which the save bar
+  // counts: asked first, as every other action that cannot be taken back.
+  $effect(() =>
+    guardLeaving(
+      async () =>
+        changed.length === 0 ||
+        askConfirmation(t('ConfirmLeaveUnsaved', { count: changed.length }), 'DiscardChanges'),
+    ),
+  );
+  $effect(() => {
+    if (changed.length === 0) return;
+    const hold = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener('beforeunload', hold);
+    return () => window.removeEventListener('beforeunload', hold);
+  });
+
   /** Whether a number sits outside the bounds the backend would refuse it for. */
   function outOfRange(field: Field): boolean {
     if (!field.range) return false;
@@ -326,6 +342,9 @@
     if (!(await askConfirmation(t('ConfirmPurge'), 'PurgeNow'))) return;
     try {
       const report = await api.purge();
+      // Pending decisions past retention go too, and the History count in the
+      // navigation would keep them until its next idle poll.
+      invalidateStatus();
       outcome.succeed(
         t('PurgeResult', {
           decisions: report.decisions_removed,
@@ -617,6 +636,12 @@
                   onChange={(value) => (draft[sources.key] = value)}
                   keys={draft}
                   onKeyChange={(setting, value) => (draft[setting] = value)}
+                  storedKeys={stored}
+                  removedKeys={removing}
+                  onKeyRemove={(setting) => {
+                    const field = FIELDS.find((entry) => entry.key === setting);
+                    if (field) remove(field);
+                  }}
                 />
               </div>
             {/if}

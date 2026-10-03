@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { answerConfirmation } from '../test/confirm';
 import { nthCall } from '../test/spy';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
@@ -28,6 +29,9 @@ const STRINGS = {
   AppliesTo: 'Applies to',
   ConditionLogic: 'Condition logic',
   Enabled: 'Enabled',
+  Cancel: 'Cancel',
+  Dismiss: 'Close',
+  ConfirmDiscardRule: 'Close the rule without saving?',
 };
 
 const DRAFT: RuleDraft = {
@@ -489,5 +493,86 @@ describe('the impact preview', () => {
 
     expect(await screen.findByText('The simulation is already running')).toBeTruthy();
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime');
+  });
+});
+
+/**
+ * Escape, the close button and Cancel all close the editor, and a rule half
+ * written goes with it: asked first once anything was typed.
+ */
+describe('closing the editor', () => {
+  it('closes at once when nothing was changed', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const onClose = vi.fn();
+    render(undefined, { onClose });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['Cancel', 'Cancel'],
+    ['the close button', 'Close'],
+  ])('keeps a changed rule open when %s is answered with Cancel', async (_, button) => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const onClose = vi.fn();
+    render(undefined, { onClose });
+    await touch();
+
+    await userEvent.click(screen.getByRole('button', { name: button }));
+    expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
+  });
+
+  it('closes a changed rule once the reader agrees to drop it', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const onClose = vi.fn();
+    render(undefined, { onClose });
+    await touch();
+
+    // Escape reaches the dialog as `cancel`, which jsdom does not raise itself.
+    const editor = screen.getAllByRole('dialog')[0]!;
+    editor.dispatchEvent(new Event('cancel', { cancelable: true, bubbles: true }));
+    await answerConfirmation();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** The draft holds only the ids it could read, so saving would drop the rest unseen. */
+describe('an id list with an entry that is not an id', () => {
+  it('holds Save until the entry is corrected', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render(undefined, {
+      draft: { ...DRAFT, conditions: [{ type: 'tmdb_id_in', value: [] }] },
+      catalog: {
+        conditions: [
+          {
+            type: 'tmdb_id_in',
+            label: 'TMDb id is',
+            value_type: 'number_list',
+            needs_metadata: false,
+            suggestions: '',
+            quantifier: '',
+            counterpart: '',
+            media_types: ['movie', 'series'],
+            metadata_field: '',
+            available: true,
+          },
+        ],
+      },
+    });
+    const field = await screen.findByLabelText('TMDb id is');
+    const save = screen.getByRole('button', { name: 'Save rule' });
+
+    await userEvent.type(field, '603, 6O4');
+    await waitFor(() => expect(save).toBeDisabled());
+
+    await userEvent.clear(field);
+    await userEvent.type(field, '603, 604');
+    await waitFor(() => expect(save).toBeEnabled());
   });
 });

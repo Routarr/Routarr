@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ArrowDown, ArrowUp } from '../lib/icons';
-  import { swapped } from '../api/format';
+  import { METADATA_FIELD_KEY, swapped } from '../api/format';
   import type { MetadataProvider } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
@@ -13,6 +13,9 @@
     onChange,
     keys,
     onKeyChange,
+    storedKeys,
+    removedKeys,
+    onKeyRemove,
   }: {
     id: string;
     catalogue: MetadataProvider[];
@@ -34,6 +37,14 @@
      * it.
      */
     onKeyChange?: (setting: string, value: string) => void;
+    /**
+     * The credentials stored in the settings, which Remove clears, and those
+     * a save is about to clear. A key the environment sets has no Remove: the
+     * variable wins whatever is stored.
+     */
+    storedKeys?: ReadonlySet<string>;
+    removedKeys?: ReadonlySet<string>;
+    onKeyRemove?: (setting: string) => void;
   } = $props();
 
   const enabled = $derived(
@@ -100,14 +111,28 @@
       class="form-input"
       type="password"
       autocomplete="off"
-      placeholder={provider.configured
-        ? t('SecretConfiguredPlaceholder')
-        : provider.key_env
-          ? t('ProviderKeyOrEnv', { variable: provider.key_env })
-          : t('ProviderKeyPlaceholder')}
+      placeholder={removedKeys?.has(setting)
+        ? t('SecretRemovedOnSave')
+        : provider.configured
+          ? t('SecretConfiguredPlaceholder')
+          : provider.key_env
+            ? t('ProviderKeyOrEnv', { variable: provider.key_env })
+            : t('ProviderKeyPlaceholder')}
       value={keys?.[setting] ?? ''}
       oninput={(event) => onKeyChange?.(setting, event.currentTarget.value)}
     />
+    <!-- A blank field keeps the stored key, so without this a key stays
+         sealed behind a disabled source for good. -->
+    {#if onKeyRemove && storedKeys?.has(setting) && !removedKeys?.has(setting)}
+      <button
+        type="button"
+        class="btn btn-secondary"
+        aria-label="{t('Remove')} – {provider.display_name}"
+        onclick={() => onKeyRemove(setting)}
+      >
+        {t('Remove')}
+      </button>
+    {/if}
   </div>
 {/snippet}
 
@@ -117,7 +142,9 @@
          a keyless source does not say it twice. -->
     {t('ProviderNeedsKey')}
   {:else}
-    {provider.needs_key ? '' : `${t('ProviderNoKeyNeeded')} · `}{provider.fields.join(', ')}
+    {provider.needs_key ? '' : `${t('ProviderNoKeyNeeded')} · `}{provider.fields
+      .map((field) => t(METADATA_FIELD_KEY[field] ?? field))
+      .join(t('ListSeparator'))}
   {/if}
 {/snippet}
 

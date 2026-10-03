@@ -9,6 +9,13 @@ export function describeError(err: unknown): string {
     if (err.status === 401) return t('Unauthorized');
     if (err.kind === 'timeout') return t('RequestTimedOut');
     if (err.kind === 'unreachable') return t('ServerUnreachable');
+    if (err.kind === 'unexpected_answer') return t('UnexpectedAnswer');
+    if (err.kind === 'job_failed' && !err.message) return t('TaskFailedSeeTasks');
+    // A refusal with nothing to say of its own, as a proxy's error page.
+    if (!err.message) {
+      const said = t('ServerAnsweredStatus', { status: err.status });
+      return err.requestId ? `${said} (${t('RequestId', { id: err.requestId })})` : said;
+    }
     // A server-side failure is one the operator will look for in the log, and
     // the id is what finds it. A refusal (4xx) already says what to change.
     if (err.status >= 500 && err.requestId) {

@@ -35,8 +35,43 @@ export const router = $state({ path: strip(window.location.pathname) });
  */
 export const href = (to: string) => `${basePath()}${to}`;
 
-/** Follow a link the way the browser would, without reloading the document. */
+/**
+ * Asked before the screen changes, by a screen holding work the change would
+ * drop. One at a time: only the screen on display can hold any. `to` is the
+ * route without its fragment, and a change within the screen asks nothing.
+ */
+type LeaveGuard = (to: string) => Promise<boolean>;
+let guard: LeaveGuard | null = null;
+
+/** Install `check` until the returned function is called. */
+export function guardLeaving(check: LeaveGuard): () => void {
+  guard = check;
+  return () => {
+    if (guard === check) guard = null;
+  };
+}
+
+const routeOf = (to: string) => to.split(/[?#]/)[0] || '/';
+
+// The address of the screen on display. The browser has moved by the time Back
+// is heard, so a screen that keeps its work is put back under this one.
+let shown = window.location.href;
+
+/**
+ * Follow a link the way the browser would, without reloading the document,
+ * once a screen holding unsaved work has let it go.
+ */
 export function navigate(to: string) {
+  if (guard && routeOf(to) !== router.path) {
+    void guard(routeOf(to)).then((leave) => {
+      if (leave) go(to);
+    });
+    return;
+  }
+  go(to);
+}
+
+function go(to: string) {
   const { pathname, search, hash, href: from } = window.location;
   const url = `${basePath()}${to}`;
   // The page on screen takes no second entry, as with a link in the browser.
@@ -52,6 +87,7 @@ export function navigate(to: string) {
       new HashChangeEvent('hashchange', { oldURL: from, newURL: window.location.href }),
     );
   }
+  shown = window.location.href;
   window.scrollTo(0, 0);
 }
 
@@ -90,7 +126,21 @@ export function interceptLinks() {
   };
 
   const onPop = () => {
-    router.path = strip(window.location.pathname);
+    const to = strip(window.location.pathname);
+    const back = shown;
+    if (!guard || to === router.path) {
+      router.path = to;
+      shown = window.location.href;
+      return;
+    }
+    void guard(to).then((leave) => {
+      if (leave) {
+        router.path = strip(window.location.pathname);
+        shown = window.location.href;
+      } else {
+        window.history.pushState({}, '', back);
+      }
+    });
   };
 
   document.addEventListener('click', onClick);

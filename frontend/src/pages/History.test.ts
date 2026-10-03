@@ -110,7 +110,8 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
 
-    expect(await screen.findByText('Send "Akira" back to /films?')).toBeTruthy();
+    // The path in an isolate, so a right-to-left sentence keeps its slash first.
+    expect(await screen.findByText('Send "Akira" back to \u2068/films\u2069?')).toBeTruthy();
   });
 
   /** Cancel means stop, not "revert quietly". */
@@ -417,4 +418,37 @@ describe('History', () => {
     );
     expect(screen.getByText('The Arr refused the move')).toBeTruthy();
   });
+});
+
+/** A reverted row stays and loses its Revert: the next row's Revert takes the focus. */
+it('hands the focus to the next Revert once a row cannot be reverted again', async () => {
+  const first = decision({ status: 'applied', revertible: true });
+  const next = decision({
+    id: 'd2',
+    media_title: 'Perfect Blue',
+    status: 'applied',
+    revertible: true,
+  });
+  vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([first, next]));
+  vi.spyOn(api, 'revertDecisions').mockResolvedValue({
+    requested: 1,
+    applied: 1,
+    failed: 0,
+    skipped: 0,
+    errors: [],
+  });
+  show();
+
+  await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
+  const dialog = await screen.findByRole('dialog');
+  vi.spyOn(api, 'getDecisions').mockResolvedValue(
+    paginated([{ ...first, revertible: false }, next]),
+  );
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: /Revert – Perfect Blue/ }),
+    ),
+  );
 });

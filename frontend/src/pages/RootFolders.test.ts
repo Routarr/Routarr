@@ -391,7 +391,7 @@ describe('Root folders', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/anime' }));
 
-    expect(await answerConfirmation(null)).toBe('Remove the destination /data/anime?');
+    expect(await answerConfirmation(null)).toBe('Remove the destination \u2068/data/anime\u2069?');
     expect(remove).not.toHaveBeenCalled();
   });
 
@@ -486,5 +486,38 @@ describe('Root folders', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'New category' }));
     expect(document.activeElement).toBe(await screen.findByLabelText('Name'));
+  });
+});
+
+/** A removal takes its row and the pressed button: the next row's takes the focus. */
+describe('the focus after a removal', () => {
+  it('goes to the destination that took the place of the removed one', async () => {
+    const next = folder({ id: 'rf2', path: '/data/anime', origin: 'declared' });
+    show([folder({ origin: 'declared' }), next], [category()]);
+    vi.spyOn(api, 'deleteRootFolder').mockResolvedValue(undefined as never);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/films' }));
+    vi.spyOn(api, 'getRootFolders').mockResolvedValue([next]);
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('button', { name: 'Remove – /data/anime' }),
+      ),
+    );
+  });
+
+  it('goes to the category that took the place of the deleted one', async () => {
+    const next = category({ id: 'c2', name: 'anime' });
+    show([], [category(), next]);
+    vi.spyOn(api, 'deleteCategory').mockResolvedValue(undefined as never);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – standard' }));
+    vi.spyOn(api, 'getCategories').mockResolvedValue([next]);
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete – anime' })),
+    );
   });
 });

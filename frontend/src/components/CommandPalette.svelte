@@ -105,17 +105,23 @@
     input?.focus();
   });
 
+  // Only the last title chosen answers, as on the library screen.
+  let asking: AbortController | null = null;
+
   async function open(row: Row) {
     if (row.kind === 'nav') {
       navigate(row.to);
       onClose();
       return;
     }
+    asking?.abort();
+    const mine = (asking = new AbortController());
     try {
       error = null;
-      explaining = await api.explainMedia(row.media.id);
+      const answer = await api.explainMedia(row.media.id, mine.signal);
+      if (!mine.signal.aborted) explaining = answer;
     } catch (cause) {
-      error = describeError(cause);
+      if (!mine.signal.aborted) error = describeError(cause);
     }
   }
 

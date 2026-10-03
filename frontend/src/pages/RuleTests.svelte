@@ -90,7 +90,7 @@
         onclick={() => void runAll()}
       >
         <Play size={16} class={busy ? 'spin' : ''} />
-        {t('RunRuleTests')}
+        {busy ? t('RunningRuleTests') : t('RunRuleTests')}
       </button>
     </div>
   </div>

@@ -21,6 +21,10 @@ use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum JobKind {
     Sync,
+    /// Every enabled instance read again on one call: the task a caller
+    /// follows, holding one report per instance. Each instance keeps its own
+    /// `Sync` task beside it.
+    SyncAll,
     Enrich,
     Simulate,
     Apply,
@@ -39,6 +43,7 @@ impl JobKind {
     pub fn as_str(&self) -> &'static str {
         match self {
             JobKind::Sync => "sync",
+            JobKind::SyncAll => "sync_all",
             JobKind::Enrich => "enrich",
             JobKind::Simulate => "simulate",
             JobKind::Apply => "apply",

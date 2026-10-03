@@ -1,7 +1,8 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatTimestamp, statusKey, triggerKey } from '../api/format';
+  import { formatTimestamp, isolated, statusKey, triggerKey } from '../api/format';
+  import { handFocus } from '../lib/focus';
   import type { Decision } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { answering } from '../lib/confirm.svelte';
@@ -55,7 +56,12 @@
   let reverting = $state<Decision | null>(null);
   let revertFiles = $state(false);
 
+  // A reverted row stays and loses its Revert: the focus goes to the Revert of
+  // the row after it, else the one before, else the table.
+  const revertId = (index: number) => `history-revert-${index}`;
+
   async function revert(decision: Decision, moveFiles: boolean) {
+    const index = decisions.findIndex((row) => row.id === decision.id);
     reverting = null;
     try {
       // A revert writes into the folder the move came from, and the backend
@@ -66,6 +72,7 @@
       );
       if (!report) return;
       await history.reload();
+      void handFocus(revertId(index), revertId(index + 1), revertId(index - 1), 'history-table');
       // A revert that restored nothing did not do what was asked: under the
       // success banner its reason would read as good news.
       if (report.applied > 0) outcome.succeed(t('RevertResult', { count: report.applied }));
@@ -143,7 +150,7 @@
   </div>
 
   <div class="card">
-    <TableRegion label={t('AuditHistory')}>
+    <TableRegion label={t('AuditHistory')} id="history-table">
       <table>
         <caption class="visually-hidden">{t('AuditHistory')}</caption>
         <thead>
@@ -164,7 +171,7 @@
           {:else if decisions.length === 0 && !history.error}
             <tr><td colspan="8"><EmptyState>{t('NoDecisionRecorded')}</EmptyState></td></tr>
           {:else}
-            {#each decisions as decision (decision.id)}
+            {#each decisions as decision, index (decision.id)}
               <tr class:row-muted={decision.superseded}>
                 <td class="cell-timestamp" title={decision.decided_at}>
                   {formatTimestamp(decision.decided_at, i18n.language)}
@@ -215,6 +222,7 @@
                 <td>
                   {#if decision.revertible}
                     <button
+                      id={revertId(index)}
                       class="btn btn-secondary btn-sm"
                       onclick={() => {
                         revertFiles = false;
@@ -257,7 +265,7 @@
       <p>
         {t('ConfirmRevert', {
           title: target.media_title,
-          path: target.current_root_folder ?? '',
+          path: isolated(target.current_root_folder ?? ''),
         })}
       </p>
       <label class="flex items-center gap-2 mt-4">

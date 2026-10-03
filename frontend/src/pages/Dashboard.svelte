@@ -65,6 +65,7 @@
     <ErrorBanner
       message={quick.error ?? probed.error}
       onDismiss={() => ((quick.error = null), (probed.error = null))}
+      onRetry={() => void refresh()}
     />
     <OutcomeBanner {outcome} />
 

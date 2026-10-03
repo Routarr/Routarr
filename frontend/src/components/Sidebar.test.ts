@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen } from '@testing-library/svelte';
 
+import { SCREENS } from '../lib/routes';
 import { renderWithI18n } from '../test/render';
 import { href, navigate } from '../lib/router.svelte';
 import { withBase } from '../test/base';
@@ -53,10 +54,9 @@ describe('Sidebar', () => {
     show();
 
     const links = await screen.findAllByRole('link');
-    // Bump this when a destination is added. It is not the claim (the loop
-    // below is), but without it the loop passes over an empty list and asserts
-    // nothing at all.
-    expect(links).toHaveLength(15);
+    // Not the claim (the loop below is), but without it the loop passes over
+    // an empty list and asserts nothing at all.
+    expect(links).toHaveLength(SCREENS.length);
     for (const link of links) {
       expect(link.getAttribute('title')).toBeTruthy();
     }
@@ -136,7 +136,7 @@ describe('Sidebar', () => {
     show({ counts: { jobs: 1, decisions: 0, failed: 0, warnings: 0 } });
 
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
-    expect(links.length).toBeGreaterThanOrEqual(15);
+    expect(links.length).toBeGreaterThanOrEqual(SCREENS.length);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
     expect(links).toContain('/routarr/rules');
     expect(links).toContain('/routarr/');

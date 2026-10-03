@@ -10,9 +10,11 @@
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
+  import Pager from '../components/Pager.svelte';
 
   /** Backend enum values are lower-case, and the dictionary keys are PascalCase. */
-  const jobKindKey = (kind: string) => `Job${capitalize(kind)}`;
+  // `sync_all` reads `JobSyncAll`, as the backend's test of the labels builds it.
+  const jobKindKey = (kind: string) => `Job${kind.split('_').map(capitalize).join('')}`;
 
   const STATUS_BADGE: Record<Job['status'], string> = {
     running: 'badge-info',
@@ -21,11 +23,15 @@
   };
 
   let status = $state('');
+  // A sync every 15 minutes fills a page of 50 in half a day, and last night's
+  // failure is then reachable only through a filter nobody thinks of.
+  let page = $state(1);
 
   const jobsPage = createAsync(
-    (signal) => api.getJobs({ status: status || undefined, per_page: 50 }, signal),
-    () => status,
+    (signal) => api.getJobs({ status: status || undefined, page, per_page: 50 }, signal),
+    () => [status, page],
   );
+  const pagination = $derived(jobsPage.data?.pagination);
 
   const jobs = $derived(jobsPage.data?.data ?? []);
   const hasRunning = $derived(jobs.some((job) => job.status === 'running'));
@@ -58,14 +64,19 @@
   />
 
   <div class="toolbar">
-    <select class="form-select" aria-label={t('FilterByStatus')} bind:value={status}>
+    <select
+      class="form-select"
+      aria-label={t('FilterByStatus')}
+      bind:value={status}
+      onchange={() => (page = 1)}
+    >
       <option value="">{t('AllStatuses')}</option>
       <option value="running">{t('StatusRunning')}</option>
       <option value="success">{t('StatusSuccess')}</option>
       <option value="failed">{t('StatusFailed')}</option>
     </select>
     {#if status}
-      <button type="button" class="btn btn-ghost" onclick={() => (status = '')}
+      <button type="button" class="btn btn-ghost" onclick={() => ((status = ''), (page = 1))}
         >{t('ClearFilters')}</button
       >
     {/if}
@@ -152,5 +163,7 @@
         </tbody>
       </table>
     </TableRegion>
+
+    <Pager {pagination} bind:page countKey="TaskCount" />
   </div>
 </div>

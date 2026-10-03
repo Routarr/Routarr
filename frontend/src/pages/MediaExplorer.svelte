@@ -40,12 +40,20 @@
   const items = $derived(library.data?.data ?? []);
   const pagination = $derived(library.data?.pagination);
 
+  // Only the last title asked about answers: two quick clicks would otherwise
+  // show whichever explanation lands last, under the other title's row.
+  let asking: AbortController | null = null;
+
   async function explain(media: MediaListItem) {
+    asking?.abort();
+    const mine = (asking = new AbortController());
     try {
-      explaining = await api.explainMedia(media.id);
+      const answer = await api.explainMedia(media.id, mine.signal);
+      if (mine.signal.aborted) return;
+      explaining = answer;
       outcome.clear();
     } catch (err) {
-      outcome.fail(err);
+      if (!mine.signal.aborted) outcome.fail(err);
     }
   }
 </script>

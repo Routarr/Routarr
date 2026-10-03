@@ -542,14 +542,18 @@ fn get_task() {}
 /// Read every enabled Arr again
 ///
 /// Answers once every instance is read, one report each. An instance that
-/// fails is reported with its `error` and stops none of the others. It starts
-/// one task per instance, so it always waits: to follow each one, sync the
-/// instances one by one with `respond-async`.
+/// fails is reported with its `error` and stops none of the others. With
+/// `respond-async` it answers once its task has started, and that task holds
+/// the reports when it ends. Each instance is read under a task of its own too.
 #[utoipa::path(
     post,
     path = "/instances/sync",
     tag = "instances",
-    responses((status = 200, body = Vec<SyncReport>))
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its reports."),),
+    responses((status = 200, body = Vec<SyncReport>), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_all() {}

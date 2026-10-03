@@ -11,6 +11,7 @@ import { answerConfirmation } from '../test/confirm';
 const STRINGS = {
   RuleTests: 'Rule tests',
   RunRuleTests: 'Run the tests',
+  RunningRuleTests: 'Running the tests…',
   RuleTestsPassed: 'Every case holds. Checked: {total}',
   RuleTestsFailed: 'Cases that moved: {failed} of {total}',
   Passed: 'Passed',
@@ -47,6 +48,18 @@ const PASSED: RuleTestRun = {
 afterEach(() => vi.restoreAllMocks());
 
 describe('RuleTests', () => {
+  /** A run takes the whole library: the button says it is running, not only spins. */
+  it('says the tests are running while they run', async () => {
+    vi.spyOn(api, 'getRuleTests').mockResolvedValue([CASE]);
+    vi.spyOn(api, 'runRuleTests').mockReturnValue(new Promise(() => {}));
+    renderWithI18n(RuleTests, { strings: STRINGS });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Run the tests' }));
+
+    const running = await screen.findByRole('button', { name: 'Running the tests…' });
+    expect((running as HTMLButtonElement).disabled).toBe(true);
+  });
+
   /**
    * A run that fails leaves nothing of the run before it. Kept, the earlier
    * summary and verdicts read as the answer to the run that was just refused.

@@ -24,7 +24,16 @@
    * it is open, and the arrows walk it. A `role="menu"` announces a menu, and a
    * screen reader user then reaches for the arrows, not for Tab.
    */
-  let { actions, label }: { actions: Action[]; label?: string } = $props();
+  let {
+    actions,
+    label,
+    id,
+  }: {
+    actions: Action[];
+    label?: string;
+    /** For a screen that hands the focus here once the row it was in is gone. */
+    id?: string;
+  } = $props();
 
   let open = $state(false);
   let root = $state<HTMLDivElement | null>(null);
@@ -92,6 +101,7 @@
 {#if usable.length > 0}
   <div class="action-menu" bind:this={root}>
     <button
+      {id}
       type="button"
       class="btn btn-ghost btn-sm"
       aria-haspopup="menu"

@@ -7,24 +7,38 @@ afterEach(() => {
 });
 
 describe('downloadBlob', () => {
-  it('saves under the name it was given and lets go of the URL it made', () => {
+  /**
+   * The URL stays while the browser may still read the blob, and goes after:
+   * revoked on the line after the click, some browsers save an empty file.
+   */
+  it('saves under the name it was given and lets go of the URL once read', () => {
+    vi.useFakeTimers();
     const create = vi.fn(() => 'blob:routarr/1');
     const revoke = vi.fn();
     vi.stubGlobal('URL', { ...URL, createObjectURL: create, revokeObjectURL: revoke });
-    const clicked: HTMLAnchorElement[] = [];
+    const clicked: { anchor: HTMLAnchorElement; attached: boolean }[] = [];
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
       this: HTMLAnchorElement,
     ) {
-      clicked.push(this);
+      clicked.push({ anchor: this, attached: this.isConnected });
     });
 
-    downloadBlob(new Blob(['x']), 'routarr-logs.csv');
+    try {
+      downloadBlob(new Blob(['x']), 'routarr-logs.csv');
 
-    expect(clicked).toHaveLength(1);
-    const [anchor] = clicked;
-    expect(anchor?.download).toBe('routarr-logs.csv');
-    expect(anchor?.href).toBe('blob:routarr/1');
-    expect(revoke).toHaveBeenCalledWith('blob:routarr/1');
+      expect(clicked).toHaveLength(1);
+      const [{ anchor, attached }] = clicked as [(typeof clicked)[number]];
+      expect(anchor.download).toBe('routarr-logs.csv');
+      expect(anchor.href).toBe('blob:routarr/1');
+      expect(attached).toBe(true);
+      expect(anchor.isConnected).toBe(false);
+      expect(revoke).not.toHaveBeenCalled();
+
+      vi.advanceTimersByTime(60_000);
+      expect(revoke).toHaveBeenCalledWith('blob:routarr/1');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('serialises JSON readably, as a JSON document', async () => {

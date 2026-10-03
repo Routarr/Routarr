@@ -5,6 +5,7 @@ import type { ConditionSpec, LibraryFacets } from './types';
 import {
   defaultConditionValue,
   parseNumberList,
+  rejectedNumbers,
   parseStringList,
   parseYearBound,
   canonicalKey,
@@ -112,6 +113,13 @@ describe('parseNumberList', () => {
    */
   it('keeps whole numbers above zero, once each', () => {
     expect(parseNumberList('8392, 1.5, -3, 0, 8392')).toEqual([8392]);
+  });
+
+  /** `Number` reads a hexadecimal or an exponent as a number nobody typed. */
+  it('takes digits only, and names what it left out', () => {
+    expect(parseNumberList('603, 0x25B, 1e3, 6O4')).toEqual([603]);
+    expect(rejectedNumbers('603, 0x25B, 1e3, 6O4, , 0')).toEqual(['0x25B', '1e3', '6O4', '0']);
+    expect(rejectedNumbers('603, 604')).toEqual([]);
   });
 });
 

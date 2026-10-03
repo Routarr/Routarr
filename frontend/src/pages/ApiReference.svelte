@@ -71,15 +71,20 @@
   );
   const server = $derived(spec.data ? serverUrl(spec.data, window.location.origin) : '');
   const schemas = $derived(Object.keys(spec.data?.components?.schemas ?? {}).sort());
+  // The screen's name is a link inside the sentence, so the sentence is cut
+  // where the name goes and drawn around it.
+  const keysLine = $derived(t('ApiReferenceKeys', { screen: '\u0000' }).split('\u0000'));
 </script>
+
+{#snippet spans(text: string)}
+  {#each inline(text) as part, at (at)}
+    {#if part.code}<code class="mono">{part.text}</code>{:else}{part.text}{/if}
+  {/each}
+{/snippet}
 
 {#snippet prose(text: string)}
   {#each paragraphs(text) as paragraph, index (index)}
-    <p lang="en" dir="ltr" class="api-prose">
-      {#each inline(paragraph) as part, at (at)}
-        {#if part.code}<code class="mono">{part.text}</code>{:else}{part.text}{/if}
-      {/each}
-    </p>
+    <p lang="en" dir="ltr" class="api-prose">{@render spans(paragraph)}</p>
   {/each}
 {/snippet}
 
@@ -101,7 +106,7 @@
             <td class="mono">{row.name}</td>
             <td class="mono">{row.type}</td>
             <td>{t(row.required ? 'Yes' : 'No')}</td>
-            <td lang="en" dir="ltr">{row.description}</td>
+            <td lang="en" dir="ltr">{@render spans(row.description)}</td>
           </tr>
         {/each}
       </tbody>
@@ -144,7 +149,7 @@
                   <td class="mono">{parameter.in}</td>
                   <td class="mono">{typeLabel(parameter.schema)}</td>
                   <td>{t(parameter.required ? 'Yes' : 'No')}</td>
-                  <td lang="en" dir="ltr">{parameter.description ?? ''}</td>
+                  <td lang="en" dir="ltr">{@render spans(parameter.description ?? '')}</td>
                 </tr>
               {/each}
             </tbody>
@@ -166,7 +171,8 @@
           <li>
             <code class="mono">{response.code}</code>
             {#if response.schema}<code class="mono">{typeLabel(response.schema)}</code>{/if}
-            <span lang="en" dir="ltr" class="text-muted">{response.description}</span>
+            <span lang="en" dir="ltr" class="text-muted">{@render spans(response.description)}</span
+            >
           </li>
         {/each}
       </ul>
@@ -198,21 +204,29 @@
   />
 
   {#if spec.loading && !spec.data}
-    <Loading />
+    <div class="card"><Loading /></div>
   {:else if spec.data}
     {@const doc = spec.data}
+    <!-- The contract's own introduction stays in the document a developer
+         downloads: on this screen it is a page of English before the first
+         operation. What a reader needs from it is where the key comes from. -->
     <div class="card">
-      <p class="text-muted text-sm">{t('ApiReferenceEnglish')}</p>
-      {@render prose(doc.info.description ?? '')}
+      <p>
+        {keysLine[0]}<a class="text-link" href={href('/applications')}>{t('Applications')}</a
+        >{keysLine[1]}
+      </p>
+      <p class="text-muted text-sm mt-1">{t('ApiReferenceEnglish')}</p>
     </div>
 
-    <div class="card">
+    <div class="toolbar">
       <SearchField bind:value={search} placeholder={t('ApiSearch')} label={t('ApiSearch')} />
     </div>
 
     {#each groups as group (group.tag)}
       <section class="card">
-        <h2 class="card-title">{t(TAGS[group.tag] ?? group.tag)}</h2>
+        <div class="card-header">
+          <h2 class="card-title">{t(TAGS[group.tag] ?? group.tag)}</h2>
+        </div>
         {@render prose(group.description)}
         {#each group.operations as op (op.id)}
           {@render operation(doc, op)}
@@ -225,7 +239,9 @@
     {/each}
 
     <section class="card">
-      <h2 class="card-title">{t('ApiSchemas')}</h2>
+      <div class="card-header">
+        <h2 class="card-title">{t('ApiSchemas')}</h2>
+      </div>
       {#each schemas as name (name)}
         {@const schema = doc.components?.schemas?.[name] ?? {}}
         {@const rows = fields(schema, doc)}

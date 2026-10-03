@@ -2872,8 +2872,22 @@
     },
     "/instances/sync": {
       "post": {
-        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others. It starts\none task per instance, so it always waits: to follow each one, sync the\ninstances one by one with `respond-async`.",
+        "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others. With\n`respond-async` it answers once its task has started, and that task holds\nthe reports when it ends. Each instance is read under a task of its own too.",
         "operationId": "sync_all",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its reports.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -2883,6 +2897,30 @@
                     "$ref": "#/components/schemas/SyncReport"
                   },
                   "type": "array"
+                }
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }

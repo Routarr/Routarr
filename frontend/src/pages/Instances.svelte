@@ -21,7 +21,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { handFocus } from '../lib/focus';
+  import { handFocus, type FocusTarget } from '../lib/focus';
   import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -73,7 +73,16 @@
 
   // Generic over what the call returns, so the message reads the typed payload
   // the client already declares: a cast here is a field rename nobody sees.
-  async function act<T>(id: string, fn: () => Promise<T>, describe: (result: T) => string) {
+  // A deleted instance takes its row and its menu with it: the menu of the row
+  // now in its place takes the focus, else the one before, else the table.
+  const menuId = (index: number) => `instances-menu-${index}`;
+
+  async function act<T>(
+    id: string,
+    fn: () => Promise<T>,
+    describe: (result: T) => string,
+    focus: FocusTarget[] = [],
+  ) {
     const pressed = document.activeElement as HTMLElement | null;
     busyId = id;
     try {
@@ -87,7 +96,7 @@
       outcome.fail(err);
     } finally {
       busyId = null;
-      void handFocus(pressed);
+      void handFocus(pressed, ...focus);
     }
   }
 
@@ -396,7 +405,7 @@
   <GuideStepBanner step="instance" />
 
   <div class="card">
-    <TableRegion label={t('ArrInstances')}>
+    <TableRegion label={t('ArrInstances')} id="instances-table">
       <table>
         <caption class="visually-hidden">{t('ArrInstances')}</caption>
         <thead>
@@ -415,7 +424,7 @@
           {:else if instances.length === 0 && !list.error}
             <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
-            {#each instances as instance (instance.id)}
+            {#each instances as instance, index (instance.id)}
               {@const address = withoutCredentials(instance.base_url)}
               <tr class:row-muted={!instance.enabled}>
                 <td>
@@ -525,6 +534,7 @@
                       {t('Edit')}
                     </button>
                     <ActionMenu
+                      id={menuId(index)}
                       label="{t('Actions')} – {instance.name}"
                       actions={[
                         {
@@ -576,6 +586,7 @@
                                 instance.id,
                                 () => api.deleteInstance(instance.id),
                                 () => t('InstanceDeleted'),
+                                [menuId(index), menuId(index - 1), 'instances-table'],
                               );
                             }
                           },

@@ -12,7 +12,7 @@ use crate::api::auth::Identity;
 use crate::api::jobs::{answer, prefers_async};
 use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrAdapter;
-use crate::jobs::detached;
+use crate::jobs::{Detail, JobKind};
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::connection::{self, Cause};
@@ -276,21 +276,50 @@ async fn check(
     })
 }
 
-/// Sync every enabled instance.
+/// Sync every enabled instance, under a task of its own a caller can follow:
+/// each instance's sync is a task too, and following the first would answer
+/// one report where the call answers one per instance.
 pub async fn sync_all(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
-) -> AppResult<Json<Vec<sync::SyncReport>>> {
-    let by = identity.attribution();
-    let reports = detached(async move {
-        let reports = sync::sync_all_instances(&state, &by).await?;
-        if reports.iter().any(|report| report.error.is_none()) {
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let (task_state, by) = (state.clone(), identity.attribution());
+    let work = async move {
+        let state = task_state;
+        let instances = state.instances(true).await?.len();
+        let mut job = state
+            .jobs
+            .start(
+                JobKind::SyncAll,
+                &by,
+                None,
+                Detail::new("JobDetailSyncingAll").with("count", instances),
+            )
+            .await?;
+        let reports = match sync::sync_all_instances(&state, &by).await {
+            Ok(reports) => reports,
+            Err(error) => {
+                job.fail(&error).await;
+                return Err(error);
+            }
+        };
+        let failed = reports.iter().filter(|report| report.error.is_some()).count();
+        if failed < reports.len() {
             crate::jobs::scheduler::follow_sync(&state, &by.trigger).await;
         }
+        job.report(&reports);
+        let detail = Detail::new("JobDetailSyncedAll")
+            .with("synced", reports.len() - failed)
+            .with("failed", failed);
+        if failed > 0 && failed == reports.len() {
+            job.fail_with(detail).await;
+        } else {
+            job.succeed(detail).await;
+        }
         Ok(reports)
-    })
-    .await?;
-    Ok(Json(reports))
+    };
+    answer(&state, prefers_async(&headers), work).await
 }
 
 pub async fn sync_now(

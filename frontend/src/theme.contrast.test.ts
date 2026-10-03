@@ -98,6 +98,10 @@ const PAIRS: [string, string][] = [
   // colour is unreadable in that role on a light background.
   ['--accent-strong', '--bg-card'],
   ['--accent-strong', '--bg-base'],
+  // The current entry of the navigation, accent text on the hover ground, and
+  // the details of the palette's current row on the same ground.
+  ['--accent-strong', '--bg-card-hover'],
+  ['--text-secondary', '--bg-card-hover'],
   // A navigation entry at rest, on the sidebar's own surface. Brighter than
   // `--text-secondary` so the group heading beside it reads as a heading and
   // not as an entry that lost its icon, a distinction that is only worth

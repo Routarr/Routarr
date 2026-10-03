@@ -1,6 +1,15 @@
 import type { Page } from '@playwright/test';
 
-import { test, expect, api, apiWhenFree, openScreen, screenShown, ARR } from './fixtures';
+import {
+  test,
+  expect,
+  api,
+  apiWhenFree,
+  openScreen,
+  screenShown,
+  writesDuring,
+  ARR,
+} from './fixtures';
 
 /**
  * The journeys a user actually walks, against the real binary. These exist to
@@ -459,9 +468,13 @@ test.describe('reclassifying a whole library', () => {
     page,
     instanceId,
   }) => {
+    // The sync below is followed by a simulation of its own, which would land
+    // after the one run on screen and leave Apply all naming a superseded run.
     await api('/settings', {
       method: 'PUT',
-      body: JSON.stringify({ settings: { global_dry_run: 'false' } }),
+      body: JSON.stringify({
+        settings: { global_dry_run: 'false', auto_simulate_enabled: 'false' },
+      }),
     });
     await api('/rules', {
       method: 'POST',
@@ -488,7 +501,10 @@ test.describe('reclassifying a whole library', () => {
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText("'/movies/anime' is not answering");
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    const writes = await writesDuring(page, () =>
+      dialog.getByRole('button', { name: 'Cancel' }).click(),
+    );
+    expect(writes).toEqual([]);
 
     const movies = (await (await fetch(`${ARR}/api/v3/movie`)).json()) as {
       rootFolderPath: string;

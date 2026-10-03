@@ -147,13 +147,20 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
 /** Long enough for a simulation over a large library, short enough to be a signal. */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+const readJson = (response: Response) => response.json() as Promise<never>;
+/** A file the API serves, whatever its type: the one read held to no JSON. */
+const readBlob = (response: Response) => response.blob() as Promise<never>;
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  read: (response: Response) => Promise<T> = (response) => response.json() as Promise<T>,
+  read: (response: Response) => Promise<T> = readJson,
 ): Promise<T> {
   const key = getApiKey();
+  // `Accept` asks a proxy in front for a 401 rather than a redirect to its
+  // sign-in page, which several of them only answer to a browser's navigation.
   const headers: Record<string, string> = {
+    Accept: 'application/json',
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
@@ -211,31 +218,34 @@ async function exchange<T>(
   read: (response: Response) => Promise<T>,
 ): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
+  const requestId = res.headers?.get?.('x-request-id') ?? null;
 
   if (!res.ok) {
     const body = await res.text();
-    let message = body || res.statusText;
+    // The envelope alone carries a message worth showing. A proxy's error page
+    // is HTML, and an empty body has nothing to say: both leave the message
+    // empty, and `describeError` words the status instead.
+    let message = '';
     let kind = 'http_error';
     let confirm: string | null = null;
     let includes: string[] = [];
     try {
       const json = JSON.parse(body) as Partial<ErrorBody>;
-      message = json.message ?? json.error ?? message;
+      message = json.message ?? json.error ?? '';
       kind = json.error ?? kind;
       confirm = typeof json.confirm === 'string' ? json.confirm : null;
       includes = Array.isArray(json.includes) ? json.includes : [];
     } catch {
-      // Not a JSON error envelope (proxy error page, empty body): keep the text.
+      // Not the envelope.
     }
-    throw new ApiError(
-      message,
-      res.status,
-      kind,
-      res.headers?.get?.('x-request-id') ?? null,
-      confirm,
-      includes,
-    );
+    throw new ApiError(message, res.status, kind, requestId, confirm, includes);
   }
+
+  // A proxy whose session ran out answers with its sign-in page: followed as a
+  // redirect, or served as a 200 in place of the answer. Read as JSON, that
+  // page surfaces as the browser's own parse error.
+  const page = read !== readBlob && (res.headers?.get?.('content-type') ?? '').includes('html');
+  if (res.redirected || page) throw new ApiError('', res.status, 'unexpected_answer', requestId);
 
   if (res.status === 204) return undefined as T;
   return read(res);
@@ -246,7 +256,47 @@ async function exchange<T>(
  * carry the key, and the download would 401 into an empty file. It has the
  * bound and the error reading of every other request.
  */
-const download = (path: string) => request<Blob>(path, {}, (response) => response.blob());
+const download = (path: string) => request<Blob>(path, {}, readBlob);
+
+/**
+ * How long a followed job is left between two looks at it: soon at first, as
+ * most finish in a moment, then no more than once a second.
+ */
+const FOLLOW_FIRST_MS = 200;
+const FOLLOW_EVERY_MS = 1000;
+
+/**
+ * A write that can run past the request bound: an apply over a whole library,
+ * a sync of a large one. Waited for, it would be cut at the bound and read as
+ * a server that never answered, while the server carries on and the result is
+ * never shown.
+ *
+ * Asked not to wait (`Prefer: respond-async`), the server answers once the
+ * work has started its job, and the job is followed to the report it keeps.
+ * A refusal made before the job starts, as a guardrail's question, still
+ * answers the first request, so `answering` sees it as before. A server that
+ * did the work at once answers the report itself.
+ */
+async function followed<T>(path: string, init: RequestInit): Promise<T> {
+  const first = await request<{ job?: string; report?: T }>(
+    path,
+    { ...init, headers: { ...(init.headers as Record<string, string>), Prefer: 'respond-async' } },
+    async (response) =>
+      response.status === 202
+        ? { job: ((await response.json()) as { job_id: string }).job_id }
+        : { report: (await response.json()) as T },
+  );
+  if (first.job === undefined) return first.report as T;
+  for (let wait = FOLLOW_FIRST_MS; ; wait = Math.min(wait * 2, FOLLOW_EVERY_MS)) {
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    const job = await request<Job>(`/jobs/${first.job}`);
+    if (job.status === 'running') continue;
+    // Every move of an apply refused fails the job and still keeps its report,
+    // which says why move by move.
+    if (job.result !== null && job.result !== undefined) return job.result as T;
+    throw new ApiError(job.error_message ?? '', 0, 'job_failed');
+  }
+}
 
 type QueryParams = Record<string, string | number | boolean | undefined>;
 
@@ -294,8 +344,8 @@ export const api = {
       body: body(data),
       signal,
     }),
-  syncInstance: (id: string) => request<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }),
-  syncAll: () => request<SyncReport[]>('/instances/sync', { method: 'POST' }),
+  syncInstance: (id: string) => followed<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }),
+  syncAll: () => followed<SyncReport[]>('/instances/sync', { method: 'POST' }),
   rotateWebhookToken: (id: string) =>
     request<Instance>(`/instances/${id}/webhook-token`, { method: 'POST' }),
 
@@ -398,28 +448,32 @@ export const api = {
   // ---------------------------------------------------------- media
   getMedia: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<MediaListItem>>(`/media${query(params)}`, { signal }),
-  explainMedia: (id: string) => request<Explanation>(`/media/${id}/explain`),
+  explainMedia: (id: string, signal?: AbortSignal) =>
+    request<Explanation>(`/media/${id}/explain`, { signal }),
 
   // ---------------------------------------------------------- decisions
+  // Waited for, not followed: a persisting run's task keeps no proposals (they
+  // are listed under `/decisions`), and the screen shows the ones this answer
+  // carries.
   runSimulation: (data?: unknown) =>
     request<SimulationResult>('/simulate', { method: 'POST', body: body(data) }),
   getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
   /** `confirm` names the guardrails already answered, not a blanket yes. */
   applyDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
-    request<ApplyReport>('/decisions/apply', {
+    followed<ApplyReport>('/decisions/apply', {
       method: 'POST',
       body: body({ decision_ids, move_files, confirm }),
     }),
   /** Apply everything one simulation proposed, in slices of `batch_limit`. */
   applyAllDecisions: (simulation_id: string, move_files = false, confirm: string[] = []) =>
-    request<BatchApplyReport>('/decisions/apply-all', {
+    followed<BatchApplyReport>('/decisions/apply-all', {
       method: 'POST',
       body: body({ simulation_id, move_files, confirm }),
     }),
 
   revertDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
-    request<ApplyReport>('/decisions/revert', {
+    followed<ApplyReport>('/decisions/revert', {
       method: 'POST',
       body: body({ decision_ids, move_files, confirm }),
     }),

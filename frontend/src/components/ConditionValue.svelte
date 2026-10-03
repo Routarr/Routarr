@@ -4,6 +4,7 @@
     MIN_YEAR,
     maxYear,
     parseNumberList,
+    rejectedNumbers,
     parseStringList,
     parseYearBound,
   } from '../api/conditions';
@@ -57,6 +58,14 @@
     typed = text;
     onChange(parseList(text));
   }
+
+  // Named under the field rather than dropped: `603, 6O4` would otherwise save
+  // one id, and the second title would never be routed. The editor holds Save
+  // while any field says so.
+  const errorId = $props.id();
+  const rejected = $derived(
+    spec?.value_type === 'number_list' && typed !== null ? rejectedNumbers(typed) : [],
+  );
 </script>
 
 {#if spec}
@@ -81,12 +90,20 @@
   {:else if spec.value_type === 'number_list'}
     <input
       aria-label={spec.label}
-      aria-describedby={describedBy}
+      aria-describedby={[describedBy, rejected.length > 0 ? errorId : undefined]
+        .filter(Boolean)
+        .join(' ') || undefined}
+      aria-invalid={rejected.length > 0 ? 'true' : undefined}
       class="form-input"
       placeholder={t('PlaceholderNumberList')}
       value={listText}
       oninput={(event) => typeList(event.currentTarget.value)}
     />
+    {#if rejected.length > 0}
+      <p id={errorId} class="field-error">
+        {t('NotIdentifiers', { values: rejected.join(t('ListSeparator')) })}
+      </p>
+    {/if}
   {:else if spec.value_type === 'year_range'}
     <div class="flex gap-2">
       <input
@@ -117,7 +134,7 @@
   {:else if spec.value_type === 'string'}
     <input
       aria-label={spec.label}
-      class="form-input"
+      class="form-input mono"
       placeholder={t('PlaceholderPath')}
       value={String(value ?? '')}
       oninput={(event) => onChange(event.currentTarget.value)}

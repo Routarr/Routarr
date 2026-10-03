@@ -2,7 +2,7 @@
   import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
-  import { formatBytes, formatRelative } from '../api/format';
+  import { formatBytes, formatRelative, isolated } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -114,6 +114,12 @@
     return true;
   }
 
+  // A removed destination or category takes its row and the pressed button
+  // with it: the same button on the row now in its place takes the focus, else
+  // the one before, else the table.
+  const removeId = (index: number) => `folders-remove-${index}`;
+  const deleteCategoryId = (index: number) => `categories-delete-${index}`;
+
   /**
    * Declare a destination the instance does not report as a root folder: one
    * root folder per Arr is what an operator keeps there, and the targets
@@ -191,7 +197,7 @@
     <div class="card-header">
       <h2 class="card-title">{t('FolderMappings')}</h2>
     </div>
-    <TableRegion label={t('FolderMappings')}>
+    <TableRegion label={t('FolderMappings')} id="folders-table">
       <table>
         <caption class="visually-hidden">{t('FolderMappings')}</caption>
         <thead>
@@ -211,7 +217,7 @@
           {:else if folders.length === 0 && !bundle.error}
             <tr><td colspan="7"><EmptyState>{t('NoRootFolderDiscovered')}</EmptyState></td></tr>
           {:else}
-            {#each folders as folder (folder.id)}
+            {#each folders as folder, index (folder.id)}
               <tr>
                 <td><strong>{folder.instance_name}</strong></td>
                 <td>
@@ -271,20 +277,22 @@
                        would come back on the next sync, without its category. -->
                   {#if folder.origin === 'declared'}
                     <button
+                      id={removeId(index)}
                       class="btn btn-danger btn-sm"
                       type="button"
                       aria-label="{t('Remove')} – {folder.path}"
                       onclick={async () => {
                         if (
                           await askConfirmation(
-                            t('ConfirmRemoveDestination', { path: folder.path }),
+                            t('ConfirmRemoveDestination', { path: isolated(folder.path) }),
                             'Remove',
                           )
                         ) {
-                          void act(
+                          await act(
                             () => api.deleteRootFolder(folder.id),
                             t('DestinationRemoved', { path: folder.path }),
                           );
+                          void handFocus(removeId(index), removeId(index - 1), 'folders-table');
                         }
                       }}
                     >
@@ -316,7 +324,7 @@
         <label class="form-label" for="declare-path">{t('DeclareDestination')}</label>
         <input
           id="declare-path"
-          class="form-input"
+          class="form-input mono"
           bind:value={targetPath}
           placeholder={t('DeclareDestinationPlaceholder')}
         />
@@ -336,7 +344,7 @@
     <div class="card-header">
       <h2 class="card-title">{t('Categories')}</h2>
     </div>
-    <TableRegion label={t('Categories')}>
+    <TableRegion label={t('Categories')} id="categories-table">
       <table>
         <caption class="visually-hidden">{t('Categories')}</caption>
         <thead>
@@ -352,7 +360,7 @@
           {#if bundle.loading && categories.length === 0}
             <TableSkeleton columns={5} />
           {/if}
-          {#each categories as category (category.id)}
+          {#each categories as category, index (category.id)}
             <tr>
               <td>
                 <strong>{category.name}</strong>
@@ -387,6 +395,7 @@
                   </button>
                   {#if !category.is_default}
                     <button
+                      id={deleteCategoryId(index)}
                       class="btn btn-danger btn-sm"
                       aria-label="{t('Delete')} – {category.name}"
                       title={t('Delete')}
@@ -397,7 +406,12 @@
                             'Delete',
                           )
                         ) {
-                          void act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
+                          await act(() => api.deleteCategory(category.id), t('CategoryDeleted'));
+                          void handFocus(
+                            deleteCategoryId(index),
+                            deleteCategoryId(index - 1),
+                            'categories-table',
+                          );
                         }
                       }}
                     >

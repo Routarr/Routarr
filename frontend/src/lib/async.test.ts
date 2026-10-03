@@ -18,6 +18,9 @@ seedDictionary({
   RequestTimedOut: 'The server did not answer in time',
   ServerUnreachable: 'The server could not be reached',
   RequestId: 'request {id}',
+  ServerAnsweredStatus: 'The server answered {status}',
+  UnexpectedAnswer: 'A page that is not Routarr answered',
+  TaskFailedSeeTasks: 'The task failed, see Tasks',
 });
 
 describe('describeError', () => {
@@ -34,6 +37,31 @@ describe('describeError', () => {
   it('names a server it could not reach in the interface language', () => {
     expect(describeError(new ApiError('', 0, 'unreachable'))).toBe(
       'The server could not be reached',
+    );
+  });
+
+  /**
+   * Empty, the message drew no banner at all over a failed load, and a proxy's
+   * page drew one full of markup.
+   */
+  it('words a refusal that says nothing of its own by its status', () => {
+    expect(describeError(new ApiError('', 502, 'http_error'))).toBe('The server answered 502');
+    expect(describeError(new ApiError('', 502, 'http_error', 'req-1'))).toBe(
+      'The server answered 502 (request req-1)',
+    );
+  });
+
+  /** A followed job that failed without a message: the Tasks screen holds its detail. */
+  it('sends a failed task with nothing to say to the Tasks screen', () => {
+    expect(describeError(new ApiError('', 0, 'job_failed'))).toBe('The task failed, see Tasks');
+    expect(describeError(new ApiError('Radarr answered 401', 0, 'job_failed'))).toBe(
+      'Radarr answered 401',
+    );
+  });
+
+  it('says a sign-in page answered rather than showing a parse error', () => {
+    expect(describeError(new ApiError('', 200, 'unexpected_answer'))).toBe(
+      'A page that is not Routarr answered',
     );
   });
 

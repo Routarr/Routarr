@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
 use super::security::{declared_routes, route_template};
-use super::{TestApp, TestResponse};
+use super::{TestApp, TestResponse, finished, preferring_async};
 use crate::api::applications::GRANTS;
 use crate::api::contract::{self, SCOPE_EXTENSION, for_each_operation};
 use crate::config::{Config, normalise_base_path};
@@ -173,18 +173,6 @@ impl Checker {
     }
 }
 
-/// The task, once it has stopped running.
-async fn finished(app: &TestApp, id: &str) {
-    for _ in 0..200 {
-        let task = app.get(&format!("/api/v1/jobs/{id}")).await;
-        if task.json["status"] != "running" {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    panic!("the task {id} never finished");
-}
-
 /// Every operation the contract documents is called once, and what it
 /// answers matches the schema stated for it, names and types both. A handler
 /// returning another type than its documentation names fails here.
@@ -325,6 +313,10 @@ async fn every_documented_operation_answers_as_its_schema_says() {
         checker.check("POST", route, 202, &started);
         finished(&app, started.json["job_id"].as_str().unwrap()).await;
     }
+    // Last: the simulation that follows a sync holds the lock the ones above take.
+    let started = app.send(preferring_async("/api/v1/instances/sync", json!({}))).await;
+    checker.check("POST", "/instances/sync", 202, &started);
+    finished(&app, started.json["job_id"].as_str().unwrap()).await;
 
     let documented = checker.documented_successes();
     let missed: Vec<_> = documented.difference(&checker.seen).collect();
