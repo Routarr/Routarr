@@ -31,8 +31,31 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
 }
 
 /**
- * The form two spellings of one value share, mirroring `normalise_value` in the
- * rule engine.
+ * The Latin letters with a mark `fold_diacritic` reduces in the rule engine,
+ * and no others: a general strip of marks would also join `ガ` with `カ` and
+ * `ō` with `o`, which the engine keeps apart.
+ */
+const FOLDED: Record<string, string> = Object.fromEntries(
+  (
+    [
+      ['àáâãäå', 'a'],
+      ['ç', 'c'],
+      ['èéêë', 'e'],
+      ['ìíîï', 'i'],
+      ['ñ', 'n'],
+      ['òóôõöø', 'o'],
+      ['ùúûü', 'u'],
+      ['ýÿ', 'y'],
+    ] as const
+  ).flatMap(([marked, letter]) => [...marked].map((c) => [c, letter])),
+);
+
+/** What Rust's `char::is_alphanumeric` accepts. */
+const ALPHANUMERIC = /[\p{Alphabetic}\p{N}]/u;
+
+/**
+ * The form two spellings of one value share: `normalise_value` in the rule
+ * engine, character for character, both held to one table of cases.
  *
  * Only used to tell values apart in the interface: to keep a chip from being
  * added twice under `Science-Fiction` and `Science Fiction`, and to filter the
@@ -40,12 +63,18 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
  * always the value as the library spells it.
  */
 export function canonicalKey(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/\p{Diacritic}/gu, '')
-    .toLowerCase()
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim();
+  let out = '';
+  let gap = false;
+  for (const c of value) {
+    if (!ALPHANUMERIC.test(c)) {
+      gap = true;
+      continue;
+    }
+    if (gap && out) out += ' ';
+    gap = false;
+    for (const lower of c.toLowerCase()) out += FOLDED[lower] ?? lower;
+  }
+  return out;
 }
 
 /** Append unless an equivalent spelling is already there. */

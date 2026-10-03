@@ -17,12 +17,16 @@ test('the provider link leaves the application @subpath', async ({ browser }) =>
   await page.route('**/api/v1/auth/mode', (route) =>
     route.fulfill({ json: { mode: 'oidc', api_key_configured: false, api_key_pinned: false } }),
   );
-  await page.route('**/api/v1/auth/oidc/start', (route) =>
+  // Under the mount point only: a link that dropped it reaches the server's
+  // own answer and never this page.
+  await page.route('**/routarr/api/v1/auth/oidc/start', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<h1>Identity provider</h1>' }),
   );
 
   await page.goto('/routarr/');
-  await page.getByRole('link', { name: 'Sign in with your provider' }).click();
+  const link = page.getByRole('link', { name: 'Sign in with your provider' });
+  await expect(link).toHaveAttribute('href', '/routarr/api/v1/auth/oidc/start');
+  await link.click();
 
   await expect(page.getByRole('heading', { name: 'Identity provider' })).toBeVisible();
   await context.close();

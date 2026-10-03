@@ -234,6 +234,18 @@ describe('Root folders', () => {
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i1', '/media/movies/anime'));
   });
 
+  it('declares a destination once however often the form is submitted', async () => {
+    const declare = vi.spyOn(api, 'declareRootFolder').mockReturnValue(new Promise(() => {}));
+    show([folder()], []);
+
+    await userEvent.type(await screen.findByLabelText('Destination folder'), '/media/movies/anime');
+    const add = screen.getByRole('button', { name: 'Add' });
+    await fireEvent.click(add);
+    await fireEvent.submit(add.closest('form') as HTMLFormElement);
+
+    expect(declare).toHaveBeenCalledTimes(1);
+  });
+
   /**
    * The instance shown is the instance written to.
    *

@@ -124,7 +124,7 @@
         <tbody>
           {#if logs.loading && entries.length === 0}
             <TableSkeleton columns={5} />
-          {:else if entries.length === 0}
+          {:else if entries.length === 0 && !logs.error}
             <tr><td colspan="5"><EmptyState>{t('NoWritesYet')}</EmptyState></td></tr>
           {:else}
             {#each entries as entry (entry.id)}

@@ -24,7 +24,9 @@
   /**
    * The API other applications call, read from the contract the running
    * version serves. Its prose is the contract's own, in English, as the API
-   * is: marked `lang="en"` so a screen reader reads it as English.
+   * is: marked `lang="en"` so a screen reader reads it as English, and
+   * `dir="ltr"`, which `lang` does not set, so in Arabic its full stops and
+   * code stay where English puts them.
    */
   const spec = createAsync((signal) => api.openApi(signal));
   let search = $state('');
@@ -73,7 +75,7 @@
 
 {#snippet prose(text: string)}
   {#each paragraphs(text) as paragraph, index (index)}
-    <p lang="en" class="api-prose">
+    <p lang="en" dir="ltr" class="api-prose">
       {#each inline(paragraph) as part, at (at)}
         {#if part.code}<code class="mono">{part.text}</code>{:else}{part.text}{/if}
       {/each}
@@ -99,7 +101,7 @@
             <td class="mono">{row.name}</td>
             <td class="mono">{row.type}</td>
             <td>{t(row.required ? 'Yes' : 'No')}</td>
-            <td lang="en">{row.description}</td>
+            <td lang="en" dir="ltr">{row.description}</td>
           </tr>
         {/each}
       </tbody>
@@ -116,7 +118,7 @@
       <span class="badge badge-value"
         >{t(op.scope ? (SCOPES[op.scope] ?? op.scope) : 'ApiNoKey')}</span
       >
-      <span lang="en" class="text-muted">{op.summary}</span>
+      <span lang="en" dir="ltr" class="text-muted">{op.summary}</span>
     </summary>
     <div class="api-operation-body">
       {@render prose(op.description)}
@@ -142,7 +144,7 @@
                   <td class="mono">{parameter.in}</td>
                   <td class="mono">{typeLabel(parameter.schema)}</td>
                   <td>{t(parameter.required ? 'Yes' : 'No')}</td>
-                  <td lang="en">{parameter.description ?? ''}</td>
+                  <td lang="en" dir="ltr">{parameter.description ?? ''}</td>
                 </tr>
               {/each}
             </tbody>
@@ -164,7 +166,7 @@
           <li>
             <code class="mono">{response.code}</code>
             {#if response.schema}<code class="mono">{typeLabel(response.schema)}</code>{/if}
-            <span lang="en" class="text-muted">{response.description}</span>
+            <span lang="en" dir="ltr" class="text-muted">{response.description}</span>
           </li>
         {/each}
       </ul>

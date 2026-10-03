@@ -26,6 +26,7 @@ const STRINGS = {
   SigningStopped: 'Notifications are no longer signed.',
   ApiKeyMintedOnce: 'Copy it now.',
   SigningSecretUnreadable: 'The secret cannot be read. Replace it.',
+  Retry: 'Retry',
 };
 
 function show(signed: boolean, readable = true) {
@@ -67,14 +68,71 @@ describe('WebhookSigning', () => {
     expect(rotate).not.toHaveBeenCalled();
   });
 
-  it('stops signing once asked', async () => {
+  it('replaces the secret once asked, and shows the new one', async () => {
     const user = userEvent.setup();
     show(true);
+    const rotate = vi.spyOn(api, 'rotateWebhookSigning').mockResolvedValue({ secret: 'whsec_new' });
+
+    await user.click(await screen.findByRole('button', { name: 'Replace the secret' }));
+    await answerConfirmation();
+
+    expect(rotate).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('whsec_new')).toBeTruthy();
+  });
+
+  it('shows the refusal when a replacement fails', async () => {
+    const user = userEvent.setup();
+    const outcome = createOutcome();
+    vi.spyOn(api, 'webhookSigning').mockResolvedValue({
+      signed: false,
+      since: null,
+      readable: true,
+    });
+    vi.spyOn(api, 'rotateWebhookSigning').mockRejectedValue(new Error('Secret store is read-only'));
+    renderWithI18n(WebhookSigning, { props: { outcome }, strings: STRINGS });
+
+    await user.click(await screen.findByRole('button', { name: 'Generate a signing secret' }));
+
+    await waitFor(() => expect(outcome.error).toBe('Secret store is read-only'));
+    expect(screen.queryByText(/whsec_/)).toBeNull();
+  });
+
+  it('stops signing once asked, and takes the secret just made off the screen', async () => {
+    const user = userEvent.setup();
+    const status = vi.spyOn(api, 'webhookSigning').mockResolvedValue({
+      signed: false,
+      since: null,
+      readable: true,
+    });
+    renderWithI18n(WebhookSigning, { props: { outcome: createOutcome() }, strings: STRINGS });
+    vi.spyOn(api, 'rotateWebhookSigning').mockResolvedValue({ secret: 'whsec_made' });
     const remove = vi.spyOn(api, 'removeWebhookSigning').mockResolvedValue(undefined);
 
+    status.mockResolvedValue({ signed: true, since: '2026-09-30 12:00:00', readable: true });
+    await user.click(await screen.findByRole('button', { name: 'Generate a signing secret' }));
+    expect(await screen.findByText('whsec_made')).toBeTruthy();
+
+    status.mockResolvedValue({ signed: false, since: null, readable: true });
     await user.click(await screen.findByRole('button', { name: 'Stop signing' }));
     expect(await answerConfirmation()).toBe('Stop signing notifications?');
-    await waitFor(() => expect(remove).toHaveBeenCalled());
+
+    expect(remove).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByText('whsec_made')).toBeNull());
+  });
+
+  it('says why the status could not be read, and asks again on Retry', async () => {
+    const user = userEvent.setup();
+    const status = vi
+      .spyOn(api, 'webhookSigning')
+      .mockRejectedValueOnce(new Error('Connection refused'))
+      .mockResolvedValue({ signed: false, since: null, readable: true });
+    renderWithI18n(WebhookSigning, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Connection refused');
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Notifications are not signed.')).toBeTruthy();
+    expect(status).toHaveBeenCalledTimes(2);
   });
   /**
    * A secret the installation cannot open sends nothing at all, so the card

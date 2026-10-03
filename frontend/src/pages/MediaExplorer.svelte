@@ -141,7 +141,7 @@
         <tbody>
           {#if library.loading && items.length === 0}
             <TableSkeleton columns={6} />
-          {:else if items.length === 0}
+          {:else if items.length === 0 && !library.error}
             <tr><td colspan="6"><EmptyState>{t('NoMediaMatches')}</EmptyState></td></tr>
           {:else}
             {#each items as media (media.id)}

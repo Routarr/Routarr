@@ -110,7 +110,7 @@
     {#each conditions as condition, index (index)}
       {@const spec = specs.find((candidate) => candidate.type === condition.type)}
       <div class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
-        <span class="min-w-190 text-md">{caption(spec) ?? condition.type}</span>
+        <span class="condition-caption min-w-190 text-md">{caption(spec) ?? condition.type}</span>
         {#if spec?.counterpart}
           <select
             class="form-select w-auto"
@@ -132,7 +132,7 @@
             >{t('QuantifierAny')}</span
           >
         {/if}
-        <div class="flex-1">
+        <div class="condition-value flex-1">
           <ConditionValue
             {spec}
             describedBy={!spec?.counterpart &&

@@ -24,7 +24,7 @@
     {/if}
   </td>
   <td>
-    <strong>{decision.media_title}</strong>
+    <strong class="cell-title" title={decision.media_title}>{decision.media_title}</strong>
     <div class="text-muted text-sm">
       {decision.instance_name} · {t(mediaTypeKey(decision.media_type))}
       {#if decision.is_override}
@@ -34,7 +34,11 @@
       {/if}
     </div>
   </td>
-  <td class="mono text-sm">{decision.current_root_folder ?? t('None')}</td>
+  <td class="mono text-sm">
+    <span class="cell-path" title={decision.current_root_folder ?? undefined}>
+      <bdi>{decision.current_root_folder ?? t('None')}</bdi>
+    </span>
+  </td>
   <td>
     <!-- The shape and the colour for the eye, the word for a screen reader,
          which reads an unnamed icon as nothing. -->
@@ -51,7 +55,9 @@
   </td>
   <td class="mono text-sm">
     {#if decision.target_root_folder}
-      {decision.target_root_folder}
+      <span class="cell-path" title={decision.target_root_folder}>
+        <bdi>{decision.target_root_folder}</bdi>
+      </span>
     {:else}
       <span class="text-danger">
         <AlertTriangle size={12} />

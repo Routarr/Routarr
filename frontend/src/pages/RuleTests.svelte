@@ -120,7 +120,7 @@
                would take the focus with them. -->
           {#if cases.loading && cases.data === null}
             <TableSkeleton columns={5} />
-          {:else if (cases.data?.length ?? 0) === 0}
+          {:else if (cases.data?.length ?? 0) === 0 && !cases.error}
             <tr>
               <td colspan="5">
                 <EmptyState>{t('NoRuleTests')}</EmptyState>

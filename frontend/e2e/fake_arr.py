@@ -65,6 +65,10 @@ def initial_movies():
 
 MOVIES = initial_movies()
 
+# Each bulk edit as Radarr received it: whether the files moved on disk is only
+# in the request, never in the movies it leaves behind.
+EDITS = []
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
@@ -93,8 +97,11 @@ class Handler(BaseHTTPRequestHandler):
         # A reset hook, so a test can undo what a previous one moved.
         if path == "/__reset":
             MOVIES[:] = initial_movies()
+            EDITS.clear()
             ROOT_FOLDERS[:] = initial_root_folders()
             return self._send({"ok": True})
+        if path == "/__edits":
+            return self._send(EDITS)
         # A disk that stopped answering, as Radarr reports one: listed, and
         # not accessible.
         if path == "/__asleep":
@@ -108,6 +115,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_PUT(self):
         if self.path.startswith("/api/v3/movie/editor"):
             payload = self._body()
+            EDITS.append({"movieIds": payload["movieIds"], "moveFiles": payload.get("moveFiles")})
             target = payload["rootFolderPath"]
             edited = []
             for arr_id in payload["movieIds"]:

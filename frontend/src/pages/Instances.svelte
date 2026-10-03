@@ -177,13 +177,18 @@
     return host.startsWith('[') || host.includes('.');
   };
 
+  // A second press while the first is in flight would add the same Arr twice,
+  // and the server accepts both: names are not unique.
+  let saving = $state(false);
+
   async function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (!editing) return;
+    if (!editing || saving) return;
     completeScheme(editing.form);
     formError = null;
     let saved: Instance;
     const wasEdit = Boolean(editing.id);
+    saving = true;
     try {
       saved = editing.id
         ? await api.updateInstance(editing.id, editing.form)
@@ -192,6 +197,8 @@
       probe = null;
       formError = describeError(err);
       return;
+    } finally {
+      saving = false;
     }
     editing = null;
     const firstSync = saved.enabled && !saved.last_sync_at;
@@ -405,7 +412,7 @@
         <tbody>
           {#if list.loading && instances.length === 0}
             <TableSkeleton columns={6} />
-          {:else if instances.length === 0}
+          {:else if instances.length === 0 && !list.error}
             <tr><td colspan="6"><EmptyState>{t('NoInstanceConfigured')}</EmptyState></td></tr>
           {:else}
             {#each instances as instance (instance.id)}
@@ -745,10 +752,12 @@
             <button
               type="submit"
               class="btn btn-primary"
-              disabled={!form.name.trim() ||
+              disabled={saving ||
+                !form.name.trim() ||
                 !form.base_url.trim() ||
                 !intervalOk ||
-                (!isEdit && !form.api_key.trim())}>{t(isEdit ? 'Save' : 'AddInstance')}</button
+                (!isEdit && !form.api_key.trim())}
+              >{saving ? t('Saving') : t(isEdit ? 'Save' : 'AddInstance')}</button
             >
           </div>
         </div>

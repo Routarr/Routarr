@@ -25,6 +25,9 @@ const STRINGS = {
   PreviewTitle: 'Impact preview',
   PreviewSummary: 'Changing: {changed}. Moves from {beforeMoves} to {afterMoves}.',
   PreviewTruncated: 'Shown: {shown} of {total}.',
+  AppliesTo: 'Applies to',
+  ConditionLogic: 'Condition logic',
+  Enabled: 'Enabled',
 };
 
 const DRAFT: RuleDraft = {
@@ -322,6 +325,34 @@ describe('RuleEditor', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save rule' }));
 
     await waitFor(() => expect(create).toHaveBeenCalled());
+  });
+
+  /** Every field the form edits travels in the request, or a rule saves as it was. */
+  it('saves the media type, priority, match mode, enabled flag and exclusions as edited', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const update = vi.spyOn(api, 'updateRule').mockResolvedValue(undefined as never);
+    const exclusion = { type: 'genre_contains', value: ['Music'] };
+    render('r1', { draft: { ...DRAFT, exclusions: [exclusion] } });
+
+    await user.selectOptions(await screen.findByLabelText('Applies to'), 'series');
+    const priority = screen.getByLabelText('Priority');
+    await user.clear(priority);
+    await user.type(priority, '42');
+    await user.selectOptions(screen.getByLabelText('Condition logic'), 'any');
+    await user.click(screen.getByLabelText('Enabled'));
+    await user.click(screen.getByRole('button', { name: 'Save rule' }));
+
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    const [id, saved] = nthCall(update);
+    expect(id).toBe('r1');
+    expect(saved).toMatchObject({
+      media_type: 'series',
+      priority: 42,
+      match_mode: 'any',
+      enabled: false,
+      exclusions: [exclusion],
+    });
   });
 
   /**

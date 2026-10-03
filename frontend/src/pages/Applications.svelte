@@ -122,7 +122,7 @@
     <div class="card">
       <p><strong>{t('ApplicationTokenFor', { name: minted.name })}</strong></p>
       <WarningBanner message={t('ApiKeyMintedOnce')} />
-      <code class="mono">{minted.token}</code>
+      <code class="mono secret-once">{minted.token}</code>
     </div>
   {/if}
 
@@ -144,7 +144,7 @@
         <tbody>
           {#if applications.loading && rows.length === 0}
             <TableSkeleton columns={7} />
-          {:else if rows.length === 0}
+          {:else if rows.length === 0 && !applications.error}
             <tr><td colspan="7"><EmptyState>{t('NoApplications')}</EmptyState></td></tr>
           {:else}
             {#each rows as application (application.id)}

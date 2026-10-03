@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { ConditionSpec, LibraryFacets } from './types';
 import {
@@ -36,19 +38,18 @@ describe('defaultConditionValue', () => {
   });
 });
 
-describe('canonicalKey', () => {
-  /**
-   * The same folding the rule engine applies, so the interface never treats as
-   * distinct two values a rule would match alike.
-   */
-  it('folds case, accents and separators', () => {
-    expect(canonicalKey('  Science-Fiction ')).toBe('science fiction');
-    expect(canonicalKey('Science Fiction')).toBe('science fiction');
-    expect(canonicalKey('Comédie')).toBe('comedie');
-  });
+/**
+ * The same folding the rule engine applies, read from the table its own test
+ * reads: a pair one side joins and the other keeps apart is a second spelling
+ * the picker refuses, or a pair the editor accepts and the server refuses.
+ */
+const FOLDING: [string, string][] = JSON.parse(
+  readFileSync(join(process.cwd(), '../backend/src/services/normalise_value_cases.json'), 'utf8'),
+) as [string, string][];
 
-  it('does not invent synonyms', () => {
-    expect(canonicalKey('Sci-Fi')).not.toBe(canonicalKey('Science Fiction'));
+describe('canonicalKey', () => {
+  it.each(FOLDING)('folds %j as the rule engine does', (raw, folded) => {
+    expect(canonicalKey(raw)).toBe(folded);
   });
 });
 

@@ -113,7 +113,6 @@ describe('restoring a backup', () => {
 
     await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
     await answerConfirmation(null);
-    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(restore).not.toHaveBeenCalled();
     expect(outcome.notice).toBe('Settings saved.');
@@ -160,6 +159,24 @@ describe('deleting a backup', () => {
     renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
     return list;
   }
+
+  it('deletes nothing when the deletion is cancelled', async () => {
+    mountTwo(new Promise(() => {}));
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${FILE.name}` }));
+    await answerConfirmation(null);
+
+    expect(api.deleteBackup).not.toHaveBeenCalled();
+  });
+
+  it('deletes the archive whose row was used', async () => {
+    mountTwo(new Promise(() => {}));
+
+    await userEvent.click(await screen.findByRole('button', { name: `Delete – ${OLDER.name}` }));
+    await answerConfirmation();
+
+    expect(api.deleteBackup).toHaveBeenCalledExactlyOnceWith(OLDER.name);
+  });
 
   it('keeps the list on screen while it reloads', async () => {
     const list = mountTwo(new Promise(() => {}));

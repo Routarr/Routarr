@@ -46,8 +46,9 @@ CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 # `scripts/` holds the locale and API type checks the backend job runs, and
 # both read the frontend's copy of the API types, as a backend test does.
 echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)")"
-# The frontend job alone runs the bundle size check.
-echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|$CONTROL)")"
+# The frontend job alone runs the bundle size check, and the rule editor's
+# folding is held to the engine's table of cases.
+echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/services/normalise_value_cases\.json|$CONTROL)")"
 # `site/check.mjs` reads the version out of the crate's manifest, holds the
 # README and the first-run screen to one command and the site's words to the
 # application's dictionaries, the API page is built from the pinned contract,

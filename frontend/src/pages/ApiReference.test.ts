@@ -74,6 +74,16 @@ describe('ApiReference', () => {
     expect(code.closest('[lang="en"]')).not.toBeNull();
   });
 
+  /** `lang` sets no direction, and in Arabic English prose inherits right to left. */
+  it('lays the English prose out left to right whatever the page direction', async () => {
+    const { container } = show();
+    await screen.findByText('X-Api-Key');
+
+    const english = [...container.querySelectorAll('[lang="en"]')];
+    expect(english.length).toBeGreaterThan(2);
+    for (const element of english) expect(element.getAttribute('dir')).toBe('ltr');
+  });
+
   it('narrows the operations to what the search names', async () => {
     const user = userEvent.setup();
     show();

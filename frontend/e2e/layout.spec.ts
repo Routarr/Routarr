@@ -73,6 +73,43 @@ test.describe('table cells stay on one line', () => {
     expect(cut).toEqual({ overflows: true, endShown: true, startHidden: true });
   });
 
+  /**
+   * A bare title shrinks its column to the longest word and stacks a long one
+   * a word per line, pushing the reasons past the edge of the table.
+   */
+  test("a proposal's title keeps one line, its whole text on hover", async ({ page }) => {
+    await api('/rules', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: 'Totoro',
+        target_category: 'anime',
+        media_type: 'movie',
+        priority: 10,
+        enabled: true,
+        condition_logic: 'any',
+        conditions: [{ type: 'title_contains', value: ['totoro'] }],
+        exclusions: [],
+      }),
+    });
+    await openScreen(page, '/simulation');
+    await page.getByRole('button', { name: /run simulation/i }).click();
+
+    const title = page.locator('td .cell-title', { hasText: 'My Neighbor Totoro' });
+    await expect(title).toBeVisible();
+    await expect(title).toHaveAttribute('title', 'My Neighbor Totoro');
+    // Polled: the run redraws the table, and a row measured mid-redraw has no
+    // line at all.
+    await expect
+      .poll(() =>
+        title.evaluate((node) => {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+        }),
+      )
+      .toBe(1);
+  });
+
   test('a timestamp is written the way the language writes it', async ({ page }) => {
     await page.goto('/instances');
 
@@ -224,6 +261,70 @@ test.describe('on a phone', () => {
         `${path} has chrome ${measured.tallest}px tall in a ${measured.barHeight}px bar`,
       ).toBeLessThanOrEqual(measured.barHeight);
     }
+  });
+
+  /** The only readable copy of a credential, and an 85-character token has no break point. */
+  test('a key shown once wraps inside the page', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/applications');
+    await page.getByRole('button', { name: 'New key' }).click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel('Name').fill('phone');
+    await dialog.getByRole('button', { name: 'Create a key' }).click();
+
+    const token = page.locator('.secret-once');
+    await expect(token).toBeVisible();
+    const fits = await token.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      return {
+        page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        inside: box.right <= document.documentElement.clientWidth,
+      };
+    });
+    expect(fits).toEqual({ page: 0, inside: true });
+    const keys = (await api('/applications')) as { id: string }[];
+    for (const key of keys) await api(`/applications/${key.id}`, { method: 'DELETE' });
+  });
+
+  /** An empty table spans past the screen, and its message, centred across it, starts out of view. */
+  test("an empty table's message sits inside the visible part of its region", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/overrides');
+
+    const message = page.locator('td > .empty-state');
+    await expect(message).toBeVisible();
+    const placed = await message.evaluate((node) => {
+      const box = node.getBoundingClientRect();
+      const region = node.closest('.table-container')!.getBoundingClientRect();
+      return box.left >= region.left - 1 && box.right <= region.right + 1;
+    });
+    expect(placed).toBe(true);
+  });
+
+  /** A caption held at 190px beside the picker pushes the picker and Delete past a phone's dialog. */
+  test('a condition in the rule editor fits the dialog', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/rules');
+    await page.getByRole('button', { name: 'New Rule' }).click();
+    const list = 'Conditions (all of)';
+    await page.getByRole('combobox', { name: list, exact: true }).selectOption('genre_contains');
+    await page.getByRole('button', { name: `Add – ${list}` }).click();
+
+    const row = page.locator('.condition-row').first();
+    await expect(row).toBeVisible();
+    // Room for the value as well: squeezed to nothing beside the caption, the
+    // picker fits the dialog and cannot be used.
+    const fits = await row.evaluate((node) => {
+      const dialog = node.closest('dialog')!;
+      const remove = node.querySelector('button[id$="-delete"]')!.getBoundingClientRect();
+      const value = node.querySelector('.condition-value')!.getBoundingClientRect();
+      return {
+        scrolls: dialog.scrollWidth > dialog.clientWidth,
+        deleteInside: remove.right <= dialog.getBoundingClientRect().right,
+        valueUsable: value.width >= 120,
+      };
+    });
+    expect(fits).toEqual({ scrolls: false, deleteInside: true, valueUsable: true });
   });
 
   test('the navigation is a drawer that opens and closes', async ({ page }) => {

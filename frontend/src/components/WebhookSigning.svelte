@@ -6,6 +6,7 @@
   import type { Outcome } from '../lib/outcome.svelte';
   import { formatTimestamp } from '../api/format';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import ErrorBanner from './ErrorBanner.svelte';
   import WarningBanner from './WarningBanner.svelte';
 
   /**
@@ -64,7 +65,13 @@
          `direction: ltr` it needs in a right-to-left page. -->
     <div class="mb-3">
       <WarningBanner message={t('ApiKeyMintedOnce')} />
-      <code class="mono">{minted}</code>
+      <code class="mono secret-once">{minted}</code>
+    </div>
+  {/if}
+
+  {#if signing.error}
+    <div class="mb-3">
+      <ErrorBanner message={signing.error} onRetry={() => void signing.reload()} />
     </div>
   {/if}
 
