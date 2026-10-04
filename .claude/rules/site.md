@@ -54,9 +54,12 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## API page
 
-- The page shows one call and its answer, and sends the reader to the API reference screen and
-  the `/api/v1/openapi.json` of their own instance, at the version it runs. It copies no
-  operation or schema from the contract: a copy would describe main, not the release.
+- The page shows one call and its answer, then lists every operation from the contract of the
+  release it names (`releasedContract` in `release.mjs`, `src/contract.ts`), never from main's,
+  which describes what no image carries yet. Offline it falls back to this checkout's.
+- An operation's sentence is `api.ref.op.<operationId>` and a group's `api.ref.tag.<tag>`, in all
+  four catalogues. `check.mjs` reads both from `backend/openapi/v1.json`, so a new operation on
+  main needs its sentences in the same change, and a key naming none fails.
 
 ## Layout
 

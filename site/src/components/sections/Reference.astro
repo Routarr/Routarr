@@ -1,0 +1,115 @@
+---
+import { groups, type Field } from '../../contract';
+import { version } from '../../version';
+import { useTranslations, type Key, type Locale } from '../../i18n';
+
+/**
+ * Every operation the release the page names offers, grouped as the contract
+ * groups them. Each one opens on what it takes and the top level of what it
+ * answers, with no script: a `<details>` folds itself.
+ */
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const t = useTranslations(locale);
+
+/* Keys built from the contract's own names, which `check.mjs` holds to it. */
+const tagName = (tag: string) => t(`api.ref.tag.${tag}` as Key);
+const tagNote = (tag: string) => t(`api.ref.tag.${tag}.note` as Key);
+const does = (id: string) => t(`api.ref.op.${id}` as Key);
+const where = (field: Field) => (field.where ? t(`api.ref.in.${field.where}` as Key) : '');
+---
+
+<section id="api-reference">
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">{t('api.ref.span')}</span>
+      <h2 set:html={t('api.ref.h2')} />
+      <p>{t('api.ref.p').replace('{version}', version)}</p>
+    </div>
+
+    {
+      groups.map((group) => (
+        <div class="ref-group">
+          <h3>{tagName(group.tag)}</h3>
+          <p class="ref-note">{tagNote(group.tag)}</p>
+          {group.operations.map((op) => (
+            <details class="ref-op">
+              <summary>
+                <span class={`ref-method ref-${op.method.toLowerCase()}`}>{op.method}</span>
+                <code class="ref-path">{op.path}</code>
+                <span class="ref-does">{does(op.id)}</span>
+                <span class="ref-scope">{op.scope ?? t('api.ref.open')}</span>
+              </summary>
+              <div class="ref-detail">
+                {op.params.length === 0 && op.body.length === 0 && (
+                  <p class="ref-label">{t('api.ref.nothing')}</p>
+                )}
+                {op.params.length > 0 && (
+                  <>
+                    <p class="ref-label">{t('api.ref.params')}</p>
+                    <dl class="ref-fields">
+                      {op.params.map((field) => (
+                        <>
+                          <dt>
+                            <code>{field.name}</code>
+                          </dt>
+                          <dd>
+                            <code>{field.type}</code> · {where(field)}
+                            {field.required && <> · {t('api.ref.required')}</>}
+                          </dd>
+                        </>
+                      ))}
+                    </dl>
+                  </>
+                )}
+                {op.body.length > 0 && (
+                  <>
+                    <p class="ref-label">{t('api.ref.body')}</p>
+                    <dl class="ref-fields">
+                      {op.body.map((field) => (
+                        <>
+                          <dt>
+                            <code>{field.name}</code>
+                          </dt>
+                          <dd>
+                            <code>{field.type}</code>
+                            {field.required && <> · {t('api.ref.required')}</>}
+                          </dd>
+                        </>
+                      ))}
+                    </dl>
+                  </>
+                )}
+                {op.answer && (
+                  <>
+                    <p class="ref-label">
+                      {t('api.ref.answer')} <code>{op.answer.status}</code>
+                      {op.answer.type && <code>{op.answer.type}</code>}
+                    </p>
+                    {op.answer.fields.length > 0 && (
+                      <dl class="ref-fields">
+                        {op.answer.fields.map((field) => (
+                          <>
+                            <dt>
+                              <code>{field.name}</code>
+                            </dt>
+                            <dd>
+                              <code>{field.type}</code>
+                            </dd>
+                          </>
+                        ))}
+                      </dl>
+                    )}
+                  </>
+                )}
+              </div>
+            </details>
+          ))}
+        </div>
+      ))
+    }
+  </div>
+</section>

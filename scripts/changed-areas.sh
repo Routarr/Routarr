@@ -51,17 +51,19 @@ CONTROL='\.github/workflows/ci\.yml|scripts/changed-areas\.sh'
 # `scripts/` holds the locale and API type checks the backend job runs, and
 # both read the frontend's copy of the API types, as a backend test does.
 echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)")"
-# The frontend job alone runs the bundle size check, and the rule editor's
-# folding is held to the engine's table of cases.
-echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/services/normalise_value_cases\.json|$CONTROL)")"
+# The frontend job alone runs the bundle size check, the rule editor's folding
+# is held to the engine's table of cases, and a count is grouped as the
+# server's table and its list of count placeholders say.
+echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/services/normalise_value_cases\.json|backend/src/(grouped_count_cases\.json|localization\.rs)|$CONTROL)")"
 # `site/check.mjs` reads the version out of the crate's manifest, holds the
-# README and the first-run screen to one command and the site's words to the
-# application's dictionaries, and `site/verify.mjs` loads Playwright out of the
-# frontend's `node_modules`.
+# README and the first-run screen to one command, the site's words to the
+# application's dictionaries and the API reference's sentences to the
+# contract, and `site/verify.mjs` loads Playwright out of the frontend's
+# `node_modules`.
 # Each is a real dependency on another deliverable: a Dependabot bump of
 # `@playwright/test` matches nothing else the site job watches, and would land
 # green while breaking it.
-echo "site=$(decide "^(site/|backend/(Cargo\.toml|locales/)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
+echo "site=$(decide "^(site/|backend/(Cargo\.toml|locales/|openapi/v1\.json)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
 # What the root Dockerfile builds or copies, what starts the image, and the
 # compose file whose container name and data path the first-run command names.
 # Not ci.yml: nothing in it reaches the image.

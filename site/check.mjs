@@ -402,7 +402,25 @@ if (!readKey) {
     .filter((e) => e.isFile() && /\.(astro|ts)$/.test(e.name))
     .map((e) => readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8'))
     .join('\n');
+  // The reference builds its keys from the contract's own names
+  // (`src/contract.ts`), so they are read here from this checkout's contract:
+  // each operation and group of it has a sentence, and a key naming none is
+  // left behind. A release's contract is part of this one, since an
+  // operation is never removed.
+  const contract = JSON.parse(readFileSync(join(ROOT, '../backend/openapi/v1.json'), 'utf-8'));
+  const operations = Object.values(contract.paths).flatMap((methods) =>
+    Object.values(methods).map((operation) => operation.operationId),
+  );
+  const built = new Set([
+    ...operations.map((id) => `api.ref.op.${id}`),
+    ...(contract.tags ?? []).flatMap(({ name }) => [`api.ref.tag.${name}`, `api.ref.tag.${name}.note`]),
+    ...['path', 'query', 'header'].map((where) => `api.ref.in.${where}`),
+  ]);
+  for (const key of built) {
+    if (!(key in english)) fail(`src/i18n/en.json has no ${key}, which the API reference builds from the contract`);
+  }
   const unused = Object.keys(english).filter((key) => {
+    if (built.has(key)) return false;
     return !sources.includes(`'${key}'`) && !sources.includes(`"${key}"`);
   });
   if (unused.length) {
