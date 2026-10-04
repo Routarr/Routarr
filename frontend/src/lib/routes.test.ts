@@ -30,7 +30,7 @@ describe('the route table', () => {
 
 describe('screenKey', () => {
   it('names a screen by its menu entry, and any other path as not found', () => {
-    expect(screenKey('/rules/tests')).toBe('RuleTests');
+    expect(screenKey('/rule-tests')).toBe('RuleTests');
     expect(screenKey('/')).toBe('Dashboard');
     expect(screenKey('/rules/nope')).toBe('NotFoundTitle');
   });

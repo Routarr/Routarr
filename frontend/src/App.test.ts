@@ -35,7 +35,7 @@ describe('App', () => {
       failed_decisions: 0,
       warnings: [],
     });
-    navigate('/logs');
+    navigate('/move-log');
     renderWithI18n(App, {
       strings: { UnexpectedError: 'Unexpected error', ReloadPage: 'Reload the page' },
     });

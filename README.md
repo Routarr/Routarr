@@ -101,12 +101,12 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 
 1. **Instances**: add Radarr or Sonarr. The form tries the address and the key, and saving reads
    the library at once.
-2. **Root Folders**: create categories, map the folders your Arrs report to them, and declare
+2. **Categories and folders**: create categories, map the folders your Arrs report to them, and declare
    any destination they do not list. A declared destination is written as the Arr sees it:
    `/data/movies/4k` for an Arr in a Linux container, `D:\Movies\4K` or `\\nas\films` for one on
    Windows.
 3. **Metadata sources** (optional): Radarr and Sonarr already supply genres, language and
-   certification. Enable TMDb or another source in **Settings** for keywords and origin country.
+   certification. Enable TMDb or another source there for keywords and origin country.
 4. **Rules**: write rules and preview their impact.
 5. **Simulation**: run it, read the justifications, apply what you agree with.
 6. **Settings** (optional): turn off the global dry-run once you trust the result.
@@ -123,7 +123,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
 
 Every variable is listed and commented in [`backend/.env.example`](backend/.env.example). Everything
-else is set from the **Settings** page.
+else is set in the interface, under **Settings** and **Metadata sources**.
 
 Behind a reverse proxy in `forms` or `oidc` mode, forward the public host and scheme
 (`X-Forwarded-Host`, `X-Forwarded-Proto`), and the port in `X-Forwarded-Port` when it is not 80 or

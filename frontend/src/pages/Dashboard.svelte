@@ -90,7 +90,7 @@
       items={warnings.slice(0, 3).map((warning) => ({ text: warning.message }))}
     >
       {#snippet action()}
-        <a href={href('/health')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>
+        <a href={href('/diagnostics')} class="btn btn-secondary btn-sm">{t('Diagnostics')}</a>
       {/snippet}
     </BannerList>
 

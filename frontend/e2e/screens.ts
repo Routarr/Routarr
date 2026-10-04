@@ -6,5 +6,10 @@ import { SECTIONS } from '../src/lib/settings';
  */
 export { SCREENS } from '../src/lib/routes';
 
-/** Each section of the settings screen, which shows one at a time. */
-export const SETTINGS_SECTIONS = SECTIONS.map(({ id }) => `/settings#${id}`);
+/**
+ * Each section of the settings screen, which shows one at a time. A screen of
+ * one section, as the metadata sources, is in `SCREENS` already.
+ */
+export const SETTINGS_SECTIONS = SECTIONS.filter(({ page }) => page === 'settings').map(
+  ({ id }) => `/settings#${id}`,
+);

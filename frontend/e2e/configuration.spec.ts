@@ -11,7 +11,7 @@ import { test, expect, api, openScreen, writesDuring, API, ARR } from './fixture
 
 test.describe('root folders', () => {
   test('mapping a folder to a category sticks', async ({ page }) => {
-    await page.goto('/root-folders');
+    await page.goto('/categories');
 
     // The fixture maps both folders through the API. One is unmapped through the
     // UI, and the change has to survive a reload rather than only re-render.
@@ -42,7 +42,7 @@ test.describe('root folders', () => {
       }),
     });
 
-    await page.goto('/root-folders');
+    await page.goto('/categories');
     await page.getByRole('button', { name: 'Rename category – anime' }).click();
 
     const dialog = page.getByRole('dialog');
@@ -70,7 +70,7 @@ test.describe('root folders', () => {
   test('an unmapped category is reported rather than left to guess', async ({ page }) => {
     await api('/categories', { method: 'POST', body: JSON.stringify({ name: 'concerts' }) });
 
-    await page.goto('/health');
+    await page.goto('/diagnostics');
     // Nothing points at `concerts`, and a rule targeting it would silently skip
     // every match, so diagnostics has to say so. Counted, since the reset maps
     // every other category: one reported is this one.
@@ -98,7 +98,7 @@ test.describe('exceptions', () => {
       }),
     });
 
-    await page.goto('/overrides');
+    await page.goto('/exceptions');
     await page.getByRole('button', { name: /new exception/i }).click();
 
     await page.getByPlaceholder(/search the library/i).fill('Akira');
@@ -287,7 +287,7 @@ test.describe('metadata sources', () => {
   test.afterEach(() => listSources('arr'));
 
   /**
-   * The priority list is the only control in Settings that is neither an input
+   * The priority list is the only control among the settings that is neither an input
    * nor a select: two buttons mutating an order that is saved as one string. A
    * button wired to nothing would look perfectly fine in a screenshot.
    */
@@ -295,7 +295,7 @@ test.describe('metadata sources', () => {
     // TMDb has no key here and answers nothing, but a listed source is ordered
     // all the same, and it is the one every stack knows.
     await listSources('arr,tmdb');
-    await page.goto('/settings#metadata');
+    await page.goto('/sources');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     const sources = page.locator('#setting-metadata_providers');
@@ -322,7 +322,7 @@ test.describe('metadata sources without a key', () => {
    * the diagnostics say nothing about it.
    */
   test('a fresh stack lists the Arr alone and raises no key warning', async ({ page }) => {
-    await page.goto('/settings#metadata');
+    await page.goto('/sources');
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources.getByRole('button', { name: 'Enable – TMDb' })).toBeDisabled();
     await expect(sources.getByLabel('TMDb', { exact: true })).toHaveAttribute(
@@ -332,7 +332,7 @@ test.describe('metadata sources without a key', () => {
 
     // The source rows arrive with the warnings, so the list is loaded before
     // its silence is read.
-    await page.goto('/health');
+    await page.goto('/diagnostics');
     await expect(page.locator('.source-name')).toHaveText(['Radarr / Sonarr']);
     await expect(page.getByText(/TMDb is in the source list/)).toHaveCount(0);
 
@@ -353,7 +353,7 @@ test.describe('metadata sources without a key', () => {
     await listSources('arr,tmdb');
     // Addressed by its section: the settings are grouped into tabs, and the
     // hash is what makes one of them linkable.
-    await page.goto('/settings#metadata');
+    await page.goto('/sources');
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources).toBeVisible();
 
@@ -503,7 +503,7 @@ test.describe('rule tests', () => {
 
     // Pinned from the explanation panel, which already holds the whole answer:
     // that is what makes it one click rather than a form.
-    await page.goto('/media');
+    await page.goto('/library');
     await page
       .getByRole('button', { name: /^Why\?/ })
       .first()
@@ -513,7 +513,7 @@ test.describe('rule tests', () => {
     await expect(panel.getByRole('button', { name: 'Pinned' })).toBeVisible();
     await page.keyboard.press('Escape');
 
-    await page.goto('/rules/tests');
+    await page.goto('/rule-tests');
     await page.getByRole('button', { name: 'Run tests' }).click();
     await expect(page.locator('.banner-success')).toBeVisible();
 

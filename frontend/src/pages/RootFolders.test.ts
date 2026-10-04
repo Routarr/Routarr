@@ -27,7 +27,7 @@ const STRINGS = {
   DestinationRemoved: "Destination '{path}' removed",
   Remove: 'Remove',
   Instance: 'Instance',
-  RootFolders: 'Root folders',
+  RootFolders: 'Categories and folders',
   Categories: 'Categories',
   FolderMappings: 'Folder mappings',
   NewCategory: 'New category',

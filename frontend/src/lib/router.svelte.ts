@@ -152,7 +152,10 @@ export function interceptLinks() {
   };
 }
 
-/** Whether a navigation entry is the one being shown. */
-export function isCurrent(path: string, exact = false): boolean {
-  return exact ? router.path === path : router.path === path || router.path.startsWith(`${path}/`);
+/**
+ * Whether a navigation entry is the one being shown: its own path, or one
+ * under it. Compared up to a separator, so `/rules` stays dark on `/rule-tests`.
+ */
+export function isCurrent(path: string): boolean {
+  return router.path === path || router.path.startsWith(`${path}/`);
 }

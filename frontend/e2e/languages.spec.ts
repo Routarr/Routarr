@@ -113,10 +113,21 @@ async function guideShown(page: Page, path: string): Promise<void> {
   if (path === '/') await expect(page.locator('#guide-title')).toBeVisible();
 }
 
-/** A layout that follows the width has run once the next frame is drawn. */
+/**
+ * A layout that follows the width has run once the next frame is drawn and
+ * every transition it started has ended: read halfway, an inset still on its
+ * way holds a label on one line it wraps once settled.
+ */
 async function resize(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
-  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    const settling = document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map((animation) => animation.finished.catch(() => undefined));
+    await Promise.all(settling);
+  });
 }
 
 async function speak(code: string): Promise<void> {

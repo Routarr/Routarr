@@ -29,8 +29,6 @@ export interface Route {
   key: string;
   /** Dictionary key for the few words the quick search shows beside the label. */
   hint: string;
-  /** Set where a nested route would otherwise light its parent too. */
-  exact?: boolean;
   /** Which of the shell's counts this entry answers, if any. */
   badge?: keyof Counts;
 }
@@ -38,10 +36,14 @@ export interface Route {
 /**
  * The destinations, grouped by what someone came to do.
  *
- * The order says what the application is for: the rules, the screen the
- * product exists for, follow the dashboard, and the screens configured once at
- * install come last. A group of two or three is read at a glance where a flat
- * list is scanned every time.
+ * The order says what the application is for: what decides where a title goes
+ * follows the dashboard, the screens configured once at install come after,
+ * and what serves other applications comes last. A group of two to four is read
+ * at a glance where a flat list is scanned every time.
+ *
+ * An exception sits with the rules because it outranks every one of them, and
+ * the count of proposals waiting sits on the simulation, the one screen that
+ * applies them.
  *
  * The group heading is a label, never a heading level: the accessibility sweep
  * checks that no screen skips one, and a navigation is not an outline.
@@ -49,42 +51,46 @@ export interface Route {
 export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
   {
     key: null,
-    items: [{ to: '/', key: 'Dashboard', hint: 'HintDashboard', exact: true }],
+    items: [{ to: '/', key: 'Dashboard', hint: 'HintDashboard' }],
   },
   {
     key: 'NavGroupDaily',
     items: [
-      // Exact: `/rules/tests` is its own destination, and without this both
-      // would light up at once.
-      { to: '/rules', key: 'RulesEngine', hint: 'HintRules', exact: true },
-      { to: '/rules/tests', key: 'RuleTests', hint: 'HintRuleTests' },
-      { to: '/simulation', key: 'Simulation', hint: 'HintSimulation' },
+      { to: '/rules', key: 'RulesEngine', hint: 'HintRules' },
+      { to: '/exceptions', key: 'Overrides', hint: 'HintOverrides' },
+      { to: '/rule-tests', key: 'RuleTests', hint: 'HintRuleTests' },
+      { to: '/simulation', key: 'Simulation', hint: 'HintSimulation', badge: 'decisions' },
     ],
   },
   {
     key: 'NavGroupReview',
     items: [
-      { to: '/media', key: 'MediaExplorer', hint: 'HintLibrary' },
-      { to: '/history', key: 'AuditHistory', hint: 'HintHistory', badge: 'decisions' },
-      { to: '/overrides', key: 'Overrides', hint: 'HintOverrides' },
+      { to: '/library', key: 'MediaExplorer', hint: 'HintLibrary' },
+      { to: '/history', key: 'AuditHistory', hint: 'HintHistory' },
     ],
   },
   {
     key: 'NavGroupSupervision',
     items: [
-      { to: '/jobs', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
-      { to: '/logs', key: 'Logs', hint: 'HintLogs', badge: 'failed' },
-      { to: '/health', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
+      { to: '/tasks', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
+      { to: '/move-log', key: 'Logs', hint: 'HintLogs', badge: 'failed' },
+      { to: '/diagnostics', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],
   },
   {
     key: 'NavGroupConfiguration',
     items: [
       { to: '/instances', key: 'Instances', hint: 'HintInstances' },
-      { to: '/root-folders', key: 'RootFolders', hint: 'HintRootFolders' },
+      { to: '/categories', key: 'RootFolders', hint: 'HintRootFolders' },
+      { to: '/sources', key: 'MetadataSources', hint: 'HintSources' },
+      { to: '/settings', key: 'Settings', hint: 'HintSettings' },
+    ],
+  },
+  {
+    key: 'NavGroupIntegrations',
+    items: [
       { to: '/applications', key: 'Applications', hint: 'HintApplications' },
       { to: '/reference', key: 'ApiReference', hint: 'HintApiReference' },
-      { to: '/settings', key: 'Settings', hint: 'HintSettings' },
     ],
   },
 ];

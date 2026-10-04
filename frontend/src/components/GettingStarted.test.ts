@@ -20,7 +20,7 @@ const STRINGS = {
   GuideInstanceTitle: 'Connect Radarr or Sonarr',
   GuideInstanceAction: 'Add an instance',
   GuideCategoriesTitle: 'Map root folders to categories',
-  GuideCategoriesAction: 'Open root folders',
+  GuideCategoriesAction: 'Open categories and folders',
   GuideMetadataTitle: 'Choose metadata sources',
   GuideMetadataAction: 'Open the sources',
   GuideRuleTitle: 'Write a first rule',
@@ -85,14 +85,14 @@ describe('GettingStarted', () => {
 
     // A done step offers nothing to do.
     expect(screen.queryByRole('link', { name: 'Add an instance' })).toBeNull();
-    const next = screen.getByRole('link', { name: 'Open root folders' });
-    expect(next.getAttribute('href')).toBe('/root-folders');
+    const next = screen.getByRole('link', { name: 'Open categories and folders' });
+    expect(next.getAttribute('href')).toBe('/categories');
     expect(next.classList.contains('btn-primary')).toBe(true);
     expect(screen.getByRole('link', { name: 'Create a rule' }).getAttribute('href')).toBe(
       '/rules?new=1',
     );
     expect(screen.getByRole('link', { name: 'Open the sources' }).getAttribute('href')).toBe(
-      '/settings#metadata',
+      '/sources',
     );
   });
 

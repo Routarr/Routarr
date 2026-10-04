@@ -17,7 +17,9 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': {
+      // With its slash: matched as a bare prefix, `/api` would also send the
+      // backend a screen whose path starts with those letters.
+      '/api/': {
         target: 'http://localhost:9876',
         changeOrigin: true,
         // `changeOrigin` rewrites `Host` to the backend's own, and the backend

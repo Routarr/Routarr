@@ -35,7 +35,7 @@ test.describe('table cells stay on one line', () => {
    * both read as the same start.
    */
   test('a path too long for its cell keeps its end and loses its start', async ({ page }) => {
-    await page.goto('/media');
+    await page.goto('/library');
 
     const cell = page.locator('.cell-path').first();
     await expect(cell).toBeVisible();
@@ -177,7 +177,7 @@ test.describe('on a phone', () => {
    */
   test('the source list stacks rather than squeezing its own field', async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 812 });
-    await page.goto('/settings#metadata');
+    await page.goto('/sources');
     await expect(page.locator('.source-row').first()).toBeVisible();
 
     const measured = await page.evaluate(() => {
@@ -287,7 +287,7 @@ test.describe('on a phone', () => {
   /** An empty table spans past the screen, and its message, centred across it, starts out of view. */
   test("an empty table's message sits inside the visible part of its region", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
-    await openScreen(page, '/overrides');
+    await openScreen(page, '/exceptions');
 
     const message = page.locator('td > .empty-state');
     await expect(message).toBeVisible();
@@ -334,7 +334,7 @@ test.describe('on a phone', () => {
 
     // In the viewport rather than visible: a closed drawer is only translated
     // off the screen, which still counts as visible.
-    const link = sidebar.locator('a[href="/media"]');
+    const link = sidebar.locator('a[href="/library"]');
     await expect(link).not.toBeInViewport();
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await expect(sidebar).toHaveClass(/is-open/);
@@ -345,7 +345,7 @@ test.describe('on a phone', () => {
     // destination is not.
     await link.click();
     await expect(sidebar).not.toHaveClass(/is-open/);
-    await expect(page).toHaveURL(/\/media/);
+    await expect(page).toHaveURL(/\/library/);
   });
 });
 
@@ -470,7 +470,7 @@ test.describe('the chrome draws one line', () => {
    * lands.
    */
   test('the sidebar header and the top bar end at the same height', async ({ page }) => {
-    await openScreen(page, '/media');
+    await openScreen(page, '/library');
 
     const [sidebar, topbar] = await Promise.all([
       page.locator('.sidebar-header').boundingBox(),
@@ -561,7 +561,7 @@ test('selecting rows does not move the rows', async ({ page }) => {
  * query, and it reads as a design choice until you sample the pixels.
  */
 test('a table with nothing to scroll has no shadow down its edges', async ({ page }) => {
-  await openScreen(page, '/logs');
+  await openScreen(page, '/move-log');
 
   const container = page.locator('.table-container').first();
   await container.waitFor({ state: 'visible' });
@@ -638,7 +638,7 @@ test.describe('every screen draws a shared thing the same way', () => {
   /** A row without a rank keeps its name in the wide lane. */
   test('a source name on Diagnostics holds one line on a phone', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto('/health');
+    await page.goto('/diagnostics');
     const names = page.locator('.source-row .source-name');
     await expect(names.first()).toBeVisible();
 

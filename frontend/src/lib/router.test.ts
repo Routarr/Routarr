@@ -109,12 +109,12 @@ describe('the href of a route', () => {
 });
 
 describe('the current entry', () => {
-  it('matches an exact entry on its own path only, not on a path under it', () => {
-    navigate('/rules/tests');
+  it('leaves dark an entry whose path only starts the current one', () => {
+    navigate('/rule-tests');
 
-    expect(isCurrent('/rules', true)).toBe(false);
-    expect(isCurrent('/rules')).toBe(true);
-    expect(isCurrent('/rules/tests')).toBe(true);
+    expect(isCurrent('/rules')).toBe(false);
+    expect(isCurrent('/rule-tests')).toBe(true);
+    expect(isCurrent('/')).toBe(false);
   });
 
   it('treats a child path as being under its section', () => {
@@ -217,10 +217,10 @@ describe('intercepting links', () => {
     listening();
     navigate('/rules');
 
-    window.history.replaceState({}, '', '/logs');
+    window.history.replaceState({}, '', '/move-log');
     window.dispatchEvent(new PopStateEvent('popstate'));
 
-    expect(router.path).toBe('/logs');
+    expect(router.path).toBe('/move-log');
   });
 
   it('stops listening once it is told to', () => {

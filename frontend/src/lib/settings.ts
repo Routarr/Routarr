@@ -310,17 +310,27 @@ export const FIELDS: Field[] = [
  *
  * Every setting in one column means scrolling past automation to reach a
  * retention count. The grouping follows what a person is *doing* (setting the
- * thing up, deciding where media goes, letting it run unattended, choosing what
- * describes it, keeping it healthy) rather than the order the fields are
- * declared in.
+ * thing up, deciding where media goes, letting it run unattended, hearing about
+ * it, choosing what describes it, keeping it healthy) rather than the order the
+ * fields are declared in.
+ *
+ * `page` says which screen edits the section: the metadata sources have their
+ * own, since the guide sends a fresh install there and their warnings name it.
+ * Each screen saves its own sections and no other.
  *
  * `keys` is the source of truth for what appears where. A field missing from
  * every section is caught by a test rather than silently unreachable.
  */
 export const SECTIONS = [
-  { id: 'general', labelKey: 'SettingsTabGeneral', keys: ['ui_language', 'ui_theme'] },
+  {
+    id: 'general',
+    page: 'settings',
+    labelKey: 'SettingsTabGeneral',
+    keys: ['ui_language', 'ui_theme'],
+  },
   {
     id: 'routing',
+    page: 'settings',
     labelKey: 'SettingsTabRouting',
     keys: [
       'global_dry_run',
@@ -332,12 +342,20 @@ export const SECTIONS = [
   },
   {
     id: 'automation',
+    page: 'settings',
     labelKey: 'SettingsTabAutomation',
     keys: [
       'auto_sync_enabled',
       'auto_simulate_enabled',
       'auto_apply_enabled',
       'scheduler_interval_minutes',
+    ],
+  },
+  {
+    id: 'notifications',
+    page: 'settings',
+    labelKey: 'SettingsTabNotifications',
+    keys: [
       'notification_webhook_url',
       'notification_format',
       'notify_sync_failed',
@@ -346,7 +364,20 @@ export const SECTIONS = [
     ],
   },
   {
+    id: 'maintenance',
+    page: 'settings',
+    labelKey: 'SettingsTabMaintenance',
+    keys: [
+      'backup_enabled',
+      'backup_interval_hours',
+      'backup_retention_count',
+      'decision_retention_days',
+      'log_retention_days',
+    ],
+  },
+  {
     id: 'metadata',
+    page: 'sources',
     labelKey: 'Metadata',
     keys: [
       'metadata_providers',
@@ -357,17 +388,9 @@ export const SECTIONS = [
       'certification_regions',
     ],
   },
-  {
-    id: 'maintenance',
-    labelKey: 'SettingsTabMaintenance',
-    keys: [
-      'backup_enabled',
-      'backup_interval_hours',
-      'backup_retention_count',
-      'decision_retention_days',
-      'log_retention_days',
-    ],
-  },
 ] as const;
 
 export type SectionId = (typeof SECTIONS)[number]['id'];
+
+/** A screen that edits settings: each holds the sections naming it. */
+export type SettingsPage = (typeof SECTIONS)[number]['page'];
