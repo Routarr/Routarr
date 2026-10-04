@@ -54,24 +54,23 @@
    * alone, and `/decisions` lists what it stored by its id.
    */
   let runPage = $state(1);
+  // Each page arrives with its moves selected, in the same update as its
+  // rows: selected a render later, the select-all box would turn clickable
+  // while still unticked.
   const runLoad = createAsync(
-    async (signal) =>
-      result
-        ? api.getDecisions(
-            { simulation_id: result.simulation_id, page: runPage, per_page: PENDING_PAGE },
-            signal,
-          )
-        : null,
+    async (signal) => {
+      if (!result) return null;
+      const page = await api.getDecisions(
+        { simulation_id: result.simulation_id, page: runPage, per_page: PENDING_PAGE },
+        signal,
+      );
+      select(
+        page.data.filter((d) => d.action === 'move' && d.status === 'pending').map((d) => d.id),
+      );
+      return page;
+    },
     () => [result?.simulation_id, runPage],
   );
-
-  // Each page of a run arrives with its moves selected, as the run's single
-  // answer did before it was paged.
-  $effect(() => {
-    const page = runLoad.data?.data;
-    if (page)
-      select(page.filter((d) => d.action === 'move' && d.status === 'pending').map((d) => d.id));
-  });
 
   /** How far the run being followed has gone, while one is. */
   let progress = $state<{ current: number; total: number } | null>(null);
