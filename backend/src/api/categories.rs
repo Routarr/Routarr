@@ -7,6 +7,7 @@ use super::Path;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::localization::Localizer;
 use crate::models::*;
 use crate::state::AppState;
 
@@ -72,32 +73,48 @@ const MAX_CATEGORY_NAME_LENGTH: usize = 64;
 /// Every writer of the `categories` table runs it: `create`, `rename`,
 /// `POST /config/import` and `POST /rules/import`. A name that skipped it
 /// lands in the table and can never be renamed back, since `rename` runs the
-/// gate the writer did not, and it reaches paths, rule payloads and query
-/// strings on the way.
-pub fn normalise(raw: &str) -> AppResult<String> {
+/// gate the writer did not, and it reaches rule payloads and query strings on
+/// the way. The refusal is read under the field the name was typed in, so it
+/// speaks the interface's language.
+pub fn normalise(raw: &str, localizer: &Localizer) -> AppResult<String> {
     let name = raw.trim().to_lowercase();
     if name.is_empty() {
-        return Err(AppError::BadRequest("Category name cannot be empty".into()));
+        return Err(AppError::BadRequest(localizer.translate("CategoryNameEmpty", &[])));
     }
     if name.chars().count() > MAX_CATEGORY_NAME_LENGTH {
-        return Err(AppError::BadRequest(format!(
-            "Category names are limited to {MAX_CATEGORY_NAME_LENGTH} characters"
-        )));
-    }
-    // The name ends up in paths, rule payloads and query strings: keep it boring.
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        let max = MAX_CATEGORY_NAME_LENGTH.to_string();
         return Err(AppError::BadRequest(
-            "Category names may only contain letters, digits, '-' and '_'".into(),
+            localizer.translate("CategoryNameTooLong", &[("max", &max)]),
         ));
     }
+    // Letters of any script, as the reader's language writes them: no space,
+    // slash or quote, which a filter value or a rule payload would have to
+    // escape.
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_' || is_mark(c)) {
+        return Err(AppError::BadRequest(localizer.translate("CategoryNameRefused", &[])));
+    }
     Ok(name)
+}
+
+/// A combining mark, which some letters are written with: lower-cased, the
+/// Turkish `İ` is `i` followed by U+0307, and a decomposed `é` is `e` and
+/// U+0301. Neither is alphanumeric in its own right.
+fn is_mark(c: char) -> bool {
+    matches!(
+        c,
+        '\u{0300}'..='\u{036F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+    )
 }
 
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateCategoryRequest>,
 ) -> AppResult<Json<Category>> {
-    let name = normalise(&req.name)?;
+    let name = normalise(&req.name, &state.localizer().await)?;
 
     let id = format!("cat-{}", Uuid::new_v4());
     let mut tx = state.pool.begin().await?;
@@ -153,7 +170,7 @@ pub async fn rename(
     Path(id): Path<String>,
     Json(req): Json<RenameCategoryRequest>,
 ) -> AppResult<Json<Category>> {
-    let name = normalise(&req.name)?;
+    let name = normalise(&req.name, &state.localizer().await)?;
 
     let fallback = AppState::default_category(&state.pool).await;
     let row: Option<CategoryRow> = sqlx::query_as(

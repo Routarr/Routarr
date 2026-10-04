@@ -267,7 +267,7 @@ test.describe('the routing journey', () => {
     // would not cancel.
     const confirmRevert = page.getByRole('dialog');
     await expect(confirmRevert).toBeVisible();
-    await confirmRevert.getByRole('button', { name: /revert/i }).click();
+    await confirmRevert.getByRole('button', { name: 'Put back' }).click();
 
     await expect(page.locator('.banner-success')).toBeVisible();
 

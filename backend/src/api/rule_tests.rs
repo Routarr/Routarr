@@ -52,7 +52,7 @@ pub async fn create(
         // exists: a case expecting `Anime ` or a category nobody has can only
         // ever fail.
         Some(category) if !category.trim().is_empty() => {
-            let name = crate::api::categories::normalise(&category)?;
+            let name = crate::api::categories::normalise(&category, &state.localizer().await)?;
             let exists: bool =
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
                     .bind(&name)

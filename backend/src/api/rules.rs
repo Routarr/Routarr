@@ -343,8 +343,9 @@ pub async fn import(
             .chain(req.bundle.categories.iter().map(|c| c.trim()))
             .filter(|c| !c.is_empty())
             .collect();
+        let localizer = state.localizer().await;
         for raw in referenced {
-            match super::categories::normalise(raw) {
+            match super::categories::normalise(raw, &localizer) {
                 Ok(name) => {
                     creating.insert(name);
                 }

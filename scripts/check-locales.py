@@ -14,6 +14,8 @@ Checks, in order of how much a failure would hurt:
    a file out of order has every line moved by the next run of it.
 7. A core term reads one way inside each language (`scripts/glossary.json`):
    a reader who meets two words for "apply" cannot tell they are one act.
+8. No button of a confirmation starts with the language's Cancel word: beside
+   [Cancel], a [Cancel the move] that moves a title reads as a second way out.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
@@ -102,6 +104,44 @@ def referenced_keys(text: str) -> set[str]:
             else:
                 found.add(match)
     return found
+
+
+def arguments(text: str, opening: int) -> list[str]:
+    """The top-level arguments of the call whose `(` is at `opening`."""
+    found, depth, start = [], 0, opening + 1
+    for index in range(opening, len(text)):
+        char = text[index]
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+            if depth == 0:
+                found.append(text[start:index])
+                return found
+        elif char == "," and depth == 1:
+            found.append(text[start:index])
+            start = index + 1
+    return found
+
+
+def confirmation_labels(text: str) -> set[str]:
+    """The keys a button beside Cancel reads.
+
+    The label `askConfirmation` and `answering` take as a bare literal, and the
+    `label` of each option `ask` offers. The message is a rendered sentence and
+    never a bare literal, so it is not mistaken for one.
+    """
+    labels: set[str] = set()
+    for call in re.finditer(r"\b(askConfirmation|answering|ask)\(", text):
+        found = arguments(text, call.end() - 1)
+        if call.group(1) == "ask":
+            labels |= set(re.findall(r"\blabel:\s*'([A-Z][A-Za-z0-9]*)'", ",".join(found)))
+            continue
+        for argument in found:
+            literal = re.fullmatch(r"\s*'([A-Z][A-Za-z0-9]*)'\s*", argument)
+            if literal:
+                labels.add(literal.group(1))
+    return labels
 
 
 def placeholders(template: str) -> set[str]:
@@ -243,6 +283,19 @@ def main() -> int:
 
     # 7. One word per core term.
     problems.extend(glossary_problems(english, dictionaries))
+
+    # 8. A confirmation's button against its Cancel. A label not yet translated
+    #    reads as English, which is what the reader then sees.
+    labels = sorted(confirmation_labels(text))
+    for language, dictionary in sorted(dictionaries.items()):
+        cancel = dictionary.get("Cancel", english["Cancel"]).split()[0].casefold()
+        for key in labels:
+            label = dictionary.get(key, english.get(key, ""))
+            if label.casefold().startswith(cancel):
+                problems.append(
+                    f"{language}.json: '{key}' ({label!r}) starts with the Cancel word "
+                    f"'{cancel}', and the two sit side by side in a confirmation"
+                )
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)
