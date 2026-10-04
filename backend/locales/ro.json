@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Copii păstrate",
   "SettingBackupRetentionHelp": "Peste acest număr, cea mai veche este ștearsă.",
   "SettingBatchLimit": "Limita lotului",
-  "SettingBatchLimitHelp": "Plafon strict pentru câte elemente poate atinge o singură aplicare.",
+  "SettingBatchLimitHelp": "Plafon strict pentru câte elemente poate atinge o singură aplicare. O simulare întreagă se aplică în tranșe de această mărime și cere mereu confirmare înainte.",
   "SettingCertificationRegions": "Regiuni pentru clasificarea de vârstă",
   "SettingCertificationRegionsHelp": "Coduri ISO 3166-1 separate prin virgulă, cele preferate primele (de ex. RO, US). Ele aleg dintre clasificările de vârstă oferite de TMDb și TheTVDB. Radarr și Sonarr oferă clasificarea de vârstă a țării setate în propriile lor setări de metadate.",
   "SettingRefusedNoRegion": "{field} necesită cel puțin un cod de țară din două litere.",

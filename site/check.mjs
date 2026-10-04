@@ -185,23 +185,27 @@ for (const { code, path } of LANGUAGES) {
 // ------------------------------------------------ chrome outside the catalogue
 // An `aria-label`, a `<b>` in a list, a `//` eyebrow: text written straight into
 // a component is invisible to the key parity above and ships in English on the
-// three other pages. Every label a translated page announces has to differ
-// from the English one, and no translated page carries a phrase of `ESCAPED`,
-// English text written outside a label.
+// three other pages. Every label, alternative text, title and placeholder a
+// translated page carries has to differ from the ones of the same page in
+// English, and no translated page carries a phrase of `ESCAPED`, English text
+// written outside an attribute.
 const labelsOf = (html) =>
-  new Set([...html.matchAll(/aria-label="([^"]*)"/g)].map((m) => m[1]));
-const englishLabels = labelsOf(index);
-if (englishLabels.size < 4) {
-  fail(`only ${englishLabels.size} aria-label(s) on the English page: the guard read nothing`);
+  new Set([...html.matchAll(/\b(?:aria-label|alt|title|placeholder|data-copied|data-failed(?:-mac)?)="([^"]*)"/g)].map((m) => m[1]));
+const englishLabels = Object.fromEntries(
+  ['index.html', ...SUBPAGES].map((file) => [file, labelsOf(pages[builtAs('/', file)] ?? '')]),
+);
+for (const [file, labels] of Object.entries(englishLabels)) {
+  if (labels.size < 4) fail(`only ${labels.size} label(s) on the English ${file}: the guard read nothing`);
 }
-const ESCAPED = ['one compose up', 'Global dry-run', 'Batch cap', '// before', 'Press Ctrl+C', 'Not affiliated'];
+const ESCAPED = ['one compose up', 'Global dry-run', 'Batch limit', '// before', 'Press Ctrl+C', 'Not affiliated'];
 for (const { code, path } of LANGUAGES) {
   if (code === 'en') continue;
-  for (const file of [builtAs(path, 'index.html'), ...SUBPAGES.map((other) => builtAs(path, other))]) {
+  for (const other of ['index.html', ...SUBPAGES]) {
+    const file = builtAs(path, other);
     const page = pages[file];
     if (!page) continue;
     for (const label of labelsOf(page)) {
-      if (englishLabels.has(label)) fail(`${file} announces "${label}" in English`);
+      if (englishLabels[other].has(label)) fail(`${file} announces "${label}" in English`);
     }
     for (const phrase of ESCAPED) {
       if (page.includes(phrase)) fail(`${file} still says "${phrase}" in English`);
@@ -292,7 +296,7 @@ for (const file of Object.keys(pages)) {
 // The mistake sits in a single component, and no other check sees it.
 for (const [file, page] of Object.entries(pages)) {
   // Attributes included: their quotes are escaped to `&quot;` as well.
-  const escaped = page.match(/&lt;\/?(em|strong|code|span|br|a|kbd)\b(?:[^&]|&quot;|&#39;|&amp;){0,80}?&gt;/);
+  const escaped = page.match(/&lt;\/?(em|strong|b|code|span|br|a|kbd)\b(?:[^&]|&quot;|&#39;|&amp;){0,80}?&gt;/);
   if (escaped) {
     fail(`${file} shows the markup ${escaped[0]} as text: that value needs set:html, or the tag does not belong in the catalogue`);
   }
@@ -306,6 +310,8 @@ for (const [file, page] of Object.entries(pages)) {
 const TERMS = [
   ['hero.board.mode', 'ModeDryRunShort'],
   ['safety.b', 'SettingGlobalDryRun'],
+  ['safety.b.2', 'SettingBatchLimit'],
+  ['safety.b.3', 'SettingConfirmationThreshold'],
   ['features.k.3', 'Overrides'],
   ['api.step.1', 'Applications', 'within'],
   ['api.step.1', 'ScopeOperate', 'within'],
@@ -322,6 +328,15 @@ for (const { code } of LANGUAGES) {
     if (!term || (within ? !said.includes(term) : said !== term)) {
       fail(`src/i18n/${code}.json: ${siteKey} reads "${site[siteKey]}", the application says "${app[appKey]}"`);
     }
+  }
+}
+
+// ------------------------------------------------------- one origin, every page
+// The origin above is read off the landing and the files beside it. Every
+// other built page names it too, and no other host of the site's own.
+for (const [file, page] of Object.entries(pages)) {
+  for (const [, origin] of page.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) {
+    if (!EXTERNAL.test(origin) && origin !== ORIGIN) fail(`${file} names ${origin}, while the site is ${ORIGIN}`);
   }
 }
 
@@ -392,6 +407,14 @@ if (!readKey) {
   if (unused.length) {
     fail(`src/i18n/en.json has ${unused.length} key(s) no component references: ${unused.slice(0, 4).join(', ')}${unused.length > 4 ? '…' : ''}`);
   }
+}
+
+// ------------------------------------------------------------ French spacing
+// French puts a space before `?`, `!`, `:`, `;`, `»` and `%` and after `«`. A
+// plain one lets the mark wrap alone onto the next line on a phone.
+for (const [key, value] of Object.entries(catalogue('fr'))) {
+  const loose = String(value).match(/\S ([?!:;»%])|« /);
+  if (loose) fail(`src/i18n/fr.json: ${key} breaks before or after "${loose[0].trim()}", use a no-break space`);
 }
 
 // ------------------------------------------------- entities in a catalogue
@@ -839,6 +862,17 @@ if (/@media\s*\(prefers-color-scheme[^)]*\)\s*\{[^{]*\{[^}]*--bg:/.test(css)) {
 const explicit = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
 if (Object.keys(explicit).length < 10) {
   fail(`the dark palette reads ${Object.keys(explicit).length} token(s), so this check is reading nothing`);
+}
+// A colour the light palette sets and the dark one leaves alone shows its light
+// value on a dark page, which the contrast pairs below may never measure.
+const lightPalette = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
+const colours = (palette) =>
+  Object.keys(palette).filter((token) => /^(#|rgb|hsl|oklch|color-mix)/.test(palette[token]));
+for (const token of colours(lightPalette)) {
+  if (!(token in explicit)) fail(`site.css: the dark palette leaves ${token} at its light value`);
+}
+for (const token of colours(explicit)) {
+  if (!(token in lightPalette)) fail(`site.css: the dark palette sets ${token}, which the light one never defines`);
 }
 
 // -------------------------------------------------------------- tokens that exist

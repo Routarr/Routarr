@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Megőrzött mentések",
   "SettingBackupRetentionHelp": "E szám felett a legrégebbi törlődik.",
   "SettingBatchLimit": "Kötegkorlát",
-  "SettingBatchLimitHelp": "Kemény felső határ arra, hány elemre alkalmazhat döntést a Routarr egyszerre.",
+  "SettingBatchLimitHelp": "Kemény felső határ arra, hány elemre alkalmazhat döntést a Routarr egyszerre. Egy teljes szimulációt ekkora részletekben alkalmaz, és mindig előbb megerősítést kér.",
   "SettingCertificationRegions": "Korhatár-régiók",
   "SettingCertificationRegionsHelp": "Vesszővel elválasztott ISO 3166-1 kódok, fontossági sorrendben (pl. HU, US). Ezek választanak a TMDb és a TheTVDB által megadott korhatárok közül. A Radarr és a Sonarr annak az országnak a korhatárát adja meg, amely a saját metaadat-beállításaikban szerepel.",
   "SettingRefusedNoRegion": "{field}: legalább egy kétbetűs országkód szükséges.",

@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Sparade säkerhetskopior",
   "SettingBackupRetentionHelp": "Utöver detta antal raderas den äldsta.",
   "SettingBatchLimit": "Gräns per sats",
-  "SettingBatchLimitHelp": "Absolut tak för hur många objekt en enskild tillämpning får röra.",
+  "SettingBatchLimitHelp": "Absolut tak för hur många objekt en enskild tillämpning får röra. En hel simulering tillämpas i omgångar av denna storlek och ber alltid om bekräftelse först.",
   "SettingCertificationRegions": "Regioner för åldersgränser",
   "SettingCertificationRegionsHelp": "ISO 3166-1-koder separerade med kommatecken, mest önskade först (t.ex. SE, US). De väljer bland de åldersgränser som TMDb och TheTVDB anger. Radarr och Sonarr anger åldersgränsen för det land som är valt i deras egna metadatainställningar.",
   "SettingRefusedNoRegion": "{field}: minst en landskod med två bokstäver krävs.",

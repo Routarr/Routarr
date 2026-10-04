@@ -88,10 +88,13 @@
       // the page in its own language: this file is one script for four pages.
       // The label to put back is kept from before the first click: read off
       // the button each time, a second click inside the delay keeps "Copied".
+      // A Mac copies with Command, which a Ctrl+C hint would send looking for
+      // a key that does nothing.
+      var failed = /Mac|iPhone|iPad/.test(navigator.platform) ? 'data-failed-mac' : 'data-failed';
       var done = function (ok) {
         var label = button.getAttribute('data-label') || button.textContent;
         button.setAttribute('data-label', label);
-        button.textContent = button.getAttribute(ok ? 'data-copied' : 'data-failed') || label;
+        button.textContent = button.getAttribute(ok ? 'data-copied' : failed) || label;
         setTimeout(function () {
           button.textContent = label;
         }, 1600);

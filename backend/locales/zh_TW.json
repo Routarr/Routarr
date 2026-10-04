@@ -675,7 +675,7 @@
   "SettingBackupRetention": "保留的備份數",
   "SettingBackupRetentionHelp": "超過該數量後，最舊的會被刪除。",
   "SettingBatchLimit": "批次上限",
-  "SettingBatchLimitHelp": "單次套用可涉及的項目數量硬性上限。",
+  "SettingBatchLimitHelp": "單次套用可涉及的項目數量硬性上限。整個模擬依此大小分批套用，且一律先要求確認。",
   "SettingCertificationRegions": "分級地區",
   "SettingCertificationRegionsHelp": "以逗號分隔的 ISO 3166-1 代碼，偏好的排在前面（例如 TW, US）。它們用於在 TMDb 與 TheTVDB 提供的分級中進行選擇。Radarr 與 Sonarr 提供的是其自身中繼資料設定中所設國家的分級。",
   "SettingRefusedNoRegion": "{field}：至少需要一個兩字母國家代碼。",

@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Còpies conservades",
   "SettingBackupRetentionHelp": "Per sobre d'aquest nombre, se suprimeix la més antiga.",
   "SettingBatchLimit": "Límit del lot",
-  "SettingBatchLimitHelp": "Límit estricte del nombre d'elements que es poden tocar cada vegada que s'apliquen decisions.",
+  "SettingBatchLimitHelp": "Límit estricte del nombre d'elements que es poden tocar cada vegada que s'apliquen decisions. Una simulació sencera s'aplica en tandes d'aquesta mida, i sempre demana confirmació abans.",
   "SettingCertificationRegions": "Regions de qualificació per edats",
   "SettingCertificationRegionsHelp": "Codis ISO 3166-1 separats per comes, els preferits primer (p. ex. ES, US). Trien entre les qualificacions per edats que donen TMDb i TheTVDB. Radarr i Sonarr donen la qualificació per edats del país definit a la seva pròpia configuració de metadades.",
   "SettingRefusedNoRegion": "{field} necessita com a mínim un codi de país de dues lletres.",

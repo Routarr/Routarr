@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Beholdte sikkerhetskopier",
   "SettingBackupRetentionHelp": "Utover dette antallet slettes den eldste.",
   "SettingBatchLimit": "Grense per parti",
-  "SettingBatchLimitHelp": "Absolutt tak for hvor mange elementer én utføring kan berøre.",
+  "SettingBatchLimitHelp": "Absolutt tak for hvor mange elementer én utføring kan berøre. En hel simulering utføres i porsjoner av denne størrelsen, og ber alltid om bekreftelse først.",
   "SettingCertificationRegions": "Regioner for aldersgrense",
   "SettingCertificationRegionsHelp": "ISO 3166-1-koder skilt med komma, mest ønskede først (f.eks. NO, US). De velger blant aldersgrensene TMDb og TheTVDB oppgir. Radarr og Sonarr oppgir aldersgrensen for landet som er valgt i deres egne metadatainnstillinger.",
   "SettingRefusedNoRegion": "{field}: minst én landkode på to bokstaver kreves.",

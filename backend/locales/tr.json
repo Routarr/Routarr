@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Saklanan yedekler",
   "SettingBackupRetentionHelp": "Bu sayının üzerinde en eskisi silinir.",
   "SettingBatchLimit": "Grup sınırı",
-  "SettingBatchLimitHelp": "Tek bir uygulamanın dokunabileceği öğe sayısına konan katı sınır.",
+  "SettingBatchLimitHelp": "Tek bir uygulamanın dokunabileceği öğe sayısına konan katı sınır. Bir benzetimin tamamı bu boyutta dilimler halinde uygulanır ve her zaman önce onay ister.",
   "SettingCertificationRegions": "Yaş sınırı bölgeleri",
   "SettingCertificationRegionsHelp": "Virgülle ayrılmış ISO 3166-1 kodları, tercih edilenler önce (örn. TR, US). TMDb ve TheTVDB'nin verdiği yaş sınırları arasından seçimi bunlar belirler. Radarr ve Sonarr, kendi üst veri ayarlarında belirlenen ülkenin yaş sınırını verir.",
   "SettingRefusedNoRegion": "{field}: en az bir iki harfli ülke kodu gerekir.",

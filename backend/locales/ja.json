@@ -675,7 +675,7 @@
   "SettingBackupRetention": "保持するバックアップ数",
   "SettingBackupRetentionHelp": "この数を超えると最も古いものが削除されます。",
   "SettingBatchLimit": "バッチ上限",
-  "SettingBatchLimitHelp": "1 回の適用で扱える項目数の厳格な上限です。",
+  "SettingBatchLimitHelp": "1 回の適用で扱える項目数の厳格な上限です。シミュレーション全体はこのサイズずつ適用され、必ず先に確認を求めます。",
   "SettingCertificationRegions": "年齢区分の地域",
   "SettingCertificationRegionsHelp": "ISO 3166-1 コードをカンマ区切りで、優先するものを先に (例: JP, US)。TMDb と TheTVDB が返す年齢区分からの選択に使われます。Radarr と Sonarr は、それぞれのメタデータ設定で指定された国の年齢区分を返します。",
   "SettingRefusedNoRegion": "{field}: 2 文字の国コードを少なくとも 1 つ指定してください。",

@@ -675,7 +675,7 @@
   "SettingBackupRetention": "عدد النسخ المحفوظة",
   "SettingBackupRetentionHelp": "بعد هذا العدد، تُحذف الأقدم.",
   "SettingBatchLimit": "حد الدفعة",
-  "SettingBatchLimitHelp": "سقف صارم لعدد العناصر التي قد تمسّها عملية تطبيق واحدة.",
+  "SettingBatchLimitHelp": "سقف صارم لعدد العناصر التي قد تمسّها عملية تطبيق واحدة. تُطبَّق المحاكاة الكاملة على دفعات بهذا الحجم، مع طلب التأكيد دائمًا أولًا.",
   "SettingCertificationRegions": "مناطق التصنيف العمري",
   "SettingCertificationRegionsHelp": "رموز ISO 3166-1 مفصولة بفواصل، الأكثر تفضيلًا أولًا (مثل FR, US). تختار من بين التصنيفات العمرية التي يقدّمها TMDb و TheTVDB. أما Radarr و Sonarr فيقدّمان التصنيف العمري للبلد المحدد في إعدادات البيانات الوصفية الخاصة بهما.",
   "SettingRefusedNoRegion": "يحتاج {field} إلى رمز بلد واحد على الأقل من حرفين.",

@@ -85,7 +85,8 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+/* A target lands below the sticky header, not under it. */
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after {
@@ -884,7 +885,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   padding: 11px 18px;
   border-top: 1px solid var(--border);
 }
-.folders > .folder-row:first-child { border-top: 0; }
+.folder-table > .folder-row:first-child { border-top: 0; }
 .folder-head {
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
@@ -949,7 +950,10 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    and the rest flow under it, so a row still reads as one destination rather
    than five columns squeezed to nothing. */
 @media (max-width: 859px) {
-  .folder-head { display: none; }
+  /* Out of sight, not out of the table: a screen reader still names each
+     cell by its column. */
+  .folder-head { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+  .folder-head + .folder-row { border-top: 0; }
   .folder-row { display: flex; flex-wrap: wrap; gap: 8px 14px; }
   .folder-path { flex-basis: 100%; }
 }
@@ -1566,7 +1570,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 .plan-dest .arrow { padding: 0 10px; color: var(--border-strong); }
 .plan-instance { font-size: 0.9rem; color: var(--text-soft); }
 
-/* One line, in four languages. Four pairs across the card leave about twenty
+/* One line, in four languages. Three pairs across the card leave about thirty
    characters per note, so the notes are two words and the row may not wrap:
    a legend on four lines is a paragraph pretending to be a key. */
 .plan-legend {
@@ -1589,9 +1593,7 @@ h2 em { font-style: normal; color: var(--accent-text); }
 }
 
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
-   the table and the legend. Three states, and the middle one carries a
-   border the first lacks, because asking is not the same answer as
-   proposing. */
+   the table and the legend. */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -1604,19 +1606,28 @@ h2 em { font-style: normal; color: var(--accent-text); }
   white-space: nowrap;
 }
 .chip.is-go { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-text); }
-.chip.is-confirm {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  color: var(--accent-text);
-}
 .chip.is-still { background: var(--bg-raised); border-color: var(--border); color: var(--text-soft); }
 :root[data-theme="dark"] .chip.is-still { background: var(--bg-card); }
 
 /* The plan's columns do not wrap, so on a narrow window the table scrolls
    inside its own card rather than pushing the document sideways. Named here
    and not on the card, because the head and the legend must stay put while
-   only the rows move. */
-.table-scroll { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+   only the rows move.
+
+   A shadow at an edge says more of the row lies past it. The two covers scroll
+   with the rows and hide each shadow once its end is reached, so a table that
+   fits shows none. */
+.table-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+  background:
+    linear-gradient(to right, var(--bg-card) 40%, transparent) left center / 32px 100% no-repeat local,
+    linear-gradient(to left, var(--bg-card) 40%, transparent) right center / 32px 100% no-repeat local,
+    linear-gradient(to right, color-mix(in srgb, var(--text) 18%, transparent), transparent) left center / 16px 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in srgb, var(--text) 18%, transparent), transparent) right center / 16px 100% no-repeat scroll,
+    var(--bg-card);
+}
 .table-scroll::-webkit-scrollbar { height: 8px; }
 .table-scroll::-webkit-scrollbar-track { background: transparent; }
 .table-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 999px; }

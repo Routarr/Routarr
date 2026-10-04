@@ -28,7 +28,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Explained decisions**: for every title, what each condition expected and what it found,
   including the rules that matched and lost.
 - **Safe by default**: six gates in a fixed order, the first to object stopping the rest (global
-  dry-run, batch cap, reachability, capacity, a confirmation threshold you set, and a revalidation
+  dry-run, batch limit, reachability, capacity, a confirmation threshold you set, and a revalidation
   at the moment of writing). Every applied move can be reverted.
 - **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDb,
   OMDb and TheTVDB optional, in the order you choose.

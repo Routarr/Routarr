@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Copias conservadas",
   "SettingBackupRetentionHelp": "Superado este número, se elimina la más antigua.",
   "SettingBatchLimit": "Límite de lote",
-  "SettingBatchLimitHelp": "Tope estricto de elementos que se pueden tocar cada vez que se aplican decisiones.",
+  "SettingBatchLimitHelp": "Tope estricto de elementos que se pueden tocar cada vez que se aplican decisiones. Una simulación entera se aplica en tandas de este tamaño, y siempre pide confirmación antes.",
   "SettingCertificationRegions": "Regiones de clasificación",
   "SettingCertificationRegionsHelp": "Códigos ISO 3166-1 separados por comas, por orden de preferencia (p. ej. ES, US). Eligen entre las clasificaciones que dan TMDb y TheTVDB. Radarr y Sonarr dan la clasificación del país definido en sus propios ajustes de metadatos.",
   "SettingRefusedNoRegion": "{field} necesita al menos un código de país de dos letras.",

@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Aufbewahrte Sicherungen",
   "SettingBackupRetentionHelp": "Über diese Anzahl hinaus wird die älteste gelöscht.",
   "SettingBatchLimit": "Stapel-Limit",
-  "SettingBatchLimitHelp": "Harte Obergrenze für die Anzahl der Einträge pro Anwendung.",
+  "SettingBatchLimitHelp": "Harte Obergrenze für die Anzahl der Einträge pro Anwendung. Eine ganze Simulation wird in Portionen dieser Größe angewendet und verlangt immer zuerst eine Bestätigung.",
   "SettingCertificationRegions": "Regionen für Altersfreigaben",
   "SettingCertificationRegionsHelp": "Kommagetrennte ISO-3166-1-Codes, bevorzugte zuerst (z. B. DE, US). Sie wählen unter den Altersfreigaben, die TMDb und TheTVDB liefern. Radarr und Sonarr liefern die Freigabe des Landes, das in ihren eigenen Metadaten-Einstellungen festgelegt ist.",
   "SettingRefusedNoRegion": "{field}: Mindestens ein zweistelliger Ländercode ist erforderlich.",
