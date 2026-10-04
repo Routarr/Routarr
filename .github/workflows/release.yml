@@ -8,6 +8,12 @@ on:
   push:
     tags: ['v*']
 
+# A tag deleted and pushed again starts a second run, which cancels the first:
+# two runs finishing in either order would each name the version.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 # Every `uses:` is pinned to a commit, with the tag it was in a comment beside
 # it. A tag is a mutable pointer its owner can move: `@v7` means "whatever the
 # owner calls v7 the next time this runs", and one of these workflows holds
@@ -17,8 +23,9 @@ on:
 
 jobs:
   # A tag triggers the publish directly, whatever commit it was pushed onto.
-  # `scripts/release-guard.sh` asks first whether that commit is on main, green
-  # everywhere, and a version the registry does not hold yet.
+  # `scripts/release-guard.sh` asks first whether that commit is on main, sets
+  # the version the tag names, is green everywhere, and is a version the
+  # registry does not hold yet.
   guard:
     name: The commit may be published
     runs-on: ubuntu-latest
@@ -36,7 +43,10 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: bash scripts/release-guard.sh "$REPOSITORY" "$SHA" "$TAG"
 
-  # One job per architecture, each on a runner of that architecture.
+  # One job per architecture, each on a runner of that architecture, which
+  # starts its image before pushing it. `docker.yml` starts an amd64 build of
+  # its own, on commits the guard does not hold it to, so this is the only
+  # place the images people pull are ever started.
   #
   # On an amd64 runner the arm64 leg of a Rust release build runs under QEMU,
   # for hours, and a leg killed at its ceiling publishes nothing. No warm cache
@@ -50,18 +60,27 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      # The build record carries the event that started the run, the pusher's
+      # address included, and an artifact of a public repository is public.
+      DOCKER_BUILD_RECORD_UPLOAD: "false"
     strategy:
       # Both legs run to the end: one architecture failing while the other is
       # still building tells you less than two verdicts do.
       fail-fast: false
       matrix:
         include:
+          # Main's `docker.yml` cache, which a tag can read. Nothing here
+          # writes one: a tag's cache is read by no later tag, and its layers
+          # would evict main's from a repository cache already full.
           - arch: amd64
             platform: linux/amd64
             runner: ubuntu-latest
+            cache: type=gha
           - arch: arm64
             platform: linux/arm64
             runner: ubuntu-24.04-arm
+            cache: ''
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -100,16 +119,24 @@ jobs:
             echo 'LABELS'
           } >> "$GITHUB_OUTPUT"
 
+      # Into the runner's Docker, so the next step can start it. The push below
+      # rebuilds from the builder's own cache and sends these same layers.
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          load: true
+          tags: routarr:smoke
+          cache-from: ${{ matrix.cache }}
+
+      - name: Start the image and check it serves
+        run: bash scripts/smoke-image.sh routarr:smoke
+
       # Pushed by digest and carrying no tag: a tag applied here would be taken
       # by whichever architecture pushed last, leaving the other unreachable
       # under the name people pull.
       - id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        env:
-          # The build record carries the event that started the run, the
-          # pusher's address included, and an artifact of a public repository
-          # is public.
-          DOCKER_BUILD_RECORD_UPLOAD: "false"
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -120,10 +147,7 @@ jobs:
           provenance: mode=min
           labels: ${{ steps.labels.outputs.value }}
           outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
-          # A scope per architecture. Sharing one, the two legs evict each
-          # other's layers and neither ever reads a warm cache.
-          cache-from: type=gha,scope=release-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+          cache-from: ${{ matrix.cache }}
 
       - name: Hand the digest to the manifest job
         env:
@@ -155,6 +179,18 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The images took long enough to build for the tag to have moved, or the
+      # version to have been published by another run.
+      - name: Check the tag and the version again
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TAG: ${{ github.ref_name }}
+        run: bash scripts/release-guard.sh --publishing "$REPOSITORY" "$SHA" "$TAG"
+
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: ${{ runner.temp }}/digests

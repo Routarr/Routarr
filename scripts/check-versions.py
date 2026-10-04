@@ -14,11 +14,12 @@ the `FROM` line, so every one of its image bumps opens that gap. This check
 turns the drift into a failure that names the files still holding the old
 value.
 
-The product version has the same shape of problem for a different reason. The
-release reads `Cargo.toml` (the tag names that value, and `site/check.mjs`
-asserts the showcase page states it), while the two `package.json` files carry
-it as well and nothing else reads them. Without this check, a release could
-ship a front end announcing the version before it.
+The product version has the same shape of problem for a different reason.
+`scripts/release-guard.sh` refuses a tag that does not name the version in
+`Cargo.toml`, and `site/check.mjs` asserts the showcase page states it, while
+the two `package.json` files carry it as well and nothing else reads them.
+Without this check, a release could ship a front end announcing the version
+before it.
 
 Run from anywhere: it resolves its own paths. Exits non-zero on a mismatch.
 """

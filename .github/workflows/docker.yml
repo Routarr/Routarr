@@ -10,47 +10,71 @@ name: Docker image
 # So: a group that queues rather than cancels. At most one build in flight, at
 # most one waiting, and the one in flight finishes.
 
-# Only when something that reaches the image changes. A site or a
-# documentation commit cannot break a build that never sees them.
-#
 # On a pull request as well as on `main`, because nothing in `ci.yml` builds
 # the image: a commit touching only the Dockerfile matches none of its three
-# path filters, so without this workflow a broken base image would pass every
-# check a pull request runs and break `main` on merge, found by whoever merged
-# rather than by whoever wrote it. A Rust version whose `-alpine` image is not
+# areas, so without this workflow a broken base image would pass every check a
+# pull request runs and break `main` on merge, found by whoever merged rather
+# than by whoever wrote it. A Rust version whose `-alpine` image is not
 # published yet passes every job in `ci.yml` and fails only here.
 #
-# One list for both events: `pull_request` names the `push` list by its YAML
-# anchor. Actions reads anchors and aliases but not the `<<` merge key, so a
-# list for one event alone is written out whole, not merged into this one.
+# No `paths` filter: a workflow it skips reports no check at all, and a check
+# the ruleset requires would then wait forever. The `changes` job runs on every
+# commit and skips the image jobs when nothing reaching the image changed, and
+# a skipped job satisfies the ruleset.
 on:
   push:
     branches: [main]
-    paths: &image-inputs
-      - 'Dockerfile'
-      - '.dockerignore'
-      - 'backend/**'
-      - 'frontend/**'
-      - 'scripts/smoke-image.sh'
-      - 'scripts/install-runtime.sh'
-      # Copied into the image, so a change to it is a change to the image.
-      - 'LICENSE'
-      - '.github/workflows/docker.yml'
   pull_request:
-    paths: *image-inputs
 
 # The job runs a pull request's Dockerfile, so the token it holds reads and
 # nothing more.
 permissions:
   contents: read
 
-# Queues rather than cancels, as the header says. Keyed on the head branch so
-# a pull request and the branch it targets never wait on each other.
+# Queues rather than cancels, as the header says. Keyed on the pull request's
+# number, not its branch, since two forks can name a branch alike, and on the
+# ref for a push to main, so the two never wait on each other.
 concurrency:
-  group: docker-${{ github.head_ref || github.ref }}
+  group: docker-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # Whether the commit reaches the image, by `scripts/changed-areas.sh`, as in
+  # `ci.yml`. A push to main is compared with the last commit of main whose run
+  # of this workflow succeeded, so a failed build leaves the image to the next.
+  changes:
+    name: What reaches the image
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      image: ${{ steps.filter.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = pull_request ]; then
+            base="$PR_BASE"
+          else
+            base=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/docker.yml/runs?branch=main&event=push&status=success&per_page=1" \
+              --jq '.workflow_runs[0].head_sha // empty' || true)
+          fi
+          areas=$(bash scripts/changed-areas.sh "$base" "$HEAD")
+          printf '%s\n' "$areas" | tee -a "$GITHUB_OUTPUT"
+          # An empty answer would skip the build and read green.
+          grep -qxE 'image=(true|false)' <<<"$areas" || { echo "::error::no image line"; exit 1; }
+
   # Does the image still build and start: natively, on one architecture.
   #
   # Building linux/arm64 here as well would compile it under QEMU, many times
@@ -64,6 +88,8 @@ jobs:
   # rather than once per push.
   image:
     name: Docker image (amd64)
+    needs: changes
+    if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-latest
     # Native, no emulation. The ceiling catches a stuck build, not a slow one.
     timeout-minutes: 30
@@ -86,10 +112,11 @@ jobs:
           load: true
           tags: routarr:smoke
           cache-from: type=gha
-          # Written from `main` only. The cache holds 10 GB for the whole
-          # repository and evicts the oldest first, so every pull request
-          # writing its own layers would push out the layers `release.yml`
-          # reads, and a tag would build cold.
+          # Written from `main` only, and read by pull requests and by the
+          # amd64 leg of `release.yml`, which a tag can reach and which writes
+          # nothing. The cache holds 10 GB for the whole repository and evicts
+          # the oldest first, so a pull request writing its own layers would
+          # push out main's.
           cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
 
       # A build that succeeds says the Dockerfile compiles, not that the image
