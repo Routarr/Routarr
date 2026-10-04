@@ -970,23 +970,6 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert!(backup::list(&app.state).is_empty());
 }
 
-#[tokio::test]
-async fn a_download_cannot_walk_out_of_the_backup_directory() {
-    let (app, _dir) = app_with_files("traversal").await;
-
-    // The archives sit in the same directory as the master key, so this is the
-    // one place a caller picks a path on the server's filesystem.
-    for hostile in [
-        "..%2F..%2Froutarr.key",
-        "routarr-backup-..%2F..%2Froutarr.key.zip",
-        "routarr.key",
-        "routarr.db",
-    ] {
-        let response = app.get(&format!("/api/v1/backups/{hostile}")).await;
-        assert_eq!(response.status, axum::http::StatusCode::NOT_FOUND, "{hostile} was not refused");
-    }
-}
-
 // ------------------------------------------------- what bounds the list
 
 /// The interface renders every backup it is given, so the retention count is

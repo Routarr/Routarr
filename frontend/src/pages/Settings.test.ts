@@ -569,11 +569,6 @@ describe('the notification webhook', () => {
   });
 });
 
-/**
- * A source's key lives in the source's row, where a blank field keeps the
- * stored one: without a Remove there, a key stays sealed behind a disabled
- * source for good.
- */
 /** A setting's state agrees as a setting does, not as the rule or instance badges do. */
 it('offers a switch in words of its own', async () => {
   mount({ auto_apply_enabled: 'false' });
@@ -583,6 +578,11 @@ it('offers a switch in words of its own', async () => {
   expect(options.map((option) => option.textContent?.trim())).toEqual(['On', 'Off']);
 });
 
+/**
+ * A source's key lives in the source's row, where a blank field keeps the
+ * stored one: without a Remove there, a key stays sealed behind a disabled
+ * source for good.
+ */
 describe("a source's stored key", () => {
   it('is removed at the next save', async () => {
     mount({ metadata_providers: 'arr', tmdb_api_key_configured: true });

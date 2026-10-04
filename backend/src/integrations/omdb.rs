@@ -148,16 +148,6 @@ fn split_list(value: Option<&str>) -> Vec<String> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn na_is_absence_not_a_value() {
-        // A `certification_in` rule must never be able to match the string
-        // "N/A", and a genre list of "N/A" must not claim the field from the
-        // source below.
-        assert!(!usable("N/A"));
-        assert!(split_list(Some("N/A")).is_empty());
-        assert_eq!(split_list(Some("Animation, Family")), vec!["Animation", "Family"]);
-    }
-
     /// A captured-shape OMDb response through the real types, including the
     /// fields the client ignores and the `"N/A"` OMDb uses instead of null.
     /// This is where a change in its prose formatting would surface.

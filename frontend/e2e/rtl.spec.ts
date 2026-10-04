@@ -151,10 +151,12 @@ test.describe('right to left', () => {
 
       const state = await page.evaluate(() => {
         const sidebar = document.querySelector('aside, nav, .sidebar');
+        const content = document.querySelector('.main-content');
         return {
           direction: getComputedStyle(document.body).direction,
           arabic: /[؀-ۿ]/.test(document.body.innerText),
           sidebarLeft: sidebar ? sidebar.getBoundingClientRect().left : null,
+          contentLeft: content ? Math.round(content.getBoundingClientRect().left) : null,
           viewport: window.innerWidth,
           overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
@@ -167,6 +169,8 @@ test.describe('right to left', () => {
       expect(state.sidebarLeft, `${path} should put the sidebar on the right`).toBeGreaterThan(
         state.viewport / 2,
       );
+      // And the content stops being pushed away from the side the sidebar left.
+      expect(state.contentLeft, `${path} is still offset for a left sidebar`).toBe(0);
     }
 
     // `.mono` holds machine formats: paths, ids, condition summaries, raw

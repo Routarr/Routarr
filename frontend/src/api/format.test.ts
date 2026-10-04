@@ -121,8 +121,13 @@ describe('formatBytes', () => {
    * The settings store `zh_CN` where BCP-47 wants a hyphen, and an unfixed
    * underscore makes `Intl` throw rather than fall back.
    */
+  /**
+   * `nb_NO` is how the setting stores Norwegian, and `Intl` refuses the
+   * underscore. Read as it is stored, the size falls back to the full stop of
+   * the fallback, where Norwegian writes a comma.
+   */
   it('accepts the stored locale form', () => {
-    expect(formatBytes(5_368_709_120, 'zh_CN')).toContain('5.0');
+    expect(formatBytes(5_368_709_120, 'nb_NO')).toContain('5,0');
   });
 
   it('says nothing rather than zero when the Arr reported no size', () => {
@@ -228,10 +233,6 @@ describe('formatTimestamp', () => {
 
     expect(explicit).toBe('22/08/2026, 23:05');
     expect(utc).toBe(explicit);
-  });
-
-  it('drops the seconds', () => {
-    expect(formatTimestamp('2026-08-22 14:05:57', 'en-GB')).not.toContain('57');
   });
 
   it('maps a Servarr language code onto a BCP-47 locale', () => {

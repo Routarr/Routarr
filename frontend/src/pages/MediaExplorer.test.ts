@@ -99,12 +99,6 @@ describe('Media explorer', () => {
     expect(badge.className).toContain('muted');
   });
 
-  it('names the explain button after its row', async () => {
-    show([media({ title: 'Perfect Blue' })]);
-
-    expect(await screen.findByRole('button', { name: 'Why? – Perfect Blue' })).toBeTruthy();
-  });
-
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
       media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }),

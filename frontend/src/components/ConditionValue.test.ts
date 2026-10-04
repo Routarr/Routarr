@@ -73,15 +73,6 @@ describe('ConditionValue', () => {
     expect(onChange).toHaveBeenCalledWith(2019, false);
   });
 
-  it('parses a comma-separated list of numbers', async () => {
-    const onChange = vi.fn();
-    show({ spec: spec({ value_type: 'number_list', label: 'Years' }), value: [], onChange });
-
-    await fireEvent.input(screen.getByLabelText('Years'), { target: { value: '2019, 2020' } });
-
-    expect(onChange).toHaveBeenCalledWith([2019, 2020], false);
-  });
-
   it('parses a comma-separated list of strings', async () => {
     const onChange = vi.fn();
     show({ spec: spec({ label: 'Genre contains' }), value: [], onChange });

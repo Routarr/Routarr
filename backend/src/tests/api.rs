@@ -2877,7 +2877,8 @@ async fn an_item_the_arr_does_not_know_is_kept_unless_the_event_says_it_is_gone(
 
 /// `instance_ids: []` on the API is the whole library: what the interface's
 /// own request, which sends no list at all, and a rule scoped to no instance
-/// both mean by it.
+/// both mean by it. Read as "these zero instances", the run would evaluate
+/// nothing and report a green run.
 #[tokio::test]
 async fn an_empty_instance_list_on_the_api_is_the_whole_library() {
     let app = TestApp::new().await;

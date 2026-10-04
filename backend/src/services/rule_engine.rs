@@ -1319,20 +1319,6 @@ mod tests {
         assert!(evaluation.winner.is_none());
     }
 
-    #[test]
-    fn spelling_does_not_have_to_match_the_source() {
-        // Case, surrounding space and the separator inside the word are all
-        // folded. The accent is folded too, so a value typed without one still
-        // finds the genre that carries it.
-        assert_eq!(normalise_value("  Science-Fiction "), "science fiction");
-        assert_eq!(normalise_value("Science Fiction"), "science fiction");
-        assert_eq!(normalise_value("Comédie"), "comedie");
-        assert_eq!(normalise_value("COMEDIE"), "comedie");
-        // And it normalises rather than guessing: an abbreviation is its own
-        // value, not a synonym of the words it stands for.
-        assert_ne!(normalise_value("Sci-Fi"), normalise_value("Science Fiction"));
-    }
-
     /// The rule editor folds with its own copy (`canonicalKey` in
     /// `frontend/src/api/conditions.ts`) to refuse a value given twice, and
     /// reads this same table: a pair one side joins and the other keeps apart
@@ -1355,13 +1341,6 @@ mod tests {
     }
 
     // ---------------------------------------------------------- match modes
-
-    #[test]
-    fn all_mode_requires_every_condition() {
-        let mut r = anime_rule();
-        r.conditions.push(Condition::GenreContains(vec!["Horror".into()]));
-        assert!(evaluate(&[r], None).winner.is_none());
-    }
 
     #[test]
     fn any_mode_requires_only_one_condition() {

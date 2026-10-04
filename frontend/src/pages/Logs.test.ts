@@ -151,6 +151,7 @@ describe('Activity log', () => {
 
     await userEvent.type(await screen.findByLabelText('Search title or details'), 'akira');
     await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
+    // The screen speaks in outcomes, and the API takes a boolean.
     await waitFor(() =>
       expect(api.getLogs).toHaveBeenLastCalledWith(
         expect.objectContaining({ search: 'akira', success: true }),
@@ -208,22 +209,6 @@ describe('Activity log', () => {
       undefined,
       'heat',
     ]);
-  });
-
-  it('asks the server for the outcome the user picked', async () => {
-    const getLogs = vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
-    show();
-    await screen.findByText('Akira');
-
-    await userEvent.selectOptions(screen.getByLabelText('Filter by outcome'), 'success');
-
-    // The screen speaks in outcomes, and the API takes a boolean.
-    await waitFor(() =>
-      expect(getLogs).toHaveBeenCalledWith(
-        expect.objectContaining({ success: true }),
-        expect.any(AbortSignal),
-      ),
-    );
   });
 
   it('asks for everything when the filter is cleared, rather than for failures', async () => {

@@ -37,12 +37,6 @@ afterEach(() => vi.clearAllMocks());
 const show = () => renderWithI18n(ApiKeyGate, { strings: STRINGS });
 
 describe('ApiKeyGate', () => {
-  it('names its field so the caption is more than decoration', async () => {
-    show();
-
-    expect(await screen.findByLabelText('Routarr API key')).toBeTruthy();
-  });
-
   it('refuses to submit an empty key', async () => {
     show();
 

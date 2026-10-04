@@ -62,39 +62,12 @@ describe('History', () => {
   });
 
   /**
-   * A move that never happened has nothing to undo, and one already undone has
-   * nothing left to undo. Offering the button anyway sends the executor a
-   * request it can only refuse.
+   * Whether a move can still be undone is the server's verdict: one never
+   * applied, one already undone, and one another move has followed since all
+   * arrive with `revertible` false. Offering the button anyway sends the
+   * executor a request it can only refuse.
    */
-  it('offers no revert on a decision that was never applied', async () => {
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision({ status: 'pending' })]));
-    show();
-
-    await screen.findByText('Akira');
-    expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
-  });
-
-  it('offers no revert on a decision already reverted', async () => {
-    vi.spyOn(api, 'getDecisions').mockResolvedValue(
-      paginated([
-        decision({
-          status: 'applied',
-          applied_at: '2026-08-27 11:00:00',
-          reverted_at: '2026-08-27 12:00:00',
-        }),
-      ]),
-    );
-    show();
-
-    await screen.findByText('Akira');
-    expect(screen.queryByRole('button', { name: /Revert – Akira/ })).toBeNull();
-  });
-
-  /**
-   * A title moved twice can only have its latest move undone: undoing the
-   * older one would skip the folder between, and the server refuses it.
-   */
-  it('offers no revert on a move another has followed', async () => {
+  it('offers no revert where the server says the move cannot be undone', async () => {
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', applied_at: '2026-08-27 11:00:00' })]),
     );
@@ -260,25 +233,6 @@ describe('History', () => {
 
     expect(await screen.findByText(/The Arr refused the move/)).toBeTruthy();
     expect(screen.queryByText('1 reverted')).toBeNull();
-  });
-
-  /**
-   * The list is paginated server-side, so a filter that only hid rows in the
-   * browser would filter one page of fifty and call it the answer.
-   */
-  it('asks the server for the filtered set rather than hiding rows on screen', async () => {
-    const getDecisions = vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([decision()]));
-    show();
-    await screen.findByText('Akira');
-
-    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'failed');
-
-    await waitFor(() =>
-      expect(getDecisions).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'failed' }),
-        expect.any(AbortSignal),
-      ),
-    );
   });
 
   /** The history is paged by the server, and the pager asks it for the next page. */

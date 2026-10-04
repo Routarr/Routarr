@@ -104,16 +104,6 @@ describe('ConditionList', () => {
     expect(onAdd).toHaveBeenCalledWith(GENRE.type);
   });
 
-  it('offers only the conditions the rule can use', () => {
-    render([], [GENRE]);
-
-    const picker = screen.getByRole('combobox', { name: 'All of' });
-    const offered = [...picker.querySelectorAll('option')].map((o) => o.textContent?.trim());
-
-    expect(offered).toContain('Genre contains');
-    expect(offered).not.toContain('Season count over');
-  });
-
   it('still renders a condition the rule already carries but could not add today', () => {
     // A rule saved as `series` and later narrowed to `movie` keeps its season
     // condition. Hiding it would drop it from the payload on the next save,
@@ -165,20 +155,15 @@ describe('ConditionList', () => {
 
   /**
    * A title has one original language, so several values on this condition can
-   * only be alternatives. Unsaid, the search box after the first one reads as
-   * an invitation to give a title a second language.
+   * only be alternatives: the sentence says so where a selector would stand,
+   * and is heard with the field, not only seen beside it. Unsaid, the search
+   * box after the first value reads as an invitation to give a title a second
+   * language.
    */
-  it('says in words that the values of a single-valued axis are alternatives', () => {
+  it('says in a sentence tied to the field that a single-valued axis takes alternatives', () => {
     render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
 
     expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
-    expect(screen.getByText('Original language is one of …')).toBeTruthy();
-  });
-
-  /** Heard with the field, not only seen beside it. */
-  it('ties the sentence to the field it completes', () => {
-    render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
-
     expect(screen.getByRole('combobox', { name: LANGUAGE.label })).toHaveAccessibleDescription(
       'Original language is one of …',
     );

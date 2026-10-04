@@ -29,19 +29,6 @@ async function verticalSpread(cell: Locator): Promise<number> {
 }
 
 test.describe('table cells stay on one line', () => {
-  test('the last-sync column does not stack its date and status', async ({ page }) => {
-    await page.goto('/instances');
-
-    const cell = page.locator('td.cell-timestamp').first();
-    await expect(cell).toBeVisible();
-    await expect(cell.locator('.badge')).toBeVisible();
-
-    expect(
-      await verticalSpread(cell),
-      'the timestamp and its status badge must share a line, not stack',
-    ).toBeLessThan(SAME_LINE);
-  });
-
   /**
    * Sibling folders differ at their end, so a path cut short keeps its end:
    * `/mnt/storage/media/movies` and `/mnt/storage/media/movies-anime` must not
@@ -121,8 +108,8 @@ test.describe('table cells stay on one line', () => {
     await expect(cell).toHaveAttribute('title', /\d{4}-\d{2}-\d{2}/);
   });
 
-  test('switching to a longer language does not fold the column', async ({ page }) => {
-    // Greek and German run long: if any language folds the cell it is one of them.
+  /** Greek and German run long: if any language folds the cell it is one of them. */
+  test('the last-sync column keeps its date and status on one line', async ({ page }) => {
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_language: 'de' } }),
@@ -131,7 +118,12 @@ test.describe('table cells stay on one line', () => {
 
     const cell = page.locator('td.cell-timestamp').first();
     await expect(cell).toBeVisible();
-    expect(await verticalSpread(cell)).toBeLessThan(SAME_LINE);
+    // Both halves present, or a cell holding the date alone would pass.
+    await expect(cell.locator('.badge')).toBeVisible();
+    expect(
+      await verticalSpread(cell),
+      'the timestamp and its status badge must share a line, not stack',
+    ).toBeLessThan(SAME_LINE);
   });
 });
 
@@ -340,14 +332,18 @@ test.describe('on a phone', () => {
     const sidebar = page.locator('.sidebar');
     await expect(sidebar).not.toHaveClass(/is-open/);
 
+    // In the viewport rather than visible: a closed drawer is only translated
+    // off the screen, which still counts as visible.
+    const link = sidebar.locator('a[href="/media"]');
+    await expect(link).not.toBeInViewport();
     await page.getByRole('button', { name: 'Open navigation' }).click();
     await expect(sidebar).toHaveClass(/is-open/);
-    await expect(page.getByRole('link', { name: /rules/i }).first()).toBeVisible();
+    await expect(link).toBeInViewport();
 
     // Following a link closes it, so the page is not left under a scrim. By
     // href rather than by name: the label is translated and renameable, the
     // destination is not.
-    await page.locator('.sidebar a[href="/media"]').click();
+    await link.click();
     await expect(sidebar).not.toHaveClass(/is-open/);
     await expect(page).toHaveURL(/\/media/);
   });
@@ -487,39 +483,6 @@ test.describe('the chrome draws one line', () => {
       Math.abs(sidebarBottom - topbarBottom),
       `the chrome is stepped: sidebar ends at ${sidebarBottom}, top bar at ${topbarBottom}`,
     ).toBeLessThanOrEqual(1);
-  });
-});
-
-test.describe('right-to-left', () => {
-  /**
-   * Arabic ships, so the mirroring is exercised for real in `rtl.spec.ts`, and
-   * `languages.spec.ts` checks every screen in Arabic for sideways scroll.
-   * This one flips `dir` on the English page instead: the risk lives in the
-   * CSS, and this exercises exactly that. The shell is built from logical
-   * properties (`inset-inline-start`, `margin-inline-start`, `text-align:
-   * start`) so it mirrors on its own.
-   */
-  test('the shell mirrors instead of overlapping', async ({ page }) => {
-    await page.setViewportSize({ width: 1280, height: 800 });
-    await openScreen(page, '/media');
-
-    const sideOf = () =>
-      page.evaluate(() => {
-        const sidebar = document.querySelector('.sidebar')!.getBoundingClientRect();
-        const content = document.querySelector('.main-content')!.getBoundingClientRect();
-        return { sidebarLeft: Math.round(sidebar.left), contentLeft: Math.round(content.left) };
-      });
-
-    const ltr = await sideOf();
-    expect(ltr.sidebarLeft, 'the sidebar should start on the left').toBe(0);
-
-    await page.evaluate(() => document.documentElement.setAttribute('dir', 'rtl'));
-    const rtl = await sideOf();
-
-    // The sidebar crosses to the other edge, and the content stops being
-    // pushed away from the side the sidebar left.
-    expect(rtl.sidebarLeft, 'the sidebar did not move to the right').toBeGreaterThan(500);
-    expect(rtl.contentLeft, 'the content is still offset for a left sidebar').toBe(0);
   });
 });
 
