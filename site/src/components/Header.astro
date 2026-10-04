@@ -2,7 +2,6 @@
 import { version } from '../version';
 import { LANGUAGES, useTranslations, pathFor, type Key, type Locale, type Page } from '../i18n';
 import { DETAIL_SECTIONS } from '../detail-sections';
-import { API_SECTIONS } from '../api-sections';
 import Brand from './icons/Brand.astro';
 import GitHub from './icons/GitHub.astro';
 
@@ -19,7 +18,8 @@ const t = useTranslations(locale);
  * finding the switch first.
  *
  * Each page lists its own sections. A panel naming anchors that are not on the
- * page scrolls nowhere, which is worse than not offering them.
+ * page scrolls nowhere, which is worse than not offering them, and the API
+ * page, one section long, lists none.
  */
 const LANDING: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '01', href: '#rules', label: 'header.li.2', note: 'header.desc.2' },
@@ -27,7 +27,7 @@ const LANDING: { number: string; href: string; label: Key; note: Key }[] = [
   { number: '03', href: '#start', label: 'header.li.5', note: 'header.desc.5' },
 ];
 
-const SECTIONS: Record<Page, typeof LANDING> = { landing: LANDING, how: DETAIL_SECTIONS, api: API_SECTIONS };
+const SECTIONS: Record<Page, typeof LANDING> = { landing: LANDING, how: DETAIL_SECTIONS, api: [] };
 
 /* After the page's own places, the doors to the other pages, so a reader
    reaches every page from the one panel. */

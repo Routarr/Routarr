@@ -56,12 +56,12 @@ echo "backend=$(decide "^(backend/|scripts/|frontend/src/api/types\.ts|$CONTROL)
 echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/services/normalise_value_cases\.json|$CONTROL)")"
 # `site/check.mjs` reads the version out of the crate's manifest, holds the
 # README and the first-run screen to one command and the site's words to the
-# application's dictionaries, the API page is built from the pinned contract,
-# and `site/verify.mjs` loads Playwright out of the frontend's `node_modules`.
+# application's dictionaries, and `site/verify.mjs` loads Playwright out of the
+# frontend's `node_modules`.
 # Each is a real dependency on another deliverable: a Dependabot bump of
 # `@playwright/test` matches nothing else the site job watches, and would land
 # green while breaking it.
-echo "site=$(decide "^(site/|backend/(Cargo\.toml|openapi/v1\.json|locales/)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
+echo "site=$(decide "^(site/|backend/(Cargo\.toml|locales/)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
 # What the root Dockerfile builds or copies, what starts the image, and the
 # compose file whose container name and data path the first-run command names.
 # Not ci.yml: nothing in it reaches the image.

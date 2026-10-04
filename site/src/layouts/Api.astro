@@ -1,18 +1,13 @@
 ---
 import Base from './Base.astro';
-import { useTranslations, type Locale } from '../i18n';
-
-import Calls from '../components/sections/Calls.astro';
-import Recipes from '../components/sections/Recipes.astro';
-import Reference from '../components/sections/Reference.astro';
-import Schemas from '../components/sections/Schemas.astro';
-import Download from '../components/icons/Download.astro';
+import Terminal from '../components/Terminal.astro';
+import { useTranslations, type Key, type Locale } from '../i18n';
 
 /**
- * The third page, for whoever wires Routarr into something else. What a call
- * needs comes first and the recipes second, because a working example answers
- * most questions before a reference is opened. The reference closes the page,
- * read from the contract rather than written here.
+ * The third page, for whoever wires Routarr into something else: what the API
+ * is for, then the three steps to a first answer, as the landing lists the
+ * install. The reference and the contract are in Routarr itself, at the
+ * version it runs, so the page names where they are rather than copying them.
  */
 interface Props {
   locale: Locale;
@@ -20,23 +15,74 @@ interface Props {
 
 const { locale } = Astro.props;
 const t = useTranslations(locale);
+
+/* What goes on the wire, which no language translates. */
+const STEPS: { number: string; fact: string; note: Key }[] = [
+  { number: '01', fact: 'X-Api-Key: rtr_…', note: 'api.step.1' },
+  { number: '02', fact: 'GET /api/v1/route', note: 'api.step.2' },
+  { number: '03', fact: 'GET /api/v1/openapi.json', note: 'api.step.3' },
+];
+
+const CALL = String.raw`curl -fsS -H "X-Api-Key: $ROUTARR_KEY" \
+  "http://localhost:9876/api/v1/route?type=movie&tmdb=149"`;
+
+/* Every field, in the order an instance sends them. */
+const ANSWER = `{
+  "answers": [
+    {
+      "instance_id": "5b0f3c9e-6a1d-4f42-9c8e-2d7a1e4b6f10",
+      "instance_name": "Radarr",
+      "source": "lookup",
+      "media_id": null,
+      "title": "Akira",
+      "year": 1988,
+      "category": "anime",
+      "root_folder": { "path": "/movies/anime", "origin": "arr" },
+      "current_root_folder": null,
+      "action": "add",
+      "rule": "Japanese animation",
+      "is_override": false,
+      "confidence": 0.7,
+      "unanswered_fields": []
+    }
+  ],
+  "errors": []
+}`;
 ---
 
 <Base locale={locale} page="api">
   <section id="api-head">
-    <div class="wrap section-head">
-      <span class="eyebrow">{t('api.span')}</span>
-      <h1 set:html={t('api.h1')} />
-      <p set:html={t('api.p')} />
-      <a class="btn btn-secondary" href="/api/v1/openapi.json" download="routarr-openapi-v1.json">
-        <Download />
-        {t('api.download')}
-      </a>
+    <div class="wrap">
+      <div class="section-head">
+        <span class="eyebrow">{t('api.span')}</span>
+        <h1 set:html={t('api.h1')} />
+        <p>{t('api.p')}</p>
+      </div>
+
+      <div class="install">
+        <ol class="install-steps">
+          {
+            STEPS.map((step) => (
+              <li>
+                <span class="install-n">{step.number}</span>
+                <div>
+                  <p class="install-cmd">{step.fact}</p>
+                  <p class="install-note" set:html={t(step.note)} />
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+
+        <div class="install-aside">
+          <Terminal locale={locale} name="route.sh" code={CALL} />
+          <Terminal locale={locale} name="answer.json" code={ANSWER} />
+        </div>
+      </div>
+
+      <div class="callout">
+        <p set:html={t('api.stable')} />
+      </div>
     </div>
   </section>
-
-  <Calls locale={locale} />
-  <Recipes locale={locale} />
-  <Reference locale={locale} />
-  <Schemas locale={locale} />
 </Base>

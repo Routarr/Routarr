@@ -64,13 +64,6 @@
 /es/api/
   Cache-Control: public, max-age=0, must-revalidate
 
-# The contract, rebuilt from the backend's pinned copy. Readable from any
-# origin, so a client or an editor running in a browser can import it by its
-# address.
-/api/v1/openapi.json
-  Cache-Control: public, max-age=0, must-revalidate
-  Access-Control-Allow-Origin: *
-
 # Same reasoning: the root icon carries no fingerprint either, and a year-long
 # immutable copy of a wrong icon is not something a deploy can take back.
 /favicon.ico

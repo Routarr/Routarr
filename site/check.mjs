@@ -307,11 +307,11 @@ const TERMS = [
   ['hero.board.mode', 'ModeDryRunShort'],
   ['safety.b', 'SettingGlobalDryRun'],
   ['features.k.3', 'Overrides'],
-  ['api.scope', 'Scope'],
-  ['api.p', 'ApiReference', 'within'],
-  ['api.calls.note', 'Applications', 'within'],
-  ['api.calls.note.2', 'ScopeOperate', 'within'],
-  ['api.calls.note.2', 'ScopeWrite', 'within'],
+  ['api.step.1', 'Applications', 'within'],
+  ['api.step.1', 'ScopeOperate', 'within'],
+  ['api.step.1', 'ScopeWrite', 'within'],
+  ['api.step.3', 'ApiReference', 'within'],
+  ['api.step.3', 'Scope', 'within'],
 ];
 for (const { code } of LANGUAGES) {
   const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
