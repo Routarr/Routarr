@@ -153,36 +153,46 @@ export function formatBytes(bytes: number | null | undefined, language = 'en'): 
 export interface ConditionWords {
   /** The condition's caption from the catalogue, or its type where it has none. */
   label?: string;
+  /** A sentence of the dictionary, its placeholders filled in, as `t()` writes it. */
+  phrase: (key: string, params?: Record<string, string>) => string;
   /** Joins list values, as `t('ListSeparator')` writes it. */
   separator: string;
   /** Said of a list with no value, which can never match. */
   empty: string;
-  /** A caption and its values, as `t('ConditionSummary')` writes them. */
-  summary: (caption: string, values: string) => string;
-  /** A range, as `t('ConditionRange')` writes it. */
-  range: (min: string, max: string) => string;
-  /** An open bound of a range. */
-  open: string;
   /** The name a stored value is shown under, where it has one. */
   name?: (value: string) => string;
 }
 
+/**
+ * The dictionary key of the sentence a condition reads as. A whole sentence
+ * per condition, its values in a placeholder, so each language places and
+ * declines "any of", "all of" and "none of" as its grammar wants. `Not` is a
+ * yes or no condition said no, `From` and `To` a year range open at one end.
+ */
+export const phraseKey = (type: string, form: '' | 'Not' | 'From' | 'To' = ''): string =>
+  `ConditionPhrase${type.split('_').map(capitalize).join('')}${form}`;
+
 /** One-line summary of a condition, for the rules table. */
 export function describeCondition(condition: Condition, words: ConditionWords): string {
   const caption = words.label ?? condition.type;
+  const key = (form: '' | 'Not' | 'From' | 'To' = '') => phraseKey(condition.type, form);
   const value = condition.value;
 
   if (Array.isArray(value)) {
     const named = value.map((each) => (words.name ? words.name(String(each)) : String(each)));
-    return words.summary(caption, named.length > 0 ? named.join(words.separator) : words.empty);
+    const values = named.length > 0 ? named.join(words.separator) : words.empty;
+    return words.phrase(key(), { values });
   }
   if (value && typeof value === 'object') {
-    const range = value as { min?: number | null; max?: number | null };
-    const bound = (year: number | null | undefined) => (year == null ? words.open : String(year));
-    return words.summary(caption, words.range(bound(range.min), bound(range.max)));
+    const { min, max } = value as { min?: number | null; max?: number | null };
+    if (min != null && max != null) return words.phrase(key(), { min: `${min}`, max: `${max}` });
+    if (min != null) return words.phrase(key('From'), { min: `${min}` });
+    if (max != null) return words.phrase(key('To'), { max: `${max}` });
+    return caption;
   }
+  if (typeof value === 'boolean') return words.phrase(key(value ? '' : 'Not'));
   if (value === undefined || value === null) return caption;
-  return words.summary(caption, String(value));
+  return words.phrase(key(), { value: String(value) });
 }
 
 /** A count with its digits grouped as the language groups them, `12 345` in French. */

@@ -6,7 +6,7 @@ import InstanceStatus from './InstanceStatus.svelte';
 const STRINGS = {
   Checking: 'checking…',
   Connected: 'connected',
-  Disabled: 'disabled',
+  InstanceDisabled: 'disabled',
   Error: 'error',
 };
 

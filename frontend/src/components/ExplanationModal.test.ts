@@ -19,9 +19,8 @@ const STRINGS = {
   Confidence: 'Confidence',
   ManualOverride: 'manual override',
   MetadataTitle: 'Metadata',
-  MetadataSources: 'Sources',
   // French spacing, so a literal colon or comma in the markup shows.
-  ConditionSummary: '{caption} : {values}',
+  MetadataSourcesLine: 'Sources : {sources}',
   ListSeparator: ' ; ',
   MetadataSummary: 'Language: {language} · Countries: {countries} · Certification: {certification}',
   MetadataFromSource: 'from {source}',

@@ -583,7 +583,7 @@ mod tests {
         let fr = Localizer::new("fr");
         assert_eq!(
             fr.translate("CategoryNotFound", &[("name", "anime")]),
-            "La catégorie « anime » n'existe pas"
+            "La catégorie «\u{a0}anime\u{a0}» n'existe pas"
         );
     }
 

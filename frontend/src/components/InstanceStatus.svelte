@@ -18,7 +18,7 @@
 {:else if status === 'connected'}
   <span class="badge badge-success">{t('Connected')}</span>
 {:else if status === 'disabled'}
-  <span class="badge badge-value muted">{t('Disabled')}</span>
+  <span class="badge badge-value muted">{t('InstanceDisabled')}</span>
 {:else}
   <span class="badge badge-danger" title={failureDetail(status)}>{t('Error')}</span>
 {/if}

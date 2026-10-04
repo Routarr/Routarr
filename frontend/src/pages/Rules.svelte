@@ -126,11 +126,9 @@
     const spec = specByType.get(condition.type);
     return describeCondition(condition, {
       label: spec?.label,
+      phrase: (key, params) => t(key, params),
       separator: t('ListSeparator'),
       empty: t('None'),
-      summary: (caption, values) => t('ConditionSummary', { caption, values }),
-      range: (min, max) => t('ConditionRange', { min, max }),
-      open: t('ConditionRangeOpen'),
       name: (value) => nameIn(spec?.suggestions, value),
     });
   }
@@ -311,7 +309,7 @@
                   <strong>{rule.name}</strong>
                   {#if !rule.enabled}
                     <span class="badge badge-warning ms-2">
-                      {t('Disabled')}
+                      {t('RuleDisabled')}
                     </span>
                   {/if}
                   {#if verdict?.shadowed_by}

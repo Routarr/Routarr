@@ -140,6 +140,37 @@ lower one to make a build pass.**
   the difference. Adding is free. Removing, renaming or retyping anything
   documented breaks a client, and CI refuses it against the last release.
 
+## Improving a translation
+
+The 25 languages beside English were translated without native speakers, so a
+reader of one of them is exactly who can tell where it reads wrong. Either way
+below is welcome, and neither needs the toolchain.
+
+- **Report it** with the
+  [Translation](https://github.com/Routarr/Routarr/issues/new?template=translation.yml)
+  issue form: the language, where the words show and what a native speaker
+  would write instead.
+- **Or change it.** Each language is one file in
+  [`backend/locales/`](backend/locales/), in the key order of `en.json`. Change
+  the value, keep every `{placeholder}` as it is, and run
+  `python3 scripts/check-locales.py`, which names a placeholder, a core term or
+  a key order that moved. `python3 scripts/add-locale.py <code> < batch.json`
+  merges a batch of keys and refuses a lost or invented placeholder.
+
+A few things hold every language together:
+
+- **One word per core term.** [`scripts/glossary.json`](scripts/glossary.json)
+  gives each term (apply, move, exception, root folder…) the one word each
+  language says it with, and the check holds every sentence to it. A better
+  word changes the glossary and every sentence using it, in one change.
+- **The file's own conventions**: its form of address, its quotation marks,
+  and in French a no-break space before `? ! : % »` and after `«`. No em dash,
+  no semicolon and no curly quotes, in any language.
+- **No plural.** A count is never inflected by its number: the dictionaries
+  write `Rules: {count}`, never a noun that agrees with it.
+- **The Arrs' menu paths stay in English** (`Settings → General → Security →
+  API Key`): they are exact for an Arr in its default language.
+
 ## Things that will be turned down
 
 Not because they are bad ideas, but because they are outside what this is:

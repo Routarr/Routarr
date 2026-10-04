@@ -15,9 +15,7 @@
 
   // The sources line holds arrows that mirror between its values, so the
   // summary is cut where the values go and drawn around them.
-  const sourcesLine = $derived(
-    t('ConditionSummary', { caption: t('MetadataSources'), values: '\u0000' }).split('\u0000'),
-  );
+  const sourcesLine = $derived(t('MetadataSourcesLine', { sources: '\u0000' }).split('\u0000'));
 
   /**
    * Pinning is one click because the panel already holds the whole answer.

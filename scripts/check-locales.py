@@ -19,6 +19,9 @@ Checks, in order of how much a failure would hurt:
 9. Every placeholder is classed as a count, grouped as the language groups
    digits (`COUNTS` in `backend/src/localization.rs`), or as anything else
    (`NOT_COUNTS` below): unclassed, a count reads `12345` or a year `2,026`.
+10. French puts a no-break space before `? ! : ; % »` and after `«`, as the
+   site's catalogue does: a plain one lets a line break strand the sign at the
+   start of the next line.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
@@ -43,10 +46,26 @@ LOCALES = ROOT / "backend" / "locales"
 # Families whose keys are assembled at run time, each a prefix and the values
 # it is joined with in PascalCase: the file holding them and the pattern reading
 # them there. A value written in capitals (a country code) is joined as it is.
+# A family named `Prefix+Suffix` ends each key with the suffix.
 # A prefix alone would exempt every key that starts with it, a misspelt
 # `t('TriggeredBi')` and a literal key nobody reads any more included.
 BUILT = {
     "ConditionLabel": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
+    # The sentence each condition reads as (`phraseKey` in the frontend), a
+    # yes or no condition said no, and a year range open at either end.
+    "ConditionPhrase": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
+    "ConditionPhrase+Not": (
+        "backend/src/api/conditions.rs",
+        r'kind: "([a-z_]+)",\n\s*value_type: "boolean"',
+    ),
+    "ConditionPhrase+From": (
+        "backend/src/api/conditions.rs",
+        r'kind: "([a-z_]+)",\n\s*value_type: "year_range"',
+    ),
+    "ConditionPhrase+To": (
+        "backend/src/api/conditions.rs",
+        r'kind: "([a-z_]+)",\n\s*value_type: "year_range"',
+    ),
     "Job": ("backend/src/jobs/registry.rs", r'JobKind::\w+ => "([a-z_]+)"'),
     "Trigger": ("backend/src/jobs/mod.rs", r'pub const TRIGGER_\w+: &str = "([a-z_]+)";'),
     # A job's and a decision's, as the frontend types them.
@@ -72,12 +91,12 @@ COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
 # The placeholders that hold anything but a count: names, paths, codes, sizes
 # already written with their unit, years, ids, statuses and ordinals.
 NOT_COUNTS = {
-    "address", "age", "base", "caption", "category", "cause", "certification", "code",
+    "address", "age", "base", "category", "cause", "certification", "code",
     "condition", "countries", "country", "detail", "error", "expected", "field", "file",
     "first", "found", "free", "host", "id", "index", "instance", "key", "kind", "label",
     "language", "max", "message", "min", "name", "names", "needed", "next", "number",
     "observed", "path", "provider", "query", "reason", "regions", "rule", "screen", "second",
-    "section", "service", "since", "size", "source", "status", "title", "url", "value",
+    "section", "service", "since", "size", "source", "sources", "status", "title", "url", "value",
     "values", "variable", "version", "when", "year",
 }
 
@@ -179,13 +198,16 @@ def confirmation_labels(text: str) -> set[str]:
 def built_keys() -> dict[str, set[str]]:
     """Each family of `BUILT` and the keys the code can assemble for it."""
     families: dict[str, set[str]] = {}
-    for prefix, (relative, pattern) in BUILT.items():
+    for family, (relative, pattern) in BUILT.items():
+        prefix, _, suffix = family.partition("+")
         text = (ROOT / relative).read_text(encoding="utf-8")
         values = set()
         for found in re.findall(pattern, text, re.M):
             values |= set(re.findall(r"[a-z_]+|[A-Z]{2,}", found))
-        families[prefix] = {
-            prefix + (value if value.isupper() else "".join(w.capitalize() for w in value.split("_")))
+        families[family] = {
+            prefix
+            + (value if value.isupper() else "".join(w.capitalize() for w in value.split("_")))
+            + suffix
             for value in values
         }
     return families
@@ -393,6 +415,15 @@ def main() -> int:
         problems.append(f"placeholder {{{name}}} is both a count and not one")
     for name in sorted((counts | NOT_COUNTS) - used):
         problems.append(f"placeholder {{{name}}} is classed but no sentence uses it")
+
+    # 10. French spacing.
+    for key, value in dictionaries.get("fr", {}).items():
+        stranded = re.search(r" [?!:;%»]|« ", value)
+        if stranded:
+            problems.append(
+                f"fr.json: '{key}' has a plain space in {stranded.group(0)!r}, "
+                "where French puts a no-break space (U+00A0)"
+            )
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)

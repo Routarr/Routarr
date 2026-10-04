@@ -35,7 +35,7 @@ const STRINGS = {
   ApiKey: 'API key',
   ApiKeyEncrypted: 'encrypted',
   ApiKeyKeepHint: 'Leave blank to keep the current key',
-  Disabled: 'disabled',
+  InstanceDisabled: 'disabled',
   Never: 'never',
   InstanceUpdated: 'Instance updated',
   InstanceAdded: 'Instance added',

@@ -370,8 +370,8 @@ async fn a_typed_setting_is_refused_in_the_interface_language() {
             "ftp://example.org",
             "Webhook de notification accepte une adresse http:// ou https://.",
         ),
-        ("certification_regions", " , ", "Régions de certification : au moins un code pays"),
-        ("certification_regions", "FR, FRA", "« FRA »"),
+        ("certification_regions", " , ", "Régions de certification\u{a0}: au moins un code pays"),
+        ("certification_regions", "FR, FRA", "«\u{a0}FRA\u{a0}»"),
     ] {
         let refused =
             app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } })).await;

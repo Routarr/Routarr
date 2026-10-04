@@ -431,7 +431,7 @@
                   <strong>{instance.name}</strong>
                   {#if !instance.enabled}
                     <span class="badge badge-warning ms-2">
-                      {t('Disabled')}
+                      {t('InstanceDisabled')}
                     </span>
                   {/if}
                 </td>

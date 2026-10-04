@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(
             render_detail(&Localizer::new("fr"), Some(&key), Some(&params), Some(detail))
                 .as_deref(),
-            Some("Titres : 3, dossiers racines : 1"),
+            Some("Titres\u{a0}: 3, dossiers racines\u{a0}: 1"),
         );
     }
 
