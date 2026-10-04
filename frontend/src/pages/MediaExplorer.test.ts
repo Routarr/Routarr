@@ -23,7 +23,6 @@ const STRINGS = {
   AllTypes: 'All types',
   Movies: 'Movies',
   Series: 'Series',
-  Search: 'Search',
   UnclassifiedOnly: 'Unclassified only',
   NoMediaMatches: 'Nothing matches',
   NotEvaluated: 'not evaluated',
@@ -164,6 +163,29 @@ describe('Media explorer', () => {
         expect.objectContaining({ page: 1 }),
         expect.any(AbortSignal),
       ),
+    );
+  });
+
+  /**
+   * Filtered as one types, as History and Logs are, once the typing stops:
+   * each search is a query against the operator's own server, and the page the
+   * reader was on may not exist in the narrower list.
+   */
+  it('asks for a typed title once the typing stops, from the first page', async () => {
+    const getMedia = show([media()], 2);
+    await screen.findByText('Akira');
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(2));
+
+    await userEvent.type(
+      screen.getByRole('searchbox', { name: 'Search the library by title' }),
+      'heat',
+    );
+
+    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(3));
+    expect(getMedia).toHaveBeenLastCalledWith(
+      expect.objectContaining({ search: 'heat', page: 1 }),
+      expect.any(AbortSignal),
     );
   });
 

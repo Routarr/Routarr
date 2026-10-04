@@ -162,6 +162,45 @@ async fn an_asynchronous_preview_keeps_its_decisions_in_the_task() {
     assert_eq!(task["result"]["returned"], decisions.len());
 }
 
+/// A stored run and a preview are told apart on the Tasks screen, and a
+/// screen looking for the run whose proposals it lists finds only stored ones.
+#[tokio::test]
+async fn a_preview_is_a_task_of_its_own_kind() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+
+    app.post("/api/v1/simulate", json!({ "persist": false })).await.assert_ok();
+    app.post("/api/v1/simulate", json!({})).await.assert_ok();
+
+    let jobs = app.get("/api/v1/jobs").await;
+    let mut kinds: Vec<&str> = jobs.assert_ok()["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|job| job["kind"].as_str())
+        .collect();
+    kinds.sort_unstable();
+    assert_eq!(kinds, ["preview", "simulate"]);
+}
+
+/// Followed rather than waited for, a run says how far it has gone, and has
+/// gone through every title once it has finished.
+#[tokio::test]
+async fn a_followed_simulation_counts_the_titles_it_evaluated() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+
+    let started = app.send(preferring_async("/api/v1/simulate", json!({}))).await;
+    assert_eq!(started.status, StatusCode::ACCEPTED, "{:?}", started.json);
+    let task = finished(&app, started.json["job_id"].as_str().unwrap()).await;
+
+    let total = task["result"]["total_media"].as_u64().unwrap();
+    assert!(total > 0, "{task}");
+    assert_eq!(task["progress_total"], total, "{task}");
+    assert_eq!(task["progress_current"], total, "{task}");
+}
+
 /// A request no library can satisfy is refused before any task starts, so a
 /// caller asking for an answer at once gets the refusal, not a task that fails.
 #[tokio::test]
@@ -330,7 +369,7 @@ async fn asynchronous_previews_queue_only_so_far() {
     let accepted = statuses.iter().filter(|status| **status == StatusCode::ACCEPTED).count();
     let refused = statuses.iter().filter(|status| **status == StatusCode::CONFLICT).count();
     assert_eq!((accepted, refused), (4, 2), "{statuses:?}");
-    let started: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE kind = 'simulate'")
+    let started: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM jobs WHERE kind = 'preview'")
         .fetch_one(&app.state.pool)
         .await
         .unwrap();

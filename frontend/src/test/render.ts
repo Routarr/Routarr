@@ -1,5 +1,6 @@
 import { render as testingLibraryRender } from '@testing-library/svelte';
 import { seedDictionary } from '../lib/i18n.svelte';
+import { SERVER_COUNTS } from './counts';
 
 type Render = typeof testingLibraryRender;
 
@@ -22,6 +23,6 @@ export function renderWithI18n(
     language?: string;
   } = {},
 ) {
-  seedDictionary(options.strings ?? {}, options.language);
+  seedDictionary(options.strings ?? {}, options.language, SERVER_COUNTS);
   return testingLibraryRender(component, options.props as never);
 }

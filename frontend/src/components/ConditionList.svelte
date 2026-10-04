@@ -10,6 +10,7 @@
     title,
     list,
     conditions,
+    keys,
     specs,
     addable,
     facets = null,
@@ -23,6 +24,8 @@
     title: string;
     list: 'conditions' | 'exclusions';
     conditions: Condition[];
+    /** One per condition, which keeps a row's own state with it when another is removed. */
+    keys: number[];
     /**
      * Every spec, for rendering what the rule already carries. Never filtered:
      * a rule saved before its media type narrowed still has to display, and a
@@ -44,7 +47,8 @@
      * quantifier, keeping its values.
      */
     onRetype: (index: number, type: string) => void;
-    onUpdate: (index: number, value: unknown) => void;
+    /** `unreadable` when the field holds text `value` could not take in. */
+    onUpdate: (index: number, value: unknown, unreadable: boolean) => void;
     onRemove: (index: number) => void;
   } = $props();
 
@@ -110,7 +114,7 @@
   {/if}
 
   <div class="flex flex-col gap-2 mt-2">
-    {#each conditions as condition, index (index)}
+    {#each conditions as condition, index (keys[index] ?? index)}
       {@const spec = specs.find((candidate) => candidate.type === condition.type)}
       <div class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
         <span class="condition-caption min-w-190 text-md">{caption(spec) ?? condition.type}</span>
@@ -148,7 +152,7 @@
             suggestions={facetOf(named, spec?.suggestions)}
             suggestionsLoading={facetsLoading}
             suggestionsError={facetsError}
-            onChange={(value) => onUpdate(index, value)}
+            onChange={(value, unreadable) => onUpdate(index, value, unreadable)}
           />
         </div>
         <button

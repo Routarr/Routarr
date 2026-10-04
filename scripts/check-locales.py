@@ -16,6 +16,9 @@ Checks, in order of how much a failure would hurt:
    a reader who meets two words for "apply" cannot tell they are one act.
 8. No button of a confirmation starts with the language's Cancel word: beside
    [Cancel], a [Cancel the move] that moves a title reads as a second way out.
+9. Every placeholder is classed as a count, grouped as the language groups
+   digits (`COUNTS` in `backend/src/localization.rs`), or as anything else
+   (`NOT_COUNTS` below): unclassed, a count reads `12345` or a year `2,026`.
 
 A partial translation is allowed on purpose: an untranslated key falls back to
 English at runtime and `GET /localization/languages` reports each language's
@@ -63,6 +66,20 @@ BUILT = {
 MIN_COMPLETION = 0.50
 
 GLOSSARY = ROOT / "scripts" / "glossary.json"
+
+COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
+
+# The placeholders that hold anything but a count: names, paths, codes, sizes
+# already written with their unit, years, ids, statuses and ordinals.
+NOT_COUNTS = {
+    "address", "age", "base", "caption", "category", "cause", "certification", "code",
+    "condition", "countries", "country", "detail", "error", "expected", "field", "file",
+    "first", "found", "free", "host", "id", "index", "instance", "key", "kind", "label",
+    "language", "max", "message", "min", "name", "names", "needed", "next", "number",
+    "observed", "path", "provider", "query", "reason", "regions", "rule", "screen", "second",
+    "section", "service", "since", "size", "source", "status", "title", "url", "value",
+    "values", "variable", "version", "when", "year",
+}
 
 
 def source_text() -> str:
@@ -172,6 +189,12 @@ def built_keys() -> dict[str, set[str]]:
             for value in values
         }
     return families
+
+
+def server_counts() -> set[str]:
+    text = COUNTS_SOURCE.read_text(encoding="utf-8")
+    found = re.search(r"pub const COUNTS: &\[&str\] = &\[([^\]]*)\]", text)
+    return set(re.findall(r'"(\w+)"', found.group(1))) if found else set()
 
 
 def placeholders(template: str) -> set[str]:
@@ -355,6 +378,21 @@ def main() -> int:
                     f"{language}.json: '{key}' ({label!r}) starts with the Cancel word "
                     f"'{cancel}', and the two sit side by side in a confirmation"
                 )
+
+    # 9. Each placeholder a count or not, and each listed name in use.
+    counts = server_counts()
+    if not counts:
+        problems.append(f"read no COUNTS from {COUNTS_SOURCE.relative_to(ROOT)}")
+    used = set().union(*(placeholders(template) for template in english.values()))
+    for name in sorted(used - counts - NOT_COUNTS):
+        problems.append(
+            f"placeholder {{{name}}} is neither in COUNTS ({COUNTS_SOURCE.relative_to(ROOT)}) "
+            "nor in NOT_COUNTS (scripts/check-locales.py)"
+        )
+    for name in sorted(counts & NOT_COUNTS):
+        problems.append(f"placeholder {{{name}}} is both a count and not one")
+    for name in sorted((counts | NOT_COUNTS) - used):
+        problems.append(f"placeholder {{{name}}} is classed but no sentence uses it")
 
     if problems:
         print(f"{len(problems)} locale problem(s):", file=sys.stderr)

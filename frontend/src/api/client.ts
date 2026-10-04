@@ -144,7 +144,11 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
   return composed.signal;
 }
 
-/** Long enough for a simulation over a large library, short enough to be a signal. */
+/**
+ * Long enough for any call answered at once, short enough to be a signal. Work
+ * that may run longer, a simulation or an apply over a whole library, is
+ * followed through its job (`followed`) and never meets it.
+ */
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const readJson = (response: Response) => response.json() as Promise<never>;
@@ -277,20 +281,62 @@ const FOLLOW_EVERY_MS = 1000;
  * answers the first request, so `answering` sees it as before. A server that
  * did the work at once answers the report itself.
  */
-async function followed<T>(path: string, init: RequestInit): Promise<T> {
+async function followed<T>(path: string, init: RequestInit, following: Following = {}): Promise<T> {
+  const signal = following.signal instanceof AbortSignal ? following.signal : undefined;
   const first = await request<{ job?: string; report?: T }>(
     path,
-    { ...init, headers: { ...(init.headers as Record<string, string>), Prefer: 'respond-async' } },
+    {
+      ...init,
+      signal,
+      headers: { ...(init.headers as Record<string, string>), Prefer: 'respond-async' },
+    },
     async (response) =>
       response.status === 202
         ? { job: ((await response.json()) as { job_id: string }).job_id }
         : { report: (await response.json()) as T },
   );
   if (first.job === undefined) return first.report as T;
+  await pause(FOLLOW_FIRST_MS, signal);
+  return followJob<T>(first.job, following);
+}
+
+/** What a caller following a job hears of it, and how it stops looking. */
+export interface Following {
+  /** Each look at the job while it runs, for a screen showing how far it has gone. */
+  onProgress?: (job: Job) => void;
+  /**
+   * Stops the looking, not the work: the job runs on, and a screen opened
+   * again finds it under `/jobs` and follows it from there.
+   */
+  signal?: AbortSignal;
+}
+
+/** `ms` of quiet, cut short by `signal`. */
+function pause(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason as Error);
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason as Error);
+      },
+      { once: true },
+    );
+  });
+}
+
+/** A started job, looked at until it finishes, and the report it keeps. */
+async function followJob<T>(id: string, following: Following = {}): Promise<T> {
+  const signal = following.signal instanceof AbortSignal ? following.signal : undefined;
   for (let wait = FOLLOW_FIRST_MS; ; wait = Math.min(wait * 2, FOLLOW_EVERY_MS)) {
-    await new Promise((resolve) => setTimeout(resolve, wait));
-    const job = await request<Job>(`/jobs/${first.job}`);
-    if (job.status === 'running') continue;
+    const job = await request<Job>(`/jobs/${id}`, { signal });
+    if (job.status === 'running') {
+      if (typeof following.onProgress === 'function') following.onProgress(job);
+      await pause(wait, signal);
+      continue;
+    }
     // Every move of an apply refused fails the job and still keeps its report,
     // which says why move by move.
     if (job.result !== null && job.result !== undefined) return job.result as T;
@@ -452,11 +498,15 @@ export const api = {
     request<Explanation>(`/media/${id}/explain`, { signal }),
 
   // ---------------------------------------------------------- decisions
-  // Waited for, not followed: a persisting run's task keeps no proposals (they
-  // are listed under `/decisions`), and the screen shows the ones this answer
-  // carries.
-  runSimulation: (data?: unknown) =>
-    request<SimulationResult>('/simulate', { method: 'POST', body: body(data) }),
+  /**
+   * Followed, so a library of any size is never cut at the request bound. A
+   * stored run's report keeps its counts alone: its proposals are listed
+   * under `/decisions` by its `simulation_id`.
+   */
+  runSimulation: (data?: unknown, following?: Following) =>
+    followed<SimulationResult>('/simulate', { method: 'POST', body: body(data) }, following),
+  /** A job someone else started, followed to its report from the screen that shows it. */
+  followJob: <T>(id: string, following?: Following) => followJob<T>(id, following),
   getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
   /** `confirm` names the guardrails already answered, not a blanket yes. */

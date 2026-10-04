@@ -1,13 +1,15 @@
 <script lang="ts">
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes } from '../api/format';
-  import { api } from '../api/client';
+  import { api, type Following } from '../api/client';
   import type { ApplyReport, Decision, SimulationResult } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { handFocus } from '../lib/focus';
   import DecisionRow from '../components/DecisionRow.svelte';
+  import Pager from '../components/Pager.svelte';
+  import ProgressBar from '../components/ProgressBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Stat from '../components/Stat.svelte';
@@ -48,6 +50,57 @@
   const pending = $derived<Decision[] | null>(pendingLoad.data?.data ?? null);
 
   /**
+   * The run's own proposals, a page at a time. Its report keeps the counts
+   * alone, and `/decisions` lists what it stored by its id.
+   */
+  let runPage = $state(1);
+  // Each page arrives with its moves selected, in the same update as its
+  // rows: selected a render later, the select-all box would turn clickable
+  // while still unticked.
+  const runLoad = createAsync(
+    async (signal) => {
+      if (!result) return null;
+      const page = await api.getDecisions(
+        { simulation_id: result.simulation_id, page: runPage, per_page: PENDING_PAGE },
+        signal,
+      );
+      select(
+        page.data.filter((d) => d.action === 'move' && d.status === 'pending').map((d) => d.id),
+      );
+      return page;
+    },
+    () => [result?.simulation_id, runPage],
+  );
+
+  /** How far the run being followed has gone, while one is. */
+  let progress = $state<{ current: number; total: number } | null>(null);
+
+  /**
+   * Stops following when the screen closes. The run goes on without it, and
+   * the screen opened again finds it running and follows it from there.
+   */
+  const leaving = new AbortController();
+  const following: Following = {
+    signal: leaving.signal,
+    onProgress: (job) => (progress = { current: job.progress_current, total: job.progress_total }),
+  };
+
+  $effect(() => {
+    void resume();
+    return () => leaving.abort();
+  });
+
+  /** A stored run started earlier and still going, by this screen or another caller. */
+  async function resume() {
+    const running = await api
+      .getJobs({ kind: 'simulate', status: 'running', per_page: 1 }, leaving.signal)
+      .catch(() => null);
+    const job = running?.data[0];
+    if (!job || busy !== null) return;
+    await follow(() => api.followJob<SimulationResult>(job.id, following));
+  }
+
+  /**
    * Evaluate the library again.
    *
    * After an apply it runs as a refresh. The moves were made whatever the
@@ -55,19 +108,22 @@
    * never in its place, or the user would not learn what the apply did.
    */
   async function run({ refresh = false }: { refresh?: boolean } = {}) {
+    await follow(() => api.runSimulation({ persist: true }, following), refresh);
+  }
+
+  async function follow(started: () => Promise<SimulationResult>, refresh = false) {
     const pressed = document.activeElement as HTMLElement | null;
     busy = 'run';
+    progress = null;
     refreshError = null;
     if (!refresh) outcome.clear();
     try {
-      const data = await api.runSimulation({ persist: true });
-      result = data;
-      select(
-        data.decisions
-          .filter((d) => d.action === 'move' && d.status === 'pending')
-          .map((d) => d.id),
-      );
+      const summary = await started();
+      runPage = 1;
+      result = summary;
     } catch (err) {
+      // The screen closed: nothing is left to tell.
+      if (leaving.signal.aborted) return;
       if (refresh) refreshError = describeError(err);
       else outcome.fail(err);
     } finally {
@@ -77,7 +133,8 @@
       // for the next poll and the step for the next navigation.
       invalidateStatus();
       busy = null;
-      void handFocus(pressed);
+      progress = null;
+      if (!leaving.signal.aborted) void handFocus(pressed);
     }
   }
 
@@ -189,9 +246,12 @@
 
   // This run if there was one, otherwise what was already waiting. A fresh run
   // replaces them, and supersedes them server-side too.
-  const shown = $derived<Decision[]>(result?.decisions ?? pending ?? []);
-  // The pending list has not answered yet, and no run has replaced it.
-  const loading = $derived(pending === null && !result && !pendingLoad.error);
+  const shown = $derived<Decision[]>(result ? (runLoad.data?.data ?? []) : (pending ?? []));
+  // The list on screen has not answered yet: the run's page, or the pending
+  // decisions no run has replaced.
+  const loading = $derived(
+    result ? runLoad.data === null && !runLoad.error : pending === null && !pendingLoad.error,
+  );
   const movable = $derived(shown.filter((d) => d.action === 'move'));
   const allSelected = $derived(movable.length > 0 && movable.every((d) => selected.has(d.id)));
 </script>
@@ -216,12 +276,23 @@
     </div>
   </div>
 
+  {#if busy === 'run' && progress && progress.total > 0}
+    <div class="card">
+      <ProgressBar current={progress.current} total={progress.total} label={t('EvaluatingRules')} />
+    </div>
+  {/if}
+
   <ErrorBanner
     message={pendingLoad.error}
     onDismiss={() => (pendingLoad.error = null)}
     onRetry={() => void pendingLoad.reload()}
   />
   <ErrorBanner message={refreshError} onDismiss={() => (refreshError = null)} />
+  <ErrorBanner
+    message={runLoad.error}
+    onDismiss={() => (runLoad.error = null)}
+    onRetry={() => void runLoad.reload()}
+  />
   <OutcomeBanner {outcome} />
   <GuideStepBanner step="simulation" />
 
@@ -306,12 +377,6 @@
         </TableRegion>
       </div>
     {/if}
-
-    {#if result.returned < result.total_media}
-      <WarningBanner
-        message={t('TruncatedWarning', { shown: result.returned, total: result.total_media })}
-      />
-    {/if}
   {/if}
 
   {#if !result && pending && pending.length >= PENDING_PAGE}
@@ -335,10 +400,9 @@
           {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
         </button>
 
-        <!-- Reaches past the on-screen list: on a large library the table is
-               capped, so selecting every visible row is not everything. It
-               targets one identified simulation, so it only exists once a run
-               has produced one. -->
+        <!-- Reaches past the page on screen: selecting every visible row is
+               not everything. It targets one identified simulation, so it only
+               exists once a run has produced one. -->
         {#if result}
           <button
             class="btn btn-secondary"
@@ -386,7 +450,7 @@
             <!-- Nothing pending and nothing run says to run, a run that
                    proposed nothing says so. A list that failed to load says
                    neither: its banner above does. -->
-            {#if !pendingLoad.error}
+            {#if !(result ? runLoad.error : pendingLoad.error)}
               <tr>
                 <td colspan="8">
                   <EmptyState>
@@ -407,5 +471,8 @@
         </tbody>
       </table>
     </TableRegion>
+    {#if result}
+      <Pager pagination={runLoad.data?.pagination} bind:page={runPage} countKey="DecisionCount" />
+    {/if}
   </div>
 </div>

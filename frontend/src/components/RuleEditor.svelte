@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { tick } from 'svelte';
   import { FlaskConical } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { conditionAppliesTo, defaultConditionValue } from '../api/conditions';
@@ -154,20 +153,29 @@
     edited = true;
   }
 
-  // A condition field that names what it could not read: the draft holds only
-  // what it could, so saving would drop the rest unseen. Counted on the form,
-  // where every condition field draws, after each edit has redrawn it.
-  let form = $state<HTMLFormElement | null>(null);
-  let unreadable = $state(0);
-  async function recount() {
-    await tick();
-    unreadable = form?.querySelectorAll('.condition-row [aria-invalid="true"]').length ?? 0;
-  }
+  /**
+   * Beside each condition of the draft, in step with it: a key that stays with
+   * the condition when one above it is removed, so a field's typed text and
+   * its error stay with it too, and whether the field holds text it could not
+   * read. The draft keeps only what a field could read, so saving would drop
+   * the rest unseen: Save waits for every such field.
+   */
+  let nextRow = 0;
+  const row = () => ({ key: nextRow++, unreadable: false });
+  // Built once from the draft as it opened, then kept in step by each edit.
+  const rows = $state({
+    conditions: draft.conditions.map(row),
+    exclusions: draft.exclusions.map(row),
+  });
+  const unreadable = $derived(
+    [...rows.conditions, ...rows.exclusions].filter((field) => field.unreadable).length,
+  );
 
   function addCondition(list: 'conditions' | 'exclusions', type: string) {
     const spec = specs.get(type);
     if (!spec) return;
     draft[list] = [...draft[list], { type, value: defaultConditionValue(spec) }];
+    rows[list] = [...rows[list], row()];
     touched();
   }
 
@@ -181,17 +189,24 @@
     touched();
   }
 
-  function updateCondition(list: 'conditions' | 'exclusions', index: number, value: unknown) {
+  function updateCondition(
+    list: 'conditions' | 'exclusions',
+    index: number,
+    value: unknown,
+    unreadableText: boolean,
+  ) {
     draft[list] = draft[list].map((condition, i) =>
       i === index ? { ...condition, value } : condition,
     );
+    const field = rows[list][index];
+    if (field) field.unreadable = unreadableText;
     touched();
   }
 
   function removeCondition(list: 'conditions' | 'exclusions', index: number) {
     draft[list] = draft[list].filter((_, i) => i !== index);
+    rows[list] = rows[list].filter((_, i) => i !== index);
     touched();
-    void recount();
   }
 
   async function runPreview() {
@@ -269,7 +284,7 @@
        handler, so it speaks over the editor's translated verdict rather than
        instead of it. `required` stays: it is the semantics, not the bubble.
        The same reasoning keeps `window.confirm` out of this codebase. -->
-  <form bind:this={form} novalidate onsubmit={save} oninput={() => void recount()}>
+  <form novalidate onsubmit={save}>
     <div class="form-group">
       <label class="form-label" for="rules-rule-name">{t('RuleName')}</label>
       <input
@@ -385,6 +400,7 @@
       title={t(draft.match_mode === 'any' ? 'ConditionsAnyOf' : 'ConditionsAllOf')}
       list="conditions"
       conditions={draft.conditions}
+      keys={rows.conditions.map((field) => field.key)}
       specs={catalog.conditions}
       {addable}
       {facets}
@@ -392,7 +408,8 @@
       {facetsError}
       onAdd={(type) => addCondition('conditions', type)}
       onRetype={(index, type) => retypeCondition('conditions', index, type)}
-      onUpdate={(index, value) => updateCondition('conditions', index, value)}
+      onUpdate={(index, value, unreadableText) =>
+        updateCondition('conditions', index, value, unreadableText)}
       onRemove={(index) => removeCondition('conditions', index)}
     />
 
@@ -400,6 +417,7 @@
       title={t('ExclusionsLabel')}
       list="exclusions"
       conditions={draft.exclusions}
+      keys={rows.exclusions.map((field) => field.key)}
       specs={catalog.conditions}
       {addable}
       {facets}
@@ -407,7 +425,8 @@
       {facetsError}
       onAdd={(type) => addCondition('exclusions', type)}
       onRetype={(index, type) => retypeCondition('exclusions', index, type)}
-      onUpdate={(index, value) => updateCondition('exclusions', index, value)}
+      onUpdate={(index, value, unreadableText) =>
+        updateCondition('exclusions', index, value, unreadableText)}
       onRemove={(index) => removeCondition('exclusions', index)}
     />
 

@@ -61,7 +61,7 @@ describe('ConditionValue', () => {
     const control = screen.getByLabelText('Has files');
     await userEvent.selectOptions(control, 'false');
 
-    expect(onChange).toHaveBeenCalledWith(false);
+    expect(onChange).toHaveBeenCalledWith(false, false);
   });
 
   it('sends a number as a number, not as the string the input holds', async () => {
@@ -70,7 +70,7 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(screen.getByLabelText('Minimum year'), { target: { value: '2019' } });
 
-    expect(onChange).toHaveBeenCalledWith(2019);
+    expect(onChange).toHaveBeenCalledWith(2019, false);
   });
 
   it('parses a comma-separated list of numbers', async () => {
@@ -79,7 +79,7 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(screen.getByLabelText('Years'), { target: { value: '2019, 2020' } });
 
-    expect(onChange).toHaveBeenCalledWith([2019, 2020]);
+    expect(onChange).toHaveBeenCalledWith([2019, 2020], false);
   });
 
   it('parses a comma-separated list of strings', async () => {
@@ -90,7 +90,7 @@ describe('ConditionValue', () => {
       target: { value: 'Animation, Drama' },
     });
 
-    expect(onChange).toHaveBeenCalledWith(['Animation', 'Drama']);
+    expect(onChange).toHaveBeenCalledWith(['Animation', 'Drama'], false);
   });
 
   /**
@@ -140,7 +140,7 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(screen.getByLabelText('Path contains'), { target: { value: '/anime' } });
 
-    expect(onChange).toHaveBeenCalledWith('/anime');
+    expect(onChange).toHaveBeenCalledWith('/anime', false);
   });
 
   /**
@@ -161,10 +161,10 @@ describe('ConditionValue', () => {
     expect(from).not.toBe(to);
 
     await fireEvent.input(from, { target: { value: '1990' } });
-    expect(onChange).toHaveBeenLastCalledWith({ min: 1990, max: null });
+    expect(onChange).toHaveBeenLastCalledWith({ min: 1990, max: null }, false);
 
     await fireEvent.input(to, { target: { value: '1999' } });
-    expect(onChange).toHaveBeenLastCalledWith({ min: null, max: 1999 });
+    expect(onChange).toHaveBeenLastCalledWith({ min: null, max: 1999 }, false);
   });
 
   /** Dropped without a word, `603, 6O4` saves one id and the second title is never routed. */
@@ -175,11 +175,12 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(field, { target: { value: '603, 6O4' } });
 
-    expect(onChange).toHaveBeenLastCalledWith([603]);
+    expect(onChange).toHaveBeenLastCalledWith([603], true);
     expect(field).toHaveAttribute('aria-invalid', 'true');
     expect(field).toHaveAccessibleDescription('Not an id: 6O4');
 
     await fireEvent.input(field, { target: { value: '603, 604' } });
+    expect(onChange).toHaveBeenLastCalledWith([603, 604], false);
     expect(field).not.toHaveAttribute('aria-invalid');
     expect(screen.queryByText(/Not an id/)).toBeNull();
   });
@@ -194,7 +195,7 @@ describe('ConditionValue', () => {
 
     await fireEvent.input(screen.getByLabelText('Year between – from'), { target: { value: '' } });
 
-    expect(onChange).toHaveBeenLastCalledWith({ min: null, max: null });
+    expect(onChange).toHaveBeenLastCalledWith({ min: null, max: null }, false);
   });
 
   /**

@@ -18,6 +18,9 @@ pub struct LocalizationResponse {
     /// `ltr` or `rtl` for `language`.
     pub direction: &'static str,
     pub strings: std::collections::HashMap<String, String>,
+    /// The placeholders that hold a count, grouped as the language groups
+    /// digits.
+    pub counts: &'static [&'static str],
 }
 
 /// The dictionary for the configured language.
@@ -32,6 +35,7 @@ pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<Localiz
         // Sent with the strings so the shell turns around in the same paint it
         // switches language, rather than a frame later.
         direction: localization::direction(&language),
+        counts: localization::COUNTS,
         language,
     }))
 }

@@ -25,6 +25,7 @@ const STRINGS = {
   Edit: 'Edit',
   SaveRule: 'Save rule',
   Duplicate: 'Duplicate',
+  Actions: 'Actions',
   Delete: 'Delete',
   Disabled: 'disabled',
   PrioritiesUpdated: 'Priorities updated',
@@ -134,6 +135,13 @@ function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en'
 
 afterEach(() => vi.restoreAllMocks());
 
+/** Open a rule's action menu and pick one of its items. */
+async function rowAction(rule: string | RegExp, action: string) {
+  const name = typeof rule === 'string' ? `Actions – ${rule}` : rule;
+  await fireEvent.click(await screen.findByRole('button', { name }));
+  await fireEvent.click(await screen.findByRole('menuitem', { name: action }));
+}
+
 describe('Rules', () => {
   /**
    * The badges and the library panel come from two diagnostics the list does
@@ -157,7 +165,7 @@ describe('Rules', () => {
 
   it('says nothing of the kind when the analysis answers', async () => {
     show([rule({ id: 'r1', name: 'Anime' })]);
-    await screen.findByRole('button', { name: 'Duplicate – Anime' });
+    await screen.findByRole('button', { name: 'Actions – Anime' });
     await waitFor(() => expect(api.getLibraryFacets).toHaveBeenCalled());
 
     expect(screen.queryByText('The rule analysis could not be read.')).toBeNull();
@@ -185,7 +193,7 @@ describe('Rules', () => {
     show([rule({ name: 'Japanese animation' }), rule({ id: 'r2', name: 'Kids' })]);
 
     await screen.findByText('Japanese animation');
-    for (const name of ['Edit – Kids', 'Duplicate – Kids', 'Delete – Kids']) {
+    for (const name of ['Edit – Kids', 'Actions – Kids']) {
       expect(screen.getByRole('button', { name })).toBeTruthy();
     }
   });
@@ -258,9 +266,7 @@ describe('Rules', () => {
     const remove = vi.spyOn(api, 'deleteRule');
     show([rule({ name: 'Japanese animation' })]);
 
-    await fireEvent.click(
-      await screen.findByRole('button', { name: 'Delete – Japanese animation' }),
-    );
+    await rowAction('Japanese animation', 'Delete');
 
     expect(await answerConfirmation(null)).toBe('Delete the rule "Japanese animation"?');
     expect(remove).not.toHaveBeenCalled();
@@ -278,10 +284,10 @@ describe('Rules', () => {
     );
     show([rule({ id: 'r1', name: 'Anime' }), rule({ id: 'r2', name: 'Kids', priority: 20 })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate – Anime' }));
+    await rowAction('Anime', 'Duplicate');
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Kids' }));
+    await rowAction('Kids', 'Delete');
     await answerConfirmation();
 
     expect(await screen.findByText('The rule is pinned by a test case')).toBeTruthy();
@@ -297,7 +303,7 @@ describe('Rules', () => {
     const importRules = vi.spyOn(api, 'importRules');
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Duplicate – Anime' }));
+    await rowAction('Anime', 'Duplicate');
     expect(await screen.findByText('Rule duplicated')).toBeTruthy();
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -313,7 +319,7 @@ describe('Rules', () => {
     const remove = vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
     show([rule()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: /^Delete – / }));
+    await rowAction(/^Actions – /, 'Delete');
     await answerConfirmation();
 
     await waitFor(() => expect(remove).toHaveBeenCalledWith('r1'));
@@ -325,7 +331,7 @@ describe('Rules', () => {
     show([rule()]);
     const before = statusRevision();
 
-    await fireEvent.click(await screen.findByRole('button', { name: /^Delete – / }));
+    await rowAction(/^Actions – /, 'Delete');
     await answerConfirmation();
 
     await waitFor(() => expect(statusRevision()).toBeGreaterThan(before));
@@ -531,7 +537,7 @@ describe('Rules', () => {
   ) {
     const importRules = vi.spyOn(api, 'importRules').mockResolvedValue(result);
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
-    await screen.findByRole('button', { name: 'Duplicate – Anime' });
+    await screen.findByRole('button', { name: 'Actions – Anime' });
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['{"version":1,"rules":[]}'], 'rules.json', { type: 'application/json' });
@@ -592,19 +598,19 @@ describe('Rules', () => {
   });
 });
 
-/** A deleted rule takes its row and the pressed Delete: the next rule's takes the focus. */
+/** A deleted rule takes its row and its menu: the next rule's menu takes the focus. */
 it('hands the focus to the rule that took the place of the deleted one', async () => {
   const first = rule({ id: 'r1', name: 'First' });
   const next = rule({ id: 'r2', name: 'Next' });
   show([first, next]);
   vi.spyOn(api, 'deleteRule').mockResolvedValue(undefined as never);
 
-  await fireEvent.click(await screen.findByRole('button', { name: 'Delete – First' }));
+  await rowAction('First', 'Delete');
   vi.spyOn(api, 'getRules').mockResolvedValue([next]);
   await answerConfirmation();
 
   await waitFor(() =>
-    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Delete – Next' })),
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Actions – Next' })),
   );
 });
 

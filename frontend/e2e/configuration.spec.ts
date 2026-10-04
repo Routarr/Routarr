@@ -576,7 +576,8 @@ test.describe('a deletion asked about', () => {
     });
 
     await page.goto('/rules');
-    await page.getByRole('button', { name: 'Delete – Stays put' }).click();
+    await page.getByRole('button', { name: 'Actions – Stays put' }).click();
+    await page.getByRole('menuitem', { name: 'Delete' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Delete the rule "Stays put"?');
     const writes = await writesDuring(page, () =>
@@ -585,7 +586,7 @@ test.describe('a deletion asked about', () => {
     expect(writes).toEqual([]);
 
     await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Delete – Stays put' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Actions – Stays put' })).toBeVisible();
     const rules = (await api('/rules')) as { name: string }[];
     expect(rules.map((rule) => rule.name)).toContain('Stays put');
   });

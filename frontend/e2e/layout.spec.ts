@@ -553,7 +553,9 @@ test('selecting rows does not move the rows', async ({ page }) => {
 
   await page.goto('/simulation');
   await page.getByRole('button', { name: /run simulation/i }).click();
-  await expect(page.locator('tbody tr').first()).toBeVisible();
+  // The run is over once its moves arrive ticked. The rows the screen opened
+  // on, left pending by an earlier run, are visible before it.
+  await expect(page.getByRole('checkbox', { name: 'Select the move for "Akira"' })).toBeChecked();
 
   const selectAll = page.getByRole('checkbox', { name: 'Select every proposed move' });
   const firstRow = page.locator('tbody tr').first();

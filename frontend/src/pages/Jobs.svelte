@@ -6,6 +6,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { poll } from '../lib/poll.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import ProgressBar from '../components/ProgressBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
@@ -122,20 +123,11 @@
                 </td>
                 <td>
                   {#if job.progress_total > 0}
-                    <div class="flex items-center gap-2">
-                      <div class="progress-track">
-                        <div
-                          class="progress-fill"
-                          style="width: {Math.min(
-                            100,
-                            (job.progress_current / job.progress_total) * 100,
-                          )}%"
-                        ></div>
-                      </div>
-                      <span class="mono text-sm">
-                        {job.progress_current}/{job.progress_total}
-                      </span>
-                    </div>
+                    <ProgressBar
+                      current={job.progress_current}
+                      total={job.progress_total}
+                      label={t(jobKindKey(job.kind))}
+                    />
                   {:else}
                     <span class="text-muted">{t('None')}</span>
                   {/if}

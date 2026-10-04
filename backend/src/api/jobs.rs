@@ -19,8 +19,9 @@ use crate::state::AppState;
 #[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct Job {
     pub id: String,
-    /// `sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,
-    /// `maintenance` or `scheduler`.
+    /// `sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that
+    /// stores nothing), `apply`, `revert`, `backup`, `maintenance` or
+    /// `scheduler`.
     pub kind: String,
     /// `running`, `success` or `failed`.
     pub status: String,

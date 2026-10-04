@@ -89,8 +89,8 @@ async fn simulate(
         }
     };
 
-    let mut job =
-        state.jobs.start(JobKind::Simulate, &by, None, Detail::new("JobDetailSimulating")).await?;
+    let kind = if req.persist { JobKind::Simulate } else { JobKind::Preview };
+    let mut job = state.jobs.start(kind, &by, None, Detail::new("JobDetailSimulating")).await?;
 
     let outcome = routing::run_simulation(
         &state.pool,
@@ -107,6 +107,7 @@ async fn simulate(
             // both ends. The counters still describe the whole library.
             max_returned: Some(req.max_returned.unwrap_or(1000).clamp(1, 5000)),
             language: state.language().await,
+            progress: Some(job.progress_reporter()),
         },
     )
     .await;

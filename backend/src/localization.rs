@@ -84,6 +84,101 @@ pub fn decimal_separator(code: &str) -> char {
     if DECIMAL_COMMA.contains(&base_tag(code).as_str()) { ',' } else { '.' }
 }
 
+/// The placeholders that hold a count, written with their digits grouped
+/// the way the language groups them (`12 345` in French). A year in `{min}`,
+/// an id in `{value}` or a status in `{status}` grouped would read `2,026`, so
+/// `scripts/check-locales.py` refuses a placeholder that is neither listed here
+/// nor in its own list of the others. The interface reads this list from
+/// `/localization`.
+pub const COUNTS: &[&str] = &[
+    "afterMoves",
+    "afterUnmatched",
+    "applied",
+    "batches",
+    "beforeMoves",
+    "beforeUnmatched",
+    "candidates",
+    "categories",
+    "changed",
+    "count",
+    "decisions",
+    "done",
+    "enriched",
+    "failed",
+    "folders",
+    "instances",
+    "jobs",
+    "limit",
+    "logs",
+    "media",
+    "moves",
+    "overrides",
+    "page",
+    "planned",
+    "requested",
+    "reverted",
+    "rules",
+    "run",
+    "settings",
+    "shown",
+    "skipped",
+    "synced",
+    "threshold",
+    "total",
+];
+
+/// How a language groups the digits of a whole number: the separator, and how
+/// many digits a number needs before its first group is set apart (`1234` but
+/// `12.345` in Spanish). What `Intl.NumberFormat` prints in the interface for
+/// the same language, which `grouped_count_cases.json` holds both sides to.
+const GROUPING: &[(&str, char, usize)] = &[
+    ("ca", '.', 4),
+    ("cs", '\u{a0}', 4),
+    ("da", '.', 4),
+    ("de", '.', 4),
+    ("el", '.', 4),
+    ("es", '.', 5),
+    ("fi", '\u{a0}', 4),
+    ("fr", '\u{202f}', 4),
+    ("hu", '\u{a0}', 5),
+    ("it", '.', 5),
+    ("nb", '\u{a0}', 4),
+    ("nl", '.', 4),
+    ("pl", '\u{a0}', 5),
+    ("pt", '.', 4),
+    ("ro", '.', 4),
+    ("ru", '\u{a0}', 4),
+    ("sk", '\u{a0}', 4),
+    ("sv", '\u{a0}', 4),
+    ("tr", '.', 4),
+    ("uk", '\u{a0}', 4),
+];
+
+/// A whole number with its digits grouped as `code` groups them, or `None`
+/// when `value` is not one.
+pub fn group_digits(code: &str, value: &str) -> Option<String> {
+    let (sign, digits) = value.strip_prefix('-').map_or(("", value), |rest| ("-", rest));
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let tag = base_tag(code);
+    let (separator, shortest) = GROUPING
+        .iter()
+        .find(|(language, ..)| *language == tag)
+        .map_or((',', 4), |(_, separator, shortest)| (*separator, *shortest));
+    if digits.len() < shortest {
+        return Some(value.to_string());
+    }
+    let mut grouped = String::from(sign);
+    for (at, digit) in digits.chars().enumerate() {
+        if at > 0 && (digits.len() - at) % 3 == 0 {
+            grouped.push(separator);
+        }
+        grouped.push(digit);
+    }
+    Some(grouped)
+}
+
 /// A language code reduced to the tag these tables are keyed by.
 fn base_tag(code: &str) -> String {
     code.split(['-', '_']).next().unwrap_or(code).to_lowercase()
@@ -284,7 +379,16 @@ impl Localizer {
             return key.to_string();
         };
 
-        substitute(template, params)
+        let grouped: Vec<(&str, String)> = params
+            .iter()
+            .map(|(name, value)| {
+                let count = COUNTS.contains(name).then(|| group_digits(&self.language, value));
+                (*name, count.flatten().unwrap_or_else(|| value.to_string()))
+            })
+            .collect();
+        let params: Vec<(&str, &str)> =
+            grouped.iter().map(|(name, value)| (*name, value.as_str())).collect();
+        substitute(template, &params)
     }
 }
 
@@ -397,6 +501,40 @@ impl Localizer {
 
 #[cfg(test)]
 mod tests {
+    /// The interface groups a count through `Intl.NumberFormat`, the server
+    /// through `group_digits`: one table of cases holds both to the same
+    /// writing, the frontend's in `i18n.test.ts`.
+    #[test]
+    fn a_count_is_grouped_as_the_interface_groups_it() {
+        let cases: serde_json::Value =
+            serde_json::from_str(include_str!("grouped_count_cases.json")).unwrap();
+        let numbers = cases["numbers"].as_array().unwrap();
+        let languages = cases["grouped"].as_object().unwrap();
+        assert_eq!(languages.len(), CATALOG.len(), "a language has no case");
+        for (language, grouped) in languages {
+            for (number, expected) in numbers.iter().zip(grouped.as_array().unwrap()) {
+                assert_eq!(
+                    group_digits(language, &number.to_string()).as_deref(),
+                    expected.as_str(),
+                    "{language}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_count_placeholder_is_grouped_and_any_other_is_left_as_written() {
+        let french = Localizer::new("fr");
+        let applied = french.translate(
+            "ApplyResult",
+            &[("applied", "12345"), ("requested", "12345"), ("skipped", "0")],
+        );
+        assert!(applied.contains("12\u{202f}345"), "{applied}");
+        let years = french.translate("ConditionYearRange", &[("min", "1990"), ("max", "2026")]);
+        assert!(years.contains("1990") && years.contains("2026"), "{years}");
+        assert_eq!(group_digits("fr", "Radarr"), None);
+    }
+
     #[test]
     fn the_right_to_left_scripts_are_recognised() {
         for code in ["ar", "he", "fa", "ur"] {

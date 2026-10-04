@@ -185,6 +185,15 @@ export function describeCondition(condition: Condition, words: ConditionWords): 
   return words.summary(caption, String(value));
 }
 
+/** A count with its digits grouped as the language groups them, `12 345` in French. */
+export function formatCount(value: number, language: string): string {
+  try {
+    return new Intl.NumberFormat(bcp47(language), { maximumFractionDigits: 0 }).format(value);
+  } catch {
+    return String(value);
+  }
+}
+
 /**
  * A 0–1 ratio as the language writes a percentage.
  *
