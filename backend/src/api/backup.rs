@@ -17,7 +17,7 @@ use crate::error::{AppError, AppResult};
 use crate::services::backup::{self, BackupFile, BackupManifest};
 use crate::state::AppState;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct BackupListResponse {
     pub backups: Vec<BackupFile>,
     /// How many are kept before the oldest is pruned.

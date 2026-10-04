@@ -12,12 +12,12 @@ pub struct Category {
 }
 
 /// Request body for renaming a category.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct RenameCategoryRequest {
     pub name: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateCategoryRequest {
     pub name: String,
     pub description: Option<String>,

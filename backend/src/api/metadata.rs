@@ -13,7 +13,7 @@ use crate::error::AppResult;
 use crate::services::metadata;
 use crate::state::AppState;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ProviderDescription {
     pub id: String,
     /// A proper noun, never translated, like "Radarr" and "Sonarr".
@@ -30,7 +30,7 @@ pub struct ProviderDescription {
     pub fields: Vec<&'static str>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ProvidersResponse {
     pub providers: Vec<ProviderDescription>,
     /// Enabled sources, highest priority first. Everything not listed is off.

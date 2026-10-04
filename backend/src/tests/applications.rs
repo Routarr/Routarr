@@ -83,9 +83,40 @@ async fn a_read_key_reaches_the_read_routes_and_nothing_else() {
 #[tokio::test]
 async fn a_key_with_every_scope_still_reaches_no_route_of_the_owner() {
     let app = TestApp::with_api_key(MASTER).await;
+    let every = json!({ "name": "cron", "scopes": ["operate", "write", "configure"] });
+    let token = mint(&app, Some(MASTER), every).await;
+    walk(&app, &token, &[Scope::Operate, Scope::Write, Scope::Configure]).await;
+}
+
+/// Configuring the rules is a scope of its own: it reaches neither a move nor
+/// a pin.
+#[tokio::test]
+async fn a_configuring_key_reaches_the_configuration_and_nothing_else() {
+    let app = TestApp::with_api_key(MASTER).await;
     let token =
-        mint(&app, Some(MASTER), json!({ "name": "cron", "scopes": ["operate", "write"] })).await;
-    walk(&app, &token, &[Scope::Operate, Scope::Write]).await;
+        mint(&app, Some(MASTER), json!({ "name": "gitops", "scopes": ["configure"] })).await;
+    walk(&app, &token, &[Scope::Configure]).await;
+}
+
+/// The webhook's address carries a token that lets anyone post events as the
+/// Arr, and an application reads the instances to name one, not to impersonate
+/// it.
+#[tokio::test]
+async fn an_application_reads_the_instances_without_their_webhook_or_key() {
+    let app = TestApp::with_api_key(MASTER).await;
+    app.seed_library().await;
+    let token = mint(&app, Some(MASTER), json!({ "name": "homepage" })).await;
+
+    let owner = send(&app, "GET", "/api/v1/instances", Some(MASTER), None).await;
+    assert!(owner.assert_ok()[0]["webhook_url"].is_string(), "{:?}", owner.json);
+    for path in ["/api/v1/instances", "/api/v1/instances/inst-1"] {
+        let read = send(&app, "GET", path, Some(&token), None).await;
+        let instance = if read.json.is_array() { &read.json[0] } else { &read.json };
+        read.assert_ok();
+        assert_eq!(instance["id"], "inst-1", "{:?}", read.json);
+        assert!(instance["webhook_url"].is_null(), "{path}: {:?}", read.json);
+        assert_eq!(instance["api_key_masked"], "", "{path}: {:?}", read.json);
+    }
 }
 
 /// What a key holding no scope beyond `read` is refused, written by hand
@@ -104,6 +135,24 @@ const BEYOND_READ: &[(&str, &str)] = &[
     ("DELETE", "/api/v1/overrides/probe"),
     ("PUT", "/api/v1/overrides/external"),
     ("DELETE", "/api/v1/overrides/external"),
+    ("POST", "/api/v1/rule-tests/run"),
+    ("POST", "/api/v1/backups"),
+    ("POST", "/api/v1/rules"),
+    ("PUT", "/api/v1/rules/probe"),
+    ("DELETE", "/api/v1/rules/probe"),
+    ("POST", "/api/v1/rules/probe/duplicate"),
+    ("POST", "/api/v1/rules/reorder"),
+    ("POST", "/api/v1/rules/import"),
+    ("POST", "/api/v1/rules/validate"),
+    ("POST", "/api/v1/rules/preview"),
+    ("POST", "/api/v1/rule-tests"),
+    ("DELETE", "/api/v1/rule-tests/probe"),
+    ("POST", "/api/v1/categories"),
+    ("PUT", "/api/v1/categories/probe"),
+    ("DELETE", "/api/v1/categories/probe"),
+    ("POST", "/api/v1/root-folders"),
+    ("DELETE", "/api/v1/root-folders/probe"),
+    ("PUT", "/api/v1/root-folders/probe/category"),
 ];
 
 #[tokio::test]

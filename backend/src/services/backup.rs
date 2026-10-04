@@ -42,7 +42,7 @@ pub struct BackupManifest {
 }
 
 /// One archive on disk.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct BackupFile {
     pub name: String,
     pub size_bytes: u64,

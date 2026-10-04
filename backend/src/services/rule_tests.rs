@@ -19,7 +19,7 @@ use crate::services::routing;
 use crate::services::rule_engine::{self, EvalContext};
 
 /// A stored case: inputs, and the category they are required to produce.
-#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct RuleTest {
     pub id: String,
     pub name: String,
@@ -40,12 +40,12 @@ pub struct RuleTest {
 }
 
 /// What one case did on this run.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RuleTestResult {
     pub id: String,
     pub name: String,
     pub expected_category: String,
-    /// What the engine says today. `None` when the stored fixture fails to parse.
+    /// What the engine says today. `null` when the stored fixture fails to parse.
     pub actual_category: Option<String>,
     pub passed: bool,
     /// The rule that won, so a failure names what took the decision.
@@ -54,7 +54,7 @@ pub struct RuleTestResult {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RuleTestRun {
     pub total: usize,
     pub passed: usize,
@@ -148,14 +148,13 @@ fn run_one(
 }
 
 /// What a caller supplies to pin a case.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct NewRuleTest {
     pub name: String,
     /// The library item to snapshot. Resolved once, here, and never referenced
     /// again: a case keeps its own copy of the item, so it outlives it.
     pub media_id: String,
-    /// Defaults to what the engine decides for that item today, which is what
-    /// makes "pin this decision" a single click.
+    /// Defaults to what the engine decides for that item today.
     pub expected_category: Option<String>,
 }
 

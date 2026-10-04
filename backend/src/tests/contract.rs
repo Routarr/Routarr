@@ -318,7 +318,123 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     checker.check("POST", "/instances/sync", 202, &started);
     finished(&app, started.json["job_id"].as_str().unwrap()).await;
 
+    configure(&app, &mut checker).await;
+    keep_backups(&mut checker).await;
+
     let documented = checker.documented_successes();
     let missed: Vec<_> = documented.difference(&checker.seen).collect();
     assert!(missed.is_empty(), "documented successes never checked: {missed:?}");
+}
+
+/// What a configuring application reads and writes: the instances, the
+/// sources, the log, the folders and their categories, the rules and their
+/// tests. Last of the walk: it changes what the moves above relied on.
+async fn configure(app: &TestApp, checker: &mut Checker) {
+    for (route, path) in [
+        ("/instances", "/api/v1/instances"),
+        ("/instances/{id}", "/api/v1/instances/inst-1"),
+        ("/metadata/providers", "/api/v1/metadata/providers"),
+        ("/media/facets", "/api/v1/media/facets"),
+        ("/logs", "/api/v1/logs"),
+        ("/root-folders", "/api/v1/root-folders"),
+        ("/root-folders/conflicts", "/api/v1/root-folders/conflicts"),
+        ("/rules", "/api/v1/rules"),
+        ("/rules/conditions", "/api/v1/rules/conditions"),
+        ("/rules/health", "/api/v1/rules/health"),
+        ("/rules/export", "/api/v1/rules/export"),
+        ("/rule-tests", "/api/v1/rule-tests"),
+    ] {
+        checker.check("GET", route, 200, &app.get(path).await);
+    }
+    let csv = app.raw("/api/v1/logs/export").await;
+    assert_eq!(csv.status(), StatusCode::OK);
+    let content_type = csv.headers()[axum::http::header::CONTENT_TYPE].to_str().unwrap();
+    assert!(content_type.starts_with("text/csv"), "{content_type}");
+    checker.seen.insert(("GET".into(), "/logs/export".into(), "200".into()));
+
+    // The folders and the categories they lead to.
+    let declared = app.post(
+        "/api/v1/root-folders",
+        json!({ "instance_id": "inst-1", "path": "/movies/anime/kids" }),
+    );
+    let declared = declared.await;
+    checker.check("POST", "/root-folders", 200, &declared);
+    let folder = declared.json["id"].as_str().unwrap().to_string();
+    let mapping = format!("/api/v1/root-folders/{folder}/category");
+    let mapped = app.put(&mapping, json!({ "category": null })).await;
+    checker.check("PUT", "/root-folders/{id}/category", 200, &mapped);
+    let removed = app.delete(&format!("/api/v1/root-folders/{folder}")).await;
+    checker.check("DELETE", "/root-folders/{id}", 200, &removed);
+    let created = app.post("/api/v1/categories", json!({ "name": "docs" })).await;
+    checker.check("POST", "/categories", 200, &created);
+    let category = created.json["id"].as_str().unwrap().to_string();
+    let renaming = format!("/api/v1/categories/{category}");
+    let renamed = app.put(&renaming, json!({ "name": "documentaries" })).await;
+    checker.check("PUT", "/categories/{id}", 200, &renamed);
+    let removed = app.delete(&format!("/api/v1/categories/{category}")).await;
+    checker.check("DELETE", "/categories/{id}", 200, &removed);
+
+    // The rules, written, judged, previewed and tested.
+    let draft = json!({
+        "name": "Contract",
+        "media_type": "both",
+        "target_category": "anime",
+        "conditions": [{ "type": "genre_contains", "value": ["Animation"] }],
+        "exclusions": [{ "type": "year_range", "value": { "min": 1900, "max": null } }],
+    });
+    checker.check(
+        "POST",
+        "/rules/validate",
+        200,
+        &app.post("/api/v1/rules/validate", draft.clone()).await,
+    );
+    let preview = app.post("/api/v1/rules/preview", json!({ "rule": draft.clone() })).await;
+    checker.check("POST", "/rules/preview", 200, &preview);
+    let created = app.post("/api/v1/rules", draft.clone()).await;
+    checker.check("POST", "/rules", 200, &created);
+    let rule = created.json["id"].as_str().unwrap().to_string();
+    checker.check("GET", "/rules/{id}", 200, &app.get(&format!("/api/v1/rules/{rule}")).await);
+    let updated = app.put(&format!("/api/v1/rules/{rule}"), draft).await;
+    checker.check("PUT", "/rules/{id}", 200, &updated);
+    let copied = app.post(&format!("/api/v1/rules/{rule}/duplicate"), json!({})).await;
+    checker.check("POST", "/rules/{id}/duplicate", 200, &copied);
+    let ids: Vec<Value> = app
+        .get("/api/v1/rules")
+        .await
+        .json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].clone())
+        .collect();
+    let reordered = app.post("/api/v1/rules/reorder", json!({ "rule_ids": ids })).await;
+    checker.check("POST", "/rules/reorder", 200, &reordered);
+    let bundle = app.get("/api/v1/rules/export").await.json.clone();
+    let imported =
+        app.post("/api/v1/rules/import", json!({ "bundle": bundle, "replace": false })).await;
+    checker.check("POST", "/rules/import", 200, &imported);
+
+    // The syncs above read the library again, under the Arr's own ids.
+    let media = app.get("/api/v1/media?per_page=1").await.json["data"][0]["id"].clone();
+    let pinned =
+        app.post("/api/v1/rule-tests", json!({ "name": "A case", "media_id": media })).await;
+    checker.check("POST", "/rule-tests", 200, &pinned);
+    checker.check(
+        "POST",
+        "/rule-tests/run",
+        200,
+        &app.post("/api/v1/rule-tests/run", json!({})).await,
+    );
+    let case = pinned.json["id"].as_str().unwrap().to_string();
+    let removed = app.delete(&format!("/api/v1/rule-tests/{case}")).await;
+    checker.check("DELETE", "/rule-tests/{id}", 200, &removed);
+    let removed = app.delete(&format!("/api/v1/rules/{rule}")).await;
+    checker.check("DELETE", "/rules/{id}", 200, &removed);
+}
+
+/// The backups, on an installation that keeps its files on disk.
+async fn keep_backups(checker: &mut Checker) {
+    let (app, _dir) = super::backup::app_with_files("contract").await;
+    checker.check("POST", "/backups", 200, &app.post("/api/v1/backups", json!({})).await);
+    checker.check("GET", "/backups", 200, &app.get("/api/v1/backups").await);
 }

@@ -16,7 +16,7 @@ use super::{TempDir, TestApp, warning_messages};
 /// `VACUUM INTO`, the whole point of taking a consistent copy without stopping
 /// the server, does nothing at all against `:memory:`. Testing it there would
 /// prove something that cannot happen in production.
-async fn app_with_files(label: &str) -> (TestApp, TempDir) {
+pub(crate) async fn app_with_files(label: &str) -> (TestApp, TempDir) {
     let dir = TempDir::new(&format!("backup-{label}"));
 
     let mut config = crate::config::Config::for_tests();

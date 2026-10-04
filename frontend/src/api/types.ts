@@ -109,6 +109,8 @@ export interface RuleDraft {
 export interface ConditionSpec {
   type: string;
   label: string;
+  /** The dictionary key `label` was written from. */
+  label_key: string;
   value_type: 'string' | 'string_list' | 'number' | 'number_list' | 'boolean' | 'year_range';
   needs_metadata: boolean;
   /** The metadata field it reads, if any. */
@@ -496,7 +498,7 @@ export interface WebhookSigningStatus {
 }
 
 /** A scope beyond read, which every application key holds. */
-export type ApplicationScope = 'operate' | 'write';
+export type ApplicationScope = 'operate' | 'write' | 'configure';
 
 /** The names a guardrail asks under, as the executor sends them back. */
 export type Guardrail = 'capacity' | 'threshold' | 'batch' | 'unreachable';

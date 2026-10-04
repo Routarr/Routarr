@@ -97,11 +97,11 @@ pub async fn create(
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<super::Deleted>> {
     let affected =
         sqlx::query("DELETE FROM rule_tests WHERE id = ?").bind(&id).execute(&state.pool).await?;
     if affected.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Rule test {id} not found")));
     }
-    Ok(Json(serde_json::json!({ "deleted": id })))
+    Ok(Json(super::Deleted { deleted: true }))
 }

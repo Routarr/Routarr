@@ -439,7 +439,7 @@ export const api = {
       }),
     }),
   deleteRuleTest: (id: string) =>
-    request<{ deleted: string }>(`/rule-tests/${id}`, { method: 'DELETE' }),
+    request<{ deleted: boolean }>(`/rule-tests/${id}`, { method: 'DELETE' }),
   getConditionCatalog: (signal?: AbortSignal) =>
     request<ConditionCatalog>('/rules/conditions', { signal }),
   createRule: (data: RuleDraft) => request<Rule>('/rules', { method: 'POST', body: body(data) }),

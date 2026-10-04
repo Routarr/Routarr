@@ -21,7 +21,7 @@ use crate::error::AppResult;
 use crate::services::routing;
 
 /// One rule, and what the library says about it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RuleHealth {
     pub rule_id: String,
     pub rule_name: String,
@@ -39,19 +39,17 @@ pub struct RuleHealth {
     /// shadowed, and usually a condition that is too narrow rather than a
     /// priority that is too low.
     pub matched_nothing: bool,
-    /// Another rule this one cannot be told apart from by the ordering.
-    ///
-    /// The engine breaks ties on priority, then name, then id. The last step
-    /// exists because names are not unique here. Two rules sharing both leave
-    /// the winner to whichever id SQLite returns first, which is not a
-    /// decision anybody made, and they may target different categories.
+    /// Another rule with the same priority and the same name, so that which
+    /// of the two wins is no decision anybody made.
+    // The engine breaks ties on priority, then name, then id, and the id
+    // order is whichever SQLite returns first.
     pub ambiguous_with: Option<String>,
     /// Another rule with the same conditions and the same target. One of the
     /// two decides nothing whatever the priorities are.
     pub duplicate_of: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct RuleHealthReport {
     pub total_media: usize,
     pub rules: Vec<RuleHealth>,

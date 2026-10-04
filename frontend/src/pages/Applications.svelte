@@ -24,6 +24,7 @@
   const SCOPES: { value: ApplicationScope; key: string; help: string }[] = [
     { value: 'operate', key: 'ScopeOperate', help: 'ScopeOperateHelp' },
     { value: 'write', key: 'ScopeWrite', help: 'ScopeWriteHelp' },
+    { value: 'configure', key: 'ScopeConfigure', help: 'ScopeConfigureHelp' },
   ];
 
   /** The guardrails a key may answer on its own, the most common first. */

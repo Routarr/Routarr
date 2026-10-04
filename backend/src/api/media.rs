@@ -458,14 +458,14 @@ pub(crate) async fn load_media(state: &AppState, id: &str) -> AppResult<Media> {
 }
 
 /// The closed vocabularies, as (value, the name to show for it).
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Vocabularies {
     pub original_languages: Vec<Facet>,
     pub origin_countries: Vec<Facet>,
 }
 
 /// One value a condition can hold, and how many items carry it.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct Facet {
     /// What a rule stores and the engine compares. Never the displayed text: a
     /// language is matched on `ja`, however it is shown.
@@ -481,35 +481,26 @@ pub struct Facet {
     pub group: Option<String>,
 }
 
-/// What the library actually contains, per axis a condition can read.
-///
-/// Without it, writing a rule means guessing which genres, languages and
-/// certifications the library holds. A rule written against a value that is not
-/// there matches nothing, and reads on screen exactly like a rule that
-/// correctly matches nothing.
-///
-/// Read-only and derived entirely from columns the sync already writes: no
-/// request leaves the process, and nothing here is cached, because the answer
-/// is only as old as the last sync either way.
-#[derive(Debug, serde::Serialize)]
+/// What the library holds on each axis a condition reads, each value with
+/// how many titles carry it: what a rule can be written against.
+// Without it, writing a rule means guessing which values the library holds,
+// and a rule written against one that is not there matches nothing, reading
+// on screen exactly like a rule that correctly matches nothing. Derived from
+// columns the sync already writes: no request leaves the process, and nothing
+// is cached, the answer being only as old as the last sync either way.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct LibraryFacets {
     pub total_media: i64,
-    /// Values a condition may hold that the library does not define.
-    ///
-    /// Genres, certifications and tags mean what the library says they mean, so
-    /// what it carries is the whole answer. A language or a country does not:
-    /// the rule is written against an ISO code, the vocabulary is fixed
-    /// elsewhere, and offering only the few languages that happen to be synced
-    /// would hide the rest of the vocabulary, and leave the code to be guessed.
+    /// Every language and country a rule may name, whether the library holds
+    /// it or not: their codes are a closed vocabulary.
     pub vocabularies: Vocabularies,
-    /// Described by no enabled source, so invisible to every condition that
-    /// reads metadata: the failure that looks like a broken rule.
+    /// Titles no enabled source describes, which no condition reading
+    /// metadata can match.
     pub without_metadata: i64,
     pub genres: Vec<Facet>,
     pub original_languages: Vec<Facet>,
-    /// Counted like the languages, and for the same reason: the closed
-    /// vocabulary says what a code *means*, the library says which ones it
-    /// actually holds, and a rule is written far better against the second.
+    /// The countries the library's titles come from, counted like the
+    /// languages.
     pub origin_countries: Vec<Facet>,
     pub certifications: Vec<Facet>,
     pub tags: Vec<Facet>,

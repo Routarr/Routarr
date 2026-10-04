@@ -70,13 +70,14 @@ pub struct CreateInstanceRequest {
     pub sync_interval_minutes: i64,
 }
 
-/// Response for instance listing (with masked API key).
-#[derive(Debug, Serialize)]
+/// An Arr Routarr reads.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InstanceResponse {
     pub id: String,
     pub name: String,
     pub instance_type: String,
     pub base_url: String,
+    /// The Arr's key, masked. Empty for an application key.
     pub api_key_masked: String,
     pub enabled: bool,
     pub sync_interval_minutes: i64,
@@ -88,7 +89,8 @@ pub struct InstanceResponse {
     pub last_sync_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    /// Relative URL to register in Radarr/Sonarr's webhook connection.
+    /// Relative URL to register in Radarr/Sonarr's webhook connection. `null`
+    /// for an application key: its token lets anyone post events as the Arr.
     pub webhook_url: Option<String>,
     /// Whether the stored API key is encrypted at rest.
     pub api_key_encrypted: bool,

@@ -1,6 +1,6 @@
 //! Manual overrides: the human veto over the rule engine.
 
-use super::{Json, Query};
+use super::{Deleted, Json, Query};
 use axum::extract::State;
 
 use super::Path;
@@ -210,12 +210,6 @@ async fn pin(
     }
     tx.commit().await?;
     Ok(pinned)
-}
-
-/// What a removal answers.
-#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
-pub struct Deleted {
-    pub deleted: bool,
 }
 
 pub async fn remove(

@@ -59,7 +59,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RootFolde
 }
 
 /// A mapping problem the user should resolve.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MappingConflict {
     pub kind: String,
     pub severity: String,
@@ -205,7 +205,7 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<DeclareRootFolder>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Declared>> {
     let localizer = state.localizer().await;
     // As the Arr writes it once trimmed: `/data/movies/4k` for an Arr in a
     // Linux container, `D:\Media\4K` or `\\nas\films` for one on Windows.
@@ -280,7 +280,26 @@ pub async fn create(
     let mut connection = state.pool.acquire().await?;
     crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
 
-    Ok(Json(serde_json::json!({ "id": id, "path": path, "verified": seen == Some(true) })))
+    Ok(Json(Declared { id, path, verified: seen == Some(true) }))
+}
+
+/// A destination as declared.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Declared {
+    pub id: String,
+    /// As stored: closed by the separator the Arr writes.
+    pub path: String,
+    /// The Arr reported the folder when it was declared. Unverified, it is
+    /// tried at the next sync.
+    pub verified: bool,
+}
+
+/// The category a folder now leads to.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Mapped {
+    pub updated: bool,
+    /// `null` once the folder leads to no category.
+    pub category: Option<String>,
 }
 
 /// Remove a destination Routarr declared. One an Arr reports is not ours to
@@ -288,7 +307,7 @@ pub async fn create(
 pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<super::Deleted>> {
     let origin: Option<String> = sqlx::query_scalar("SELECT origin FROM root_folders WHERE id = ?")
         .bind(&id)
         .fetch_optional(&state.pool)
@@ -304,7 +323,7 @@ pub async fn delete(
                 .bind(&id)
                 .execute(&state.pool)
                 .await?;
-            Ok(Json(serde_json::json!({ "deleted": id })))
+            Ok(Json(super::Deleted { deleted: true }))
         }
     }
 }
@@ -313,7 +332,7 @@ pub async fn update_category(
     State(state): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<UpdateRootFolderCategory>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Mapped>> {
     let category = req.category.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty());
 
     // The checks and the write under one write lock: a category removed, or
@@ -358,5 +377,5 @@ pub async fn update_category(
     }
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({ "updated": true, "category": category })))
+    Ok(Json(Mapped { updated: true, category }))
 }

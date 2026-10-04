@@ -34,6 +34,10 @@ pub enum Scope {
     Operate,
     /// A pin set or removed.
     Write,
+    /// The rules, the categories, the folder mappings, the declared
+    /// destinations and the rule tests created, changed or removed: what
+    /// decides where every title goes from the next simulation on.
+    Configure,
 }
 
 /// What a valid application key allows, as the middleware hands it on.
@@ -53,6 +57,7 @@ impl Scope {
             Self::Read => "read",
             Self::Operate => "operate",
             Self::Write => "write",
+            Self::Configure => "configure",
         }
     }
 }

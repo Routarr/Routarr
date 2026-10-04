@@ -227,6 +227,48 @@
         ],
         "type": "object"
       },
+      "BackupFile": {
+        "description": "One archive on disk.",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "format": "int64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "size_bytes",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "BackupListResponse": {
+        "properties": {
+          "backups": {
+            "items": {
+              "$ref": "#/components/schemas/BackupFile"
+            },
+            "type": "array"
+          },
+          "retention_count": {
+            "description": "How many are kept before the oldest is pruned.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backups",
+          "retention_count"
+        ],
+        "type": "object"
+      },
       "BatchApplyReport": {
         "description": "Outcome of applying a whole simulation, slice by slice.",
         "properties": {
@@ -388,6 +430,672 @@
         ],
         "description": "A category with the counts that make it safe (or unsafe) to delete."
       },
+      "Condition": {
+        "description": "One condition of a rule, written `{\"type\": \"genre_contains\", \"value\":\n[\"Animation\"]}`. `GET /rules/conditions` lists each `type` with the shape\nof its `value`.",
+        "oneOf": [
+          {
+            "description": "Genres must contain at least one of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "genre_contains"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Genres must contain at least one of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Genres must contain every one of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "genre_contains_all"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Genres must contain every one of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Genres must NOT contain any of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "genre_not_contains"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Genres must NOT contain any of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Keywords must contain at least one of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "keyword_contains"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Keywords must contain at least one of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Keywords must contain every one of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "keyword_contains_all"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Keywords must contain every one of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Keywords must NOT contain any of these values.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "keyword_not_contains"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Keywords must NOT contain any of these values.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Original language must be one of these (ISO 639-1).",
+            "properties": {
+              "type": {
+                "enum": [
+                  "original_language"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Original language must be one of these (ISO 639-1).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Original language must NOT be one of these (ISO 639-1).",
+            "properties": {
+              "type": {
+                "enum": [
+                  "original_language_not"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Original language must NOT be one of these (ISO 639-1).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Origin country must be one of these (ISO 3166-1).",
+            "properties": {
+              "type": {
+                "enum": [
+                  "origin_country"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Origin country must be one of these (ISO 3166-1).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Every one of these countries must be among the origins.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "origin_country_all"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Every one of these countries must be among the origins.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Year must be within this range.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "year_range"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Year must be within this range.",
+                "properties": {
+                  "max": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "min": {
+                    "format": "int64",
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "tag_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "One of the tags the user attached in the Arr.\n\nThe only signal that carries the user's own intent, which no external\nmetadata provider can supply.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Every one of these tags must be attached in the Arr.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "tag_in_all"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Every one of these tags must be attached in the Arr.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Sonarr's series type (`standard` / `anime` / `daily`).",
+            "properties": {
+              "type": {
+                "enum": [
+                  "series_type_is"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Sonarr's series type (`standard` / `anime` / `daily`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "On-disk size, in gigabytes, strictly above this value.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "size_on_disk_over_gb"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "On-disk size, in gigabytes, strictly above this value.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Number of seasons, excluding specials, strictly above this value.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "season_count_over"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Number of seasons, excluding specials, strictly above this value.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Certification must be one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "certification_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Certification must be one of these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Status must be one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "status_is"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Status must be one of these.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Current root folder path matches exactly.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "current_root_folder"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Current root folder path matches exactly.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Current root folder path starts with this prefix.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "current_root_folder_starts_with"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Current root folder path starts with this prefix.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Whether the media has files downloaded.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "has_files"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Whether the media has files downloaded.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Title contains one of these substrings (case-insensitive).",
+            "properties": {
+              "type": {
+                "enum": [
+                  "title_contains"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Title contains one of these substrings (case-insensitive).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The title's TMDb id is one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "tmdb_id_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "The title's TMDb id is one of these.",
+                "items": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The title's TheTVDB id is one of these.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "tvdb_id_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "The title's TheTVDB id is one of these.",
+                "items": {
+                  "format": "int64",
+                  "type": "integer"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "The title's IMDb id is one of these, written `tt0096283`.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "imdb_id_in"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "The title's IMDb id is one of these, written `tt0096283`.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Media added to the Arr instance within the last N days, so a rule can\ntarget new additions without touching the existing library.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "added_within_days"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Media added to the Arr instance within the last N days, so a rule can\ntarget new additions without touching the existing library.",
+                "format": "int64",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Monitoring flag in Radarr/Sonarr.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "monitored"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Monitoring flag in Radarr/Sonarr.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          },
+          {
+            "description": "Whether any source, the Arr included, supplied a field a condition reads.",
+            "properties": {
+              "type": {
+                "enum": [
+                  "has_metadata"
+                ],
+                "type": "string"
+              },
+              "value": {
+                "description": "Whether any source, the Arr included, supplied a field a condition reads.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "value",
+              "type"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "ConditionCatalog": {
+        "description": "The conditions a rule may use, and how a rule combines them.",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/ConditionSpec"
+            },
+            "type": "array"
+          },
+          "match_modes": {
+            "description": "`all` or `any`.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "match_modes",
+          "conditions"
+        ],
+        "type": "object"
+      },
       "ConditionOutcome": {
         "description": "One condition of a rule, held against a title.",
         "properties": {
@@ -436,12 +1144,104 @@
         ],
         "type": "object"
       },
+      "ConditionSpec": {
+        "description": "One condition a rule may use.",
+        "properties": {
+          "available": {
+            "description": "Whether an enabled source answers that field. A condition no source\nanswers matches nothing.",
+            "type": "boolean"
+          },
+          "counterpart": {
+            "description": "The condition asking the same question the other way, empty when none.",
+            "type": "string"
+          },
+          "label": {
+            "description": "The caption, in the interface language.",
+            "type": "string"
+          },
+          "label_key": {
+            "description": "The dictionary key of the caption.",
+            "type": "string"
+          },
+          "media_types": {
+            "description": "`movie`, `series` or both: where it can ever match.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "metadata_field": {
+            "description": "The metadata field it reads, if any.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needs_metadata": {
+            "description": "Whether it reads metadata a source supplies.",
+            "type": "boolean"
+          },
+          "quantifier": {
+            "description": "`any` or `all` for a condition asked both ways, empty otherwise.",
+            "type": "string"
+          },
+          "suggestions": {
+            "description": "The `/media/facets` axis its values are drawn from, empty where they\nare not a closed set.",
+            "type": "string"
+          },
+          "type": {
+            "description": "The `type` a condition is written with.",
+            "type": "string"
+          },
+          "value_type": {
+            "description": "The shape of `value`: `string_list`, `number_list`, `string`, `number`,\n`boolean` or `year_range`.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "label",
+          "label_key",
+          "value_type",
+          "needs_metadata",
+          "available",
+          "media_types",
+          "suggestions",
+          "quantifier",
+          "counterpart"
+        ],
+        "type": "object"
+      },
       "Confirmed": {
         "description": "The guardrails the caller has looked at and accepts: `capacity`,\n`threshold`, `batch` or `unreachable`.",
         "items": {
           "type": "string"
         },
         "type": "array"
+      },
+      "CreateCategoryRequest": {
+        "properties": {
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "display_order": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
       },
       "CreateOverrideRequest": {
         "description": "A title to pin, and the category to pin it to.",
@@ -463,6 +1263,64 @@
         },
         "required": [
           "media_id",
+          "target_category"
+        ],
+        "type": "object"
+      },
+      "CreateRuleRequest": {
+        "description": "A rule as written: what `POST /rules`, `PUT /rules/{id}`, `/rules/validate`\nand `/rules/preview` take.",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "exclusions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "instance_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "match_mode": {
+            "$ref": "#/components/schemas/MatchMode"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "target_category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "media_type",
+          "conditions",
           "target_category"
         ],
         "type": "object"
@@ -614,6 +1472,44 @@
         ],
         "type": "object"
       },
+      "DeclareRootFolder": {
+        "description": "Request to declare a destination the Arr does not report.",
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "instance_id",
+          "path"
+        ],
+        "type": "object"
+      },
+      "Declared": {
+        "description": "A destination as declared.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "description": "As stored: closed by the separator the Arr writes.",
+            "type": "string"
+          },
+          "verified": {
+            "description": "The Arr reported the folder when it was declared. Unverified, it is\ntried at the next sync.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "verified"
+        ],
+        "type": "object"
+      },
       "Deleted": {
         "description": "What a removal answers.",
         "properties": {
@@ -728,6 +1624,38 @@
         ],
         "type": "object"
       },
+      "Facet": {
+        "description": "One value a condition can hold, and how many items carry it.",
+        "properties": {
+          "count": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "group": {
+            "description": "What the value means, where several values mean the same thing: codes\nof several countries rate a film alike, and a rule wants every one.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "description": "What to show instead of `value`, where the two differ. Absent for a\ngenre, which is its own label.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "value": {
+            "description": "What a rule stores and the engine compares. Never the displayed text: a\nlanguage is matched on `ja`, however it is shown.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "database": {
@@ -766,6 +1694,26 @@
           "metadata",
           "stats",
           "warnings"
+        ],
+        "type": "object"
+      },
+      "ImportRulesRequest": {
+        "description": "Request body for `POST /rules/import`.",
+        "properties": {
+          "bundle": {
+            "$ref": "#/components/schemas/RuleBundle"
+          },
+          "create_missing_categories": {
+            "description": "Create any missing category referenced by the bundle.",
+            "type": "boolean"
+          },
+          "replace": {
+            "description": "Delete every existing rule first instead of appending.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bundle"
         ],
         "type": "object"
       },
@@ -836,6 +1784,84 @@
           "status",
           "media_count",
           "mapped_root_folders"
+        ],
+        "type": "object"
+      },
+      "InstanceResponse": {
+        "description": "An Arr Routarr reads.",
+        "properties": {
+          "api_key_encrypted": {
+            "description": "Whether the stored API key is encrypted at rest.",
+            "type": "boolean"
+          },
+          "api_key_masked": {
+            "description": "The Arr's key, masked. Empty for an application key.",
+            "type": "string"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_type": {
+            "type": "string"
+          },
+          "last_sync_at": {
+            "description": "When a sync last *succeeded*. Null while none ever has.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sync_attempt_at": {
+            "description": "When one was last attempted, successful or not: the figure that says\nwhether the scheduler is running at all.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_sync_status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "webhook_url": {
+            "description": "Relative URL to register in Radarr/Sonarr's webhook connection. `null`\nfor an application key: its token lets anyone post events as the Arr.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "instance_type",
+          "base_url",
+          "api_key_masked",
+          "enabled",
+          "sync_interval_minutes",
+          "created_at",
+          "updated_at",
+          "api_key_encrypted"
         ],
         "type": "object"
       },
@@ -913,6 +1939,212 @@
           "started_at"
         ],
         "type": "object"
+      },
+      "LibraryFacets": {
+        "description": "What the library holds on each axis a condition reads, each value with\nhow many titles carry it: what a rule can be written against.",
+        "properties": {
+          "certifications": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "genres": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "origin_countries": {
+            "description": "The countries the library's titles come from, counted like the\nlanguages.",
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "original_languages": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "root_folders": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "series_types": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "tags": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "total_media": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "vocabularies": {
+            "$ref": "#/components/schemas/Vocabularies",
+            "description": "Every language and country a rule may name, whether the library holds\nit or not: their codes are a closed vocabulary."
+          },
+          "without_metadata": {
+            "description": "Titles no enabled source describes, which no condition reading\nmetadata can match.",
+            "format": "int64",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_media",
+          "vocabularies",
+          "without_metadata",
+          "genres",
+          "original_languages",
+          "origin_countries",
+          "certifications",
+          "tags",
+          "series_types",
+          "root_folders"
+        ],
+        "type": "object"
+      },
+      "LogEntry": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "description": "What set the write off: `manual`, `schedule` or `webhook`.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decision_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "executed_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "subject": {
+            "description": "Who asked, when the mode vouched for a name.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "action",
+          "success",
+          "executed_at"
+        ],
+        "type": "object"
+      },
+      "Mapped": {
+        "description": "The category a folder now leads to.",
+        "properties": {
+          "category": {
+            "description": "`null` once the folder leads to no category.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "updated"
+        ],
+        "type": "object"
+      },
+      "MappingConflict": {
+        "description": "A mapping problem the user should resolve.",
+        "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "severity",
+          "message"
+        ],
+        "type": "object"
+      },
+      "MatchMode": {
+        "description": "How the conditions of a rule combine.",
+        "enum": [
+          "all",
+          "any"
+        ],
+        "type": "string"
       },
       "Me": {
         "description": "Who a request is.",
@@ -1353,6 +2585,30 @@
         ],
         "type": "object"
       },
+      "NewRuleTest": {
+        "description": "What a caller supplies to pin a case.",
+        "properties": {
+          "expected_category": {
+            "description": "Defaults to what the engine decides for that item today.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "description": "The library item to snapshot. Resolved once, here, and never referenced\nagain: a case keeps its own copy of the item, so it outlives it.",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "media_id"
+        ],
+        "type": "object"
+      },
       "Notification": {
         "description": "What the notification webhook receives.",
         "properties": {
@@ -1734,6 +2990,95 @@
         ],
         "type": "object"
       },
+      "Page_LogEntry": {
+        "description": "Standard pagination envelope shared by every list endpoint.",
+        "properties": {
+          "data": {
+            "items": {
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "actor": {
+                  "description": "What set the write off: `manual`, `schedule` or `webhook`.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "decision_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "details": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error_message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "executed_at": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "instance_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "media_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "media_title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "subject": {
+                  "description": "Who asked, when the mode vouched for a name.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "success": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "id",
+                "action",
+                "success",
+                "executed_at"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
       "Page_MediaListItem": {
         "description": "Standard pagination envelope shared by every list endpoint.",
         "properties": {
@@ -2065,6 +3410,237 @@
         ],
         "type": "object"
       },
+      "PreviewChange": {
+        "properties": {
+          "confidence": {
+            "format": "float",
+            "type": "number"
+          },
+          "current_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "from_category": {
+            "type": "string"
+          },
+          "instance_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "media_title": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "target_root_folder": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "to_category": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "media_id",
+          "media_title",
+          "media_type",
+          "from_category",
+          "to_category",
+          "reasons",
+          "confidence"
+        ],
+        "type": "object"
+      },
+      "PreviewRequest": {
+        "properties": {
+          "instance_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "rule": {
+            "$ref": "#/components/schemas/CreateRuleRequest",
+            "description": "The rule being edited. When `rule_id` is set it replaces that rule,\notherwise it is appended to the current set."
+          },
+          "rule_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_size": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule"
+        ],
+        "type": "object"
+      },
+      "PreviewResponse": {
+        "properties": {
+          "after": {
+            "description": "What the library looks like with the candidate rule applied."
+          },
+          "before": {
+            "description": "What it looks like today."
+          },
+          "changed": {
+            "description": "Media whose target category changes because of this rule.",
+            "items": {
+              "$ref": "#/components/schemas/PreviewChange"
+            },
+            "type": "array"
+          },
+          "changed_total": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "issues",
+          "after",
+          "before",
+          "changed",
+          "changed_total"
+        ],
+        "type": "object"
+      },
+      "ProviderDescription": {
+        "properties": {
+          "configured": {
+            "description": "Whether it can answer today: it needs no key, or its key is set.",
+            "type": "boolean"
+          },
+          "display_name": {
+            "description": "A proper noun, never translated, like \"Radarr\" and \"Sonarr\".",
+            "type": "string"
+          },
+          "fetched": {
+            "description": "False for a source whose data arrives with the library sync.",
+            "type": "boolean"
+          },
+          "fields": {
+            "description": "The fields it can supply, so the interface can say what enabling it buys.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "key_env": {
+            "description": "The environment variable its credential is read from, so the interface\ncan name it instead of saying \"a key is missing\".",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "needs_key": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "display_name",
+          "fetched",
+          "needs_key",
+          "configured",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "ProvidersResponse": {
+        "properties": {
+          "order": {
+            "description": "Enabled sources, highest priority first. Everything not listed is off.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderDescription"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "order"
+        ],
+        "type": "object"
+      },
+      "RenameCategoryRequest": {
+        "description": "Request body for renaming a category.",
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "ReorderRulesRequest": {
+        "description": "Request for reordering rules.",
+        "properties": {
+          "rule_ids": {
+            "description": "Ordered list of rule IDs, from highest priority (index 0) to lowest.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "rule_ids"
+        ],
+        "type": "object"
+      },
+      "Reordered": {
+        "description": "How many rules a reorder numbered.",
+        "properties": {
+          "reordered": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "reordered"
+        ],
+        "type": "object"
+      },
       "RevertDecisionsRequest": {
         "description": "Request to roll a previously applied decision back to its original folder.",
         "properties": {
@@ -2086,6 +3662,425 @@
         },
         "required": [
           "decision_ids"
+        ],
+        "type": "object"
+      },
+      "RootFolder": {
+        "description": "A root folder synchronized from an Arr instance.",
+        "properties": {
+          "accessible": {
+            "type": "boolean"
+          },
+          "arr_id": {
+            "description": "The folder's id in the Arr, `null` for a folder Routarr declares.",
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "free_space": {
+            "format": "int64",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_id": {
+            "type": "string"
+          },
+          "last_accessible_at": {
+            "description": "When the folder last answered, as opposed to when it was last seen in a\npass. `null` for one that has never answered.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "last_synced_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "description": "`arr` for a folder the instance reports, `declared` for one typed into\nRoutarr. Only the second may be deleted here.",
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "instance_id",
+          "path",
+          "accessible",
+          "origin"
+        ],
+        "type": "object"
+      },
+      "RootFolderWithInstance": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RootFolder"
+          },
+          {
+            "properties": {
+              "instance_name": {
+                "type": "string"
+              },
+              "instance_type": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "instance_name",
+              "instance_type"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "Root folder with instance info for display."
+      },
+      "Rule": {
+        "description": "A routing rule that maps conditions to a target category.",
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "exclusions": {
+            "description": "Conditions that disqualify the rule even when `conditions` match.",
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "instance_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "match_mode": {
+            "$ref": "#/components/schemas/MatchMode"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "target_category": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "priority",
+          "enabled",
+          "media_type",
+          "conditions",
+          "target_category",
+          "created_at",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "RuleBundle": {
+        "description": "Portable rule bundle, produced by `GET /rules/export`.",
+        "properties": {
+          "categories": {
+            "description": "Categories referenced by the rules, so an import can recreate them.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "exported_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/CreateRuleRequest"
+            },
+            "type": "array"
+          },
+          "version": {
+            "format": "int32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "RuleHealth": {
+        "description": "One rule, and what the library says about it.",
+        "properties": {
+          "ambiguous_with": {
+            "description": "Another rule with the same priority and the same name, so that which\nof the two wins is no decision anybody made.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duplicate_of": {
+            "description": "Another rule with the same conditions and the same target. One of the\ntwo decides nothing whatever the priorities are.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "matched_nothing": {
+            "description": "It matched nothing at all. That is a different problem from being\nshadowed, and usually a condition that is too narrow rather than a\npriority that is too low.",
+            "type": "boolean"
+          },
+          "priority": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "rule_id": {
+            "type": "string"
+          },
+          "rule_name": {
+            "type": "string"
+          },
+          "shadowed": {
+            "description": "Items it matched and lost on priority.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "shadowed_by": {
+            "description": "The rule that took the most of what this one matched, when it never won.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "vetoed": {
+            "description": "Items it matched and had vetoed by one of its own exclusions.",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "won": {
+            "description": "Items this rule decided.",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "rule_id",
+          "rule_name",
+          "priority",
+          "enabled",
+          "won",
+          "shadowed",
+          "vetoed",
+          "matched_nothing"
+        ],
+        "type": "object"
+      },
+      "RuleHealthReport": {
+        "properties": {
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/RuleHealth"
+            },
+            "type": "array"
+          },
+          "total_media": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_media",
+          "rules"
+        ],
+        "type": "object"
+      },
+      "RuleImportReport": {
+        "description": "What an import did.",
+        "properties": {
+          "imported": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "replaced": {
+            "description": "The rules in place were removed first.",
+            "type": "boolean"
+          },
+          "skipped": {
+            "description": "Each rule left out, with why.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "imported",
+          "replaced",
+          "skipped"
+        ],
+        "type": "object"
+      },
+      "RuleTest": {
+        "description": "A stored case: inputs, and the category they are required to produce.",
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "evaluated_at": {
+            "type": "string"
+          },
+          "expected_category": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_media_title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "media_type",
+          "evaluated_at",
+          "expected_category",
+          "created_at"
+        ],
+        "type": "object"
+      },
+      "RuleTestResult": {
+        "description": "What one case did on this run.",
+        "properties": {
+          "actual_category": {
+            "description": "What the engine says today. `null` when the stored fixture fails to parse.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "description": "Set when the fixture itself is the problem rather than the rules.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expected_category": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matched_rule": {
+            "description": "The rule that won, so a failure names what took the decision.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "expected_category",
+          "passed"
+        ],
+        "type": "object"
+      },
+      "RuleTestRun": {
+        "properties": {
+          "failed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "passed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/RuleTestResult"
+            },
+            "type": "array"
+          },
+          "total": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total",
+          "passed",
+          "failed",
+          "results"
         ],
         "type": "object"
       },
@@ -2132,6 +4127,26 @@
           "matched",
           "outcome",
           "conditions"
+        ],
+        "type": "object"
+      },
+      "RuleVerdict": {
+        "description": "What the server makes of a draft rule.",
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationIssue"
+            },
+            "type": "array"
+          },
+          "valid": {
+            "description": "False when an issue is an error: the rule would be refused.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid",
+          "issues"
         ],
         "type": "object"
       },
@@ -2328,6 +4343,74 @@
         ],
         "type": "object"
       },
+      "UpdateRootFolderCategory": {
+        "description": "Request to update a root folder's category mapping.",
+        "properties": {
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ValidationIssue": {
+        "description": "A problem with a rule: a stable `key` and its values, and the `message`\nin the interface language, which is not part of the contract.",
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "severity": {
+            "description": "`error` blocks the write, `warning` is advisory.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "severity",
+          "field",
+          "key",
+          "params"
+        ],
+        "type": "object"
+      },
+      "Vocabularies": {
+        "description": "The closed vocabularies, as (value, the name to show for it).",
+        "properties": {
+          "origin_countries": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
+          "original_languages": {
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "original_languages",
+          "origin_countries"
+        ],
+        "type": "object"
+      },
       "Warning": {
         "description": "One warning, in the reader's language.",
         "properties": {
@@ -2407,6 +4490,68 @@
         "x-routarr-scope": "read"
       }
     },
+    "/backups": {
+      "get": {
+        "description": "Their names, sizes and dates. Downloading or restoring one stays the\nowner's: an archive holds the key every stored credential is sealed with.",
+        "operationId": "list_backups",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupListResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The backups kept",
+        "tags": [
+          "backups"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "description": "Before a large apply, for instance. The oldest past the retention count\nis removed.",
+        "operationId": "take_backup",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupFile"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Take a backup now",
+        "tags": [
+          "backups"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
     "/categories": {
       "get": {
         "operationId": "list_categories",
@@ -2436,9 +4581,142 @@
         },
         "summary": "The categories, with what uses each",
         "tags": [
-          "library"
+          "categories"
         ],
         "x-routarr-scope": "read"
+      },
+      "post": {
+        "operationId": "create_category",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Create a category",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/categories/{id}": {
+      "delete": {
+        "description": "Refused with 409 while a rule, a mapping, an exception or a test names it,\nand with 400 for the fallback category.",
+        "operationId": "remove_category",
+        "parameters": [
+          {
+            "description": "The category's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove a category",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
+      },
+      "put": {
+        "description": "Every rule, mapping, exception and test naming it follows, in one\ntransaction.",
+        "operationId": "rename_category",
+        "parameters": [
+          {
+            "description": "The category's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameCategoryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Category"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Rename a category",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
       }
     },
     "/decisions": {
@@ -2882,6 +5160,41 @@
         "x-routarr-scope": "operate"
       }
     },
+    "/instances": {
+      "get": {
+        "description": "Their address, kind and last sync. Never the Arr's key, and for an\napplication key neither the webhook address, whose token lets anyone post\nevents as the Arr: `webhook_url` is `null` and `api_key_masked` empty.",
+        "operationId": "list_instances",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InstanceResponse"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The Arrs Routarr reads",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
     "/instances/sync": {
       "post": {
         "description": "Answers once every instance is read, one report each. An instance that\nfails is reported with its `error` and stops none of the others. With\n`respond-async` it answers once its task has started, and that task holds\nthe reports when it ends. Each instance is read under a task of its own too.",
@@ -2953,6 +5266,48 @@
           "instances"
         ],
         "x-routarr-scope": "operate"
+      }
+    },
+    "/instances/{id}": {
+      "get": {
+        "operationId": "get_instance",
+        "parameters": [
+          {
+            "description": "The instance's id in Routarr.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InstanceResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One Arr",
+        "tags": [
+          "instances"
+        ],
+        "x-routarr-scope": "read"
       }
     },
     "/instances/{id}/sync": {
@@ -3149,6 +5504,191 @@
         "x-routarr-scope": "read"
       }
     },
+    "/logs": {
+      "get": {
+        "description": "Each move and revert Routarr asked an Arr for, with its outcome, newest\nfirst.",
+        "operationId": "list_logs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_LogEntry"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What every move did, a page at a time",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/logs/export": {
+      "get": {
+        "description": "The filters of `/logs`, up to 50 000 rows. A cell that would start a\nformula in a spreadsheet is quoted so it does not.",
+        "operationId": "export_logs",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "instance_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "media_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "success",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/csv": {}
+            },
+            "description": "The log as CSV."
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The same log as a CSV file",
+        "tags": [
+          "tasks"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
     "/media": {
       "get": {
         "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception pins it to.",
@@ -3279,6 +5819,38 @@
         "x-routarr-scope": "read"
       }
     },
+    "/media/facets": {
+      "get": {
+        "description": "What a rule could name: the genres, languages, countries, certifications,\ntags, series types and folders the library holds, each with how many\ntitles carry it, and the closed vocabularies of languages and countries.",
+        "operationId": "library_facets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFacets"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The values the library holds, for each condition",
+        "tags": [
+          "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
     "/media/{id}": {
       "get": {
         "operationId": "get_media",
@@ -3360,6 +5932,38 @@
         "summary": "Where a title goes, and why",
         "tags": [
           "library"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/metadata/providers": {
+      "get": {
+        "description": "Each source in the configured order, whether it is enabled, whether it\nneeds a key and holds one, and the fields it answers. Never the key.",
+        "operationId": "list_sources",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The metadata sources, and what each can answer",
+        "tags": [
+          "status"
         ],
         "x-routarr-scope": "read"
       }
@@ -3715,6 +6319,211 @@
         ]
       }
     },
+    "/root-folders": {
+      "get": {
+        "description": "The folders each Arr reports and the destinations declared beside them,\nwith their free space, reachability and category.",
+        "operationId": "list_root_folders",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RootFolderWithInstance"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The root folders, and the category each leads to",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "description": "Written as the Arr sees it: `/data/movies/4k` in a Linux container,\n`D:\\Movies\\4K` or `\\\\nas\\films` on Windows.",
+        "operationId": "declare_destination",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareRootFolder"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Declared"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Declare a destination the Arr does not list",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/root-folders/conflicts": {
+      "get": {
+        "description": "A category with no folder on an instance, two folders claiming one\ncategory, a mapping to a folder that stopped answering.",
+        "operationId": "mapping_conflicts",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/MappingConflict"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What the mappings leave unsaid",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/root-folders/{id}": {
+      "delete": {
+        "description": "Refused with 409 for a folder an Arr reports: the next sync would bring it\nback, without its category.",
+        "operationId": "remove_destination",
+        "parameters": [
+          {
+            "description": "The folder's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove a declared destination",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/root-folders/{id}/category": {
+      "put": {
+        "operationId": "map_folder",
+        "parameters": [
+          {
+            "description": "The folder's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRootFolderCategory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Mapped"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Lead a folder to a category, or to none",
+        "tags": [
+          "categories"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
     "/route": {
       "get": {
         "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
@@ -3830,6 +6639,664 @@
           "library"
         ],
         "x-routarr-scope": "read"
+      }
+    },
+    "/rule-tests": {
+      "get": {
+        "description": "Each pins the category a title should get, as the title was when it was\npinned.",
+        "operationId": "list_rule_tests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RuleTest"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The rule tests",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "operationId": "create_rule_test",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewRuleTest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTest"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Pin what the rules decide for a title as a test",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rule-tests/run": {
+      "post": {
+        "operationId": "run_rule_tests",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleTestRun"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Run every rule test against the rules as they are",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "operate"
+      }
+    },
+    "/rule-tests/{id}": {
+      "delete": {
+        "operationId": "remove_rule_test",
+        "parameters": [
+          {
+            "description": "The test's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove a rule test",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules": {
+      "get": {
+        "operationId": "list_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Rule"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The rules, in priority order",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "post": {
+        "description": "Refused with 400 when its target category does not exist, when a\ncondition has no value, or when no enabled source can answer one, as\n`/rules/validate` would say. It counts from the next simulation.",
+        "operationId": "create_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rule"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Create a rule",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/conditions": {
+      "get": {
+        "description": "Each condition with its value type, the media types it applies to, the\nmetadata field it reads, whether an enabled source answers it, and the\nfacet that lists its values.",
+        "operationId": "condition_catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConditionCatalog"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The conditions a rule may use",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/rules/export": {
+      "get": {
+        "description": "What `/rules/import` takes back, here or on another installation.",
+        "operationId": "export_rules",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleBundle"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "The rules as a bundle",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/rules/health": {
+      "get": {
+        "description": "Rules a broader one above them shadows, rules identical to another, and\nrules that match no title of the library.",
+        "operationId": "rule_health",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleHealthReport"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What each rule decides",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      }
+    },
+    "/rules/import": {
+      "post": {
+        "description": "Each rule is judged as `POST /rules` judges it, and one refused is\nskipped with its reason. `replace` removes the rules in place first.",
+        "operationId": "import_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportRulesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleImportReport"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Import a bundle of rules",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/preview": {
+      "post": {
+        "description": "The library evaluated with and without the draft, which replaces\n`rule_id` when it is given: the titles whose destination would change.",
+        "operationId": "preview_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "What a draft rule would move, storing nothing",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/reorder": {
+      "post": {
+        "description": "Every rule's id, highest priority first. The priorities are numbered again\nin steps of ten.",
+        "operationId": "reorder_rules",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderRulesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Reordered"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Put the rules in a new order",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/validate": {
+      "post": {
+        "operationId": "validate_rule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RuleVerdict"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Judge a draft rule, storing nothing",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/{id}": {
+      "delete": {
+        "operationId": "remove_rule",
+        "parameters": [
+          {
+            "description": "The rule's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deleted"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Remove a rule",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      },
+      "get": {
+        "operationId": "get_rule",
+        "parameters": [
+          {
+            "description": "The rule's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rule"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "One rule",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "read"
+      },
+      "put": {
+        "operationId": "update_rule",
+        "parameters": [
+          {
+            "description": "The rule's id.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRuleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rule"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Replace a rule",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
+      }
+    },
+    "/rules/{id}/duplicate": {
+      "post": {
+        "operationId": "duplicate_rule",
+        "parameters": [
+          {
+            "description": "The rule to copy.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Rule"
+                }
+              }
+            }
+          },
+          "default": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A refusal or a failure, in the envelope every error shares."
+          }
+        },
+        "summary": "Copy a rule, disabled",
+        "tags": [
+          "rules"
+        ],
+        "x-routarr-scope": "configure"
       }
     },
     "/simulate": {
@@ -3980,8 +7447,20 @@
       "name": "tasks"
     },
     {
-      "description": "Reading the library again from the Arrs.",
+      "description": "The Arrs Routarr reads, and reading them again.",
       "name": "instances"
+    },
+    {
+      "description": "The rules that decide where each title goes, and the tests that pin what they should decide.",
+      "name": "rules"
+    },
+    {
+      "description": "The categories, and the folder each one leads to on each Arr.",
+      "name": "categories"
+    },
+    {
+      "description": "Copies of Routarr's data, taken on a schedule or on request.",
+      "name": "backups"
     }
   ]
 }

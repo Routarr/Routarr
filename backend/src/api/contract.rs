@@ -23,21 +23,37 @@ use crate::api::applications::scope_for;
 use crate::state::AppState;
 
 // The types the operations name, under the names the schemas take.
+use crate::api::Deleted;
 use crate::api::Page;
 use crate::api::auth::Me;
+use crate::api::backup::BackupListResponse;
+use crate::api::conditions::ConditionCatalog;
 use crate::api::decisions::{ApplyAllRequest, ApplyDecisionsRequest, RevertDecisionsRequest};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
 use crate::api::jobs::{Accepted, Job, JobQuery};
+use crate::api::logs::{LogEntry, LogQuery};
+use crate::api::media::LibraryFacets;
 use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, PlacementOptions};
-use crate::api::overrides::{Deleted, PinRequest};
+use crate::api::metadata::ProvidersResponse;
+use crate::api::overrides::PinRequest;
+use crate::api::root_folders::{Declared, Mapped, MappingConflict};
+use crate::api::rules::{
+    PreviewRequest, PreviewResponse, Reordered, RuleImportReport, RuleVerdict,
+};
 use crate::error::ErrorResponse;
 use crate::models::{
-    CategoryWithUsage, CreateOverrideRequest, Decision, DecisionQuery, MediaQuery, OverrideEntry,
-    OverrideWithMedia, SimulationRequest, SimulationResult,
+    Category, CategoryWithUsage, CreateCategoryRequest, CreateOverrideRequest, CreateRuleRequest,
+    Decision, DecisionQuery, DeclareRootFolder, ImportRulesRequest, InstanceResponse, MediaQuery,
+    OverrideEntry, OverrideWithMedia, RenameCategoryRequest, ReorderRulesRequest,
+    RootFolderWithInstance, Rule, RuleBundle, SimulationRequest, SimulationResult,
+    UpdateRootFolderCategory,
 };
+use crate::services::backup::BackupFile;
 use crate::services::executor::{ApplyReport, BatchApplyReport};
 use crate::services::notify::Notification;
 use crate::services::placement::Placement;
+use crate::services::rule_health::RuleHealthReport;
+use crate::services::rule_tests::{NewRuleTest, RuleTest, RuleTestRun};
 use crate::services::sync::SyncReport;
 
 /// The scope an operation asks of an application key, as the document states it.
@@ -102,6 +118,39 @@ operations, new fields and new values of the open lists (`action`, `status`, `er
         get_task,
         sync_all,
         sync_instance,
+        list_instances,
+        get_instance,
+        list_sources,
+        library_facets,
+        list_logs,
+        export_logs,
+        list_backups,
+        take_backup,
+        list_rules,
+        get_rule,
+        create_rule,
+        update_rule,
+        remove_rule,
+        duplicate_rule,
+        reorder_rules,
+        condition_catalog,
+        rule_health,
+        export_rules,
+        import_rules,
+        validate_rule,
+        preview_rule,
+        list_rule_tests,
+        create_rule_test,
+        remove_rule_test,
+        run_rule_tests,
+        create_category,
+        rename_category,
+        remove_category,
+        list_root_folders,
+        mapping_conflicts,
+        declare_destination,
+        remove_destination,
+        map_folder,
     ),
     components(schemas(ErrorResponse, Notification)),
     modifiers(&Keys, &Failures, &Scopes),
@@ -115,7 +164,13 @@ applying or reverting what they propose."),
         (name = "exceptions", description = "Titles pinned to a category by hand, which \
 outrank every rule."),
         (name = "tasks", description = "What ran in the background, and how it ended."),
-        (name = "instances", description = "Reading the library again from the Arrs."),
+        (name = "instances", description = "The Arrs Routarr reads, and reading them again."),
+        (name = "rules", description = "The rules that decide where each title goes, and the \
+tests that pin what they should decide."),
+        (name = "categories", description = "The categories, and the folder each one leads to on \
+each Arr."),
+        (name = "backups", description = "Copies of Routarr's data, taken on a schedule or on \
+request."),
     ),
 )]
 pub struct Contract;
@@ -270,7 +325,7 @@ fn health() {}
 #[utoipa::path(
     get,
     path = "/categories",
-    tag = "library",
+    tag = "categories",
     responses((status = 200, body = Vec<CategoryWithUsage>))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -575,3 +630,412 @@ body = Accepted, headers(("Location" = String, description = "The task, under `/
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_instance() {}
+
+// --------------------------------------------------------------- instances
+
+/// The Arrs Routarr reads
+///
+/// Their address, kind and last sync. Never the Arr's key, and for an
+/// application key neither the webhook address, whose token lets anyone post
+/// events as the Arr: `webhook_url` is `null` and `api_key_masked` empty.
+#[utoipa::path(
+    get,
+    path = "/instances",
+    tag = "instances",
+    responses((status = 200, body = Vec<InstanceResponse>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_instances() {}
+
+/// One Arr
+#[utoipa::path(
+    get,
+    path = "/instances/{id}",
+    tag = "instances",
+    params(("id" = String, Path, description = "The instance's id in Routarr.")),
+    responses((status = 200, body = InstanceResponse))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_instance() {}
+
+/// The metadata sources, and what each can answer
+///
+/// Each source in the configured order, whether it is enabled, whether it
+/// needs a key and holds one, and the fields it answers. Never the key.
+#[utoipa::path(
+    get,
+    path = "/metadata/providers",
+    tag = "status",
+    responses((status = 200, body = ProvidersResponse))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_sources() {}
+
+/// The values the library holds, for each condition
+///
+/// What a rule could name: the genres, languages, countries, certifications,
+/// tags, series types and folders the library holds, each with how many
+/// titles carry it, and the closed vocabularies of languages and countries.
+#[utoipa::path(
+    get,
+    path = "/media/facets",
+    tag = "library",
+    responses((status = 200, body = LibraryFacets))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn library_facets() {}
+
+// -------------------------------------------------------------------- logs
+
+/// What every move did, a page at a time
+///
+/// Each move and revert Routarr asked an Arr for, with its outcome, newest
+/// first.
+#[utoipa::path(
+    get,
+    path = "/logs",
+    tag = "tasks",
+    params(LogQuery),
+    responses((status = 200, body = Page<LogEntry>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_logs() {}
+
+/// The same log as a CSV file
+///
+/// The filters of `/logs`, up to 50 000 rows. A cell that would start a
+/// formula in a spreadsheet is quoted so it does not.
+#[utoipa::path(
+    get,
+    path = "/logs/export",
+    tag = "tasks",
+    params(LogQuery),
+    responses((status = 200, description = "The log as CSV.", content_type = "text/csv"))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn export_logs() {}
+
+// ----------------------------------------------------------------- backups
+
+/// The backups kept
+///
+/// Their names, sizes and dates. Downloading or restoring one stays the
+/// owner's: an archive holds the key every stored credential is sealed with.
+#[utoipa::path(
+    get,
+    path = "/backups",
+    tag = "backups",
+    responses((status = 200, body = BackupListResponse))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_backups() {}
+
+/// Take a backup now
+///
+/// Before a large apply, for instance. The oldest past the retention count
+/// is removed.
+#[utoipa::path(post, path = "/backups", tag = "backups", responses((status = 200, body = BackupFile)))]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn take_backup() {}
+
+// ------------------------------------------------------------------- rules
+
+/// The rules, in priority order
+#[utoipa::path(get, path = "/rules", tag = "rules", responses((status = 200, body = Vec<Rule>)))]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_rules() {}
+
+/// One rule
+#[utoipa::path(
+    get,
+    path = "/rules/{id}",
+    tag = "rules",
+    params(("id" = String, Path, description = "The rule's id.")),
+    responses((status = 200, body = Rule))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn get_rule() {}
+
+/// Create a rule
+///
+/// Refused with 400 when its target category does not exist, when a
+/// condition has no value, or when no enabled source can answer one, as
+/// `/rules/validate` would say. It counts from the next simulation.
+#[utoipa::path(
+    post,
+    path = "/rules",
+    tag = "rules",
+    request_body = CreateRuleRequest,
+    responses((status = 200, body = Rule))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn create_rule() {}
+
+/// Replace a rule
+#[utoipa::path(
+    put,
+    path = "/rules/{id}",
+    tag = "rules",
+    params(("id" = String, Path, description = "The rule's id.")),
+    request_body = CreateRuleRequest,
+    responses((status = 200, body = Rule))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn update_rule() {}
+
+/// Remove a rule
+#[utoipa::path(
+    delete,
+    path = "/rules/{id}",
+    tag = "rules",
+    params(("id" = String, Path, description = "The rule's id.")),
+    responses((status = 200, body = Deleted))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn remove_rule() {}
+
+/// Copy a rule, disabled
+#[utoipa::path(
+    post,
+    path = "/rules/{id}/duplicate",
+    tag = "rules",
+    params(("id" = String, Path, description = "The rule to copy.")),
+    responses((status = 200, body = Rule))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn duplicate_rule() {}
+
+/// Put the rules in a new order
+///
+/// Every rule's id, highest priority first. The priorities are numbered again
+/// in steps of ten.
+#[utoipa::path(
+    post,
+    path = "/rules/reorder",
+    tag = "rules",
+    request_body = ReorderRulesRequest,
+    responses((status = 200, body = Reordered))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn reorder_rules() {}
+
+/// The conditions a rule may use
+///
+/// Each condition with its value type, the media types it applies to, the
+/// metadata field it reads, whether an enabled source answers it, and the
+/// facet that lists its values.
+#[utoipa::path(
+    get,
+    path = "/rules/conditions",
+    tag = "rules",
+    responses((status = 200, body = ConditionCatalog))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn condition_catalog() {}
+
+/// What each rule decides
+///
+/// Rules a broader one above them shadows, rules identical to another, and
+/// rules that match no title of the library.
+#[utoipa::path(
+    get,
+    path = "/rules/health",
+    tag = "rules",
+    responses((status = 200, body = RuleHealthReport))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn rule_health() {}
+
+/// The rules as a bundle
+///
+/// What `/rules/import` takes back, here or on another installation.
+#[utoipa::path(get, path = "/rules/export", tag = "rules", responses((status = 200, body = RuleBundle)))]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn export_rules() {}
+
+/// Import a bundle of rules
+///
+/// Each rule is judged as `POST /rules` judges it, and one refused is
+/// skipped with its reason. `replace` removes the rules in place first.
+#[utoipa::path(
+    post,
+    path = "/rules/import",
+    tag = "rules",
+    request_body = ImportRulesRequest,
+    responses((status = 200, body = RuleImportReport))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn import_rules() {}
+
+/// Judge a draft rule, storing nothing
+#[utoipa::path(
+    post,
+    path = "/rules/validate",
+    tag = "rules",
+    request_body = CreateRuleRequest,
+    responses((status = 200, body = RuleVerdict))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn validate_rule() {}
+
+/// What a draft rule would move, storing nothing
+///
+/// The library evaluated with and without the draft, which replaces
+/// `rule_id` when it is given: the titles whose destination would change.
+#[utoipa::path(
+    post,
+    path = "/rules/preview",
+    tag = "rules",
+    request_body = PreviewRequest,
+    responses((status = 200, body = PreviewResponse))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn preview_rule() {}
+
+/// The rule tests
+///
+/// Each pins the category a title should get, as the title was when it was
+/// pinned.
+#[utoipa::path(get, path = "/rule-tests", tag = "rules", responses((status = 200, body = Vec<RuleTest>)))]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_rule_tests() {}
+
+/// Pin what the rules decide for a title as a test
+#[utoipa::path(
+    post,
+    path = "/rule-tests",
+    tag = "rules",
+    request_body = NewRuleTest,
+    responses((status = 200, body = RuleTest))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn create_rule_test() {}
+
+/// Remove a rule test
+#[utoipa::path(
+    delete,
+    path = "/rule-tests/{id}",
+    tag = "rules",
+    params(("id" = String, Path, description = "The test's id.")),
+    responses((status = 200, body = Deleted))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn remove_rule_test() {}
+
+/// Run every rule test against the rules as they are
+#[utoipa::path(
+    post,
+    path = "/rule-tests/run",
+    tag = "rules",
+    responses((status = 200, body = RuleTestRun))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn run_rule_tests() {}
+
+// -------------------------------------------------------------- categories
+
+/// Create a category
+#[utoipa::path(
+    post,
+    path = "/categories",
+    tag = "categories",
+    request_body = CreateCategoryRequest,
+    responses((status = 200, body = Category))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn create_category() {}
+
+/// Rename a category
+///
+/// Every rule, mapping, exception and test naming it follows, in one
+/// transaction.
+#[utoipa::path(
+    put,
+    path = "/categories/{id}",
+    tag = "categories",
+    params(("id" = String, Path, description = "The category's id.")),
+    request_body = RenameCategoryRequest,
+    responses((status = 200, body = Category))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn rename_category() {}
+
+/// Remove a category
+///
+/// Refused with 409 while a rule, a mapping, an exception or a test names it,
+/// and with 400 for the fallback category.
+#[utoipa::path(
+    delete,
+    path = "/categories/{id}",
+    tag = "categories",
+    params(("id" = String, Path, description = "The category's id.")),
+    responses((status = 200, body = Deleted))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn remove_category() {}
+
+/// The root folders, and the category each leads to
+///
+/// The folders each Arr reports and the destinations declared beside them,
+/// with their free space, reachability and category.
+#[utoipa::path(
+    get,
+    path = "/root-folders",
+    tag = "categories",
+    responses((status = 200, body = Vec<RootFolderWithInstance>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn list_root_folders() {}
+
+/// What the mappings leave unsaid
+///
+/// A category with no folder on an instance, two folders claiming one
+/// category, a mapping to a folder that stopped answering.
+#[utoipa::path(
+    get,
+    path = "/root-folders/conflicts",
+    tag = "categories",
+    responses((status = 200, body = Vec<MappingConflict>))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn mapping_conflicts() {}
+
+/// Declare a destination the Arr does not list
+///
+/// Written as the Arr sees it: `/data/movies/4k` in a Linux container,
+/// `D:\Movies\4K` or `\\nas\films` on Windows.
+#[utoipa::path(
+    post,
+    path = "/root-folders",
+    tag = "categories",
+    request_body = DeclareRootFolder,
+    responses((status = 200, body = Declared))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn declare_destination() {}
+
+/// Remove a declared destination
+///
+/// Refused with 409 for a folder an Arr reports: the next sync would bring it
+/// back, without its category.
+#[utoipa::path(
+    delete,
+    path = "/root-folders/{id}",
+    tag = "categories",
+    params(("id" = String, Path, description = "The folder's id.")),
+    responses((status = 200, body = Deleted))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn remove_destination() {}
+
+/// Lead a folder to a category, or to none
+#[utoipa::path(
+    put,
+    path = "/root-folders/{id}/category",
+    tag = "categories",
+    params(("id" = String, Path, description = "The folder's id.")),
+    request_body = UpdateRootFolderCategory,
+    responses((status = 200, body = Mapped))
+)]
+#[expect(dead_code, reason = "a route's documentation, never called")]
+fn map_folder() {}

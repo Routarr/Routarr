@@ -1,6 +1,6 @@
 //! Rule administration: CRUD, validation, import/export and impact preview.
 
-use super::Json;
+use super::{Deleted, Json};
 use axum::extract::State;
 
 use super::Path;
@@ -88,7 +88,7 @@ pub async fn update(
 pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Deleted>> {
     let result =
         sqlx::query("DELETE FROM rules WHERE id = ?").bind(&id).execute(&state.pool).await?;
 
@@ -96,7 +96,7 @@ pub async fn remove(
         return Err(AppError::NotFound(format!("Rule {id} not found")));
     }
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(Deleted { deleted: true }))
 }
 
 /// Copy a rule, disabled, so it can be edited before being switched on.
@@ -121,7 +121,7 @@ pub async fn duplicate(
 pub async fn reorder(
     State(state): State<AppState>,
     Json(req): Json<ReorderRulesRequest>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<Reordered>> {
     // The list has to name every rule: reordering a subset writes priorities in
     // the 10, 20, 30 band beside rules whose priorities were never touched, and
     // the result is an order nobody chose.
@@ -151,22 +151,43 @@ pub async fn reorder(
     }
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({ "reordered": req.rule_ids.len() })))
+    Ok(Json(Reordered { reordered: req.rule_ids.len() }))
+}
+
+/// How many rules a reorder numbered.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Reordered {
+    pub reordered: usize,
+}
+
+/// What the server makes of a draft rule.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RuleVerdict {
+    /// False when an issue is an error: the rule would be refused.
+    pub valid: bool,
+    pub issues: Vec<ValidationIssue>,
 }
 
 /// Validate a candidate rule without storing it.
 pub async fn validate(
     State(state): State<AppState>,
     Json(req): Json<CreateRuleRequest>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<RuleVerdict>> {
     let issues = check(&state, &req).await?;
-    Ok(Json(serde_json::json!({
-        "valid": !issues.iter().any(ValidationIssue::is_error),
-        "issues": issues,
-    })))
+    Ok(Json(RuleVerdict { valid: !issues.iter().any(ValidationIssue::is_error), issues }))
 }
 
-#[derive(Debug, serde::Deserialize)]
+/// What an import did.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct RuleImportReport {
+    pub imported: usize,
+    /// The rules in place were removed first.
+    pub replaced: bool,
+    /// Each rule left out, with why.
+    pub skipped: Vec<String>,
+}
+
+#[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
 pub struct PreviewRequest {
     /// The rule being edited. When `rule_id` is set it replaces that rule,
     /// otherwise it is appended to the current set.
@@ -183,7 +204,7 @@ fn default_sample() -> usize {
     25
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PreviewResponse {
     pub issues: Vec<ValidationIssue>,
     /// What the library looks like with the candidate rule applied.
@@ -195,7 +216,7 @@ pub struct PreviewResponse {
     pub changed_total: usize,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PreviewChange {
     pub media_id: String,
     pub media_title: String,
@@ -320,7 +341,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<RuleBundle>
 pub async fn import(
     State(state): State<AppState>,
     Json(req): Json<ImportRulesRequest>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<RuleImportReport>> {
     if req.bundle.version != 1 {
         return Err(AppError::BadRequest(format!(
             "Unsupported bundle version {}. This Routarr understands version 1",
@@ -429,11 +450,7 @@ pub async fn import(
 
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({
-        "imported": imported,
-        "replaced": req.replace,
-        "skipped": skipped,
-    })))
+    Ok(Json(RuleImportReport { imported, replaced: req.replace, skipped }))
 }
 
 /// Everything a rule is judged against, read once.

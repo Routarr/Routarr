@@ -14,8 +14,8 @@ use crate::state::AppState;
 /// What an application key may call, by method and route under `/api/v1`.
 ///
 /// A route missing here is the owner's alone: no key reaches the settings,
-/// the instances, the rules, the backups, the logs or another key, whatever
-/// its scopes. Adding a route to the router adds nothing here, which is the
+/// an instance's credentials, a backup archive or another key, whatever its
+/// scopes. Adding a route to the router adds nothing here, which is the
 /// point: an application gains a route only by a line written for it.
 pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/auth/me", Scope::Read),
@@ -30,8 +30,29 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("GET", "/overrides", Scope::Read),
     ("GET", "/jobs", Scope::Read),
     ("GET", "/jobs/{id}", Scope::Read),
+    ("GET", "/logs", Scope::Read),
+    ("GET", "/logs/export", Scope::Read),
+    // Their address and state. Neither their key nor the webhook's address,
+    // whose token lets anyone post events as the Arr (`api::instances`).
+    ("GET", "/instances", Scope::Read),
+    ("GET", "/instances/{id}", Scope::Read),
+    ("GET", "/root-folders", Scope::Read),
+    ("GET", "/root-folders/conflicts", Scope::Read),
+    ("GET", "/rules", Scope::Read),
+    ("GET", "/rules/{id}", Scope::Read),
+    ("GET", "/rules/conditions", Scope::Read),
+    ("GET", "/rules/health", Scope::Read),
+    ("GET", "/rules/export", Scope::Read),
+    ("GET", "/rule-tests", Scope::Read),
+    ("GET", "/media/facets", Scope::Read),
+    ("GET", "/metadata/providers", Scope::Read),
+    // The archives' names, sizes and dates. Downloading one stays the owner's:
+    // an archive holds the master key every stored credential is sealed with.
+    ("GET", "/backups", Scope::Read),
     // It probes every Arr and every source, and records what it found.
     ("GET", "/health", Scope::Operate),
+    ("POST", "/rule-tests/run", Scope::Operate),
+    ("POST", "/backups", Scope::Operate),
     ("POST", "/instances/sync", Scope::Operate),
     ("POST", "/instances/{id}/sync", Scope::Operate),
     ("POST", "/simulate", Scope::Operate),
@@ -42,6 +63,24 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
     ("DELETE", "/overrides/{id}", Scope::Write),
     ("PUT", "/overrides/external", Scope::Write),
     ("DELETE", "/overrides/external", Scope::Write),
+    ("POST", "/rules", Scope::Configure),
+    ("PUT", "/rules/{id}", Scope::Configure),
+    ("DELETE", "/rules/{id}", Scope::Configure),
+    ("POST", "/rules/{id}/duplicate", Scope::Configure),
+    ("POST", "/rules/reorder", Scope::Configure),
+    ("POST", "/rules/import", Scope::Configure),
+    // Neither writes, both serve whoever edits a rule: what the server makes
+    // of a draft, and what the draft would move.
+    ("POST", "/rules/validate", Scope::Configure),
+    ("POST", "/rules/preview", Scope::Configure),
+    ("POST", "/rule-tests", Scope::Configure),
+    ("DELETE", "/rule-tests/{id}", Scope::Configure),
+    ("POST", "/categories", Scope::Configure),
+    ("PUT", "/categories/{id}", Scope::Configure),
+    ("DELETE", "/categories/{id}", Scope::Configure),
+    ("POST", "/root-folders", Scope::Configure),
+    ("DELETE", "/root-folders/{id}", Scope::Configure),
+    ("PUT", "/root-folders/{id}/category", Scope::Configure),
 ];
 
 /// The scope a route asks of an application key, or `None` when no key may
