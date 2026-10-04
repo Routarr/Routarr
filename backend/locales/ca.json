@@ -816,7 +816,7 @@
   "WarnApiExternalAuth": "L'autenticació està delegada a un proxy invers: tot el que arribi directament a aquest port no està autenticat.",
   "WarnApiUnauthenticated": "L'API no està autenticada: defineix ROUTARR_API_KEY.",
   "WarnInstanceNoMapping": "La instància «{name}» no té cap carpeta arrel associada a una categoria.",
-  "WarnCertificationCountry": "{name} qualifica els títols per a {country}, que no és entre les regions de qualificació per edats ({regions}). Les seves qualificacions només compten després de les d'aquestes regions: afegiu {country} a les regions a Configuració si han de comptar igual.",
+  "WarnCertificationCountry": "{name} qualifica els títols per a {country}, que no és entre les regions de qualificació per edats ({regions}). Les seves qualificacions només compten després de les d'aquestes regions: afegeix {country} a les regions a Configuració si han de comptar igual.",
   "WarnInstanceUnreachable": "La instància «{name}» no és accessible: {status}",
   "WarnMissingMetadata": "Mitjans encara sense metadades externes: {count}.",
   "WarnNoEnabledInstance": "Cap instància Arr activada: no hi ha res a encaminar.",

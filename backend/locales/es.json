@@ -816,7 +816,7 @@
   "WarnApiExternalAuth": "La autenticación está delegada a un proxy inverso: todo lo que llegue directamente a este puerto no está autenticado.",
   "WarnApiUnauthenticated": "La API no está autenticada: define ROUTARR_API_KEY.",
   "WarnInstanceNoMapping": "La instancia «{name}» no tiene ninguna carpeta raíz asignada a una categoría.",
-  "WarnCertificationCountry": "{name} clasifica los títulos para {country}, que no está entre las regiones de clasificación ({regions}). Sus clasificaciones solo cuentan después de las de esas regiones: añada {country} a las regiones en Ajustes si deben contar igual.",
+  "WarnCertificationCountry": "{name} clasifica los títulos para {country}, que no está entre las regiones de clasificación ({regions}). Sus clasificaciones solo cuentan después de las de esas regiones: añade {country} a las regiones en Ajustes si deben contar igual.",
   "WarnInstanceUnreachable": "La instancia «{name}» no es accesible: {status}",
   "WarnMissingMetadata": "Medios aún sin metadatos externos: {count}.",
   "WarnNoEnabledInstance": "No hay ninguna instancia Arr activada: no hay nada que enrutar.",

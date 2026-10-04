@@ -816,7 +816,7 @@
   "WarnApiExternalAuth": "Autentificarea este delegată unui reverse proxy: orice ajunge direct la acest port nu este autentificat.",
   "WarnApiUnauthenticated": "API-ul nu este protejat. Setează ROUTARR_API_KEY.",
   "WarnInstanceNoMapping": "Instanța \"{name}\" nu are niciun dosar rădăcină asociat unei categorii.",
-  "WarnCertificationCountry": "{name} clasifică titlurile pentru {country}, care nu se află printre regiunile pentru clasificarea de vârstă ({regions}). Clasificările sale contează doar după cele ale acestor regiuni: adăugați {country} la regiuni în Setări dacă trebuie să conteze la fel.",
+  "WarnCertificationCountry": "{name} clasifică titlurile pentru {country}, care nu se află printre regiunile pentru clasificarea de vârstă ({regions}). Clasificările sale contează doar după cele ale acestor regiuni: adaugă {country} la regiuni în Setări dacă trebuie să conteze la fel.",
   "WarnInstanceUnreachable": "Instanța \"{name}\" este inaccesibilă: {status}",
   "WarnMissingMetadata": "Elemente media încă fără metadate externe: {count}.",
   "WarnNoEnabledInstance": "Nicio instanță Arr activată, așa că nu este nimic de rutat.",
