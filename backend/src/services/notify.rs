@@ -63,9 +63,8 @@ impl Event {
         }
     }
 
-    /// The payload's `event`, the one field naming what happened. A top-level
-    /// `type` beside it is what Apprise API refuses, since it reads `type` as
-    /// info, success, warning or failure.
+    /// The payload's `event`, the one field naming what happened. `type` is
+    /// Apprise's, which refuses any value but its four outcomes.
     fn kind(&self) -> &'static str {
         match self {
             Event::InstanceUnreachable { .. } => "instance_unreachable",
@@ -75,6 +74,19 @@ impl Event {
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
+        }
+    }
+
+    /// The outcome as Apprise reads it, which picks the colour and the mark it
+    /// shows: info, success, warning or failure.
+    fn outcome(&self) -> &'static str {
+        match self {
+            Event::InstanceUnreachable { .. }
+            | Event::AutoApplyFailed { .. }
+            | Event::SyncFailed { .. } => "failure",
+            Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
+            Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
+            Event::SimulationCompleted { .. } => "info",
         }
     }
 
@@ -150,6 +162,11 @@ pub struct Notification {
     pub timestamp: String,
     /// `error`, `warning` or `info`.
     pub severity: &'static str,
+    /// The outcome as Apprise reads it: `failure`, `warning`, `success` or
+    /// `info`.
+    #[serde(rename = "type")]
+    #[schema(rename = "type")]
+    pub outcome: &'static str,
     /// Always `routarr`.
     pub source: &'static str,
     /// Always `Routarr`.
@@ -175,6 +192,7 @@ fn notification(event: &Event) -> Notification {
         event: event.kind(),
         timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         severity: event.severity(),
+        outcome: event.outcome(),
         source: "routarr",
         title: "Routarr",
         content: message.clone(),
@@ -497,16 +515,17 @@ mod receivers {
 
     /// Apprise API refuses with a 400 a `type` outside info, success, warning
     /// and failure, a `format` outside text, markdown and html, and a request
-    /// with no `body` (apprise-api `views.py`).
+    /// with no `body` (apprise-api `views.py`). Within those four, `type` picks
+    /// the colour and the mark: a failure red, a partial apply amber, a
+    /// recovery and a clean run green.
     #[test]
-    fn apprise_api_accepts_every_event() {
-        for event in every_event() {
-            let sent = sent(&event);
-            let typed = sent.get("type").map(|kind| kind.as_str().unwrap_or_default());
-            assert!(
-                typed.is_none_or(|kind| ["info", "success", "warning", "failure"].contains(&kind)),
-                "{sent}"
-            );
+    fn apprise_api_accepts_every_event_and_shows_its_outcome() {
+        let outcomes = ["failure", "success", "failure", "failure", "info", "warning", "success"];
+        let events = every_event();
+        assert_eq!(events.len(), outcomes.len());
+        for (event, outcome) in events.iter().zip(outcomes) {
+            let sent = sent(event);
+            assert_eq!(sent["type"], outcome, "{sent}");
             let format = sent.get("format").map(|format| format.as_str().unwrap_or_default());
             assert!(format.is_none_or(|f| ["text", "markdown", "html"].contains(&f)), "{sent}");
             assert!(sent["body"].as_str().is_some_and(|body| !body.is_empty()), "{sent}");
