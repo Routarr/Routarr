@@ -1,0 +1,32 @@
+name: Site
+
+# The showcase site states the version of the latest published release, read
+# when it is built (`site/release.mjs`). Cloudflare builds it on a push to
+# main, which comes before the release it would name is published, so
+# publishing a release asks Cloudflare for a build of its own through the
+# project's deploy hook. Apart from `ci.yml`: a release event is neither a push
+# nor a pull request, and this job needs nothing from the repository.
+on:
+  release:
+    types: [published]
+
+permissions: {}
+
+jobs:
+  deploy:
+    name: Rebuild the site
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The hook is a URL that starts a build by itself being called, so it is
+      # kept as a secret. Without one the site keeps its build until the next
+      # push to main, which is said rather than failed.
+      - name: Call the Cloudflare deploy hook
+        env:
+          HOOK: ${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::No CLOUDFLARE_DEPLOY_HOOK secret: the site names the new release after the next push to main."
+            exit 0
+          fi
+          curl -fsS --retry 3 -X POST "$HOOK" -o /dev/null

@@ -1,14 +1,14 @@
 /**
- * Routarr's version, taken from the crate when the site is built.
+ * Routarr's version, as the page states it: the latest published release, or
+ * the crate's when GitHub cannot say (`release.mjs`).
  *
- * `backend/Cargo.toml` is the value the release tag names. Writing it here as
- * well would be a second copy nothing keeps in step until `check.mjs` runs, and
- * only when the site job does. Imported as text so it is inlined at bundle time:
- * a path read at prerender resolves under `dist/`, where the crate is not.
+ * The crate is imported as text so it is inlined at bundle time: a path read
+ * at prerender resolves under `dist/`, where the crate is not.
  */
 import manifest from '../../backend/Cargo.toml?raw';
+import { releasedVersion } from '../release.mjs';
 
-const match = manifest.match(/^version = "([^"]+)"/m);
-if (!match?.[1]) throw new Error('backend/Cargo.toml carries no version');
+const crate = manifest.match(/^version = "([^"]+)"/m)?.[1];
+if (!crate) throw new Error('backend/Cargo.toml carries no version');
 
-export const version: string = match[1];
+export const version: string = await releasedVersion(crate);
