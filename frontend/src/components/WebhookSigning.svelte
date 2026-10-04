@@ -64,7 +64,9 @@
     <!-- The one moment the secret is readable. `mono` carries the
          `direction: ltr` it needs in a right-to-left page. -->
     <div class="mb-3">
-      <WarningBanner message={t('ApiKeyMintedOnce')} />
+      <!-- Its own sentence, not the key's: most languages agree the pronoun
+           with the noun, and the secret and the key differ in gender. -->
+      <WarningBanner message={t('SigningSecretMintedOnce')} />
       <code class="mono secret-once">{minted}</code>
     </div>
   {/if}

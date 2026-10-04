@@ -92,7 +92,7 @@
             <h3 class="guide-step-title">
               {t(guide.titleKey)}
               {#if step.optional}
-                <span class="badge badge-value muted">{t('Optional')}</span>
+                <span class="badge badge-value muted">{t('OptionalStep')}</span>
               {/if}
               {#if step.done}
                 <span class="visually-hidden">{t('GuideStepDone')}</span>

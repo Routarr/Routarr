@@ -157,13 +157,15 @@
       const done = await answering(
         (answered) => api.applyDecisions(ids, moveFiles, answered),
         'ApplyLabel',
-        t('ConfirmApply', { count: ids.length }) + (moveFiles ? t('ConfirmApplyWithFiles') : '.'),
+        t(moveFiles ? 'ConfirmApplyItemsWithFiles' : 'ConfirmApplyItems', { count: ids.length }),
       );
       if (!done) return;
       reportApply(
-        t('ApplyReport', { applied: done.applied, requested: done.requested }) +
-          (done.skipped > 0 ? t('ApplyReportSkipped', { count: done.skipped }) : '') +
-          '.',
+        t(done.skipped > 0 ? 'ApplyResultWithSkipped' : 'ApplyResult', {
+          applied: done.applied,
+          requested: done.requested,
+          skipped: done.skipped,
+        }),
         done.applied,
         done.failed > 0,
         done.errors,

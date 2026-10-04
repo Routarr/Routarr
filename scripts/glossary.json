@@ -98,7 +98,6 @@
       "MoveUp",
       "MoveDown",
       "MoveFilesLabel",
-      "ConfirmApplyWithFiles",
       "ConfirmRevertFiles",
       "ErrorCapacityUnknown",
       "PinAsRuleTestHint",
@@ -138,10 +137,7 @@
     "en": "\\bappl(y|ies|ied|ying)\\b",
     "except": [
       "AppliesTo",
-      "NoRuleApplies",
-      "ReasonManualOverride",
-      "RestoreStaged",
-      "RestoreStagedWithoutKey"
+      "NoRuleApplies"
     ],
     "homonym": "\\bArr\\b",
     "words": {
@@ -170,7 +166,12 @@
       "uk": "застос",
       "zh_CN": "应用",
       "zh_TW": "套用"
-    }
+    },
+    "beside": "\\{(service|found)\\}",
+    "beside_skip": [
+      "cs",
+      "sk"
+    ]
   },
   "revert": {
     "en": "\\brevert",

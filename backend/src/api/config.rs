@@ -350,7 +350,9 @@ pub async fn import(
         // the API, and a value it does know but refuses is worse, because it
         // looks applied. Reported rather than fatal: a bundle is restored as far as it
         // can be, and `skipped` is what says how far.
-        if let Err(e) = crate::services::settings::check(key, &setting.value, &categories) {
+        if let Err(e) =
+            crate::services::settings::check(key, &setting.value, &categories, &localizer)
+        {
             report.skipped.push(format!("setting {:?}: {e}", setting.key));
             continue;
         }

@@ -16,7 +16,7 @@ const STRINGS = {
   GuideProgress: 'Required steps done: {done} of {total}',
   GuideStepDone: 'Done',
   GuideStepNext: 'Next step',
-  Optional: 'optional',
+  OptionalStep: 'optional',
   GuideInstanceTitle: 'Connect Radarr or Sonarr',
   GuideInstanceAction: 'Add an instance',
   GuideCategoriesTitle: 'Map root folders to categories',

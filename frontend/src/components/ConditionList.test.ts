@@ -19,6 +19,7 @@ const STRINGS = {
   NeedsMetadataSuffix: '(needs metadata)',
   Remove: 'Remove',
   QuantifierAny: 'any of',
+  QuantifierNoneOf: 'none of',
   QuantifierAll: 'all of',
   QuantifierLabel: 'How these values combine',
   PlaceholderStringList: 'comma separated',
@@ -53,6 +54,10 @@ const LANGUAGE: ConditionSpec = {
   ...spec('original_language', ['movie', 'series'], 'Original language is'),
   suggestions: 'original_languages',
 };
+const LANGUAGE_NOT: ConditionSpec = {
+  ...spec('original_language_not', ['movie', 'series'], 'Original language is not'),
+  suggestions: 'original_languages',
+};
 
 function render(
   conditions: Condition[],
@@ -68,7 +73,7 @@ function render(
       title: 'All of',
       list: 'conditions',
       conditions,
-      specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
+      specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE, LANGUAGE_NOT],
       addable,
       facets,
       onAdd,
@@ -176,6 +181,17 @@ describe('ConditionList', () => {
     expect(screen.getByRole('combobox', { name: LANGUAGE.label })).toHaveAccessibleDescription(
       'any of',
     );
+  });
+
+  /**
+   * Under a caption that says "not", most languages say the values another
+   * way than "any of": the sentence reads "is not none of them" otherwise.
+   */
+  it('says the values of a negated condition in words of their own', () => {
+    render([{ type: 'original_language_not', value: ['ja'] }], [LANGUAGE_NOT]);
+
+    expect(screen.getByText('none of')).toBeTruthy();
+    expect(screen.queryByText('any of')).toBeNull();
   });
 
   it('says nothing about combining a value that is not a list', () => {

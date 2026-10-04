@@ -28,11 +28,11 @@ const STRINGS = {
   ApplyAll: 'Apply all ({count})',
   SelectMoveFor: 'Select the move for "{title}"',
   SelectEveryMove: 'Select every move',
-  ConfirmApply: '{count} items will move.',
-  ConfirmApplyAll: '{count} items will move.',
-  ConfirmApplyWithFiles: ' Files move too.',
+  ConfirmApplyItems: '{count} items will move.',
+  ConfirmApplyItemsWithFiles: '{count} items will move, files too.',
   SimulationEmptyState: 'Nothing to review',
-  ApplyReport: 'Applied: {applied} of {requested}',
+  ApplyResult: 'Applied: {applied} of {requested}.',
+  ApplyResultWithSkipped: 'Applied: {applied} of {requested}, stale: {skipped}.',
   BatchApplyReport: 'Applied in batches: {applied} of {candidates}',
   BatchApplyStopped: 'Stopped at batch {run} of {planned}: {applied} of {candidates} applied',
   Dismiss: 'Dismiss',
@@ -483,6 +483,36 @@ describe('what the screen says after applying', () => {
 
     const summary = await screen.findByText('Stopped at batch 1 of 1: 49 of 50 applied');
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+  });
+
+  /** One whole sentence per case: a clause appended to a translated one is English grammar. */
+  it('says how many proposals had gone stale in the same sentence as the count', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 2,
+      applied: 1,
+      failed: 0,
+      skipped: 1,
+      errors: [],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    expect(await screen.findByText('Applied: 1 of 2, stale: 1.')).toBeTruthy();
+  });
+
+  it('asks about the files in the same sentence as the count', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    vi.spyOn(api, 'applyDecisions').mockRejectedValue(batchQuestion());
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByLabelText('Move the files on disk too'));
+    await fireEvent.click(screen.getByRole('button', { name: /apply selected/i }));
+
+    expect(await answerConfirmation(null)).toContain('1 items will move, files too.');
   });
 
   it('reports an apply of selected moves that partly failed as a partial result', async () => {

@@ -80,7 +80,9 @@
       if (report.applied > 0) outcome.succeed(t('RevertResult', { count: report.applied }));
       else
         outcome.fail(
-          t('RevertNothing') + (report.errors[0] ? `: ${report.errors[0].message}` : '.'),
+          report.errors[0]
+            ? t('NothingRevertedBecause', { reason: report.errors[0].message })
+            : t('NothingReverted'),
         );
     } catch (err) {
       outcome.fail(err);

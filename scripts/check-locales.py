@@ -163,18 +163,26 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
     languages the word for "apply" also means "application", and "the Arr
     application" written with it puts the apply act into a sentence about
     the Arr.
+
+    `beside` is a placeholder naming that same thing, `{service}`: the
+    concept's word may not stand next to it, as in "{service} alkalmazás".
+    Elsewhere in the sentence the word may mean something else. `beside_skip`
+    names the languages whose word never names an application at all, as the
+    Czech and Slovak ones, which mean "use", and "{service} uses" is correct.
     """
     problems: list[str] = []
+    # A placeholder names a value, not the concept: `{skipped}` is a count.
+    said = {key: re.sub(r"\{[a-zA-Z_][a-zA-Z0-9_]*\}", "", value) for key, value in english.items()}
     for concept, spec in json.loads(GLOSSARY.read_text(encoding="utf-8")).items():
         carriers = [
             key
-            for key, value in english.items()
-            if re.search(spec["en"], value, re.I) and key not in spec["except"]
+            for key in english
+            if re.search(spec["en"], said[key], re.I) and key not in spec["except"]
         ]
         if not carriers:
             problems.append(f"glossary: '{concept}' matches no English key")
         for key in spec["except"]:
-            if key not in english or not re.search(spec["en"], english[key], re.I):
+            if key not in english or not re.search(spec["en"], said[key], re.I):
                 problems.append(f"glossary: '{concept}' excepts {key}, whose English does not say it")
         for language, dictionary in sorted(dictionaries.items()):
             if language == "en":
@@ -202,6 +210,20 @@ def glossary_problems(english: dict[str, str], dictionaries: dict[str, dict[str,
                     problems.append(
                         f"{language}.json: '{key}' uses the '{concept}' word /{word}/ "
                         f"for what its English says as /{homonym}/"
+                    )
+            beside = spec.get("beside")
+            if beside is None or language in spec.get("beside_skip", []):
+                continue
+            # The word, then at most a space and the placeholder, or the other way.
+            adjacent = rf"(?:{word})\w*\s*(?:{beside})|(?:{beside})\s*\S*?(?:{word})"
+            for key, value in english.items():
+                translated = dictionary.get(key)
+                if key in carriers or translated is None or translated == value:
+                    continue
+                if re.search(beside, value) and re.search(adjacent, translated, re.I):
+                    problems.append(
+                        f"{language}.json: '{key}' names {re.search(beside, translated).group(0)} "
+                        f"with the '{concept}' word /{word}/"
                     )
     return problems
 

@@ -674,8 +674,11 @@
                     value={draft[field.key] ?? field.fallback}
                     onchange={(event) => (draft[field.key] = event.currentTarget.value)}
                   >
-                    <option value="true">{t('Enabled')}</option>
-                    <option value="false">{t('Disabled')}</option>
+                    <!-- Keys of their own: a setting's state agrees otherwise than
+                         the rule and the instance the badges name, in French and
+                         Italian among others. -->
+                    <option value="true">{t('SettingOn')}</option>
+                    <option value="false">{t('SettingOff')}</option>
                   </select>
                 {:else if field.kind === 'language'}
                   <select

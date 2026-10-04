@@ -34,7 +34,7 @@ pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<NewRuleTest>,
 ) -> AppResult<Json<RuleTest>> {
-    rule_tests::validate(&body)?;
+    rule_tests::validate(&body, &state.localizer().await)?;
 
     let media = crate::api::media::load_media(&state, &body.media_id).await?;
     let metadata = enrichment::resolve_for_media(&state, &media).await?;

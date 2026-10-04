@@ -371,11 +371,10 @@ async fn the_batch_question_says_how_many_move_and_whether_their_files_do() {
     let app = TestApp::films_to_move(&arr, 3).await;
     let simulation = app.simulate().await;
     let localizer = app.state.localizer().await;
-    let count = localizer.translate("ConfirmApplyAll", &[("count", "3")]);
-    let with_files = localizer.translate("ConfirmApplyWithFiles", &[]);
+    let ask = |key: &str| localizer.translate(key, &[("count", "3")]);
 
     for (move_files, expected) in
-        [(false, format!("{count}.")), (true, format!("{count}{with_files}"))]
+        [(false, ask("ConfirmApplyAllItems")), (true, ask("ConfirmApplyAllItemsWithFiles"))]
     {
         let response = app
             .post(
