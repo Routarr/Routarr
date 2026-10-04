@@ -22,6 +22,9 @@ const STRINGS = {
   RuleName: 'Rule name',
   Priority: 'Priority',
   EnterWholeNumber: 'Enter a whole number.',
+  EnterNumber: 'Enter a number.',
+  Delete: 'Delete',
+  PlaceholderYearFrom: 'From',
   PreviewImpact: 'Preview impact',
   PreviewTitle: 'Impact preview',
   PreviewSummary: 'Changing: {changed}. Moves from {beforeMoves} to {afterMoves}.',
@@ -573,6 +576,104 @@ describe('an id list with an entry that is not an id', () => {
 
     await userEvent.clear(field);
     await userEvent.type(field, '603, 604');
+    await waitFor(() => expect(save).toBeEnabled());
+  });
+});
+
+/**
+ * The draft keeps only what a condition field could read, so a field holding
+ * more holds Save, each value type for its own reason, and only those.
+ */
+describe('a condition field holding what it cannot read', () => {
+  const condition = (type: string, valueType: string, label: string) => ({
+    type,
+    label,
+    value_type: valueType,
+    needs_metadata: false,
+    suggestions: '',
+    quantifier: '',
+    counterpart: '',
+    media_types: ['movie', 'series'],
+    metadata_field: '',
+    available: true,
+  });
+
+  function open(type: string, valueType: string, label: string, value: unknown) {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render(undefined, {
+      draft: { ...DRAFT, conditions: [{ type, value }] },
+      catalog: { conditions: [condition(type, valueType, label)] },
+    });
+    return screen.getByRole('button', { name: 'Save rule' });
+  }
+
+  it('holds Save on an emptied number, which would otherwise save as 0', async () => {
+    const save = open('season_count_over', 'number', 'Season count over', 3);
+    const field = await screen.findByLabelText('Season count over');
+
+    await userEvent.clear(field);
+    await waitFor(() => expect(save).toBeDisabled());
+    expect(field).toHaveAccessibleDescription('Enter a number.');
+
+    await userEvent.type(field, '4');
+    await waitFor(() => expect(save).toBeEnabled());
+  });
+
+  it('holds Save on a year bound that is not a whole year, and not on an empty one', async () => {
+    const save = open('year_between', 'year_range', 'Year between', { min: 1990, max: null });
+    const from = await screen.findByLabelText('Year between – From');
+
+    await userEvent.clear(from);
+    await userEvent.type(from, '1990.5');
+    await waitFor(() => expect(save).toBeDisabled());
+
+    await userEvent.clear(from);
+    await waitFor(() => expect(save).toBeEnabled());
+  });
+
+  it.each([
+    ['boolean', 'has_files', 'Has files'],
+    ['string', 'current_root_folder', 'Root folder is'],
+    ['string_list', 'genre_contains', 'Genre contains'],
+  ])('never holds Save for a %s field', async (valueType, type, label) => {
+    const value = valueType === 'boolean' ? true : valueType === 'string' ? '' : [];
+    const save = open(type, valueType, label, value);
+    const field = await screen.findByLabelText(label);
+
+    if (valueType === 'boolean') await userEvent.selectOptions(field, 'false');
+    else await userEvent.type(field, 'x,, 6O4');
+
+    await waitFor(() => expect(screen.getByLabelText('Rule name')).toBeInTheDocument());
+    expect(save).toBeEnabled();
+  });
+
+  it('lets Save go once the unreadable condition is removed, and keeps another one held', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render(undefined, {
+      draft: {
+        ...DRAFT,
+        conditions: [
+          { type: 'tmdb_id_in', value: [] },
+          { type: 'tvdb_id_in', value: [] },
+        ],
+      },
+      catalog: {
+        conditions: [
+          condition('tmdb_id_in', 'number_list', 'TMDb id is'),
+          condition('tvdb_id_in', 'number_list', 'TheTVDB id is'),
+        ],
+      },
+    });
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    await userEvent.type(await screen.findByLabelText('TheTVDB id is'), '6O4');
+    await waitFor(() => expect(save).toBeDisabled());
+
+    // The row above goes: the unreadable one moves up and keeps its text.
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – TMDb id is' }));
+    expect(screen.getByLabelText('TheTVDB id is')).toHaveValue('6O4');
+    expect(save).toBeDisabled();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – TheTVDB id is' }));
     await waitFor(() => expect(save).toBeEnabled());
   });
 });

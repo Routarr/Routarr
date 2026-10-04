@@ -688,6 +688,48 @@ describe('a write followed through its job', () => {
     ]);
   });
 
+  it('tells the caller how far the job has gone, look by look', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(job('running', { progress_current: 5, progress_total: 10 }))
+        .mockResolvedValueOnce(job('success', { result: { simulation_id: 's1' } })),
+    );
+    const seen: number[] = [];
+
+    const run = api.runSimulation(
+      { persist: true },
+      { onProgress: (looked) => seen.push(looked.progress_current) },
+    );
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(run).resolves.toEqual({ simulation_id: 's1' });
+    expect(seen).toEqual([5]);
+  });
+
+  /** Leaving stops the looking, not the work, which a screen opened again finds. */
+  it('stops looking once the caller leaves, and asks nothing more', async () => {
+    vi.useFakeTimers();
+    const spy = vi
+      .fn()
+      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValue(job('running'));
+    vi.stubGlobal('fetch', spy);
+    const leaving = new AbortController();
+
+    const run = api.runSimulation({}, { signal: leaving.signal }).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(300);
+    leaving.abort();
+    const looks = spy.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(5000);
+
+    expect(spy.mock.calls.length).toBe(looks);
+    expect(await run).toMatchObject({ name: 'AbortError' });
+  });
+
   it('takes a report answered at once as it is', async () => {
     const spy = vi.fn().mockResolvedValueOnce(answer(200, report));
     vi.stubGlobal('fetch', spy);

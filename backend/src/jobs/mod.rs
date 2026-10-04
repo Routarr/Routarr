@@ -1,7 +1,7 @@
 pub mod registry;
 pub mod scheduler;
 
-pub use registry::{Detail, JobHandle, JobKind, JobRegistry, announcing};
+pub use registry::{Detail, JobHandle, JobKind, JobRegistry, Progress, announcing};
 
 /// Run work that writes on a task of its own, and wait for it.
 ///

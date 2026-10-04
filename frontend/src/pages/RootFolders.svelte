@@ -7,6 +7,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -372,13 +373,7 @@
               </td>
               <td class="text-muted">{category.description ?? t('None')}</td>
               <td>{category.rule_count}</td>
-              <td>
-                <span
-                  class="badge {category.root_folder_count > 0 ? 'badge-success' : 'badge-warning'}"
-                >
-                  {category.root_folder_count}
-                </span>
-              </td>
+              <td><Count value={category.root_folder_count} /></td>
               <td>
                 <div class="flex gap-2">
                   <button

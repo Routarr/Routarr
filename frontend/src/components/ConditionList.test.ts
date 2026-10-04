@@ -73,6 +73,7 @@ function render(
       title: 'All of',
       list: 'conditions',
       conditions,
+      keys: conditions.map((_, index) => index),
       specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE, LANGUAGE_NOT],
       addable,
       facets,
@@ -266,13 +267,17 @@ describe('deleting a condition', () => {
         title: 'All of',
         list: 'conditions',
         conditions,
+        keys: conditions.map((_, index) => index),
         specs: [GENRE, GENRE_ALL, SEASONS, LANGUAGE],
         addable: [GENRE],
         onAdd: () => {},
         onRetype: () => {},
         onUpdate: () => {},
         onRemove: (index: number) =>
-          void view.rerender({ conditions: conditions.filter((_, at) => at !== index) }),
+          void view.rerender({
+            conditions: conditions.filter((_, at) => at !== index),
+            keys: conditions.map((_, at) => at).filter((at) => at !== index),
+          }),
       },
       strings: STRINGS,
     });

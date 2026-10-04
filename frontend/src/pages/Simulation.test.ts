@@ -1,10 +1,10 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { nthCall } from '../test/spy';
 import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
-import { decision, paginated } from '../test/fixtures';
-import { ApiError, api } from '../api/client';
+import { decision, job, paginated } from '../test/fixtures';
+import { ApiError, api, type Following } from '../api/client';
 import type { Decision, SimulationResult } from '../api/types';
 import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
@@ -39,12 +39,21 @@ const STRINGS = {
   MoveFilesLabel: 'Move the files on disk too',
 };
 
+/** What each run stored, as `/decisions` lists it under the run's id. */
+const RUNS = new Map<string, Decision[]>();
+
+/**
+ * A stored run's report, which keeps its counts alone, its proposals left
+ * for `/decisions` to list.
+ */
 function simulation(decisions: Decision[]): SimulationResult {
+  const id = `s${RUNS.size + 1}`;
+  RUNS.set(id, decisions);
   return {
-    simulation_id: 's2',
+    simulation_id: id,
     capacity: [],
-    returned: decisions.length,
-    decisions,
+    returned: 0,
+    decisions: [],
     overrides_applied: 0,
     elapsed_ms: 4,
     total_media: decisions.length,
@@ -73,10 +82,17 @@ const batchReport = {
 
 /** Render and wait for the pending-decisions fetch the page makes on mount. */
 async function show(pending: Decision[]) {
-  vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated(pending));
+  vi.spyOn(api, 'getDecisions').mockImplementation(async (params) =>
+    paginated(
+      typeof params?.simulation_id === 'string' ? (RUNS.get(params.simulation_id) ?? []) : pending,
+    ),
+  );
   renderWithI18n(Simulation, { strings: STRINGS });
   await screen.findByRole('heading', { name: 'Simulation' });
 }
+
+// No run is going on when the screen opens, unless a test says otherwise.
+beforeEach(() => vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([])));
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -578,5 +594,81 @@ describe('what the screen says after applying', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
 
     expect(screen.queryByText('Akira: The Arr refused the move')).toBeNull();
+  });
+});
+
+/**
+ * A run of any size is followed through its task rather than waited for, so
+ * no request bound cuts it, and the screen shows it going on.
+ */
+describe('a run followed through its task', () => {
+  it('shows how far the run has gone while it is followed', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockImplementation((_, following?: Following) => {
+      following?.onProgress?.(job({ progress_current: 50, progress_total: 200 }));
+      return new Promise(() => {});
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    const bar = await screen.findByRole('progressbar', { name: 'Evaluating…' });
+    expect(bar).toHaveAttribute('aria-valuenow', '50');
+    expect(bar).toHaveAttribute('aria-valuemax', '200');
+  });
+
+  /** Left and opened again, the screen finds the run still going and waits for it. */
+  it('follows a run already going when the screen opens, and lists what it proposed', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ id: 'j9', kind: 'simulate' })]));
+    let finish: (result: SimulationResult) => void = () => {};
+    const follow = vi
+      .spyOn(api, 'followJob')
+      .mockReturnValue(new Promise((resolve) => (finish = resolve as never)));
+    await show([]);
+
+    await waitFor(() => expect(follow).toHaveBeenCalledWith('j9', expect.anything()));
+    expect(screen.getByRole('button', { name: 'Evaluating…' })).toBeDisabled();
+
+    finish(simulation([decision({ media_title: 'Totoro' })]));
+
+    expect(await screen.findByText('Totoro')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /run simulation/i })).toBeEnabled();
+  });
+
+  it('stops following when the screen closes, and leaves the run to go on', async () => {
+    let signal: AbortSignal | undefined;
+    vi.spyOn(api, 'runSimulation').mockImplementation((_, following?: Following) => {
+      signal = following?.signal;
+      return new Promise(() => {});
+    });
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(paginated([]));
+    const view = renderWithI18n(Simulation, { strings: STRINGS });
+    await fireEvent.click(await screen.findByRole('button', { name: /run simulation/i }));
+    expect(signal?.aborted).toBe(false);
+
+    view.unmount();
+
+    expect(signal?.aborted).toBe(true);
+  });
+
+  /** Listed by the run's id, a page at a time, however many it proposed. */
+  it('pages through what the run proposed', async () => {
+    const getDecisions = vi
+      .spyOn(api, 'getDecisions')
+      .mockResolvedValue(paginated([decision()], { total_pages: 2, total: 250 }));
+    renderWithI18n(Simulation, {
+      strings: { ...STRINGS, Next: 'Next', PageOf: 'Page {page} of {total}' },
+    });
+    const run = simulation([decision()]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(run);
+
+    await fireEvent.click(await screen.findByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+
+    await waitFor(() =>
+      expect(getDecisions).toHaveBeenLastCalledWith(
+        expect.objectContaining({ simulation_id: run.simulation_id, page: 2 }),
+        expect.any(AbortSignal),
+      ),
+    );
   });
 });

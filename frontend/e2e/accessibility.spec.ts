@@ -633,11 +633,13 @@ const MODALS: {
     // A confirmation, the one a destructive action puts in front of everybody.
     path: '/rules',
     covers: 'components/ConfirmDialog.svelte',
-    open: (p) =>
-      p
-        .getByRole('button', { name: /^Delete – / })
+    open: async (p) => {
+      await p
+        .getByRole('button', { name: /^Actions – / })
         .first()
-        .click(),
+        .click();
+      await p.getByRole('menuitem', { name: 'Delete' }).click();
+    },
   },
   {
     // Offered on the move `offerRevert` makes sure of.

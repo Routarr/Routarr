@@ -5,6 +5,7 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatRelative, formatTimestamp } from '../api/format';
+  import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
@@ -104,12 +105,7 @@
                     <td><InstanceStatus status={instance.status} /></td>
                     <td class="mono">{instance.version ?? t('None')}</td>
                     <td>{instance.media_count}</td>
-                    <td>
-                      <!-- A count, not a verdict: zero mapped folders, the one
-                           case worth painting red, is already reported in the
-                           warnings above. -->
-                      <span class="num">{instance.mapped_root_folders}</span>
-                    </td>
+                    <td><Count value={instance.mapped_root_folders} /></td>
                     <td
                       class="cell-timestamp"
                       title={formatTimestamp(instance.last_sync, i18n.language, '')}

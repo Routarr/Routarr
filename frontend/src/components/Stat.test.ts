@@ -13,4 +13,14 @@ describe('Stat', () => {
     expect(zero.container.querySelector('.metric')?.className).not.toContain('is-danger');
     expect(three.container.querySelector('.metric')?.className).toContain('is-danger');
   });
+
+  /** `12345 titles evaluated` reads as a code, `12 345` as the count it is. */
+  it('groups the figure the way the language writes numbers', () => {
+    const { container } = renderWithI18n(Stat, {
+      props: { label: 'Evaluated', value: 12345 },
+      language: 'fr',
+    });
+
+    expect(container.querySelector('.metric-value')?.textContent).toBe('12\u202f345');
+  });
 });

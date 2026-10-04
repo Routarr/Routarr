@@ -26,6 +26,7 @@
   import { handFocus } from '../lib/focus';
   import { takeQueryFlag } from '../api/onboarding';
   import { i18n, t } from '../lib/i18n.svelte';
+  import ActionMenu from '../components/ActionMenu.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import FileButton from '../components/FileButton.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -183,9 +184,9 @@
     }
   }
 
-  // A deleted rule takes its row and the pressed Delete with it: the rule now
-  // in its place takes the focus, else the one before, else the table.
-  const deleteId = (index: number) => `rules-delete-${index}`;
+  // A deleted rule takes its row and the menu it was deleted from with it: the
+  // rule now in its place takes the focus, else the one before, else the table.
+  const menuId = (index: number) => `rules-menu-${index}`;
 
   async function move(index: number, direction: -1 | 1) {
     const from = rules[index];
@@ -231,6 +232,9 @@
     }
   }
 </script>
+
+{#snippet copyIcon()}<Copy size={14} aria-hidden="true" />{/snippet}
+{#snippet trashIcon()}<Trash2 size={14} aria-hidden="true" />{/snippet}
 
 <div>
   <div class="page-header">
@@ -408,34 +412,34 @@
                     >
                       <Pencil size={14} />
                     </button>
-                    <button
-                      class="btn btn-secondary btn-sm"
-                      title={t('Duplicate')}
-                      aria-label="{t('Duplicate')} – {rule.name}"
-                      onclick={() =>
-                        void act(() => api.duplicateRule(rule.id), t('RuleDuplicated'))}
-                    >
-                      <Copy size={14} />
-                    </button>
-                    <button
-                      id={deleteId(index)}
-                      class="btn btn-danger btn-sm"
-                      title={t('Delete')}
-                      aria-label="{t('Delete')} – {rule.name}"
-                      onclick={async () => {
-                        if (
-                          await askConfirmation(
-                            t('ConfirmDeleteRule', { name: rule.name }),
-                            'Delete',
-                          )
-                        ) {
-                          await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
-                          void handFocus(deleteId(index), deleteId(index - 1), 'rules-table');
-                        }
-                      }}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    <ActionMenu
+                      id={menuId(index)}
+                      label="{t('Actions')} – {rule.name}"
+                      actions={[
+                        {
+                          label: t('Duplicate'),
+                          icon: copyIcon,
+                          onSelect: () =>
+                            void act(() => api.duplicateRule(rule.id), t('RuleDuplicated')),
+                        },
+                        {
+                          label: t('Delete'),
+                          icon: trashIcon,
+                          danger: true,
+                          onSelect: async () => {
+                            if (
+                              await askConfirmation(
+                                t('ConfirmDeleteRule', { name: rule.name }),
+                                'Delete',
+                              )
+                            ) {
+                              await act(() => api.deleteRule(rule.id), t('RuleDeleted'));
+                              void handFocus(menuId(index), menuId(index - 1), 'rules-table');
+                            }
+                          },
+                        },
+                      ]}
+                    />
                   </div>
                 </td>
               </tr>

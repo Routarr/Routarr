@@ -4,6 +4,7 @@ import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { SERVER_COUNTS } from '../test/counts';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
@@ -159,6 +160,7 @@ async function save(): Promise<Record<string, string>> {
     language: 'en',
     direction: 'ltr',
     strings: STRINGS,
+    counts: [...SERVER_COUNTS],
   });
   await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
   await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
@@ -349,6 +351,7 @@ describe('the save bar', () => {
       language: 'en',
       direction: 'ltr',
       strings: STRINGS,
+      counts: [...SERVER_COUNTS],
     });
     mount({ batch_limit: '50' });
     await openSection('Routing');

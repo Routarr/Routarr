@@ -143,6 +143,8 @@ export interface Localization {
   /** `ltr` or `rtl` for `language`, decided by the backend. */
   direction: 'ltr' | 'rtl';
   strings: Record<string, string>;
+  /** The placeholders that hold a count, grouped as the language groups digits. */
+  counts: string[];
 }
 
 export interface BackupFile {

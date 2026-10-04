@@ -15,7 +15,6 @@
   import SearchField from '../components/SearchField.svelte';
 
   let search = $state('');
-  let pending = $state('');
   let mediaType = $state('');
   let unmatched = $state(false);
   let page = $state(1);
@@ -74,62 +73,52 @@
   <OutcomeBanner {outcome} />
 
   <div class="toolbar">
-    <form
-      novalidate
-      class="flex items-center gap-2 flex-1 flex-wrap"
-      onsubmit={(event) => {
-        event.preventDefault();
+    <SearchField
+      bind:value={search}
+      placeholder={t('SearchByTitle')}
+      label={t('SearchLibrary')}
+      oninput={() => (page = 1)}
+      debounce={200}
+    />
+    <select
+      class="form-select"
+      aria-label={t('FilterByType')}
+      value={mediaType}
+      onchange={(event) => {
         page = 1;
-        search = pending;
+        mediaType = event.currentTarget.value;
       }}
     >
-      <SearchField
-        bind:value={pending}
-        placeholder={t('SearchByTitle')}
-        label={t('SearchLibrary')}
-      />
-      <select
-        class="form-select"
-        aria-label={t('FilterByType')}
-        value={mediaType}
+      <option value="">{t('AllTypes')}</option>
+      <option value="movie">{t('Movies')}</option>
+      <option value="series">{t('Series')}</option>
+    </select>
+    <label class="flex items-center gap-2 text-md">
+      <input
+        type="checkbox"
+        checked={unmatched}
         onchange={(event) => {
           page = 1;
-          mediaType = event.currentTarget.value;
+          unmatched = event.currentTarget.checked;
         }}
+      />
+      {t('UnclassifiedOnly')}
+    </label>
+    <!-- Offered only while a filter is active: undoing three of them one by
+         one is the friction this removes, and a button that does nothing is
+         noise. -->
+    {#if search || mediaType || unmatched}
+      <button
+        type="button"
+        class="btn btn-ghost"
+        onclick={() => {
+          search = '';
+          mediaType = '';
+          unmatched = false;
+          page = 1;
+        }}>{t('ClearFilters')}</button
       >
-        <option value="">{t('AllTypes')}</option>
-        <option value="movie">{t('Movies')}</option>
-        <option value="series">{t('Series')}</option>
-      </select>
-      <label class="flex items-center gap-2 text-md">
-        <input
-          type="checkbox"
-          checked={unmatched}
-          onchange={(event) => {
-            page = 1;
-            unmatched = event.currentTarget.checked;
-          }}
-        />
-        {t('UnclassifiedOnly')}
-      </label>
-      <button type="submit" class="btn btn-secondary">{t('Search')}</button>
-      <!-- Offered only while a filter is active: undoing three of them one by
-           one is the friction this removes, and a button that does nothing is
-           noise. -->
-      {#if search || pending || mediaType || unmatched}
-        <button
-          type="button"
-          class="btn btn-ghost"
-          onclick={() => {
-            pending = '';
-            search = '';
-            mediaType = '';
-            unmatched = false;
-            page = 1;
-          }}>{t('ClearFilters')}</button
-        >
-      {/if}
-    </form>
+    {/if}
   </div>
 
   <div class="card">

@@ -9,6 +9,7 @@
   import { onboarding } from '../lib/onboarding.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { outsideTheGuide } from '../api/onboarding';
+  import Count from '../components/Count.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import BannerList from '../components/BannerList.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -168,7 +169,7 @@
                   </td>
                   <td><InstanceStatus status={instance.status} /></td>
                   <td>{instance.media_count}</td>
-                  <td>{instance.mapped_root_folders}</td>
+                  <td><Count value={instance.mapped_root_folders} /></td>
                   <td
                     class="cell-timestamp"
                     title={formatTimestamp(instance.last_sync, i18n.language, '')}

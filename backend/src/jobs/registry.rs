@@ -26,7 +26,11 @@ pub enum JobKind {
     /// `Sync` task beside it.
     SyncAll,
     Enrich,
+    /// A simulation that stores its proposals, the one `/decisions` lists and
+    /// an apply reads.
     Simulate,
+    /// A simulation that stores nothing and answers its proposals alone.
+    Preview,
     Apply,
     Revert,
     Maintenance,
@@ -46,6 +50,7 @@ impl JobKind {
             JobKind::SyncAll => "sync_all",
             JobKind::Enrich => "enrich",
             JobKind::Simulate => "simulate",
+            JobKind::Preview => "preview",
             JobKind::Apply => "apply",
             JobKind::Revert => "revert",
             JobKind::Maintenance => "maintenance",
@@ -309,9 +314,18 @@ fn announce(id: &str) {
     });
 }
 
-impl JobHandle {
-    /// Update the progress counters shown on the Tasks screen.
-    pub async fn progress(&self, current: usize, total: usize) {
+/// Where a long pass says how far it has gone, apart from the `JobHandle`
+/// that settles the job, so a service reports without owning the job.
+#[derive(Debug, Clone)]
+pub struct Progress {
+    id: String,
+    pool: SqlitePool,
+}
+
+impl Progress {
+    /// Update the progress counters the Tasks screen and a caller following
+    /// the job read.
+    pub async fn report(&self, current: usize, total: usize) {
         let _ =
             sqlx::query("UPDATE jobs SET progress_current = ?, progress_total = ? WHERE id = ?")
                 .bind(current as i64)
@@ -319,6 +333,17 @@ impl JobHandle {
                 .bind(&self.id)
                 .execute(&self.pool)
                 .await;
+    }
+}
+
+impl JobHandle {
+    /// Update the progress counters shown on the Tasks screen.
+    pub async fn progress(&self, current: usize, total: usize) {
+        self.progress_reporter().report(current, total).await;
+    }
+
+    pub fn progress_reporter(&self) -> Progress {
+        Progress { id: self.id.clone(), pool: self.pool.clone() }
     }
 
     /// Keep the report this job answers, to be written with its outcome, so a

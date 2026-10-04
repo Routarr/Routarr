@@ -870,7 +870,7 @@
             ]
           },
           "kind": {
-            "description": "`sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,\n`maintenance` or `scheduler`.",
+            "description": "`sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that\nstores nothing), `apply`, `revert`, `backup`, `maintenance` or\n`scheduler`.",
             "type": "string"
           },
           "progress_current": {
@@ -1678,7 +1678,7 @@
                   ]
                 },
                 "kind": {
-                  "description": "`sync`, `enrich`, `simulate`, `apply`, `revert`, `backup`,\n`maintenance` or `scheduler`.",
+                  "description": "`sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that\nstores nothing), `apply`, `revert`, `backup`, `maintenance` or\n`scheduler`.",
                   "type": "string"
                 },
                 "progress_current": {

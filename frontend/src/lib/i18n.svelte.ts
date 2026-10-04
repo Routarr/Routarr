@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import { bcp47 } from '../api/format';
+import { bcp47, formatCount } from '../api/format';
 
 type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
@@ -17,22 +17,19 @@ const state = $state({
   strings: {} as Dictionary,
   language: 'en',
   direction: 'ltr' as 'ltr' | 'rtl',
+  /**
+   * The placeholders that hold a count, grouped the way the language groups
+   * digits, `12 345` beside a size written `6,3 GB`. Only these: a year in
+   * `{min}` or an id in `{value}` grouped would read `2,026`. The server's
+   * list (`COUNTS` in `backend/src/localization.rs`), which groups the same
+   * placeholders in the sentences it writes.
+   */
+  counts: [] as readonly string[],
 });
 
-/**
- * The placeholders that hold a count, grouped the way the language groups
- * digits, `12 345` beside a size written `6,3 GB`. Only these: a year in
- * `{min}` or an id in `{value}` grouped would read `2,026`.
- */
-const COUNTS = new Set(['count', 'total']);
-
 function shown(name: string, value: Params[string] | undefined): string {
-  if (typeof value !== 'number' || !COUNTS.has(name)) return String(value);
-  try {
-    return new Intl.NumberFormat(bcp47(state.language)).format(value);
-  } catch {
-    return String(value);
-  }
+  if (typeof value !== 'number' || !state.counts.includes(name)) return String(value);
+  return formatCount(value, state.language);
 }
 
 // One pass over the template: a value is never read again, so a `{name}`
@@ -72,6 +69,7 @@ export async function loadDictionary(): Promise<void> {
     const response = await api.getLocalization();
     state.strings = response.strings;
     state.language = response.language;
+    state.counts = response.counts;
     document.documentElement.lang = bcp47(response.language);
     // The backend owns the script list, so adding an RTL language there turns
     // the interface around with nothing to change here.
@@ -84,9 +82,14 @@ export async function loadDictionary(): Promise<void> {
 }
 
 /** Seed the dictionary directly. Tests only: nothing else may write it. */
-export function seedDictionary(strings: Dictionary, language = 'en'): void {
+export function seedDictionary(
+  strings: Dictionary,
+  language = 'en',
+  counts: readonly string[] = [],
+): void {
   state.strings = strings;
   state.language = language;
+  state.counts = counts;
 }
 
 /**

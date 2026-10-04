@@ -18,6 +18,9 @@ use crate::models::*;
 use crate::services::metadata::{self, ProviderInfo};
 use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID, RuleMatch};
 
+/// How often a simulation followed by a job says how far it has gone.
+const PROGRESS_EVERY: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// Knobs for a simulation run.
 #[derive(Debug, Clone)]
 pub struct SimulationOptions {
@@ -50,6 +53,8 @@ pub struct SimulationOptions {
     pub max_returned: Option<usize>,
     /// Language the stored explanations are written in.
     pub language: String,
+    /// The job a caller follows, told how many titles have been evaluated.
+    pub progress: Option<crate::jobs::Progress>,
 }
 
 impl Default for SimulationOptions {
@@ -67,6 +72,7 @@ impl Default for SimulationOptions {
             rules_override: None,
             max_returned: None,
             language: String::new(),
+            progress: None,
         }
     }
 }
@@ -206,7 +212,21 @@ pub async fn simulate_loaded(
     }
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
 
-    for media in media_list {
+    // At most one write a quarter of a second, however large the library: a
+    // write per title would cost more than the evaluation it reports on.
+    let total = media_list.len();
+    let mut reported = std::time::Instant::now();
+    if let Some(progress) = &options.progress {
+        progress.report(0, total).await;
+    }
+
+    for (evaluated, media) in media_list.iter().enumerate() {
+        if let Some(progress) = &options.progress
+            && reported.elapsed() >= PROGRESS_EVERY
+        {
+            progress.report(evaluated, total).await;
+            reported = std::time::Instant::now();
+        }
         let Route {
             evaluation, category: target_category, target: target_root_folder, action, ..
         } = route(ctx, media, rules, now);
@@ -309,6 +329,10 @@ pub async fn simulate_loaded(
             applied_at: None,
             reverted_at: None,
         });
+    }
+
+    if let Some(progress) = &options.progress {
+        progress.report(total, total).await;
     }
 
     if options.persist {

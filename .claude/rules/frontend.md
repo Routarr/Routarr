@@ -73,8 +73,8 @@ Components named without a path live in `frontend/src/components/`.
   `frontend/src/test/layout.test.ts` checks that every class the markup names is defined, and
   it counts a `<style>` block as a definition, so nothing refuses one: the rule is a convention.
 - An inline `style` is only for a value computed from data, as in `Confidence`, `LibraryFacets`,
-  `TableSkeleton`, `frontend/src/pages/Jobs.svelte` and the size a screen hands `Modal`. The CSP
-  keeps `'unsafe-inline'` for these alone (`security_headers` in `backend/src/main.rs`).
+  `TableSkeleton`, `ProgressBar` and the size a screen hands `Modal`. The CSP keeps
+  `'unsafe-inline'` for these alone (`security_headers` in `backend/src/main.rs`).
 - Colours are tokens, never literals: `frontend/src/theme.contrast.test.ts` measures the token
   pairs in its `PAIRS` list against WCAG AA. A light value is written twice, under
   `[data-theme='light']` and in the `prefers-color-scheme: light` block that serves `auto`, and
