@@ -250,13 +250,13 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      # A floor, not a target: it catches a module landing with no test, not a
-      # refactor that moves a point. `src/tests/` is excluded because measuring
-      # the tests' own coverage inflates the figure, and `main.rs` because the
-      # end-to-end suite covers it and this one cannot.
+      # A floor at the whole figure below the measure, raised with it: a module
+      # landing with no test trips it. `src/tests/` is excluded because
+      # measuring the tests' own coverage inflates the figure, and `main.rs`
+      # because the end-to-end suite covers it and this one cannot.
       - name: Measure coverage
         run: |
-          cargo llvm-cov --summary-only --fail-under-lines 93 \
+          cargo llvm-cov --summary-only --fail-under-lines 96 \
             --ignore-filename-regex 'src/(tests/|main\.rs)'
 
   frontend:

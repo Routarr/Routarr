@@ -1,10 +1,12 @@
-# What `hadolint` holds the two Dockerfiles to, in CI and locally.
+# What `hadolint` holds the two Dockerfiles to in CI.
 #
 # Package versions are deliberately not pinned (DL3018 for apk, DL3008 for
 # apt): Alpine and Debian drop a package version from their repositories the
 # day the next one lands, so a pinned `apk add` breaks on a schedule nobody
-# here controls. The base images are pinned by digest instead, which fixes the
-# repository index they resolve against.
+# here controls. The base images are pinned by digest, which fixes the base
+# filesystem and nothing more: `apk add` and `apt-get update` read the live
+# index of the release branch, so two builds of one commit can carry different
+# versions of the packages added on top, and the newer one its security fixes.
 ignored:
   - DL3018
   - DL3008

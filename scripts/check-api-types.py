@@ -14,8 +14,10 @@ What it does *not* do, stated plainly so nobody trusts it further than it goes:
 
 * It compares **names**, not types. `count: number` against `count: String`
   passes here and breaks at run time.
-* `PAIRS` is hand-written. A response struct with no entry is reported, not
-  compared: the list at the end of a run is the honest measure of coverage.
+* `PAIRS` is hand-written. A Rust struct named `...Response` with no entry is
+  reported, not compared, since most structs are internal. An exported
+  interface with no entry fails unless `UNPAIRED` says why it has none: the
+  frontend declares only what it reads.
 * It reads declarations, not traffic. A handler that assembles a payload with
   `serde_json::json!` instead of a struct is invisible to it.
 
@@ -65,6 +67,8 @@ PAIRS: dict[str, str] = {
     "ErrorResponse": "ErrorBody",
     "Media": "ExplainedMedia",
     "SigningStatus": "WebhookSigningStatus",
+    "ImportReport": "ConfigImportReport",
+    "ProviderDescription": "MetadataProvider",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
     "Application": "Application",
@@ -89,6 +93,19 @@ PAIRS: dict[str, str] = {
     "SyncReport": "SyncReport",
     "ValidationIssue": "ValidationIssue",
     "Vocabularies": "Vocabularies",
+}
+
+
+# Exported interfaces no struct mirrors, and why.
+UNPAIRED: dict[str, str] = {
+    "InstanceProbe": "a request body",
+    "NewApplication": "a request body",
+    "RuleDraft": "a request body",
+    "AuthMode": "built with json! in api::auth::mode",
+    "ConditionCatalog": "built with json! in api::conditions",
+    "ConditionSpec": "built with json! in api::conditions",
+    "Condition": "a tagged enum on the Rust side, which this check does not read",
+    "SimulationSummary": "the counters SimulationResult extends, compared there",
 }
 
 
@@ -291,8 +308,16 @@ def main() -> int:
                 f"{sorted(missing_in_rust)}, the backend does not send it"
             )
 
-    # Coverage, reported rather than enforced: a response type with no pair is
-    # not a failure, it is an unmirrored type someone should decide about.
+    paired = set(PAIRS.values())
+    for name in sorted(set(ts) - paired - set(UNPAIRED)):
+        failures.append(
+            f"{name}: an exported interface with no pair in PAIRS and no reason in UNPAIRED"
+        )
+    for name in sorted(set(UNPAIRED) - (set(ts) - paired)):
+        failures.append(f"{name}: listed in UNPAIRED, but paired or no longer in types.ts")
+
+    # Reported rather than enforced: most structs never reach the wire, and a
+    # response type with no pair is one someone should decide about.
     unpaired = sorted(
         name
         for name in rust

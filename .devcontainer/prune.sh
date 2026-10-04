@@ -33,8 +33,14 @@ RAMDISK="${ROUTARR_RAMDISK:-/ramdisk}"
 SERVER_BUILDS=/vscode/vscode-server/bin/linux-x64
 
 note() { echo "prune: $*"; }
-# Through a link: on a machine with little RAM the build tree is one.
-size_kb() { du -skL "$1" 2>/dev/null | cut -f1 || echo 0; }
+# Through a link: on a machine with little RAM the build tree is one. One number
+# whatever `du` answers: a file deleted during the walk makes it exit 1 after
+# printing the total, and a second line would abort the arithmetic reading it.
+size_kb() {
+  local kb
+  kb=$(du -skL "$1" 2>/dev/null | cut -f1) || true
+  echo "${kb:-0}"
+}
 
 # Which filesystem a path actually sits on. `--target` resolves to the mount
 # holding it, so this answers for a directory that does not exist yet as well.

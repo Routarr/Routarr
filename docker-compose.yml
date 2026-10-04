@@ -21,10 +21,12 @@ services:
       - ROUTARR_HOST=0.0.0.0
       - ROUTARR_DB_PATH=/data/routarr.db
       - ROUTARR_LOG_LEVEL=info
-      # Protects every /api/v1 route except /ping. Left unset, Routarr generates
-      # one into /data/routarr.api_key on first start and prints it in the log
-      # (`docker compose logs routarr`), and Settings can replace it later
-      # without a restart. Setting it here pins it instead: this value wins, and
+      # Protects every /api/v1 route but the few a signed-out browser needs
+      # (/ping, the languages, the sign-in) and the webhook, which carries a
+      # token of its own. Left unset, Routarr generates one into
+      # /data/routarr.api_key on first start and prints it in the log (`docker
+      # compose logs routarr`), and Settings can replace it later without a
+      # restart. Setting it here pins it instead: this value wins, and
       # changing the key then means changing this line and restarting.
       - ROUTARR_API_KEY=${ROUTARR_API_KEY:-}
       # `external` delegates to a reverse proxy and asks for nothing, so bind
@@ -34,8 +36,9 @@ services:
       - ROUTARR_AUTH=${ROUTARR_AUTH:-apikey}
       - ROUTARR_ALLOWED_HOSTS=${ROUTARR_ALLOWED_HOSTS:-}
       - ROUTARR_TRUSTED_PROXIES=${ROUTARR_TRUSTED_PROXIES:-}
-      # Encrypts the stored Arr API keys. Generated into /data/routarr.key when
-      # unset: back that file up with the database.
+      # Encrypts the stored credentials: the Arr and metadata keys, the
+      # notification address and the signing secret. Generated into
+      # /data/routarr.key when unset: back that file up with the database.
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
       # Only while rotating ROUTARR_SECRET_KEY. Remove it afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}

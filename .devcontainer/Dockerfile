@@ -3,16 +3,16 @@
 # copied into the image, only the system tooling is installed.
 #
 # Aligned with every other environment: the Rust version comes from
-# rust-toolchain.toml, Node 24 (CI and the production image) and python3
-# (scripts/check-locales.py, which CI runs).
+# rust-toolchain.toml, the Node major is the one CI and the production image
+# use, and python3 runs the scripts CI runs (scripts/check-locales.py).
 FROM rust:1.98.1@sha256:a8a5f0a1e5fe7dfe1d352591e4a1c7dd2c08fd70475cae872cf3458ba0df0546
 # The RUN steps below pipe, and without this the right-hand side's exit code
 # masks a failing download on the left.
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-# Node 24 from the official tarball, pinned to a version and to its checksum:
-# the Debian package is older and ships without npm, while CI and the
-# production Dockerfile are on Node 24, and a dev/CI gap of that kind is only
-# ever discovered by the first broken build. NodeSource's setup script would be
+# Node from the official tarball, pinned to a version and to its checksum: the
+# Debian package is older and ships without npm, while CI and the production
+# Dockerfile are on a newer major, and a dev/CI gap of that kind is only ever
+# discovered by the first broken build. NodeSource's setup script would be
 # a `curl | bash` of unpinned code run as root, in an image that pins every
 # other tool it installs.
 #

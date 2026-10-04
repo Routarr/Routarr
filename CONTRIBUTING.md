@@ -19,12 +19,14 @@ building one of those rather than after.
 
 ## Getting set up
 
-The dev container ([`.devcontainer/`](.devcontainer/)) has everything: the
-pinned Rust toolchain, Node 24, python3, `cargo-audit`, `gh`, and the Playwright
-browser. Open the repository in it and `postCreateCommand` does the rest.
+The dev container ([`.devcontainer/`](.devcontainer/)) has what the checks
+below need, but for the last two blocks: the pinned Rust toolchain, Node,
+python3, `cargo-audit`, `cargo-llvm-cov`, `gh`, and the Playwright browser.
+Open the repository in it and `postCreateCommand` does the rest.
 
-Without it, you need Rust 1.98 (rustup reads
-[`backend/rust-toolchain.toml`](backend/rust-toolchain.toml)) and Node 24.
+Without it, you need the Rust toolchain
+[`backend/rust-toolchain.toml`](backend/rust-toolchain.toml) names, which rustup
+reads, and the Node major `.github/workflows/ci.yml` installs.
 
 Inside it, the Rust build tree lives in a RAM disk at `/ramdisk` rather than
 on your disk. The RAM disk is half your machine's memory, and the build tree is
@@ -52,10 +54,12 @@ site/        the showcase site, deployed separately, never in the image
 
 ## What CI will check
 
-Run these before opening a pull request. They are the same gates, and they are
-all fast except the last. CI only runs the areas a commit touches (a site-only
-change does not pay for the Rust suite), but it runs everything when it cannot
-work out what changed, so do not rely on that to skip a check locally.
+Run these before opening a pull request. They are the gates CI runs, all fast
+but the end-to-end suites. The last two blocks need Docker and tools the dev
+container does not ship, so most people meet them in CI. CI only runs the areas
+a commit touches (a site-only change does not pay for the Rust suite), but it
+runs everything when it cannot work out what changed, so do not rely on that to
+skip a check locally.
 
 ```bash
 # backend/
@@ -63,15 +67,13 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
 cargo test --locked
-cargo llvm-cov --summary-only --fail-under-lines 93 --ignore-filename-regex 'src/(tests/|main\.rs)'
+cargo llvm-cov --summary-only --fail-under-lines 96 --ignore-filename-regex 'src/(tests/|main\.rs)'
 cargo audit
-cargo deny --locked check           # licences, advisories and sources, from deny.toml
 python3 ../scripts/check-locales.py
 python3 ../scripts/check-api-types.py   # the response structs against types.ts
 python3 ../scripts/check-versions.py    # every place a version is written
 python3 ../scripts/check-typography.py  # plain punctuation in what a reader sees
 python3 ../scripts/check-claude-md.py   # CLAUDE.md and the rules stay short
-bash ../scripts/check-api-breaks.sh     # the API contract against the last release, with oasdiff
 
 # frontend/
 npm run format:check
@@ -90,11 +92,23 @@ npx astro check        # types over the components and the catalogue
 
 # repository root, with Docker: starts the image and checks it serves
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
+
+# repository root, in CI only unless installed, at the versions ci.yml pins
+(cd backend && cargo deny --locked check)   # licences, advisories and sources, from deny.toml
+bash scripts/check-api-breaks.sh            # the API contract against the last release (oasdiff)
+actionlint                                  # the workflows
+git ls-files -z '*.sh' | xargs -0 shellcheck -S style
+hadolint Dockerfile .devcontainer/Dockerfile
+gitleaks git --no-banner --redact .         # every commit, not the last one
 ```
 
-Coverage has floors on both sides: 93 % of backend lines, and 91 / 80 / 89 / 91 for frontend
-statements, branches, functions and lines, with 30 % of the statements and lines of each frontend
-file, so a screen with no test fails the run. **Raise one when the real figure moves up, never
+gitleaks reads the whole history: a secret-shaped literal, a realistic fake key
+in a test included, keeps failing it after a later commit deletes it. Write a
+fake key that no scanner takes for a real one (`test-key`, `x` repeated).
+
+Coverage has floors on both sides: 96 % of backend lines, and 94 / 83 / 92 / 94 for frontend
+statements, branches, functions and lines, with 30 % of each of the four in every frontend file,
+so a screen with no test fails the run. **Raise one when the real figure moves up, never
 lower one to make a build pass.**
 
 ## What a good change looks like
@@ -130,8 +144,8 @@ lower one to make a build pass.**
 
 Not because they are bad ideas, but because they are outside what this is:
 
-- A permission model: there is one level of access, whichever mode lets
-  someone in.
+- A permission model: no user roles beyond the owner and application keys
+  limited to their scopes.
 - Anything that phones home, including opt-in telemetry.
 - A second database engine.
 - Fetching anything from a third party at run time, fonts included.

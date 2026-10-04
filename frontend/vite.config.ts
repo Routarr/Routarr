@@ -86,18 +86,17 @@ export default defineConfig({
       // Floors, not targets, and not meant to be negotiated with on every
       // refactor. Raise one when the real figure moves up, never lower it to
       // make a build pass.
-      // The aggregate sits a little below what the suite measures, the headroom
-      // the backend gate keeps too: enough that ordinary work does not trip it,
-      // not so much that it stops guarding. It catches a suite that stops
-      // running, and cannot see a screen with no test, a small share of the
-      // whole. The per-file floor sees that one: a file nothing renders
-      // measures nothing.
+      // The aggregate sits at the whole figure below what the suite measures, as
+      // the backend gate does. It catches a suite that stops running, and cannot
+      // see a screen with no test, a small share of the whole. The per-file
+      // floor sees that one: a file nothing renders measures nothing, and a
+      // file whose functions nothing calls measures its declarations alone.
       thresholds: {
-        statements: 91,
-        branches: 80,
-        functions: 89,
-        lines: 91,
-        perFile: { statements: 30, lines: 30 },
+        statements: 94,
+        branches: 83,
+        functions: 92,
+        lines: 94,
+        perFile: { statements: 30, branches: 30, functions: 30, lines: 30 },
       },
     },
   },

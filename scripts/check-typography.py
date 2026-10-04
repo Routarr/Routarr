@@ -3,8 +3,8 @@
 
 No em dash, no semicolon in running text and no curly quotes: in the
 interface's dictionaries, the showcase site's catalogues, the Markdown
-documents a contributor reads, and every source file, comments and messages
-included. The en dash, the ellipsis, arrows, check marks, the middle dot,
+documents a contributor, a crawler or Claude Code reads, and every source and
+configuration file, comments and messages included. The en dash, the ellipsis, arrows, check marks, the middle dot,
 angle quotes and corner brackets are all fine.
 
 Two exceptions belong to the text itself. Greek writes its question mark as
@@ -32,7 +32,22 @@ SEMICOLONS = ";\u061b\uff1b"
 GREEK_QUESTION_MARK = ";"
 GREEK_SEMICOLON = re.compile(r"\u0387|(?<! )\u00b7|\u00b7(?! )")
 FENCE = re.compile(r"^```.*?^```", re.M | re.S)
-MARKDOWN = ("README.md", "SECURITY.md", "CONTRIBUTING.md")
+# Code inside a sentence, where a semicolon is the code's own.
+INLINE_CODE = re.compile(r"`[^`\n]*`")
+
+# Each pattern that matches no file, since a pattern no longer matching would
+# pass having read nothing.
+unmatched: list[str] = []
+
+
+def matching(base: Path, patterns: tuple[str, ...]) -> list[Path]:
+    files = set()
+    for pattern in patterns:
+        found_here = {path for path in base.glob(pattern) if path.is_file()}
+        if not found_here:
+            unmatched.append(str((base / pattern).relative_to(ROOT)))
+        files |= found_here
+    return sorted(files)
 
 
 def found(text: str, semicolons: str) -> list[str]:
@@ -63,21 +78,22 @@ def catalogues(folder: Path, problems: list[str]) -> int:
     return len(files)
 
 
-def markdown(problems: list[str]) -> int:
-    """Prose outside a fenced block is read for semicolons too."""
-    for name in MARKDOWN:
-        text = (ROOT / name).read_text(encoding="utf-8")
+def markdown(patterns: tuple[str, ...], problems: list[str]) -> int:
+    """Prose outside a fenced block and an inline code span is read for semicolons too."""
+    files = matching(ROOT, patterns)
+    for path in files:
+        text = path.read_text(encoding="utf-8")
         prose = FENCE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
         for number, (line, prose_line) in enumerate(zip(text.split("\n"), prose.split("\n")), 1):
+            prose_line = INLINE_CODE.sub("", prose_line)
             names = found(line, "") + (["a semicolon"] if ";" in prose_line else [])
             for problem in names:
-                problems.append(f"{name}:{number} carries {problem}")
-    return len(MARKDOWN)
+                problems.append(f"{path.relative_to(ROOT)}:{number} carries {problem}")
+    return len(files)
 
 
 def sources(folder: str, patterns: tuple[str, ...], problems: list[str]) -> int:
-    base = ROOT / folder
-    files = sorted({path for pattern in patterns for path in base.glob(pattern) if path.is_file()})
+    files = matching(ROOT / folder, patterns)
     for path in files:
         for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
             for name in found(line, ""):
@@ -90,37 +106,43 @@ def main() -> int:
     counts = {
         "dictionaries": catalogues(ROOT / "backend" / "locales", problems),
         "site catalogues": catalogues(ROOT / "site" / "src" / "i18n", problems),
-        "documents": markdown(problems),
+        # `llms.txt` is Markdown the site serves to language models.
+        "documents": markdown(
+            ("README.md", "SECURITY.md", "CONTRIBUTING.md", "site/public/llms.txt"), problems
+        ),
+        "memory files": markdown(("CLAUDE.md", ".claude/rules/*.md"), problems),
         "backend files": sources(
             "backend",
-            ("src/**/*.rs", "migrations/*.sql", "Cargo.toml", "rust-toolchain.toml", ".env.example"),
+            ("src/**/*.rs", "migrations/*.sql", "*.toml", ".env.example"),
             problems,
         ),
         # `index.html` holds the title a tab shows before the shell names the
         # screen.
         "frontend files": sources(
             "frontend",
-            ("index.html", "*.config.ts", "src/**/*.svelte", "src/**/*.ts", "src/**/*.css",
-             "e2e/*.ts", "e2e/*.py", "e2e/*.sh"),
+            ("index.html", "*.config.ts", "*.config.js", "src/**/*.svelte", "src/**/*.ts",
+             "src/**/*.css", "e2e/*.ts", "e2e/*.py", "e2e/*.sh"),
             problems,
         ),
         "site files": sources(
             "site",
-            ("*.mjs", "wrangler.jsonc", "public/_headers", "public/assets/*.js", "screenshots/*.*",
+            ("*.mjs", "wrangler.jsonc", "public/_headers", "public/robots.txt",
+             "public/.well-known/*.txt", "public/assets/*.js", "screenshots/*.*",
              "src/**/*.astro", "src/**/*.ts", "src/**/*.css"),
             problems,
         ),
         "repository files": sources(
             ".",
             ("scripts/*.*", ".github/**/*.yml", ".devcontainer/*.*", ".devcontainer/Dockerfile",
-             "Dockerfile", "docker-compose.yml"),
+             "Dockerfile", "docker-compose.yml", ".hadolint.yaml"),
             problems,
         ),
     }
-    # A pattern that matches nothing would pass having read nothing.
     empty = [name for name, count in counts.items() if count == 0]
     if empty:
         problems.append(f"read no {', no '.join(empty)}: a path no longer matches")
+    for pattern in unmatched:
+        problems.append(f"{pattern} matches no file")
     for problem in problems:
         print(problem)
     if problems:

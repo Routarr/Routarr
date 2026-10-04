@@ -43,7 +43,8 @@ Components named without a path live in `frontend/src/components/`.
 - A timer goes through `poll()` in `frontend/src/lib/poll.svelte.ts`, never a bare `setInterval`:
   it stops in a hidden tab and reloads on return.
 - `scripts/check-api-types.py` compares field names, not types, for each pair in its `PAIRS`
-  table, so a new response type needs a line there. A `#[serde(flatten)]` struct arrives flat.
+  table, and fails on an exported interface in neither `PAIRS` nor `UNPAIRED` (a request body,
+  a payload built with `json!`). A `#[serde(flatten)]` struct arrives flat.
 - A new setting needs a `KNOWN` entry in `backend/src/services/settings.rs`, which refuses unknown
   keys, and a `FIELDS` entry in `frontend/src/lib/settings.ts` listed in exactly one `SECTIONS`
   group. A number field's `range` repeats the backend's bounds.

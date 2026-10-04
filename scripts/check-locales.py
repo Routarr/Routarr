@@ -37,10 +37,20 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 LOCALES = ROOT / "backend" / "locales"
 
-# Families whose keys are assembled at runtime (`ConditionLabel` + the condition
-# kind, `Job` + the job kind, and so on). Listing the prefixes is enough: the
-# per-language parity check still covers the members.
-DYNAMIC_PREFIXES = ("ConditionLabel", "Job", "Trigger", "Status")
+# Families whose keys are assembled at run time, each a prefix and the values
+# it is joined with in PascalCase: the file holding them and the pattern reading
+# them there. A prefix alone would exempt every key that starts with it, a
+# misspelt `t('TriggeredBi')` and a literal key nobody reads any more included.
+BUILT = {
+    "ConditionLabel": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
+    "Job": ("backend/src/jobs/registry.rs", r'JobKind::\w+ => "([a-z_]+)"'),
+    "Trigger": ("backend/src/jobs/mod.rs", r'pub const TRIGGER_\w+: &str = "([a-z_]+)";'),
+    # A job's and a decision's, as the frontend types them.
+    "Status": (
+        "frontend/src/api/types.ts",
+        r"(?:DecisionStatus = |^  status: )((?:'[a-z]+'(?: \| )?)+);",
+    ),
+}
 
 # Below this a language is more English than its own, which is a broken file
 # rather than work in progress. Partial translations above it are welcome: the
@@ -144,6 +154,20 @@ def confirmation_labels(text: str) -> set[str]:
     return labels
 
 
+def built_keys() -> dict[str, set[str]]:
+    """Each family of `BUILT` and the keys the code can assemble for it."""
+    families: dict[str, set[str]] = {}
+    for prefix, (relative, pattern) in BUILT.items():
+        text = (ROOT / relative).read_text(encoding="utf-8")
+        values = set()
+        for found in re.findall(pattern, text, re.M):
+            values |= set(re.findall(r"[a-z_]+", found))
+        families[prefix] = {
+            prefix + "".join(word.capitalize() for word in value.split("_")) for value in values
+        }
+    return families
+
+
 def placeholders(template: str) -> set[str]:
     return set(re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", template))
 
@@ -241,13 +265,20 @@ def main() -> int:
     text = source_text()
     referenced = referenced_keys(text)
     problems: list[str] = []
+    families = built_keys()
+    built = set().union(*families.values())
+
+    # A pattern that stops matching would exempt nothing and check nothing.
+    for prefix, keys in sorted(families.items()):
+        if not keys:
+            problems.append(f"read no {prefix} value from {BUILT[prefix][0]}")
+        for key in sorted(keys - set(english)):
+            problems.append(f"built at run time but missing from en.json: {key}")
 
     # 1. Referenced but not defined. Only flag identifiers that look like keys we
     #    own, to avoid tripping over unrelated capitalised string literals.
     for key in sorted(referenced - set(english)):
         if key in {"POST", "PUT", "GET", "DELETE"} or len(key) < 3:
-            continue
-        if any(key.startswith(prefix) for prefix in DYNAMIC_PREFIXES):
             continue
         if f'"{key}"' in text or f"'{key}'" in text:
             problems.append(f"referenced but missing from en.json: {key}")
@@ -285,7 +316,7 @@ def main() -> int:
 
     # 4. Defined but never used.
     for key in sorted(english):
-        if any(key.startswith(prefix) for prefix in DYNAMIC_PREFIXES):
+        if key in built:
             continue
         if f'"{key}"' not in text and f"'{key}'" not in text:
             problems.append(f"defined but never referenced: {key}")
