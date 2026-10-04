@@ -102,7 +102,9 @@
       "ConfirmRevertFiles",
       "ErrorCapacityUnknown",
       "PinAsRuleTestHint",
-      "NoRuleTests"
+      "NoRuleTests",
+      "ConfirmRevert",
+      "RevertTooltip"
     ],
     "words": {
       "ar": "ن[ً-ْـ]*ق[ً-ْـ]*ل|م[ً-ْـ]*ن[ً-ْـ]*ق[ً-ْـ]*و[ً-ْـ]*ل",

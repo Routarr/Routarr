@@ -66,9 +66,11 @@
     try {
       // A revert writes into the folder the move came from, and the backend
       // asks there what it asks before an apply.
+      // `RevertConfirm`, not `Revert`: a button beside Cancel, which several
+      // languages would otherwise start with their Cancel verb.
       const report = await answering(
         (answered) => api.revertDecisions([decision.id], moveFiles, answered),
-        'Revert',
+        'RevertConfirm',
       );
       if (!report) return;
       await history.reload();
@@ -276,7 +278,7 @@
         <button class="btn btn-secondary" onclick={() => (reverting = null)}>{t('Cancel')}</button>
         <div class="flex flex-wrap gap-2">
           <button class="btn btn-primary" onclick={() => void revert(target, revertFiles)}>
-            {t('Revert')}
+            {t('RevertConfirm')}
           </button>
         </div>
       </div>

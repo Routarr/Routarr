@@ -145,7 +145,7 @@ async fn renaming_the_default_category_moves_the_setting_with_it() {
 async fn a_rename_is_held_to_the_rules_a_creation_is() {
     let app = TestApp::new().await;
 
-    for bad in ["", "  ", "with space", "slash/es", "Ünïcode"] {
+    for bad in ["", "  ", "with space", "slash/es", "quo'te"] {
         let response =
             app.put("/api/v1/categories/cat-standard", serde_json::json!({ "name": bad })).await;
         response.assert_status(StatusCode::BAD_REQUEST);
@@ -160,6 +160,48 @@ async fn a_rename_is_held_to_the_rules_a_creation_is() {
         .await
         .unwrap();
     assert_eq!(name, "mixed");
+}
+
+/// A category is named in the reader's language, whatever its script: the
+/// hint says letters in every language, and the guide suggests `børn`, `çocuk`
+/// and `παιδικά`.
+#[tokio::test]
+async fn a_category_is_named_in_any_script() {
+    let app = TestApp::new().await;
+
+    for (typed, stored) in [
+        ("Séries", "séries"),
+        ("Детские", "детские"),
+        ("ΠΑΙΔΙΚΆ", "παιδικά"),
+        ("Børn", "børn"),
+        ("İzmir", "i\u{307}zmir"),
+        ("アニメ", "アニメ"),
+        ("أطفال", "أطفال"),
+    ] {
+        let created = app.post("/api/v1/categories", serde_json::json!({ "name": typed })).await;
+        assert_eq!(created.assert_ok()["name"], stored, "{typed}");
+    }
+}
+
+/// A refusal is read under the field the name was typed in, in the language
+/// the interface speaks.
+#[tokio::test]
+async fn a_refused_category_name_is_said_in_the_interface_language() {
+    let app = TestApp::new().await;
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "ui_language": "fr" } }))
+        .await
+        .assert_ok();
+
+    for (typed, said) in [
+        ("with space", "Un nom de catégorie ne contient que des lettres"),
+        ("", "Une catégorie a besoin d'un nom."),
+        (&"x".repeat(65), "Un nom de catégorie compte au plus 64 caractères."),
+    ] {
+        let refused = app.post("/api/v1/categories", serde_json::json!({ "name": typed })).await;
+        refused.assert_status(StatusCode::BAD_REQUEST);
+        let message = refused.json["message"].as_str().unwrap_or_default();
+        assert!(message.starts_with(said), "{typed:?} answered {message:?}");
+    }
 }
 
 #[tokio::test]

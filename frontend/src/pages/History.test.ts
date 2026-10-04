@@ -25,6 +25,7 @@ const STRINGS = {
   TriggerSchedule: 'schedule',
   TriggerManual: 'manual',
   Revert: 'Revert',
+  RevertConfirm: 'Put back',
   Cancel: 'Cancel',
   ConfirmRevert: 'Send "{title}" back to {path}?',
   ConfirmRevertFiles: 'Move the files back too',
@@ -144,7 +145,7 @@ describe('History', () => {
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     if (moveFiles) await userEvent.click(await screen.findByLabelText('Move the files back too'));
     const dialog = await screen.findByRole('dialog');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
 
     await waitFor(() => expect(revertDecisions).toHaveBeenCalledTimes(1));
     expect(nthCall(revertDecisions)[1]).toBe(moveFiles);
@@ -176,7 +177,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     const dialog = await screen.findByRole('dialog');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
 
     expect(await answerConfirmation()).toBe('/movies/standard is not answering.');
     await waitFor(() => expect(revertDecisions).toHaveBeenCalledTimes(2));
@@ -193,7 +194,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     const dialog = await screen.findByRole('dialog');
-    await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
     await answerConfirmation(null);
 
     expect(revertDecisions).toHaveBeenCalledTimes(1);
@@ -219,7 +220,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent('The file is no longer there');
@@ -245,13 +246,13 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
     expect(await screen.findByText('1 reverted')).toBeTruthy();
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Heat/ }));
     await fireEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
 
     expect(await screen.findByText(/The Arr refused the move/)).toBeTruthy();
@@ -385,7 +386,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
 
     expect(await screen.findByText('1 reverted')).toBeTruthy();
@@ -404,7 +405,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
     await fireEvent.click(
-      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Revert' }),
+      within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
     expect(await screen.findByText('The Arr refused the move')).toBeTruthy();
 
@@ -444,7 +445,7 @@ it('hands the focus to the next Revert once a row cannot be reverted again', asy
   vi.spyOn(api, 'getDecisions').mockResolvedValue(
     paginated([{ ...first, revertible: false }, next]),
   );
-  await fireEvent.click(within(dialog).getByRole('button', { name: 'Revert' }));
+  await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
 
   await waitFor(() =>
     expect(document.activeElement).toBe(

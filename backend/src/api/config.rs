@@ -281,8 +281,9 @@ pub async fn import(
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
     // Through the same gate the loop below uses, or a name it is about to
     // refuse would still count as something `default_category` may point at.
+    let localizer = state.localizer().await;
     for category in &bundle.categories {
-        if let Ok(name) = crate::api::categories::normalise(&category.name)
+        if let Ok(name) = crate::api::categories::normalise(&category.name, &localizer)
             && !categories.contains(&name)
         {
             categories.push(name);
@@ -388,7 +389,7 @@ pub async fn import(
         // hundred characters long, would be written and then unreachable, since
         // `rename` runs this check and it could never be corrected through the
         // API.
-        let name = match crate::api::categories::normalise(&category.name) {
+        let name = match crate::api::categories::normalise(&category.name, &localizer) {
             Ok(name) => name,
             Err(e) => {
                 report.skipped.push(format!("category {:?}: {e}", category.name));
