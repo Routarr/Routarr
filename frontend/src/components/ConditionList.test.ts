@@ -18,9 +18,10 @@ const STRINGS = {
   ConditionsAllOf: 'All of',
   NeedsMetadataSuffix: '(needs metadata)',
   Remove: 'Remove',
-  QuantifierAny: 'any of',
-  QuantifierNoneOf: 'none of',
-  QuantifierAll: 'all of',
+  ConditionPhraseGenreContains: 'Genres include any of {values}',
+  ConditionPhraseGenreContainsAll: 'Genres include all of {values}',
+  ConditionPhraseOriginalLanguage: 'Original language is one of {values}',
+  ConditionPhraseOriginalLanguageNot: 'Original language is none of {values}',
   QuantifierLabel: 'How these values combine',
   PlaceholderStringList: 'comma separated',
 };
@@ -135,15 +136,14 @@ describe('ConditionList', () => {
     expect(offered).toEqual(['Add a condition', 'Genre contains']);
   });
 
-  it('captions both halves of a pair alike, the selector carrying the difference', () => {
+  /** A pair is one question asked two ways: the selector holds both sentences. */
+  it('offers the two sentences of a pair in its selector, the values left as a gap', () => {
     render([{ type: 'genre_contains_all', value: ['Animation'] }], [GENRE]);
 
-    // Scoped to the row: the add picker legitimately offers an option under the
-    // same name, and a page-wide query matches it too.
-    const row = document.querySelector('.condition-row');
-    expect(row?.textContent).toContain('Genre contains');
-    expect(row?.textContent).not.toContain('Genre contains all of');
-    expect(screen.getByRole('combobox', { name: /How these values combine/ })).toHaveValue('all');
+    const selector = screen.getByRole('combobox', { name: /How these values combine/ });
+    expect(selector).toHaveValue('all');
+    const offered = [...selector.querySelectorAll('option')].map((option) => option.textContent);
+    expect(offered).toEqual(['Genres include any of …', 'Genres include all of …']);
   });
 
   it('swaps the condition for its counterpart, keeping the values', async () => {
@@ -172,33 +172,34 @@ describe('ConditionList', () => {
     render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
 
     expect(screen.queryByRole('combobox', { name: /How these values combine/ })).toBeNull();
-    expect(screen.getByText('any of')).toBeTruthy();
+    expect(screen.getByText('Original language is one of …')).toBeTruthy();
   });
 
   /** Heard with the field, not only seen beside it. */
-  it('ties the fixed "any of" to the field it qualifies', () => {
+  it('ties the sentence to the field it completes', () => {
     render([{ type: 'original_language', value: ['ja'] }], [LANGUAGE]);
 
     expect(screen.getByRole('combobox', { name: LANGUAGE.label })).toHaveAccessibleDescription(
-      'any of',
+      'Original language is one of …',
     );
   });
 
   /**
-   * Under a caption that says "not", most languages say the values another
-   * way than "any of": the sentence reads "is not none of them" otherwise.
+   * A negative concord language says "is none of them" with another case and
+   * another word than "is one of them": a sentence of its own lets it.
    */
-  it('says the values of a negated condition in words of their own', () => {
+  it('says a negated condition in a sentence of its own', () => {
     render([{ type: 'original_language_not', value: ['ja'] }], [LANGUAGE_NOT]);
 
-    expect(screen.getByText('none of')).toBeTruthy();
-    expect(screen.queryByText('any of')).toBeNull();
+    expect(screen.getByText('Original language is none of …')).toBeTruthy();
   });
 
-  it('says nothing about combining a value that is not a list', () => {
+  it('keeps the caption for a value that is not a list', () => {
     render([{ type: 'season_count_over', value: 3 }], [SEASONS]);
 
-    expect(screen.queryByText('any of')).toBeNull();
+    const row = document.querySelector('.condition-row');
+    expect(row?.querySelector('.condition-caption')?.textContent).toBe(SEASONS.label);
+    expect(row?.textContent).not.toContain('…');
   });
   /**
    * The library counts values, the closed vocabulary names them, and a value in

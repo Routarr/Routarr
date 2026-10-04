@@ -1963,17 +1963,6 @@ td * {
     min-width: 0;
   }
 }
-/* Where a pair's selector stands, the fixed answer for a single-valued axis:
-   the same height and inset as the selector, so the values line up either way. */
-.condition-quantifier {
-  display: inline-flex;
-  align-items: center;
-  min-height: 32px;
-  padding-inline: 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
 /* The end side is set apart: a select keeps the room `select.form-select`
    reserves for its arrow, and a padding shorthand here would draw the arrow
    over the text, "all of" included. */

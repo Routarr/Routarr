@@ -27,7 +27,7 @@ const STRINGS = {
   Duplicate: 'Duplicate',
   Actions: 'Actions',
   Delete: 'Delete',
-  Disabled: 'disabled',
+  RuleDisabled: 'disabled',
   PrioritiesUpdated: 'Priorities updated',
   RuleDuplicated: 'Rule duplicated',
   RuleDeleted: 'Rule deleted',
@@ -39,6 +39,9 @@ const STRINGS = {
   SeriesOnly: 'Series only',
   ExceptPrefix: 'except',
   ListSeparator: ', ',
+  ConditionPhraseGenreContains: 'Genres include any of {values}',
+  ConditionPhraseOriginalLanguage: 'Original language is one of {values}',
+  ConditionPhraseCertificationIn: 'Certification is one of {values}',
   None: 'none',
   AddCondition: 'Add a condition',
   ImportResult: 'Rules imported: {count}',
@@ -48,9 +51,6 @@ const STRINGS = {
   RuleShadowed: 'Under {rule}',
   RuleDuplicateOf: 'Same as {rule}',
   RuleMatchedNothing: 'Matches nothing',
-  ConditionSummary: '{caption}: {values}',
-  ConditionRange: '{min} → {max}',
-  ConditionRangeOpen: 'any',
   Retry: 'Retry',
   ImportAppend: 'Add',
   ImportReplace: 'Replace',
@@ -434,9 +434,9 @@ describe('Rules', () => {
       served,
     );
 
-    expect(await screen.findByText('Original language is: Japanese (ja)')).toBeTruthy();
-    expect(screen.getByText('Genre contains: Animation, Family')).toBeTruthy();
-    const veto = screen.getByText('Certification is: 12 (12 and over)').closest('li');
+    expect(await screen.findByText('Original language is one of Japanese (ja)')).toBeTruthy();
+    expect(screen.getByText('Genres include any of Animation, Family')).toBeTruthy();
+    const veto = screen.getByText('Certification is one of 12 (12 and over)').closest('li');
     expect(veto?.classList.contains('is-excluded')).toBe(true);
     expect(veto).toHaveTextContent('except');
     expect(screen.queryByText(/original_language|certification_in/)).toBeNull();
@@ -474,7 +474,7 @@ describe('Rules', () => {
     } as unknown as LibraryFacets);
     show([rule({ conditions: [{ type: 'original_language', value: ['ja'] }] })], served, 'fr');
 
-    expect(await screen.findByText('Langue originale: japonais (ja)')).toBeTruthy();
+    expect(await screen.findByText('Original language is one of japonais (ja)')).toBeTruthy();
   });
 
   /**
@@ -513,7 +513,7 @@ describe('Rules', () => {
     } as unknown as LibraryFacets);
     show([rule({ conditions: [{ type: 'original_language', value: ['qaa'] }] })], served);
 
-    expect(await screen.findByText('Original language is: Reserved (qaa)')).toBeTruthy();
+    expect(await screen.findByText('Original language is one of Reserved (qaa)')).toBeTruthy();
   });
 
   /**

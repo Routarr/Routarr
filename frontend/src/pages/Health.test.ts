@@ -18,7 +18,7 @@ const STRINGS = {
   AllGood: 'Everything checks out.',
   NoInstanceConfigured: 'No instance configured',
   Connected: 'connected',
-  Disabled: 'disabled',
+  InstanceDisabled: 'disabled',
   Error: 'error',
   ProviderNeedsKey: 'needs an API key',
   ProviderActive: 'active',

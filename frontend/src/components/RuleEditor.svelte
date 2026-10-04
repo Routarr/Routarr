@@ -391,7 +391,7 @@
       <div class="form-group flex-fill-240">
         <label class="flex items-center gap-2 text-base">
           <input type="checkbox" bind:checked={draft.enabled} onchange={touched} />
-          {t('Enabled')}
+          {t('RuleEnabled')}
         </label>
       </div>
     </div>

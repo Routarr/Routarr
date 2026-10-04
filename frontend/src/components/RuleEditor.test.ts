@@ -31,7 +31,7 @@ const STRINGS = {
   PreviewTruncated: 'Shown: {shown} of {total}.',
   AppliesTo: 'Applies to',
   ConditionLogic: 'Condition logic',
-  Enabled: 'Enabled',
+  RuleEnabled: 'Enabled',
   Cancel: 'Cancel',
   Dismiss: 'Close',
   ConfirmDiscardRule: 'Close the rule without saving?',

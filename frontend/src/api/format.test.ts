@@ -135,60 +135,69 @@ describe('formatBytes', () => {
 });
 
 describe('describeCondition', () => {
-  // French spacing and an en dash, so a literal colon or arrow shows.
+  /**
+   * Each condition reads as one sentence of the dictionary, its values filled
+   * in, so no language glues a caption, a quantifier and a list together.
+   * Stand-in sentences that name their key, so the key picked shows.
+   */
   const words = {
     separator: ', ',
     empty: 'none',
-    summary: (caption: string, values: string) => `${caption} : ${values}`,
-    range: (min: string, max: string) => `${min} – ${max}`,
-    open: 'any',
+    phrase: (key: string, params: Record<string, string> = {}) =>
+      [key, ...Object.entries(params).map(([name, value]) => `${name}=${value}`)].join(' '),
   };
 
-  it('joins list values', () => {
+  it('fills a list condition sentence with its values', () => {
     expect(
-      describeCondition({ type: 'genre_contains', value: ['Animation', 'Family'] }, words),
-    ).toBe('genre_contains : Animation, Family');
+      describeCondition({ type: 'genre_not_contains', value: ['Animation', 'Family'] }, words),
+    ).toBe('ConditionPhraseGenreNotContains values=Animation, Family');
   });
 
   it('marks an empty list, which can never match', () => {
     expect(describeCondition({ type: 'genre_contains', value: [] }, words)).toBe(
-      'genre_contains : none',
+      'ConditionPhraseGenreContains values=none',
     );
   });
 
-  it("renders open-ended year ranges in the reader's words", () => {
-    expect(describeCondition({ type: 'year_range', value: { min: 1980, max: null } }, words)).toBe(
-      'year_range : 1980 – any',
-    );
-    expect(describeCondition({ type: 'year_range', value: { min: null, max: null } }, words)).toBe(
-      'year_range : any – any',
-    );
+  it('says a year range open at one end in a sentence of its own', () => {
+    const year = (min: number | null, max: number | null) =>
+      describeCondition({ type: 'year_range', value: { min, max } }, words);
+    expect(year(1980, 1999)).toBe('ConditionPhraseYearRange min=1980 max=1999');
+    expect(year(1980, null)).toBe('ConditionPhraseYearRangeFrom min=1980');
+    expect(year(null, 1999)).toBe('ConditionPhraseYearRangeTo max=1999');
+    expect(year(null, null)).toBe('year_range');
   });
 
-  it('renders scalars', () => {
-    expect(describeCondition({ type: 'has_files', value: true }, words)).toBe('has_files : true');
+  it('says a yes or no condition either way, and fills a number in', () => {
+    expect(describeCondition({ type: 'has_files', value: true }, words)).toBe(
+      'ConditionPhraseHasFiles',
+    );
+    expect(describeCondition({ type: 'has_files', value: false }, words)).toBe(
+      'ConditionPhraseHasFilesNot',
+    );
     expect(describeCondition({ type: 'added_within_days', value: 7 }, words)).toBe(
-      'added_within_days : 7',
+      'ConditionPhraseAddedWithinDays value=7',
     );
   });
 
-  it('tolerates a missing value', () => {
-    expect(describeCondition({ type: 'has_files' }, words)).toBe('has_files');
+  it('falls back on the caption for a missing value', () => {
+    expect(describeCondition({ type: 'has_files' }, { ...words, label: 'Has files' })).toBe(
+      'Has files',
+    );
   });
 
-  /** The engine's identifiers never reach the reader when a caption exists. */
-  it('reads with the caption, the separator and the names it is given', () => {
+  /** The engine's identifiers never reach the reader when a name exists. */
+  it('names the values and joins them as the language does', () => {
     const named = describeCondition(
       { type: 'original_language', value: ['ja', 'ko'] },
       {
         ...words,
-        label: 'Original language is',
         separator: '، ',
         name: (value) => (value === 'ja' ? 'Japanese (ja)' : value),
       },
     );
 
-    expect(named).toBe('Original language is : Japanese (ja)، ko');
+    expect(named).toBe('ConditionPhraseOriginalLanguage values=Japanese (ja)، ko');
   });
 });
 

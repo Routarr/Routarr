@@ -1,0 +1,77 @@
+name: Translation
+description: Words that read wrong in your language
+labels: ['translation']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Routarr's 25 translations were written without native speakers, so a
+        reader of the language is exactly who can tell what reads wrong. Write
+        in English or in the language itself.
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - العربية (Arabic)
+        - Català (Catalan)
+        - Čeština (Czech)
+        - Dansk (Danish)
+        - Deutsch (German)
+        - Ελληνικά (Greek)
+        - English
+        - Español (Spanish)
+        - Suomi (Finnish)
+        - Français (French)
+        - Magyar (Hungarian)
+        - Italiano (Italian)
+        - 日本語 (Japanese)
+        - 한국어 (Korean)
+        - Norsk bokmål (Norwegian Bokmål)
+        - Nederlands (Dutch)
+        - Polski (Polish)
+        - Português (Portuguese)
+        - Română (Romanian)
+        - Русский (Russian)
+        - Slovenčina (Slovak)
+        - Svenska (Swedish)
+        - Türkçe (Turkish)
+        - Українська (Ukrainian)
+        - 简体中文 (Simplified Chinese)
+        - 繁體中文 (Traditional Chinese)
+    validations:
+      required: true
+
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The screen, and the button, label or message on it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: now
+    attributes:
+      label: What it says now
+      description: Copied as it shows, or a screenshot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: better
+    attributes:
+      label: What it should say
+      description: |
+        And why, when it is not plain: a wrong sense, a grammar or agreement
+        slip, a word nobody uses in software, one thing said two ways.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: reader
+    attributes:
+      label: Your reading
+      options:
+        - label: I read this language natively, or every day.

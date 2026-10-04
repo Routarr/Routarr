@@ -3,6 +3,7 @@
   import type { Condition, ConditionSpec, LibraryFacets } from '../api/types';
   import { i18n, t } from '../lib/i18n.svelte';
   import { facetOf, localFacets } from '../api/conditions';
+  import { phraseKey } from '../api/format';
   import { handFocus } from '../lib/focus';
   import ConditionValue from './ConditionValue.svelte';
 
@@ -93,8 +94,16 @@
     void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
   }
 
-  /** The condition kinds whose caption says "not": `genre_not_contains`, `original_language_not`. */
-  const NEGATED = /_not(_|$)/;
+  /**
+   * A list condition's whole sentence, with a gap where its values go: each
+   * language says "any of", "all of" and "none of" in the place and the case
+   * its own grammar puts them, which no caption with a quantifier glued after
+   * it can do.
+   */
+  const sentence = (type: string) => t(phraseKey(type), { values: '…' });
+
+  const listed = (spec?: ConditionSpec) =>
+    spec?.value_type === 'string_list' || spec?.value_type === 'number_list';
 </script>
 
 <!-- A caption over a *list* of controls is a group heading, not a label: a
@@ -117,36 +126,38 @@
     {#each conditions as condition, index (keys[index] ?? index)}
       {@const spec = specs.find((candidate) => candidate.type === condition.type)}
       <div class="condition-row {list === 'exclusions' ? 'excluded' : ''}">
-        <span class="condition-caption min-w-190 text-md">{caption(spec) ?? condition.type}</span>
         {#if spec?.counterpart}
+          <!-- A pair is one question asked two ways, so the selector holds the
+               two sentences and the turn of it is the choice between them. -->
+          {@const any = spec.quantifier === 'all' ? spec.counterpart : spec.type}
+          {@const all = spec.quantifier === 'all' ? spec.type : spec.counterpart}
           <select
-            class="form-select w-auto"
+            class="form-select condition-caption min-w-190"
             aria-label="{t('QuantifierLabel')} – {caption(spec)}"
             value={spec.quantifier}
             onchange={(event) =>
               onRetype(index, event.currentTarget.value === 'all' ? spec.counterpart : spec.type)}
           >
-            <option value="any">{t('QuantifierAny')}</option>
-            <option value="all">{t('QuantifierAll')}</option>
+            <option value="any">{sentence(any)}</option>
+            <option value="all">{sentence(all)}</option>
           </select>
-        {:else if spec?.value_type === 'string_list' || spec?.value_type === 'number_list'}
+        {:else if listed(spec)}
           <!-- No counterpart means the media side holds one value, so several
-               values can only be alternatives: said in words where the
+               values can only be alternatives: the sentence says so where the
                selector would stand, or the search box after the first value
                reads as an invitation to give a title a second language. The
                field names it as its description, so it is heard as well. -->
-          <!-- Under a negated caption ("does not contain") the words differ in
-               most languages, where English says "any of" either way. -->
-          <span class="condition-quantifier" id="rules-{list}-{index}-quantifier"
-            >{t(NEGATED.test(condition.type) ? 'QuantifierNoneOf' : 'QuantifierAny')}</span
+          <span class="condition-caption min-w-190 text-md" id="rules-{list}-{index}-sentence"
+            >{sentence(condition.type)}</span
           >
+        {:else}
+          <span class="condition-caption min-w-190 text-md">{caption(spec) ?? condition.type}</span>
         {/if}
         <div class="condition-value flex-1">
           <ConditionValue
             {spec}
-            describedBy={!spec?.counterpart &&
-            (spec?.value_type === 'string_list' || spec?.value_type === 'number_list')
-              ? `rules-${list}-${index}-quantifier`
+            describedBy={!spec?.counterpart && listed(spec)
+              ? `rules-${list}-${index}-sentence`
               : undefined}
             value={condition.value}
             suggestions={facetOf(named, spec?.suggestions)}
