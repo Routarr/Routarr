@@ -392,9 +392,12 @@ impl AppState {
     /// actually lands in.
     ///
     /// One spelling, one fallback. The default lives in `DEFAULT_CATEGORY`.
-    pub async fn default_category(pool: &sqlx::SqlitePool) -> String {
+    pub async fn default_category<'e, E>(executor: E) -> String
+    where
+        E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+    {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'default_category'")
-            .fetch_optional(pool)
+            .fetch_optional(executor)
             .await
             .ok()
             .flatten()

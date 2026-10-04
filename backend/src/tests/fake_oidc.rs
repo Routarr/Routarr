@@ -21,7 +21,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, post};
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64URL;
-use tokio::net::TcpListener;
 
 #[derive(Clone)]
 struct FakeState {
@@ -64,14 +63,14 @@ pub struct FakeOidc {
     endpoints: Arc<Mutex<Option<String>>>,
     authorization_at: Arc<Mutex<Option<String>>>,
     named_issuer: Arc<Mutex<Option<String>>>,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Serving until it is dropped.
+    _server: super::Served,
 }
 
 impl FakeOidc {
     pub async fn start() -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-        let addr = listener.local_addr().expect("addr");
-        let issuer = format!("http://{addr}");
+        // Bound first: the provider names itself, its issuer, in what it serves.
+        let (listener, issuer) = super::listen().await;
 
         let claims = Arc::new(Mutex::new(serde_json::json!({})));
         let exchanges = Arc::new(Mutex::new(Vec::new()));
@@ -96,14 +95,7 @@ impl FakeOidc {
             .route("/token", post(token))
             .with_state(state);
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
+        let server = super::serve_on(listener, app);
 
         Self {
             issuer,
@@ -114,7 +106,7 @@ impl FakeOidc {
             endpoints,
             authorization_at,
             named_issuer,
-            shutdown: Some(tx),
+            _server: server,
         }
     }
 
@@ -152,14 +144,6 @@ impl FakeOidc {
 
     pub fn exchanges(&self) -> Vec<Exchange> {
         self.exchanges.lock().expect("exchanges").clone()
-    }
-}
-
-impl Drop for FakeOidc {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
     }
 }
 

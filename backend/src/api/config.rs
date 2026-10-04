@@ -277,18 +277,12 @@ pub async fn import(
     // so validating against the table alone would reject every bundle that
     // brings its own categories, which is every bundle from another
     // installation.
-    let mut categories: Vec<String> =
-        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
-    // Through the same gate the loop below uses, or a name it is about to
-    // refuse would still count as something `default_category` may point at.
     let localizer = state.localizer().await;
-    for category in &bundle.categories {
-        if let Ok(name) = crate::api::categories::normalise(&category.name, &localizer)
-            && !categories.contains(&name)
-        {
-            categories.push(name);
-        }
-    }
+    let mut categories = with_bundled(
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
+        &bundle,
+        &localizer,
+    );
 
     // A source the bundle enables that needs a key this installation lacks is
     // left out of the list, and said, as `PUT /settings` refuses it. Keys never
@@ -328,7 +322,15 @@ pub async fn import(
         }
     }
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    // Read again under the write lock: a category removed since the read
+    // above would otherwise be named by a setting, a mapping, a pin or a rule
+    // written below.
+    categories = with_bundled(
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?,
+        &bundle,
+        &localizer,
+    );
 
     // Settings first: everything after can depend on them.
     for setting in &bundle.settings {
@@ -624,6 +626,14 @@ pub async fn import(
             .collect();
     let mut restored = Vec::new();
     for bundled in importable {
+        let target = bundled.rule.target_category.trim().to_lowercase();
+        if !categories.contains(&target) {
+            report.skipped.push(format!(
+                "rule '{}': category '{target}' was removed meanwhile",
+                bundled.rule.name
+            ));
+            continue;
+        }
         let scope = match &bundled.instance_names {
             None => None,
             Some(names) => {
@@ -658,4 +668,22 @@ pub async fn import(
 
     tx.commit().await?;
     Ok(Json(report))
+}
+
+/// The category names in the table and those `bundle` creates, through the
+/// same gate its loop applies: a name about to be refused does not count as
+/// something `default_category`, a mapping or a rule may point at.
+fn with_bundled(
+    mut names: Vec<String>,
+    bundle: &ConfigBundle,
+    localizer: &crate::localization::Localizer,
+) -> Vec<String> {
+    for category in &bundle.categories {
+        if let Ok(name) = crate::api::categories::normalise(&category.name, localizer)
+            && !names.contains(&name)
+        {
+            names.push(name);
+        }
+    }
+    names
 }

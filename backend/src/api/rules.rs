@@ -40,7 +40,9 @@ pub async fn create(
     reject_on_error(&issues)?;
 
     let id = Uuid::new_v4().to_string();
-    insert_rule(&mut *state.pool.acquire().await?, &id, &req).await?;
+    let mut tx = target_held(&state, &req).await?;
+    insert_rule(&mut tx, &id, &req).await?;
+    tx.commit().await?;
     fetch_rule(&state, &id).await.map(Json)
 }
 
@@ -52,6 +54,7 @@ pub async fn update(
     let issues = check(&state, &req).await?;
     reject_on_error(&issues)?;
 
+    let mut tx = target_held(&state, &req).await?;
     let result = sqlx::query(
         "UPDATE rules SET name = ?, description = ?, priority = ?, enabled = ?,
          media_type = ?, conditions = ?, exclusions = ?, match_mode = ?,
@@ -69,12 +72,13 @@ pub async fn update(
     .bind(req.target_category.trim().to_lowercase())
     .bind(encode_instance_ids(&req.instance_ids)?)
     .bind(&id)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Rule {id} not found")));
     }
+    tx.commit().await?;
 
     // Read back rather than echoing the request: the response then carries the
     // real `created_at` instead of an empty string.
@@ -392,7 +396,8 @@ pub async fn import(
         )));
     }
 
-    let mut tx = state.pool.begin().await?;
+    let localizer = state.localizer().await;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
 
     for name in &created {
         sqlx::query(
@@ -409,14 +414,23 @@ pub async fn import(
         sqlx::query("DELETE FROM rules").execute(&mut *tx).await?;
     }
 
+    // Each target checked again under the write lock: one read before it could
+    // have been removed since, and the rule would name nothing.
+    let mut imported = 0;
     for rule in &importable {
+        let target = rule.target_category.trim().to_lowercase();
+        if let Err(refused) = super::categories::ensure_exists(&mut tx, &target, &localizer).await {
+            skipped.push(format!("'{}': {refused}", rule.name));
+            continue;
+        }
         insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
+        imported += 1;
     }
 
     tx.commit().await?;
 
     Ok(Json(serde_json::json!({
-        "imported": importable.len(),
+        "imported": imported,
         "replaced": req.replace,
         "skipped": skipped,
     })))
@@ -520,6 +534,22 @@ fn describe_issue(
     let params: Vec<(&str, &str)> =
         params.iter().map(|(name, value)| (name.as_str(), value.as_str())).collect();
     localizer.translate(key, &params)
+}
+
+/// The write transaction a rule is stored in, its target category checked
+/// again inside it: validated before, the category could be removed or
+/// renamed before the rule names it.
+async fn target_held(
+    state: &AppState,
+    req: &CreateRuleRequest,
+) -> AppResult<sqlx::Transaction<'static, sqlx::Sqlite>> {
+    let target = req.target_category.trim().to_lowercase();
+    // Before the transaction: the language is a read of its own.
+    let localizer = state.localizer().await;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    super::categories::ensure_exists(&mut tx, &target, &localizer).await?;
+    crate::race::checked("rules::write", &target).await;
+    Ok(tx)
 }
 
 /// Run the shared validator against the live categories and mappings.

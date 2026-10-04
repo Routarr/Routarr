@@ -47,20 +47,25 @@ pub async fn update(
     State(state): State<AppState>,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let categories: Vec<String> =
-        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
-
-    // Validate everything before writing anything: a half-applied settings save
-    // is worse than a rejected one.
     let localizer = state.localizer().await;
-    for (key, value) in &req.settings {
-        check(key, value, &categories, &localizer)?;
-    }
     if let Some(list) = req.settings.get("metadata_providers") {
         refuse_a_source_without_its_key(&state, list, &req.settings).await?;
     }
 
-    let mut tx = state.pool.begin().await?;
+    // Validate everything before writing anything: a half-applied settings save
+    // is worse than a rejected one. Under the write lock the settings are
+    // written with, so the category `default_category` names cannot be removed
+    // between the check and the write.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    let categories: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?;
+    for (key, value) in &req.settings {
+        check(key, value, &categories, &localizer)?;
+    }
+    if let Some(fallback) = req.settings.get("default_category") {
+        crate::race::checked("settings::default_category", fallback.trim()).await;
+    }
+
     for (key, value) in &req.settings {
         // Sealed here rather than in the client, so a value reaching the table
         // in plaintext is impossible whatever the caller sent. An empty value

@@ -271,11 +271,14 @@ pub async fn apply_simulation_in_batches(
         let _lock = lock;
         let mut report =
             BatchApplyReport { candidates: ids.len(), batches_planned, ..Default::default() };
+        // One for the run: a slice reloads the routing context only when what
+        // it reads changed since the previous one.
+        let mut revalidation = routing::Revalidation::default();
 
         for batch in ids.chunks(size) {
             // The lock is already held, so this goes straight to the writer
             // rather than through run_apply, which would try to take it again.
-            let outcome = match load_pending_moves(&state.pool, batch).await {
+            let outcome = match load_pending_moves(&state.pool, batch, &mut revalidation).await {
                 Ok(moves) => {
                     report.skipped += batch.len() - moves.len();
                     report.batches_run += 1;
@@ -431,7 +434,13 @@ async fn run_locked(
     let by = by.clone();
     detached(async move {
         let _lock = lock;
-        let moves = match load_pending_moves(&state.pool, &ids).await {
+        let moves = match load_pending_moves(
+            &state.pool,
+            &ids,
+            &mut routing::Revalidation::default(),
+        )
+        .await
+        {
             Ok(moves) => moves,
             Err(e) => {
                 job.fail(&e).await;
@@ -1104,7 +1113,11 @@ fn human_bytes(bytes: i64, localizer: &crate::localization::Localizer) -> String
 /// same folder is skipped and retired, since nothing else retires it when a
 /// rule or a mapping changes and it would otherwise stay on screen as pending,
 /// skipped again on every apply.
-async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<PendingMove>> {
+async fn load_pending_moves(
+    pool: &SqlitePool,
+    ids: &[String],
+    revalidation: &mut routing::Revalidation,
+) -> AppResult<Vec<PendingMove>> {
     if ids.is_empty() {
         return Ok(vec![]);
     }
@@ -1135,7 +1148,7 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
     let rows = query.fetch_all(pool).await?;
 
     let media_ids: Vec<String> = rows.iter().map(|row| row.1.clone()).collect();
-    let targets = routing::current_targets(pool, &media_ids).await?;
+    let targets = revalidation.targets(pool, &media_ids).await?;
     let (current, stale): (Vec<MoveRow>, Vec<MoveRow>) = rows.into_iter().partition(|row| {
         targets
             .get(&row.1)

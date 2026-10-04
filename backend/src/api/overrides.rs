@@ -152,16 +152,13 @@ async fn pin(
     subject: Option<&str>,
 ) -> AppResult<Vec<OverrideEntry>> {
     let category = category.trim().to_lowercase();
-    let category_exists: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
-            .bind(&category)
-            .fetch_one(&state.pool)
-            .await?;
-    if !category_exists {
-        return Err(AppError::BadRequest(format!("Category '{category}' does not exist")));
-    }
+    // Checked under the write lock the pins are written with: a category
+    // removed between a check and the write would leave pins naming nothing.
+    let localizer = state.localizer().await;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    super::categories::ensure_exists(&mut tx, &category, &localizer).await?;
+    crate::race::checked("overrides::pin", &category).await;
 
-    let mut tx = state.pool.begin().await?;
     let mut changed = Vec::new();
     for media_id in media_ids {
         let held: Option<String> =

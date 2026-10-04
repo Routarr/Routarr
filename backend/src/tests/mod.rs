@@ -30,6 +30,7 @@ mod onboarding;
 mod outbound_http;
 mod placement;
 mod provider_keys;
+pub(crate) mod races;
 mod routing;
 mod rule_health;
 mod rule_tests;
@@ -48,6 +49,66 @@ use tower::ServiceExt;
 
 use crate::services::routing::{SimulationOptions, run_simulation};
 use crate::state::AppState;
+
+/// A stand-in served on a port of the loopback the OS picks, so tests run side
+/// by side, until the handle is dropped. Every stand-in that answers HTTP
+/// starts here.
+pub struct Served {
+    /// `http://127.0.0.1:<port>`, with no trailing slash.
+    pub address: String,
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+}
+
+/// Read as its address wherever one is expected.
+impl std::ops::Deref for Served {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.address
+    }
+}
+
+impl std::fmt::Display for Served {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.address)
+    }
+}
+
+impl Drop for Served {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+    }
+}
+
+/// A port bound and its address, for a stand-in that must know its own
+/// address before it builds its routes, as an OIDC provider names itself.
+pub async fn listen() -> (tokio::net::TcpListener, String) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind a port");
+    let address = format!("http://{}", listener.local_addr().expect("a local address"));
+    (listener, address)
+}
+
+/// Serve `router` on `listener` until the returned handle is dropped.
+pub fn serve_on(listener: tokio::net::TcpListener, router: axum::Router) -> Served {
+    let address = format!("http://{}", listener.local_addr().expect("a local address"));
+    let (stop, stopped) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = stopped.await;
+            })
+            .await;
+    });
+    Served { address, stop: Some(stop) }
+}
+
+/// Serve `router` on a fresh port until the returned handle is dropped.
+pub async fn serve(router: axum::Router) -> Served {
+    let (listener, _) = listen().await;
+    serve_on(listener, router)
+}
 
 /// The HTTP client the application builds, under the test configuration.
 pub fn http_client() -> reqwest::Client {

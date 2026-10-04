@@ -19,22 +19,14 @@ use tokio::net::TcpListener;
 use super::fake_arr::FakeArr;
 use super::{TestApp, TestResponse};
 
-/// Serve `app` on a port of its own, and answer with its address.
-async fn serve(app: Router) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
-    format!("http://{address}")
-}
-
 /// A server answering every request alike, as a wrong port or a proxy does.
 async fn answering(
     status: u16,
     headers: &'static [(&'static str, &'static str)],
     body: &'static str,
-) -> String {
+) -> super::Served {
     let status = StatusCode::from_u16(status).unwrap();
-    serve(Router::new().fallback(move || async move {
+    super::serve(Router::new().fallback(move || async move {
         let mut response = axum::response::Response::new(axum::body::Body::from(body));
         *response.status_mut() = status;
         for (name, value) in headers {
@@ -47,8 +39,8 @@ async fn answering(
 
 /// A Radarr whose status and root folders answer at once, and whose library
 /// answers as `movies` does: a sync that fails past the probe.
-async fn a_radarr_whose_library(movies: MethodRouter) -> String {
-    serve(
+async fn a_radarr_whose_library(movies: MethodRouter) -> super::Served {
+    super::serve(
         Router::new()
             .route(
                 "/api/v3/system/status",
@@ -710,7 +702,7 @@ async fn a_library_slower_than_the_timeout_is_not_blamed_on_the_address() {
     }))
     .await;
 
-    for (id, address) in [("slow", &slow.base_url), ("stalled", &stalled)] {
+    for (id, address) in [("slow", slow.base_url.as_str()), ("stalled", &stalled)] {
         app.seed_instance_at(id, "radarr", address).await;
 
         let response = app.post(&format!("/api/v1/instances/{id}/sync"), json!({})).await;

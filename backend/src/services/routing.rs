@@ -477,35 +477,58 @@ pub async fn route_one_with(
     Ok(ItemRoute { rules: ctx.rules, override_category, route })
 }
 
-/// Where the rules and mappings as they stand now send each of these items.
+/// Where the rules and mappings as they stand now send the items an apply is
+/// about to move, the routing context held from one slice of the apply to the
+/// next.
 ///
-/// `None` for an item they send nowhere, its category having no folder on its
-/// instance, and no entry for an id with no media row. This is what an apply
-/// checks a proposal against: a proposal records what the rules said when the
-/// simulation ran, and nothing retires it when a rule, a mapping or the
-/// metadata changes afterwards.
-///
-/// Holds a library-pass permit, since it loads the whole metadata cache, which
-/// is what that bound exists for.
-pub async fn current_targets(
-    pool: &SqlitePool,
-    media_ids: &[String],
-) -> AppResult<HashMap<String, Option<String>>> {
-    let mut targets = HashMap::with_capacity(media_ids.len());
-    if media_ids.is_empty() {
-        return Ok(targets);
-    }
+/// A slice reloads it only when something it reads changed since: the rules,
+/// the pins, the folders and their mappings, the instances, the metadata and
+/// the two settings it reads, which `routing_generation` counts. Loading it
+/// reads the whole metadata cache, once per slice of a large library
+/// otherwise, and a change between two slices still reaches the next one.
+#[derive(Default)]
+pub struct Revalidation {
+    loaded: Option<(i64, RoutingContext)>,
+}
 
-    let _pass = library_pass().await;
-    let ctx = load_context(pool, Scope::Library).await?;
-    let now = Utc::now();
-    for chunk in media_ids.chunks(BIND_CHUNK) {
-        for media in load_media(pool, &[], Some(chunk), None).await? {
-            let Route { target, .. } = route(&ctx, &media, &ctx.rules, now);
-            targets.insert(media.id, target);
+impl Revalidation {
+    /// `None` for an item they send nowhere, its category having no folder on
+    /// its instance, and no entry for an id with no media row. This is what an
+    /// apply checks a proposal against: a proposal records what the rules said
+    /// when the simulation ran, and nothing retires it when a rule, a mapping
+    /// or the metadata changes afterwards.
+    ///
+    /// Holds a library-pass permit, since a reload reads the whole metadata
+    /// cache, which is what that bound exists for.
+    pub async fn targets(
+        &mut self,
+        pool: &SqlitePool,
+        media_ids: &[String],
+    ) -> AppResult<HashMap<String, Option<String>>> {
+        let mut targets = HashMap::with_capacity(media_ids.len());
+        if media_ids.is_empty() {
+            return Ok(targets);
         }
+
+        let _pass = library_pass().await;
+        // Read before the load: a change landing in between leaves the context
+        // newer than its number, and the next slice loads it once more.
+        let generation: i64 =
+            sqlx::query_scalar("SELECT value FROM routing_generation").fetch_one(pool).await?;
+        let ctx = match self.loaded.take() {
+            Some((held, ctx)) if held == generation => ctx,
+            _ => load_context(pool, Scope::Library).await?,
+        };
+        let ctx = &self.loaded.insert((generation, ctx)).1;
+        let now = Utc::now();
+        for chunk in media_ids.chunks(BIND_CHUNK) {
+            for media in load_media(pool, &[], Some(chunk), None).await? {
+                let Route { target, .. } = route(ctx, &media, &ctx.rules, now);
+                targets.insert(media.id, target);
+            }
+        }
+        Ok(targets)
     }
-    Ok(targets)
 }
 
 #[derive(Default)]
@@ -595,6 +618,11 @@ enum Scope<'a> {
 }
 
 /// Load rules, overrides, mappings and metadata in a fixed number of queries.
+///
+/// Every table read here counts its changes in `routing_generation`, through
+/// the triggers of `migrations/014_routing_generation.sql`: a table read here
+/// without its triggers changes nothing a [`Revalidation`] sees, and an apply
+/// in slices keeps routing on what it held before.
 ///
 /// One statement per table whatever the scope, an item's narrowed by its id
 /// and its instance: the panel and the simulation read the mappings alike.

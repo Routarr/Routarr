@@ -10,10 +10,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use std::sync::{Arc, Mutex};
-use tokio::net::TcpListener;
 
 /// A server that records the `X-Api-Key` of everything it receives.
-async fn recorder() -> (String, Arc<Mutex<Vec<String>>>, tokio::sync::oneshot::Sender<()>) {
+async fn recorder() -> (super::Served, Arc<Mutex<Vec<String>>>) {
     let seen: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let state = seen.clone();
     let app = Router::new().route(
@@ -31,22 +30,11 @@ async fn recorder() -> (String, Arc<Mutex<Vec<String>>>, tokio::sync::oneshot::S
             }
         }),
     );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await
-            .ok();
-    });
-    (format!("http://{addr}"), seen, tx)
+    (super::serve(app).await, seen)
 }
 
 /// A server that answers every request with a 302 to `target`.
-async fn redirector(target: String) -> (String, tokio::sync::oneshot::Sender<()>) {
+async fn redirector(target: String) -> super::Served {
     let app =
         Router::new().route(
             "/{*rest}",
@@ -57,24 +45,13 @@ async fn redirector(target: String) -> (String, tokio::sync::oneshot::Sender<()>
                 }
             }),
         );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await
-            .ok();
-    });
-    (format!("http://{addr}"), tx)
+    super::serve(app).await
 }
 
 #[tokio::test]
 async fn a_redirect_to_another_host_does_not_carry_the_api_key() {
-    let (elsewhere, seen, _stop_a) = recorder().await;
-    let (arr, _stop_b) = redirector(format!("{elsewhere}/api/v3/movie")).await;
+    let (elsewhere, seen) = recorder().await;
+    let arr = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
     let client = super::http_client();
     let _ = client.get(format!("{arr}/api/v3/movie")).header("X-Api-Key", "s3cret").send().await;
@@ -117,21 +94,11 @@ async fn a_redirect_within_the_same_service_is_still_followed() {
                 }
             }),
         );
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        axum::serve(listener, app)
-            .with_graceful_shutdown(async {
-                let _ = rx.await;
-            })
-            .await
-            .ok();
-    });
+    let server = super::serve(app).await;
 
     let client = super::http_client();
     let response = client
-        .get(format!("http://{addr}/api/v3/movie"))
+        .get(format!("{server}/api/v3/movie"))
         .header("X-Api-Key", "s3cret")
         .send()
         .await
@@ -139,7 +106,6 @@ async fn a_redirect_within_the_same_service_is_still_followed() {
 
     assert!(response.status().is_success(), "same-origin redirect was not followed");
     assert_eq!(seen.lock().unwrap().as_slice(), ["s3cret"], "the key must reach the real endpoint");
-    let _ = tx.send(());
 }
 
 /// A blocked redirect comes back as the redirect itself, a status that is not
@@ -148,8 +114,8 @@ async fn a_redirect_within_the_same_service_is_still_followed() {
 /// pinned in `tests::connection`.
 #[tokio::test]
 async fn a_blocked_redirect_comes_back_as_the_redirect_itself() {
-    let (elsewhere, _seen, _stop_a) = recorder().await;
-    let (arr, _stop_b) = redirector(format!("{elsewhere}/api/v3/movie")).await;
+    let (elsewhere, _seen) = recorder().await;
+    let arr = redirector(format!("{elsewhere}/api/v3/movie")).await;
 
     let client = super::http_client();
     let response =

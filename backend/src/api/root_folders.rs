@@ -316,18 +316,13 @@ pub async fn update_category(
 ) -> AppResult<Json<serde_json::Value>> {
     let category = req.category.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty());
 
+    // The checks and the write under one write lock: a category removed, or
+    // mapped on another folder of the instance, between a check and the write
+    // would otherwise be written over.
+    let localizer = state.localizer().await;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     if let Some(ref cat) = category {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
-                .bind(cat)
-                .fetch_one(&state.pool)
-                .await?;
-
-        if !exists {
-            return Err(AppError::BadRequest(
-                state.localizer().await.translate("ErrorCategoryUnknown", &[("category", cat)]),
-            ));
-        }
+        super::categories::ensure_exists(&mut tx, cat, &localizer).await?;
 
         // Two folders on one instance answering to the same category makes the
         // target ambiguous, so refuse it up front rather than routing at random.
@@ -340,28 +335,28 @@ pub async fn update_category(
         .bind(cat)
         .bind(&id)
         .bind(&id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
         if let Some(path) = taken {
             return Err(AppError::Conflict(
-                state
-                    .localizer()
-                    .await
+                localizer
                     .translate("ErrorCategoryAlreadyMapped", &[("category", cat), ("path", &path)]),
             ));
         }
+        crate::race::checked("root_folders::map", cat).await;
     }
 
     let result = sqlx::query("UPDATE root_folders SET category = ? WHERE id = ?")
         .bind(&category)
         .bind(&id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
 
     if result.rows_affected() == 0 {
         return Err(AppError::NotFound(format!("Root folder {id} not found")));
     }
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "updated": true, "category": category })))
 }
