@@ -276,12 +276,20 @@ test('every table on every screen carries a caption', async ({ page }) => {
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'];
 
 /**
+ * The bound of a test that opens every screen and every Settings section and
+ * runs axe or a Tab walk on each. The default bound fits one screen's journey,
+ * and a slow runner crosses it on a whole sweep with nothing wrong.
+ */
+const SWEEP_TIMEOUT = 120_000;
+
+/**
  * Every screen and every Settings section, in both themes: the light palette
  * is a second set of colours, and contrast measured in one says nothing of the
  * other.
  */
 for (const theme of ['dark', 'light']) {
   test(`every screen passes axe at WCAG 2.1 AA in the ${theme} theme`, async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_theme: theme } }),
@@ -381,6 +389,7 @@ test('each screen names itself in the tab and takes the focus it was reached wit
 test.describe('the keyboard reaches every control', () => {
   for (const width of [1280, 375]) {
     test(`on every screen at ${width}px`, async ({ page }) => {
+      test.setTimeout(SWEEP_TIMEOUT);
       await page.setViewportSize({ width, height: 900 });
       const problems: string[] = [];
 
