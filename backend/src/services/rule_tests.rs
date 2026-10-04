@@ -159,9 +159,12 @@ pub struct NewRuleTest {
     pub expected_category: Option<String>,
 }
 
-pub fn validate(new: &NewRuleTest) -> AppResult<()> {
+/// Whether a case can be stored. The name is typed on the Tests screen, so its
+/// refusal speaks the interface's language. The item is the one the screen
+/// pinned, never typed, so its refusal stays English.
+pub fn validate(new: &NewRuleTest, localizer: &crate::localization::Localizer) -> AppResult<()> {
     if new.name.trim().is_empty() {
-        return Err(AppError::BadRequest("a test needs a name".into()));
+        return Err(AppError::BadRequest(localizer.translate("RuleTestNameRequired", &[])));
     }
     if new.media_id.trim().is_empty() {
         return Err(AppError::BadRequest("a test needs a media item to snapshot".into()));

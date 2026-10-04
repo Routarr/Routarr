@@ -29,6 +29,9 @@ const STRINGS = {
   StatusFailed: 'failed',
   None: '-',
   ExportFailed: 'Export failed with status {status}',
+  ActionMove: 'Move',
+  ActionRevert: 'Putting back',
+  Revert: 'Put it back',
   TriggerManual: 'manual',
   TriggerSchedule: 'schedule',
   PageOf: 'Page {page} of {total}',
@@ -99,6 +102,15 @@ describe('Activity log', () => {
 
     expect(await screen.findByText('Radarr said 409')).toBeTruthy();
     expect(screen.getByText('failed')).toBeTruthy();
+  });
+
+  /** The badge names what was written, as a noun beside Move, not the button's order. */
+  it('names a revert by its noun, not by the button that does it', async () => {
+    vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry({ action: 'revert' })]));
+    show();
+
+    expect(await screen.findByText('Putting back')).toBeTruthy();
+    expect(screen.queryByText('Put it back')).toBeNull();
   });
 
   it('has nothing to export while the list is empty', async () => {

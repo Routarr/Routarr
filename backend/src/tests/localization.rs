@@ -332,3 +332,65 @@ async fn a_fresh_installation_speaks_english_by_default() {
     let settings = app.get("/api/v1/settings").await;
     assert_eq!(settings.assert_ok()["ui_language"], "en");
 }
+
+/// A key a language leaves untranslated is English, both in the dictionary
+/// the interface loads and in the refusals the server words. Every shipped
+/// language is complete, so a partial one only the tests know stands in.
+#[tokio::test]
+async fn a_key_a_language_leaves_untranslated_is_served_in_english() {
+    let english = TestApp::new().await.get("/api/v1/localization").await.json["strings"].clone();
+    let app = TestApp::new().await;
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "ui_language": "x-partial" } }))
+        .await
+        .assert_ok();
+
+    let served = app.get("/api/v1/localization").await;
+    let strings = &served.assert_ok()["strings"];
+    assert_eq!(strings["Dashboard"], "Tableau partiel");
+    assert_eq!(strings["Settings"], english["Settings"]);
+    assert_eq!(strings.as_object().unwrap().len(), english.as_object().unwrap().len());
+
+    let empty = app.post("/api/v1/categories", serde_json::json!({ "name": "" })).await;
+    assert_eq!(empty.json["message"], "Nom partiel requis.");
+    let refused = app.post("/api/v1/categories", serde_json::json!({ "name": "a b" })).await;
+    assert_eq!(refused.json["message"], english["CategoryNameRefused"]);
+}
+
+/// A setting typed by hand and refused by the server alone is refused in the
+/// interface language, naming the field: Settings shows it in a banner, away
+/// from the field.
+#[tokio::test]
+async fn a_typed_setting_is_refused_in_the_interface_language() {
+    let app = TestApp::new().await;
+    speak_french(&app).await;
+
+    for (key, value, said) in [
+        (
+            "notification_webhook_url",
+            "ftp://example.org",
+            "Webhook de notification accepte une adresse http:// ou https://.",
+        ),
+        ("certification_regions", " , ", "Régions de certification : au moins un code pays"),
+        ("certification_regions", "FR, FRA", "« FRA »"),
+    ] {
+        let refused =
+            app.put("/api/v1/settings", serde_json::json!({ "settings": { key: value } })).await;
+        refused.assert_status(StatusCode::BAD_REQUEST);
+        let message = refused.json["message"].as_str().unwrap_or_default();
+        assert!(message.contains(said), "{key} = {value:?} answered {message:?}");
+    }
+}
+
+/// The name of a rule test is typed on the Tests screen, so its refusal is too
+/// read in the interface language.
+#[tokio::test]
+async fn a_rule_test_without_a_name_is_refused_in_the_interface_language() {
+    let app = TestApp::new().await;
+    speak_french(&app).await;
+
+    let refused =
+        app.post("/api/v1/rule-tests", serde_json::json!({ "name": " ", "media_id": "m-1" })).await;
+
+    refused.assert_status(StatusCode::BAD_REQUEST);
+    assert_eq!(refused.json["message"], "Un test a besoin d'un nom.");
+}

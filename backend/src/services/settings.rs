@@ -5,6 +5,7 @@
 //! `maintenance`, a service, read its bounds and its sealed keys.
 
 use crate::error::{AppError, AppResult};
+use crate::localization::Localizer;
 
 /// The values the `onboarding` setting may hold.
 pub const ONBOARDING_STATES: [&str; 3] = ["pending", "dismissed", "done"];
@@ -136,13 +137,30 @@ impl Kind {
 /// it from a bundle. Both go through this, or the bundle becomes a way to store
 /// what the API refuses: a `default_category` naming a category that does not
 /// exist, a source list without `arr`, a theme nothing renders.
-pub fn check(key: &str, value: &str, categories: &[String]) -> AppResult<()> {
+pub fn check(
+    key: &str,
+    value: &str,
+    categories: &[String],
+    localizer: &Localizer,
+) -> AppResult<()> {
     let kind = KNOWN
         .iter()
         .find(|(k, _)| *k == key)
         .map(|(_, kind)| *kind)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown setting '{key}'")))?;
-    validate(key, value, kind, categories)
+    validate(key, value, kind, categories, localizer)
+}
+
+/// The label a typed setting is shown under, for a refusal that names it.
+///
+/// Only the settings an operator types and only the server checks: the others
+/// are chosen from a list, or held to their bounds by the form before a save.
+fn label(key: &str) -> &str {
+    match key {
+        "notification_webhook_url" => "SettingNotificationWebhook",
+        "certification_regions" => "SettingCertificationRegions",
+        other => other,
+    }
 }
 
 /// The range a `Bounded` key is converged into, if it is one.
@@ -195,9 +213,23 @@ pub fn sealed_keys() -> Vec<&'static str> {
     KNOWN.iter().filter(|(_, kind)| kind.sealed()).map(|(k, _)| *k).collect()
 }
 
-fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppResult<()> {
+fn validate(
+    key: &str,
+    value: &str,
+    kind: Kind,
+    categories: &[String],
+    localizer: &Localizer,
+) -> AppResult<()> {
     let value = value.trim();
     let bad = |message: String| AppError::BadRequest(message);
+    // Read on the Settings screen, in the interface's language, naming the
+    // field the value was typed in.
+    let field = localizer.translate(label(key), &[]);
+    let refused = |refusal: &str, params: &[(&str, &str)]| {
+        let mut all = vec![("field", field.as_str())];
+        all.extend_from_slice(params);
+        AppError::BadRequest(localizer.translate(refusal, &all))
+    };
 
     match kind {
         // Nothing to check beyond a shape nobody can predict: TMDb accepts a v3
@@ -214,7 +246,7 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
             let usable =
                 value.is_empty() || value.starts_with("http://") || value.starts_with("https://");
             if !usable {
-                return Err(bad(format!("'{key}' must be an http:// or https:// URL")));
+                return Err(refused("SettingRefusedAddress", &[]));
             }
         }
         Kind::Bool => {
@@ -286,12 +318,12 @@ fn validate(key: &str, value: &str, kind: Kind, categories: &[String]) -> AppRes
             let codes: Vec<&str> =
                 value.split(',').map(str::trim).filter(|c| !c.is_empty()).collect();
             if codes.is_empty() {
-                return Err(bad(format!("'{key}' needs at least one ISO 3166-1 country code")));
+                return Err(refused("SettingRefusedNoRegion", &[]));
             }
             if let Some(bad_code) =
                 codes.iter().find(|c| c.len() != 2 || !c.chars().all(|ch| ch.is_ascii_alphabetic()))
             {
-                return Err(bad(format!("'{key}': '{bad_code}' is not a two-letter country code")));
+                return Err(refused("SettingRefusedRegion", &[("code", bad_code)]));
             }
         }
     }
@@ -305,16 +337,16 @@ mod tests {
 
     #[test]
     fn booleans_must_be_true_or_false() {
-        assert!(validate("global_dry_run", "true", Kind::Bool, &[]).is_ok());
-        assert!(validate("global_dry_run", "yes", Kind::Bool, &[]).is_err());
+        assert!(validate("global_dry_run", "true", Kind::Bool, &[], &Localizer::new("en")).is_ok());
+        assert!(validate("global_dry_run", "yes", Kind::Bool, &[], &Localizer::new("en")).is_err());
     }
 
     #[test]
     fn batch_limit_must_be_positive() {
-        assert!(check("batch_limit", "50", &[]).is_ok());
-        assert!(check("batch_limit", "0", &[]).is_err());
-        assert!(check("batch_limit", "-1", &[]).is_err());
-        assert!(check("batch_limit", "many", &[]).is_err());
+        assert!(check("batch_limit", "50", &[], &Localizer::new("en")).is_ok());
+        assert!(check("batch_limit", "0", &[], &Localizer::new("en")).is_err());
+        assert!(check("batch_limit", "-1", &[], &Localizer::new("en")).is_err());
+        assert!(check("batch_limit", "many", &[], &Localizer::new("en")).is_err());
     }
 
     /// A ceiling on every count, not only on the one that grows a list. Without
@@ -330,9 +362,12 @@ mod tests {
             "backup_retention_count",
             "scheduler_interval_minutes",
         ] {
-            assert!(check(key, "1", &[]).is_ok(), "{key} refuses its floor");
-            assert!(check(key, "0", &[]).is_err(), "{key} has no floor");
-            assert!(check(key, &i64::MAX.to_string(), &[]).is_err(), "{key} has no ceiling");
+            assert!(check(key, "1", &[], &Localizer::new("en")).is_ok(), "{key} refuses its floor");
+            assert!(check(key, "0", &[], &Localizer::new("en")).is_err(), "{key} has no floor");
+            assert!(
+                check(key, &i64::MAX.to_string(), &[], &Localizer::new("en")).is_err(),
+                "{key} has no ceiling"
+            );
         }
     }
 
@@ -340,62 +375,137 @@ mod tests {
     /// the interface showing a number that is silently not the one running.
     #[test]
     fn the_scheduler_interval_refuses_what_it_would_have_clamped() {
-        assert!(check("scheduler_interval_minutes", "1440", &[]).is_ok());
-        assert!(check("scheduler_interval_minutes", "1441", &[]).is_err());
+        assert!(check("scheduler_interval_minutes", "1440", &[], &Localizer::new("en")).is_ok());
+        assert!(check("scheduler_interval_minutes", "1441", &[], &Localizer::new("en")).is_err());
     }
 
     #[test]
     fn retention_may_be_zero_to_disable() {
-        assert!(validate("log_retention_days", "0", Kind::NonNegativeInt, &[]).is_ok());
+        assert!(
+            validate("log_retention_days", "0", Kind::NonNegativeInt, &[], &Localizer::new("en"))
+                .is_ok()
+        );
     }
 
     #[test]
     fn default_category_must_exist() {
         let categories = vec!["standard".to_string()];
-        assert!(validate("default_category", "standard", Kind::Category, &categories).is_ok());
-        assert!(validate("default_category", "kids", Kind::Category, &categories).is_err());
+        assert!(
+            validate(
+                "default_category",
+                "standard",
+                Kind::Category,
+                &categories,
+                &Localizer::new("en")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate(
+                "default_category",
+                "kids",
+                Kind::Category,
+                &categories,
+                &Localizer::new("en")
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn only_shipped_languages_are_accepted() {
-        assert!(validate("ui_language", "fr", Kind::Language, &[]).is_ok());
-        assert!(validate("ui_language", "en", Kind::Language, &[]).is_ok());
-        assert!(validate("ui_language", "kl", Kind::Language, &[]).is_err());
+        assert!(validate("ui_language", "fr", Kind::Language, &[], &Localizer::new("en")).is_ok());
+        assert!(validate("ui_language", "en", Kind::Language, &[], &Localizer::new("en")).is_ok());
+        assert!(validate("ui_language", "kl", Kind::Language, &[], &Localizer::new("en")).is_err());
     }
 
     #[test]
     fn the_theme_is_one_of_three_states() {
-        assert!(validate("ui_theme", "dark", Kind::Theme, &[]).is_ok());
-        assert!(validate("ui_theme", "light", Kind::Theme, &[]).is_ok());
+        assert!(validate("ui_theme", "dark", Kind::Theme, &[], &Localizer::new("en")).is_ok());
+        assert!(validate("ui_theme", "light", Kind::Theme, &[], &Localizer::new("en")).is_ok());
         // `auto` follows the operating system, and an explicit choice overrides it.
-        assert!(validate("ui_theme", "auto", Kind::Theme, &[]).is_ok());
-        assert!(validate("ui_theme", "midnight", Kind::Theme, &[]).is_err());
-        assert!(validate("ui_theme", "", Kind::Theme, &[]).is_err());
+        assert!(validate("ui_theme", "auto", Kind::Theme, &[], &Localizer::new("en")).is_ok());
+        assert!(validate("ui_theme", "midnight", Kind::Theme, &[], &Localizer::new("en")).is_err());
+        assert!(validate("ui_theme", "", Kind::Theme, &[], &Localizer::new("en")).is_err());
     }
 
     #[test]
     fn the_source_list_accepts_known_ids_in_any_order() {
-        assert!(validate("metadata_providers", "tmdb,arr", Kind::ProviderList, &[]).is_ok());
-        assert!(validate("metadata_providers", "arr", Kind::ProviderList, &[]).is_ok());
+        assert!(
+            validate(
+                "metadata_providers",
+                "tmdb,arr",
+                Kind::ProviderList,
+                &[],
+                &Localizer::new("en")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate("metadata_providers", "arr", Kind::ProviderList, &[], &Localizer::new("en"))
+                .is_ok()
+        );
     }
 
     #[test]
     fn a_misspelled_source_is_refused_rather_than_ignored() {
-        assert!(validate("metadata_providers", "arr,tmbd", Kind::ProviderList, &[]).is_err());
+        assert!(
+            validate(
+                "metadata_providers",
+                "arr,tmbd",
+                Kind::ProviderList,
+                &[],
+                &Localizer::new("en")
+            )
+            .is_err()
+        );
     }
 
     /// A client drawing one row per source, keyed by its id, cannot draw one
     /// twice, and an order gains nothing from a repeat.
     #[test]
     fn a_source_listed_twice_is_refused() {
-        assert!(validate("metadata_providers", "arr,tmdb,tmdb", Kind::ProviderList, &[]).is_err());
-        assert!(validate("metadata_providers", "arr, arr", Kind::ProviderList, &[]).is_err());
+        assert!(
+            validate(
+                "metadata_providers",
+                "arr,tmdb,tmdb",
+                Kind::ProviderList,
+                &[],
+                &Localizer::new("en")
+            )
+            .is_err()
+        );
+        assert!(
+            validate(
+                "metadata_providers",
+                "arr, arr",
+                Kind::ProviderList,
+                &[],
+                &Localizer::new("en")
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn country_list_is_checked() {
-        assert!(validate("certification_regions", "FR, US", Kind::CountryList, &[]).is_ok());
-        assert!(validate("certification_regions", "FRA", Kind::CountryList, &[]).is_err());
-        assert!(validate("certification_regions", "", Kind::CountryList, &[]).is_err());
+        assert!(
+            validate(
+                "certification_regions",
+                "FR, US",
+                Kind::CountryList,
+                &[],
+                &Localizer::new("en")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate("certification_regions", "FRA", Kind::CountryList, &[], &Localizer::new("en"))
+                .is_err()
+        );
+        assert!(
+            validate("certification_regions", "", Kind::CountryList, &[], &Localizer::new("en"))
+                .is_err()
+        );
     }
 }

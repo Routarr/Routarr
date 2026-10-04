@@ -30,7 +30,8 @@ const STRINGS = {
   ConfirmRevert: 'Send "{title}" back to {path}?',
   ConfirmRevertFiles: 'Move the files back too',
   RevertResult: '{count} reverted',
-  RevertNothing: 'Nothing was reverted',
+  NothingReverted: 'Nothing was reverted.',
+  NothingRevertedBecause: 'Nothing was reverted: {reason}',
   FilterByStatus: 'Filter by status',
   SearchATitle: 'Search a title',
   NoDecisionRecorded: 'Nothing decided yet',
@@ -223,7 +224,9 @@ describe('History', () => {
       within(await screen.findByRole('dialog')).getByRole('button', { name: 'Put back' }),
     );
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('The file is no longer there');
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Nothing was reverted: The file is no longer there',
+    );
     expect(screen.getByRole('status')).toBeEmptyDOMElement();
   });
 

@@ -126,12 +126,36 @@ const CATALOG: &[(Language, &str)] = &[
 
 type Dictionary = HashMap<String, String>;
 
+/// A language that translates two keys and leaves every other to English, for
+/// the tests that prove the fallback through the API and the localizer: every
+/// shipped language is complete, so none of them can. Resolved like a shipped
+/// one, never offered by `languages()`.
+#[cfg(test)]
+const PARTIAL: (Language, &str) = (
+    Language { code: "x-partial", name: "Partial" },
+    r#"{ "Dashboard": "Tableau partiel", "CategoryNameEmpty": "Nom partiel requis." }"#,
+);
+
+/// The catalogue, and under test the partial language beside it.
+fn catalogue() -> impl Iterator<Item = &'static (Language, &'static str)> {
+    let partial: &[(Language, &str)] = {
+        #[cfg(test)]
+        {
+            std::slice::from_ref(&PARTIAL)
+        }
+        #[cfg(not(test))]
+        {
+            &[]
+        }
+    };
+    CATALOG.iter().chain(partial)
+}
+
 /// Parsed dictionaries, built once on first use.
 fn dictionaries() -> &'static HashMap<&'static str, Dictionary> {
     static CACHE: OnceLock<HashMap<&'static str, Dictionary>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        CATALOG
-            .iter()
+        catalogue()
             .map(|(language, raw)| {
                 let parsed: Dictionary = serde_json::from_str(raw).unwrap_or_else(|e| {
                     // A malformed shipped locale is a build mistake, not a
@@ -314,8 +338,7 @@ fn resolve(code: &str) -> Option<&'static str> {
 /// Locale files keep the Servarr naming (`nb_NO`, `zh_CN`), so both sides are
 /// normalized before comparison, or `nb-no` would never find `nb_NO`.
 fn shipped(code: &str) -> Option<&'static str> {
-    CATALOG
-        .iter()
+    catalogue()
         .map(|(language, _)| language.code)
         .find(|candidate| candidate.replace('_', "-").eq_ignore_ascii_case(code))
 }

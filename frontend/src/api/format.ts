@@ -56,7 +56,8 @@ export const DECISION_ACTION_KEY: Record<DecisionAction, string> = {
 /** The dictionary key naming what a log entry wrote to an Arr. */
 export const LOG_ACTION_KEY: Record<LogAction, string> = {
   move: 'ActionMove',
-  revert: 'Revert',
+  // A noun, beside `ActionMove`: `Revert` is the button's imperative.
+  revert: 'ActionRevert',
 };
 
 /** The caption of each field a metadata source supplies, as the facets panel names it. */

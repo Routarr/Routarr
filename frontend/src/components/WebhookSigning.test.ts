@@ -24,7 +24,7 @@ const STRINGS = {
   StopSigning: 'Stop signing',
   ConfirmStopSigning: 'Stop signing notifications?',
   SigningStopped: 'Notifications are no longer signed.',
-  ApiKeyMintedOnce: 'Copy it now.',
+  SigningSecretMintedOnce: 'Copy it now.',
   SigningSecretUnreadable: 'The secret cannot be read. Replace it.',
   Retry: 'Retry',
 };

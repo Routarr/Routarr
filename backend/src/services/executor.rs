@@ -236,13 +236,11 @@ pub async fn apply_simulation_in_batches(
         }
     }
     if !confirmed.has(confirm::BATCH) || !includes.is_empty() {
-        let mut message =
-            localizer.translate("ConfirmApplyAll", &[("count", &ids.len().to_string())]);
-        message.push_str(&if move_files {
-            localizer.translate("ConfirmApplyWithFiles", &[])
-        } else {
-            ".".to_string()
-        });
+        // Two whole sentences: a clause appended to a translated one reads
+        // as English grammar in every other language.
+        let asked =
+            if move_files { "ConfirmApplyAllItemsWithFiles" } else { "ConfirmApplyAllItems" };
+        let mut message = localizer.translate(asked, &[("count", &ids.len().to_string())]);
         for fact in facts {
             message = format!("{message}\n\n{fact}");
         }

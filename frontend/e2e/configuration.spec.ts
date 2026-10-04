@@ -239,7 +239,7 @@ test.describe('application keys', () => {
     await dialog.getByLabel('Name').fill('n8n');
     // Ticked through the screen: a checkbox wired to nothing would send a key
     // that cannot operate, and the simulation below would answer 403.
-    await dialog.getByRole('checkbox', { name: /^operate/ }).check();
+    await dialog.getByRole('checkbox', { name: /^operate/i }).check();
     await dialog.getByRole('button', { name: 'Create a key' }).click();
 
     // Read as the reader reads it, the one token on the page.

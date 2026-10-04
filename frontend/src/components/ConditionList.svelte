@@ -88,6 +88,9 @@
     onRemove(index);
     void handFocus(`rules-${list}-${index}-delete`, `rules-${list}-add`);
   }
+
+  /** The condition kinds whose caption says "not": `genre_not_contains`, `original_language_not`. */
+  const NEGATED = /_not(_|$)/;
 </script>
 
 <!-- A caption over a *list* of controls is a group heading, not a label: a
@@ -128,8 +131,10 @@
                selector would stand, or the search box after the first value
                reads as an invitation to give a title a second language. The
                field names it as its description, so it is heard as well. -->
+          <!-- Under a negated caption ("does not contain") the words differ in
+               most languages, where English says "any of" either way. -->
           <span class="condition-quantifier" id="rules-{list}-{index}-quantifier"
-            >{t('QuantifierAny')}</span
+            >{t(NEGATED.test(condition.type) ? 'QuantifierNoneOf' : 'QuantifierAny')}</span
           >
         {/if}
         <div class="condition-value flex-1">

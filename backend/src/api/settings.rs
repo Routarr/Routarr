@@ -52,8 +52,9 @@ pub async fn update(
 
     // Validate everything before writing anything: a half-applied settings save
     // is worse than a rejected one.
+    let localizer = state.localizer().await;
     for (key, value) in &req.settings {
-        check(key, value, &categories)?;
+        check(key, value, &categories, &localizer)?;
     }
     if let Some(list) = req.settings.get("metadata_providers") {
         refuse_a_source_without_its_key(&state, list, &req.settings).await?;
