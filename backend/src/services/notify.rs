@@ -6,13 +6,13 @@
 //! failing for a week, or an automatic apply that Radarr rejected, is invisible
 //! until someone thinks to look.
 //!
-//! One mechanism, not a gallery of connectors: a POST of JSON to a URL the user
-//! configures. The payload carries the same text under the field names the usual
-//! receivers read (`content` for Discord, `message` for Gotify, `body` for
-//! Apprise, and `title` and `message` for ntfy, whose address turns on its
-//! templates to read them), alongside Routarr's own structured fields for
-//! anything that parses properly. With a signing secret it is signed as Standard Webhooks
-//! specifies, so a receiver can tell it came from Routarr.
+//! One address, written to in the shape its receiver reads (`Format`): Discord
+//! an embed coloured by the outcome, ntfy a text with its title, priority and
+//! tags in headers, Gotify a message with a priority, Apprise its own fields.
+//! Any other receiver gets Routarr's JSON (`Notification`), which carries the
+//! same text under the names Discord, Gotify and Apprise read, and the ids and
+//! counts a program parses. With a signing secret every shape is signed as
+//! Standard Webhooks specifies, so a receiver can tell it came from Routarr.
 
 use std::time::Duration;
 
@@ -26,6 +26,7 @@ use tracing::{debug, error, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::send_ok;
+use crate::localization::Localizer;
 use crate::state::AppState;
 
 /// Something worth telling.
@@ -50,6 +51,8 @@ pub enum Event {
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
     /// An apply or a revert finished. Asked for by `notify_moves_completed`.
     MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize },
+    /// Sent from Settings to check the address and the format.
+    Test,
 }
 
 impl Event {
@@ -74,6 +77,7 @@ impl Event {
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
+            Event::Test => "test",
         }
     }
 
@@ -86,7 +90,7 @@ impl Event {
             | Event::SyncFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
-            Event::SimulationCompleted { .. } => "info",
+            Event::SimulationCompleted { .. } | Event::Test => "info",
         }
     }
 
@@ -126,6 +130,25 @@ impl Event {
                 "Routarr {} titles. Moved: {applied}, failed: {failed}, skipped: {skipped}.",
                 if *reverted { "moved back" } else { "moved" }
             ),
+            Event::Test => {
+                "Routarr reaches this address. Its notifications arrive here like this one."
+                    .to_string()
+            }
+        }
+    }
+
+    /// What happened in a few words, the title a receiver shows above the
+    /// message. English, like the message.
+    fn headline(&self) -> &'static str {
+        match self {
+            Event::InstanceUnreachable { .. } => "Instance unreachable",
+            Event::InstanceRecovered { .. } => "Instance reachable again",
+            Event::AutoApplyFailed { .. } => "Automatic apply failed",
+            Event::SyncFailed { .. } => "Sync failed",
+            Event::SimulationCompleted { .. } => "Simulation finished",
+            Event::MovesCompleted { reverted: false, .. } => "Apply finished",
+            Event::MovesCompleted { reverted: true, .. } => "Revert finished",
+            Event::Test => "Test notification",
         }
     }
 
@@ -147,6 +170,168 @@ impl Event {
             Event::MovesCompleted { applied, failed, skipped, .. } => {
                 serde_json::json!({ "applied": applied, "failed": failed, "skipped": skipped })
             }
+            Event::Test => serde_json::json!({}),
+        }
+    }
+}
+
+/// The values `notification_format` may hold: `auto` reads the format off the
+/// address, the others name it.
+pub const FORMATS: [&str; 6] = ["auto", "json", "discord", "ntfy", "gotify", "apprise"];
+
+/// The shape a notification is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Format {
+    Json,
+    Discord,
+    Ntfy,
+    Gotify,
+    Apprise,
+}
+
+impl Format {
+    /// The format `setting` names, or under `auto` the one `url` shows.
+    pub fn of(setting: &str, url: &str) -> Format {
+        match setting {
+            "json" => Format::Json,
+            "discord" => Format::Discord,
+            "ntfy" => Format::Ntfy,
+            "gotify" => Format::Gotify,
+            "apprise" => Format::Apprise,
+            _ => Format::recognised(url),
+        }
+    }
+
+    /// A Discord webhook and a topic on ntfy.sh, known by their host. Gotify,
+    /// Apprise and a server of one's own serve any address, which says nothing
+    /// of what answers it, so they get Routarr's JSON, which they read too.
+    fn recognised(url: &str) -> Format {
+        let Ok(url) = reqwest::Url::parse(url) else {
+            return Format::Json;
+        };
+        let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+        let discord = ["discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"];
+        if discord.contains(&host.as_str()) && url.path().starts_with("/api/webhooks/") {
+            return Format::Discord;
+        }
+        // A templated topic reads `title` and `message` out of the JSON.
+        let templated = url.query_pairs().any(|(key, _)| key == "template" || key == "tpl");
+        if host == "ntfy.sh" && !templated {
+            return Format::Ntfy;
+        }
+        Format::Json
+    }
+}
+
+/// What is posted: the body, its type, and the headers ntfy reads its
+/// title, priority and tags from.
+struct Payload {
+    body: String,
+    content_type: &'static str,
+    headers: Vec<(&'static str, String)>,
+}
+
+/// The longest description a Discord embed takes, in characters.
+const DISCORD_DESCRIPTION: usize = 4096;
+/// The longest body ntfy shows as text, in bytes. A longer one becomes an
+/// attachment nobody reads in the notification.
+const NTFY_BODY: usize = 4096;
+
+/// `text` cut to at most `max` of what `size` counts, on a character boundary.
+fn clipped(text: &str, max: usize, size: impl Fn(char) -> usize) -> String {
+    let mut used = 0;
+    text.chars()
+        .take_while(|c| {
+            used += size(*c);
+            used <= max
+        })
+        .collect()
+}
+
+fn payload(event: &Event, at: &str, format: Format) -> Payload {
+    let json = |value: serde_json::Value| Payload {
+        body: value.to_string(),
+        content_type: "application/json",
+        headers: Vec::new(),
+    };
+    match format {
+        Format::Json => Payload {
+            body: serde_json::to_string(&notification(event, at)).unwrap_or_default(),
+            content_type: "application/json",
+            headers: Vec::new(),
+        },
+        Format::Discord => json(serde_json::json!({
+            "username": "Routarr",
+            "embeds": [{
+                "title": event.headline(),
+                "description": clipped(&event.message(), DISCORD_DESCRIPTION, |_| 1),
+                "color": event.colour(),
+                "timestamp": at,
+                "footer": { "text": event.kind() },
+            }],
+            "allowed_mentions": AllowedMentions::default(),
+        })),
+        Format::Ntfy => Payload {
+            body: clipped(&event.message(), NTFY_BODY, char::len_utf8),
+            content_type: "text/plain; charset=utf-8",
+            headers: vec![
+                ("Title", event.headline().to_string()),
+                ("Priority", event.ntfy_priority().to_string()),
+                ("Tags", event.ntfy_tag().to_string()),
+            ],
+        },
+        Format::Gotify => json(serde_json::json!({
+            "title": event.headline(),
+            "message": event.message(),
+            "priority": event.gotify_priority(),
+        })),
+        Format::Apprise => json(serde_json::json!({
+            "title": event.headline(),
+            "body": event.message(),
+            "type": event.outcome(),
+            "format": "text",
+        })),
+    }
+}
+
+impl Event {
+    /// Discord's embed colour: red for a failure, amber for a partial apply,
+    /// green for a recovery or a clean run, blue for the rest.
+    fn colour(&self) -> u32 {
+        match self.outcome() {
+            "failure" => 0xD7_3A_49,
+            "warning" => 0xE3_A0_08,
+            "success" => 0x2E_A0_43,
+            _ => 0x3B_82_F6,
+        }
+    }
+
+    /// ntfy's priority, from 1 to 5: a failure rings, a finished run does not.
+    fn ntfy_priority(&self) -> u8 {
+        match self.severity() {
+            "error" => 4,
+            "warning" => 3,
+            _ => 2,
+        }
+    }
+
+    /// The emoji ntfy shows beside the title, named as ntfy names it.
+    fn ntfy_tag(&self) -> &'static str {
+        match self.outcome() {
+            "failure" => "rotating_light",
+            "warning" => "warning",
+            "success" => "white_check_mark",
+            _ => "information_source",
+        }
+    }
+
+    /// Gotify's priority, from 0 to 10. Its Android client sounds from 4 and
+    /// shows a failure on screen from 8.
+    fn gotify_priority(&self) -> u8 {
+        match self.severity() {
+            "error" => 8,
+            "warning" => 5,
+            _ => 2,
         }
     }
 }
@@ -156,7 +341,8 @@ impl Event {
 pub struct Notification {
     /// What happened, in snake case: `instance_unreachable`,
     /// `instance_recovered`, `auto_apply_failed`, `sync_failed`,
-    /// `simulation_completed`, `apply_completed` or `revert_completed`.
+    /// `simulation_completed`, `apply_completed`, `revert_completed`, or
+    /// `test` when sent from Settings.
     pub event: &'static str,
     /// When it happened, in RFC 3339.
     pub timestamp: String,
@@ -186,11 +372,11 @@ pub struct Notification {
     pub data: serde_json::Value,
 }
 
-fn notification(event: &Event) -> Notification {
+fn notification(event: &Event, at: &str) -> Notification {
     let message = event.message();
     Notification {
         event: event.kind(),
-        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        timestamp: at.to_string(),
         severity: event.severity(),
         outcome: event.outcome(),
         source: "routarr",
@@ -256,29 +442,49 @@ pub async fn send(state: &AppState, event: Event) {
         return;
     }
 
-    let Ok(body) = serde_json::to_string(&notification(&event)) else {
-        return;
-    };
-    let delivery =
-        Delivery { id: format!("msg_{}", uuid::Uuid::new_v4().simple()), body, kind: event.kind() };
-
+    let delivery = Delivery::of(event);
     let Ok(_pending) = state.notifications.pending.try_acquire() else {
-        warn!(event = delivery.kind, "Too many notifications are waiting, this one is dropped");
+        warn!(event = delivery.kind(), "Too many notifications are waiting, this one is dropped");
         return;
     };
     let _turn = state.notifications.turn.lock().await;
-    let mut wait = match delivery.attempt(state).await {
+    let mut wait = match delivery.attempt(state).await.map_err(|failed| failed.again()) {
         Ok(()) | Err(None) => return,
         Err(Some(asked)) => asked,
     };
     for delay in RETRIES {
         tokio::time::sleep(wait.map_or(delay, |asked| asked.max(delay))).await;
-        match delivery.attempt(state).await {
+        match delivery.attempt(state).await.map_err(|failed| failed.again()) {
             Ok(()) | Err(None) => return,
             Err(Some(asked)) => wait = asked,
         }
     }
-    warn!(event = delivery.kind, "Notification not delivered after every retry");
+    warn!(event = delivery.kind(), "Notification not delivered after every retry");
+}
+
+/// Send [`Event::Test`] once, at once, and say why it did not arrive. Past
+/// the queue: the operator waits on the answer, and a delivery being retried
+/// would hold it for minutes.
+pub async fn send_test(state: &AppState, localizer: &Localizer) -> AppResult<()> {
+    match Delivery::of(Event::Test).attempt(state).await {
+        Ok(()) => Ok(()),
+        Err(Undelivered::NoAddress) => {
+            Err(AppError::BadRequest(localizer.translate("NotificationTestNoAddress", &[])))
+        }
+        Err(Undelivered::SecretUnreadable) => {
+            Err(AppError::Conflict(localizer.translate("SigningSecretUnreadable", &[])))
+        }
+        Err(Undelivered::Failed { error: AppError::ExternalApi { status, .. }, .. })
+            if status != 0 =>
+        {
+            Err(AppError::UpstreamDown(
+                localizer.translate("NotificationTestRefused", &[("status", &status.to_string())]),
+            ))
+        }
+        Err(Undelivered::Failed { .. }) => {
+            Err(AppError::UpstreamDown(localizer.translate("NotificationTestUnreachable", &[])))
+        }
+    }
 }
 
 /// `send`, on a task of its own, for an event a caller must not wait on: the
@@ -305,69 +511,106 @@ async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {
 
 /// One message, tried as many times as it takes, under one id.
 ///
-/// The address and the secrets are read again at each attempt, not kept from
-/// the first: a retry runs minutes later, and an address cleared or a secret
-/// replaced in between because it leaked must not be used again.
+/// The address, the format and the secrets are read again at each attempt,
+/// not kept from the first: a retry runs minutes later, and an address
+/// cleared or a secret replaced in between because it leaked must not be used
+/// again.
 struct Delivery {
     id: String,
-    body: String,
-    kind: &'static str,
+    event: Event,
+    /// When the event happened, in RFC 3339, the same at every attempt.
+    at: String,
+}
+
+/// Why an attempt did not deliver.
+enum Undelivered {
+    /// The address was cleared.
+    NoAddress,
+    /// Sent unsigned, the message would pass a receiver that checks a
+    /// signature only when there is one.
+    SecretUnreadable,
+    /// The receiver refused or did not answer. `again` holds the wait before
+    /// another attempt, the receiver's own when it named one, and is `None`
+    /// for a 4xx other than 429: the receiver refuses this message and will
+    /// refuse it again.
+    Failed { error: AppError, again: Option<Option<Duration>> },
+}
+
+impl Undelivered {
+    fn again(self) -> Option<Option<Duration>> {
+        match self {
+            Undelivered::Failed { again, .. } => again,
+            Undelivered::NoAddress | Undelivered::SecretUnreadable => None,
+        }
+    }
 }
 
 impl Delivery {
-    /// One attempt. `Err(Some(wait))` is worth another after at least `wait`,
-    /// `Err(None)` is not: a 4xx other than 429 says the receiver refuses this
-    /// message, and it will refuse it again, and a cleared address or a secret
-    /// that cannot be read has nowhere safe to send it.
-    async fn attempt(&self, state: &AppState) -> Result<(), Option<Option<Duration>>> {
-        let Some(url) = webhook_url(state, self.kind).await else {
-            return Err(None);
+    fn of(event: Event) -> Self {
+        Self {
+            id: format!("msg_{}", uuid::Uuid::new_v4().simple()),
+            at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+            event,
+        }
+    }
+
+    fn kind(&self) -> &'static str {
+        self.event.kind()
+    }
+
+    async fn attempt(&self, state: &AppState) -> Result<(), Undelivered> {
+        let kind = self.kind();
+        let Some(url) = webhook_url(state, kind).await else {
+            return Err(Undelivered::NoAddress);
         };
         let keys = match signing_keys(state).await {
             Signing::Unsigned => Vec::new(),
             Signing::Keys(keys) => keys,
-            // Sent unsigned, the message would pass a receiver that checks a
-            // signature only when there is one.
             Signing::Unreadable => {
                 error!(
-                    event = self.kind,
+                    event = kind,
                     "The signing secret cannot be opened with this installation's key, so the \
                      notification is not sent. Replace the secret in Settings."
                 );
-                return Err(None);
+                return Err(Undelivered::SecretUnreadable);
             }
         };
+        let format = state.setting::<String>("notification_format", "auto".into()).await;
+        let payload = payload(&self.event, &self.at, Format::of(&format, &url));
         // Signed at each attempt: a receiver refuses a timestamp too old, and a
         // retry five minutes on would carry one.
         let timestamp = chrono::Utc::now().timestamp().to_string();
         let mut request = state
             .http
             .post(&url)
-            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .header(reqwest::header::CONTENT_TYPE, payload.content_type)
             .header("webhook-id", &self.id)
-            .header("webhook-timestamp", &timestamp)
-            .body(self.body.clone());
+            .header("webhook-timestamp", &timestamp);
+        for (name, value) in &payload.headers {
+            request = request.header(*name, value);
+        }
         if !keys.is_empty() {
-            request =
-                request.header("webhook-signature", sign(&keys, &self.id, &timestamp, &self.body));
+            request = request
+                .header("webhook-signature", sign(&keys, &self.id, &timestamp, &payload.body));
         }
         // Through `send_ok`, which says why a send failed without the address:
         // a Discord or Slack webhook URL carries its secret in the path.
-        match send_ok("Notification webhook", request).await {
+        match send_ok("Notification webhook", request.body(payload.body)).await {
             Ok(()) => {
-                debug!(event = self.kind, "Notification delivered");
+                debug!(event = kind, "Notification delivered");
                 Ok(())
             }
-            Err(e) => {
-                warn!(event = self.kind, "Notification not delivered: {e}");
-                Err(match e {
+            Err(error) => {
+                warn!(event = kind, "Notification not delivered: {error}");
+                let again = match &error {
                     AppError::ExternalApi { status, retry_after, .. }
-                        if status == 0 || status == 429 || status >= 500 =>
+                        if *status == 0 || *status == 429 || *status >= 500 =>
                     {
                         Some(retry_after.map(Duration::from_secs))
                     }
                     _ => None,
-                })
+                };
+                Err(Undelivered::Failed { error, again })
             }
         }
     }
@@ -480,11 +723,18 @@ mod receivers {
             Event::SimulationCompleted { simulation_id: "s-1".into(), total: 3, moves: 1 },
             Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0 },
             Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0 },
+            Event::Test,
         ]
     }
 
+    const AT: &str = "2026-10-04T12:00:00Z";
+
     fn sent(event: &Event) -> serde_json::Value {
-        serde_json::to_value(notification(event)).unwrap()
+        serde_json::to_value(notification(event, AT)).unwrap()
+    }
+
+    fn posted(event: &Event, format: Format) -> serde_json::Value {
+        serde_json::from_str(&payload(event, AT, format).body).unwrap()
     }
 
     /// Each event names itself, says how serious it is, and carries the ids
@@ -504,6 +754,7 @@ mod receivers {
             ),
             ("apply_completed", "warning", json!({ "applied": 1, "failed": 1, "skipped": 0 })),
             ("revert_completed", "info", json!({ "applied": 1, "failed": 0, "skipped": 0 })),
+            ("test", "info", json!({})),
         ];
         for (event, (name, severity, data)) in every_event().iter().zip(expected) {
             let sent = sent(event);
@@ -519,8 +770,9 @@ mod receivers {
     /// the colour and the mark: a failure red, a partial apply amber, a
     /// recovery and a clean run green.
     #[test]
-    fn apprise_api_accepts_every_event_and_shows_its_outcome() {
-        let outcomes = ["failure", "success", "failure", "failure", "info", "warning", "success"];
+    fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
+        let outcomes =
+            ["failure", "success", "failure", "failure", "info", "warning", "success", "info"];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
         for (event, outcome) in events.iter().zip(outcomes) {
@@ -545,7 +797,7 @@ mod receivers {
     /// Discord refuses a message with no `content` (nor embed) and one over
     /// 2000 characters.
     #[test]
-    fn discord_accepts_every_event() {
+    fn discord_accepts_routarrs_json_for_every_event() {
         for event in every_event() {
             let sent = sent(&event);
             let content = sent["content"].as_str().unwrap_or_default();
@@ -556,7 +808,7 @@ mod receivers {
     /// Gotify refuses a message with no `message`, and a `priority` or a
     /// `title` of the wrong type.
     #[test]
-    fn gotify_accepts_every_event() {
+    fn gotify_accepts_routarrs_json_for_every_event() {
         for event in every_event() {
             let sent = sent(&event);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");
@@ -568,10 +820,118 @@ mod receivers {
     /// ntfy publishes any body posted to a topic as its text, and turns one
     /// over 4096 bytes into an attachment nobody reads in the notification.
     #[test]
-    fn ntfy_shows_every_event_as_text() {
+    fn ntfy_shows_routarrs_json_for_every_event_as_text() {
         for event in every_event() {
-            let sent = serde_json::to_string(&notification(&event)).unwrap();
+            let sent = serde_json::to_string(&notification(&event, AT)).unwrap();
             assert!(sent.len() <= 4096, "{} bytes", sent.len());
+        }
+    }
+
+    #[test]
+    fn discord_and_ntfy_addresses_are_recognised_and_others_get_json() {
+        let cases = [
+            ("https://discord.com/api/webhooks/1/abc", Format::Discord),
+            ("https://discordapp.com/api/webhooks/1/abc", Format::Discord),
+            ("https://canary.discord.com/api/webhooks/1/abc", Format::Discord),
+            ("https://discord.com/channels/1", Format::Json),
+            ("https://ntfy.sh/routarr", Format::Ntfy),
+            ("https://ntfy.sh/routarr?template=yes&message={{.message}}", Format::Json),
+            ("https://ntfy.example.org/routarr", Format::Json),
+            ("https://gotify.example.org/message?token=abc", Format::Json),
+            ("not an address", Format::Json),
+        ];
+        for (url, format) in cases {
+            assert_eq!(Format::of("auto", url), format, "{url}");
+        }
+    }
+
+    #[test]
+    fn a_format_named_in_settings_wins_over_the_address() {
+        assert_eq!(Format::of("gotify", "https://ntfy.sh/routarr"), Format::Gotify);
+        assert_eq!(Format::of("json", "https://discord.com/api/webhooks/1/a"), Format::Json);
+        assert_eq!(Format::of("ntfy", "https://push.example.org/routarr"), Format::Ntfy);
+        assert_eq!(Format::of("apprise", "https://apprise.example.org/notify/k"), Format::Apprise);
+    }
+
+    /// Discord refuses an embed without a title or a description, and one
+    /// over 4096 characters, and pings what a message names unless
+    /// `allowed_mentions` says otherwise.
+    #[test]
+    fn discord_gets_an_embed_coloured_by_the_outcome() {
+        for event in every_event() {
+            let sent = posted(&event, Format::Discord);
+            let embed = &sent["embeds"][0];
+            assert_eq!(embed["title"], event.headline(), "{sent}");
+            let description = embed["description"].as_str().unwrap_or_default();
+            assert!(!description.is_empty() && description.chars().count() <= 4096, "{sent}");
+            assert_eq!(sent["allowed_mentions"], serde_json::json!({ "parse": [] }), "{sent}");
+        }
+        let colour = |event: &Event| posted(event, Format::Discord)["embeds"][0]["color"].clone();
+        let failed = colour(&every_event()[0]);
+        let recovered = colour(&every_event()[1]);
+        assert_ne!(failed, recovered);
+    }
+
+    /// ntfy reads its title, priority and tags from headers, and shows the
+    /// body as the message. A failure rings, a finished run stays quiet.
+    #[test]
+    fn ntfy_gets_the_message_as_text_and_the_rest_in_headers() {
+        let header = |payload: &Payload, name: &str| {
+            payload.headers.iter().find(|(key, _)| *key == name).map(|(_, value)| value.clone())
+        };
+        let unreachable = &every_event()[0];
+        let sent = payload(unreachable, AT, Format::Ntfy);
+        assert_eq!(sent.body, unreachable.message());
+        assert!(sent.content_type.starts_with("text/plain"));
+        assert_eq!(header(&sent, "Title").as_deref(), Some("Instance unreachable"));
+        assert_eq!(header(&sent, "Priority").as_deref(), Some("4"));
+        assert_eq!(header(&sent, "Tags").as_deref(), Some("rotating_light"));
+
+        let finished = payload(&every_event()[6], AT, Format::Ntfy);
+        assert_eq!(header(&finished, "Priority").as_deref(), Some("2"));
+        assert_eq!(header(&finished, "Tags").as_deref(), Some("white_check_mark"));
+    }
+
+    /// An error is whatever the Arr answered, of any length, and each
+    /// receiver drops or hides what passes its limit.
+    #[test]
+    fn a_long_error_is_cut_to_what_discord_and_ntfy_show() {
+        let event = Event::SyncFailed {
+            instance_id: "inst-1".into(),
+            instance: "Radarr".into(),
+            error: "é".repeat(5_000),
+        };
+        let discord = posted(&event, Format::Discord);
+        let description = discord["embeds"][0]["description"].as_str().unwrap();
+        assert_eq!(description.chars().count(), 4096);
+        let ntfy = payload(&event, AT, Format::Ntfy).body;
+        assert!(ntfy.len() <= 4096 && ntfy.len() > 4000, "{} bytes", ntfy.len());
+    }
+
+    /// Gotify's Android client is silent below 4 and puts a message on
+    /// screen from 8.
+    #[test]
+    fn gotify_gets_a_priority_by_severity() {
+        let priorities: Vec<i64> = every_event()
+            .iter()
+            .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
+            .collect();
+        assert_eq!(priorities, [8, 2, 8, 8, 2, 5, 2, 2]);
+        for event in every_event() {
+            let sent = posted(&event, Format::Gotify);
+            assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");
+            assert!(sent["title"].is_string(), "{sent}");
+        }
+    }
+
+    #[test]
+    fn apprise_gets_only_the_fields_it_reads() {
+        for event in every_event() {
+            let sent = posted(&event, Format::Apprise);
+            let fields: Vec<&str> = sent.as_object().unwrap().keys().map(String::as_str).collect();
+            assert_eq!(fields, ["body", "format", "title", "type"], "{sent}");
+            assert_eq!(sent["type"], event.outcome());
+            assert_eq!(sent["format"], "text");
         }
     }
 }

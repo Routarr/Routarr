@@ -50,6 +50,7 @@ const STRINGS = {
   SavesEverySection: 'Every section is saved together',
   DiscardChanges: 'Discard',
   Save: 'Save',
+  SettingNotificationFormat: 'Notification format',
   SettingOn: 'On',
   SettingOff: 'Off',
   MoveUp: 'Move up',
@@ -508,6 +509,19 @@ describe('the metadata sources', () => {
 });
 
 describe('the notification webhook', () => {
+  it('offers every format the server writes, and saves the one chosen', async () => {
+    mount({});
+    await openSection('Automation');
+
+    const format = await screen.findByLabelText('Notification format');
+    const offered = [...format.querySelectorAll('option')].map((option) => option.value);
+    expect(offered).toEqual(['auto', 'json', 'discord', 'ntfy', 'gotify', 'apprise']);
+    expect((format as HTMLSelectElement).value).toBe('auto');
+
+    await userEvent.selectOptions(format, 'ntfy');
+    expect((await save()).notification_format).toBe('ntfy');
+  });
+
   /**
    * The address is the channel's credential, sealed by the server and never
    * returned: the field reads empty whether or not one is stored, so the

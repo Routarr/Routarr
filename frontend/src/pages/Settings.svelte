@@ -19,6 +19,7 @@
   } from '../lib/settings';
   import FileButton from '../components/FileButton.svelte';
   import BackupCard from '../components/BackupCard.svelte';
+  import NotificationTest from '../components/NotificationTest.svelte';
   import WebhookSigning from '../components/WebhookSigning.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Loading from '../components/Loading.svelte';
@@ -698,7 +699,7 @@
                       </option>
                     {/each}
                   </select>
-                {:else if field.kind === 'theme'}
+                {:else if field.kind === 'choice'}
                   <select
                     id="setting-{field.key}"
                     aria-describedby="setting-{field.key}-help"
@@ -706,9 +707,11 @@
                     value={draft[field.key] ?? field.fallback}
                     onchange={(event) => (draft[field.key] = event.currentTarget.value)}
                   >
-                    <option value="dark">{t('ThemeDark')}</option>
-                    <option value="light">{t('ThemeLight')}</option>
-                    <option value="auto">{t('ThemeAuto')}</option>
+                    {#each field.choices ?? [] as choice (choice.value)}
+                      <option value={choice.value}>
+                        {'name' in choice ? choice.name : t(choice.labelKey)}
+                      </option>
+                    {/each}
                   </select>
                 {:else if field.kind === 'category'}
                   <select
@@ -834,6 +837,7 @@
         </form>
 
         {#if section === 'automation'}
+          <NotificationTest {outcome} />
           <WebhookSigning {outcome} />
         {/if}
       </div>

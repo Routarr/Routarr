@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Metatietojen välimuisti (päivää)",
   "SettingMetadataTtlHelp": "Kuinka kauan metatiedot pysyvät voimassa ennen uutta hakua.",
   "SettingNotificationWebhook": "Ilmoitus-webhook",
-  "SettingNotificationWebhookHelp": "Osoite, johon Routarr lähettää JSONia, kun jokin epäonnistuu ilman valvontaa: Arr, jota ei enää tavoiteta, tai automaattinen toteutus, jonka Arr hylkäsi. Lähetetään kerran tilanmuutosta kohden, ei joka uudella yrityksellä. Toimii Discordin, Gotifyn ja Apprisen kanssa sekä ntfy:n kanssa osoitteella https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Tallennetaan salattuna eikä sitä viedä koskaan, sillä pelkällä osoitteella kuka tahansa voi lähettää kanavalle. Poista se, niin ilmoitukset loppuvat.",
+  "SettingNotificationWebhookHelp": "Osoite, johon Routarr lähettää viestin, kun jokin epäonnistuu ilman valvontaa: Arr, jota ei enää tavoiteta, tai automaattinen toteutus, jonka Arr hylkäsi. Lähetetään kerran tilanmuutosta kohden, ei joka uudella yrityksellä. Alla oleva muoto kirjoittaa sen niin kuin Discord, ntfy, Gotify tai Apprise sen lukee. Tallennetaan salattuna eikä sitä viedä koskaan, sillä pelkällä osoitteella kuka tahansa voi lähettää kanavalle. Poista se, niin ilmoitukset loppuvat.",
   "SettingRefusedAddress": "{field}: osoitteen on alettava http:// tai https://.",
   "SettingNotifySyncFailed": "Synkronointivirheet",
   "SettingNotifySyncFailedHelp": "Lähetetään ilmoitus-webhookille: jokainen epäonnistunut synkronointi, ei vain silloin, kun instanssi lakkaa vastaamasta.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Lataa",
   "SigningSecretUnreadable": "Allekirjoitussalaisuutta ei voi avata tämän asennuksen avaimella, joten ilmoituksia ei lähetetä. Korvaa salaisuus.",
   "SigningSecretMintedOnce": "Kopioi se nyt. Se näytetään kerran, eikä sitä voi lukea uudelleen.",
-  "ErrorPreviewsWaiting": "Esikatseluja on jo jonossa kirjaston lukemista varten. Yritä uudelleen, kun yksi on valmis."
+  "ErrorPreviewsWaiting": "Esikatseluja on jo jonossa kirjaston lukemista varten. Yritä uudelleen, kun yksi on valmis.",
+  "SettingNotificationFormat": "Ilmoitusten muoto",
+  "SettingNotificationFormatHelp": "Miten kukin ilmoitus kirjoitetaan. Automaattinen tunnistaa Discord-webhookin ja ntfy.sh-palvelun aiheen ja lähettää Routarrin JSONin mihin tahansa muuhun osoitteeseen. Valitse ntfy omalla palvelimellasi olevalle aiheelle, Gotify sen viestiosoitteelle sovellustunnuksen kanssa ja Apprise Apprise API -osoitteelle. Routarrin JSON sisältää tapahtuman, sen vakavuuden ja sen tunnisteet toista sovellusta varten.",
+  "NotificationFormatAuto": "Automaattinen",
+  "NotificationFormatJson": "Routarrin JSON",
+  "NotificationTest": "Testi-ilmoitus",
+  "NotificationTestHelp": "Lähettää viestin tallennettuun osoitteeseen tallennetussa muodossa ja allekirjoitettuna kuten muutkin. Tallenna muutos ennen kuin testaat sitä.",
+  "SendTestNotification": "Lähetä testi-ilmoitus",
+  "NotificationTestSent": "Vastaanottaja otti testi-ilmoituksen vastaan.",
+  "NotificationTestNoAddress": "Ilmoitusten webhookille ei ole tallennettu osoitetta. Tallenna osoite ja lähetä testi uudelleen.",
+  "NotificationTestRefused": "Vastaanottaja hylkäsi testi-ilmoituksen koodilla HTTP {status}. Tarkista osoite ja muoto.",
+  "NotificationTestUnreachable": "Testi-ilmoitus ei saavuttanut osoitetta. Tarkista, että se on oikein ja että Routarr tavoittaa sen."
 }

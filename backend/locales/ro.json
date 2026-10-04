@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Cache de metadate (zile)",
   "SettingMetadataTtlHelp": "Cât timp rămân valabile metadatele înainte de a fi preluate din nou.",
   "SettingNotificationWebhook": "Webhook de notificare",
-  "SettingNotificationWebhookHelp": "Un URL către care Routarr trimite JSON când ceva eșuează fără martori: un Arr la care nu mai poate ajunge, sau o decizie aplicată automat pe care Arr a refuzat-o. Trimis o dată per schimbare de stare, nu la fiecare reîncercare. Funcționează cu Discord, Gotify și Apprise, și cu ntfy dacă i se dă adresa https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Se stochează criptat și nu se exportă niciodată, deoarece doar adresa îi permite oricui să publice pe canal. Elimină-l pentru a opri notificările.",
+  "SettingNotificationWebhookHelp": "Un URL către care Routarr trimite un mesaj când ceva eșuează fără martori: un Arr la care nu mai poate ajunge, sau o decizie aplicată automat pe care Arr a refuzat-o. Trimis o dată per schimbare de stare, nu la fiecare reîncercare. Formatul de mai jos îl scrie așa cum îl citesc Discord, ntfy, Gotify sau Apprise. Se stochează criptat și nu se exportă niciodată, deoarece doar adresa îi permite oricui să publice pe canal. Elimină-l pentru a opri notificările.",
   "SettingRefusedAddress": "{field} acceptă o adresă http:// sau https://.",
   "SettingNotifySyncFailed": "Sincronizări eșuate",
   "SettingNotifySyncFailedHelp": "Trimis la webhookul de notificare: fiecare sincronizare eșuată, nu doar când o instanță devine inaccesibilă.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Descarcă",
   "SigningSecretUnreadable": "Secretul de semnare nu poate fi deschis cu cheia acestei instalări, deci nu se trimite nicio notificare. Înlocuiește secretul.",
   "SigningSecretMintedOnce": "Copiază-l acum. Este afișat o singură dată și nu mai poate fi citit.",
-  "ErrorPreviewsWaiting": "Există deja previzualizări care așteaptă să citească biblioteca. Încearcă din nou după ce una s-a terminat."
+  "ErrorPreviewsWaiting": "Există deja previzualizări care așteaptă să citească biblioteca. Încearcă din nou după ce una s-a terminat.",
+  "SettingNotificationFormat": "Formatul notificărilor",
+  "SettingNotificationFormatHelp": "Cum este scrisă fiecare notificare. Automat recunoaște un webhook Discord și un subiect pe ntfy.sh, și trimite JSON-ul Routarr către orice altă adresă. Alege ntfy pentru un subiect pe propriul server, Gotify pentru adresa sa de mesaje cu un token de aplicație, și Apprise pentru o adresă a API-ului Apprise. JSON-ul Routarr conține evenimentul, gravitatea sa și identificatorii săi pentru o altă aplicație.",
+  "NotificationFormatAuto": "Automat",
+  "NotificationFormatJson": "JSON Routarr",
+  "NotificationTest": "Notificare de test",
+  "NotificationTestHelp": "Trimite un mesaj la adresa salvată, în formatul salvat și semnat ca celelalte. Salvează o modificare înainte de a o testa.",
+  "SendTestNotification": "Trimite o notificare de test",
+  "NotificationTestSent": "Destinatarul a acceptat notificarea de test.",
+  "NotificationTestNoAddress": "Nu este salvată nicio adresă de webhook pentru notificări. Salvează una, apoi trimite din nou testul.",
+  "NotificationTestRefused": "Destinatarul a refuzat notificarea de test cu HTTP {status}. Verifică adresa și formatul.",
+  "NotificationTestUnreachable": "Notificarea de test nu a ajuns la adresă. Verifică dacă este corectă și dacă Routarr o poate accesa."
 }

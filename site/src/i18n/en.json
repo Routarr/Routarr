@@ -94,7 +94,7 @@
   "features.p.3": "A per-instance secret URL. New additions are synced, enriched and evaluated immediately instead of at the next poll.",
   "features.p.4": "Pin a title to a category and the engine stops arguing. An exception outranks every rule, and any applied move can be undone from the history.",
   "features.p.5": "Library size, decisions per category and status, instance health, and the state of the guardrails, all behind the same API key.",
-  "features.p.6": "One generic JSON webhook for Discord, Gotify, Apprise, or ntfy through its template address. An Arr that stops answering is reported once, and again when it is back, not on every retry. Failed syncs and finished runs can be switched on too.",
+  "features.p.6": "One webhook, written the way Discord, ntfy, Gotify or Apprise reads it, or as JSON for anything else, and a test message to check it. An Arr that stops answering is reported once, and again when it is back, not on every retry. Failed syncs and finished runs can be switched on too.",
   "features.p.7": "Rules, categories, mappings and exceptions export as JSON and travel between installations. Arr API keys are AES-256-GCM-encrypted and never leave.",
   "features.span": "Features",
   "folders.col.category": "Category",

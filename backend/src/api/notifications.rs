@@ -1,4 +1,5 @@
-//! The secret the notification webhook is signed with. Owner-only.
+//! The secret the notification webhook is signed with, and a test message to
+//! it. Owner-only.
 
 use super::Json;
 use axum::extract::State;
@@ -25,5 +26,13 @@ pub async fn rotate_signing(State(state): State<AppState>) -> AppResult<Json<Sig
 
 pub async fn remove_signing(State(state): State<AppState>) -> AppResult<StatusCode> {
     notify::remove_signing_secrets(&state).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Send a test notification to the saved address, in the saved format, and
+/// answer once it has arrived or with why it has not.
+pub async fn test(State(state): State<AppState>) -> AppResult<StatusCode> {
+    let localizer = state.localizer().await;
+    notify::send_test(&state, &localizer).await?;
     Ok(StatusCode::NO_CONTENT)
 }

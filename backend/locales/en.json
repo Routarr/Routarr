@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Metadata cache TTL (days)",
   "SettingMetadataTtlHelp": "How long metadata stays fresh before it is re-fetched.",
   "SettingNotificationWebhook": "Notification webhook",
-  "SettingNotificationWebhookHelp": "A URL Routarr posts JSON to when something fails while nobody is watching: an Arr it can no longer reach, or an automatic apply the Arr refused. Sent once per transition, not on every retry. Works with Discord, Gotify and Apprise, and with ntfy given the address https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Stored encrypted and never exported, since the address alone lets anyone post to the channel. Remove it to turn notifications off.",
+  "SettingNotificationWebhookHelp": "A URL Routarr posts a message to when something fails while nobody is watching: an Arr it can no longer reach, or an automatic apply the Arr refused. Sent once per transition, not on every retry. The format below writes it as Discord, ntfy, Gotify or Apprise read it. Stored encrypted and never exported, since the address alone lets anyone post to the channel. Remove it to turn notifications off.",
   "SettingRefusedAddress": "{field} takes an http:// or https:// address.",
   "SettingNotifySyncFailed": "Failed syncs",
   "SettingNotifySyncFailedHelp": "Sent to the notification webhook: every failed sync, not only when an instance goes down.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Download",
   "SigningSecretUnreadable": "The signing secret cannot be opened with this installation's key, so no notification is sent. Replace the secret.",
   "SigningSecretMintedOnce": "Copy it now. It is shown once and cannot be read again.",
-  "ErrorPreviewsWaiting": "Previews are already waiting for the library. Try again once one has finished."
+  "ErrorPreviewsWaiting": "Previews are already waiting for the library. Try again once one has finished.",
+  "SettingNotificationFormat": "Notification format",
+  "SettingNotificationFormatHelp": "How each notification is written. Automatic recognises a Discord webhook and a topic on ntfy.sh, and sends Routarr's JSON to any other address. Choose ntfy for a topic on your own server, Gotify for its message address with an application token, and Apprise for an Apprise API address. Routarr's JSON carries the event, its severity and its ids for another application.",
+  "NotificationFormatAuto": "Automatic",
+  "NotificationFormatJson": "Routarr JSON",
+  "NotificationTest": "Test notification",
+  "NotificationTestHelp": "Sends a message to the saved address, in the saved format and signed like the others. Save a change before testing it.",
+  "SendTestNotification": "Send a test notification",
+  "NotificationTestSent": "The receiver accepted the test notification.",
+  "NotificationTestNoAddress": "No notification webhook address is saved. Save one, then send the test again.",
+  "NotificationTestRefused": "The receiver refused the test notification with HTTP {status}. Check the address and the format.",
+  "NotificationTestUnreachable": "The test notification did not reach the address. Check that it is right and that Routarr can reach it."
 }

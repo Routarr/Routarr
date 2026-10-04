@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "مدة صلاحية ذاكرة البيانات الوصفية (أيام)",
   "SettingMetadataTtlHelp": "المدة التي تبقى فيها البيانات الوصفية حديثة قبل إعادة جلبها.",
   "SettingNotificationWebhook": "ويب هوك التنبيهات",
-  "SettingNotificationWebhookHelp": "رابط يرسل إليه Routarr بيانات JSON حين يخفق شيء ولا أحد يراقب: خادم Arr لم يعد يصل إليه، أو قرار طُبّق تلقائيًا ورفضه Arr. يُرسل مرة واحدة عند كل تحوّل، لا عند كل إعادة محاولة. يعمل مع Discord و Gotify و Apprise، ومع ntfy إذا أُعطي العنوان https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. يُخزَّن مشفّرًا ولا يُصدَّر أبدًا، لأن العنوان وحده يتيح لأي شخص النشر في القناة. أزِله لإيقاف الإشعارات.",
+  "SettingNotificationWebhookHelp": "رابط يرسل إليه Routarr رسالة حين يخفق شيء ولا أحد يراقب: خادم Arr لم يعد يصل إليه، أو قرار طُبّق تلقائيًا ورفضه Arr. يُرسل مرة واحدة عند كل تحوّل، لا عند كل إعادة محاولة. يكتبها التنسيق أدناه بالشكل الذي يقرؤه Discord أو ntfy أو Gotify أو Apprise. يُخزَّن مشفّرًا ولا يُصدَّر أبدًا، لأن العنوان وحده يتيح لأي شخص النشر في القناة. أزِله لإيقاف الإشعارات.",
   "SettingRefusedAddress": "يقبل {field} عنوانًا يبدأ بـ http://‎ أو https://‎.",
   "SettingNotifySyncFailed": "المزامنات الفاشلة",
   "SettingNotifySyncFailedHelp": "يُرسَل إلى ويب هوك التنبيهات: كل مزامنة فاشلة، وليس فقط عندما يتوقف خادم عن العمل.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "تنزيل",
   "SigningSecretUnreadable": "تعذر فتح مفتاح التوقيع السري بمفتاح هذه النسخة المثبتة، لذا لا يُرسل أي إشعار. استبدل المفتاح السري.",
   "SigningSecretMintedOnce": "انسخه الآن، فهو يُعرض مرة واحدة ولا يمكن قراءته مجددًا.",
-  "ErrorPreviewsWaiting": "هناك معاينات تنتظر قراءة المكتبة بالفعل. أعد المحاولة بعد انتهاء إحداها."
+  "ErrorPreviewsWaiting": "هناك معاينات تنتظر قراءة المكتبة بالفعل. أعد المحاولة بعد انتهاء إحداها.",
+  "SettingNotificationFormat": "تنسيق الإشعارات",
+  "SettingNotificationFormatHelp": "طريقة كتابة كل إشعار. يتعرّف الخيار التلقائي على webhook من Discord وعلى موضوع في ntfy.sh، ويرسل JSON الخاص بـ Routarr إلى أي عنوان آخر. اختر ntfy لموضوع على خادمك الخاص، و Gotify لعنوان الرسائل فيه مع رمز تطبيق، و Apprise لعنوان Apprise API. يحمل JSON الخاص بـ Routarr الحدث وخطورته ومعرّفاته لتطبيق آخر.",
+  "NotificationFormatAuto": "تلقائي",
+  "NotificationFormatJson": "JSON الخاص بـ Routarr",
+  "NotificationTest": "إشعار تجريبي",
+  "NotificationTestHelp": "يرسل رسالة إلى العنوان المحفوظ، بالتنسيق المحفوظ وموقّعة مثل غيرها. احفظ أي تغيير قبل اختباره.",
+  "SendTestNotification": "إرسال إشعار تجريبي",
+  "NotificationTestSent": "قبِل المستقبِل الإشعار التجريبي.",
+  "NotificationTestNoAddress": "لا يوجد عنوان webhook محفوظ للإشعارات. احفظ عنوانًا ثم أرسل الاختبار مرة أخرى.",
+  "NotificationTestRefused": "رفض المستقبِل الإشعار التجريبي برمز HTTP {status}. تحقق من العنوان والتنسيق.",
+  "NotificationTestUnreachable": "لم يصل الإشعار التجريبي إلى العنوان. تحقق من صحته ومن أن Routarr يستطيع الوصول إليه."
 }

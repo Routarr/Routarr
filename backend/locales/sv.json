@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Metadatacache (dagar)",
   "SettingMetadataTtlHelp": "Hur länge metadata förblir giltiga innan de hämtas på nytt.",
   "SettingNotificationWebhook": "Aviserings-webhook",
-  "SettingNotificationWebhookHelp": "En URL dit Routarr skickar JSON när något misslyckas utan tillsyn: en Arr som inte längre går att nå, eller en automatisk tillämpning som Arr-programmet avvisade. Skickas en gång per tillståndsändring, inte vid varje nytt försök. Fungerar med Discord, Gotify och Apprise, och med ntfy via adressen https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Sparas krypterad och exporteras aldrig, eftersom adressen ensam låter vem som helst posta i kanalen. Ta bort den för att stänga av aviseringarna.",
+  "SettingNotificationWebhookHelp": "En URL dit Routarr skickar ett meddelande när något misslyckas utan tillsyn: en Arr som inte längre går att nå, eller en automatisk tillämpning som Arr-programmet avvisade. Skickas en gång per tillståndsändring, inte vid varje nytt försök. Formatet nedan skriver det som Discord, ntfy, Gotify eller Apprise läser det. Sparas krypterad och exporteras aldrig, eftersom adressen ensam låter vem som helst posta i kanalen. Ta bort den för att stänga av aviseringarna.",
   "SettingRefusedAddress": "{field}: adressen måste börja med http:// eller https://.",
   "SettingNotifySyncFailed": "Synkroniseringsfel",
   "SettingNotifySyncFailedHelp": "Skickas till aviserings-webhooken: varje misslyckad synkronisering, inte bara när en instans inte går att nå.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Ladda ner",
   "SigningSecretUnreadable": "Signeringshemligheten kan inte dekrypteras med den här installationens nyckel, så inga aviseringar skickas. Ersätt hemligheten.",
   "SigningSecretMintedOnce": "Kopiera den nu. Den visas en gång och kan inte läsas igen.",
-  "ErrorPreviewsWaiting": "Förhandsvisningar väntar redan på biblioteket. Försök igen när en av dem är klar."
+  "ErrorPreviewsWaiting": "Förhandsvisningar väntar redan på biblioteket. Försök igen när en av dem är klar.",
+  "SettingNotificationFormat": "Aviseringsformat",
+  "SettingNotificationFormatHelp": "Hur varje avisering skrivs. Automatiskt känner igen en Discord-webhook och ett ämne på ntfy.sh och skickar Routarrs JSON till alla andra adresser. Välj ntfy för ett ämne på din egen server, Gotify för dess meddelandeadress med en apptoken och Apprise för en adress till Apprise API. Routarrs JSON innehåller händelsen, dess allvarlighet och dess id:n för ett annat program.",
+  "NotificationFormatAuto": "Automatiskt",
+  "NotificationFormatJson": "Routarr-JSON",
+  "NotificationTest": "Testavisering",
+  "NotificationTestHelp": "Skickar ett meddelande till den sparade adressen, i det sparade formatet och signerat som de andra. Spara en ändring innan du testar den.",
+  "SendTestNotification": "Skicka en testavisering",
+  "NotificationTestSent": "Mottagaren tog emot testaviseringen.",
+  "NotificationTestNoAddress": "Ingen adress till aviseringswebhooken är sparad. Spara en och skicka testet igen.",
+  "NotificationTestRefused": "Mottagaren avvisade testaviseringen med HTTP {status}. Kontrollera adressen och formatet.",
+  "NotificationTestUnreachable": "Testaviseringen nådde inte adressen. Kontrollera att den stämmer och att Routarr kan nå den."
 }

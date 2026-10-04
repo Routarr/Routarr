@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "中繼資料快取（天）",
   "SettingMetadataTtlHelp": "中繼資料在重新取得之前維持有效的時間長度。",
   "SettingNotificationWebhook": "通知 Webhook",
-  "SettingNotificationWebhookHelp": "當無人看管時發生故障，Routarr 會向該 URL 傳送 JSON：無法再存取的 Arr，或被 Arr 拒絕的自動套用。僅在狀態變化時傳送一次，而非每次重試。相容 Discord、Gotify 與 Apprise，也可用於 ntfy，位址為 https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}。僅憑該位址任何人即可向頻道發文，因此它會加密儲存且從不匯出。移除它即可停止通知。",
+  "SettingNotificationWebhookHelp": "當無人看管時發生故障，Routarr 會向該 URL 傳送訊息：無法再存取的 Arr，或被 Arr 拒絕的自動套用。僅在狀態變化時傳送一次，而非每次重試。下方的格式會依 Discord、ntfy、Gotify 或 Apprise 能讀取的方式寫出訊息。僅憑該位址任何人即可向頻道發文，因此它會加密儲存且從不匯出。移除它即可停止通知。",
   "SettingRefusedAddress": "{field}：需要 http:// 或 https:// 位址。",
   "SettingNotifySyncFailed": "同步失敗",
   "SettingNotifySyncFailedHelp": "傳送至通知 Webhook：每次同步失敗，而不僅限於執行個體離線時。",
@@ -897,5 +897,16 @@
   "DownloadBackup": "下載",
   "SigningSecretUnreadable": "本安裝的金鑰無法開啟簽章金鑰，因此不會傳送任何通知。請取代簽章金鑰。",
   "SigningSecretMintedOnce": "請立即複製：僅顯示一次，之後無法再次讀取。",
-  "ErrorPreviewsWaiting": "已有預覽在等待讀取媒體庫。請在其中一個完成後再試一次。"
+  "ErrorPreviewsWaiting": "已有預覽在等待讀取媒體庫。請在其中一個完成後再試一次。",
+  "SettingNotificationFormat": "通知格式",
+  "SettingNotificationFormatHelp": "每則通知的寫法。自動會辨識 Discord Webhook 與 ntfy.sh 上的主題，並向其他任何位址傳送 Routarr 的 JSON。自架伺服器上的主題請選擇 ntfy，附應用程式權杖的訊息位址請選擇 Gotify，Apprise API 位址請選擇 Apprise。Routarr 的 JSON 為其他應用程式攜帶事件、嚴重程度及其 ID。",
+  "NotificationFormatAuto": "自動",
+  "NotificationFormatJson": "Routarr 的 JSON",
+  "NotificationTest": "測試通知",
+  "NotificationTestHelp": "以已儲存的格式向已儲存的位址傳送一則訊息，簽章方式與其他通知相同。測試前請先儲存變更。",
+  "SendTestNotification": "傳送測試通知",
+  "NotificationTestSent": "接收端已接受測試通知。",
+  "NotificationTestNoAddress": "尚未儲存通知 Webhook 位址。請先儲存位址，再重新傳送測試。",
+  "NotificationTestRefused": "接收端以 HTTP {status} 拒絕了測試通知。請檢查位址與格式。",
+  "NotificationTestUnreachable": "測試通知未能到達該位址。請檢查位址是否正確，以及 Routarr 能否存取它。"
 }

@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Vyrovnávacia pamäť metaúdajov (dni)",
   "SettingMetadataTtlHelp": "Ako dlho zostávajú metaúdaje platné, kým sa načítajú znova.",
   "SettingNotificationWebhook": "Webhook upozornení",
-  "SettingNotificationWebhookHelp": "URL, na ktorú Routarr posiela JSON, keď niečo zlyhá bez dozoru: nedostupný Arr alebo automatické použitie, ktoré Arr odmietol. Odosiela sa raz pri zmene stavu, nie pri každom ďalšom pokuse. Funguje s Discordom, Gotify a Apprise a tiež s ntfy na adrese https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Ukladá sa šifrovane a nikdy sa neexportuje, pretože samotná adresa umožní komukoľvek písať do kanála. Odstráňte ju, ak chcete upozornenia vypnúť.",
+  "SettingNotificationWebhookHelp": "URL, na ktorú Routarr posiela správu, keď niečo zlyhá bez dozoru: nedostupný Arr alebo automatické použitie, ktoré Arr odmietol. Odosiela sa raz pri zmene stavu, nie pri každom ďalšom pokuse. Formát nižšie ju zapíše tak, ako ju číta Discord, ntfy, Gotify alebo Apprise. Ukladá sa šifrovane a nikdy sa neexportuje, pretože samotná adresa umožní komukoľvek písať do kanála. Odstráňte ju, ak chcete upozornenia vypnúť.",
   "SettingRefusedAddress": "{field}: vyžaduje adresu http:// alebo https://.",
   "SettingNotifySyncFailed": "Neúspešné synchronizácie",
   "SettingNotifySyncFailedHelp": "Odosiela sa na webhook upozornení: každá neúspešná synchronizácia, nielen výpadok inštancie.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Stiahnuť",
   "SigningSecretUnreadable": "Tajný kľúč na podpisovanie nemožno otvoriť kľúčom tejto inštalácie, takže sa žiadne upozornenie neodosiela. Nahraďte tajný kľúč.",
   "SigningSecretMintedOnce": "Skopírujte ho teraz. Zobrazí sa len raz a znova ho prečítať nemožno.",
-  "ErrorPreviewsWaiting": "Náhľady už čakajú na prístup ku knižnici. Skúste to znova, keď niektorý z nich skončí."
+  "ErrorPreviewsWaiting": "Náhľady už čakajú na prístup ku knižnici. Skúste to znova, keď niektorý z nich skončí.",
+  "SettingNotificationFormat": "Formát upozornení",
+  "SettingNotificationFormatHelp": "Ako sa každé upozornenie zapíše. Automatický rozpozná webhook Discordu a tému na ntfy.sh a na akúkoľvek inú adresu posiela JSON Routarru. Zvoľte ntfy pre tému na vlastnom serveri, Gotify pre jeho adresu správ s tokenom aplikácie a Apprise pre adresu Apprise API. JSON Routarru nesie udalosť, jej závažnosť a identifikátory pre inú aplikáciu.",
+  "NotificationFormatAuto": "Automatický",
+  "NotificationFormatJson": "JSON Routarru",
+  "NotificationTest": "Testovacie upozornenie",
+  "NotificationTestHelp": "Pošle správu na uloženú adresu v uloženom formáte, podpísanú ako ostatné. Zmenu pred otestovaním uložte.",
+  "SendTestNotification": "Odoslať testovacie upozornenie",
+  "NotificationTestSent": "Príjemca testovacie upozornenie prijal.",
+  "NotificationTestNoAddress": "Nie je uložená žiadna adresa webhooku upozornení. Uložte ju a odošlite test znova.",
+  "NotificationTestRefused": "Príjemca testovacie upozornenie odmietol s HTTP {status}. Skontrolujte adresu a formát.",
+  "NotificationTestUnreachable": "Testovacie upozornenie adresu nezastihlo. Skontrolujte, či je správna a či ju Routarr dosiahne."
 }

@@ -42,10 +42,9 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
   [routarr.app/api](https://routarr.app/api/).
 - **Where would it go?** Ask by TMDb, TheTVDB or IMDb id, before the title is even added: a
   request bot learns the folder the rules choose, and nothing is stored.
-- **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy
-  or Apprise, signed as Standard Webhooks specifies when a receiver checks where they come from.
-  ntfy reads them through its templates: give it
-  `https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}`.
+- **Backups**, configuration export, Prometheus metrics, and notifications written for Discord,
+  ntfy, Gotify or Apprise, or as JSON for any other receiver, signed as Standard Webhooks
+  specifies when a receiver checks where they come from. A test message checks the address.
 - **26 languages**.
 
 ## Quick start

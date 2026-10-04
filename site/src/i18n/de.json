@@ -94,7 +94,7 @@
   "features.p.3": "Eine geheime URL je Instanz. Neuzugänge werden sofort synchronisiert, angereichert und bewertet, statt beim nächsten Abruf.",
   "features.p.4": "Heften Sie einen Titel an eine Kategorie, und die Engine hört auf zu diskutieren. Eine Ausnahme schlägt jede Regel, und jede angewandte Verschiebung lässt sich aus dem Verlauf rückgängig machen.",
   "features.p.5": "Bibliotheksgröße, Entscheidungen nach Kategorie und Status, Zustand der Instanzen und der Schutzmechanismen, alles hinter demselben API-Schlüssel.",
-  "features.p.6": "Ein generischer JSON-Webhook für Discord, Gotify, Apprise oder ntfy über seine Vorlagen-Adresse. Ein Arr, das nicht mehr antwortet, wird einmal gemeldet und wieder, wenn es zurück ist, nicht bei jedem neuen Versuch. Fehlgeschlagene Synchronisierungen und beendete Läufe lassen sich zuschalten.",
+  "features.p.6": "Ein Webhook, geschrieben so, wie Discord, ntfy, Gotify oder Apprise ihn lesen, oder als JSON für alles andere, und eine Testnachricht, um ihn zu prüfen. Ein Arr, das nicht mehr antwortet, wird einmal gemeldet und wieder, wenn es zurück ist, nicht bei jedem neuen Versuch. Fehlgeschlagene Synchronisierungen und beendete Läufe lassen sich zuschalten.",
   "features.p.7": "Regeln, Kategorien, Zuordnungen und Ausnahmen lassen sich als JSON exportieren und zwischen Installationen mitnehmen. Arr-API-Schlüssel sind AES-256-GCM-verschlüsselt und verlassen das System nie.",
   "features.span": "Funktionen",
   "folders.col.category": "Kategorie",

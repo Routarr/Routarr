@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Cache de metadados (dias)",
   "SettingMetadataTtlHelp": "Durante quanto tempo os metadados permanecem válidos antes de serem obtidos de novo.",
   "SettingNotificationWebhook": "Webhook de notificação",
-  "SettingNotificationWebhookHelp": "Um URL para onde o Routarr envia JSON quando algo falha sem testemunhas: um Arr que deixou de estar acessível, ou uma decisão aplicada automaticamente que o Arr recusou. Enviado uma vez por mudança de estado, não a cada nova tentativa. Funciona com Discord, Gotify e Apprise, e com ntfy se lhe for dado o endereço https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Guardado cifrado e nunca exportado, pois o endereço sozinho permite a qualquer pessoa publicar no canal. Remova-o para desligar as notificações.",
+  "SettingNotificationWebhookHelp": "Um URL para onde o Routarr envia uma mensagem quando algo falha sem testemunhas: um Arr que deixou de estar acessível, ou uma decisão aplicada automaticamente que o Arr recusou. Enviado uma vez por mudança de estado, não a cada nova tentativa. O formato abaixo escreve-a como o Discord, o ntfy, o Gotify ou o Apprise a leem. Guardado cifrado e nunca exportado, pois o endereço sozinho permite a qualquer pessoa publicar no canal. Remova-o para desligar as notificações.",
   "SettingRefusedAddress": "{field} aceita um endereço http:// ou https://.",
   "SettingNotifySyncFailed": "Sincronizações falhadas",
   "SettingNotifySyncFailedHelp": "Enviado para o webhook de notificação: cada sincronização falhada, não só quando uma instância fica inacessível.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Transferir",
   "SigningSecretUnreadable": "O segredo de assinatura não pode ser aberto com a chave desta instalação, pelo que nenhuma notificação é enviada. Substitua o segredo.",
   "SigningSecretMintedOnce": "Copie-o agora: é mostrado uma única vez e não pode ser lido de novo.",
-  "ErrorPreviewsWaiting": "Já há pré-visualizações à espera da sua vez de ler a biblioteca. Tente novamente quando uma tiver terminado."
+  "ErrorPreviewsWaiting": "Já há pré-visualizações à espera da sua vez de ler a biblioteca. Tente novamente quando uma tiver terminado.",
+  "SettingNotificationFormat": "Formato das notificações",
+  "SettingNotificationFormatHelp": "Como cada notificação é escrita. Automático reconhece um webhook do Discord e um tópico em ntfy.sh, e envia o JSON do Routarr para qualquer outro endereço. Escolha ntfy para um tópico no seu próprio servidor, Gotify para o seu endereço de mensagens com um token de aplicação, e Apprise para um endereço da API do Apprise. O JSON do Routarr leva o evento, a sua gravidade e os seus identificadores para outra aplicação.",
+  "NotificationFormatAuto": "Automático",
+  "NotificationFormatJson": "JSON do Routarr",
+  "NotificationTest": "Notificação de teste",
+  "NotificationTestHelp": "Envia uma mensagem para o endereço guardado, no formato guardado e assinada como as outras. Guarde uma alteração antes de a testar.",
+  "SendTestNotification": "Enviar uma notificação de teste",
+  "NotificationTestSent": "O destinatário aceitou a notificação de teste.",
+  "NotificationTestNoAddress": "Não há nenhum endereço de webhook de notificações guardado. Guarde um e envie o teste de novo.",
+  "NotificationTestRefused": "O destinatário recusou a notificação de teste com HTTP {status}. Verifique o endereço e o formato.",
+  "NotificationTestUnreachable": "A notificação de teste não chegou ao endereço. Verifique se está correto e se o Routarr o consegue alcançar."
 }
