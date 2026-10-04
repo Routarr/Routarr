@@ -24,6 +24,7 @@ mod integrations;
 mod jobs;
 mod localization;
 mod models;
+mod paths;
 mod services;
 mod state;
 

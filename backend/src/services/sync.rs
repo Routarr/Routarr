@@ -9,7 +9,6 @@ use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::models::Instance;
 use crate::services::notify;
-use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Result of syncing one instance.
@@ -211,7 +210,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
-    .map(|(path, category)| (normalize_path(&path), category))
+    .map(|(path, category)| (crate::paths::key(&path), category))
     .collect();
 
     // Declared and Arr-reported folders share `root_folders`, told apart by
@@ -225,7 +224,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         let freed: Option<(String, Option<String>)> = sqlx::query_as(
             "DELETE FROM root_folders
               WHERE instance_id = ? AND arr_id = ? AND origin = 'arr'
-                AND rtrim(path, '/') <> rtrim(?, '/')
+                AND path <> ? COLLATE path
              RETURNING path, category",
         )
         .bind(&instance.id)
@@ -253,7 +252,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
             "UPDATE root_folders
                 SET origin = 'arr', arr_id = ?
               WHERE instance_id = ? AND origin = 'declared'
-                AND rtrim(path, '/') = rtrim(?, '/')",
+                AND path = ? COLLATE path",
         )
         .bind(rf.arr_id)
         .bind(&instance.id)
@@ -288,12 +287,12 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         .bind(&sync_token)
         .bind(rf.accessible)
         .bind(&sync_token)
-        .bind(mapped.get(&normalize_path(&rf.path)))
+        .bind(mapped.get(&crate::paths::key(&rf.path)))
         .execute(&mut *tx)
         .await?;
     }
 
-    inherit_declared(&mut *tx, &instance.id).await?;
+    inherit_declared(&mut tx, &instance.id).await?;
 
     // Replaced wholesale: a tag renamed or deleted upstream must not linger.
     // Kept when the catalogue could not be read, which is what resolves the
@@ -632,40 +631,52 @@ async fn stored_tag_labels(
 /// no Arr reports. The deepest matching parent wins, since /media/movies/anime
 /// belongs to /media/movies rather than to /media.
 ///
-/// Compared by prefix arithmetic rather than with LIKE: a path holding `_` or
-/// `%` would otherwise match folders it has nothing to do with.
+/// Decided by [`crate::paths::within`], name by name, and on Windows whatever
+/// the case and the separator: SQL has neither, and a prefix or a LIKE would
+/// match a sibling sharing the letters or a `_` in a name.
 ///
 /// Run by the sync and again the moment one is declared: waiting for the next
 /// pass would show a new destination with no figures for as long as the
 /// instance's sync interval.
-pub(crate) async fn inherit_declared<'e, E>(executor: E, instance_id: &str) -> AppResult<()>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
-{
-    sqlx::query(
-        "UPDATE root_folders AS d
-            SET free_space = (
-                    SELECT p.free_space FROM root_folders p
-                     WHERE p.instance_id = d.instance_id AND p.origin = 'arr'
-                       AND substr(rtrim(d.path, '/'), 1, length(rtrim(p.path, '/')) + 1)
-                           = rtrim(p.path, '/') || '/'
-                     ORDER BY length(rtrim(p.path, '/')) DESC LIMIT 1),
-                accessible = COALESCE((
-                    SELECT p.accessible FROM root_folders p
-                     WHERE p.instance_id = d.instance_id AND p.origin = 'arr'
-                       AND substr(rtrim(d.path, '/'), 1, length(rtrim(p.path, '/')) + 1)
-                           = rtrim(p.path, '/') || '/'
-                     ORDER BY length(rtrim(p.path, '/')) DESC LIMIT 1), 1),
-                last_accessible_at = (
-                    SELECT p.last_accessible_at FROM root_folders p
-                     WHERE p.instance_id = d.instance_id AND p.origin = 'arr'
-                       AND substr(rtrim(d.path, '/'), 1, length(rtrim(p.path, '/')) + 1)
-                           = rtrim(p.path, '/') || '/'
-                     ORDER BY length(rtrim(p.path, '/')) DESC LIMIT 1)
-          WHERE d.instance_id = ? AND d.origin = 'declared'",
+pub(crate) async fn inherit_declared(
+    connection: &mut sqlx::SqliteConnection,
+    instance_id: &str,
+) -> AppResult<()> {
+    #[derive(sqlx::FromRow)]
+    struct Folder {
+        id: String,
+        path: String,
+        origin: String,
+        free_space: Option<i64>,
+        accessible: bool,
+        last_accessible_at: Option<String>,
+    }
+
+    let folders: Vec<Folder> = sqlx::query_as(
+        "SELECT id, path, origin, free_space, accessible, last_accessible_at
+           FROM root_folders WHERE instance_id = ?",
     )
     .bind(instance_id)
-    .execute(executor)
+    .fetch_all(&mut *connection)
     .await?;
+    let (synced, declared): (Vec<Folder>, Vec<Folder>) =
+        folders.into_iter().partition(|folder| folder.origin == "arr");
+
+    for folder in &declared {
+        let parent = synced
+            .iter()
+            .filter(|parent| crate::paths::within(&folder.path, &parent.path))
+            .max_by_key(|parent| crate::paths::key(&parent.path).len());
+        sqlx::query(
+            "UPDATE root_folders SET free_space = ?, accessible = ?, last_accessible_at = ?
+              WHERE id = ?",
+        )
+        .bind(parent.and_then(|parent| parent.free_space))
+        .bind(parent.is_none_or(|parent| parent.accessible))
+        .bind(parent.and_then(|parent| parent.last_accessible_at.clone()))
+        .bind(&folder.id)
+        .execute(&mut *connection)
+        .await?;
+    }
     Ok(())
 }

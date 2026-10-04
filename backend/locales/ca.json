@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destinació «{path}» afegida",
   "DestinationRemoved": "Destinació «{path}» eliminada",
   "ErrorCapacityUnknown": "«{path}» no informa de l'espai lliure i no és sota cap carpeta arrel coneguda: es mourien {needed} sense que res comprovés l'espai.",
-  "ErrorDestinationAbsolute": "Una destinació és un camí absolut que comença per /",
+  "ErrorDestinationAbsolute": "Una destinació és un camí absolut: /data/movies a Linux, D:\\Movies o \\\\server\\share a Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» ja hi consta per a aquesta instància",
   "ErrorDestinationUnseen": "La instància no veu «{path}». Comprova el camí tal com el veu aquell contenidor.",
   "ErrorDestinationNotOurs": "Aquesta carpeta ve de la instància. Elimina-la allà",

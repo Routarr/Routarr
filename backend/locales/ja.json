@@ -869,7 +869,7 @@
   "DestinationDeclared": "宛先「{path}」を追加しました",
   "DestinationRemoved": "宛先「{path}」を削除しました",
   "ErrorCapacityUnknown": "「{path}」は空き容量を報告せず、既知のルートフォルダーの下にもありません。容量を確認しないまま {needed} が移動されます。",
-  "ErrorDestinationAbsolute": "宛先は / で始まる絶対パスです",
+  "ErrorDestinationAbsolute": "移動先は絶対パスです。Linux では /data/movies、Windows では D:\\Movies または \\\\server\\share です。",
   "ErrorDestinationAlreadyListed": "「{path}」はこのインスタンスに既に登録されています",
   "ErrorDestinationUnseen": "インスタンスは「{path}」を認識できません。そのコンテナから見えるパスを確認してください。",
   "ErrorDestinationNotOurs": "このフォルダーはインスタンス側のものです。あちらで削除してください",

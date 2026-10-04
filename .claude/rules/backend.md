@@ -46,8 +46,10 @@ Each of these questions has one function. Call it, never spell the question agai
   it through the `probe_results` table, which `/health` writes.
 - a stored timestamp: `routing::format_timestamp` and `routing::parse_timestamp`
 - a category name: `api::categories::normalise`, run by every writer of `categories`
-- a folder path: `rule_engine::normalize_path` in Rust, `rtrim(path, '/')` in SQL. An Arr
-  reports a root folder with or without its trailing slash.
+- whether two folders are one, or one holds the other: `crate::paths` in Rust (`key`, `same`,
+  `within`), `a = b COLLATE path` in SQL, registered on every pool by `db::with_paths`. An Arr
+  closes a root folder with its separator, and one on Windows writes `D:\Media\` and reads a
+  name whatever its case.
 
 ## Data and SQL
 

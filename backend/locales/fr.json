@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destination « {path} » ajoutée",
   "DestinationRemoved": "Destination « {path} » supprimée",
   "ErrorCapacityUnknown": "« {path} » ne publie pas son espace libre et ne se trouve sous aucun dossier racine connu. {needed} seraient déplacés sans que rien ne vérifie la place.",
-  "ErrorDestinationAbsolute": "Une destination est un chemin absolu, commençant par /",
+  "ErrorDestinationAbsolute": "Une destination est un chemin absolu : /data/movies sous Linux, D:\\Movies ou \\\\server\\share sous Windows.",
   "ErrorDestinationAlreadyListed": "« {path} » figure déjà pour cette instance",
   "ErrorDestinationUnseen": "L'instance ne voit pas « {path} ». Vérifiez le chemin tel que ce conteneur le voit.",
   "ErrorDestinationNotOurs": "Ce dossier vient de l'instance. Supprimez-le plutôt dans l'instance",

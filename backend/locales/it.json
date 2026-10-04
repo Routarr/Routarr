@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destinazione «{path}» aggiunta",
   "DestinationRemoved": "Destinazione «{path}» rimossa",
   "ErrorCapacityUnknown": "«{path}» non riporta lo spazio libero e non si trova sotto alcuna cartella radice nota. Verrebbero spostati {needed} senza che nulla verificasse lo spazio.",
-  "ErrorDestinationAbsolute": "Una destinazione è un percorso assoluto, che inizia con /",
+  "ErrorDestinationAbsolute": "Una destinazione è un percorso assoluto: /data/movies su Linux, D:\\Movies o \\\\server\\share su Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» è già presente per questa istanza",
   "ErrorDestinationUnseen": "L'istanza non vede «{path}». Verifica il percorso come lo vede quel container.",
   "ErrorDestinationNotOurs": "Quella cartella viene dall'istanza. Rimuovila lì",

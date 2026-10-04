@@ -869,7 +869,7 @@
   "DestinationDeclared": "Ziel \"{path}\" hinzugefügt",
   "DestinationRemoved": "Ziel \"{path}\" entfernt",
   "ErrorCapacityUnknown": "\"{path}\" meldet keinen freien Speicher und liegt unter keinem bekannten Stammordner. {needed} würden verschoben, ohne dass der Platz geprüft wird.",
-  "ErrorDestinationAbsolute": "Ein Ziel ist ein absoluter Pfad, der mit / beginnt",
+  "ErrorDestinationAbsolute": "Ein Ziel ist ein absoluter Pfad: /data/movies unter Linux, D:\\Movies oder \\\\server\\share unter Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" ist für diese Instanz bereits aufgeführt",
   "ErrorDestinationUnseen": "Die Instanz sieht \"{path}\" nicht. Prüfen Sie den Pfad so, wie dieser Container ihn sieht.",
   "ErrorDestinationNotOurs": "Dieser Ordner stammt von der Instanz. Entfernen Sie ihn dort",

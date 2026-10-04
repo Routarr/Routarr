@@ -869,7 +869,7 @@
   "DestinationDeclared": "Målet \"{path}\" tillagt",
   "DestinationRemoved": "Målet \"{path}\" borttaget",
   "ErrorCapacityUnknown": "\"{path}\" rapporterar inget ledigt utrymme och ligger inte under någon känd rotmapp. {needed} skulle flyttas utan att något kontrollerar utrymmet.",
-  "ErrorDestinationAbsolute": "Ett mål är en absolut sökväg som börjar med /",
+  "ErrorDestinationAbsolute": "Ett mål är en absolut sökväg: /data/movies på Linux, D:\\Movies eller \\\\server\\share på Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" finns redan för den här instansen",
   "ErrorDestinationUnseen": "Instansen ser inte \"{path}\". Kontrollera sökvägen som den containern ser den.",
   "ErrorDestinationNotOurs": "Mappen kommer från instansen. Ta bort den i instansen",

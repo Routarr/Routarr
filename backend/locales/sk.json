@@ -869,7 +869,7 @@
   "DestinationDeclared": "Cieľ \"{path}\" pridaný",
   "DestinationRemoved": "Cieľ \"{path}\" odstránený",
   "ErrorCapacityUnknown": "\"{path}\" neuvádza voľné miesto a neleží pod žiadnym známym koreňovým priečinkom. Presunulo by sa {needed} bez toho, aby čokoľvek overilo miesto.",
-  "ErrorDestinationAbsolute": "Cieľ je absolútna cesta začínajúca /",
+  "ErrorDestinationAbsolute": "Cieľ je absolútna cesta: /data/movies v Linuxe, D:\\Movies alebo \\\\server\\share vo Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" je pre túto inštanciu už uvedená",
   "ErrorDestinationUnseen": "Inštancia nevidí \"{path}\". Overte cestu tak, ako ju vidí daný kontajner.",
   "ErrorDestinationNotOurs": "Tento priečinok pochádza z inštancie. Odstráňte ho tam",

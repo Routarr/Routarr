@@ -103,8 +103,9 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 1. **Instances**: add Radarr or Sonarr. The form tries the address and the key, and saving reads
    the library at once.
 2. **Root Folders**: create categories, map the folders your Arrs report to them, and declare
-   any destination they do not list. A declared destination is a Unix path as the Arr sees it
-   inside its container (`/data/movies/4k`), never a drive letter or a `\\server` share.
+   any destination they do not list. A declared destination is written as the Arr sees it:
+   `/data/movies/4k` for an Arr in a Linux container, `D:\Movies\4K` or `\\nas\films` for one on
+   Windows.
 3. **Metadata sources** (optional): Radarr and Sonarr already supply genres, language and
    certification. Enable TMDb or another source in **Settings** for keywords and origin country.
 4. **Rules**: write rules and preview their impact.

@@ -393,10 +393,10 @@ impl DirectoryListing {
     ///
     /// A leaf name alone matches a namesake in another directory, so
     /// `/movies/standard/kids` would read as seen because `/movies/kids`
-    /// exists. The Arr ends every directory's path with its separator.
+    /// exists. The Arr ends every directory's path with its separator, and an
+    /// Arr on Windows reads a name whatever its case.
     pub(crate) fn holds(&self, path: &str) -> bool {
-        let wanted = directory_query(path);
-        self.directories.iter().any(|entry| directory_query(&entry.path) == wanted)
+        self.directories.iter().any(|entry| crate::paths::same(&entry.path, path))
     }
 }
 
@@ -407,11 +407,11 @@ impl DirectoryListing {
 /// cuts the query after its last separator and lists what is left: asked
 /// `/movies/anime` it lists `/movies/`, where the directory has to appear.
 /// Asked for the parent without a trailing separator, it lists the
-/// grandparent. Only a trailing `/` is trimmed, as `root_folders::create`
-/// trims it before storing the path: the path checked is the path stored,
-/// and anything else in it, a backslash included, belongs to a folder name.
-pub(crate) fn directory_query(path: &str) -> &str {
-    path.trim_end_matches('/')
+/// grandparent. A folder is asked as `root_folders::create` stores it, closing
+/// separators trimmed: `/` on Linux, where a backslash belongs to a name, and
+/// either on Windows, where both separate.
+pub(crate) fn directory_query(path: &str) -> String {
+    crate::paths::trimmed(path)
 }
 
 /// What an upstream's error body says to whoever called Routarr.

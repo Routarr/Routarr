@@ -500,7 +500,7 @@ pub async fn import(
             "SELECT path FROM root_folders
               WHERE category = ?
                 AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))
-                AND rtrim(path, '/') <> rtrim(?, '/')
+                AND path <> ? COLLATE path
               LIMIT 1",
         )
         .bind(&category)
@@ -518,7 +518,7 @@ pub async fn import(
 
         let affected = sqlx::query(
             "UPDATE root_folders SET category = ?
-              WHERE rtrim(path, '/') = rtrim(?, '/')
+              WHERE path = ? COLLATE path
                 AND instance_id = (SELECT id FROM instances WHERE TRIM(name) = TRIM(?))",
         )
         .bind(&category)

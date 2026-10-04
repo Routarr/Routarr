@@ -18,6 +18,25 @@ use tokio::net::TcpListener;
 /// How long [`FakeArr::observing_concurrency`] holds a listing open.
 const HOLD: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// Where a Windows Arr keeps what this fake keeps under `/`.
+const WINDOWS_ROOT: &str = "D:\\Media";
+
+/// A path of the library as this Arr writes it: unchanged on Linux, under
+/// `D:\Media` with backslashes on Windows.
+fn shown(state: &FakeState, path: &str) -> String {
+    if state.windows {
+        format!("{WINDOWS_ROOT}{}", path.replace('/', "\\"))
+    } else {
+        path.to_string()
+    }
+}
+
+/// A root folder as this Arr writes it: a Windows Arr ends it with its
+/// separator.
+fn shown_folder(state: &FakeState, path: &str) -> String {
+    if state.windows { format!("{}\\", shown(state, path)) } else { path.to_string() }
+}
+
 /// What the fake recorded, so a test can assert on what the client actually sent.
 #[derive(Debug, Default)]
 pub struct Recorded {
@@ -91,6 +110,10 @@ struct FakeState {
     series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     /// Root folders reported beside the usual three.
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
+    /// Whether the Arr runs on Windows: every path it writes is under
+    /// `D:\Media`, with backslashes, and a root folder ends with one, as a
+    /// Windows Radarr or Sonarr writes it.
+    windows: bool,
 }
 
 pub struct FakeArr {
@@ -232,6 +255,19 @@ impl FakeArr {
         self.max_in_flight.load(Ordering::SeqCst)
     }
 
+    /// Start a fake Arr running on Windows, holding the same library and
+    /// folders under `D:\Media`, with a share at `\\nas\films` it can see.
+    pub async fn on_windows() -> Self {
+        Self::build_on(
+            None,
+            "/tv/standard/Cowboy Bebop (1998)",
+            true,
+            std::time::Duration::ZERO,
+            true,
+        )
+        .await
+    }
+
     async fn with(fail_with: Option<u16>, series_path: &str, movie_has_file: bool) -> Self {
         Self::build(fail_with, series_path, movie_has_file, std::time::Duration::ZERO).await
     }
@@ -241,6 +277,16 @@ impl FakeArr {
         series_path: &str,
         movie_has_file: bool,
         hold: std::time::Duration,
+    ) -> Self {
+        Self::build_on(fail_with, series_path, movie_has_file, hold, false).await
+    }
+
+    async fn build_on(
+        fail_with: Option<u16>,
+        series_path: &str,
+        movie_has_file: bool,
+        hold: std::time::Duration,
+        windows: bool,
     ) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
         let series_body: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
@@ -273,6 +319,7 @@ impl FakeArr {
             movie_edits: Arc::clone(&movie_edits),
             series_edits: Arc::clone(&series_edits),
             more_root_folders: Arc::clone(&more_root_folders),
+            windows,
         };
 
         let app = Router::new()
@@ -382,13 +429,13 @@ async fn root_folders(
         return Json(serde_json::json!([]));
     }
     let mut folders = serde_json::json!([
-        { "id": 1, "path": "/movies/standard", "freeSpace": 1024, "accessible": true },
-        { "id": 2, "path": "/movies/anime", "freeSpace": 2048, "accessible": false },
+        { "id": 1, "path": shown_folder(&state, "/movies/standard"), "freeSpace": 1024, "accessible": true },
+        { "id": 2, "path": shown_folder(&state, "/movies/anime"), "freeSpace": 2048, "accessible": false },
         // A second *usable* destination. Without one, no test can produce a
         // move at all, since the library sits in the only folder it could go
         // to, and an assertion that "nothing was written" passes for the wrong
         // reason.
-        { "id": 3, "path": "/movies/kids", "freeSpace": 4096, "accessible": true },
+        { "id": 3, "path": shown_folder(&state, "/movies/kids"), "freeSpace": 4096, "accessible": true },
     ]);
     let listed = folders.as_array_mut().expect("a list");
     listed.extend(state.more_root_folders.lock().expect("lock").iter().cloned());
@@ -416,11 +463,14 @@ async fn filesystem(
     record_key(&state, &headers);
     let asked =
         query.get("path").filter(|path| !path.trim().is_empty()).map_or("/", String::as_str);
-    let Some(cut) = asked.rfind('/') else {
+    // Windows compares names without their case, and both Arrs cut at
+    // either separator there.
+    let separators: &[char] = if state.windows { &['\\', '/'] } else { &['/'] };
+    let Some(cut) = asked.rfind(separators) else {
         return Json(serde_json::json!({ "parent": null, "directories": [], "files": [] }));
     };
     let listed = asked[..cut].to_string();
-    let known = [
+    let mut known: Vec<String> = [
         "/movies",
         "/movies/standard",
         "/movies/anime",
@@ -431,13 +481,23 @@ async fn filesystem(
         "/tv",
         "/tv/standard",
         "/tv/anime",
-    ];
+    ]
+    .iter()
+    .map(|path| shown(&state, path))
+    .collect();
+    if state.windows {
+        known.extend(["\\\\nas\\films".to_string(), "\\\\nas\\films\\4k".to_string()]);
+    }
+    let same = |a: &str, b: &str| {
+        if state.windows { a.replace('/', "\\").to_lowercase() == b.to_lowercase() } else { a == b }
+    };
     let children: Vec<serde_json::Value> = known
         .iter()
         .filter_map(|candidate| {
-            let (parent, name) = candidate.rsplit_once('/')?;
-            (parent == listed).then(|| {
-                serde_json::json!({ "type": "folder", "name": name, "path": format!("{candidate}/") })
+            let (parent, name) = candidate.rsplit_once(separators)?;
+            let ends = if state.windows { '\\' } else { '/' };
+            same(&listed, parent).then(|| {
+                serde_json::json!({ "type": "folder", "name": name, "path": format!("{candidate}{ends}") })
             })
         })
         .collect();
@@ -521,8 +581,8 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "year": 1988,
         "tmdbId": 8392,
         "imdbId": "tt0096283",
-        "path": "/movies/standard/My Neighbor Totoro (1988)",
-        "rootFolderPath": "/movies/standard",
+        "path": shown(state, "/movies/standard/My Neighbor Totoro (1988)"),
+        "rootFolderPath": shown(state, "/movies/standard"),
         "monitored": true,
         "hasFile": state.movie_has_file,
         "status": "released",
@@ -674,9 +734,15 @@ async fn movie_editor(
     // its files a movie keeps its folder name, with them the naming format
     // may give Totoro another. Any other id is one of `films_to_move`, whose
     // folder is `Film <id>`.
-    let root = body["rootFolderPath"].as_str().unwrap_or_default().trim_end_matches('/');
+    let separator = if state.windows { '\\' } else { '/' };
+    let root = body["rootFolderPath"]
+        .as_str()
+        .unwrap_or_default()
+        .trim_end_matches(['/', '\\'])
+        .to_string();
     let movie = totoro(&state);
-    let kept = movie["path"].as_str().unwrap_or_default().rsplit('/').next().unwrap_or_default();
+    let kept =
+        movie["path"].as_str().unwrap_or_default().rsplit(['/', '\\']).next().unwrap_or_default();
     let renamed = state.renames_to.lock().expect("lock").clone();
     let totoro_folder = match renamed {
         Some(name) if body["moveFiles"].as_bool() == Some(true) => name,
@@ -689,7 +755,7 @@ async fn movie_editor(
             } else {
                 format!("Film {id}")
             };
-            serde_json::json!({ "id": id, "path": format!("{root}/{folder}") })
+            serde_json::json!({ "id": id, "path": format!("{root}{separator}{folder}") })
         })
         .collect();
     // 202, as Radarr's movie editor answers.
@@ -719,8 +785,8 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "year": 1998,
         "tvdbId": 76885,
         "tmdbId": 30991,
-        "path": state.series_path,
-        "rootFolderPath": "/tv/standard",
+        "path": shown(state, &state.series_path),
+        "rootFolderPath": shown(state, "/tv/standard"),
         "monitored": true,
         "status": "ended",
         "added": "2026-01-01T00:00:00Z",

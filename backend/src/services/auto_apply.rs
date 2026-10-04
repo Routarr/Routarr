@@ -180,7 +180,7 @@ async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<
             AND EXISTS (
                 SELECT 1 FROM root_folders rf
                  WHERE rf.instance_id = d.instance_id
-                   AND rtrim(rf.path, '/') = rtrim(d.target_root_folder, '/')
+                   AND rf.path = d.target_root_folder COLLATE path
                    AND rf.accessible = 1
             )
           ORDER BY d.media_title",

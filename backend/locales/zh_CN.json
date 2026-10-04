@@ -869,7 +869,7 @@
   "DestinationDeclared": "已添加目标「{path}」",
   "DestinationRemoved": "已移除目标「{path}」",
   "ErrorCapacityUnknown": "「{path}」不报告可用空间，也不在任何已知根目录之下。将在未核对剩余空间的情况下移动 {needed}。",
-  "ErrorDestinationAbsolute": "目标是以 / 开头的绝对路径",
+  "ErrorDestinationAbsolute": "目标必须是绝对路径：Linux 上如 /data/movies，Windows 上如 D:\\Movies 或 \\\\server\\share。",
   "ErrorDestinationAlreadyListed": "「{path}」已在该实例中列出",
   "ErrorDestinationUnseen": "实例看不到「{path}」。请按该容器所见来核对路径。",
   "ErrorDestinationNotOurs": "该目录来自实例，请在那里移除",

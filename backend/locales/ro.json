@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destinația \"{path}\" adăugată",
   "DestinationRemoved": "Destinația \"{path}\" eliminată",
   "ErrorCapacityUnknown": "\"{path}\" nu raportează spațiul liber și nu se află sub niciun dosar rădăcină cunoscut. S-ar muta {needed} fără ca nimic să verifice spațiul.",
-  "ErrorDestinationAbsolute": "O destinație este o cale absolută, care începe cu /",
+  "ErrorDestinationAbsolute": "O destinație este o cale absolută: /data/movies pe Linux, D:\\Movies sau \\\\server\\share pe Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" este deja listată pentru această instanță",
   "ErrorDestinationUnseen": "Instanța nu vede \"{path}\". Verifică calea așa cum o vede acel container.",
   "ErrorDestinationNotOurs": "Acel dosar vine de la instanță. Elimină-l acolo",

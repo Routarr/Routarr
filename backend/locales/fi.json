@@ -869,7 +869,7 @@
   "DestinationDeclared": "Kohde \"{path}\" lisätty",
   "DestinationRemoved": "Kohde \"{path}\" poistettu",
   "ErrorCapacityUnknown": "\"{path}\" ei ilmoita vapaata tilaa eikä ole minkään tunnetun juurikansion alla. {needed} siirrettäisiin ilman, että mikään tarkistaa tilaa.",
-  "ErrorDestinationAbsolute": "Kohde on absoluuttinen polku, joka alkaa merkillä /",
+  "ErrorDestinationAbsolute": "Kohde on absoluuttinen polku: /data/movies Linuxissa, D:\\Movies tai \\\\server\\share Windowsissa.",
   "ErrorDestinationAlreadyListed": "\"{path}\" on jo listattu tälle instanssille",
   "ErrorDestinationUnseen": "Instanssi ei näe polkua \"{path}\". Tarkista polku sellaisena kuin kyseinen kontti sen näkee.",
   "ErrorDestinationNotOurs": "Kansio tulee instanssilta. Poista se sieltä",

@@ -17,7 +17,6 @@ use crate::jobs::{Attribution, Detail, JobKind, detached};
 use crate::models::Instance;
 use crate::services::notify;
 use crate::services::routing::{self, format_timestamp};
-use crate::services::rule_engine::normalize_path;
 use crate::state::AppState;
 
 /// Outcome of an apply or revert run.
@@ -870,7 +869,7 @@ async fn guard_reachable(
          FROM decisions d
          JOIN root_folders tgt
               ON tgt.instance_id = d.instance_id
-             AND rtrim(tgt.path, '/') = rtrim({to}, '/')
+             AND tgt.path = {to} COLLATE path
          WHERE {rows}
            AND tgt.accessible = 0
          ORDER BY tgt.path
@@ -941,10 +940,10 @@ pub(crate) const REVERTIBLE: &str =
                         AND later.applied_at > d.applied_at)
      AND EXISTS (SELECT 1 FROM media here
                   WHERE here.id = d.media_id
-                    AND rtrim(here.current_root_folder, '/') = rtrim(d.target_root_folder, '/'))
+                    AND here.current_root_folder = d.target_root_folder COLLATE path)
      AND EXISTS (SELECT 1 FROM root_folders back
                   WHERE back.instance_id = d.instance_id
-                    AND rtrim(back.path, '/') = rtrim(d.current_root_folder, '/'))";
+                    AND back.path = d.current_root_folder COLLATE path)";
 
 impl CapacityScope<'_> {
     /// `None` for an empty selection, which there is nothing to weigh in.
@@ -987,8 +986,9 @@ impl CapacityScope<'_> {
 /// The figure is `root_folders.free_space` as the last sync stored it, not as
 /// the disk stands now. A download since then makes it optimistic, so the guard
 /// bounds a plan against a recent past rather than the present.
-/// `rtrim` on both sides of the join because the source path comes from the
-/// Arr's payload and the destination from our table.
+/// Joined through the path collation because the source path comes from the
+/// Arr's payload and the destination from our table, each closed or not by a
+/// separator, and on Windows in either case.
 ///
 /// `ConfirmationRequired`, not a refusal: the same-volume test is evidence
 /// rather than proof, so being wrong costs one click.
@@ -1016,10 +1016,10 @@ async fn guard_capacity(
          JOIN media m ON m.id = d.media_id
          JOIN root_folders tgt
               ON tgt.instance_id = d.instance_id
-             AND rtrim(tgt.path, '/') = rtrim({to}, '/')
+             AND tgt.path = {to} COLLATE path
          LEFT JOIN root_folders src
               ON src.instance_id = d.instance_id
-             AND rtrim(src.path, '/') = rtrim({from}, '/')
+             AND src.path = {from} COLLATE path
          WHERE {rows}
          GROUP BY d.instance_id, {to}"
     );
@@ -1120,13 +1120,14 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
            AND d.superseded = 0
            AND d.action = 'move'
            AND d.target_root_folder IS NOT NULL
-           AND rtrim(m.current_root_folder, '/') IS rtrim(d.current_root_folder, '/')"
+           AND m.current_root_folder IS d.current_root_folder COLLATE path"
     );
     // The last clause is the revalidation: a decision names the folder the
     // item was in when it was proposed, and an item moved since (by hand, or
     // by an apply the row already reflects) is not the item it describes.
-    // `IS`, so two nulls compare equal, and through `rtrim`, since an Arr
-    // reports the same folder with or without its trailing slash.
+    // `IS`, so two nulls compare equal, and through the path collation, since
+    // an Arr reports a root folder closed by its separator and a title's root
+    // without one.
     let mut query = sqlx::query_as::<_, MoveRow>(AssertSqlSafe(sql.as_str()));
     for id in ids {
         query = query.bind(id);
@@ -1139,7 +1140,7 @@ async fn load_pending_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<Vec<
         targets
             .get(&row.1)
             .and_then(Option::as_deref)
-            .is_some_and(|target| normalize_path(target) == normalize_path(&row.5))
+            .is_some_and(|target| crate::paths::key(target) == crate::paths::key(&row.5))
     });
 
     if !stale.is_empty() {
