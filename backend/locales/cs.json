@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Uchovávané zálohy",
   "SettingBackupRetentionHelp": "Nad tento počet se nejstarší smaže.",
   "SettingBatchLimit": "Limit dávky",
-  "SettingBatchLimitHelp": "Pevný strop počtu položek, kterých se smí jedno použití dotknout.",
+  "SettingBatchLimitHelp": "Pevný strop počtu položek, kterých se smí jedno použití dotknout. Celá simulace se použije po dávkách této velikosti a vždy si nejprve vyžádá potvrzení.",
   "SettingCertificationRegions": "Regiony věkového hodnocení",
   "SettingCertificationRegionsHelp": "Kódy ISO 3166-1 oddělené čárkami, nejpreferovanější první (např. CZ, US). Podle nich se vybírá z věkových hodnocení, která poskytují TMDb a TheTVDB. Radarr a Sonarr poskytují hodnocení země nastavené v jejich vlastním nastavení metadat.",
   "SettingRefusedNoRegion": "{field}: je potřeba alespoň jeden dvoupísmenný kód země.",

@@ -13,6 +13,10 @@ const t = useTranslations(Astro.props.locale);
  *
  * Paths, instance names and categories are the operator's own words, so
  * nothing in the body is translated but the two origins and the two states.
+ *
+ * Rows of a grid that reads as a table, so it carries the table's roles: a
+ * screen reader otherwise reads five values in a row with no column to name
+ * any of them.
  */
 interface Folder { path: string; instance: string; declared: boolean; free: number | null; category: string | null }
 const FOLDERS: Folder[] = [
@@ -44,25 +48,29 @@ const COLUMNS: Key[] = ['folders.col.path', 'folders.col.instance', 'folders.col
     </div>
 
     <div class="folders">
-      <p class="folder-row folder-head">{COLUMNS.map((column) => <span>{t(column)}</span>)}</p>
-      {
-        FOLDERS.map((folder) => (
-          <p class="folder-row">
-            <span class="folder-path">{folder.path}</span>
-            <span class="folder-instance">{folder.instance}</span>
-            <span class:list={['folder-origin', { declared: folder.declared }]}>
-              {t(folder.declared ? 'folders.origin.declared' : 'folders.origin.arr')}
-            </span>
-            <span class="folder-free">
-              <span class:list={['folder-dot', { off: !folder.free }]} aria-hidden="true" />
-              {folder.free === null ? t('folders.unreachable') : size.format(folder.free)}
-            </span>
-            <span class:list={['folder-cat', { none: !folder.category }]}>
-              {folder.category ?? t('folders.unmapped')}
-            </span>
-          </p>
-        ))
-      }
+      <div class="folder-table" role="table" aria-label={t('folders.span')}>
+        <div class="folder-row folder-head" role="row">
+          {COLUMNS.map((column) => <span role="columnheader">{t(column)}</span>)}
+        </div>
+        {
+          FOLDERS.map((folder) => (
+            <div class="folder-row" role="row">
+              <span class="folder-path" role="cell">{folder.path}</span>
+              <span class="folder-instance" role="cell">{folder.instance}</span>
+              <span role="cell" class:list={['folder-origin', { declared: folder.declared }]}>
+                {t(folder.declared ? 'folders.origin.declared' : 'folders.origin.arr')}
+              </span>
+              <span class="folder-free" role="cell">
+                <span class:list={['folder-dot', { off: !folder.free }]} aria-hidden="true" />
+                {folder.free === null ? t('folders.unreachable') : size.format(folder.free)}
+              </span>
+              <span role="cell" class:list={['folder-cat', { none: !folder.category }]}>
+                {folder.category ?? t('folders.unmapped')}
+              </span>
+            </div>
+          ))
+        }
+      </div>
       <p class="folder-foot"><span>{t('folders.foot')}</span><span>{t('folders.foot.2')}</span></p>
     </div>
 

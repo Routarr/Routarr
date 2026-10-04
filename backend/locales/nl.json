@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Bewaarde back-ups",
   "SettingBackupRetentionHelp": "Boven dit aantal wordt de oudste verwijderd.",
   "SettingBatchLimit": "Batchlimiet",
-  "SettingBatchLimitHelp": "Harde bovengrens voor het aantal items dat één toepassing mag raken.",
+  "SettingBatchLimitHelp": "Harde bovengrens voor het aantal items dat één toepassing mag raken. Een hele simulatie wordt in delen van deze grootte toegepast en vraagt altijd eerst om bevestiging.",
   "SettingCertificationRegions": "Regio's voor leeftijdsclassificatie",
   "SettingCertificationRegionsHelp": "ISO 3166-1-codes gescheiden door komma's, meest gewenste eerst (bijv. NL, US). Ze kiezen tussen de leeftijdsclassificaties die TMDb en TheTVDB geven. Radarr en Sonarr geven de classificatie van het land dat in hun eigen metadata-instellingen is gekozen.",
   "SettingRefusedNoRegion": "{field}: er is minstens één landcode van twee letters nodig.",

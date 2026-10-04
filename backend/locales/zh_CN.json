@@ -675,7 +675,7 @@
   "SettingBackupRetention": "保留的备份数",
   "SettingBackupRetentionHelp": "超过该数量后，最旧的会被删除。",
   "SettingBatchLimit": "批次上限",
-  "SettingBatchLimitHelp": "单次应用可涉及的项目数量硬上限。",
+  "SettingBatchLimitHelp": "单次应用可涉及的项目数量硬上限。整个模拟按此大小分批应用，并且总会先请求确认。",
   "SettingCertificationRegions": "分级地区",
   "SettingCertificationRegionsHelp": "以逗号分隔的 ISO 3166-1 代码，优先的排在前面（例如 CN, US）。它们用于在 TMDb 和 TheTVDB 提供的分级中进行选择。Radarr 和 Sonarr 提供的是其自身元数据设置中所设国家的分级。",
   "SettingRefusedNoRegion": "{field}：至少需要一个两字母国家代码。",

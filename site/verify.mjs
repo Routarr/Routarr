@@ -217,7 +217,13 @@ for (const path of PAGES) {
       const clipped = [];
       let count = 0;
       for (const el of document.querySelectorAll('main *')) {
-        if (!el.checkVisibility() || el.closest('.sr-only')) continue;
+        // Hidden for the eye and kept for a screen reader: `.sr-only`, or the
+        // same clip a layout applies at one width only.
+        let hidden = false;
+        for (let up = el; up && !hidden; up = up.parentElement) {
+          hidden = up.classList.contains('sr-only') || getComputedStyle(up).clipPath === 'inset(50%)';
+        }
+        if (!el.checkVisibility() || hidden) continue;
         const style = getComputedStyle(el);
         if (style.display === 'inline' || style.display === 'contents') continue;
         if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
@@ -332,6 +338,25 @@ for (const path of LANDINGS) {
 // measure nothing and pass.
 check(planCells >= 400, `measured ${planCells} plan cell(s) across the landings, expected at least 400`);
 
+// The dark palette is a stamped choice, so the sweep above never sees it. Each
+// page once more in dark, at a desktop width, where every block is on screen.
+for (const path of PAGES) {
+  const tab = await context.newPage();
+  await tab.addInitScript(() => localStorage.setItem('routarr.theme', 'dark'));
+  await tab.setViewportSize({ width: 1440, height: 900 });
+  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  const dark = await tab.evaluate(() => document.documentElement.dataset.theme === 'dark');
+  check(dark, `${path} did not open in the dark theme, so the dark sweep read the light one`);
+  const { violations } = await new AxeBuilder({ page: tab })
+    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+    .analyze();
+  for (const violation of violations) {
+    const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+    fail(`${path} in dark: ${violation.id} (${violation.impact}), ${where}`);
+  }
+  await tab.close();
+}
+
 // ------------------------------------------------------------ theme
 // Before anyone touches it, the switch says the theme on screen: a screen
 // reader reads its state, not its colour. Nothing stamped is the light default.
@@ -402,11 +427,13 @@ check(await barMatches(), 'theme-color does not follow the theme a reload restor
 // ------------------------------------------------------------ focus rings
 // A scrolling region takes the focus so the keyboard can scroll it. Its ring,
 // drawn outside it, is cut off by a card that clips its overflow, and the
-// reader cannot see where the focus went. Walked with Tab, as a reader does.
-for (const width of [1440, 375]) {
+// reader cannot see where the focus went. Walked with Tab, as a reader does,
+// on each page that has such a region: the plan on the landing, the call and
+// its answer on the API page.
+for (const [path, width] of ['/', '/api/'].flatMap((path) => [[path, 1440], [path, 375]])) {
   const tab = await context.newPage();
   await tab.setViewportSize({ width, height: 900 });
-  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
   const cut = new Set();
   let regions = 0;
   for (let step = 0; step < 120; step++) {
@@ -431,8 +458,34 @@ for (const width of [1440, 375]) {
     regions++;
     if (found.cut) cut.add(found.cut);
   }
-  check(regions > 0, `at ${width}px the Tab walk reached no scrolling region, so the ring check read nothing`);
-  check(cut.size === 0, `at ${width}px a card cuts off the focus ring of: ${[...cut].join(', ')}`);
+  check(regions > 0, `${path} at ${width}px: the Tab walk reached no scrolling region, so the ring check read nothing`);
+  check(cut.size === 0, `${path} at ${width}px: a card cuts off the focus ring of: ${[...cut].join(', ')}`);
+  await tab.close();
+}
+
+// ------------------------------------------------------------ anchors
+// A section the Index panel names lands below the sticky header, its heading
+// in view, not under the bar that covers the first lines.
+{
+  const tab = await context.newPage();
+  await tab.emulateMedia({ reducedMotion: 'reduce' });
+  await tab.setViewportSize({ width: 390, height: 800 });
+  let anchors = 0;
+  for (const path of [...LANDINGS.slice(0, 1), ...DETAILS.slice(0, 1)]) {
+    await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+    const targets = await tab.evaluate(() =>
+      [...document.querySelectorAll('.index-nav a[href^="#"]')].map((link) => link.getAttribute('href').slice(1)));
+    for (const id of targets) {
+      await tab.goto(`${BASE}${path}#${id}`, { waitUntil: 'networkidle' });
+      const { top, bar } = await tab.evaluate((target) => ({
+        top: document.getElementById(target).getBoundingClientRect().top,
+        bar: document.querySelector('.site-header').getBoundingClientRect().bottom,
+      }), id);
+      anchors++;
+      check(top >= bar - 1, `${path}#${id} lands ${Math.round(bar - top)}px under the header`);
+    }
+  }
+  check(anchors >= 5, `followed ${anchors} anchor(s), so the landing check read nothing`);
   await tab.close();
 }
 

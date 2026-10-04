@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Backups kept",
   "SettingBackupRetentionHelp": "Past this count, the oldest is deleted.",
   "SettingBatchLimit": "Batch limit",
-  "SettingBatchLimitHelp": "Hard ceiling on how many items a single apply may touch.",
+  "SettingBatchLimitHelp": "Hard ceiling on how many items a single apply may touch. A whole simulation is applied in slices of this size, and always asks for confirmation first.",
   "SettingCertificationRegions": "Certification regions",
   "SettingCertificationRegionsHelp": "Comma-separated ISO 3166-1 codes, most preferred first (e.g. FR, US). They choose among the ratings TMDb and TheTVDB give. Radarr and Sonarr give the rating of the country set in their own metadata settings.",
   "SettingRefusedNoRegion": "{field} needs at least one two-letter country code.",

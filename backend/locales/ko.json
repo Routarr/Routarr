@@ -675,7 +675,7 @@
   "SettingBackupRetention": "보관 백업 수",
   "SettingBackupRetentionHelp": "이 수를 초과하면 가장 오래된 것이 삭제됩니다.",
   "SettingBatchLimit": "배치 한도",
-  "SettingBatchLimitHelp": "한 번의 적용이 다룰 수 있는 항목 수의 엄격한 상한입니다.",
+  "SettingBatchLimitHelp": "한 번의 적용이 다룰 수 있는 항목 수의 엄격한 상한입니다. 시뮬레이션 전체는 이 크기 단위로 적용되며, 항상 먼저 확인을 요청합니다.",
   "SettingCertificationRegions": "관람 등급 지역",
   "SettingCertificationRegionsHelp": "쉼표로 구분한 ISO 3166-1 코드이며 선호하는 것을 먼저 씁니다 (예: KR, US). TMDb와 TheTVDB가 제공하는 관람 등급 중에서 고르는 데 쓰입니다. Radarr와 Sonarr는 각자의 메타데이터 설정에 지정된 국가의 관람 등급을 제공합니다.",
   "SettingRefusedNoRegion": "{field}: 두 글자 국가 코드가 하나 이상 필요합니다.",

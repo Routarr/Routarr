@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Säilytettävät varmuuskopiot",
   "SettingBackupRetentionHelp": "Tämän määrän ylittyessä vanhin poistetaan.",
   "SettingBatchLimit": "Eräraja",
-  "SettingBatchLimitHelp": "Ehdoton yläraja sille, montako kohdetta yksi toteutus saa koskea.",
+  "SettingBatchLimitHelp": "Ehdoton yläraja sille, montako kohdetta yksi toteutus saa koskea. Koko simulointi toteutetaan tämänkokoisina erinä, ja se pyytää aina ensin vahvistuksen.",
   "SettingCertificationRegions": "Ikärajan alueet",
   "SettingCertificationRegionsHelp": "Pilkuin erotetut ISO 3166-1 -koodit, halutuin ensin (esim. FI, US). Ne valitsevat TMDb:n ja TheTVDB:n antamista ikärajoista. Radarr ja Sonarr antavat sen maan ikärajan, joka on valittu niiden omissa metatietoasetuksissa.",
   "SettingRefusedNoRegion": "{field}: vähintään yksi kaksikirjaiminen maakoodi tarvitaan.",

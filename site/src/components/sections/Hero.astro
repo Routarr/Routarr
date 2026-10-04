@@ -17,7 +17,7 @@ const detail = pathFor(locale, 'how');
  * only what the application's own plan shows, so the plan promises nothing the
  * product does not say.
  */
-type Kind = 'go' | 'confirm' | 'still';
+type Kind = 'go' | 'still';
 interface Departure {
   title: string;
   rule: { number: string; name: Key } | null;
@@ -39,7 +39,7 @@ const DEPARTURES: Departure[] = [
   },
   {
     title: 'Cowboy Bebop', rule: { number: '#10', name: 'page.text.3' }, from: '/tv', to: '/tv/anime',
-    instance: 'Sonarr', status: 'hero.status.confirm', kind: 'confirm',
+    instance: 'Sonarr', status: 'hero.status.proposed', kind: 'go',
   },
   {
     title: 'Paddington 2', rule: { number: '#30', name: 'page.text.8' }, from: '/movies', to: '/movies/kids',
@@ -55,10 +55,9 @@ const DEPARTURES: Departure[] = [
   },
 ];
 
-const STATUS_CLASS: Record<Kind, string> = { go: 'is-go', confirm: 'is-confirm', still: 'is-still' };
+const STATUS_CLASS: Record<Kind, string> = { go: 'is-go', still: 'is-still' };
 const LEGEND: { cls: string; label: Key; note: Key }[] = [
   { cls: 'is-go', label: 'hero.status.proposed', note: 'hero.legend.proposed' },
-  { cls: 'is-confirm', label: 'hero.status.confirm', note: 'hero.legend.confirm' },
   { cls: 'is-still', label: 'hero.status.stays', note: 'hero.legend.stays' },
   { cls: 'is-still', label: 'hero.status.in-place', note: 'hero.legend.in-place' },
 ];
@@ -84,9 +83,11 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
       </div>
     </div>
 
-    {/* The plan, as the application draws it. The columns are the ones the
-        simulation screen shows, so nothing here promises what the product
-        does not say. */}
+    {/* The plan, as the application holds it. Each column is something the
+        simulation screen shows for a title, the instance under its name and
+        the status as its action, so nothing here promises what the product
+        does not say. A guardrail asks about an apply, never about one title,
+        so no row asks. */}
     <div class="plan">
       <div class="plan-head">
         <span class="plan-title">{t('hero.plan')}</span>

@@ -675,7 +675,7 @@
   "SettingBackupRetention": "Cópias mantidas",
   "SettingBackupRetentionHelp": "Acima deste número, a mais antiga é eliminada.",
   "SettingBatchLimit": "Limite do lote",
-  "SettingBatchLimitHelp": "Limite rígido de itens que podem ser tocados de cada vez que são aplicadas decisões.",
+  "SettingBatchLimitHelp": "Limite rígido de itens que podem ser tocados de cada vez que são aplicadas decisões. Uma simulação inteira é aplicada em lotes deste tamanho, e pede sempre confirmação antes.",
   "SettingCertificationRegions": "Regiões de classificação etária",
   "SettingCertificationRegionsHelp": "Códigos ISO 3166-1 separados por vírgulas, por ordem de preferência (p. ex. PT, US). Escolhem entre as classificações etárias que o TMDb e o TheTVDB fornecem. O Radarr e o Sonarr fornecem a classificação etária do país definido nas suas próprias definições de metadados.",
   "SettingRefusedNoRegion": "{field} precisa de pelo menos um código de país de duas letras.",

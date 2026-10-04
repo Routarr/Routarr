@@ -47,7 +47,7 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 - A catalogue value is text or whole elements, never the opening tag of the element it sits in.
   A text value carries no HTML entity (the template escapes it a second time), and a value with
   an element such as `<em>` renders with `set:html`. `check.mjs` catches that entity and an
-  escaped `em`, `strong`, `code`, `span`, `br`, `a` or `kbd`.
+  escaped `em`, `strong`, `b`, `code`, `span`, `br`, `a` or `kbd`.
 - An expression attribute takes no quotes: `alt={t('key')}`. In Astro, unlike Svelte,
   `alt="{t('key')}"` renders that literal text, and the `alt` check only asks for a non-empty one.
 - Internal links come from `pathFor(locale, page)`, which ends in the slash the server serves.

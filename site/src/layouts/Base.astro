@@ -14,12 +14,13 @@ interface Props {
 const { locale, page = 'landing' } = Astro.props;
 const t = useTranslations(locale);
 
-/* Each page states its own title and description. Everything else in the
-   head is the same for every page, which is why they are the only two. */
-const HEAD: Record<Page, { title: Key; description: Key }> = {
-  landing: { title: 'head.title', description: 'head.description' },
-  how: { title: 'head.title.how', description: 'head.description.how' },
-  api: { title: 'head.title.api', description: 'head.description.api' },
+/* Each page states its own title and descriptions. Everything else in the
+   head is the same for every page. The landing's card description is shorter
+   than its search one, and the other pages' cards say what their page holds. */
+const HEAD: Record<Page, { title: Key; description: Key; card: Key }> = {
+  landing: { title: 'head.title', description: 'head.description', card: 'head.og-description' },
+  how: { title: 'head.title.how', description: 'head.description.how', card: 'head.description.how' },
+  api: { title: 'head.title.api', description: 'head.description.api', card: 'head.description.api' },
 };
 const title = t(HEAD[page].title);
 const description = t(HEAD[page].description);
@@ -91,7 +92,7 @@ const schema = {
     }
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
-    <meta property="og:description" content={t('head.og-description')} />
+    <meta property="og:description" content={t(HEAD[page].card)} />
     <meta property="og:image" content={new URL('/assets/og.png', origin).href} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />

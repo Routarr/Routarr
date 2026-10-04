@@ -19,7 +19,7 @@ It works in four steps, and only the last one writes to the library:
 1. Sync reads films, series, tags and root folders from every connected Radarr and Sonarr. An
    empty response is never treated as a mass deletion.
 2. Enrich writes only to Routarr's own cache. Genres, original language and certification come
-   with the sync. TMDb and AniList add keywords and origin country.
+   with the sync. TMDb adds keywords and origin country, and AniList does for anime.
 3. Decide runs the rules by ascending priority, and the first match wins. Exclusions veto a rule
    that otherwise matched, and a title no rule matches falls to the default category. The result
    is a plan the user can read.
@@ -39,7 +39,7 @@ space and reachability from the synced folder it sits under. Routarr never creat
 layout.
 
 Six gates run in this order before anything is written, and the first to object stops the rest:
-global dry-run, batch cap, reachability, capacity, confirmation threshold, and revalidation at
+global dry-run, batch limit, reachability, capacity, confirmation threshold, and revalidation at
 apply time. All six are on by default. The global dry-run is on from the first launch, blocks
 writes at the server whatever the interface does, and alone makes the whole application
 read-only. Reachability, capacity and the confirmation threshold ask the user a question, and
@@ -58,9 +58,10 @@ Routarr also provides:
 - A secret webhook URL per instance. A title added in Radarr or Sonarr is synced, enriched and
   evaluated at once rather than at the next poll, and can be routed before it downloads.
 - Authentication on by default: an API key, a single account, or OpenID Connect.
-- Prometheus metrics at /metrics, behind the same API key.
-- Notifications through one generic JSON webhook for Discord, Gotify, ntfy or Apprise, fired on
-  a state change.
+- Prometheus metrics at /api/v1/metrics, behind the same API key.
+- Notifications through one generic JSON webhook for Discord, Gotify, Apprise, or ntfy through
+  its template address. An Arr that stops answering is reported once, and again when it is back,
+  and failed syncs and finished runs can be switched on too.
 - A backup into data/backups/ every day, unless the interval is changed.
 - Export of rules, categories, mappings and exceptions as JSON. Arr API keys are encrypted at rest
   with AES-256-GCM and are left out of the export.
