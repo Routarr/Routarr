@@ -27,7 +27,8 @@ export interface Field {
     | 'text'
     | 'language'
     | 'providers'
-    | 'theme'
+    /** One of `choices`. */
+    | 'choice'
     /**
      * Sealed by the backend, never returned: the field renders empty and a
      * companion `<key>_configured` boolean says whether one is stored.
@@ -41,7 +42,12 @@ export interface Field {
    * is no upper bound: a retention in days has none.
    */
   range?: [number, number | null];
+  /** What a `choice` offers. */
+  choices?: Choice[];
 }
+
+/** A value a `choice` offers: a caption from the dictionary, or a product's name. */
+export type Choice = { value: string } & ({ labelKey: string } | { name: string });
 
 /**
  * Which setting holds a metadata source's credential.
@@ -90,8 +96,13 @@ export const FIELDS: Field[] = [
     key: 'ui_theme',
     labelKey: 'SettingTheme',
     helpKey: 'SettingThemeHelp',
-    kind: 'theme',
+    kind: 'choice',
     fallback: 'dark',
+    choices: [
+      { value: 'dark', labelKey: 'ThemeDark' },
+      { value: 'light', labelKey: 'ThemeLight' },
+      { value: 'auto', labelKey: 'ThemeAuto' },
+    ],
   },
   {
     key: 'global_dry_run',
@@ -210,6 +221,22 @@ export const FIELDS: Field[] = [
     fallback: '',
   },
   {
+    // The values of `notify::FORMATS` in `backend/src/services/notify.rs`.
+    key: 'notification_format',
+    labelKey: 'SettingNotificationFormat',
+    helpKey: 'SettingNotificationFormatHelp',
+    kind: 'choice',
+    fallback: 'auto',
+    choices: [
+      { value: 'auto', labelKey: 'NotificationFormatAuto' },
+      { value: 'json', labelKey: 'NotificationFormatJson' },
+      { value: 'discord', name: 'Discord' },
+      { value: 'ntfy', name: 'ntfy' },
+      { value: 'gotify', name: 'Gotify' },
+      { value: 'apprise', name: 'Apprise' },
+    ],
+  },
+  {
     key: 'notify_sync_failed',
     labelKey: 'SettingNotifySyncFailed',
     helpKey: 'SettingNotifySyncFailedHelp',
@@ -312,6 +339,7 @@ export const SECTIONS = [
       'auto_apply_enabled',
       'scheduler_interval_minutes',
       'notification_webhook_url',
+      'notification_format',
       'notify_sync_failed',
       'notify_simulation_completed',
       'notify_moves_completed',

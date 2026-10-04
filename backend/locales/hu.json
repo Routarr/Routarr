@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Metaadat-gyorsítótár (nap)",
   "SettingMetadataTtlHelp": "Meddig maradnak érvényesek a metaadatok, mielőtt a Routarr újra lekéri őket.",
   "SettingNotificationWebhook": "Értesítési webhook",
-  "SettingNotificationWebhookHelp": "Egy URL, ahová a Routarr JSON-t küld, ha felügyelet nélkül valami elromlik: egy már nem elérhető Arr, vagy egy automatikus alkalmazás, amelyet az Arr elutasított. Állapotváltozásonként egyszer, nem minden újrapróbálkozáskor. Működik Discorddal, Gotifyval és Apprise-zal, valamint ntfy-vel a https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}} címmel. Titkosítva tárolódik, és sosem kerül exportba, mert a cím egymagában bárkinek lehetővé teszi, hogy a csatornába írjon. Távolítsa el az értesítések kikapcsolásához.",
+  "SettingNotificationWebhookHelp": "Egy URL, ahová a Routarr üzenetet küld, ha felügyelet nélkül valami elromlik: egy már nem elérhető Arr, vagy egy automatikus alkalmazás, amelyet az Arr elutasított. Állapotváltozásonként egyszer, nem minden újrapróbálkozáskor. Az alábbi formátum úgy írja meg, ahogy a Discord, az ntfy, a Gotify vagy az Apprise olvassa. Titkosítva tárolódik, és sosem kerül exportba, mert a cím egymagában bárkinek lehetővé teszi, hogy a csatornába írjon. Távolítsa el az értesítések kikapcsolásához.",
   "SettingRefusedAddress": "{field}: a címnek http:// vagy https:// előtaggal kell kezdődnie.",
   "SettingNotifySyncFailed": "Szinkronizálási hibák",
   "SettingNotifySyncFailedHelp": "Az értesítési webhook kapja: minden sikertelen szinkronizálás, nem csak akkor, amikor egy példány leáll.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Letöltés",
   "SigningSecretUnreadable": "Az aláírási titok nem nyitható meg ennek a telepítésnek a kulcsával, ezért semmilyen értesítés nem megy ki. Cserélje le a titkot.",
   "SigningSecretMintedOnce": "Másolja ki most. Csak egyszer jelenik meg, és többé nem olvasható vissza.",
-  "ErrorPreviewsWaiting": "Már várakoznak előnézetek a könyvtár beolvasására. Próbálja újra, amint az egyik befejeződött."
+  "ErrorPreviewsWaiting": "Már várakoznak előnézetek a könyvtár beolvasására. Próbálja újra, amint az egyik befejeződött.",
+  "SettingNotificationFormat": "Értesítések formátuma",
+  "SettingNotificationFormatHelp": "Hogyan íródik meg minden értesítés. Az Automatikus felismeri a Discord-webhookot és az ntfy.sh témáit, minden más címre pedig a Routarr JSON-ját küldi. Válassza az ntfy-t a saját szerverén lévő témához, a Gotifyt az üzenetcíméhez egy alkalmazástokennel, az Apprise-t pedig egy Apprise API-címhez. A Routarr JSON-ja tartalmazza az eseményt, a súlyosságát és az azonosítóit egy másik alkalmazás számára.",
+  "NotificationFormatAuto": "Automatikus",
+  "NotificationFormatJson": "Routarr JSON",
+  "NotificationTest": "Tesztértesítés",
+  "NotificationTestHelp": "Üzenetet küld a mentett címre, a mentett formátumban, a többihez hasonlóan aláírva. Tesztelés előtt mentse a módosítást.",
+  "SendTestNotification": "Tesztértesítés küldése",
+  "NotificationTestSent": "A fogadó elfogadta a tesztértesítést.",
+  "NotificationTestNoAddress": "Nincs mentett értesítési webhookcím. Mentsen egyet, majd küldje el újra a tesztet.",
+  "NotificationTestRefused": "A fogadó HTTP {status} kóddal elutasította a tesztértesítést. Ellenőrizze a címet és a formátumot.",
+  "NotificationTestUnreachable": "A tesztértesítés nem érte el a címet. Ellenőrizze, hogy helyes-e, és hogy a Routarr eléri-e."
 }

@@ -27,6 +27,7 @@ struct Delivery {
     timestamp: String,
     signature: Option<String>,
     body: String,
+    headers: HeaderMap,
 }
 
 /// A webhook receiver that records what Routarr posted to it.
@@ -73,6 +74,7 @@ impl Receiver {
                         timestamp: header("webhook-timestamp").unwrap_or_default(),
                         signature: header("webhook-signature"),
                         body,
+                        headers: headers.clone(),
                     });
                     let first = sink.lock().expect("lock").len() == 1;
                     if first && !first_delay.is_zero() {
@@ -919,4 +921,77 @@ async fn an_ntfy_address_with_its_templates_is_saved_and_posted_to() {
     let delivered = &receiver.arrived(1).await[0];
     assert_eq!(delivered["title"], "Routarr");
     assert!(delivered["message"].as_str().is_some_and(|m| !m.is_empty()), "{delivered}");
+}
+
+// ------------------------------------------------------ formats and tests
+
+/// The format is read at each delivery, and the signature covers the body
+/// as sent, whatever its shape.
+#[tokio::test]
+async fn the_format_chosen_in_settings_shapes_what_is_posted_and_is_signed() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    let minted = app.post("/api/v1/notifications/webhook-secret", serde_json::json!({})).await;
+    let secret = minted.assert_ok()["secret"].as_str().unwrap().to_string();
+
+    app.save_setting("notification_format", "ntfy").await.assert_ok();
+    notify::send(&app.state, recovered()).await;
+    let ntfy = receiver.deliveries().pop().expect("a delivery");
+    let header = |name: &str| ntfy.headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or("");
+    assert!(header("content-type").starts_with("text/plain"), "{ntfy:?}");
+    assert_eq!(header("title"), "Instance reachable again");
+    assert!(ntfy.body.contains("'Radarr'"), "{ntfy:?}");
+    assert!(signed_with(&secret, &ntfy), "{ntfy:?}");
+
+    app.save_setting("notification_format", "gotify").await.assert_ok();
+    notify::send(&app.state, recovered()).await;
+    let gotify: serde_json::Value =
+        serde_json::from_str(&receiver.deliveries().pop().unwrap().body).unwrap();
+    assert_eq!(gotify["priority"], 2, "{gotify}");
+}
+
+#[tokio::test]
+async fn a_format_routarr_does_not_write_is_refused() {
+    let app = TestApp::new().await;
+    let refused = app.save_setting("notification_format", "telegram").await;
+    assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST);
+    app.save_setting("notification_format", "auto").await.assert_ok();
+}
+
+/// The answer comes once the receiver has taken the message.
+#[tokio::test]
+async fn a_test_notification_has_arrived_when_the_answer_comes() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+
+    let sent = app.post("/api/v1/notifications/test", serde_json::json!({})).await;
+    assert_eq!(sent.status, axum::http::StatusCode::NO_CONTENT, "{:?}", sent.json);
+    assert_eq!(receiver.messages().pop().expect("a delivery")["event"], "test");
+}
+
+/// The screen shows why the test did not arrive, in the reader's language:
+/// no address, the receiver's refusal, or no answer at all.
+#[tokio::test]
+async fn a_test_notification_says_why_it_did_not_arrive() {
+    let app = TestApp::new().await;
+    app.save_setting("ui_language", "fr").await.assert_ok();
+    let test = || app.post("/api/v1/notifications/test", serde_json::json!({}));
+
+    let nowhere = test().await;
+    assert_eq!(nowhere.status, axum::http::StatusCode::BAD_REQUEST);
+    assert!(nowhere.json["message"].as_str().unwrap().contains("adresse"), "{:?}", nowhere.json);
+
+    let receiver = Receiver::answering(&[404]).await;
+    listening(&app, &receiver).await;
+    let refused = test().await;
+    assert_eq!(refused.status, axum::http::StatusCode::BAD_GATEWAY);
+    assert!(refused.json["message"].as_str().unwrap().contains("404"), "{:?}", refused.json);
+    assert_eq!(receiver.deliveries().len(), 1, "a test is never tried again");
+
+    app.save_setting("notification_webhook_url", "http://127.0.0.1:1/hook").await.assert_ok();
+    let unanswered = test().await;
+    assert_eq!(unanswered.status, axum::http::StatusCode::BAD_GATEWAY);
+    assert!(!unanswered.json["message"].as_str().unwrap().contains("127.0.0.1"));
 }

@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Üst veri önbelleği (gün)",
   "SettingMetadataTtlHelp": "Üst verinin yeniden alınmadan önce ne kadar süre geçerli sayılacağı.",
   "SettingNotificationWebhook": "Bildirim webhook'u",
-  "SettingNotificationWebhookHelp": "Kimse bakmazken bir şey başarısız olduğunda Routarr'ın JSON gönderdiği adres: artık erişilemeyen bir Arr ya da Arr'ın reddettiği bir otomatik uygulama. Her yeniden denemede değil, durum değiştiğinde bir kez gönderilir. Discord, Gotify ve Apprise ile, ayrıca https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}} adresiyle ntfy ile çalışır. Adres tek başına herkesin kanala gönderi yapmasına yettiği için şifreli saklanır ve asla dışa aktarılmaz. Bildirimleri kapatmak için kaldırın.",
+  "SettingNotificationWebhookHelp": "Kimse bakmazken bir şey başarısız olduğunda Routarr'ın mesaj gönderdiği adres: artık erişilemeyen bir Arr ya da Arr'ın reddettiği bir otomatik uygulama. Her yeniden denemede değil, durum değiştiğinde bir kez gönderilir. Aşağıdaki biçim mesajı Discord, ntfy, Gotify ya da Apprise'ın okuduğu şekilde yazar. Adres tek başına herkesin kanala gönderi yapmasına yettiği için şifreli saklanır ve asla dışa aktarılmaz. Bildirimleri kapatmak için kaldırın.",
   "SettingRefusedAddress": "{field}: http:// veya https:// ile başlayan bir adres gerekir.",
   "SettingNotifySyncFailed": "Başarısız eşitlemeler",
   "SettingNotifySyncFailedHelp": "Bildirim webhook'una gönderilir: yalnızca bir örnek devre dışı kaldığında değil, her başarısız eşitlemede.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "İndir",
   "SigningSecretUnreadable": "İmzalama gizli anahtarı bu kurulumun anahtarıyla açılamıyor, bu nedenle hiçbir bildirim gönderilmiyor. Gizli anahtarı değiştirin.",
   "SigningSecretMintedOnce": "Şimdi kopyalayın. Bir kez gösterilir ve tekrar okunamaz.",
-  "ErrorPreviewsWaiting": "Kitaplığı okumak için sırada bekleyen önizlemeler zaten var. Biri bittiğinde yeniden deneyin."
+  "ErrorPreviewsWaiting": "Kitaplığı okumak için sırada bekleyen önizlemeler zaten var. Biri bittiğinde yeniden deneyin.",
+  "SettingNotificationFormat": "Bildirim biçimi",
+  "SettingNotificationFormatHelp": "Her bildirimin nasıl yazılacağı. Otomatik, bir Discord webhook'unu ve ntfy.sh üzerindeki bir konuyu tanır, diğer her adrese Routarr'ın JSON'unu gönderir. Kendi sunucunuzdaki bir konu için ntfy'ı, uygulama belirteciyle mesaj adresi için Gotify'ı, bir Apprise API adresi için Apprise'ı seçin. Routarr'ın JSON'u başka bir uygulama için olayı, önem derecesini ve kimliklerini taşır.",
+  "NotificationFormatAuto": "Otomatik",
+  "NotificationFormatJson": "Routarr JSON",
+  "NotificationTest": "Test bildirimi",
+  "NotificationTestHelp": "Kayıtlı adrese, kayıtlı biçimde ve diğerleri gibi imzalı bir mesaj gönderir. Bir değişikliği test etmeden önce kaydedin.",
+  "SendTestNotification": "Test bildirimi gönder",
+  "NotificationTestSent": "Alıcı test bildirimini kabul etti.",
+  "NotificationTestNoAddress": "Kayıtlı bir bildirim webhook adresi yok. Bir adres kaydedin, ardından testi yeniden gönderin.",
+  "NotificationTestRefused": "Alıcı test bildirimini HTTP {status} ile reddetti. Adresi ve biçimi kontrol edin.",
+  "NotificationTestUnreachable": "Test bildirimi adrese ulaşmadı. Adresin doğru olduğunu ve Routarr'ın ona erişebildiğini kontrol edin."
 }

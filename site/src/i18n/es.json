@@ -94,7 +94,7 @@
   "features.p.3": "Una URL secreta por instancia. Las altas nuevas se sincronizan, enriquecen y evalúan de inmediato, no en el siguiente sondeo.",
   "features.p.4": "Fije un título a una categoría y el motor deja de discutir. Una excepción gana a cualquier regla, y todo movimiento aplicado puede deshacerse desde el historial.",
   "features.p.5": "Tamaño de la biblioteca, decisiones por categoría y estado, salud de las instancias y estado de las salvaguardas, tras la misma clave de API.",
-  "features.p.6": "Un webhook JSON genérico para Discord, Gotify, Apprise, o ntfy mediante su dirección con plantilla. Un Arr que deja de responder se avisa una vez, y otra cuando vuelve, no en cada reintento. Las sincronizaciones fallidas y las ejecuciones terminadas pueden activarse también.",
+  "features.p.6": "Un webhook, escrito como lo leen Discord, ntfy, Gotify o Apprise, o en JSON para todo lo demás, y un mensaje de prueba para comprobarlo. Un Arr que deja de responder se avisa una vez, y otra cuando vuelve, no en cada reintento. Las sincronizaciones fallidas y las ejecuciones terminadas pueden activarse también.",
   "features.p.7": "Reglas, categorías, asignaciones y excepciones se exportan como JSON y viajan entre instalaciones. Las claves de API de los Arr se cifran con AES-256-GCM y nunca salen.",
   "features.span": "Funciones",
   "folders.col.category": "Categoría",

@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "메타데이터 캐시 (일)",
   "SettingMetadataTtlHelp": "메타데이터를 다시 가져오기 전까지 유효한 것으로 간주하는 기간입니다.",
   "SettingNotificationWebhook": "알림 웹훅",
-  "SettingNotificationWebhookHelp": "아무도 보지 않을 때 문제가 생기면 Routarr가 JSON을 보내는 URL입니다. 연결할 수 없게 된 Arr나 Arr가 거부한 자동 적용이 대상입니다. 재시도할 때마다가 아니라 상태가 바뀔 때 한 번만 보냅니다. Discord, Gotify, Apprise와 호환되며, ntfy는 https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}} 주소로 사용할 수 있습니다. 주소만으로 누구나 채널에 게시할 수 있으므로 암호화해 저장하며 내보내지 않습니다. 알림을 끄려면 제거하세요.",
+  "SettingNotificationWebhookHelp": "아무도 보지 않을 때 문제가 생기면 Routarr가 메시지를 보내는 URL입니다. 연결할 수 없게 된 Arr나 Arr가 거부한 자동 적용이 대상입니다. 재시도할 때마다가 아니라 상태가 바뀔 때 한 번만 보냅니다. 아래 형식이 Discord, ntfy, Gotify, Apprise가 읽는 모양으로 메시지를 작성합니다. 주소만으로 누구나 채널에 게시할 수 있으므로 암호화해 저장하며 내보내지 않습니다. 알림을 끄려면 제거하세요.",
   "SettingRefusedAddress": "{field}: http:// 또는 https://로 시작하는 주소여야 합니다.",
   "SettingNotifySyncFailed": "실패한 동기화",
   "SettingNotifySyncFailedHelp": "인스턴스가 다운될 때뿐 아니라 동기화가 실패할 때마다 알림 웹훅으로 보냅니다.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "다운로드",
   "SigningSecretUnreadable": "이 설치본의 키로 서명 시크릿을 열 수 없으므로 알림을 보내지 않습니다. 시크릿을 교체하세요.",
   "SigningSecretMintedOnce": "지금 복사하세요. 한 번만 표시되며 다시 확인할 수 없습니다.",
-  "ErrorPreviewsWaiting": "라이브러리를 읽으려고 기다리는 미리 보기가 이미 있습니다. 하나가 끝난 후 다시 시도하세요."
+  "ErrorPreviewsWaiting": "라이브러리를 읽으려고 기다리는 미리 보기가 이미 있습니다. 하나가 끝난 후 다시 시도하세요.",
+  "SettingNotificationFormat": "알림 형식",
+  "SettingNotificationFormatHelp": "각 알림을 작성하는 방식입니다. 자동은 Discord 웹훅과 ntfy.sh의 토픽을 인식하고, 그 밖의 주소에는 Routarr JSON을 보냅니다. 자체 서버의 토픽에는 ntfy, 애플리케이션 토큰이 포함된 메시지 주소에는 Gotify, Apprise API 주소에는 Apprise를 선택하세요. Routarr JSON에는 다른 애플리케이션을 위한 이벤트, 심각도, ID가 담깁니다.",
+  "NotificationFormatAuto": "자동",
+  "NotificationFormatJson": "Routarr JSON",
+  "NotificationTest": "테스트 알림",
+  "NotificationTestHelp": "저장된 주소로, 저장된 형식에 따라 다른 알림처럼 서명된 메시지를 보냅니다. 변경 사항은 테스트하기 전에 저장하세요.",
+  "SendTestNotification": "테스트 알림 보내기",
+  "NotificationTestSent": "수신 측이 테스트 알림을 받았습니다.",
+  "NotificationTestNoAddress": "저장된 알림 웹훅 주소가 없습니다. 주소를 저장한 뒤 테스트를 다시 보내세요.",
+  "NotificationTestRefused": "수신 측이 HTTP {status}(으)로 테스트 알림을 거부했습니다. 주소와 형식을 확인하세요.",
+  "NotificationTestUnreachable": "테스트 알림이 주소에 닿지 않았습니다. 주소가 올바른지, Routarr가 접근할 수 있는지 확인하세요."
 }

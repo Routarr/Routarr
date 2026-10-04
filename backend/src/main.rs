@@ -378,6 +378,7 @@ fn build_router(state: AppState) -> Router {
                 .post(api::notifications::rotate_signing)
                 .delete(api::notifications::remove_signing),
         )
+        .route("/notifications/test", post(api::notifications::test))
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/metadata/providers", get(api::metadata::list))
         .route("/config/export", get(api::config::export))

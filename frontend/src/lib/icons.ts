@@ -48,6 +48,7 @@ export {
   Save,
   ScrollText,
   Search,
+  Send,
   Server,
   Settings,
   ShieldAlert,

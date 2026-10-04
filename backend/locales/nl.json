@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Geldigheid metadatacache (dagen)",
   "SettingMetadataTtlHelp": "Hoe lang metadata geldig blijven voordat ze opnieuw worden opgehaald.",
   "SettingNotificationWebhook": "Meldingswebhook",
-  "SettingNotificationWebhookHelp": "Een URL waar Routarr JSON naartoe stuurt als er iets misgaat zonder toezicht: een Arr die niet meer bereikbaar is, of een automatische toepassing die de Arr heeft geweigerd. Eén keer per statuswijziging, niet bij elke nieuwe poging. Werkt met Discord, Gotify en Apprise, en met ntfy via het adres https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Versleuteld opgeslagen en nooit geëxporteerd, omdat het adres alleen al iedereen in het kanaal laat posten. Verwijder het om de meldingen uit te zetten.",
+  "SettingNotificationWebhookHelp": "Een URL waar Routarr een bericht naartoe stuurt als er iets misgaat zonder toezicht: een Arr die niet meer bereikbaar is, of een automatische toepassing die de Arr heeft geweigerd. Eén keer per statuswijziging, niet bij elke nieuwe poging. Het formaat hieronder schrijft het zoals Discord, ntfy, Gotify of Apprise het lezen. Versleuteld opgeslagen en nooit geëxporteerd, omdat het adres alleen al iedereen in het kanaal laat posten. Verwijder het om de meldingen uit te zetten.",
   "SettingRefusedAddress": "{field}: het adres moet met http:// of https:// beginnen.",
   "SettingNotifySyncFailed": "Mislukte synchronisaties",
   "SettingNotifySyncFailedHelp": "Wordt naar de meldingswebhook gestuurd: elke mislukte synchronisatie, niet alleen als een instantie onbereikbaar wordt.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Downloaden",
   "SigningSecretUnreadable": "Het ondertekeningsgeheim kan niet worden ontsleuteld met de sleutel van deze installatie, dus er wordt geen melding verstuurd. Vervang het geheim.",
   "SigningSecretMintedOnce": "Kopieer het nu. Het wordt eenmaal getoond en is daarna niet meer leesbaar.",
-  "ErrorPreviewsWaiting": "Er wachten al voorbeeldweergaven op de bibliotheek. Probeer het opnieuw zodra er een klaar is."
+  "ErrorPreviewsWaiting": "Er wachten al voorbeeldweergaven op de bibliotheek. Probeer het opnieuw zodra er een klaar is.",
+  "SettingNotificationFormat": "Meldingsformaat",
+  "SettingNotificationFormatHelp": "Hoe elke melding wordt geschreven. Automatisch herkent een Discord-webhook en een onderwerp op ntfy.sh, en stuurt naar elk ander adres de JSON van Routarr. Kies ntfy voor een onderwerp op je eigen server, Gotify voor het berichtadres met een applicatietoken, en Apprise voor een adres van de Apprise API. De JSON van Routarr bevat de gebeurtenis, de ernst en de ID's voor een andere applicatie.",
+  "NotificationFormatAuto": "Automatisch",
+  "NotificationFormatJson": "Routarr-JSON",
+  "NotificationTest": "Testmelding",
+  "NotificationTestHelp": "Stuurt een bericht naar het opgeslagen adres, in het opgeslagen formaat en ondertekend zoals de andere. Sla een wijziging op voordat je die test.",
+  "SendTestNotification": "Testmelding versturen",
+  "NotificationTestSent": "De ontvanger heeft de testmelding aangenomen.",
+  "NotificationTestNoAddress": "Er is geen adres voor de meldingswebhook opgeslagen. Sla er een op en verstuur de test opnieuw.",
+  "NotificationTestRefused": "De ontvanger weigerde de testmelding met HTTP {status}. Controleer het adres en het formaat.",
+  "NotificationTestUnreachable": "De testmelding heeft het adres niet bereikt. Controleer of het klopt en of Routarr het kan bereiken."
 }

@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "メタデータキャッシュ (日)",
   "SettingMetadataTtlHelp": "メタデータを再取得するまで有効とみなす期間です。",
   "SettingNotificationWebhook": "通知 Webhook",
-  "SettingNotificationWebhookHelp": "誰も見ていないところで問題が起きたときに Routarr が JSON を送る URL です。到達できなくなった Arr や、Arr に拒否された自動適用が対象です。再試行のたびではなく、状態が変わったときに一度だけ送ります。Discord、Gotify、Apprise に対応し、ntfy にはアドレス https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}} で対応します。アドレスだけで誰でもチャンネルに投稿できるため、暗号化して保存し、エクスポートには含めません。通知を止めるには削除してください。",
+  "SettingNotificationWebhookHelp": "誰も見ていないところで問題が起きたときに Routarr がメッセージを送る URL です。到達できなくなった Arr や、Arr に拒否された自動適用が対象です。再試行のたびではなく、状態が変わったときに一度だけ送ります。下の形式で、Discord、ntfy、Gotify、Apprise が読める形に書き出します。アドレスだけで誰でもチャンネルに投稿できるため、暗号化して保存し、エクスポートには含めません。通知を止めるには削除してください。",
   "SettingRefusedAddress": "{field}: http:// または https:// で始まるアドレスを指定してください。",
   "SettingNotifySyncFailed": "失敗した同期",
   "SettingNotifySyncFailedHelp": "インスタンスがダウンしたときに限らず、同期が失敗するたびに通知 Webhook に送信します。",
@@ -897,5 +897,16 @@
   "DownloadBackup": "ダウンロード",
   "SigningSecretUnreadable": "署名シークレットをこのインストールの鍵で開けないため、通知は送信されません。シークレットを置き換えてください。",
   "SigningSecretMintedOnce": "今すぐコピーしてください。表示は一度きりで、再度読み取ることはできません。",
-  "ErrorPreviewsWaiting": "ライブラリの読み取りを待っているプレビューがすでにあります。いずれかが完了してから、もう一度お試しください。"
+  "ErrorPreviewsWaiting": "ライブラリの読み取りを待っているプレビューがすでにあります。いずれかが完了してから、もう一度お試しください。",
+  "SettingNotificationFormat": "通知の形式",
+  "SettingNotificationFormatHelp": "各通知の書き方です。自動では Discord の Webhook と ntfy.sh のトピックを認識し、それ以外のアドレスには Routarr の JSON を送ります。自分のサーバー上のトピックには ntfy、アプリケーショントークン付きのメッセージアドレスには Gotify、Apprise API のアドレスには Apprise を選んでください。Routarr の JSON には、ほかのアプリケーション向けにイベント、重大度、ID が含まれます。",
+  "NotificationFormatAuto": "自動",
+  "NotificationFormatJson": "Routarr の JSON",
+  "NotificationTest": "テスト通知",
+  "NotificationTestHelp": "保存済みのアドレスに、保存済みの形式で、ほかの通知と同じ署名付きでメッセージを送ります。変更はテストの前に保存してください。",
+  "SendTestNotification": "テスト通知を送信",
+  "NotificationTestSent": "受信側がテスト通知を受け付けました。",
+  "NotificationTestNoAddress": "通知 Webhook のアドレスが保存されていません。アドレスを保存してから、もう一度テストを送ってください。",
+  "NotificationTestRefused": "受信側がテスト通知を HTTP {status} で拒否しました。アドレスと形式を確認してください。",
+  "NotificationTestUnreachable": "テスト通知がアドレスに届きませんでした。アドレスが正しいか、Routarr から到達できるかを確認してください。"
 }

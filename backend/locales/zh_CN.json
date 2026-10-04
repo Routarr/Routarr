@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "元数据缓存（天）",
   "SettingMetadataTtlHelp": "元数据在重新获取之前保持有效的时长。",
   "SettingNotificationWebhook": "通知 Webhook",
-  "SettingNotificationWebhookHelp": "当无人看管时出现故障，Routarr 会向该 URL 发送 JSON：无法再访问的 Arr，或被 Arr 拒绝的自动应用。仅在状态变化时发送一次，而非每次重试。兼容 Discord、Gotify 和 Apprise，也可用于 ntfy，地址为 https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}。仅凭该地址任何人即可向频道发帖，因此它会加密存储且从不导出。移除它即可停止通知。",
+  "SettingNotificationWebhookHelp": "当无人看管时出现故障，Routarr 会向该 URL 发送消息：无法再访问的 Arr，或被 Arr 拒绝的自动应用。仅在状态变化时发送一次，而非每次重试。下方的格式会按 Discord、ntfy、Gotify 或 Apprise 能读取的方式写出消息。仅凭该地址任何人即可向频道发帖，因此它会加密存储且从不导出。移除它即可停止通知。",
   "SettingRefusedAddress": "{field}：需要 http:// 或 https:// 地址。",
   "SettingNotifySyncFailed": "同步失败",
   "SettingNotifySyncFailedHelp": "发送到通知 Webhook：每次同步失败，而不仅限于实例离线时。",
@@ -897,5 +897,16 @@
   "DownloadBackup": "下载",
   "SigningSecretUnreadable": "本安装的密钥无法打开签名密钥，因此不会发送任何通知。请替换签名密钥。",
   "SigningSecretMintedOnce": "请立即复制：仅显示一次，之后无法再次读取。",
-  "ErrorPreviewsWaiting": "已有预览在等待读取媒体库。请在其中一个完成后重试。"
+  "ErrorPreviewsWaiting": "已有预览在等待读取媒体库。请在其中一个完成后重试。",
+  "SettingNotificationFormat": "通知格式",
+  "SettingNotificationFormatHelp": "每条通知的写法。自动会识别 Discord Webhook 和 ntfy.sh 上的主题，并向其他任何地址发送 Routarr 的 JSON。自建服务器上的主题请选择 ntfy，带应用令牌的消息地址请选择 Gotify，Apprise API 地址请选择 Apprise。Routarr 的 JSON 为其他应用携带事件、严重程度及其 ID。",
+  "NotificationFormatAuto": "自动",
+  "NotificationFormatJson": "Routarr 的 JSON",
+  "NotificationTest": "测试通知",
+  "NotificationTestHelp": "以已保存的格式向已保存的地址发送一条消息，签名方式与其他通知相同。测试前请先保存更改。",
+  "SendTestNotification": "发送测试通知",
+  "NotificationTestSent": "接收方已接受测试通知。",
+  "NotificationTestNoAddress": "尚未保存通知 Webhook 地址。请先保存地址，再重新发送测试。",
+  "NotificationTestRefused": "接收方以 HTTP {status} 拒绝了测试通知。请检查地址和格式。",
+  "NotificationTestUnreachable": "测试通知未能到达该地址。请检查地址是否正确，以及 Routarr 能否访问它。"
 }

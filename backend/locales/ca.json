@@ -695,7 +695,7 @@
   "SettingMetadataTtl": "Validesa de la memòria cau de metadades (dies)",
   "SettingMetadataTtlHelp": "Quant de temps les metadades es mantenen vàlides abans de tornar-les a obtenir.",
   "SettingNotificationWebhook": "Webhook de notificació",
-  "SettingNotificationWebhookHelp": "Un URL on Routarr envia JSON quan alguna cosa falla sense testimonis: un Arr al qual ja no pot accedir, o una decisió aplicada automàticament que l'Arr ha rebutjat. S'envia un cop per canvi d'estat, no a cada reintent. Funciona amb Discord, Gotify i Apprise, i amb ntfy si se li dona l'adreça https://ntfy.sh/your-topic?template=yes&title={{.title}}&message={{.message}}. Es desa xifrat i no s'exporta mai, perquè l'adreça sola permet a qualsevol publicar al canal. Elimina'l per aturar les notificacions.",
+  "SettingNotificationWebhookHelp": "Un URL on Routarr envia un missatge quan alguna cosa falla sense testimonis: un Arr al qual ja no pot accedir, o una decisió aplicada automàticament que l'Arr ha rebutjat. S'envia un cop per canvi d'estat, no a cada reintent. El format de sota l'escriu tal com el llegeixen Discord, ntfy, Gotify o Apprise. Es desa xifrat i no s'exporta mai, perquè l'adreça sola permet a qualsevol publicar al canal. Elimina'l per aturar les notificacions.",
   "SettingRefusedAddress": "{field} admet una adreça http:// o https://.",
   "SettingNotifySyncFailed": "Sincronitzacions fallides",
   "SettingNotifySyncFailedHelp": "S'envia al webhook de notificació: cada sincronització fallida, no només quan una instància queda inaccessible.",
@@ -897,5 +897,16 @@
   "DownloadBackup": "Baixa",
   "SigningSecretUnreadable": "El secret de signatura no es pot obrir amb la clau d'aquesta instal·lació, així que no s'envia cap notificació. Substitueix el secret.",
   "SigningSecretMintedOnce": "Copia'l ara: només es mostra un cop i no es pot tornar a llegir.",
-  "ErrorPreviewsWaiting": "Ja hi ha previsualitzacions esperant el seu torn per llegir la biblioteca. Torna-ho a provar quan n'hagi acabat una."
+  "ErrorPreviewsWaiting": "Ja hi ha previsualitzacions esperant el seu torn per llegir la biblioteca. Torna-ho a provar quan n'hagi acabat una.",
+  "SettingNotificationFormat": "Format de les notificacions",
+  "SettingNotificationFormatHelp": "Com s'escriu cada notificació. Automàtic reconeix un webhook de Discord i un tema a ntfy.sh, i envia el JSON de Routarr a qualsevol altra adreça. Tria ntfy per a un tema al teu propi servidor, Gotify per a la seva adreça de missatges amb un testimoni d'aplicació, i Apprise per a una adreça de l'API d'Apprise. El JSON de Routarr porta l'esdeveniment, la seva gravetat i els seus identificadors per a una altra aplicació.",
+  "NotificationFormatAuto": "Automàtic",
+  "NotificationFormatJson": "JSON de Routarr",
+  "NotificationTest": "Notificació de prova",
+  "NotificationTestHelp": "Envia un missatge a l'adreça desada, en el format desat i signat com els altres. Desa un canvi abans de provar-lo.",
+  "SendTestNotification": "Envia una notificació de prova",
+  "NotificationTestSent": "El destinatari ha acceptat la notificació de prova.",
+  "NotificationTestNoAddress": "No hi ha cap adreça de webhook de notificacions desada. Desa'n una i torna a enviar la prova.",
+  "NotificationTestRefused": "El destinatari ha rebutjat la notificació de prova amb HTTP {status}. Comprova l'adreça i el format.",
+  "NotificationTestUnreachable": "La notificació de prova no ha arribat a l'adreça. Comprova que és correcta i que Routarr hi pot arribar."
 }

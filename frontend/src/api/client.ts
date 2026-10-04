@@ -488,6 +488,7 @@ export const api = {
     request<{ secret: string }>('/notifications/webhook-secret', { method: 'POST' }),
   removeWebhookSigning: () =>
     request<unknown>('/notifications/webhook-secret', { method: 'DELETE' }),
+  sendTestNotification: () => request<unknown>('/notifications/test', { method: 'POST' }),
 
   getApplications: (signal?: AbortSignal) => request<Application[]>('/applications', { signal }),
   createApplication: (data: NewApplication) =>

@@ -52,6 +52,7 @@ const KNOWN: &[(&str, Kind)] = &[
     ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60)),
     ("certification_regions", Kind::CountryList),
     ("notification_webhook_url", Kind::WebhookUrl),
+    ("notification_format", Kind::NotificationFormat),
     // What the webhook receives beside the failures, which it always does.
     ("notify_sync_failed", Kind::Bool),
     ("notify_simulation_completed", Kind::Bool),
@@ -102,6 +103,8 @@ enum Kind {
     CountryList,
     Language,
     Theme,
+    /// One of `notify::FORMATS`.
+    NotificationFormat,
     ProviderList,
     Onboarding,
 }
@@ -285,6 +288,14 @@ fn validate(
         Kind::Theme => {
             if !matches!(value, "dark" | "light" | "auto") {
                 return Err(bad(format!("'{key}' must be 'dark', 'light' or 'auto'")));
+            }
+        }
+        Kind::NotificationFormat => {
+            if !crate::services::notify::FORMATS.contains(&value) {
+                return Err(bad(format!(
+                    "'{key}' must be one of {}",
+                    crate::services::notify::FORMATS.join(", ")
+                )));
             }
         }
         Kind::Onboarding => {

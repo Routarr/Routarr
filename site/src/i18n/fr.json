@@ -94,7 +94,7 @@
   "features.p.3": "Une URL secrète par serveur. Les nouveaux ajouts sont synchronisés, enrichis et évalués immédiatement, sans attendre le prochain relevé.",
   "features.p.4": "Épinglez un titre à une catégorie et le moteur cesse de discuter. Une exception l'emporte sur toutes les règles, et tout déplacement appliqué peut être annulé depuis l'historique.",
   "features.p.5": "Taille de la bibliothèque, décisions par catégorie et par état, santé des serveurs, état des garde-fous, derrière la même clé d'API.",
-  "features.p.6": "Un webhook JSON générique pour Discord, Gotify, Apprise, ou ntfy par son adresse à modèle. Un Arr qui ne répond plus est signalé une fois, puis à son retour, pas à chaque nouvel essai. Les synchronisations échouées et les exécutions terminées peuvent s'y ajouter.",
+  "features.p.6": "Un webhook, écrit comme le lisent Discord, ntfy, Gotify ou Apprise, ou en JSON pour tout le reste, et un message de test pour le vérifier. Un Arr qui ne répond plus est signalé une fois, puis à son retour, pas à chaque nouvel essai. Les synchronisations échouées et les exécutions terminées peuvent s'y ajouter.",
   "features.p.7": "Règles, catégories, correspondances et exceptions s'exportent en JSON et voyagent d'une installation à l'autre. Les clés d'API des Arr sont chiffrées en AES-256-GCM et ne sortent jamais.",
   "features.span": "Fonctions",
   "folders.col.category": "Catégorie",
