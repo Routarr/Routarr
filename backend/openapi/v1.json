@@ -1388,12 +1388,17 @@
           "title": {
             "description": "Always `Routarr`.",
             "type": "string"
+          },
+          "type": {
+            "description": "The outcome as Apprise reads it: `failure`, `warning`, `success` or\n`info`.",
+            "type": "string"
           }
         },
         "required": [
           "event",
           "timestamp",
           "severity",
+          "type",
           "source",
           "title",
           "message",
