@@ -3,7 +3,7 @@
 #
 #   scripts/check-api-breaks.sh
 #
-# Compares backend/openapi/v1.json with the same file at the newest `v*` tag,
+# Compares backend/openapi/v1.json with the same file at the newest release tag,
 # through oasdiff: an operation, a parameter or a field removed or renamed, a
 # type changed, an input made required, a value no longer accepted. Anything
 # added passes. A break belongs in `/api/v2`, never in v1.
@@ -15,7 +15,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONTRACT=backend/openapi/v1.json
 
-tag=$(git -C "$ROOT" tag --list 'v*' --sort=-version:refname | head -n 1)
+# Releases only: version sorting ranks `v1.2.0-rc.1` above `v1.2.0`, and a
+# client of the release is what the contract promises not to break.
+tag=$(git -C "$ROOT" tag --list 'v*' --sort=-version:refname | awk '!/-/' | sed -n 1p)
 if [ -z "$tag" ]; then
   echo "No release tag: nothing to compare the contract with."
   exit 0

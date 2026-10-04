@@ -18,6 +18,8 @@ IMAGE="${1:?usage: smoke-image.sh <image>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${SMOKE_PORT:-9876}"
 RUNTIME="${SMOKE_RUNTIME:-}"
+# Expanded as `${RUNTIME_FLAGS[@]+...}`: under `set -u`, bash before 4.4
+# (macOS ships 3.2) calls an empty array unbound.
 RUNTIME_FLAGS=()
 [ -z "$RUNTIME" ] || RUNTIME_FLAGS=(--runtime "$RUNTIME")
 
@@ -82,8 +84,25 @@ expect_status() {
   ok "$what"
 }
 
+# The command the first-run screen prints, read from the screen itself, so the
+# instruction a new user follows is the one this runs.
+read_key=$(sed -n "s/^ *const READ_KEY_COMMAND = '\(.*\)';$/\1/p" \
+  "$ROOT/frontend/src/components/ApiKeyGate.svelte")
+[ -n "$read_key" ] || fail "READ_KEY_COMMAND not found in ApiKeyGate.svelte"
+
+# The image runs here without the compose file, which names the container and
+# the data path for everyone who follows the README: the command has to name
+# the same two.
+compose_name=$(sed -n 's/^ *container_name: *//p' "$ROOT/docker-compose.yml")
+compose_db=$(sed -n 's/^ *- ROUTARR_DB_PATH=//p' "$ROOT/docker-compose.yml")
+[ "$compose_name" = "$NAME" ] ||
+  fail "docker-compose.yml names the container '$compose_name', the first-run command '$NAME'"
+[ "$read_key" = "docker exec $compose_name cat ${compose_db%/*}/routarr.api_key" ] ||
+  fail "\`$read_key\` does not read the key docker-compose.yml's ROUTARR_DB_PATH=$compose_db puts beside the database"
+ok "the first-run command names the container and the data path of docker-compose.yml"
+
 # A named volume, fresh, with the hardening the README's compose file sets.
-docker run -d --name "$NAME" "${RUNTIME_FLAGS[@]}" \
+docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
   -p "127.0.0.1:$PORT:9876" \
   -v "$VOLUME:/data" \
   --cap-drop ALL \
@@ -107,11 +126,6 @@ ok "runs as uid 1000"
 
 expect_status 401 "refuses /api/v1/status without a key" "$BASE/api/v1/status"
 
-# The command the first-run screen prints, read from the screen itself, so the
-# instruction a new user follows is the one this runs.
-read_key=$(sed -n "s/^ *const READ_KEY_COMMAND = '\(.*\)';$/\1/p" \
-  "$ROOT/frontend/src/components/ApiKeyGate.svelte")
-[ -n "$read_key" ] || fail "READ_KEY_COMMAND not found in ApiKeyGate.svelte"
 # Split into words on purpose: it is a command line with no quoting in it.
 # shellcheck disable=SC2086
 key=$($read_key) || fail "\`$read_key\` failed"
@@ -162,7 +176,7 @@ ok "the HEALTHCHECK reports healthy"
 # The mount point as people often write it, with no slash. The probe reads it
 # as the server does, and only the API's own answer counts, never the page the
 # interface falls back to.
-docker run -d --name "$SUBPATH_NAME" "${RUNTIME_FLAGS[@]}" -e ROUTARR_BASE_PATH=routarr \
+docker run -d --name "$SUBPATH_NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} -e ROUTARR_BASE_PATH=routarr \
   --health-interval=2s --health-start-period=1s "$IMAGE" >/dev/null
 deadline=$((SECONDS + 60))
 until [ "$(docker inspect -f '{{.State.Health.Status}}' "$SUBPATH_NAME")" = healthy ]; do

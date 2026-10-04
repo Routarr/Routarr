@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Which of the three deliverables changed between two commits: the `backend`,
-# `frontend` and `site` lines the `changes` job of ci.yml hands its jobs.
+# Which deliverables changed between two commits: the `backend`, `frontend` and
+# `site` lines the `changes` job of ci.yml hands its jobs, and the `image` line
+# docker.yml reads.
 #
 #   scripts/changed-areas.sh BASE [HEAD]
 #
 # The three directories are disjoint, so a site-only commit costs neither the
 # Rust jobs nor the end-to-end suite.
 #
-# It fails open. A base that cannot be resolved (a force push, the first push
-# to a branch, a shallow fetch, no successful run on main yet) selects
-# everything: skipping too much lets a broken commit through, running too much
-# costs minutes.
+# It fails open. A base that cannot be resolved or compared (a force push, the
+# first push to a branch, a shallow fetch, no successful run on main yet)
+# selects everything: skipping too much lets a broken commit through, running
+# too much costs minutes.
 set -u
 
 BASE="${1:-}"
@@ -26,8 +27,12 @@ if [ -z "$BASE" ] \
 else
   # Without `--no-renames` a moved file is listed by its destination alone, and
   # moving one out of an area wakes nothing that builds that area.
-  changed=$(git diff --name-only --no-renames "$BASE" "$HEAD")
-  printf 'Changed since %s:\n%s\n' "$BASE" "$changed" >&2
+  if changed=$(git diff --name-only --no-renames "$BASE" "$HEAD"); then
+    printf 'Changed since %s:\n%s\n' "$BASE" "$changed" >&2
+  else
+    echo "Cannot compare '$BASE' with '$HEAD', running everything." >&2
+    everything=true
+  fi
 fi
 
 decide() {
@@ -57,3 +62,7 @@ echo "frontend=$(decide "^(frontend/|scripts/check-bundle-size\.mjs|backend/src/
 # `@playwright/test` matches nothing else the site job watches, and would land
 # green while breaking it.
 echo "site=$(decide "^(site/|backend/(Cargo\.toml|openapi/v1\.json|locales/)|frontend/package(-lock)?\.json|README\.md|frontend/src/components/ApiKeyGate\.svelte|$CONTROL)")"
+# What the root Dockerfile builds or copies, what starts the image, and the
+# compose file whose container name and data path the first-run command names.
+# Not ci.yml: nothing in it reaches the image.
+echo "image=$(decide '^(Dockerfile|\.dockerignore|backend/|frontend/|LICENSE|docker-compose\.yml|scripts/(changed-areas|smoke-image|install-runtime)\.sh|\.github/workflows/docker\.yml)')"

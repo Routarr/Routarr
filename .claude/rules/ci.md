@@ -24,22 +24,23 @@ paths:
 - Which areas a commit wakes is `scripts/changed-areas.sh`, which a dry run calls from a clone
   (`bash scripts/changed-areas.sh BASE HEAD`). A push to main is compared with the last commit of
   main whose run succeeded, so a failed or cancelled run leaves its areas to the next one.
+  `docker.yml` reads its `image` line in a `changes` job of its own. No workflow takes a `paths`
+  filter: a check it skips never reports, and a required one then blocks every pull request.
 
 ## Docker image
 
 - A file the root `Dockerfile` copies from outside `backend/` and `frontend/`, as it copies
-  `LICENSE`, goes into the `paths` list of `docker.yml`. Otherwise a change to it is first
-  built by `release.yml`.
+  `LICENSE`, goes into the `image` pattern of `scripts/changed-areas.sh`. Otherwise a change to
+  it is first built by `release.yml`.
 - The first-run command, `docker exec routarr cat /data/routarr.api_key`, depends on
   `container_name` in `docker-compose.yml` and on `ROUTARR_DB_PATH`, set in the `Dockerfile`
-  and again in `docker-compose.yml`.
-  `scripts/smoke-image.sh` runs the copy in `ApiKeyGate.svelte` against the image, and
+  and again in `docker-compose.yml`. `scripts/smoke-image.sh` runs the copy in
+  `ApiKeyGate.svelte` against the image and holds it to `docker-compose.yml`, and
   `site/check.mjs` holds the copies in `README.md`, `site/public/llms.txt` and
   `site/src/components/sections/Start.astro` to it.
-
 - `docker.yml` runs `scripts/smoke-image.sh` again under gVisor, installed by
-  `scripts/install-runtime.sh` at a pinned version and checksum. A check added to the smoke test
-  has to hold inside that sandbox.
+  `scripts/install-runtime.sh` at a pinned version and checksum, and `release.yml` runs it on
+  both architectures before pushing. A check added to the smoke test has to hold in all three.
 
 ## Checks that run only in CI
 

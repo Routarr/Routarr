@@ -169,17 +169,19 @@ version is published because somebody decided to publish it.
    `site/` moves each lockfile with its manifest, and any `cargo` command run
    in `backend/` does the same for `Cargo.lock`. CI builds with `--locked`.
 2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
-   is not on `main`, one whose workflows are not green and a version the registry
-   already holds (`scripts/release-guard.sh`, which a dry run can call), so
-   tagging ahead of them only wastes a tag.
+   is not on `main`, a tag naming another version than `backend/Cargo.toml`, a
+   commit whose workflows are not green and a version the registry already holds
+   (`scripts/release-guard.sh`, which a dry run can call), so tagging ahead of
+   them only wastes a tag.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
-The tag builds the image for both architectures, pushes it to GHCR with a signed
-provenance attestation, and opens a **draft** release carrying the generated
-list of commits. The image is published under four tags derived from the git
-tag: `X.Y.Z`, `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across
-minors) and `latest`. A tag with a hyphen in it (`v1.2.0-rc.1`) publishes its
-exact version only.
+The tag builds the image for both architectures, starts each one through
+`scripts/smoke-image.sh`, pushes it to GHCR with a signed provenance
+attestation, and opens a **draft** release carrying the generated list of
+commits. The image is published under four tags derived from the git tag:
+`X.Y.Z`, `X.Y`, `X` (from 1.0.0 on, since 0.x promises nothing across minors)
+and `latest`. A tag with a hyphen in it (`v1.2.0-rc.1`) publishes its exact
+version only.
 
 4. Write, at the top of that draft, the few lines saying what changed for
    someone running Routarr. The generated list stays underneath for whoever
