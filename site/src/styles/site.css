@@ -1385,6 +1385,87 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   .cta-line { padding: 14px 0; }
 }
 
+/* ------------------------------------------------------------ reference */
+
+/* One line an operation, its detail folded under it: the possibilities read at
+   a glance, and what each takes stays a click away. The method is the only
+   colour, and it means one thing: green reads, amber changes, red removes. */
+.ref-group { margin-top: 36px; }
+.ref-group:first-of-type { margin-top: 0; }
+.ref-group h3 { margin-bottom: 0.2em; }
+.ref-note { font-size: 0.95rem; margin-bottom: 12px; }
+
+.ref-op { border-top: 1px solid var(--border); }
+.ref-op:last-child { border-bottom: 1px solid var(--border); }
+.ref-op > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.ref-op > summary::-webkit-details-marker { display: none; }
+/* The browser's marker is gone with the flex layout, and this one stands in
+   for it: the only thing saying the line opens. */
+.ref-op > summary::before {
+  content: '\25B8';
+  flex: none;
+  width: 1em;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+.ref-op[open] > summary::before { transform: rotate(90deg); }
+.ref-op > summary:hover .ref-does { color: var(--text); }
+
+.ref-method {
+  flex: none;
+  min-width: 5.8em;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-xs);
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+.ref-get { color: var(--mark-met); }
+.ref-post, .ref-put { color: var(--accent-text); }
+.ref-delete { color: var(--mark-unmet); }
+
+.ref-path { flex: none; color: var(--text); overflow-wrap: anywhere; }
+.ref-does { flex: 1 1 auto; color: var(--text-soft); font-size: 0.95rem; }
+.ref-scope {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.ref-detail { padding: 0 4px 16px calc(1em + 16px); }
+.ref-label { margin: 10px 0 4px; font-size: 0.88rem; font-weight: 600; color: var(--text); }
+.ref-label code + code { margin-left: 8px; }
+.ref-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 18px;
+  margin: 0;
+  font-size: 0.9rem;
+}
+.ref-fields dt, .ref-fields dd { margin: 0; }
+.ref-fields dd { color: var(--text-soft); overflow-wrap: anywhere; }
+
+/* On a phone what an operation does takes a line of its own under its method
+   and path: beside them it would break every second word. */
+@media (max-width: 639px) {
+  .ref-op > summary { flex-wrap: wrap; row-gap: 2px; }
+  .ref-does { flex-basis: 100%; order: 3; padding-left: calc(1em + 12px); }
+  .ref-scope { margin-left: auto; }
+  .ref-detail { padding-left: 4px; }
+  .ref-fields { grid-template-columns: minmax(0, 1fr); }
+  .ref-fields dd { margin-bottom: 6px; }
+}
+
 /* ---------------------------------------------------------------- footer */
 
 .site-footer {

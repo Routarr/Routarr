@@ -1,13 +1,13 @@
 ---
 import Base from './Base.astro';
 import Terminal from '../components/Terminal.astro';
+import Reference from '../components/sections/Reference.astro';
 import { useTranslations, type Key, type Locale } from '../i18n';
 
 /**
  * The third page, for whoever wires Routarr into something else: what the API
- * is for, then the three steps to a first answer, as the landing lists the
- * install. The reference and the contract are in Routarr itself, at the
- * version it runs, so the page names where they are rather than copying them.
+ * is for, the three steps to a first answer, as the landing lists the install,
+ * then every operation of the release the page names, read from its contract.
  */
 interface Props {
   locale: Locale;
@@ -85,4 +85,6 @@ const ANSWER = `{
       </div>
     </div>
   </section>
+
+  <Reference locale={locale} />
 </Base>

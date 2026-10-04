@@ -24,3 +24,26 @@ export async function releasedVersion(crate) {
     return crate;
   }
 }
+
+/**
+ * The API contract of that release, so the page lists what the version it
+ * names can do, not what main has added since. Read at the release's tag, and
+ * `local`, the contract of this checkout, when GitHub cannot answer or the
+ * version is the crate's own. The contract never removes an operation, so
+ * every operation a release has, main has too.
+ *
+ * @param {string} version a version `releasedVersion` answered
+ * @param {object} local `backend/openapi/v1.json` of this checkout
+ * @returns {Promise<object>}
+ */
+export async function releasedContract(version, local) {
+  try {
+    const response = await fetch(
+      `https://raw.githubusercontent.com/Routarr/Routarr/v${version}/backend/openapi/v1.json`,
+      { signal: AbortSignal.timeout(10_000) },
+    );
+    return response.ok ? await response.json() : local;
+  } catch {
+    return local;
+  }
+}
