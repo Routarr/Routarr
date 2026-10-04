@@ -39,8 +39,9 @@ LOCALES = ROOT / "backend" / "locales"
 
 # Families whose keys are assembled at run time, each a prefix and the values
 # it is joined with in PascalCase: the file holding them and the pattern reading
-# them there. A prefix alone would exempt every key that starts with it, a
-# misspelt `t('TriggeredBi')` and a literal key nobody reads any more included.
+# them there. A value written in capitals (a country code) is joined as it is.
+# A prefix alone would exempt every key that starts with it, a misspelt
+# `t('TriggeredBi')` and a literal key nobody reads any more included.
 BUILT = {
     "ConditionLabel": ("backend/src/api/conditions.rs", r'^\s*kind: "([a-z_]+)",$'),
     "Job": ("backend/src/jobs/registry.rs", r'JobKind::\w+ => "([a-z_]+)"'),
@@ -49,6 +50,10 @@ BUILT = {
     "Status": (
         "frontend/src/api/types.ts",
         r"(?:DecisionStatus = |^  status: )((?:'[a-z]+'(?: \| )?)+);",
+    ),
+    "CountryRetired": (
+        "backend/src/integrations/language.rs",
+        r"pub const RETIRED: &\[&str\] = &\[([^\]]+)\];",
     ),
 }
 
@@ -161,9 +166,10 @@ def built_keys() -> dict[str, set[str]]:
         text = (ROOT / relative).read_text(encoding="utf-8")
         values = set()
         for found in re.findall(pattern, text, re.M):
-            values |= set(re.findall(r"[a-z_]+", found))
+            values |= set(re.findall(r"[a-z_]+|[A-Z]{2,}", found))
         families[prefix] = {
-            prefix + "".join(word.capitalize() for word in value.split("_")) for value in values
+            prefix + (value if value.isupper() else "".join(w.capitalize() for w in value.split("_")))
+            for value in values
         }
     return families
 

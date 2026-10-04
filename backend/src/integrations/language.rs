@@ -80,7 +80,8 @@ pub const COUNTRIES: &[(&str, &[&str])] = &[
     ("GB", &["united kingdom", "uk", "great britain"]),
     ("JP", &["japan"]),
     ("FR", &["france"]),
-    ("DE", &["germany", "west germany", "east germany"]),
+    // West Germany is today's Germany. East Germany is not: see `RETIRED`.
+    ("DE", &["germany", "west germany"]),
     ("IT", &["italy"]),
     ("ES", &["spain"]),
     ("CA", &["canada"]),
@@ -92,8 +93,14 @@ pub const COUNTRIES: &[(&str, &[&str])] = &[
     ("KR", &["south korea", "korea, south", "korea"]),
     ("IN", &["india"]),
     ("RU", &["russia"]),
-    // TMDb files a Soviet film under the withdrawn code `SU`.
+    // Countries that no longer exist, under the code TMDb files their films
+    // under (`RETIRED`).
     ("SU", &["soviet union", "ussr"]),
+    ("XG", &["east germany", "german democratic republic", "gdr"]),
+    ("XC", &["czechoslovakia"]),
+    ("YU", &["yugoslavia"]),
+    ("CS", &["serbia and montenegro"]),
+    ("AN", &["netherlands antilles"]),
     ("BR", &["brazil"]),
     ("MX", &["mexico"]),
     ("AR", &["argentina"]),
@@ -253,6 +260,9 @@ fn country_code(name: &str) -> Option<String> {
 /// out answers nothing, and a rule on it never matches.
 pub fn country_from_alpha3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
+    if let Some((_, tmdb)) = RETIRED_ALIASES.iter().find(|(alias, _)| *alias == code) {
+        return Some((*tmdb).to_string());
+    }
     if code.len() == 2 {
         return Some(code.to_uppercase());
     }
@@ -261,6 +271,23 @@ pub fn country_from_alpha3(code: &str) -> Option<String> {
         .ok()
         .map(|index| ALPHA3[index].1.to_string())
 }
+
+/// The countries that no longer exist, by the code TMDb gives them, each named
+/// by the dictionary key `CountryRetired<code>`: a browser names `SU` after
+/// Russia and `AN` after Curaçao, the countries that took their codes.
+pub const RETIRED: &[&str] = &["SU", "XG", "XC", "YU", "CS", "AN"];
+
+/// The other codes a source writes for those countries, ISO 3166-3's
+/// alpha-3 and East Germany's alpha-2 among them, and the code TMDb gives.
+const RETIRED_ALIASES: &[(&str, &str)] = &[
+    ("sun", "SU"),
+    ("ddr", "XG"),
+    ("dd", "XG"),
+    ("csk", "XC"),
+    ("yug", "YU"),
+    ("scg", "CS"),
+    ("ant", "AN"),
+];
 
 /// (alpha-3, alpha-2) for every ISO 3166-1 country, sorted by the first.
 const ALPHA3: &[(&str, &str)] = &[
@@ -530,6 +557,29 @@ pub fn first_language(list: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A country that no longer exists keeps the code TMDb files its films
+    /// under, whichever source names it and however: East Germany is not
+    /// today's Germany, and a rule on `DE` does not take its films.
+    #[test]
+    fn a_retired_country_reads_as_the_code_tmdb_gives_it() {
+        assert_eq!(country_codes("East Germany"), ["XG"]);
+        assert_eq!(country_codes("West Germany"), ["DE"]);
+        assert_eq!(country_codes("Czechoslovakia, Yugoslavia"), ["XC", "YU"]);
+        assert_eq!(country_codes("Serbia and Montenegro"), ["CS"]);
+        assert_eq!(country_codes("Netherlands Antilles"), ["AN"]);
+        for (alpha3, code) in [
+            ("ddr", "XG"),
+            ("csk", "XC"),
+            ("yug", "YU"),
+            ("scg", "CS"),
+            ("ant", "AN"),
+            ("sun", "SU"),
+        ] {
+            assert_eq!(country_from_alpha3(alpha3).as_deref(), Some(code), "{alpha3}");
+        }
+        assert_eq!(country_from_alpha3("DD").as_deref(), Some("XG"), "the ISO code of the GDR");
+    }
 
     /// OMDb writes "N/A" where it has no language, and "None" for a film with
     /// no dialogue: neither is a language a rule could name.

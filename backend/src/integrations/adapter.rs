@@ -169,6 +169,15 @@ impl ArrAdapter {
         }
     }
 
+    /// The country the Arr's ratings belong to: Radarr's metadata settings
+    /// name it, and Sonarr rates for the United States.
+    pub async fn certification_country(&self) -> AppResult<Option<String>> {
+        match self {
+            Self::Radarr(c) => c.certification_country().await,
+            Self::Sonarr(_) => Ok(Some("US".to_string())),
+        }
+    }
+
     /// Get the instance's tag catalogue, so ids can be resolved to labels.
     pub async fn get_tags(&self) -> AppResult<Vec<ArrTag>> {
         let tags = match self {

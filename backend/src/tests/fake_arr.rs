@@ -109,6 +109,9 @@ struct FakeState {
     series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     /// Root folders reported beside the usual three.
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
+    /// The country Radarr's metadata settings rate films for, as its
+    /// `/config/metadata` answers it.
+    certification_country: Arc<Mutex<String>>,
     /// Whether the Arr runs on Windows: every path it writes is under
     /// `D:\Media`, with backslashes, and a root folder ends with one, as a
     /// Windows Radarr or Sonarr writes it.
@@ -129,6 +132,7 @@ pub struct FakeArr {
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
+    certification_country: Arc<Mutex<String>>,
     /// Serving until the fake is dropped.
     _server: super::Served,
 }
@@ -250,6 +254,12 @@ impl FakeArr {
 
     /// The most requests this fake ever had open at the same moment.
     ///
+    /// Rate films for `country` in the metadata settings, as Radarr writes a
+    /// country there (`gb`).
+    pub fn rate_for(&self, country: &str) {
+        *self.certification_country.lock().expect("lock") = country.to_string();
+    }
+
     /// One means the caller was sequential: not slow, sequential.
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)
@@ -301,6 +311,7 @@ impl FakeArr {
         let series_edits = Arc::new(Mutex::new(serde_json::Map::new()));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
+        let certification_country = Arc::new(Mutex::new("us".to_string()));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             fail_with,
@@ -319,12 +330,14 @@ impl FakeArr {
             movie_edits: Arc::clone(&movie_edits),
             series_edits: Arc::clone(&series_edits),
             more_root_folders: Arc::clone(&more_root_folders),
+            certification_country: Arc::clone(&certification_country),
             windows,
         };
 
         let app = Router::new()
             .route("/api/v3/system/status", get(system_status))
             .route("/api/v3/rootfolder", get(root_folders))
+            .route("/api/v3/config/metadata", get(metadata_config))
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
             .route("/api/v3/movie", get(movies))
@@ -355,6 +368,7 @@ impl FakeArr {
             movie_edits,
             series_edits,
             more_root_folders,
+            certification_country,
             _server: server,
         }
     }
@@ -483,6 +497,17 @@ async fn filesystem(
         })
         .collect();
     Json(serde_json::json!({ "parent": null, "directories": children, "files": [] }))
+}
+
+/// Radarr's metadata settings, of which only the certification country
+/// matters here.
+async fn metadata_config(
+    State(state): State<FakeState>,
+    headers: HeaderMap,
+) -> Json<serde_json::Value> {
+    record_key(&state, &headers);
+    let country = state.certification_country.lock().expect("lock").clone();
+    Json(serde_json::json!({ "id": 1, "certificationCountry": country }))
 }
 
 async fn tags(

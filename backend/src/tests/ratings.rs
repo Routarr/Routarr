@@ -1,0 +1,194 @@
+//! Which rating a rule reads when several sources rate one title, and how the
+//! interface names the ratings and the countries a library holds.
+//!
+//! Each rating belongs to a country's system: TMDb and TheTVDB pick one among
+//! the certification regions, OMDb rates for the United States, a Radarr for
+//! the country its metadata settings name, a Sonarr for the United States, and
+//! MyAnimeList has a system of its own. The regions decide among them.
+
+use super::TestApp;
+use super::fake_arr::FakeArr;
+use serde_json::json;
+
+/// The seeded library with the Arr rating Totoro `arr` in its instance's
+/// `country`, and TMDb rating it `tmdb` in `tmdb_country`, under `regions`.
+async fn rated(
+    arr: Option<&str>,
+    country: &str,
+    tmdb: Option<&str>,
+    tmdb_country: &str,
+    regions: &str,
+) -> TestApp {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    sqlx::query("UPDATE media SET certification = ? WHERE id = 'm-1'")
+        .bind(arr)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE instances SET certification_country = ? WHERE id = 'inst-1'")
+        .bind(country)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE metadata_cache SET certification = ?, certification_scale = ?
+          WHERE source = 'tmdb' AND external_id = '8392'",
+    )
+    .bind(tmdb)
+    .bind(tmdb_country)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    app.store_setting("certification_regions", regions).await;
+    app
+}
+
+#[tokio::test]
+async fn the_rating_of_the_first_region_wins_whatever_the_order_of_the_sources() {
+    // The Arr comes first in the order of the sources, and rates for the US.
+    let app = rated(Some("PG"), "US", Some("U"), "FR", "FR,US").await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["U"] })).await;
+    assert_eq!(app.decided_category().await, "anime", "France comes first among the regions");
+}
+
+#[tokio::test]
+async fn the_arrs_rating_stands_when_it_alone_rates_the_title() {
+    let app = rated(Some("PG"), "US", None, "FR", "FR").await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG"] })).await;
+    assert_eq!(app.decided_category().await, "anime", "a rating outside the regions beats none");
+}
+
+#[tokio::test]
+async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
+    let app = rated(Some("PG"), "US", Some("12"), "DE", "FR").await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG"] })).await;
+    assert_eq!(app.decided_category().await, "anime", "the Arr is listed first");
+}
+
+#[tokio::test]
+async fn a_sync_reads_the_country_a_radarr_rates_for_and_a_sonarr_rates_for_the_us() {
+    let arr = FakeArr::start().await;
+    arr.rate_for("gb");
+    let app = TestApp::synced_from("radarr", &arr).await;
+    let country: Option<String> =
+        sqlx::query_scalar("SELECT certification_country FROM instances WHERE id = 'inst-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(country.as_deref(), Some("GB"));
+
+    let app = TestApp::synced_from("sonarr", &arr).await;
+    let country: Option<String> =
+        sqlx::query_scalar("SELECT certification_country FROM instances WHERE id = 'inst-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(country.as_deref(), Some("US"));
+}
+
+#[tokio::test]
+async fn an_arr_rating_for_a_country_outside_the_regions_is_reported() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.store_setting("certification_regions", "FR,BE").await;
+
+    let status = app.get("/api/v1/status").await;
+    let warning = status.assert_ok()["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|warning| warning["code"] == "certification_country_outside_regions")
+        .cloned()
+        .expect("the Arr's country is outside the regions");
+    let message = warning["message"].as_str().unwrap();
+    assert!(message.contains("US") && message.contains("FR, BE"), "{message}");
+
+    app.store_setting("certification_regions", "FR,US").await;
+    let status = app.get("/api/v1/status").await;
+    let codes: Vec<&str> = status.assert_ok()["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .collect();
+    assert!(!codes.contains(&"certification_country_outside_regions"), "{codes:?}");
+}
+
+#[tokio::test]
+async fn a_retired_country_is_named_in_the_readers_language() {
+    let app = TestApp::new().await;
+    app.put("/api/v1/settings", json!({ "settings": { "ui_language": "fr" } })).await.assert_ok();
+    let facets = app.get("/api/v1/media/facets").await;
+    let countries =
+        facets.assert_ok()["vocabularies"]["origin_countries"].as_array().unwrap().clone();
+    let label = |code: &str| {
+        countries
+            .iter()
+            .find(|facet| facet["value"] == code)
+            .and_then(|facet| facet["label"].as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    assert_eq!(label("XG"), "Allemagne de l'Est (XG)");
+    assert_eq!(label("SU"), "Union soviétique (SU)");
+    assert_eq!(label("XC"), "Tchécoslovaquie (XC)");
+}
+
+/// A library holding one rating MyAnimeList gave, `code`, and the US rating
+/// `us` TMDb gave.
+async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+         VALUES ('jikan', 'movie', 'tmdb:8392', '523')",
+        "UPDATE settings SET value = 'arr,tmdb,jikan' WHERE key = 'metadata_providers'",
+    ])
+    .await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
+         origin_countries, certification, certification_scale, expires_at)
+         VALUES ('jikan', '523', 'movie', '[]', '[]', '[]', ?, 'MAL', '2099-01-01')",
+    )
+    .bind(code)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE metadata_cache SET certification = ?, certification_scale = 'US'
+          WHERE source = 'tmdb'",
+    )
+    .bind(us)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    app
+}
+
+async fn certification_facet(app: &TestApp, code: &str) -> serde_json::Value {
+    let facets = app.get("/api/v1/media/facets").await;
+    facets.assert_ok()["certifications"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|facet| facet["value"] == code)
+        .cloned()
+        .unwrap_or_else(|| panic!("no facet {code}: {:?}", facets.json))
+}
+
+#[tokio::test]
+async fn a_myanimelist_rating_shows_its_words_and_joins_its_age() {
+    let app = rated_by_myanimelist("R+", "PG").await;
+    let facet = certification_facet(&app, "R+").await;
+    assert_eq!(facet["label"], "R+ (mild nudity)");
+    assert_eq!(facet["group"], "17 and over");
+}
+
+#[tokio::test]
+async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
+    // MyAnimeList's R and the MPA's are both seventeen and over.
+    let app = rated_by_myanimelist("R", "R").await;
+    let facet = certification_facet(&app, "R").await;
+    assert_eq!(facet["group"], "17 and over", "{facet}");
+}

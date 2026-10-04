@@ -50,8 +50,9 @@ pub struct Warning {
     /// `api_unauthenticated`, `api_external_auth`, `source_needs_key`,
     /// `source_key_unlisted`, `source_unreachable`, `instance_unreachable`,
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
-    /// `scheduler_panicked`, `setting_above_maximum` or
-    /// `instance_without_mapping`. The list may grow.
+    /// `scheduler_panicked`, `setting_above_maximum`,
+    /// `instance_without_mapping` or `certification_country_outside_regions`.
+    /// The list may grow.
     pub code: &'static str,
     pub message: String,
     /// The getting-started step this warning restates, if one does.
@@ -515,6 +516,27 @@ async fn offline_warnings(
             step::CATEGORIES,
             "instance_without_mapping",
             localizer.translate("WarnInstanceNoMapping", &[("name", &name)]),
+        ));
+    }
+
+    // An Arr rating for a country outside the certification regions: the
+    // regions rank every source's rating by the country it belongs to, and
+    // this one's then counts only after every rating inside them.
+    let regions = AppState::certification_regions_from(settings);
+    let rating: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, certification_country FROM instances
+          WHERE enabled = 1 AND certification_country IS NOT NULL
+          ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (name, country) in rating.into_iter().filter(|(_, country)| !regions.contains(country)) {
+        warnings.push(Warning::new(
+            "certification_country_outside_regions",
+            localizer.translate(
+                "WarnCertificationCountry",
+                &[("name", &name), ("country", &country), ("regions", &regions.join(", "))],
+            ),
         ));
     }
 

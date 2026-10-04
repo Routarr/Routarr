@@ -495,8 +495,9 @@ async fn every_source_contributes_what_only_it_has() {
     assert_eq!(field_sources["genres"], "anilist");
     assert_eq!(field_sources["keywords"], "anilist");
     assert_eq!(field_sources["origin_countries"], "anilist");
-    // AniList has no certification at all, and Jikan is the first that does.
-    assert_eq!(field_sources["certification"], "jikan");
+    // Jikan rates before OMDb, but on MyAnimeList's scale, which is no
+    // region's. OMDb rates for the United States, the default region.
+    assert_eq!(field_sources["certification"], "omdb");
     // Neither anime source reports a language, and OMDb is the first that does.
     assert_eq!(field_sources["original_language"], "omdb");
 }

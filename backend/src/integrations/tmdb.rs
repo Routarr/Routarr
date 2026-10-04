@@ -126,6 +126,8 @@ pub struct TmdbDetails {
     pub original_language: Option<String>,
     pub origin_countries: Vec<String>,
     pub certification: Option<String>,
+    /// The region `certification` was picked for.
+    pub certification_scale: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -180,12 +182,15 @@ impl TmdbClient {
         )
         .await?;
 
+        let (certification, certification_scale) =
+            pick_movie_certification(&raw.release_dates, &self.regions).unzip();
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
             original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
-            certification: pick_movie_certification(&raw.release_dates, &self.regions),
+            certification,
+            certification_scale,
             status: raw.status,
             overview: raw.overview,
             poster_path: raw.poster_path,
@@ -204,12 +209,15 @@ impl TmdbClient {
         )
         .await?;
 
+        let (certification, certification_scale) =
+            pick_tv_certification(&raw.content_ratings, &self.regions).unzip();
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
             original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
-            certification: pick_tv_certification(&raw.content_ratings, &self.regions),
+            certification,
+            certification_scale,
             status: raw.status,
             overview: raw.overview,
             poster_path: raw.poster_path,
@@ -250,7 +258,11 @@ fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<Str
     production.into_iter().map(|c| c.iso_3166_1).collect()
 }
 
-fn pick_movie_certification(block: &ReleaseDatesBlock, regions: &[String]) -> Option<String> {
+/// The rating of the first region that has one, and that region.
+fn pick_movie_certification(
+    block: &ReleaseDatesBlock,
+    regions: &[String],
+) -> Option<(String, String)> {
     for region in regions {
         let found = block
             .results
@@ -260,13 +272,17 @@ fn pick_movie_certification(block: &ReleaseDatesBlock, regions: &[String]) -> Op
                 entry.release_dates.iter().map(|r| r.certification.trim()).find(|c| !c.is_empty())
             });
         if let Some(cert) = found {
-            return Some(cert.to_string());
+            return Some((cert.to_string(), region.to_uppercase()));
         }
     }
     None
 }
 
-fn pick_tv_certification(block: &ContentRatingsBlock, regions: &[String]) -> Option<String> {
+/// The rating of the first region that has one, and that region.
+fn pick_tv_certification(
+    block: &ContentRatingsBlock,
+    regions: &[String],
+) -> Option<(String, String)> {
     for region in regions {
         let found = block
             .results
@@ -275,7 +291,7 @@ fn pick_tv_certification(block: &ContentRatingsBlock, regions: &[String]) -> Opt
             .map(|entry| entry.rating.trim())
             .filter(|r| !r.is_empty());
         if let Some(cert) = found {
-            return Some(cert.to_string());
+            return Some((cert.to_string(), region.to_uppercase()));
         }
     }
     None
@@ -336,7 +352,9 @@ mod tests {
         assert_eq!(countries(raw.origin_country, raw.production_countries), ["JP"]);
         assert_eq!(merge_keywords(raw.keywords), ["fight", "sequel"]);
         assert_eq!(
-            pick_movie_certification(&raw.release_dates, &["US".to_string()]).as_deref(),
+            pick_movie_certification(&raw.release_dates, &["US".to_string()])
+                .map(|(code, _)| code)
+                .as_deref(),
             Some("G")
         );
     }
@@ -357,9 +375,15 @@ mod tests {
         let regions = ["US".to_string(), "FR".to_string()];
 
         let blank_first = ratings(&[("US", "  "), ("FR", "-12")]);
-        assert_eq!(pick_tv_certification(&blank_first, &regions).as_deref(), Some("-12"));
+        assert_eq!(
+            pick_tv_certification(&blank_first, &regions).map(|(code, _)| code).as_deref(),
+            Some("-12")
+        );
         let rated_first = ratings(&[("FR", "-12"), ("US", "TV-14")]);
-        assert_eq!(pick_tv_certification(&rated_first, &regions).as_deref(), Some("TV-14"));
+        assert_eq!(
+            pick_tv_certification(&rated_first, &regions).map(|(code, _)| code).as_deref(),
+            Some("TV-14")
+        );
         assert_eq!(pick_tv_certification(&ratings(&[("US", "")]), &regions), None);
     }
 
@@ -398,8 +422,14 @@ mod tests {
                 },
             ],
         };
-        assert_eq!(pick_movie_certification(&block, &regions()).as_deref(), Some("Tous publics"));
-        assert_eq!(pick_movie_certification(&block, &["US".to_string()]).as_deref(), Some("PG"));
+        assert_eq!(
+            pick_movie_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
+            Some("Tous publics")
+        );
+        assert_eq!(
+            pick_movie_certification(&block, &["US".to_string()]).map(|(code, _)| code).as_deref(),
+            Some("PG")
+        );
     }
 
     #[test]
@@ -413,7 +443,10 @@ mod tests {
                 ],
             }],
         };
-        assert_eq!(pick_movie_certification(&block, &regions()).as_deref(), Some("12"));
+        assert_eq!(
+            pick_movie_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
+            Some("12")
+        );
     }
 
     #[test]
@@ -432,6 +465,9 @@ mod tests {
         let block = ContentRatingsBlock {
             results: vec![ContentRating { iso_3166_1: "US".into(), rating: "TV-14".into() }],
         };
-        assert_eq!(pick_tv_certification(&block, &regions()).as_deref(), Some("TV-14"));
+        assert_eq!(
+            pick_tv_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
+            Some("TV-14")
+        );
     }
 }

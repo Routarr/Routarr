@@ -940,6 +940,7 @@ mod tests {
                 original_language: Some("ja".into()),
                 origin_countries: vec!["JP".into()],
                 certification: Some("G".into()),
+                certification_scale: Some("US".into()),
                 status: Some("Released".into()),
                 overview: None,
                 poster_path: None,

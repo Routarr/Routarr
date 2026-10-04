@@ -184,6 +184,15 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         Some(tags) => tags.iter().map(|t| (t.arr_id, t.label.clone())).collect(),
         None => stored_tag_labels(&state.pool, &instance.id).await?,
     };
+    // Which system the Arr's ratings belong to. As with the tags, an Arr that
+    // cannot say keeps what it said last rather than failing the sync.
+    let certification_country = match adapter.certification_country().await {
+        Ok(country) => country,
+        Err(e) => {
+            tracing::warn!(instance = %instance.name, "Could not read the rating country: {e}");
+            None
+        }
+    };
 
     info!(
         instance = %instance.name,
@@ -200,6 +209,14 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // One transaction for the whole instance: a partial sync would make the
     // orphan cleanup delete rows that were simply not written yet.
     let mut tx = state.pool.begin().await?;
+
+    if let Some(country) = &certification_country {
+        sqlx::query("UPDATE instances SET certification_country = ? WHERE id = ?")
+            .bind(country)
+            .bind(&instance.id)
+            .execute(&mut *tx)
+            .await?;
+    }
 
     // A category is set on a path, and follows the path: through a renumbering,
     // and never onto another folder given an id a rebuilt Arr hands out again.

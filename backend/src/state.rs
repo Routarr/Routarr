@@ -358,8 +358,11 @@ impl AppState {
     /// The regions whose certifications count, upper-case, `US` when none is
     /// set, read from a settings snapshot.
     pub fn certification_regions_from(settings: &Settings) -> Vec<String> {
-        let raw = settings.raw("certification_regions");
+        Self::certification_regions_of(settings.raw("certification_regions"))
+    }
 
+    /// The same from the stored text alone, for a reader holding no snapshot.
+    pub fn certification_regions_of(raw: Option<&str>) -> Vec<String> {
         raw.map(|v| {
             v.split(',')
                 .map(|s| s.trim().to_uppercase())

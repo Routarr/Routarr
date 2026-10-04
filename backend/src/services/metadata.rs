@@ -245,6 +245,9 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
         original_language: media.original_language.clone(),
         origin_countries: Vec::new(),
         certification: media.certification.clone(),
+        // The instance's, which the row does not hold: set by whoever knows
+        // the instance (`routing::resolve_metadata`).
+        certification_scale: None,
         // `status`, `overview` and the poster stay empty: the first is already a
         // column of `media` that the engine reads directly, and the other two
         // are not in the Arr payloads.
@@ -414,6 +417,7 @@ impl FetchingSource {
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
                     certification: details.certification,
+                    certification_scale: details.certification_scale,
                     status: details.status,
                     overview: details.overview,
                     poster_path: details.poster_path,
@@ -435,6 +439,11 @@ impl FetchingSource {
                 Ok(ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
+                    // MyAnimeList rates in a system of its own.
+                    certification_scale: details
+                        .certification
+                        .as_ref()
+                        .map(|_| crate::integrations::certification::MAL.to_string()),
                     certification: details.certification,
                     status: details.status,
                     overview: details.overview,
@@ -447,6 +456,8 @@ impl FetchingSource {
                     genres: details.genres,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
+                    // OMDb gives the MPA's rating, for the United States.
+                    certification_scale: details.certification.as_ref().map(|_| "US".to_string()),
                     certification: details.certification,
                     overview: details.overview,
                     ..Default::default()
@@ -459,6 +470,7 @@ impl FetchingSource {
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
                     certification: details.certification,
+                    certification_scale: details.certification_scale,
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
@@ -664,6 +676,7 @@ pub struct CacheRow {
     pub original_language: Option<String>,
     pub origin_countries: String,
     pub certification: Option<String>,
+    pub certification_scale: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -681,12 +694,12 @@ pub struct CacheRow {
 /// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows all
 /// three, and one row is not worth a second query to trim.
 pub const EVALUATED_COLUMNS: &str = "source, external_id, media_type, genres, keywords,
-     original_language, origin_countries, certification";
+     original_language, origin_countries, certification, certification_scale";
 
 /// What one row answers with. The three key columns are not among them: the
 /// only reader addresses a row by them and never reads them back.
 pub const CACHE_COLUMNS: &str = "genres, keywords, original_language, origin_countries,
-     certification, status, overview, poster_path";
+     certification, certification_scale, status, overview, poster_path";
 
 impl CacheRow {
     /// Malformed JSON yields an empty list rather than an error: one bad cache
@@ -698,6 +711,7 @@ impl CacheRow {
             original_language: self.original_language,
             origin_countries: serde_json::from_str(&self.origin_countries).unwrap_or_default(),
             certification: self.certification,
+            certification_scale: self.certification_scale,
             status: self.status,
             overview: self.overview,
             poster_path: self.poster_path,
@@ -725,6 +739,7 @@ pub async fn load_cache(
         original_language: Option<String>,
         origin_countries: String,
         certification: Option<String>,
+        certification_scale: Option<String>,
     }
 
     let rows: Vec<EvaluatedRow> =
@@ -741,6 +756,7 @@ pub async fn load_cache(
                 original_language: row.original_language,
                 origin_countries: row.origin_countries,
                 certification: row.certification,
+                certification_scale: row.certification_scale,
                 // Not loaded, because no condition can read them. The per-item
                 // path is where the panel gets them.
                 status: None,
