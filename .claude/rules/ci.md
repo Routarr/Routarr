@@ -44,8 +44,9 @@ paths:
 
 ## Checks that run only in CI
 
-- The dev container has no Docker, shellcheck, hadolint, actionlint, gitleaks or cargo-deny. The
-  image build, `scripts/smoke-image.sh`, `cargo deny` and the `repository` job run only in CI.
+- The dev container has no Docker, shellcheck, hadolint, actionlint, gitleaks, cargo-deny or
+  oasdiff. The image build, `scripts/smoke-image.sh`, `cargo deny` and the `repository` job, the
+  contract gate `scripts/check-api-breaks.sh` included, run only in CI.
   That job holds every tracked `*.sh` to `shellcheck -S style`, both Dockerfiles to hadolint under
   `.hadolint.yaml`, and the workflows to actionlint.
 - gitleaks scans every commit and no `.gitleaksignore` exists: a secret-shaped literal, a

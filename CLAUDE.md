@@ -35,7 +35,7 @@ cargo test live_sources -- --ignored --nocapture   # the real AniList, Jikan, OM
 cargo fmt
 cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS='-D warnings' cargo doc --no-deps
-cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 93%
+cargo llvm-cov --summary-only --ignore-filename-regex 'src/(tests/|main\.rs)'   # floor 96%
 python3 ../scripts/check-locales.py         # dictionaries: keys, placeholders, orphans, terms
 python3 ../scripts/check-api-types.py       # response structs against frontend/src/api/types.ts
 python3 ../scripts/check-versions.py        # every place a toolchain version is written
@@ -110,7 +110,7 @@ Invariants a change must keep:
 - Every text a user reads comes from `backend/locales/`, referenced by key, on both sides. The
   rule engine emits keys and parameters, never prose. `t()` and `translate` substitute
   `{placeholder}` and know no plural, so a count reads `Warnings: {count}`, never
-  `{count} warning(s)`. A key built at run time needs its prefix in `DYNAMIC_PREFIXES`
+  `{count} warning(s)`. A new family of keys built at run time needs its entry in `BUILT`
   (`scripts/check-locales.py`), and a new language needs its `CATALOG` entry in
   `backend/src/localization.rs`, which no check reads.
 - `frontend/src/api/types.ts` mirrors the backend payloads, and `check-api-types.py` holds the
@@ -121,6 +121,6 @@ Invariants a change must keep:
 - The backend suite is offline, and no test depends on a third party answering.
 - A test is named as a claim about behaviour: `a_trailing_slash_does_not_create_a_phantom_move`.
 - A regression test is seen to fail before its fix, or with the check it guards removed.
-- Coverage floors: 93% of backend lines, and 91% of frontend statements with the other Vitest
+- Coverage floors: 96% of backend lines, and 94% of frontend statements with the other Vitest
   floors in `frontend/vite.config.ts`. Raise a floor when the figure rises, never lower one to
   pass a build.

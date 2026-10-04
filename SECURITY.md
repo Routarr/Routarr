@@ -41,8 +41,9 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
 
 - **Authentication is on by default.** With no `ROUTARR_API_KEY`, one is
   generated at first start into `routarr.api_key` (0600, beside the database)
-  and logged once. `ROUTARR_AUTH=none` is the only way to run open, and it
-  has to be asked for.
+  and logged once. Two modes ask for no credential, and each has to be asked
+  for: `ROUTARR_AUTH=none` runs open, and `ROUTARR_AUTH=external` leaves the
+  sign-in to a reverse proxy, so its port must reach that proxy alone.
 - **The API key can be replaced or withdrawn without a restart.**
   `POST /auth/api-key` mints a new one and returns it exactly once (no route
   reads a key back), and `DELETE /auth/api-key` removes it, refusing in
@@ -220,8 +221,9 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **Routarr trusts the Arrs it is pointed at.** It reads what they return and
   acts on it. Pointing it at a hostile server is pointing it at a hostile
   server.
-- **There is no user model.** One API key, one operator. It is a self-hosted
-  tool for a household, not a multi-tenant service. What a session mode adds is
+- **There is no user model.** One operator, and the application keys they
+  issue, each limited to its scopes. It is a self-hosted tool for a household,
+  not a multi-tenant service. What a session mode adds is
   a *name*: the account or the provider's subject is stored beside every
   decision and every write it causes, so "who moved this" has an answer past
   "somebody, manually". The key is one such name, `apikey`, which is how a

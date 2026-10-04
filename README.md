@@ -75,8 +75,9 @@ Open **http://localhost:9876** and paste the key. Images are published for `linu
 `linux/arm64`. `latest` follows the newest release, `0.1` follows the patch releases of 0.1, and
 a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a major line too.
 
-Back up the whole `data/` directory: the database cannot be read without the `routarr.key` file
-beside it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
+Back up the whole `data/` directory: the Arr and metadata keys, the notification address and the
+signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
+the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
 
 ## Stronger isolation
 
@@ -101,7 +102,8 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 1. **Instances**: add Radarr or Sonarr. The form tries the address and the key, and saving reads
    the library at once.
 2. **Root Folders**: create categories, map the folders your Arrs report to them, and declare
-   any destination they do not list.
+   any destination they do not list. A declared destination is a Unix path as the Arr sees it
+   inside its container (`/data/movies/4k`), never a drive letter or a `\\server` share.
 3. **Metadata sources** (optional): Radarr and Sonarr already supply genres, language and
    certification. Enable TMDb or another source in **Settings** for keywords and origin country.
 4. **Rules**: write rules and preview their impact.
