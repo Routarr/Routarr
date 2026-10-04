@@ -139,6 +139,9 @@ async function speak(code: string): Promise<void> {
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
   test.setTimeout(300_000);
+  // Motion reduced, as the interface honours it: a transition ends within the
+  // frame, so a thousand resizes do not each wait out an animation.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
   const { languages } = (await api('/localization/languages')) as { languages: { code: string }[] };
