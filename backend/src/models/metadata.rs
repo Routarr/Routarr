@@ -56,6 +56,9 @@ pub struct ProviderMetadata {
     #[serde(default)]
     pub origin_countries: Vec<String>,
     pub certification: Option<String>,
+    /// The system `certification` belongs to: a country code, or `MAL`.
+    #[serde(default)]
+    pub certification_scale: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -72,6 +75,10 @@ pub struct MediaMetadata {
     #[serde(default)]
     pub origin_countries: Vec<String>,
     pub certification: Option<String>,
+    /// The system the certification belongs to: an ISO 3166-1 country code,
+    /// or `MAL` for MyAnimeList's. Absent when the source did not say.
+    #[serde(default)]
+    pub certification_scale: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -124,6 +131,11 @@ impl MediaMetadata {
                 "original_language",
                 &mut merged.field_sources,
             );
+            // The scale travels with the certification it qualifies, never
+            // apart from it.
+            if merged.certification.is_none() && part.certification.is_some() {
+                merged.certification_scale = part.certification_scale;
+            }
             take_value(
                 &mut merged.certification,
                 part.certification,

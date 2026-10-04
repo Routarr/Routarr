@@ -520,13 +520,21 @@ pub struct LibraryFacets {
 /// A fixed table as the picker consumes it: the value a rule stores, labelled
 /// with the spelling a reader recognises. `count` is 0 throughout: these are
 /// not observations, and the picker renders no figure for them.
-fn vocabulary(table: &[(&str, &[&str])]) -> Vec<Facet> {
+fn vocabulary(table: &[(&str, &[&str])], localizer: &Localizer) -> Vec<Facet> {
     let mut out: Vec<Facet> = table
         .iter()
         .filter_map(|(code, spellings)| {
-            spellings.first().map(|name| Facet {
+            // A country that no longer exists in the reader's language: the
+            // browser, which names every other one, names these after the
+            // countries that took their codes.
+            let name = if language::RETIRED.contains(code) {
+                localizer.translate(&format!("CountryRetired{code}"), &[])
+            } else {
+                capitalise(spellings.first()?)
+            };
+            Some(Facet {
                 value: (*code).to_string(),
-                label: Some(format!("{} ({code})", capitalise(name))),
+                label: Some(format!("{name} ({code})")),
                 count: 0,
                 group: None,
             })
@@ -584,12 +592,25 @@ async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Fac
 /// show what the library holds. The code stays the *value*, since it is what a
 /// rule matches on, and the name is only ever what is shown, which is why it goes
 /// in `label` beside it rather than replacing it.
-fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
-    use crate::integrations::certification::{Meaning, meaning};
-    let mut named: Vec<(u16, Facet)> = facets
+///
+/// `held` pairs each code with the systems that gave it. A code is named only
+/// when every one of them gives it the same meaning, and one MyAnimeList alone
+/// gives is labelled by MyAnimeList's own words, still grouped by its age.
+fn name_certifications(
+    held: Vec<(Facet, Vec<Option<String>>)>,
+    localizer: &Localizer,
+) -> Vec<Facet> {
+    use crate::integrations::certification::{MAL, Meaning, mal_words, meaning};
+    let mut named: Vec<(u16, Facet)> = held
         .into_iter()
-        .map(|facet| {
-            let meant = meaning(&facet.value);
+        .map(|(facet, scales)| {
+            let meanings: Vec<Option<Meaning>> =
+                scales.iter().map(|scale| meaning(&facet.value, scale.as_deref())).collect();
+            let meant = meanings
+                .first()
+                .copied()
+                .flatten()
+                .filter(|first| meanings.iter().all(|other| *other == Some(*first)));
             // The youngest audience first, a code nobody can name last.
             let rank = match meant {
                 Some(Meaning::AllAges) => 0,
@@ -598,7 +619,7 @@ fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> 
                 Some(Meaning::NotRated) => 900,
                 None => 1000,
             };
-            let name = meant.map(|m| match m {
+            let group = meant.map(|m| match m {
                 Meaning::AllAges => localizer.translate("CertAllAges", &[]),
                 Meaning::Guidance => localizer.translate("CertGuidance", &[]),
                 Meaning::From(age) => {
@@ -606,10 +627,17 @@ fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> 
                 }
                 Meaning::NotRated => localizer.translate("CertNotRated", &[]),
             });
+            let words = scales
+                .iter()
+                .all(|scale| scale.as_deref() == Some(MAL))
+                .then(|| mal_words(&facet.value))
+                .flatten()
+                .map(|key| localizer.translate(key, &[]));
             // The code first and the meaning after it: the reader is looking
             // for the value their rule will carry.
-            let label = name.as_ref().map(|name| format!("{} ({name})", facet.value));
-            (rank, Facet { label, group: name, ..facet })
+            let label =
+                words.as_ref().or(group.as_ref()).map(|name| format!("{} ({name})", facet.value));
+            (rank, Facet { label, group, ..facet })
         })
         .collect();
     // Stable, so the most frequent code still leads its group: codes of
@@ -624,8 +652,8 @@ fn name_certifications(facets: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> 
 /// The rule builder offers this list, so it has to hold what the engine can
 /// actually match: a genre TMDb supplied is matched by a rule and would be
 /// missing from a list read off `media` alone. The `arr` branch is the media
-/// row, the other is `metadata_cache`, and a source the user disabled
-/// contributes to neither, exactly as `routing::load_context` reads them.
+/// row, the others `metadata_cache`, and a source the user disabled
+/// contributes to none, exactly as `routing::load_context` reads them.
 ///
 /// Counted with `COUNT(DISTINCT m.id)`, since one item is described by several
 /// sources at once. Spellings that differ only by case or by a separator are
@@ -644,67 +672,19 @@ async fn metadata_facets(
     cache_column: &str,
     json: bool,
 ) -> AppResult<Vec<Facet>> {
-    let fetched: Vec<&str> =
-        sources.iter().map(|p| p.id).filter(|id| *id != metadata::ARR).collect();
-    let arr = sources.iter().any(|p| p.id == metadata::ARR) && media_column.is_some();
-    if !arr && fetched.is_empty() {
+    let Some((rows, binds)) = facet_rows(sources, media_column, cache_column, json, false) else {
         return Ok(Vec::new());
-    }
-
-    // Each branch yields (media id, raw value). A JSON column is expanded with
-    // `json_each`, a scalar one read directly. Every fragment below is a literal
-    // from this file and every value is bound.
-    let unnest = |alias: &str, column: &str| {
-        if json { format!(", json_each({alias}.{column}) j") } else { String::new() }
     };
-    let value = |alias: &str, column: &str| {
-        if json { "j.value".to_string() } else { format!("{alias}.{column}") }
-    };
-
-    let mut branches: Vec<String> = Vec::new();
-    if let Some(media_column) = media_column.filter(|_| arr) {
-        branches.push(format!(
-            "SELECT m.id AS media_id, {v} AS value FROM media m{join}
-              WHERE m.{media_column} IS NOT NULL AND m.{media_column} != ''",
-            v = value("m", media_column),
-            join = unnest("m", media_column),
-        ));
-    }
-    if !fetched.is_empty() {
-        // One equality per identifier namespace, each served by an index on
-        // `media`. An OR across the three, with the cast on the media side, is
-        // a scan of the library for every cache row. The GLOB guards keep
-        // `CAST('tt0111161' AS INTEGER)`, which is 0, from meeting a real id.
-        let holes = crate::db::placeholders(fetched.len());
-        for (on, guard) in [
-            ("m.tmdb_id = CAST(c.external_id AS INTEGER)", "c.external_id GLOB '[0-9]*'"),
-            ("m.tvdb_id = CAST(c.external_id AS INTEGER)", "c.external_id GLOB '[0-9]*'"),
-            ("m.imdb_id = c.external_id", "c.external_id GLOB 'tt*'"),
-        ] {
-            branches.push(format!(
-                "SELECT m.id AS media_id, {v} AS value
-                   FROM metadata_cache c
-                   JOIN media m ON m.media_type = c.media_type AND {on}{join}
-                  WHERE c.source IN ({holes}) AND {guard}
-                    AND c.{cache_column} IS NOT NULL AND c.{cache_column} != ''",
-                v = value("c", cache_column),
-                join = unnest("c", cache_column),
-            ));
-        }
-    }
-
     let sql = format!(
         "SELECT MIN(v.value) AS value, COUNT(DISTINCT v.media_id) AS n
-           FROM ({}) v
+           FROM ({rows}) v
           WHERE v.value IS NOT NULL AND v.value != ''
           GROUP BY lower(replace(replace(v.value, '-', ' '), '_', ' '))
-          ORDER BY n DESC, value",
-        branches.join(" UNION ALL ")
+          ORDER BY n DESC, value"
     );
-
     let mut query = sqlx::query_as::<_, (String, i64)>(AssertSqlSafe(sql.as_str()));
-    for source in &fetched {
-        query = query.bind(*source);
+    for source in binds {
+        query = query.bind(source);
     }
     Ok(query
         .fetch_all(pool)
@@ -714,11 +694,158 @@ async fn metadata_facets(
         .collect())
 }
 
+/// The certifications the enabled sources give, each with the systems that
+/// gave it: whether `R` is seventeen or eighteen and over depends on the
+/// system, and a MyAnimeList code is named by MyAnimeList's own words.
+async fn certification_facets(
+    pool: &sqlx::SqlitePool,
+    sources: &[&'static ProviderInfo],
+    localizer: &Localizer,
+) -> AppResult<Vec<Facet>> {
+    let Some((rows, binds)) =
+        facet_rows(sources, Some("certification"), "certification", false, true)
+    else {
+        return Ok(Vec::new());
+    };
+    // A scale, a country code or MAL, holds no comma.
+    let sql = format!(
+        "SELECT MIN(v.value) AS value, COUNT(DISTINCT v.media_id) AS n,
+                GROUP_CONCAT(DISTINCT coalesce(v.scale, '')) AS scales
+           FROM ({rows}) v
+          WHERE v.value IS NOT NULL AND v.value != ''
+          GROUP BY lower(replace(replace(v.value, '-', ' '), '_', ' '))
+          ORDER BY n DESC, value"
+    );
+    let mut query = sqlx::query_as::<_, (String, i64, String)>(AssertSqlSafe(sql.as_str()));
+    for source in binds {
+        query = query.bind(source);
+    }
+    let held: Vec<(Facet, Vec<Option<String>>)> = query
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(value, count, scales)| {
+            let scales = scales
+                .split(',')
+                .map(|scale| Some(scale.to_string()).filter(|scale| !scale.is_empty()))
+                .collect();
+            (Facet { value, label: None, count, group: None }, scales)
+        })
+        .collect();
+    Ok(name_certifications(held, localizer))
+}
+
+/// Every `(media_id, value, scale)` the enabled sources hold on one axis, as
+/// one SQL union and the source ids it binds, in order. `None` when no source
+/// can answer it.
+///
+/// Each source is joined on its own identifier: a TMDb id and a TheTVDB id
+/// share no namespace, and a source found by title (AniList, MyAnimeList) is
+/// joined through what `source_identifiers` resolved, by the key
+/// [`metadata::local_key_of`] gives an item. An item known to no id is keyed by
+/// its normalised title, which SQL cannot spell, so its search answers are
+/// left out of the counts. `scale` is the system a certification belongs to,
+/// and empty unless asked for.
+fn facet_rows(
+    sources: &[&'static ProviderInfo],
+    media_column: Option<&str>,
+    cache_column: &str,
+    json: bool,
+    scale: bool,
+) -> Option<(String, Vec<&'static str>)> {
+    let unnest = |alias: &str, column: &str| {
+        if json { format!(", json_each({alias}.{column}) j") } else { String::new() }
+    };
+    let value = |alias: &str, column: &str| {
+        if json { "j.value".to_string() } else { format!("{alias}.{column}") }
+    };
+    let cache_scale = if scale { "c.certification_scale" } else { "NULL" };
+
+    let mut branches = Vec::new();
+    let mut binds = Vec::new();
+    for source in sources {
+        let cached = |join_media: &str, guard: &str| {
+            format!(
+                "SELECT m.id AS media_id, {v} AS value, {cache_scale} AS scale
+                   FROM metadata_cache c{join_media}{join}
+                  WHERE c.source = ? AND {guard}
+                    AND c.{cache_column} IS NOT NULL AND c.{cache_column} != ''",
+                v = value("c", cache_column),
+                join = unnest("c", cache_column),
+            )
+        };
+        match source.addressing {
+            metadata::Addressing::Local => {
+                let Some(media_column) = media_column else { continue };
+                let arr_scale = if scale { "i.certification_country" } else { "NULL" };
+                branches.push(format!(
+                    "SELECT m.id AS media_id, {v} AS value, {arr_scale} AS scale
+                       FROM media m JOIN instances i ON i.id = m.instance_id{join}
+                      WHERE m.{media_column} IS NOT NULL AND m.{media_column} != ''",
+                    v = value("m", media_column),
+                    join = unnest("m", media_column),
+                ));
+            }
+            metadata::Addressing::Column(column) => {
+                // A literal of `PROVIDERS`, never anything a user sent.
+                let (on, guard) = match column {
+                    "imdb_id" => ("m.imdb_id = c.external_id", "c.external_id GLOB 'tt*'"),
+                    other => (
+                        if other == "tmdb_id" {
+                            "m.tmdb_id = CAST(c.external_id AS INTEGER)"
+                        } else {
+                            "m.tvdb_id = CAST(c.external_id AS INTEGER)"
+                        },
+                        "c.external_id GLOB '[0-9]*'",
+                    ),
+                };
+                branches.push(cached(
+                    &format!(" JOIN media m ON m.media_type = c.media_type AND {on}"),
+                    guard,
+                ));
+                binds.push(source.id);
+            }
+            metadata::Addressing::Search => {
+                // One branch per kind of key, each served by an index on
+                // `media`, in the order `local_key_of` tries them.
+                for (on, guard) in [
+                    (
+                        "m.tmdb_id = CAST(substr(si.local_key, 6) AS INTEGER)",
+                        "si.local_key GLOB 'tmdb:*'",
+                    ),
+                    (
+                        "m.tvdb_id = CAST(substr(si.local_key, 6) AS INTEGER) AND m.tmdb_id IS NULL",
+                        "si.local_key GLOB 'tvdb:*'",
+                    ),
+                    (
+                        "m.imdb_id = substr(si.local_key, 6)
+                         AND m.tmdb_id IS NULL AND m.tvdb_id IS NULL",
+                        "si.local_key GLOB 'imdb:*'",
+                    ),
+                ] {
+                    branches.push(cached(
+                        &format!(
+                            " JOIN source_identifiers si ON si.source = c.source
+                                  AND si.media_type = c.media_type
+                                  AND si.external_id = c.external_id
+                              JOIN media m ON m.media_type = si.media_type AND {on}"
+                        ),
+                        guard,
+                    ));
+                    binds.push(source.id);
+                }
+            }
+        }
+    }
+    (!branches.is_empty()).then(|| (branches.join(" UNION ALL "), binds))
+}
+
 pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFacets>> {
     let pool = &state.pool;
     // The order the engine reads, so the list offered and the list matched are
     // the same one.
     let sources = state.metadata_order().await;
+    let localizer = state.localizer().await;
     let total_media: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(pool).await?;
     let known = metadata_predicate(&sources);
     let without_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
@@ -730,8 +857,8 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
     Ok(Json(LibraryFacets {
         total_media,
         vocabularies: Vocabularies {
-            original_languages: vocabulary(language::LANGUAGES),
-            origin_countries: vocabulary(language::COUNTRIES),
+            original_languages: vocabulary(language::LANGUAGES, &localizer),
+            origin_countries: vocabulary(language::COUNTRIES, &localizer),
         },
         without_metadata,
         genres: metadata_facets(pool, &sources, Some("genres"), "genres", true).await?,
@@ -747,10 +874,7 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
         // No media column: the sync does not read countries off the Arr's
         // payload, so the cache is the only place they exist.
         origin_countries: metadata_facets(pool, &sources, None, "origin_countries", true).await?,
-        certifications: name_certifications(
-            metadata_facets(pool, &sources, Some("certification"), "certification", false).await?,
-            &state.localizer().await,
-        ),
+        certifications: certification_facets(pool, &sources, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,
         root_folders: column_facets(pool, "current_root_folder").await?,
     }))

@@ -177,6 +177,22 @@ impl RadarrClient {
         send_json(SERVICE, self.get("/api/v3/tag")).await
     }
 
+    /// The country Radarr's metadata settings rate films for, upper-case, as
+    /// its ratings are then that country's.
+    pub async fn certification_country(&self) -> AppResult<Option<String>> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct MetadataConfig {
+            certification_country: Option<String>,
+        }
+        let config: MetadataConfig =
+            send_json(SERVICE, self.get("/api/v3/config/metadata")).await?;
+        Ok(config
+            .certification_country
+            .map(|country| country.trim().to_uppercase())
+            .filter(|country| !country.is_empty()))
+    }
+
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
     }

@@ -86,6 +86,10 @@ struct RoutingContext {
     /// move. `None` where the Arr reported no figure.
     free_space: HashMap<(String, String), Option<i64>>,
     instance_names: HashMap<String, String>,
+    /// The country each instance's Arr rates for, where it is known.
+    instance_countries: HashMap<String, String>,
+    /// The certification regions, most preferred first.
+    regions: Vec<String>,
     /// Enabled metadata sources, highest priority first.
     providers: Vec<&'static ProviderInfo>,
     /// (source, external id, media type) -> that source's answer.
@@ -403,7 +407,14 @@ pub struct Route {
 /// second spelling of it would retire a proposal the simulation still makes,
 /// apply one it no longer makes, or explain a folder it does not propose.
 fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateTime<Utc>) -> Route {
-    let metadata = resolve_metadata(media, &ctx.providers, &ctx.metadata, &ctx.identifiers);
+    let metadata = resolve_metadata(
+        media,
+        &ctx.providers,
+        &ctx.metadata,
+        &ctx.identifiers,
+        &ctx.regions,
+        ctx.instance_countries.get(&media.instance_id).map(String::as_str),
+    );
     let evaluation = rule_engine::evaluate_rules(
         EvalContext { media, metadata: metadata.as_ref(), now },
         rules,
@@ -677,15 +688,24 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         .map(|(instance_id, path, free)| ((instance_id, crate::paths::key(&path)), free))
         .collect();
 
-    let instance_names: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "SELECT id, name FROM instances WHERE ? IS NULL OR id = ?",
+    let instances: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, name, certification_country FROM instances WHERE ? IS NULL OR id = ?",
     )
     .bind(instance_id)
     .bind(instance_id)
     .fetch_all(pool)
-    .await?
-    .into_iter()
-    .collect();
+    .await?;
+    let instance_countries: HashMap<String, String> = instances
+        .iter()
+        .filter_map(|(id, _, country)| Some((id.clone(), country.clone()?)))
+        .collect();
+    let instance_names: HashMap<String, String> =
+        instances.into_iter().map(|(id, name, _)| (id, name)).collect();
+    let regions_setting: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'certification_regions'")
+            .fetch_optional(pool)
+            .await?;
+    let regions = crate::state::AppState::certification_regions_of(regions_setting.as_deref());
 
     // The configured order (`metadata_order`), never the subset able to answer
     // today (`metadata_providers`): removing a key stops new fetches, and a
@@ -717,6 +737,8 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         root_folders,
         free_space,
         instance_names,
+        instance_countries,
+        regions,
         providers,
         metadata,
         identifiers,
@@ -736,6 +758,8 @@ pub(crate) fn resolve_metadata(
     providers: &[&'static ProviderInfo],
     cache: &HashMap<(String, String, String), ProviderMetadata>,
     identifiers: &metadata::Identifiers,
+    regions: &[String],
+    arr_country: Option<&str>,
 ) -> Option<MediaMetadata> {
     let mut parts: Vec<(&str, ProviderMetadata)> = Vec::with_capacity(providers.len() + 1);
     let mut arrs_english = None;
@@ -743,6 +767,8 @@ pub(crate) fn resolve_metadata(
     for provider in providers {
         if provider.id == metadata::ARR {
             let mut from_arr = metadata::from_media(media);
+            from_arr.certification_scale =
+                from_arr.certification.as_ref().and(arr_country.map(str::to_string));
             // Radarr and Sonarr report English for every original language
             // outside the fifty-seven they know, so their English is offered
             // last, where it fills the field only when no other source knows.
@@ -768,7 +794,38 @@ pub(crate) fn resolve_metadata(
         ));
     }
 
+    keep_the_regions_rating(&mut parts, regions);
     MediaMetadata::merge(parts)
+}
+
+/// Leave one rating among `parts`: that of the first certification region
+/// rated, whichever source gave it, else the first source's, in the order of
+/// the sources.
+///
+/// Each source rates in one system (TMDb and TheTVDB for the region they
+/// picked, OMDb for the United States, a Radarr for the country of its
+/// metadata settings, MyAnimeList in its own), and the regions say whose
+/// system a rule is written for. A rating outside every region still answers
+/// when no source rates the title in one.
+fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[String]) {
+    let rank = |part: &ProviderMetadata| {
+        part.certification_scale
+            .as_deref()
+            .and_then(|scale| regions.iter().position(|region| region.eq_ignore_ascii_case(scale)))
+            .unwrap_or(regions.len())
+    };
+    let kept = parts
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, part))| part.certification.is_some())
+        .min_by_key(|(order, (_, part))| (rank(part), *order))
+        .map(|(order, _)| order);
+    for (order, (_, part)) in parts.iter_mut().enumerate() {
+        if Some(order) != kept {
+            part.certification = None;
+            part.certification_scale = None;
+        }
+    }
 }
 
 type RuleRow = (

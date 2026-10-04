@@ -483,15 +483,16 @@ async fn store_metadata(
 
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, certification, status, overview, poster_path,
-         cached_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+         original_language, origin_countries, certification, certification_scale, status,
+         overview, poster_path, cached_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
          ON CONFLICT(source, external_id, media_type) DO UPDATE SET
             genres = excluded.genres,
             keywords = excluded.keywords,
             original_language = excluded.original_language,
             origin_countries = excluded.origin_countries,
             certification = excluded.certification,
+            certification_scale = excluded.certification_scale,
             status = excluded.status,
             overview = excluded.overview,
             poster_path = excluded.poster_path,
@@ -506,6 +507,7 @@ async fn store_metadata(
     .bind(&data.original_language)
     .bind(serde_json::to_string(&data.origin_countries)?)
     .bind(&data.certification)
+    .bind(&data.certification_scale)
     .bind(&data.status)
     .bind(&data.overview)
     .bind(&data.poster_path)
@@ -530,5 +532,19 @@ pub async fn resolve_for_media(
     let providers = state.metadata_order().await;
     let identifiers = metadata::load_identifiers_of(&state.pool, media).await?;
     let cache = metadata::load_cache_of(&state.pool, media, &providers, &identifiers).await?;
-    Ok(crate::services::routing::resolve_metadata(media, &providers, &cache, &identifiers))
+    let regions = AppState::certification_regions_from(&state.settings().await);
+    let country: Option<String> =
+        sqlx::query_scalar("SELECT certification_country FROM instances WHERE id = ?")
+            .bind(&media.instance_id)
+            .fetch_optional(&state.pool)
+            .await?
+            .flatten();
+    Ok(crate::services::routing::resolve_metadata(
+        media,
+        &providers,
+        &cache,
+        &identifiers,
+        &regions,
+        country.as_deref(),
+    ))
 }

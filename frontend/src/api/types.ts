@@ -364,6 +364,8 @@ export interface MediaMetadata {
   original_language: string | null;
   origin_countries: string[];
   certification: string | null;
+  /** The system `certification` belongs to: an ISO 3166-1 country code, or `MAL`. */
+  certification_scale: string | null;
   status: string | null;
   overview: string | null;
   poster_path: string | null;

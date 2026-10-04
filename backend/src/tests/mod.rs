@@ -31,6 +31,7 @@ mod outbound_http;
 mod placement;
 mod provider_keys;
 pub(crate) mod races;
+mod ratings;
 mod routing;
 mod rule_health;
 mod rule_tests;

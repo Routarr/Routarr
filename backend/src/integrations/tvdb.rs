@@ -53,6 +53,8 @@ pub struct TvdbDetails {
     pub original_language: Option<String>,
     pub origin_countries: Vec<String>,
     pub certification: Option<String>,
+    /// The region `certification` was picked for.
+    pub certification_scale: Option<String>,
     pub status: Option<String>,
     pub overview: Option<String>,
 }
@@ -193,6 +195,8 @@ impl TvdbClient {
             return Ok(TvdbDetails::default());
         };
 
+        let (certification, certification_scale) =
+            pick_rating(&raw.content_ratings, &self.regions).unzip();
         Ok(TvdbDetails {
             genres: raw.genres.into_iter().filter_map(|entry| entry.name).collect(),
             original_language: raw.original_language.as_deref().and_then(language::from_iso_639_3),
@@ -202,15 +206,16 @@ impl TvdbClient {
                 .and_then(language::country_from_alpha3)
                 .into_iter()
                 .collect(),
-            certification: pick_rating(&raw.content_ratings, &self.regions),
+            certification,
+            certification_scale,
             status: raw.status.and_then(|entry| entry.name),
             overview: raw.overview,
         })
     }
 }
 
-/// The rating for the first configured region that has one.
-fn pick_rating(ratings: &[ContentRating], regions: &[String]) -> Option<String> {
+/// The rating for the first configured region that has one, and that region.
+fn pick_rating(ratings: &[ContentRating], regions: &[String]) -> Option<(String, String)> {
     for region in regions {
         let found = ratings.iter().find(|rating| {
             rating
@@ -220,7 +225,7 @@ fn pick_rating(ratings: &[ContentRating], regions: &[String]) -> Option<String> 
                 .is_some_and(|country| country == *region)
         });
         if let Some(name) = found.and_then(|rating| rating.name.clone()) {
-            return Some(name);
+            return Some((name, region.to_uppercase()));
         }
     }
     None
@@ -239,8 +244,14 @@ mod tests {
 
     #[test]
     fn the_rating_follows_the_configured_region_order() {
-        assert_eq!(pick_rating(&ratings(), &["FR".into(), "US".into()]).as_deref(), Some("-12"));
-        assert_eq!(pick_rating(&ratings(), &["US".into()]).as_deref(), Some("TV-14"));
+        assert_eq!(
+            pick_rating(&ratings(), &["FR".into(), "US".into()]).map(|(code, _)| code).as_deref(),
+            Some("-12")
+        );
+        assert_eq!(
+            pick_rating(&ratings(), &["US".into()]).map(|(code, _)| code).as_deref(),
+            Some("TV-14")
+        );
     }
 
     /// A captured-shape TheTVDB v4 `/series/{id}/extended` response through the
@@ -280,7 +291,10 @@ mod tests {
         assert_eq!(raw.original_language.as_deref(), Some("jpn"));
         assert_eq!(raw.original_country.as_deref(), Some("jpn"));
         assert_eq!(raw.status.and_then(|s| s.name).as_deref(), Some("Ended"));
-        assert_eq!(pick_rating(&raw.content_ratings, &["FR".into()]).as_deref(), Some("-12"));
+        assert_eq!(
+            pick_rating(&raw.content_ratings, &["FR".into()]).map(|(code, _)| code).as_deref(),
+            Some("-12")
+        );
     }
 
     /// The login response, which is the only reason this client differs from

@@ -13,11 +13,12 @@
 //! name: the value is what the engine matches, and the reader would trust the
 //! name.
 //!
-//! The media row carries the certification and not the system that issued it,
-//! so nothing here can disambiguate, which is precisely why the list is
-//! restricted to what needs no disambiguation.
+//! Where the system that issued a rating is known, its scale (a country code,
+//! or MAL for MyAnimeList's), a code it settles is named too: `R` is
+//! seventeen and over for the MPA and for MyAnimeList, eighteen in Canada.
 
 /// What a code stands for, as a dictionary key and its parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Meaning {
     AllAges,
     Guidance,
@@ -26,11 +27,42 @@ pub enum Meaning {
     NotRated,
 }
 
-/// The meaning of a certification code, or `None` for one we will not guess at.
-pub fn meaning(code: &str) -> Option<Meaning> {
+/// The system MyAnimeList rates in, as a rating's scale.
+pub const MAL: &str = "MAL";
+
+/// MyAnimeList's own words for one of its codes, as a dictionary key: the
+/// codes say little alone, and `R+` and `Rx` are MyAnimeList's alone.
+pub fn mal_words(code: &str) -> Option<&'static str> {
+    Some(match code.trim().to_ascii_uppercase().as_str() {
+        "G" => "CertMalG",
+        "PG" => "CertMalPg",
+        "PG-13" => "CertMalPg13",
+        "R" => "CertMalR",
+        "R+" => "CertMalRPlus",
+        "RX" => "CertMalRx",
+        _ => return None,
+    })
+}
+
+/// The meaning of a certification code in the system `scale` names, or `None`
+/// for one we will not guess at. `None` for `scale` is a system unknown.
+pub fn meaning(code: &str, scale: Option<&str>) -> Option<Meaning> {
     let key = code.trim().to_ascii_uppercase();
     let key = key.as_str();
+    // Settled by the system: seventeen and over for the MPA and MyAnimeList,
+    // eighteen for the Canadian boards, and nothing France or any other system
+    // issues.
+    if key == "R" {
+        return match scale {
+            Some("US" | MAL) => Some(Meaning::From(17)),
+            Some("CA") => Some(Meaning::From(18)),
+            _ => None,
+        };
+    }
     Some(match key {
+        // MyAnimeList's own: mild nudity, then explicit content.
+        "R+" => Meaning::From(17),
+        "RX" => Meaning::From(18),
         // Everyone: the BBFC's U, Spain's TP, the MPA's G, the American
         // television G and Y, the Dutch AL, Brazil's Livre.
         "U" | "TP" | "G" | "TV-G" | "TV-Y" | "AL" | "L" | "0" => Meaning::AllAges,
@@ -65,23 +97,41 @@ mod tests {
 
     #[test]
     fn a_letter_code_is_named_only_where_the_systems_agree() {
-        assert!(matches!(meaning("U"), Some(Meaning::AllAges)));
-        assert!(matches!(meaning("tv-pg"), Some(Meaning::Guidance)));
-        assert!(matches!(meaning("TV-MA"), Some(Meaning::From(17))));
+        assert!(matches!(meaning("U", None), Some(Meaning::AllAges)));
+        assert!(matches!(meaning("tv-pg", None), Some(Meaning::Guidance)));
+        assert!(matches!(meaning("TV-MA", None), Some(Meaning::From(17))));
         // Fifteen-and-over in Australia, something else in the United States.
-        assert!(meaning("M").is_none());
+        assert!(meaning("M", None).is_none());
         // Seventeen-and-over with an adult in the United States, eighteen in
         // Canada.
-        assert!(meaning("R").is_none());
-        assert!(meaning("Sortie nationale").is_none());
+        assert!(meaning("R", None).is_none());
+        assert!(meaning("Sortie nationale", None).is_none());
+    }
+
+    #[test]
+    fn myanimelists_own_codes_carry_their_age() {
+        assert!(matches!(meaning("R+", None), Some(Meaning::From(17))));
+        assert!(matches!(meaning("Rx", None), Some(Meaning::From(18))));
+        assert!(matches!(meaning("R", Some(MAL)), Some(Meaning::From(17))));
+        assert_eq!(mal_words("R+"), Some("CertMalRPlus"));
+        assert_eq!(mal_words("PG-13"), Some("CertMalPg13"));
+        assert_eq!(mal_words("TV-14"), None);
+    }
+
+    #[test]
+    fn r_is_named_once_its_country_is_known() {
+        assert!(matches!(meaning("R", Some("US")), Some(Meaning::From(17))));
+        assert!(matches!(meaning("R", Some("CA")), Some(Meaning::From(18))));
+        assert!(meaning("R", Some("FR")).is_none(), "France rates no film R");
+        assert!(meaning("R", None).is_none());
     }
 
     #[test]
     fn a_bare_number_is_an_age_and_a_large_one_is_not() {
-        assert!(matches!(meaning("12"), Some(Meaning::From(12))));
-        assert!(matches!(meaning(" 16 "), Some(Meaning::From(16))));
+        assert!(matches!(meaning("12", None), Some(Meaning::From(12))));
+        assert!(matches!(meaning(" 16 ", None), Some(Meaning::From(16))));
         // A year, or a count that wandered in: not an age, so not named.
-        assert!(meaning("1999").is_none());
-        assert!(meaning("42").is_none());
+        assert!(meaning("1999", None).is_none());
+        assert!(meaning("42", None).is_none());
     }
 }
