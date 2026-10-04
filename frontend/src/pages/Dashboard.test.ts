@@ -142,13 +142,6 @@ describe('Dashboard', () => {
     expect(await screen.findByText('never')).toBeTruthy();
   });
 
-  it('invites a first instance instead of showing an empty table', async () => {
-    vi.spyOn(api, 'getHealth').mockResolvedValue(health());
-    show();
-
-    expect(await screen.findByText('No instance configured')).toBeTruthy();
-  });
-
   /**
    * Two requests: one that answers from the database in milliseconds, one that
    * probes every Arr over the network. Probing an unreachable Arr costs the

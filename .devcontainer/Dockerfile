@@ -187,6 +187,109 @@ RUN arch="$(dpkg --print-architecture)" \
   && chmod 0755 /usr/local/bin/gh \
   && gh --version
 
+# The checks CI runs that no package of this image provides: the workflow,
+# script and Dockerfile linters, the secret scanner, the licence and source
+# gate, and the API contract gate. Each version and amd64 sum is the one
+# `ci.yml` installs, which `scripts/check-versions.py` holds in step, so a
+# script, a workflow or a contract change is checked here before it is pushed.
+# The arm64 sums are recorded from the release archives themselves.
+ARG ACTIONLINT_VERSION=1.7.12
+ARG ACTIONLINT_SHA256_X64=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG ACTIONLINT_SHA256_ARM64=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) sum="$ACTIONLINT_SHA256_X64" ;; \
+       arm64) sum="$ACTIONLINT_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/actionlint.tgz \
+     "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${arch}.tar.gz" \
+  && echo "$sum  /tmp/actionlint.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/actionlint.tgz -C /usr/local/bin actionlint \
+  && rm /tmp/actionlint.tgz \
+  && actionlint -version
+
+ARG SHELLCHECK_VERSION=0.11.0
+ARG SHELLCHECK_SHA256_X64=8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+ARG SHELLCHECK_SHA256_ARM64=12b331c1d2db6b9eb13cfca64306b1b157a86eb69db83023e261eaa7e7c14588
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x86_64; sum="$SHELLCHECK_SHA256_X64" ;; \
+       arm64) target=aarch64; sum="$SHELLCHECK_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/shellcheck.txz \
+     "https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.${target}.tar.xz" \
+  && echo "$sum  /tmp/shellcheck.txz" | sha256sum -c - \
+  && tar -xJf /tmp/shellcheck.txz -C /usr/local/bin --strip-components=1 \
+     "shellcheck-v${SHELLCHECK_VERSION}/shellcheck" \
+  && rm /tmp/shellcheck.txz \
+  && shellcheck --version
+
+ARG HADOLINT_VERSION=2.15.1
+ARG HADOLINT_SHA256_X64=c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
+ARG HADOLINT_SHA256_ARM64=f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x86_64; sum="$HADOLINT_SHA256_X64" ;; \
+       arm64) target=arm64; sum="$HADOLINT_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /usr/local/bin/hadolint \
+     "https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}/hadolint-linux-${target}" \
+  && echo "$sum  /usr/local/bin/hadolint" | sha256sum -c - \
+  && chmod 0755 /usr/local/bin/hadolint \
+  && hadolint --version
+
+ARG GITLEAKS_VERSION=8.30.1
+ARG GITLEAKS_SHA256_X64=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+ARG GITLEAKS_SHA256_ARM64=e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x64; sum="$GITLEAKS_SHA256_X64" ;; \
+       arm64) target=arm64; sum="$GITLEAKS_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/gitleaks.tgz \
+     "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_${target}.tar.gz" \
+  && echo "$sum  /tmp/gitleaks.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/gitleaks.tgz -C /usr/local/bin gitleaks \
+  && rm /tmp/gitleaks.tgz \
+  && gitleaks version
+
+ARG OASDIFF_VERSION=1.32.1
+ARG OASDIFF_SHA256_X64=7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
+ARG OASDIFF_SHA256_ARM64=32fff58a120f75a723d6c2422444691c37fa6813fed61d23f53dbcb604b30f6d
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) sum="$OASDIFF_SHA256_X64" ;; \
+       arm64) sum="$OASDIFF_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/oasdiff.tgz \
+     "https://github.com/oasdiff/oasdiff/releases/download/v${OASDIFF_VERSION}/oasdiff_${OASDIFF_VERSION}_linux_${arch}.tar.gz" \
+  && echo "$sum  /tmp/oasdiff.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/oasdiff.tgz -C /usr/local/bin oasdiff \
+  && rm /tmp/oasdiff.tgz \
+  && oasdiff --version
+
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_DENY_SHA256_X64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
+RUN arch="$(dpkg --print-architecture)" \
+  && case "$arch" in \
+       amd64) target=x86_64-unknown-linux-musl; sum="$CARGO_DENY_SHA256_X64" ;; \
+       arm64) target=aarch64-unknown-linux-musl; sum="$CARGO_DENY_SHA256_ARM64" ;; \
+       *) echo "unsupported arch: $arch" && exit 1 ;; \
+     esac \
+  && curl -fsSL -o /tmp/cargo-deny.tgz \
+     "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/cargo-deny-${CARGO_DENY_VERSION}-${target}.tar.gz" \
+  && echo "$sum  /tmp/cargo-deny.tgz" | sha256sum -c - \
+  && tar -xzf /tmp/cargo-deny.tgz -C /usr/local/bin --strip-components=1 \
+     "cargo-deny-${CARGO_DENY_VERSION}-${target}/cargo-deny" \
+  && rm /tmp/cargo-deny.tgz \
+  && cargo-deny --version
+
 # Playwright's system libraries, installed here rather than by
 # `playwright install --with-deps` in postCreateCommand, which would re-run
 # apt-get on every rebuild. Keep in step with @playwright/test in

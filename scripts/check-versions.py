@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check that a version written in several files is the same in all of them.
 
-Two of them, in fact: the toolchain versions and Routarr's own.
+Three of them, in fact: the toolchain versions, the tools CI runs, and
+Routarr's own.
 
 rustup reads `rust-toolchain.toml`, but the two Dockerfiles have to name a base
 image tag, and `Cargo.toml` states the MSRV. Each version is written in several
@@ -179,6 +180,40 @@ def main() -> int:
                 "frontend/package-lock.json",
                 r'"node_modules/@playwright/test":\s*\{\s*"version":\s*"([\d.]+)"',
             ),
+        ],
+    )
+
+    # --- The tools CI runs ------------------------------------------------------
+    # CI fetches each from its release, and the dev container installs the
+    # same, so a check passing here passes there. The version and the amd64 sum
+    # are written once in each file. cargo-deny comes through an action, which
+    # verifies the download itself and takes the version alone.
+    for name, release, arg in (
+        ("actionlint", r"rhysd/actionlint/releases/download/v([\d.]+)/", "ACTIONLINT"),
+        ("hadolint", r"hadolint/hadolint/releases/download/v([\d.]+)/", "HADOLINT"),
+        ("gitleaks", r"gitleaks/gitleaks/releases/download/v([\d.]+)/", "GITLEAKS"),
+        ("oasdiff", r"oasdiff/oasdiff/releases/download/v([\d.]+)/", "OASDIFF"),
+        ("shellcheck", r"koalaman/shellcheck/releases/download/v([\d.]+)/", "SHELLCHECK"),
+    ):
+        failures += agree(
+            f"The {name} version",
+            [
+                find(".github/workflows/ci.yml", release),
+                find(".devcontainer/Dockerfile", rf"^ARG {arg}_VERSION=([\d.]+)$"),
+            ],
+        )
+        failures += agree(
+            f"The {name} amd64 checksum",
+            [
+                find(".github/workflows/ci.yml", rf"^\s*{arg}_SHA256:\s*([0-9a-f]{{64}})$"),
+                find(".devcontainer/Dockerfile", rf"^ARG {arg}_SHA256_X64=([0-9a-f]{{64}})$"),
+            ],
+        )
+    failures += agree(
+        "The cargo-deny version",
+        [
+            find(".github/workflows/ci.yml", r"^\s*tool:\s*cargo-deny@([\d.]+)$"),
+            find(".devcontainer/Dockerfile", r"^ARG CARGO_DENY_VERSION=([\d.]+)$"),
         ],
     )
 

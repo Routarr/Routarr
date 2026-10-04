@@ -13,6 +13,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { releasedVersion } from './release.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
@@ -454,18 +455,20 @@ if (!stylesheets.length || printed < 3) {
 
 // ----------------------------------------------------------- version
 // The page states which version it describes, anywhere a visitor reads it, and
-// that version is the one `backend/Cargo.toml` declares. The JSON-LD says the
-// same. The site reads Cargo.toml when it builds, so the comparison fails only
-// on a `dist` built before a version change.
+// that version is the latest published release, or the one `backend/Cargo.toml`
+// declares when GitHub cannot say (`release.mjs`). The JSON-LD says the same.
+// Both read it the same way, so the comparison fails only on a `dist` built
+// before a release or a version change.
 const cargo = readFileSync(join(ROOT, '../backend/Cargo.toml'), 'utf-8');
-const version = cargo.match(/^version = "([^"]+)"/m)?.[1];
-if (!version) fail('could not read the version from Cargo.toml');
+const crate = cargo.match(/^version = "([^"]+)"/m)?.[1];
+if (!crate) fail('could not read the version from Cargo.toml');
 else {
+  const version = await releasedVersion(crate);
   if (!index.includes(`"softwareVersion": "${version}"`)) {
-    fail(`index.html: softwareVersion is not ${version}, the version in Cargo.toml`);
+    fail(`index.html: softwareVersion is not ${version}, the latest published release`);
   }
   if (!index.includes(`v${version}`)) {
-    fail(`index.html: the page states no version, and Cargo.toml declares ${version}`);
+    fail(`index.html: the page states no version, and the latest release is ${version}`);
   }
 }
 

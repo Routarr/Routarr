@@ -57,30 +57,10 @@ test('the sweeps meet a row in every table they walk', async ({ page }) => {
 /**
  * A `.form-label` sitting *next* to a field with no `htmlFor` is decorative: the
  * control has no accessible name and clicking the caption does not focus it.
- *
- * `getByLabel` resolves through the browser's real accessible-name computation,
- * which is why this belongs here and not in a jsdom test: it is the only
- * layer that can tell a visible caption from a programmatic label.
+ * Clicking is what only a browser does: the names themselves are resolved by
+ * the component tests and by the sweeps below.
  */
 test.describe('form fields carry a programmatic label', () => {
-  test('the rule editor', async ({ page }) => {
-    await page.goto('/rules');
-    await page.getByRole('button', { name: 'New Rule' }).click();
-
-    for (const label of ['Rule name', 'Target category', 'Applies to', 'Priority']) {
-      await expect(page.getByLabel(label, { exact: true }), label).toBeVisible();
-    }
-  });
-
-  test('the instance editor', async ({ page }) => {
-    await page.goto('/instances');
-    await page.getByRole('button', { name: 'Add instance' }).click();
-
-    for (const label of ['Name', 'Type', 'Base URL', 'API key']) {
-      await expect(page.getByLabel(label, { exact: true }), label).toBeVisible();
-    }
-  });
-
   test('clicking a caption focuses its field', async ({ page }) => {
     await page.goto('/instances');
     await page.getByRole('button', { name: 'Add instance' }).click();
@@ -170,26 +150,26 @@ test.describe('modal dialogs', () => {
     await expect(page.getByRole('button', { name: /add instance/i })).toBeFocused();
   });
 
-  test('focus starts inside the modal rather than behind it', async ({ page }) => {
+  /**
+   * A trap that starts outside itself is not a trap, and one that starts on
+   * its close button is one reflex Enter from a form thrown away: the focus
+   * lands on the first field, which only a real browser's `showModal()` and
+   * `autofocus` decide.
+   */
+  test('focus starts on the first field of the modal', async ({ page }) => {
     await page.goto('/instances');
     await page.getByRole('button', { name: /add instance/i }).click();
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
-
-    // Whatever holds focus, it must be inside the dialog: a trap that starts
-    // outside itself is not a trap.
-    const focusIsInside = await dialog.evaluate((element) =>
-      element.contains(document.activeElement),
-    );
-    expect(focusIsInside).toBe(true);
+    await expect(dialog.getByLabel('Name', { exact: true })).toBeFocused();
   });
 });
 
 /**
- * Swept rather than sampled: the named tests above check the two editors, which
- * leaves the controls nobody thinks of as a form. The sweep also catches one
- * added later on a screen this file has never heard of.
+ * Swept rather than sampled: the controls nobody thinks of as a form are named
+ * too, and the sweep catches one added later on a screen this file has never
+ * heard of.
  */
 test('every control on every screen has an accessible name', async ({ page }) => {
   const nameless: string[] = [];

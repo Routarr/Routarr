@@ -183,14 +183,6 @@ describe('Instances', () => {
     expect(badge.className).not.toContain('badge-success');
   });
 
-  it('names each row action after its instance', async () => {
-    show([instance({ name: 'Radarr' }), instance({ id: 'i2', name: 'Sonarr' })]);
-
-    expect(await screen.findByRole('button', { name: 'Sync now – Radarr' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Edit – Sonarr' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Actions – Sonarr' })).toBeTruthy();
-  });
-
   /**
    * Blank means "keep the stored key" on the backend, which is the only way to
    * edit a base URL without retyping a credential the user no longer has. The
@@ -297,27 +289,30 @@ describe('Instances', () => {
     expect(screen.getByText('Radarr')).toBeTruthy();
   });
 
-  /** A dialog opens on its own form, not on the refusal of the one before. */
-  it('opens the next dialog without the refusal of the last one', async () => {
-    vi.spyOn(api, 'updateInstance').mockRejectedValue(
-      new ApiError('base_url must start with http:// or https://', 400, 'bad_request'),
-    );
-    show([instance()]);
+  /** A dialog opens on its own form, never on the refusal of the one before. */
+  it.each(['Edit – Radarr', 'Add instance'])(
+    'opens %s without the refusal of the last dialog',
+    async (next) => {
+      vi.spyOn(api, 'updateInstance').mockRejectedValue(
+        new ApiError('base_url must start with http:// or https://', 400, 'bad_request'),
+      );
+      show([instance()]);
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const url = await screen.findByLabelText('Base URL');
-    await fireEvent.input(url, { target: { value: 'nas:7878' } });
-    await fireEvent.submit(url.closest('form') as HTMLFormElement);
-    await within(await screen.findByRole('dialog')).findByRole('alert');
-    await fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
-    );
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+      await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+      const url = await screen.findByLabelText('Base URL');
+      await fireEvent.input(url, { target: { value: 'nas:7878' } });
+      await fireEvent.submit(url.closest('form') as HTMLFormElement);
+      await within(await screen.findByRole('dialog')).findByRole('alert');
+      await fireEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Edit – Radarr' }));
+      await fireEvent.click(screen.getByRole('button', { name: next }));
 
-    expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull();
-  });
+      expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull();
+    },
+  );
 
   /** Every instance failing is a failure, whatever the count of zero synced says. */
   it('reports a sync in which every instance failed as a failure', async () => {
@@ -361,28 +356,6 @@ describe('Instances', () => {
     const summary = await screen.findByText('Instances synced: 1');
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.getByText('Sonarr: connection refused, twice')).toBeTruthy();
-  });
-
-  /** The Add dialog opens on a blank form, never on the refusal of the one before. */
-  it('opens the Add dialog without the refusal of the last one', async () => {
-    vi.spyOn(api, 'updateInstance').mockRejectedValue(
-      new ApiError('base_url must start with http:// or https://', 400, 'bad_request'),
-    );
-    show([instance()]);
-
-    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
-    const url = await screen.findByLabelText('Base URL');
-    await fireEvent.input(url, { target: { value: 'nas:7878' } });
-    await fireEvent.submit(url.closest('form') as HTMLFormElement);
-    await within(await screen.findByRole('dialog')).findByRole('alert');
-    await fireEvent.click(
-      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
-    );
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Add instance' }));
-
-    expect(within(await screen.findByRole('dialog')).queryByRole('alert')).toBeNull();
   });
 
   /**

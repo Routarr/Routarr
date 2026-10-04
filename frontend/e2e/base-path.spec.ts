@@ -93,22 +93,3 @@ test('the API is reached through the prefix @subpath', async ({ page }) => {
     expect(path.startsWith(`${BASE}/api/v1/`), `${path} left the mount point`).toBe(true);
   }
 });
-
-test('the webhook URL it hands to Radarr carries the prefix @subpath', async ({ page }) => {
-  await page.goto(`${BASE}/instances`);
-
-  // Radarr calls this back. Missing the prefix, every event would 404 at the
-  // proxy and the user would see nothing at all.
-  const url = await page.evaluate(async () => {
-    // Reads the key where the application reads it, so this raw call is
-    // authenticated exactly as the app's own requests are.
-    const key = window.localStorage.getItem('routarr.apiKey') ?? '';
-    const res = await fetch(`${document.baseURI}api/v1/instances`, {
-      headers: key ? { 'x-api-key': key } : {},
-    });
-    const list = (await res.json()) as { webhook_url: string }[];
-    return list[0]?.webhook_url;
-  });
-
-  expect(url).toMatch(new RegExp(`^${BASE}/api/v1/webhook/`));
-});

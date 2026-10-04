@@ -89,9 +89,11 @@ jobs:
   # deliverable at once. Unfiltered for the same reason as
   # `changes`, and needed by no other job, so a failure here skips nothing else.
   #
-  # The four binaries are fetched from their releases and checked against the
+  # The five binaries are fetched from their releases and checked against the
   # sums recorded here, so a moved tag or a replaced asset fails the step
-  # rather than running. The runner image ships shellcheck.
+  # rather than running. The dev container installs the same versions, which
+  # `scripts/check-versions.py` holds in step: shellcheck is pinned rather than
+  # taken from the runner image, whose version moves with the image.
   #
   # Each check runs whatever the one before it answered, so a first failure
   # hides none of the others, gitleaks included.
@@ -121,6 +123,7 @@ jobs:
           HADOLINT_SHA256: c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
           OASDIFF_SHA256: 7c8939fc49b75ee11fec66a5b83b37a2fca6aee109fed85013b1ba2ac2a1ee7f
+          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
         run: |
           set -euo pipefail
           mkdir -p "$HOME/bin"
@@ -140,6 +143,10 @@ jobs:
             https://github.com/oasdiff/oasdiff/releases/download/v1.32.1/oasdiff_1.32.1_linux_amd64.tar.gz
           echo "$OASDIFF_SHA256  /tmp/oasdiff.tgz" | sha256sum -c -
           tar -xzf /tmp/oasdiff.tgz -C "$HOME/bin" oasdiff
+          curl -fsSL -o /tmp/shellcheck.txz \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz
+          echo "$SHELLCHECK_SHA256  /tmp/shellcheck.txz" | sha256sum -c -
+          tar -xJf /tmp/shellcheck.txz -C "$HOME/bin" --strip-components=1 shellcheck-v0.11.0/shellcheck
           echo "$HOME/bin" >> "$GITHUB_PATH"
 
       # Unfiltered with the rest of this job: a commit touching the pinned
@@ -227,7 +234,8 @@ jobs:
       - name: Check licences and sources
         uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2.87.21
         with:
-          tool: cargo-deny
+          # The version the dev container installs (`check-versions.py`).
+          tool: cargo-deny@0.20.2
       - run: cargo deny --locked check
 
   coverage:

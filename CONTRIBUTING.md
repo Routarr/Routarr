@@ -55,8 +55,9 @@ site/        the showcase site, deployed separately, never in the image
 ## What CI will check
 
 Run these before opening a pull request. They are the gates CI runs, all fast
-but the end-to-end suites. The last two blocks need Docker and tools the dev
-container does not ship, so most people meet them in CI. CI only runs the areas
+but the end-to-end suites. The dev container ships every tool below at the
+version CI pins, Docker apart, so the image block is the one most people meet
+in CI. CI only runs the areas
 a commit touches (a site-only change does not pay for the Rust suite), but it
 runs everything when it cannot work out what changed, so do not rely on that to
 skip a check locally.
@@ -93,7 +94,7 @@ npx astro check        # types over the components and the catalogue
 # repository root, with Docker: starts the image and checks it serves
 docker build -t routarr:smoke . && bash scripts/smoke-image.sh routarr:smoke
 
-# repository root, in CI only unless installed, at the versions ci.yml pins
+# repository root, with the tools the dev container installs at CI's versions
 (cd backend && cargo deny --locked check)   # licences, advisories and sources, from deny.toml
 bash scripts/check-api-breaks.sh            # the API contract against the last release (oasdiff)
 actionlint                                  # the workflows

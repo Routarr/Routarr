@@ -134,35 +134,32 @@ async fn a_bundle_carrying_a_credential_is_told_to_set_it_again() {
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
-/// `move_files_default` is exported by v0.1.2 and read by nothing: the apply
-/// screen asks each time. A bundle holding it restores the rest and says the
-/// one setting did not come back.
+/// A setting this release does not read, whether an older release exported it
+/// or a later one did, is reported and not stored: stored, it would sit in the
+/// table for ever, unreachable through the API and impossible to remove. The
+/// rest of the bundle is restored.
 #[tokio::test]
-async fn a_bundle_holding_a_setting_this_release_dropped_restores_the_rest() {
+async fn a_bundle_setting_this_release_does_not_read_is_reported_not_stored() {
     let app = TestApp::new().await;
-    let stored: Option<String> =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'move_files_default'")
-            .fetch_optional(&app.state.pool)
-            .await
-            .unwrap();
-    assert_eq!(stored, None, "a fresh database still holds the dropped setting");
+    // `move_files_default` is one an older release exported, and reads nothing.
+    let unread = ["move_files_default", "tmdb_cache_ttl_days", "from_a_later_routarr"];
+    let mut settings: Vec<serde_json::Value> =
+        unread.iter().map(|key| serde_json::json!({ "key": key, "value": "14" })).collect();
+    settings.push(serde_json::json!({ "key": "batch_limit", "value": "25" }));
+    let bundle = serde_json::json!({ "bundle": { "version": 1, "settings": settings } });
 
-    // `tmdb_cache_ttl_days` is a name no release exported.
-    let bundle = serde_json::json!({
-        "bundle": {
-            "version": 1,
-            "settings": [
-                { "key": "move_files_default", "value": "true" },
-                { "key": "tmdb_cache_ttl_days", "value": "14" },
-                { "key": "batch_limit", "value": "25" }
-            ]
-        }
-    });
     let report = app.post("/api/v1/config/import", bundle).await.assert_ok().clone();
 
     let skipped = report["skipped"].to_string();
-    assert!(skipped.contains("move_files_default"), "not reported: {skipped}");
-    assert!(skipped.contains("tmdb_cache_ttl_days"), "not reported: {skipped}");
+    for key in unread {
+        let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+        assert_eq!(stored, None, "{key} was stored from the bundle");
+        assert!(skipped.contains(key), "{key} not reported: {skipped}");
+    }
     assert_eq!(report["settings"], 1, "the other setting was not restored");
 }
 
@@ -464,45 +461,6 @@ async fn a_bundle_from_a_future_version_is_refused_rather_than_half_applied() {
         .await
         .unwrap();
     assert!(leaked.is_none(), "nothing may be written from a bundle we cannot read");
-}
-
-#[tokio::test]
-async fn a_setting_this_version_does_not_know_is_reported_not_stored() {
-    let app = TestApp::new().await;
-
-    let report = app
-        .post(
-            "/api/v1/config/import",
-            serde_json::json!({
-                "bundle": {
-                    "version": 1,
-                    "settings": [
-                        { "key": "batch_limit", "value": "30" },
-                        { "key": "from_a_later_routarr", "value": "42" }
-                    ]
-                }
-            }),
-        )
-        .await
-        .assert_ok()
-        .clone();
-
-    assert_eq!(report["settings"], 1);
-    // Stored, it would sit in the table for ever: unreachable through the API
-    // and impossible to remove.
-    let unknown: Option<String> =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'from_a_later_routarr'")
-            .fetch_optional(&app.state.pool)
-            .await
-            .unwrap();
-    assert!(unknown.is_none());
-    assert!(
-        report["skipped"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|s| s.as_str().unwrap().contains("from_a_later_routarr"))
-    );
 }
 
 #[tokio::test]

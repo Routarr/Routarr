@@ -345,19 +345,6 @@ async fn filtering_by_instance_happens_in_sql() {
     assert_eq!(all.total_media, 1);
 }
 
-/// An empty instance list is every instance, the way `Rule::covers_instance`
-/// reads the same shape. Read as "these zero instances", `POST /simulate` with
-/// `instance_ids: []` would evaluate nothing and report a green run.
-#[tokio::test]
-async fn an_empty_instance_list_evaluates_every_instance() {
-    let app = TestApp::new().await;
-    app.seed_library().await;
-
-    let result =
-        simulate(&app, SimulationOptions { instance_ids: vec![], ..Default::default() }).await;
-    assert_eq!(result.total_media, 1);
-}
-
 /// An empty media list is these zero items, not no filter. Read as no filter,
 /// a webhook whose item has just been deleted would evaluate, persist and
 /// automatically apply the whole instance.

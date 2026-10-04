@@ -15,8 +15,10 @@ paths:
 
 - Pin every `uses:` to a full commit SHA with its tag in a trailing comment (`@<sha> # v7.0.1`).
   A tag can be moved, and `release.yml` holds `packages: write`.
-- The three workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
-  run, `docker.yml` queues so a started image build finishes, `release.yml` runs on a `v*` tag.
+- The four workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
+  run, `docker.yml` queues so a started image build finishes, `release.yml` runs on a `v*` tag,
+  `site.yml` calls the Cloudflare deploy hook (secret `CLOUDFLARE_DEPLOY_HOOK`) when a release
+  is published, so the site names it.
 - In `ci.yml`, `changes` gates every job except `repository`, and those two are the only
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or
@@ -42,13 +44,15 @@ paths:
   `scripts/install-runtime.sh` at a pinned version and checksum, and `release.yml` runs it on
   both architectures before pushing. A check added to the smoke test has to hold in all three.
 
-## Checks that run only in CI
+## The repository job and the dev container
 
-- The dev container has no Docker, shellcheck, hadolint, actionlint, gitleaks, cargo-deny or
-  oasdiff. The image build, `scripts/smoke-image.sh`, `cargo deny` and the `repository` job, the
-  contract gate `scripts/check-api-breaks.sh` included, run only in CI.
-  That job holds every tracked `*.sh` to `shellcheck -S style`, both Dockerfiles to hadolint under
-  `.hadolint.yaml`, and the workflows to actionlint.
+- The dev container has no Docker: the image build and `scripts/smoke-image.sh` run only in CI.
+  It installs the other tools CI runs (shellcheck, hadolint, actionlint, gitleaks, cargo-deny,
+  oasdiff) at the versions and sums `ci.yml` pins, which `check-versions.py` holds in step, so
+  bump a tool in both files. Run the `repository` job's checks before pushing a script, a
+  workflow, a Dockerfile or a contract change: every tracked `*.sh` under `shellcheck -S style`,
+  both Dockerfiles under hadolint (`.hadolint.yaml`), the workflows under actionlint, and
+  `scripts/check-api-breaks.sh`.
 - gitleaks scans every commit and no `.gitleaksignore` exists: a secret-shaped literal, a
   realistic fake key in a test included, fails the job even after a later commit deletes it.
 - Nothing in CI builds `.devcontainer/Dockerfile`: hadolint and `check-versions.py` are its only

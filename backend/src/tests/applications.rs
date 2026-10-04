@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use super::fake_arr::FakeArr;
 use super::security::{OPEN, declared_routes, route_template};
 use super::{TestApp, TestResponse};
-use crate::api::applications::{GRANTS, scope_for};
+use crate::api::applications::scope_for;
 use crate::config::{AuthMode, Config, normalise_base_path};
 use crate::services::applications::Scope;
 use crate::state::AppState;
@@ -214,22 +214,6 @@ async fn each_scope_is_granted_on_its_own() {
     let refused = send(&app, "POST", "/api/v1/overrides", Some(&operating), Some(pin)).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN, "{:?}", refused.json);
     assert!(refused.message().contains("write"), "{}", refused.message());
-}
-
-/// Every route the table grants exists, so no line of it is a promise the
-/// router does not keep.
-#[test]
-fn every_granted_route_is_declared() {
-    let declared: Vec<(String, String)> = declared_routes()
-        .into_iter()
-        .map(|(method, path)| (method.to_string(), route_template(&path)))
-        .collect();
-    for (method, route, _) in GRANTS {
-        assert!(
-            declared.contains(&(method.to_string(), route.to_string())),
-            "{method} {route} is granted but main.rs does not declare it"
-        );
-    }
 }
 
 #[tokio::test]

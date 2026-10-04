@@ -126,13 +126,6 @@ describe('Root folders', () => {
     expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
   });
 
-  it('names each row action after its category', async () => {
-    show([], [category({ name: 'anime' })]);
-
-    expect(await screen.findByRole('button', { name: 'Rename category – anime' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Delete – anime' })).toBeTruthy();
-  });
-
   /**
    * Nothing cascades: renaming updates the row, the four `%_category` columns
    * and the `default_category` setting, in one transaction on the server. The
@@ -455,25 +448,9 @@ describe('Root folders', () => {
     const warnings = container.querySelectorAll('.banner-warning');
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.querySelectorAll('li')).toHaveLength(2);
-    expect(container.querySelectorAll('.banner-danger li')).toHaveLength(1);
-  });
-
-  it('surfaces a mapping conflict the server found', async () => {
-    show(
-      [folder()],
-      [category()],
-      [
-        {
-          kind: 'duplicate',
-          severity: 'error',
-          instance_name: 'Radarr',
-          category: 'anime',
-          message: 'Two folders claim "anime"',
-        },
-      ],
-    );
-
-    expect(await screen.findByText('Two folders claim "anime"')).toBeTruthy();
+    const errors = container.querySelectorAll('.banner-danger li');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.textContent).toContain('Two folders claim "anime"');
   });
 
   /** Opened on its close button, a form is one reflex Enter from thrown away. */

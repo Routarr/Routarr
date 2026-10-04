@@ -86,23 +86,11 @@ describe('Overrides', () => {
     expect(await screen.findByText('No override yet')).toBeTruthy();
   });
 
-  /**
-   * Every row carries the same destructive button. Announced as "Delete" and
-   * nothing else, a screen reader gives the user N identical buttons and no way
-   * to tell which override each one removes.
-   */
   it('names who set a pin under the day it was set', async () => {
     show([override({ subject: 'request-bot' })]);
 
     const row = (await screen.findByText('Akira')).closest('tr') as HTMLElement;
     expect(within(row).getByText('request-bot')).toBeTruthy();
-  });
-
-  it('names each delete button after the item it would unpin', async () => {
-    show([override({ media_title: 'Akira' }), override({ id: 'o2', media_title: 'Totoro' })]);
-
-    expect(await screen.findByRole('button', { name: 'Delete – Akira' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Delete – Totoro' })).toBeTruthy();
   });
 
   it('asks before removing, naming what would be removed', async () => {

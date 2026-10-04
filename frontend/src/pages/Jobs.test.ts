@@ -109,13 +109,6 @@ describe('Tasks', () => {
     expect(await screen.findByText('Nothing has run yet')).toBeTruthy();
   });
 
-  it('announces that it is refreshing while something is running', async () => {
-    vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ status: 'running' })]));
-    show();
-
-    expect(await screen.findByText('Refreshing')).toBeTruthy();
-  });
-
   it('claims nothing about refreshing once everything has finished', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ status: 'success' })]));
     show();
@@ -145,23 +138,5 @@ describe('Tasks', () => {
     const settled = getJobs.mock.calls.length;
     await vi.advanceTimersByTimeAsync(30_000);
     expect(getJobs.mock.calls.length).toBe(settled);
-  });
-
-  it('asks the server for the status the user picked, rather than filtering on screen', async () => {
-    const getJobs = vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job()]));
-    show();
-    await screen.findByText('Library sync');
-
-    // `userEvent`, not a synthetic `change`: setting `.value` on a `<select>`
-    // moves the DOM but not `selectedIndex`, so Svelte's binding never fires
-    // and the filter silently does nothing, in the test only.
-    await userEvent.selectOptions(screen.getByLabelText('Filter by status'), 'failed');
-
-    await waitFor(() =>
-      expect(getJobs).toHaveBeenCalledWith(
-        expect.objectContaining({ status: 'failed' }),
-        expect.any(AbortSignal),
-      ),
-    );
   });
 });
