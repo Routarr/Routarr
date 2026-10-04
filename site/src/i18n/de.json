@@ -119,7 +119,7 @@
   "footer.p": "Routarr, GPLv3-Lizenz. Nicht mit dem Servarr-Projekt verbunden.",
   "head.description": "Routarr leitet jeden Film und jede Serie in den richtigen Stammordner in Radarr und Sonarr, nach Ihren eigenen Regeln. Erst Testlauf, jede Entscheidung erklärt.",
   "head.description.how": "Die Lücke, die Routarr füllt, die vier Schritte, wie eine Entscheidung erklärt wird, deklarierte Stammordner, das Datenblatt und die Antworten auf Einwände.",
-  "head.description.api": "Erstellen Sie einen App-Schlüssel mit den nötigen Geltungsbereichen, fragen Sie Routarr, wohin ein Titel käme, und finden Sie jede Operation von /api/v1 in Ihrer eigenen Instanz.",
+  "head.description.api": "Ein App-Schlüssel mit den nötigen Geltungsbereichen, ein erster Aufruf, der fragt, wohin ein Titel käme, und wo Ihre Instanz jede Operation auflistet.",
   "head.og-description": "Entscheidet, in welchen Stammordner jeder Film und jede Serie gehört, nach Ihren Regeln. Erst Testlauf, jede Entscheidung erklärt.",
   "head.title": "Routarr, automatisches Stammordner-Routing für Radarr und Sonarr",
   "head.title.how": "Wie Routarr entscheidet, in welchen Stammordner ein Titel gehört",
