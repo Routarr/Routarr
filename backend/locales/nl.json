@@ -869,7 +869,7 @@
   "DestinationDeclared": "Bestemming '{path}' toegevoegd",
   "DestinationRemoved": "Bestemming '{path}' verwijderd",
   "ErrorCapacityUnknown": "'{path}' meldt geen vrije ruimte en ligt onder geen bekende hoofdmap. Er zou {needed} verplaatst worden zonder dat iets de ruimte controleert.",
-  "ErrorDestinationAbsolute": "Een bestemming is een absoluut pad dat met / begint",
+  "ErrorDestinationAbsolute": "Een bestemming is een absoluut pad: /data/movies op Linux, D:\\Movies of \\\\server\\share op Windows.",
   "ErrorDestinationAlreadyListed": "'{path}' staat al vermeld voor deze instantie",
   "ErrorDestinationUnseen": "De instantie ziet '{path}' niet. Controleer het pad zoals die container het ziet.",
   "ErrorDestinationNotOurs": "Die map komt van de instantie. Verwijder hem daar",

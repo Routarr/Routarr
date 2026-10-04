@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destination '{path}' added",
   "DestinationRemoved": "Destination '{path}' removed",
   "ErrorCapacityUnknown": "'{path}' does not report free space, and it sits under no known root folder. {needed} would be moved without anything checking the room.",
-  "ErrorDestinationAbsolute": "A destination is an absolute path, starting with /",
+  "ErrorDestinationAbsolute": "A destination is an absolute path: /data/movies on Linux, D:\\Movies or \\\\server\\share on Windows.",
   "ErrorDestinationAlreadyListed": "'{path}' is already listed for this instance",
   "ErrorDestinationUnseen": "The instance cannot see '{path}'. Check the path as that container sees it.",
   "ErrorDestinationNotOurs": "That folder comes from the instance. Remove it there instead",

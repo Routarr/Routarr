@@ -869,7 +869,7 @@
   "DestinationDeclared": "Цільову теку «{path}» додано",
   "DestinationRemoved": "Цільову теку «{path}» вилучено",
   "ErrorCapacityUnknown": "«{path}» не повідомляє, скільки на ньому вільного місця, і не лежить у жодній відомій кореневій теці. Буде переміщено {needed}, і місце ніхто не перевірить.",
-  "ErrorDestinationAbsolute": "Цільова тека задається абсолютним шляхом, що починається з /",
+  "ErrorDestinationAbsolute": "Місце призначення має бути абсолютним шляхом: /data/movies у Linux, D:\\Movies або \\\\server\\share у Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» уже вказано для цього екземпляра",
   "ErrorDestinationUnseen": "Екземпляр не бачить «{path}». Перевірте шлях так, як його бачить цей контейнер.",
   "ErrorDestinationNotOurs": "Ця тека надходить від екземпляра. Вилучіть її там",

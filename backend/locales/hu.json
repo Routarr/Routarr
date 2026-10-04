@@ -869,7 +869,7 @@
   "DestinationDeclared": "A(z) \"{path}\" cél hozzáadva",
   "DestinationRemoved": "A(z) \"{path}\" cél eltávolítva",
   "ErrorCapacityUnknown": "A(z) \"{path}\" nem jelent szabad helyet, és nem tartozik ismert gyökérmappa alá. {needed} kerülne áthelyezésre anélkül, hogy bármi ellenőrizné a helyet.",
-  "ErrorDestinationAbsolute": "A cél abszolút útvonal, amely / jellel kezdődik",
+  "ErrorDestinationAbsolute": "A cél abszolút elérési út: /data/movies Linuxon, D:\\Movies vagy \\\\server\\share Windowson.",
   "ErrorDestinationAlreadyListed": "A(z) \"{path}\" már szerepel ennél a példánynál",
   "ErrorDestinationUnseen": "A példány nem látja a(z) \"{path}\" útvonalat. Ellenőrizze úgy, ahogy azt a konténer látja.",
   "ErrorDestinationNotOurs": "Ez a mappa a példánytól származik, ott távolítsa el",

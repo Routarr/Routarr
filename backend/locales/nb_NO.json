@@ -869,7 +869,7 @@
   "DestinationDeclared": "Målet «{path}» lagt til",
   "DestinationRemoved": "Målet «{path}» fjernet",
   "ErrorCapacityUnknown": "«{path}» oppgir ikke ledig plass og ligger ikke under noen kjent rotmappe. {needed} ville blitt flyttet uten at noe sjekker plassen.",
-  "ErrorDestinationAbsolute": "Et mål er en absolutt sti som begynner med /",
+  "ErrorDestinationAbsolute": "Et mål er en absolutt sti: /data/movies på Linux, D:\\Movies eller \\\\server\\share på Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» er allerede oppført for denne instansen",
   "ErrorDestinationUnseen": "Instansen ser ikke «{path}». Kontroller stien slik den containeren ser den.",
   "ErrorDestinationNotOurs": "Mappen kommer fra instansen. Fjern den i instansen",

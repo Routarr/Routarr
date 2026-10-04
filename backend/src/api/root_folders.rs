@@ -207,10 +207,12 @@ pub async fn create(
     Json(req): Json<DeclareRootFolder>,
 ) -> AppResult<Json<serde_json::Value>> {
     let localizer = state.localizer().await;
-    let path = req.path.trim().trim_end_matches('/').to_string();
-    if path.is_empty() || !path.starts_with('/') {
+    // As the Arr writes it once trimmed: `/data/movies/4k` for an Arr in a
+    // Linux container, `D:\Media\4K` or `\\nas\films` for one on Windows.
+    if !crate::paths::is_absolute(&req.path) {
         return Err(AppError::BadRequest(localizer.translate("ErrorDestinationAbsolute", &[])));
     }
+    let path = crate::paths::trimmed(&req.path);
 
     let instance = state.instance(&req.instance_id).await?;
 
@@ -220,7 +222,7 @@ pub async fn create(
     // there to catch the second.
     let taken: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM root_folders
-          WHERE instance_id = ? AND rtrim(path, '/') = ?)",
+          WHERE instance_id = ? AND path = ? COLLATE path)",
     )
     .bind(&req.instance_id)
     .bind(&path)
@@ -248,13 +250,14 @@ pub async fn create(
     // told apart by `origin`: a table of its own would put a `UNION` in
     // `routing::load_context` and in every executor join.
     //
-    // `/x` and `/x/` are one folder, so the guard is on the trimmed path and
-    // the statement is its own check: nothing between the two can slip in.
+    // `/x` and `/x/` are one folder, as are `D:\X` and `d:/x/`, so the guard
+    // compares through the path collation and the statement is its own check:
+    // nothing between the two can slip in.
     let inserted = sqlx::query(
         "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, origin)
          SELECT ?, ?, NULL, ?, 1, 'declared'
           WHERE NOT EXISTS (SELECT 1 FROM root_folders
-                             WHERE instance_id = ? AND rtrim(path, '/') = ?)",
+                             WHERE instance_id = ? AND path = ? COLLATE path)",
     )
     .bind(&id)
     .bind(&req.instance_id)
@@ -274,7 +277,8 @@ pub async fn create(
     // synced root already knows its free space and its reachability, and
     // waiting for the sync would show a new row with no figures for as long as
     // that instance's interval.
-    crate::services::sync::inherit_declared(&state.pool, &req.instance_id).await?;
+    let mut connection = state.pool.acquire().await?;
+    crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
 
     Ok(Json(serde_json::json!({ "id": id, "path": path, "verified": seen == Some(true) })))
 }

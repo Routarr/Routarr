@@ -16,9 +16,7 @@ use crate::error::AppResult;
 use crate::localization::Localizer;
 use crate::models::*;
 use crate::services::metadata::{self, ProviderInfo};
-use crate::services::rule_engine::{
-    self, EvalContext, OVERRIDE_RULE_ID, RuleMatch, normalize_path,
-};
+use crate::services::rule_engine::{self, EvalContext, OVERRIDE_RULE_ID, RuleMatch};
 
 /// Knobs for a simulation run.
 #[derive(Debug, Clone)]
@@ -254,7 +252,7 @@ pub async fn simulate_loaded(
                 // not tell us) is no alternative.
                 let free_of = |path: &str| -> Option<i64> {
                     ctx.free_space
-                        .get(&(media.instance_id.clone(), normalize_path(path)))
+                        .get(&(media.instance_id.clone(), crate::paths::key(path)))
                         .copied()
                         .flatten()
                 };
@@ -350,7 +348,7 @@ pub async fn simulate_loaded(
         .filter_map(|((instance_id, path), got)| {
             let free = ctx
                 .free_space
-                .get(&(instance_id.clone(), normalize_path(&path)))
+                .get(&(instance_id.clone(), crate::paths::key(&path)))
                 .copied()
                 .flatten()?;
             Some(CapacityForecast {
@@ -420,7 +418,7 @@ fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateT
         None => "skip",
         Some(target) => {
             let current = media.current_root_folder.as_deref().unwrap_or("");
-            if normalize_path(current) == normalize_path(target) { "none" } else { "move" }
+            if crate::paths::key(current) == crate::paths::key(target) { "none" } else { "move" }
         }
     };
     Route { metadata, evaluation, category, target, action }
@@ -648,7 +646,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|(instance_id, path, free)| ((instance_id, normalize_path(&path)), free))
+        .map(|(instance_id, path, free)| ((instance_id, crate::paths::key(&path)), free))
         .collect();
 
     let instance_names: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(

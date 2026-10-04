@@ -869,7 +869,7 @@
   "DestinationDeclared": "Cíl \"{path}\" přidán",
   "DestinationRemoved": "Cíl \"{path}\" odebrán",
   "ErrorCapacityUnknown": "\"{path}\" neuvádí volné místo a neleží pod žádnou známou kořenovou složkou. Přesunulo by se {needed}, aniž by cokoli ověřilo místo.",
-  "ErrorDestinationAbsolute": "Cíl je absolutní cesta začínající /",
+  "ErrorDestinationAbsolute": "Cíl je absolutní cesta: /data/movies v Linuxu, D:\\Movies nebo \\\\server\\share ve Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" je pro tuto instanci již uvedena",
   "ErrorDestinationUnseen": "Instance nevidí \"{path}\". Ověřte cestu tak, jak ji vidí onen kontejner.",
   "ErrorDestinationNotOurs": "Tato složka pochází z instance. Odeberte ji tam",

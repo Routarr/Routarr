@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destino «{path}» adicionado",
   "DestinationRemoved": "Destino «{path}» removido",
   "ErrorCapacityUnknown": "«{path}» não indica o espaço livre e não está sob nenhuma pasta raiz conhecida. Seriam movidos {needed} sem que nada verificasse o espaço.",
-  "ErrorDestinationAbsolute": "Um destino é um caminho absoluto, começando por /",
+  "ErrorDestinationAbsolute": "Um destino é um caminho absoluto: /data/movies no Linux, D:\\Movies ou \\\\server\\share no Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» já consta para esta instância",
   "ErrorDestinationUnseen": "A instância não vê «{path}». Verifique o caminho tal como esse contentor o vê.",
   "ErrorDestinationNotOurs": "Essa pasta vem da instância. Remova-a lá",

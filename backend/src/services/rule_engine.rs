@@ -374,7 +374,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let current = media.current_root_folder.as_deref().unwrap_or("");
             ConditionOutcome::new(
                 kind,
-                normalize_path(current) == normalize_path(path),
+                crate::paths::same(current, path),
                 "ConditionCurrentRootFolder",
                 &[("value", path.clone())],
                 current.to_string(),
@@ -385,7 +385,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let current = media.current_root_folder.as_deref().unwrap_or("");
             ConditionOutcome::new(
                 kind,
-                is_within(current, prefix),
+                crate::paths::within(current, prefix),
                 "ConditionCurrentRootFolderStartsWith",
                 &[("value", prefix.clone())],
                 current.to_string(),
@@ -626,29 +626,10 @@ fn contains_all(haystack: &[String], needles: &[String]) -> bool {
     !wanted.is_empty() && wanted.iter().all(|n| straw.contains(n))
 }
 
-/// Arr instances report paths with or without a trailing slash depending on how
-/// they were configured. Compared raw, the same folder reads as both "already
-/// correct" and "needs move".
-pub fn normalize_path(path: &str) -> String {
-    let trimmed = path.trim().trim_end_matches(['/', '\\']);
-    if trimmed.is_empty() { "/".to_string() } else { trimmed.to_string() }
-}
-
 /// Whether a language is among `values`. A missing language is absent, never
 /// the empty string, so a blank value in the list reaches no item.
 fn language_listed(lang: &str, values: &[String]) -> bool {
     !lang.is_empty() && values.iter().any(|v| v.trim().eq_ignore_ascii_case(lang))
-}
-
-/// Whether `path` is `folder` or lies under it, compared by segment: a folder
-/// does not hold a sibling that shares its letters (`/data/movies` against
-/// `/data/movies-4k`).
-fn is_within(path: &str, folder: &str) -> bool {
-    let (path, folder) = (normalize_path(path), normalize_path(folder));
-    path == folder
-        || path
-            .strip_prefix(folder.as_str())
-            .is_some_and(|rest| folder.ends_with(['/', '\\']) || rest.starts_with(['/', '\\']))
 }
 
 fn join_ids(ids: &[i64]) -> String {
@@ -890,7 +871,7 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
             let hi = tightest(*amax, *bmax, i64::min);
             matches!((lo, hi), (Some(l), Some(h)) if l > h)
         }
-        (CurrentRootFolder(x), CurrentRootFolder(y)) => normalize_path(x) != normalize_path(y),
+        (CurrentRootFolder(x), CurrentRootFolder(y)) => !crate::paths::same(x, y),
         _ => false,
     }
 }
@@ -2224,13 +2205,5 @@ mod tests {
         let json = serde_json::to_string(&conditions).unwrap();
         let back: Vec<Condition> = serde_json::from_str(&json).unwrap();
         assert_eq!(conditions, back);
-    }
-
-    #[test]
-    fn path_normalisation() {
-        assert_eq!(normalize_path("/movies/anime/"), "/movies/anime");
-        assert_eq!(normalize_path("  /movies/anime  "), "/movies/anime");
-        assert_eq!(normalize_path("/"), "/");
-        assert_eq!(normalize_path(""), "/");
     }
 }

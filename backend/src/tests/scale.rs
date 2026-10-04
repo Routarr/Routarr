@@ -65,7 +65,7 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
         .min_connections(1)
-        .connect_with(options.in_memory(true).foreign_keys(true))
+        .connect_with(crate::db::with_paths(options.in_memory(true).foreign_keys(true)))
         .await
         .expect("in-memory sqlite");
     crate::db::run_migrations(&pool).await.expect("migrations");

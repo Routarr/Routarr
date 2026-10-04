@@ -869,7 +869,7 @@
   "DestinationDeclared": "‏تمت إضافة الوجهة «{path}»",
   "DestinationRemoved": "‏تمت إزالة الوجهة «{path}»",
   "ErrorCapacityUnknown": "‏«{path}» لا يبلّغ عن المساحة الحرة ولا يقع تحت أي مجلد جذر معروف. سيُنقل {needed} دون أن يتحقق شيء من المساحة.",
-  "ErrorDestinationAbsolute": "‏الوجهة مسار مطلق يبدأ بـ /",
+  "ErrorDestinationAbsolute": "الوجهة مسار مطلق: /data/movies على Linux، أو D:\\Movies أو \\\\server\\share على Windows.",
   "ErrorDestinationAlreadyListed": "‏«{path}» مُدرج بالفعل لهذا الخادم",
   "ErrorDestinationUnseen": "‏الخادم لا يرى «{path}». تحقق من المسار كما تراه تلك الحاوية.",
   "ErrorDestinationNotOurs": "‏هذا المجلد يأتي من الخادم، فاحذفه هناك",

@@ -38,6 +38,7 @@ mod scheduler;
 mod security;
 mod sync;
 mod webhook_fuzz;
+mod windows;
 
 use axum::Router;
 use axum::body::Body;
@@ -509,9 +510,12 @@ impl TestResponse {
 /// A database as the release that shipped migration `last` hands it to an
 /// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
 pub async fn database_through(last: &str) -> sqlx::SqlitePool {
+    let memory =
+        <sqlx::sqlite::SqliteConnectOptions as std::str::FromStr>::from_str("sqlite::memory:")
+            .unwrap();
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect("sqlite::memory:")
+        .connect_with(crate::db::with_paths(memory))
         .await
         .unwrap();
     sqlx::query("PRAGMA foreign_keys=ON").execute(&pool).await.unwrap();

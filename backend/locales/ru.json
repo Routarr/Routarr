@@ -869,7 +869,7 @@
   "DestinationDeclared": "Целевая папка «{path}» добавлена",
   "DestinationRemoved": "Целевая папка «{path}» удалена",
   "ErrorCapacityUnknown": "«{path}» не сообщает свободное место и не находится ни под одной известной корневой папкой. Будет перемещено {needed}, и место никто не проверит.",
-  "ErrorDestinationAbsolute": "Целевая папка задаётся абсолютным путём, начинающимся с /",
+  "ErrorDestinationAbsolute": "Место назначения должно быть абсолютным путём: /data/movies в Linux, D:\\Movies или \\\\server\\share в Windows.",
   "ErrorDestinationAlreadyListed": "«{path}» уже указан для этого экземпляра",
   "ErrorDestinationUnseen": "Экземпляр не видит «{path}». Проверьте путь так, как его видит этот контейнер.",
   "ErrorDestinationNotOurs": "Эта папка приходит от экземпляра. Удалите её там",

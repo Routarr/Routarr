@@ -361,7 +361,7 @@ fn unanswered(
 async fn folder_origin(state: &AppState, instance_id: &str, path: &str) -> AppResult<String> {
     let origin: Option<String> = sqlx::query_scalar(
         "SELECT origin FROM root_folders
-          WHERE instance_id = ? AND rtrim(path, '/') = rtrim(?, '/')",
+          WHERE instance_id = ? AND path = ? COLLATE path",
     )
     .bind(instance_id)
     .bind(path)

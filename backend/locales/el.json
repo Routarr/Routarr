@@ -869,7 +869,7 @@
   "DestinationDeclared": "Ο προορισμός «{path}» προστέθηκε",
   "DestinationRemoved": "Ο προορισμός «{path}» αφαιρέθηκε",
   "ErrorCapacityUnknown": "Το «{path}» δεν αναφέρει ελεύθερο χώρο και δεν βρίσκεται κάτω από κανέναν γνωστό ριζικό φάκελο. Θα μετακινούνταν {needed} χωρίς να ελέγξει κανείς τον χώρο.",
-  "ErrorDestinationAbsolute": "Ο προορισμός πρέπει να είναι απόλυτη διαδρομή που αρχίζει με /",
+  "ErrorDestinationAbsolute": "Ένας προορισμός είναι απόλυτη διαδρομή: /data/movies σε Linux, D:\\Movies ή \\\\server\\share σε Windows.",
   "ErrorDestinationAlreadyListed": "Το «{path}» υπάρχει ήδη για αυτόν τον διακομιστή",
   "ErrorDestinationUnseen": "Ο διακομιστής δεν βλέπει το «{path}». Ελέγξτε τη διαδρομή όπως τη βλέπει εκείνο το container.",
   "ErrorDestinationNotOurs": "Αυτός ο φάκελος προέρχεται από τον διακομιστή. Αφαιρέστε τον εκεί",

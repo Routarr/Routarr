@@ -869,7 +869,7 @@
   "DestinationDeclared": "Destination \"{path}\" tilføjet",
   "DestinationRemoved": "Destination \"{path}\" fjernet",
   "ErrorCapacityUnknown": "\"{path}\" oplyser ikke ledig plads og ligger ikke under nogen kendt rodmappe. {needed} ville blive flyttet, uden at noget kontrollerer pladsen.",
-  "ErrorDestinationAbsolute": "En destination er en absolut sti, der begynder med /",
+  "ErrorDestinationAbsolute": "En destination er en absolut sti: /data/movies på Linux, D:\\Movies eller \\\\server\\share på Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" er allerede anført for denne instans",
   "ErrorDestinationUnseen": "Instansen kan ikke se \"{path}\". Kontrollér stien, som den container ser den.",
   "ErrorDestinationNotOurs": "Den mappe kommer fra instansen. Fjern den i instansen",

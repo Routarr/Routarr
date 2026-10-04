@@ -41,7 +41,7 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
 
     // PRAGMAs belong on the connect options: setting them with a one-off query
     // only configures whichever pooled connection happened to serve it.
-    let options = SqliteConnectOptions::from_str(&config.database_url())?
+    let options = with_paths(SqliteConnectOptions::from_str(&config.database_url())?)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         // NORMAL is the documented companion of WAL: durable across app crashes,
@@ -304,12 +304,19 @@ pub fn escape_like(input: &str) -> String {
     out
 }
 
+/// `options` with what every query of the application may name: the `path`
+/// collation, which compares two folders as [`crate::paths::key`] does. A
+/// connection opened without it fails every statement that names it.
+pub fn with_paths(options: SqliteConnectOptions) -> SqliteConnectOptions {
+    options.collation(crate::paths::COLLATION, crate::paths::collate)
+}
+
 /// In-memory pool with the full schema applied, for tests.
 #[cfg(test)]
 pub async fn test_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
-        .connect("sqlite::memory:")
+        .connect_with(with_paths(SqliteConnectOptions::from_str("sqlite::memory:").unwrap()))
         .await
         .expect("in-memory sqlite");
     sqlx::query("PRAGMA foreign_keys=ON").execute(&pool).await.unwrap();

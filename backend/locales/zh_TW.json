@@ -869,7 +869,7 @@
   "DestinationDeclared": "已新增目標「{path}」",
   "DestinationRemoved": "已移除目標「{path}」",
   "ErrorCapacityUnknown": "「{path}」不回報可用空間，也不在任何已知根資料夾之下。將在未核對剩餘空間的情況下移動 {needed}。",
-  "ErrorDestinationAbsolute": "目標是以 / 開頭的絕對路徑",
+  "ErrorDestinationAbsolute": "目標必須是絕對路徑：Linux 上如 /data/movies，Windows 上如 D:\\Movies 或 \\\\server\\share。",
   "ErrorDestinationAlreadyListed": "「{path}」已在該執行個體中列出",
   "ErrorDestinationUnseen": "執行個體看不到「{path}」。請按該容器所見來核對路徑。",
   "ErrorDestinationNotOurs": "該資料夾來自執行個體，請在那裡移除",

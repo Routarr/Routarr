@@ -869,7 +869,7 @@
   "DestinationDeclared": "'{path}' hedefi eklendi",
   "DestinationRemoved": "'{path}' hedefi kaldırıldı",
   "ErrorCapacityUnknown": "'{path}' boş alan bildirmiyor ve bilinen hiçbir kök klasörün altında değil. {needed} taşınacak ve alanı hiçbir şey denetlemeyecek.",
-  "ErrorDestinationAbsolute": "Hedef, / ile başlayan mutlak bir yoldur",
+  "ErrorDestinationAbsolute": "Hedef mutlak bir yoldur: Linux'ta /data/movies, Windows'ta D:\\Movies veya \\\\server\\share.",
   "ErrorDestinationAlreadyListed": "'{path}' bu örnek için zaten listeli",
   "ErrorDestinationUnseen": "Örnek '{path}' yolunu göremiyor. Yolu, o kapsayıcının gördüğü şekliyle kontrol edin.",
   "ErrorDestinationNotOurs": "Bu klasör örnekten geliyor. Oradan kaldırın",

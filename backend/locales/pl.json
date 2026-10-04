@@ -869,7 +869,7 @@
   "DestinationDeclared": "Dodano folder docelowy \"{path}\"",
   "DestinationRemoved": "Usunięto folder docelowy \"{path}\"",
   "ErrorCapacityUnknown": "\"{path}\" nie podaje wolnego miejsca i nie leży pod żadnym znanym folderem głównym. Przeniesiono by {needed} bez sprawdzenia miejsca.",
-  "ErrorDestinationAbsolute": "Folder docelowy musi być ścieżką bezwzględną, zaczynającą się od /",
+  "ErrorDestinationAbsolute": "Miejsce docelowe to ścieżka bezwzględna: /data/movies w Linuksie, D:\\Movies lub \\\\server\\share w Windows.",
   "ErrorDestinationAlreadyListed": "\"{path}\" jest już wymieniona dla tej instancji",
   "ErrorDestinationUnseen": "Instancja nie widzi \"{path}\". Sprawdź ścieżkę tak, jak widzi ją ten kontener.",
   "ErrorDestinationNotOurs": "Ten folder pochodzi z instancji. Usuń go tam",
