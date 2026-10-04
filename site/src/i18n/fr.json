@@ -119,7 +119,7 @@
   "footer.p": "Routarr, licence GPLv3. Sans lien avec le projet Servarr.",
   "head.description": "Routarr achemine chaque film et chaque série vers le bon dossier racine dans Radarr et Sonarr, selon vos règles. Essai à blanc d'abord, chaque décision expliquée.",
   "head.description.how": "Le manque que Routarr comble, les quatre étapes, l'explication d'une décision, les dossiers racine déclarés, la fiche technique et les objections.",
-  "head.description.api": "Clés d'application et portées, recettes pour cron, Jellyseerr, Homepage, Prometheus et webhooks signés, et chaque opération sous /api/v1, lue dans le contrat.",
+  "head.description.api": "Créez une clé d'application avec les portées qu'il lui faut, demandez à Routarr où irait un titre, et trouvez chaque opération de /api/v1 dans votre propre instance.",
   "head.og-description": "Décide dans quel dossier racine appartient chaque film et chaque série, selon vos règles. Essai à blanc d'abord, chaque décision expliquée.",
   "head.title": "Routarr, dossier racine automatique pour Radarr et Sonarr",
   "head.title.how": "Comment Routarr décide du dossier racine d'un titre",

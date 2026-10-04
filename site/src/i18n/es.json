@@ -119,7 +119,7 @@
   "footer.p": "Routarr, licencia GPLv3. Sin relación con el proyecto Servarr.",
   "head.description": "Routarr lleva cada película y serie a la carpeta raíz correcta en Radarr y Sonarr, según sus propias reglas. Ejecución en seco primero, cada decisión explicada.",
   "head.description.how": "El hueco que cubre Routarr, los cuatro pasos, cómo se explica una decisión, las carpetas raíz declaradas, la ficha técnica y las respuestas a las objeciones.",
-  "head.description.api": "Claves de aplicación con alcances, recetas para cron, Jellyseerr, Homepage, Prometheus y webhooks firmados, y cada operación bajo /api/v1, leída del contrato.",
+  "head.description.api": "Cree una clave de aplicación con los alcances que necesita, pregunte a Routarr adónde iría un título y encuentre cada operación de /api/v1 en su propia instancia.",
   "head.og-description": "Decide a qué carpeta raíz pertenece cada película y serie, según sus reglas. Ejecución en seco primero, cada decisión explicada.",
   "head.title": "Routarr, enrutado a carpetas raíz para Radarr y Sonarr",
   "head.title.how": "Cómo decide Routarr a qué carpeta raíz pertenece un título",
