@@ -237,7 +237,7 @@ for (const path of PAGES) {
   }
   await tab.close();
 }
-check(boxesMeasured >= 10000, `measured ${boxesMeasured} box(es) for clipping, expected at least 10000`);
+check(boxesMeasured >= 6500, `measured ${boxesMeasured} box(es) for clipping, expected at least 6500`);
 
 // ------------------------------------------------------------ header
 // The bar holds the brand, the Index control and the repository on one row,

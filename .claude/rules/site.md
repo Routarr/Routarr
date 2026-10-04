@@ -54,9 +54,9 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## API page
 
-- `src/contract.ts` builds the reference and `/api/v1/openapi.json` from
-  `backend/openapi/v1.json`. No operation is written into a page by hand, and the contract's
-  prose stays in English under `lang="en"`. A recipe calls documented operations only.
+- The page shows one call and its answer, and sends the reader to the API reference screen and
+  the `/api/v1/openapi.json` of their own instance, at the version it runs. It copies no
+  operation or schema from the contract: a copy would describe main, not the release.
 
 ## Layout
 

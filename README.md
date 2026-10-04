@@ -37,8 +37,9 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Authentication on by default**: API key, a single account, or OpenID Connect.
 - **Keys for other applications**, each limited to what you allow: reading, operating (sync,
   simulate, apply, revert) or setting exceptions, with the guardrails it may answer on its own.
-  What they may call is a stable contract, described at `/api/v1/openapi.json`, with recipes
-  and the reference at [routarr.app/api](https://routarr.app/api/).
+  What they may call is a stable contract, served by your instance at `/api/v1/openapi.json`
+  and listed on its API reference screen. A first call is at
+  [routarr.app/api](https://routarr.app/api/).
 - **Where would it go?** Ask by TMDb, TheTVDB or IMDb id, before the title is even added: a
   request bot learns the folder the rules choose, and nothing is stored.
 - **Backups**, configuration export, Prometheus metrics, and notifications to Discord, Gotify, ntfy

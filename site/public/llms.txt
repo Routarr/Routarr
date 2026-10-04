@@ -125,11 +125,8 @@ the README is the reference for installation and configuration.
 - [How it decides](https://routarr.app/how/): the gap Routarr fills, the four steps, how a
   decision is explained, how root folders are declared, the full specification, and the
   objections answered.
-- [API](https://routarr.app/api/): application keys and their scopes, recipes for cron,
-  Jellyseerr, Homepage, Prometheus and webhook signatures, and every operation and schema,
-  read from the contract.
-- [OpenAPI contract](https://routarr.app/api/v1/openapi.json): the same file every Routarr serves
-  at /api/v1/openapi.json, as JSON.
+- [API](https://routarr.app/api/): how to make an application key, one call and its answer, and
+  where an instance lists every operation: its API reference screen and /api/v1/openapi.json.
 
 ## Docs
 
