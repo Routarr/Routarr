@@ -53,12 +53,15 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   click rather than a maintenance window.
 - **An application key reaches only what its scopes grant, in every mode.**
   The owner makes one per application on the Applications screen. It reads,
-  and may also operate (sync, simulate, apply, revert) or write (exceptions),
-  each granted on its own. A route no scope names is refused to every such
-  key: the settings, the instances, the rules, the backups, the logs and the
-  keys themselves stay the owner's. It answers only the guardrails it was
-  given and moves files only if allowed, so a question it may not answer comes
-  back marked for a person. Its token is shown once and stored as a SHA-256
+  and may also operate (sync, simulate, apply, revert, run the rule tests,
+  take a backup), write (exceptions) or configure (rules, categories, folder
+  mappings, declared destinations, rule tests), each granted on its own. It
+  reads an instance without its Arr key or its webhook address. A route no
+  scope names is refused to every such key: the settings, adding or changing
+  an instance, a backup archive and the keys themselves stay the owner's,
+  since an archive holds the key that seals every secret. It answers only the
+  guardrails it was given and moves files only if allowed, so a question it
+  may not answer comes back marked for a person. Its token is shown once and stored as a SHA-256
   hash, and a revoked or unknown one is refused even in `none` and `external`,
   where a request with no key at all is let through.
 - **A notification can be signed.** With a signing secret, generated in the

@@ -84,6 +84,8 @@ PAIRS: dict[str, str] = {
     "MediaMetadata": "MediaMetadata",
     "PreviewChange": "PreviewChange",
     "Rule": "Rule",
+    "ConditionCatalog": "ConditionCatalog",
+    "ConditionSpec": "ConditionSpec",
     "RuleHealth": "RuleHealth",
     "RuleHealthReport": "RuleHealthReport",
     "RuleTestResult": "RuleTestResult",
@@ -102,8 +104,6 @@ UNPAIRED: dict[str, str] = {
     "NewApplication": "a request body",
     "RuleDraft": "a request body",
     "AuthMode": "built with json! in api::auth::mode",
-    "ConditionCatalog": "built with json! in api::conditions",
-    "ConditionSpec": "built with json! in api::conditions",
     "Condition": "a tagged enum on the Rust side, which this check does not read",
     "SimulationSummary": "the counters SimulationResult extends, compared there",
 }

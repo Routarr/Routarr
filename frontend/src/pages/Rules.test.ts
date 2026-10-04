@@ -62,6 +62,7 @@ const catalog: ConditionCatalog = {
     {
       type: 'genre_contains',
       label: 'Genre contains',
+      label_key: 'ConditionLabelGenreContains',
       value_type: 'string_list',
       needs_metadata: true,
       metadata_field: 'genres',

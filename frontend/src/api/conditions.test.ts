@@ -18,6 +18,7 @@ import {
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
   type: 'x',
   label: 'X',
+  label_key: 'ConditionLabelX',
   value_type,
   needs_metadata: false,
   media_types: ['movie', 'series'],

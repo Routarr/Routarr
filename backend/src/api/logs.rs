@@ -11,7 +11,7 @@ use crate::api::{Page, paginate};
 use crate::error::AppResult;
 use crate::state::AppState;
 
-#[derive(Debug, Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct LogEntry {
     pub id: String,
     pub decision_id: Option<String>,
@@ -29,7 +29,8 @@ pub struct LogEntry {
     pub executed_at: String,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct LogQuery {
     pub instance_id: Option<String>,
     pub media_id: Option<String>,

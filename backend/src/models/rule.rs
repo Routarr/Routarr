@@ -34,7 +34,7 @@ impl std::str::FromStr for RuleMediaType {
 }
 
 /// How the conditions of a rule combine.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MatchMode {
     /// Every condition must match (default, and the safest).
@@ -64,21 +64,20 @@ impl std::str::FromStr for MatchMode {
     }
 }
 
-/// A single condition that can be evaluated against media metadata.
-///
-/// Serialized as `{"type": "genre_contains", "value": [...]}`. A new variant
-/// needs `kind`, `is_empty`, `metadata_field`, an arm in
-/// `evaluate_single_condition`, a `CONDITIONS` entry in `api::conditions` and
-/// a `ConditionLabel` key. The rule builder reads the catalogue.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+/// One condition of a rule, written `{"type": "genre_contains", "value":
+/// ["Animation"]}`. `GET /rules/conditions` lists each `type` with the shape
+/// of its `value`.
+// A new variant needs `kind`, `is_empty`, `metadata_field`, an arm in
+// `evaluate_single_condition`, a `CONDITIONS` entry in `api::conditions` and
+// a `ConditionLabel` key. The rule builder reads the catalogue.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(tag = "type", content = "value")]
 pub enum Condition {
     /// Genres must contain at least one of these values.
-    ///
-    /// The `_all` counterpart of each pair below is the same question with the
-    /// other quantifier, and a separate variant rather than a field beside the
-    /// values: the enum is serialised `{"type": …, "value": …}`, so a sibling
-    /// key would change the shape of every condition already on disk.
+    // The `_all` counterpart of each pair below is the same question with the
+    // other quantifier, and a separate variant rather than a field beside the
+    // values: the enum is serialised `{"type": …, "value": …}`, so a sibling
+    // key would change the shape of every condition already on disk.
     #[serde(rename = "genre_contains")]
     GenreContains(Vec<String>),
 
@@ -169,13 +168,15 @@ pub enum Condition {
     #[serde(rename = "title_contains")]
     TitleContains(Vec<String>),
 
-    /// Exception by external identifier, the "override by identifier" case.
+    /// The title's TMDb id is one of these.
     #[serde(rename = "tmdb_id_in")]
     TmdbIdIn(Vec<i64>),
 
+    /// The title's TheTVDB id is one of these.
     #[serde(rename = "tvdb_id_in")]
     TvdbIdIn(Vec<i64>),
 
+    /// The title's IMDb id is one of these, written `tt0096283`.
     #[serde(rename = "imdb_id_in")]
     ImdbIdIn(Vec<String>),
 
@@ -311,7 +312,7 @@ impl Condition {
 }
 
 /// A routing rule that maps conditions to a target category.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Rule {
     pub id: String,
     pub name: String,
@@ -346,8 +347,9 @@ impl Rule {
     }
 }
 
-/// Request body for creating/updating a rule.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// A rule as written: what `POST /rules`, `PUT /rules/{id}`, `/rules/validate`
+/// and `/rules/preview` take.
+#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct CreateRuleRequest {
     pub name: String,
     #[serde(default)]
@@ -368,14 +370,14 @@ pub struct CreateRuleRequest {
 }
 
 /// Request for reordering rules.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ReorderRulesRequest {
     /// Ordered list of rule IDs, from highest priority (index 0) to lowest.
     pub rule_ids: Vec<String>,
 }
 
 /// Portable rule bundle, produced by `GET /rules/export`.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RuleBundle {
     pub version: u32,
     #[serde(default)]
@@ -387,7 +389,7 @@ pub struct RuleBundle {
 }
 
 /// Request body for `POST /rules/import`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ImportRulesRequest {
     pub bundle: RuleBundle,
     /// Delete every existing rule first instead of appending.
@@ -398,11 +400,11 @@ pub struct ImportRulesRequest {
     pub create_missing_categories: bool,
 }
 
-/// A problem found while validating a rule before it is stored or enabled.
-///
-/// Carries a translation key rather than prose so the validator stays free of
-/// wording. `message` is filled in at the API boundary.
-#[derive(Debug, Clone, Serialize, PartialEq)]
+/// A problem with a rule: a stable `key` and its values, and the `message`
+/// in the interface language, which is not part of the contract.
+// The validator carries the key rather than prose, so it stays free of
+// wording: `message` is filled in at the API boundary.
+#[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct ValidationIssue {
     /// `error` blocks the write, `warning` is advisory.
     pub severity: String,

@@ -38,11 +38,15 @@
     exceptions: 'ApiTagExceptions',
     tasks: 'ApiTagTasks',
     instances: 'ApiTagInstances',
+    rules: 'ApiTagRules',
+    categories: 'ApiTagCategories',
+    backups: 'ApiTagBackups',
   };
   const SCOPES: Record<string, string> = {
     read: 'ScopeRead',
     operate: 'ScopeOperate',
     write: 'ScopeWrite',
+    configure: 'ScopeConfigure',
   };
   const METHOD_BADGE: Record<string, string> = {
     get: 'badge-info',

@@ -20,22 +20,34 @@ use crate::services::sync;
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 
-pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<InstanceResponse>>> {
+pub async fn list(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+) -> AppResult<Json<Vec<InstanceResponse>>> {
     let instances = state.instances(false).await?;
-    Ok(Json(
-        instances
-            .into_iter()
-            .map(|i| InstanceResponse::from_instance(i, &state.config.base_path))
-            .collect(),
-    ))
+    Ok(Json(instances.into_iter().map(|i| shown(&state, &identity, i)).collect()))
 }
 
 /// Fetch one instance, with its API key masked like the list endpoint.
 pub async fn get_one(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Path(id): Path<String>,
 ) -> AppResult<Json<InstanceResponse>> {
-    Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
+    Ok(Json(shown(&state, &identity, state.instance(&id).await?)))
+}
+
+/// An instance as `identity` may read it. An application key reads neither
+/// the webhook's address, whose token lets anyone post events as the Arr, nor
+/// any part of the Arr's key.
+fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceResponse {
+    let response = InstanceResponse::from_instance(instance, &state.config.base_path);
+    match identity.application {
+        Some(_) => {
+            InstanceResponse { webhook_url: None, api_key_masked: String::new(), ..response }
+        }
+        None => response,
+    }
 }
 
 pub async fn create(

@@ -258,7 +258,7 @@ pub async fn rename(
 pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<super::Deleted>> {
     // Every check and the delete in one transaction holding the write lock: a
     // rule, a mapping, a pin or a case naming the category cannot land between
     // the count that found none and the delete.
@@ -310,5 +310,5 @@ pub async fn remove(
     sqlx::query("DELETE FROM categories WHERE id = ?").bind(&id).execute(&mut *tx).await?;
     tx.commit().await?;
 
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(super::Deleted { deleted: true }))
 }

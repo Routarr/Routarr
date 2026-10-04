@@ -119,6 +119,12 @@ impl<T: Serialize> IntoResponse for Json<T> {
     }
 }
 
+/// What a removal answers.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct Deleted {
+    pub deleted: bool,
+}
+
 /// Standard pagination envelope shared by every list endpoint.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Page<T> {

@@ -38,9 +38,49 @@ struct Spec {
     counterpart: &'static str,
 }
 
+/// The conditions a rule may use, and how a rule combines them.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ConditionCatalog {
+    /// `all` or `any`.
+    pub match_modes: Vec<&'static str>,
+    pub conditions: Vec<ConditionSpec>,
+}
+
+/// One condition a rule may use.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct ConditionSpec {
+    /// The `type` a condition is written with.
+    #[serde(rename = "type")]
+    #[schema(rename = "type")]
+    pub kind: &'static str,
+    /// The caption, in the interface language.
+    pub label: String,
+    /// The dictionary key of the caption.
+    pub label_key: String,
+    /// The shape of `value`: `string_list`, `number_list`, `string`, `number`,
+    /// `boolean` or `year_range`.
+    pub value_type: &'static str,
+    /// Whether it reads metadata a source supplies.
+    pub needs_metadata: bool,
+    /// The metadata field it reads, if any.
+    pub metadata_field: Option<&'static str>,
+    /// Whether an enabled source answers that field. A condition no source
+    /// answers matches nothing.
+    pub available: bool,
+    /// `movie`, `series` or both: where it can ever match.
+    pub media_types: &'static [&'static str],
+    /// The `/media/facets` axis its values are drawn from, empty where they
+    /// are not a closed set.
+    pub suggestions: &'static str,
+    /// `any` or `all` for a condition asked both ways, empty otherwise.
+    pub quantifier: &'static str,
+    /// The condition asking the same question the other way, empty when none.
+    pub counterpart: &'static str,
+}
+
 /// Machine-readable catalogue of condition types, so the rule builder does not
 /// have to hard-code the list that the backend already owns.
-pub async fn condition_catalog(State(state): State<AppState>) -> Json<serde_json::Value> {
+pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionCatalog> {
     let localizer = state.localizer().await;
 
     // Which media types a condition can ever match on.
@@ -315,27 +355,27 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<serde_json
     // "(needs TMDb)" once and for all.
     let covered = metadata::covered_fields(&state.metadata_providers().await);
 
-    let conditions: Vec<serde_json::Value> = CONDITIONS
+    let conditions = CONDITIONS
         .iter()
         .map(|spec| {
             let key = format!("ConditionLabel{}", pascal_case(spec.kind));
-            serde_json::json!({
-                "type": spec.kind,
-                "label": localizer.translate(&key, &[]),
-                "label_key": key,
-                "value_type": spec.value_type,
-                "needs_metadata": spec.field.is_some(),
-                "metadata_field": spec.field.map(|f| f.as_str()),
-                "available": spec.field.is_none_or(|f| covered.contains(&f)),
-                "media_types": spec.media_types,
-                "suggestions": spec.suggestions,
-                "quantifier": spec.quantifier,
-                "counterpart": spec.counterpart,
-            })
+            ConditionSpec {
+                kind: spec.kind,
+                label: localizer.translate(&key, &[]),
+                label_key: key,
+                value_type: spec.value_type,
+                needs_metadata: spec.field.is_some(),
+                metadata_field: spec.field.map(|f| f.as_str()),
+                available: spec.field.is_none_or(|f| covered.contains(&f)),
+                media_types: spec.media_types,
+                suggestions: spec.suggestions,
+                quantifier: spec.quantifier,
+                counterpart: spec.counterpart,
+            }
         })
         .collect();
 
-    Json(serde_json::json!({ "match_modes": ["all", "any"], "conditions": conditions }))
+    Json(ConditionCatalog { match_modes: vec!["all", "any"], conditions })
 }
 
 /// A condition's caption in the reader's language, as the builder shows it.

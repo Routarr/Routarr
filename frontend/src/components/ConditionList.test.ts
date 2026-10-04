@@ -29,6 +29,7 @@ const STRINGS = {
 const spec = (type: string, media_types: string[], label: string): ConditionSpec => ({
   type,
   label,
+  label_key: `ConditionLabel${type}`,
   value_type: type === 'season_count_over' ? 'number' : 'string_list',
   needs_metadata: false,
   metadata_field: null,
