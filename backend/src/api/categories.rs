@@ -165,6 +165,27 @@ pub async fn create(
 /// category filter. Justifications already rendered keep the old word, as they
 /// keep the language they were written in, and the next simulation replaces
 /// them.
+/// Refuse `name` unless a category holds it, read on `connection`: the write
+/// transaction of the row about to name it, so no removal lands between the
+/// check and the write (`db::write_transaction`).
+pub(crate) async fn ensure_exists(
+    connection: &mut sqlx::SqliteConnection,
+    name: &str,
+    localizer: &Localizer,
+) -> AppResult<()> {
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
+        .bind(name)
+        .fetch_one(connection)
+        .await?;
+    if exists {
+        Ok(())
+    } else {
+        Err(AppError::BadRequest(
+            localizer.translate("ErrorCategoryUnknown", &[("category", name)]),
+        ))
+    }
+}
+
 pub async fn rename(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -172,14 +193,17 @@ pub async fn rename(
 ) -> AppResult<Json<Category>> {
     let name = normalise(&req.name, &state.localizer().await)?;
 
-    let fallback = AppState::default_category(&state.pool).await;
+    // Read in the transaction that writes, so the name renamed is the name
+    // stored when the references move, whatever another writer did first.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    let fallback = AppState::default_category(&mut *tx).await;
     let row: Option<CategoryRow> = sqlx::query_as(
         "SELECT id, name, description, name = ?, display_order, created_at, 0, 0
          FROM categories WHERE id = ?",
     )
     .bind(&fallback)
     .bind(&id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?;
 
     let Some(existing) = row else {
@@ -198,7 +222,6 @@ pub async fn rename(
         }));
     }
 
-    let mut tx = state.pool.begin().await?;
     for statement in [
         "UPDATE categories SET name = ? WHERE name = ?",
         "UPDATE rules SET target_category = ? WHERE target_category = ?",
@@ -236,9 +259,13 @@ pub async fn remove(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<serde_json::Value>> {
+    // Every check and the delete in one transaction holding the write lock: a
+    // rule, a mapping, a pin or a case naming the category cannot land between
+    // the count that found none and the delete.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     let name: Option<String> = sqlx::query_scalar("SELECT name FROM categories WHERE id = ?")
         .bind(&id)
-        .fetch_optional(&state.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
     let Some(name) = name else {
@@ -246,7 +273,7 @@ pub async fn remove(
     };
     // Read from the setting, not from a flag on the row: the guard has to
     // protect the category the engine actually falls back to.
-    if name == AppState::default_category(&state.pool).await {
+    if name == AppState::default_category(&mut *tx).await {
         return Err(AppError::BadRequest("Cannot delete the default category".into()));
     }
 
@@ -255,22 +282,22 @@ pub async fn remove(
     // default. Refuse and tell the user what still depends on it.
     let rules: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rules WHERE target_category = ?")
         .bind(&name)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
     let folders: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM root_folders WHERE category = ?")
         .bind(&name)
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
     let overrides: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM overrides WHERE target_category = ?")
             .bind(&name)
-            .fetch_one(&state.pool)
+            .fetch_one(&mut *tx)
             .await?;
     // A case expecting the category could only fail once it is gone.
     let tests: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM rule_tests WHERE expected_category = ?")
             .bind(&name)
-            .fetch_one(&state.pool)
+            .fetch_one(&mut *tx)
             .await?;
 
     if rules + folders + overrides + tests > 0 {
@@ -279,7 +306,9 @@ pub async fn remove(
         )));
     }
 
-    sqlx::query("DELETE FROM categories WHERE id = ?").bind(&id).execute(&state.pool).await?;
+    crate::race::checked("categories::remove", &name).await;
+    sqlx::query("DELETE FROM categories WHERE id = ?").bind(&id).execute(&mut *tx).await?;
+    tx.commit().await?;
 
     Ok(Json(serde_json::json!({ "deleted": true })))
 }

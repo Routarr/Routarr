@@ -24,6 +24,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("011_webhook_secrets", include_str!("../migrations/011_webhook_secrets.sql")),
     ("012_hashed_sessions", include_str!("../migrations/012_hashed_sessions.sql")),
     ("013_opened_by", include_str!("../migrations/013_opened_by.sql")),
+    ("014_routing_generation", include_str!("../migrations/014_routing_generation.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.
@@ -302,6 +303,16 @@ pub fn escape_like(input: &str) -> String {
         out.push(c);
     }
     out
+}
+
+/// A transaction that takes the write lock as it starts, for a check and the
+/// write it guards. Under a plain `BEGIN` the lock comes with the first write,
+/// and another writer can change what was checked in between: a category
+/// removed after a rule naming it was judged valid, say.
+pub async fn write_transaction(
+    pool: &SqlitePool,
+) -> sqlx::Result<sqlx::Transaction<'static, sqlx::Sqlite>> {
+    pool.begin_with("BEGIN IMMEDIATE").await
 }
 
 /// `options` with what every query of the application may name: the `path`

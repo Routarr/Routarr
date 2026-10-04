@@ -17,7 +17,6 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tokio::net::TcpListener;
 
 #[derive(Debug, Default)]
 pub struct Recorded {
@@ -84,7 +83,8 @@ pub struct FakeSources {
     tvdb_empty_token: Arc<Mutex<bool>>,
     omdb_spent: Arc<Mutex<bool>>,
     search_throttle: Arc<Mutex<Option<u64>>>,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Serving until it is dropped.
+    _server: super::Served,
 }
 
 impl FakeSources {
@@ -144,27 +144,17 @@ impl FakeSources {
             .route("/tvdb/{kind}/{id}/extended", get(tvdb_record))
             .with_state(state);
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake sources");
-        let addr = listener.local_addr().expect("local addr");
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
+        let server = super::serve(app).await;
 
         Self {
-            base_url: format!("http://{addr}"),
+            base_url: server.address.clone(),
             recorded,
             tvdb_token,
             tvdb_revoked,
             omdb_spent,
             tvdb_empty_token,
             search_throttle,
-            shutdown: Some(tx),
+            _server: server,
         }
     }
 
@@ -213,14 +203,6 @@ impl FakeSources {
     }
     pub fn tvdb_url(&self) -> String {
         format!("{}/tvdb", self.base_url)
-    }
-}
-
-impl Drop for FakeSources {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
     }
 }
 

@@ -25,6 +25,7 @@ mod jobs;
 mod localization;
 mod models;
 mod paths;
+mod race;
 mod services;
 mod state;
 

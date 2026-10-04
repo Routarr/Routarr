@@ -12,7 +12,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use tokio::net::TcpListener;
 
 use crate::services::auto_apply::AutoApplyOutcome;
 use crate::services::sync;
@@ -34,7 +33,8 @@ struct Delivery {
 struct Receiver {
     url: String,
     received: Arc<Mutex<Vec<Delivery>>>,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Serving until it is dropped.
+    _server: super::Served,
 }
 
 impl Receiver {
@@ -92,18 +92,9 @@ impl Receiver {
             }),
         );
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind receiver");
-        let addr = listener.local_addr().expect("addr");
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
+        let server = super::serve(app).await;
 
-        Self { url: format!("http://{addr}/hook"), received, shutdown: Some(tx) }
+        Self { url: format!("{}/hook", server.address), received, _server: server }
     }
 
     fn messages(&self) -> Vec<serde_json::Value> {
@@ -137,14 +128,6 @@ impl Receiver {
             .iter()
             .map(|delivery| serde_json::from_str(&delivery.body).expect("a JSON body"))
             .collect()
-    }
-}
-
-impl Drop for Receiver {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
     }
 }
 

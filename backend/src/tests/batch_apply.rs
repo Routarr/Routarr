@@ -110,8 +110,9 @@ async fn a_failing_slice_ends_the_run_instead_of_hammering_the_arr() {
 
 /// A later slice that cannot be read for revalidation ends the run as a
 /// refused slice does: the titles earlier slices moved are reported, the job
-/// closes with its report, and the rest stays pending. The rules leave while
-/// the first slice's edit is held, so the second slice cannot load.
+/// closes with its report, and the rest stays pending. The count of routing
+/// changes, the first thing a slice reads, leaves while the first slice's edit
+/// is held, so the second slice cannot load.
 #[tokio::test]
 async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_its_report() {
     use std::time::Duration;
@@ -124,13 +125,13 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
     let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
     let run =
         executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
-    let rules_gone = async {
+    let unreadable = async {
         while arr.recorded().writes.is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        app.execute(&["ALTER TABLE rules RENAME TO rules_gone"]).await;
+        app.execute(&["ALTER TABLE routing_generation RENAME TO routing_generation_gone"]).await;
     };
-    let (report, ()) = tokio::join!(run, rules_gone);
+    let (report, ()) = tokio::join!(run, unreadable);
 
     let report = report.expect("the moves already made were not reported");
     assert!(report.stopped_early, "{report:?}");

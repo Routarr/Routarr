@@ -12,7 +12,6 @@ use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::net::TcpListener;
 
 #[derive(Debug, Default)]
 pub struct Recorded {
@@ -49,7 +48,8 @@ pub const NO_LANGUAGE: i64 = 1102;
 pub struct FakeTmdb {
     pub base_url: String,
     recorded: Arc<Mutex<Recorded>>,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Serving until it is dropped.
+    _server: super::Served,
 }
 
 impl FakeTmdb {
@@ -101,31 +101,13 @@ impl FakeTmdb {
             .route("/3/tv/{id}", get(tv))
             .with_state(state);
 
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake tmdb");
-        let addr = listener.local_addr().expect("addr");
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let server = super::serve(app).await;
 
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
-
-        Self { base_url: format!("http://{addr}"), recorded, shutdown: Some(tx) }
+        Self { base_url: server.address.clone(), recorded, _server: server }
     }
 
     pub fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
         self.recorded.lock().expect("recorded lock")
-    }
-}
-
-impl Drop for FakeTmdb {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
     }
 }
 

@@ -13,7 +13,6 @@ use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use tokio::net::TcpListener;
 
 /// How long [`FakeArr::observing_concurrency`] holds a listing open.
 const HOLD: std::time::Duration = std::time::Duration::from_millis(50);
@@ -130,7 +129,8 @@ pub struct FakeArr {
     movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
-    shutdown: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Serving until the fake is dropped.
+    _server: super::Served,
 }
 
 impl FakeArr {
@@ -339,21 +339,10 @@ impl FakeArr {
             .layer(axum::middleware::from_fn(refuse_without_a_key))
             .with_state(state);
 
-        // Port 0: the OS picks a free one, so tests can run in parallel.
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind fake arr");
-        let addr = listener.local_addr().expect("local addr");
-        let (tx, rx) = tokio::sync::oneshot::channel();
-
-        tokio::spawn(async move {
-            let _ = axum::serve(listener, app)
-                .with_graceful_shutdown(async {
-                    let _ = rx.await;
-                })
-                .await;
-        });
+        let server = super::serve(app).await;
 
         Self {
-            base_url: format!("http://{addr}"),
+            base_url: server.address.clone(),
             recorded,
             series_body,
             max_in_flight,
@@ -366,20 +355,12 @@ impl FakeArr {
             movie_edits,
             series_edits,
             more_root_folders,
-            shutdown: Some(tx),
+            _server: server,
         }
     }
 
     pub fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
         self.recorded.lock().expect("recorded lock")
-    }
-}
-
-impl Drop for FakeArr {
-    fn drop(&mut self) {
-        if let Some(tx) = self.shutdown.take() {
-            let _ = tx.send(());
-        }
     }
 }
 

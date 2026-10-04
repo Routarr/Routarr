@@ -26,9 +26,7 @@ async fn an_answer_without_end_stops_at_the_cap() {
         "/api/v3/tag",
         get(move || async move { (axum::http::StatusCode::BAD_REQUEST, endless().await) }),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    let address = super::serve(app).await;
     // Five seconds to answer, so a read that went on until the timeout shows.
     let config = crate::config::Config {
         http_timeout: std::time::Duration::from_secs(5),
@@ -60,9 +58,7 @@ async fn a_write_redirected_to_a_read_is_a_failure() {
             post(|| async { axum::response::Redirect::to("/api/v3/command/list") }),
         )
         .route("/api/v3/command/list", get(|| async { axum::Json(serde_json::json!([])) }));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = format!("http://{}", listener.local_addr().unwrap());
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    let address = super::serve(app).await;
     let radarr = RadarrClient::new(client(), &address, "k");
 
     let refreshed = radarr.refresh_movies(&[10]).await;
@@ -336,11 +332,8 @@ async fn a_refused_rescan_does_not_skip_the_series_after_it() {
             }
         }),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
-    let adapter =
-        ArrAdapter::Sonarr(SonarrClient::new(client(), &format!("http://{address}"), "k"));
+    let address = super::serve(app).await;
+    let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &address, "k"));
 
     let outcome = adapter.refresh(&[1, 2, 3]).await;
 

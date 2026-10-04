@@ -47,26 +47,13 @@ pub async fn create(
 
     // Default to what the engine decides today, which is what makes pinning a
     // decision one click from the explanation panel.
+    let localizer = state.localizer().await;
     let expected = match body.expected_category {
         // A category name as every writer of one stores it, and one that
         // exists: a case expecting `Anime ` or a category nobody has can only
         // ever fail.
         Some(category) if !category.trim().is_empty() => {
-            let name = crate::api::categories::normalise(&category, &state.localizer().await)?;
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
-                    .bind(&name)
-                    .fetch_one(&state.pool)
-                    .await?;
-            if !exists {
-                return Err(AppError::BadRequest(
-                    state
-                        .localizer()
-                        .await
-                        .translate("ErrorCategoryUnknown", &[("category", &name)]),
-                ));
-            }
-            name
+            crate::api::categories::normalise(&category, &localizer)?
         }
         _ => {
             let rules = routing::load_rules(&state.pool).await?;
@@ -75,6 +62,12 @@ pub async fn create(
             rule_tests::decided_by_rules(ctx, &rules, &default_category).0
         }
     };
+
+    // Checked under the write lock the case is written with, so the category
+    // it expects cannot be removed in between.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    crate::api::categories::ensure_exists(&mut tx, &expected, &localizer).await?;
+    crate::race::checked("rule_tests::write", &expected).await;
 
     let id = Uuid::new_v4().to_string();
     sqlx::query(
@@ -90,8 +83,9 @@ pub async fn create(
     .bind(&evaluated_at)
     .bind(&expected)
     .bind(&media.title)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
 
     let created = sqlx::query_as::<_, RuleTest>("SELECT * FROM rule_tests WHERE id = ?")
         .bind(&id)
