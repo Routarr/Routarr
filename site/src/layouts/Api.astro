@@ -24,29 +24,17 @@ const STEPS: { number: string; fact: string; note: Key }[] = [
 ];
 
 const CALL = String.raw`curl -fsS -H "X-Api-Key: $ROUTARR_KEY" \
-  "http://localhost:9876/api/v1/route?type=movie&tmdb=149"`;
+  "http://localhost:9876/api/v1/route?type=movie&tmdb=149" \
+  | jq '.answers[0]
+      | {category, folder: .root_folder.path, action, rule}'`;
 
-/* Every field, in the order an instance sends them. */
+/* What the jq filter of CALL prints from an instance's answer, the fields in
+   the order it builds them: a change to either changes the other. */
 const ANSWER = `{
-  "answers": [
-    {
-      "instance_id": "5b0f3c9e-6a1d-4f42-9c8e-2d7a1e4b6f10",
-      "instance_name": "Radarr",
-      "source": "lookup",
-      "media_id": null,
-      "title": "Akira",
-      "year": 1988,
-      "category": "anime",
-      "root_folder": { "path": "/movies/anime", "origin": "arr" },
-      "current_root_folder": null,
-      "action": "add",
-      "rule": "Japanese animation",
-      "is_override": false,
-      "confidence": 0.7,
-      "unanswered_fields": []
-    }
-  ],
-  "errors": []
+  "category": "anime",
+  "folder": "/movies/anime",
+  "action": "add",
+  "rule": "Japanese animation"
 }`;
 ---
 

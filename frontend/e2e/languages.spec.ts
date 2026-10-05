@@ -116,7 +116,9 @@ async function guideShown(page: Page, path: string): Promise<void> {
 /**
  * A layout that follows the width has run once the next frame is drawn and
  * every transition it started has ended: read halfway, an inset still on its
- * way holds a label on one line it wraps once settled.
+ * way holds a label on one line it wraps once settled. With motion reduced a
+ * transition ends within the frame, so the wait is bounded: one that never
+ * ends, left by an earlier spec, cannot hold the sweep.
  */
 async function resize(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
@@ -124,9 +126,9 @@ async function resize(page: Page, width: number): Promise<void> {
     await new Promise(requestAnimationFrame);
     const settling = document
       .getAnimations()
-      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .filter((animation) => animation instanceof CSSTransition)
       .map((animation) => animation.finished.catch(() => undefined));
-    await Promise.all(settling);
+    await Promise.race([Promise.all(settling), new Promise((done) => setTimeout(done, 100))]);
   });
 }
 
