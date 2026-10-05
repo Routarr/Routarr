@@ -154,10 +154,6 @@ async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> 
     }
 }
 
-/// `routarr reset-account`, for an operator locked out of the `forms` account:
-/// `docker exec routarr /app/routarr reset-account`. The image carries no
-/// `sqlite3`, and the server can keep running, since a sign-in reads the
-/// account each time.
 /// What a start reads from disk, in the one order that works: a staged
 /// restore first, since it swaps the database, the master key and the API key
 /// files, then what those files hold.
@@ -207,6 +203,10 @@ pub(crate) async fn open_storage(
     Ok((api_key, pool, secrets))
 }
 
+/// `routarr reset-account`, for an operator locked out of the `forms` account:
+/// `docker exec routarr /app/routarr reset-account`. The image carries no
+/// `sqlite3`, and the server can keep running, since a sign-in reads the
+/// account each time.
 async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
     let pool = db::init_pool(config).await?;
     let password = services::accounts::reset_account(&pool, &config.password_path()).await?;

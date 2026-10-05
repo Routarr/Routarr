@@ -68,8 +68,8 @@ pub const SCOPE_EXTENSION: &str = "x-routarr-scope";
 n8n, Home Assistant or a dashboard.\n\n\
 Authenticate with an application key, made on Routarr's Applications screen, sent as \
 `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it \
-needs in `x-routarr-scope`. Every key reads, and `operate` and `write` are granted each on its \
-own. The owner's key reaches every operation.\n\n\
+needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted \
+each on its own. The owner's key reaches every operation.\n\n\
 A failure answers one envelope: `error`, a stable code, and `message`, a sentence in the \
 interface language that is not part of the contract. A move that crosses a guardrail answers \
 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other \

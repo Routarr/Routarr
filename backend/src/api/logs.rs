@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use sqlx::AssertSqlSafe;
 
+use crate::api::auth::Identity;
 use crate::api::{Page, paginate};
 use crate::error::AppResult;
 use crate::state::AppState;
@@ -22,9 +23,12 @@ pub struct LogEntry {
     pub instance_id: Option<String>,
     pub media_id: Option<String>,
     pub media_title: Option<String>,
-    /// What set the write off: `manual`, `schedule` or `webhook`.
+    /// What set the write off: `manual`, `schedule`, `webhook`, or `api` for an
+    /// application key.
     pub actor: Option<String>,
-    /// Who asked, when the mode vouched for a name.
+    /// Who asked, when the mode vouched for a name, or the application key's
+    /// name. An application key reads its own name here and `null` for anyone
+    /// else's.
     pub subject: Option<String>,
     pub executed_at: String,
 }
@@ -46,6 +50,7 @@ const COLUMNS: &str = "id, decision_id, action, details, success, error_message,
 
 pub async fn list(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Query(query): Query<LogQuery>,
 ) -> AppResult<Json<Page<LogEntry>>> {
     let (page, per_page, offset) = paginate(query.page, query.per_page);
@@ -67,12 +72,13 @@ pub async fn list(
     let entries = list_query.bind(per_page).bind(offset).fetch_all(&state.pool).await?;
     let total = count_query.fetch_one(&state.pool).await?;
 
-    Ok(Json(Page::new(entries, page, per_page, total)))
+    Ok(Json(Page::new(shown(&identity, entries), page, per_page, total)))
 }
 
 /// Download the filtered log as CSV.
 pub async fn export(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
     Query(query): Query<LogQuery>,
 ) -> AppResult<impl IntoResponse> {
     let (filters, binds) = build_filters(&query);
@@ -84,7 +90,7 @@ pub async fn export(
     for bind in &binds {
         list_query = list_query.bind(bind);
     }
-    let entries = list_query.fetch_all(&state.pool).await?;
+    let entries = shown(&identity, list_query.fetch_all(&state.pool).await?);
 
     let mut csv = String::from(
         "executed_at,action,actor,subject,success,media_title,details,error_message\n",
@@ -111,6 +117,15 @@ pub async fn export(
     );
 
     Ok((headers, csv))
+}
+
+/// The entries as `identity` may read them: an application key reads its own
+/// name in `subject` and no one else's, as on every list that carries one.
+fn shown(identity: &Identity, entries: Vec<LogEntry>) -> Vec<LogEntry> {
+    entries
+        .into_iter()
+        .map(|entry| LogEntry { subject: identity.shown_subject(entry.subject), ..entry })
+        .collect()
 }
 
 fn build_filters(query: &LogQuery) -> (String, Vec<String>) {
