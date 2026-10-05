@@ -122,12 +122,14 @@
   {@const title = `${op.method.toUpperCase()} ${op.path}`}
   <details class="api-operation">
     <summary>
-      <span class="badge {METHOD_BADGE[op.method] ?? 'badge-info'}">{op.method.toUpperCase()}</span>
-      <code class="mono">{op.path}</code>
-      <span class="badge badge-value"
+      <span class="badge api-method {METHOD_BADGE[op.method] ?? 'badge-info'}"
+        >{op.method.toUpperCase()}</span
+      >
+      <code class="mono api-path">{op.path}</code>
+      <span lang="en" dir="ltr" class="text-muted api-does">{op.summary}</span>
+      <span class="badge badge-value api-scope"
         >{t(op.scope ? (SCOPES[op.scope] ?? op.scope) : 'ApiNoKey')}</span
       >
-      <span lang="en" dir="ltr" class="text-muted">{op.summary}</span>
     </summary>
     <div class="api-operation-body">
       {@render prose(op.description)}
