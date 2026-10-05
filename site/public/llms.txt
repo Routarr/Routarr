@@ -54,21 +54,24 @@ and Jikan need no key. TMDb, OMDb and TheTVDB are optional.
 Routarr also provides:
 
 - Any number of Radarr and Sonarr instances, each with its own sync interval, folders and
-  mappings.
+  mappings, on Linux or Windows: a path on a drive letter or a network share is compared as
+  Windows compares it, whatever its case or separator.
 - A secret webhook URL per instance. A title added in Radarr or Sonarr is synced, enriched and
   evaluated at once rather than at the next poll, and can be routed before it downloads.
 - Authentication on by default: an API key, a single account, or OpenID Connect.
 - Prometheus metrics at /api/v1/metrics, behind the same API key.
-- Notifications through one generic JSON webhook for Discord, Gotify, Apprise, or ntfy through
-  its template address. An Arr that stops answering is reported once, and again when it is back,
-  and failed syncs and finished runs can be switched on too.
+- Notifications written the way Discord, ntfy, Gotify or Apprise reads them, or as JSON for any
+  other receiver, signed as Standard Webhooks specifies when a receiver checks where they come
+  from, and a test message to check the address. An Arr that stops answering is reported once,
+  and again when it is back, and failed syncs and finished runs can be switched on too.
 - A backup into data/backups/ every day, unless the interval is changed.
 - Export of rules, categories, mappings and exceptions as JSON. Arr API keys are encrypted at rest
   with AES-256-GCM and are left out of the export.
 - Translations into 26 languages, decision justifications included.
 - An API for other applications under /api/v1, with one key per application made on the
-  Applications screen and scoped to read, operate or write. Its OpenAPI contract is served at
-  /api/v1/openapi.json, and nothing documented in it is removed, renamed or retyped.
+  Applications screen. Every key reads, and changes only what its scopes grant. Its OpenAPI
+  contract is served at /api/v1/openapi.json, and nothing documented in it is removed, renamed
+  or retyped.
 
 It has no telemetry, no analytics and no update check. Its only outbound calls go to the
 configured Radarr and Sonarr instances, to the metadata sources the user enables, to an OpenID
@@ -127,7 +130,7 @@ the README is the reference for installation and configuration.
   decision is explained, how root folders are declared, the full specification, and the
   objections answered.
 - [API](https://routarr.app/api/): how to make an application key, one call and its answer, and
-  where an instance lists every operation: its API reference screen and /api/v1/openapi.json.
+  every operation of the release with what it takes and what it answers.
 
 ## Docs
 

@@ -33,10 +33,12 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDb,
   OMDb and TheTVDB optional, in the order you choose.
 - **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
-- **Several instances** of Radarr and Sonarr v3.
+- **Several instances** of Radarr and Sonarr v3, on Linux or Windows: a path on a drive letter or
+  a network share is compared as Windows compares it, whatever its case or separator.
 - **Authentication on by default**: API key, a single account, or OpenID Connect.
-- **Keys for other applications**, each limited to what you allow: reading, operating (sync,
-  simulate, apply, revert) or setting exceptions, with the guardrails it may answer on its own.
+- **Keys for other applications**, each limited to what you allow. Every key reads, and may also
+  operate (sync, simulate, apply, revert, run the rule tests, take a backup), set exceptions, or
+  configure the rules, categories and folders, with the guardrails it may answer on its own.
   What they may call is a stable contract, served by your instance at `/api/v1/openapi.json`
   and listed on its API reference screen. A first call is at
   [routarr.app/api](https://routarr.app/api/).
