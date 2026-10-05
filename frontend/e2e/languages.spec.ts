@@ -113,10 +113,21 @@ async function guideShown(page: Page, path: string): Promise<void> {
   if (path === '/') await expect(page.locator('#guide-title')).toBeVisible();
 }
 
-/** A layout that follows the width has run once the next frame is drawn. */
+/**
+ * A layout that follows the width has run once the next frame is drawn and
+ * every transition it started has ended: read halfway, an inset still on its
+ * way holds a label on one line it wraps once settled.
+ */
 async function resize(page: Page, width: number): Promise<void> {
   await page.setViewportSize({ width, height: 900 });
-  await page.evaluate(() => new Promise(requestAnimationFrame));
+  await page.evaluate(async () => {
+    await new Promise(requestAnimationFrame);
+    const settling = document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+      .map((animation) => animation.finished.catch(() => undefined));
+    await Promise.all(settling);
+  });
 }
 
 async function speak(code: string): Promise<void> {
@@ -128,6 +139,9 @@ async function speak(code: string): Promise<void> {
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
   test.setTimeout(300_000);
+  // Motion reduced, as the interface honours it: a transition ends within the
+  // frame, so a thousand resizes do not each wait out an animation.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   // The guide on screen, its first step done by the fixture's synced instance.
   await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'pending' }) });
   const { languages } = (await api('/localization/languages')) as { languages: { code: string }[] };

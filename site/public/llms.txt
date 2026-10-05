@@ -95,11 +95,11 @@ host from a compromised Routarr, not what Routarr holds: the Arr keys and the da
 runs the image's whole smoke test under it.
 
 First use, in the interface, walked through by the dashboard on a fresh install: Instances (add
-Radarr or Sonarr, which the form tries and syncs on save), Root Folders (create categories, map
-folders to them, declare any destination the Arrs do not list), optionally a metadata source
-beside the Arrs for keywords and origin country, Rules (write rules and preview their impact),
-Simulation (run it, read the justifications, apply what you agree with), and optionally Settings
-(turn off the global dry-run once the result is trusted).
+Radarr or Sonarr, which the form tries and syncs on save), Categories and folders (create
+categories, map folders to them, declare any destination the Arrs do not list), optionally
+Metadata sources (a source beside the Arrs for keywords and origin country), Rules (write rules
+and preview their impact), Simulation (run it, read the justifications, apply what you agree
+with), and optionally Settings (turn off the global dry-run once the result is trusted).
 
 ROUTARR_AUTH selects authentication: apikey (the default), forms (one account with a password),
 oidc (OpenID Connect), external (a reverse proxy in front authenticates) or none (open).
@@ -107,7 +107,7 @@ ROUTARR_BASE_PATH serves Routarr under a sub-path such as /routarr behind a reve
 API, the interface and the webhook URLs all move with it, and no image rebuild is needed.
 ROUTARR_API_KEY sets the API key instead of generating one, and ROUTARR_SECRET_KEY sets the key
 that encrypts the stored Arr keys. Every variable is listed in backend/.env.example, and
-everything else is set from the Settings page.
+everything else is set in the interface, under Settings and Metadata sources.
 
 Security issues are reported privately through GitHub, as SECURITY.md describes, never in a
 public issue. Only the most recent release is supported. Out of scope by design: a permission

@@ -75,9 +75,9 @@ test('adding an instance ticks the first step and leads straight to the next', a
   await expect(
     page.getByText('Step 1 of 4 is done. Next: Map root folders to categories'),
   ).toBeVisible();
-  await page.getByRole('link', { name: 'Open root folders' }).click();
+  await page.getByRole('link', { name: 'Open categories and folders' }).click();
 
-  await expect(page).toHaveURL(/\/root-folders$/);
+  await expect(page).toHaveURL(/\/categories$/);
   await expect(
     page.getByText('Getting started, step 2 of 4: Map root folders to categories'),
   ).toBeVisible();

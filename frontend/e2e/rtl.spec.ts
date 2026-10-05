@@ -88,7 +88,7 @@ test.describe('right to left', () => {
   /** A path is a machine format, read left to right whatever the page. */
   test('a path typed into a field runs left to right', async ({ page }) => {
     await setLanguage('ar');
-    await page.goto('/root-folders');
+    await page.goto('/categories');
 
     await expect(page.locator('#declare-path')).toHaveCSS('direction', 'ltr');
   });
@@ -96,7 +96,7 @@ test.describe('right to left', () => {
   /** An arrow means "towards", so it turns around when the writing does. */
   test('every arrow in the explanation points the way the text reads', async ({ page }) => {
     await setLanguage('ar');
-    await page.goto('/media');
+    await page.goto('/library');
     await page
       .getByRole('button', { name: /^لماذا؟ – / })
       .first()
@@ -145,7 +145,7 @@ test.describe('right to left', () => {
   test('the shell mirrors and nothing spills off the side', async ({ page }) => {
     await setLanguage('ar');
 
-    for (const path of ['/', '/rules', '/root-folders', '/settings']) {
+    for (const path of ['/', '/rules', '/categories', '/settings']) {
       await page.goto(path);
       await page.waitForLoadState('networkidle');
 
@@ -180,7 +180,7 @@ test.describe('right to left', () => {
     // `2026-08-26 14:02:30` comes out reversed.
     // Asserted as a style rather than as geometry because the case that needs
     // it is precisely the one with no letters to measure.
-    await page.goto('/root-folders');
+    await page.goto('/categories');
     await page.waitForLoadState('networkidle');
     const mono = page.locator('.mono').first();
     await expect(mono).toBeVisible();

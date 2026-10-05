@@ -23,7 +23,7 @@ const STRINGS = {
   GuideBack: 'Back to the guide',
   GuideInstanceTitle: 'Connect Radarr or Sonarr',
   GuideCategoriesTitle: 'Map root folders to categories',
-  GuideCategoriesAction: 'Open root folders',
+  GuideCategoriesAction: 'Open categories and folders',
   GuideRuleTitle: 'Write a first rule',
   GuideSimulationAction: 'Open the simulation',
 };
@@ -56,8 +56,8 @@ describe('GuideStepBanner', () => {
     expect(
       screen.getByText('Step 1 of 4 is done. Next: Map root folders to categories'),
     ).toBeTruthy();
-    const next = screen.getByRole('link', { name: 'Open root folders' });
-    expect(next.getAttribute('href')).toBe('/root-folders');
+    const next = screen.getByRole('link', { name: 'Open categories and folders' });
+    expect(next.getAttribute('href')).toBe('/categories');
     // A banner's action, secondary: the screen keeps its one primary button.
     expect(next.classList.contains('btn-secondary')).toBe(true);
     expect(screen.getByRole('link', { name: 'Back to the guide' })).toBeTruthy();
@@ -81,7 +81,7 @@ describe('GuideStepBanner', () => {
       screen.getByText('Step 2 of 4 is done. Next, optional: Choose metadata sources'),
     ).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Open the sources' }).getAttribute('href')).toBe(
-      '/settings#metadata',
+      '/sources',
     );
     expect(screen.getByRole('link', { name: 'Skip this step' }).getAttribute('href')).toBe(
       '/rules?new=1',

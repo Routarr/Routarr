@@ -24,6 +24,7 @@ export {
   ClipboardCheck,
   Compass,
   Copy,
+  Database,
   Download,
   ExternalLink,
   Film,

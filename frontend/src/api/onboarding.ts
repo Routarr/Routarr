@@ -25,13 +25,13 @@ export const STEP_GUIDES: Record<OnboardingStep['id'], StepGuide> = {
     titleKey: 'GuideCategoriesTitle',
     textKey: 'GuideCategoriesText',
     actionKey: 'GuideCategoriesAction',
-    to: '/root-folders',
+    to: '/categories',
   },
   metadata: {
     titleKey: 'GuideMetadataTitle',
     textKey: 'GuideMetadataText',
     actionKey: 'GuideMetadataAction',
-    to: '/settings#metadata',
+    to: '/sources',
   },
   rule: {
     titleKey: 'GuideRuleTitle',

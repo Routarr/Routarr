@@ -398,7 +398,12 @@ a {
   border-inline-start: 2px solid transparent;
   color: var(--text-nav);
   font-weight: 500;
-  transition: all 0.15s ease;
+  /* The colours alone: on `all`, the insets a breakpoint changes would
+     animate too, and a label would wrap until they settle. */
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
 }
 
 /* Icons keep their size whatever the label length, and the label may wrap. */
@@ -2364,10 +2369,16 @@ td * {
     text-indent: 0;
     background: none;
   }
-  .sidebar-header,
-  .sidebar-nav a {
+  /* Back to the insets the rail took away, each its own: the header's 24px
+     and an entry's 12px. Given the header's, an entry leaves a long label
+     too little room and wraps it. */
+  .sidebar-header {
     justify-content: flex-start;
     padding-inline: var(--space-6);
+  }
+  .sidebar-nav a {
+    justify-content: flex-start;
+    padding-inline: 12px;
   }
   .main-content {
     margin-inline-start: 0;

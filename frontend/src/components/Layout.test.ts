@@ -199,7 +199,7 @@ describe('Layout', () => {
     show();
 
     const attention = await screen.findByRole('link', { name: /Needs attention/ });
-    expect(attention.getAttribute('href')).toBe('/routarr/logs');
+    expect(attention.getAttribute('href')).toBe('/routarr/move-log');
   });
 
   /**
@@ -241,7 +241,7 @@ describe('Layout', () => {
     // A failed move is what the danger colour is for, and failures are listed
     // on the log screen. Landing on Diagnostics, which says nothing about
     // them, is worse than landing nowhere.
-    expect(attention.getAttribute('href')).toBe('/logs');
+    expect(attention.getAttribute('href')).toBe('/move-log');
   });
 
   it('sends a warning-only alert to the screen that lists warnings', async () => {
@@ -251,7 +251,7 @@ describe('Layout', () => {
     show();
 
     const attention = await screen.findByRole('link', { name: /Needs attention: 2 warnings$/ });
-    expect(attention.getAttribute('href')).toBe('/health');
+    expect(attention.getAttribute('href')).toBe('/diagnostics');
   });
 
   it('shows no count for something there is none of, and no attention at all', async () => {
@@ -520,7 +520,7 @@ describe('Layout', () => {
     await vi.waitFor(() => expect(document.title).toBe('Dashboard · Routarr'));
     expect(document.activeElement).toBe(document.body);
 
-    navigate('/health');
+    navigate('/diagnostics');
     await vi.waitFor(() => expect(document.title).toBe('Diagnostics · Routarr'));
     await vi.waitFor(() =>
       expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1 })),

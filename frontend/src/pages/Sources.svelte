@@ -6,10 +6,10 @@
 <div>
   <div class="page-header">
     <div>
-      <h1 class="page-title">{t('Settings')}</h1>
-      <p class="page-subtitle">{t('SettingsSubtitle')}</p>
+      <h1 class="page-title">{t('MetadataSources')}</h1>
+      <p class="page-subtitle">{t('SourcesSubtitle')}</p>
     </div>
   </div>
 
-  <SettingsEditor page="settings" />
+  <SettingsEditor page="sources" />
 </div>

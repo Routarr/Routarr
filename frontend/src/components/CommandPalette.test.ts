@@ -37,7 +37,7 @@ const STRINGS = {
   Logs: 'Logs',
   Diagnostics: 'Diagnostics',
   Instances: 'Instances',
-  RootFolders: 'Root folders',
+  RootFolders: 'Categories and folders',
   Applications: 'Applications',
   ApiReference: 'API reference',
   Settings: 'Settings',
@@ -181,14 +181,14 @@ describe('CommandPalette', () => {
     await userEvent.type(field, 'diag');
     await fireEvent.keyDown(field, { key: 'Enter' });
 
-    expect(router.path).toBe('/health');
+    expect(router.path).toBe('/diagnostics');
     expect(onClose).toHaveBeenCalled();
   });
 
   /**
    * The answer arrives here rather than at the end of a navigation: neither
    * the explanation nor the rule editor is addressable by URL, so sending
-   * someone to `/media` would be step one of the four steps this replaces.
+   * someone to `/library` would be step one of the four steps this replaces.
    */
   it('answers "why is this here" without leaving the page', async () => {
     vi.spyOn(api, 'getMedia').mockResolvedValue({
@@ -224,7 +224,7 @@ describe('CommandPalette', () => {
 
     await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal)));
     // The router never moved: the question was answered where it was asked.
-    expect(router.path).not.toBe('/media');
+    expect(router.path).not.toBe('/library');
   });
 
   /**

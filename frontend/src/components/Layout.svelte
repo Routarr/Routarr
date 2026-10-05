@@ -363,7 +363,7 @@
                  Sending an operator to a page that says nothing about the
                  thing that just broke is worse than saying nothing. -->
             <a
-              href={href(attention.critical ? '/logs' : '/health')}
+              href={href(attention.critical ? '/move-log' : '/diagnostics')}
               class="attention {attention.critical ? 'is-critical' : ''}"
               title={attention.label}
             >

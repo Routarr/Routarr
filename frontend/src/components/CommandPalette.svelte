@@ -18,7 +18,7 @@
    * button. The answer arrives here without leaving the page. The palette
    * fetches the explanation itself rather than navigating to a screen that would
    * show it, because neither the explanation nor the rule editor is addressable
-   * by URL, and sending someone to `/media` would only be step one of the four
+   * by URL, and sending someone to `/library` would only be step one of the four
    * again.
    *
    * Deliberately narrow. It carries no action that writes to a library:

@@ -575,7 +575,7 @@ const MODALS: {
     open: (p) => p.getByRole('button', { name: 'Add instance' }).click(),
   },
   {
-    path: '/overrides',
+    path: '/exceptions',
     covers: 'pages/Overrides.svelte',
     open: (p) => p.getByRole('button', { name: 'New exception' }).click(),
   },
@@ -585,12 +585,12 @@ const MODALS: {
     open: (p) => p.getByRole('button', { name: 'New key' }).click(),
   },
   {
-    path: '/root-folders',
+    path: '/categories',
     covers: 'pages/RootFolders.svelte',
     open: (p) => p.getByRole('button', { name: 'New category' }).click(),
   },
   {
-    path: '/root-folders',
+    path: '/categories',
     covers: 'pages/RootFolders.svelte',
     open: (p) =>
       p
@@ -601,7 +601,7 @@ const MODALS: {
   {
     // The explanation panel, which is the longest of them and the only one
     // built entirely out of what the rule engine returns.
-    path: '/media',
+    path: '/library',
     covers: 'components/ExplanationModal.svelte',
     open: (p) =>
       p

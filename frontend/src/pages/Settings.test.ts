@@ -8,8 +8,9 @@ import { SERVER_COUNTS } from '../test/counts';
 import { statusRevision } from '../lib/status.svelte';
 import { ApiError, api } from '../api/client';
 import type { AuthMode } from '../api/types';
-import { FIELDS } from '../lib/settings';
+import { FIELDS, SECTIONS } from '../lib/settings';
 import Settings from './Settings.svelte';
+import Sources from './Sources.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import { interceptLinks, navigate, router } from '../lib/router.svelte';
 import { onboardingStatus } from '../test/fixtures';
@@ -18,6 +19,9 @@ import { answerConfirmation } from '../test/confirm';
 import { captureDownloads } from '../test/downloads';
 
 /**
+ * The two screens built on the settings editor: Settings, and the metadata
+ * sources, which have a screen of their own.
+ *
  * Settings is where unattended writing gets armed, so the warning that says so
  * is a guardrail rather than decoration: neither switch is dangerous alone, and
  * the banner must appear for the combination and only for it.
@@ -37,7 +41,10 @@ const STRINGS = {
   SettingBatchLimit: 'Batch limit',
   SettingLogRetention: 'Log retention',
   SettingsTabAutomation: 'Automation',
+  SettingsTabNotifications: 'Notifications',
   Metadata: 'Metadata',
+  MetadataSources: 'Metadata sources',
+  SettingMetadataTtl: 'Cache lifetime',
   SettingsTabGeneral: 'General',
   GuideTitle: 'Getting started',
   GuideRestartText: 'Show the steps again.',
@@ -110,6 +117,7 @@ function mount(
   settings: Record<string, string | boolean>,
   auth: AuthMode = APIKEY_MODE,
   provider: ProviderOverride = {},
+  page: typeof Settings = Settings,
 ) {
   vi.spyOn(api, 'authMode').mockResolvedValue(auth);
   vi.spyOn(api, 'getSettings').mockResolvedValue(settings);
@@ -146,8 +154,20 @@ function mount(
     ],
     order: provider.order ?? ['arr'],
   });
-  return renderWithI18n(Settings, { strings: STRINGS });
+  return renderWithI18n(page, { strings: STRINGS });
 }
+
+/** The metadata sources screen, with the same stand-ins as Settings. */
+const mountSources = (
+  settings: Record<string, string | boolean>,
+  provider: ProviderOverride = {},
+) => mount(settings, APIKEY_MODE, provider, Sources);
+
+/** The keys of the fields a screen edits. */
+const fieldsOf = (page: string) =>
+  SECTIONS.filter((section) => section.page === page).flatMap(
+    (section) => section.keys as readonly string[],
+  );
 
 /** Open a settings section, the way a user reaches it. */
 const openSection = async (name: string) =>
@@ -198,6 +218,15 @@ describe('the unattended-writing warning', () => {
     expect(await screen.findByText('Automatic application is armed')).toBeTruthy();
     expect(screen.getByText('Live mode is on')).toBeTruthy();
   });
+
+  /** Said where the two switches are, not on a screen that cannot turn them off. */
+  it('stays off the sources screen', async () => {
+    mountSources({ global_dry_run: 'false', auto_apply_enabled: 'true' });
+
+    await screen.findByText('Active, in priority order');
+    expect(screen.queryByText('Live mode is on')).toBeNull();
+    expect(screen.queryByText('Automatic application is armed')).toBeNull();
+  });
 });
 
 describe('the save bar', () => {
@@ -209,9 +238,9 @@ describe('the save bar', () => {
   });
 
   /**
-   * Saving covers every field of every section, so the button has to say so.
-   * Sitting inside whichever section is open, it says neither that nor that
-   * there are unsaved changes at all.
+   * Saving covers every field of every section of the screen, so the button
+   * has to say so. Sitting inside whichever section is open, it says neither
+   * that nor that there are unsaved changes at all.
    */
   it('appears with a count once a field changes, and says what it covers', async () => {
     mount({ global_dry_run: 'true' });
@@ -223,7 +252,7 @@ describe('the save bar', () => {
     expect(screen.getByText('Every section is saved together')).toBeTruthy();
   });
 
-  it('sends every field, not only the section on screen', async () => {
+  it('sends every field of the screen, and none of the other screen', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Routing');
 
@@ -233,7 +262,27 @@ describe('the save bar', () => {
     // out rather than sent: see the metadata sources below for why.
     const credentials = new Set(FIELDS.filter((f) => f.kind === 'secret').map((f) => f.key));
     expect(Object.keys(payload).sort()).toEqual(
-      FIELDS.map((f) => f.key)
+      fieldsOf('settings')
+        .filter((key) => !credentials.has(key))
+        .sort(),
+    );
+  });
+
+  /**
+   * One section, so no strip to choose from and nothing else saved with it:
+   * a draft left on Settings stays a draft.
+   */
+  it('saves the sources alone, from a screen with no section strip', async () => {
+    mountSources({ metadata_providers: 'arr' });
+
+    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+      target: { value: '14' },
+    });
+    expect(screen.queryByRole('tab')).toBeNull();
+    expect(screen.queryByText('Every section is saved together')).toBeNull();
+    const credentials = new Set(FIELDS.filter((f) => f.kind === 'secret').map((f) => f.key));
+    expect(Object.keys(await save()).sort()).toEqual(
+      fieldsOf('sources')
         .filter((key) => !credentials.has(key))
         .sort(),
     );
@@ -374,8 +423,7 @@ describe('the metadata sources', () => {
    * else, turning a source on takes two saves for one intention.
    */
   it('offers the credential in the row of the source that needs it', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     const field = await screen.findByLabelText('TMDb');
     expect(field.getAttribute('id')).toBe('setting-tmdb_api_key');
@@ -389,8 +437,7 @@ describe('the metadata sources', () => {
    * like an absence.
    */
   it('refuses to add a source that cannot answer, until a key is given', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     const enable = (await screen.findByRole('button', {
       name: 'Enable – TMDb',
@@ -410,22 +457,22 @@ describe('the metadata sources', () => {
    * so: the sources would simply stop answering on the next pass.
    */
   it('does not delete a stored key when an unrelated setting is saved', async () => {
-    mount({ global_dry_run: 'true', metadata_providers: 'arr,tmdb' }, APIKEY_MODE, {
-      configured: true,
-      order: ['arr', 'tmdb'],
-    });
-    await openSection('Routing');
+    mountSources(
+      { metadata_cache_ttl_days: '30', metadata_providers: 'arr,tmdb' },
+      { configured: true, order: ['arr', 'tmdb'] },
+    );
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+      target: { value: '14' },
+    });
     const payload = await save();
     expect(payload).not.toHaveProperty('tmdb_api_key');
     // What was actually edited still goes.
-    expect(payload.global_dry_run).toBe('false');
+    expect(payload.metadata_cache_ttl_days).toBe('14');
   });
 
   it('sends a credential the reader did type', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     await userEvent.type(await screen.findByLabelText('TMDb'), 'a-key');
     expect((await save()).tmdb_api_key).toBe('a-key');
@@ -447,8 +494,7 @@ describe('the metadata sources', () => {
   it('sends an emptied source list rather than dropping it', async () => {
     // A stored order without `arr`, so its last source carries the button the
     // Arr's own row deliberately does not.
-    mount({ metadata_providers: 'tmdb' }, APIKEY_MODE, { order: ['tmdb'] });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'tmdb' }, { order: ['tmdb'] });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Disable – TMDb' }));
     const payload = await save();
@@ -458,41 +504,37 @@ describe('the metadata sources', () => {
 
   /**
    * The shipped order is the backend's to state. A copy kept here drifts from
-   * it, and since a save sends every field, the first save of anything at all
-   * would store the copy. A list nobody chose is the server's.
+   * it, and since a save sends every field of the screen, the first save of
+   * anything on it would store the copy. A list nobody chose is the server's.
    */
   it('shows and saves the order the server resolved when none is stored', async () => {
-    mount({ global_dry_run: 'true' }, APIKEY_MODE, {
-      configured: true,
-      order: ['tmdb', 'arr'],
-    });
-    await openSection('Routing');
+    mountSources({ metadata_cache_ttl_days: '30' }, { configured: true, order: ['tmdb', 'arr'] });
 
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await fireEvent.input(await screen.findByLabelText('Cache lifetime'), {
+      target: { value: '14' },
+    });
     expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
   /**
    * The server refuses a source listed twice, but a stored list can still
    * arrive here with one. Each row is keyed by its source, and a save sends
-   * every field, so the list is read without the repeat and saved that way.
+   * every field of the screen, so the list is read without the repeat and
+   * saved that way.
    */
   it('reads a stored list without its repeated source, and saves it that way', async () => {
-    mount({ global_dry_run: 'true', metadata_providers: 'tmdb,arr,tmdb' }, APIKEY_MODE, {
-      configured: true,
-      order: ['tmdb', 'arr'],
-    });
-    await openSection('Metadata');
+    mountSources(
+      { metadata_cache_ttl_days: '30', metadata_providers: 'tmdb,arr,tmdb' },
+      { configured: true, order: ['tmdb', 'arr'] },
+    );
     expect(await screen.findAllByRole('button', { name: 'Disable – TMDb' })).toHaveLength(1);
 
-    await openSection('Routing');
-    await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
+    await fireEvent.input(screen.getByLabelText('Cache lifetime'), { target: { value: '14' } });
     expect((await save()).metadata_providers).toBe('tmdb,arr');
   });
 
   it('separates what is active from what is switched off', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     expect(await screen.findByText('Active, in priority order')).toBeTruthy();
     // Not "Available", which would name exactly the sources that are not: a
@@ -501,8 +543,7 @@ describe('the metadata sources', () => {
   });
 
   it('cannot move the only active source', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     const up = await screen.findByRole('button', { name: 'Move up – Radarr / Sonarr' });
     const down = screen.getByRole('button', { name: 'Move down – Radarr / Sonarr' });
@@ -514,7 +555,7 @@ describe('the metadata sources', () => {
 describe('the notification webhook', () => {
   it('offers every format the server writes, and saves the one chosen', async () => {
     mount({});
-    await openSection('Automation');
+    await openSection('Notifications');
 
     const format = await screen.findByLabelText('Notification format');
     const offered = [...format.querySelectorAll('option')].map((option) => option.value);
@@ -532,22 +573,22 @@ describe('the notification webhook', () => {
    */
   it('says an address is stored, and leaves it alone when saved blank', async () => {
     mount({ notification_webhook_url_configured: true });
-    await openSection('Automation');
+    await openSection('Notifications');
 
     const field = await screen.findByLabelText('Notification webhook');
     expect(field.getAttribute('type')).toBe('password');
     expect(field.getAttribute('placeholder')).toBe('A value is stored – type to replace it');
 
-    await userEvent.selectOptions(screen.getByLabelText('Apply automatically'), 'true');
+    await userEvent.selectOptions(screen.getByLabelText('Notification format'), 'ntfy');
     const payload = await save();
     expect(payload).not.toHaveProperty('notification_webhook_url');
-    expect(payload.auto_apply_enabled).toBe('true');
+    expect(payload.notification_format).toBe('ntfy');
   });
 
   /** Blank means "leave it", so removing one takes a button of its own. */
   it('removes a stored address at the next save', async () => {
     mount({ notification_webhook_url_configured: true });
-    await openSection('Automation');
+    await openSection('Notifications');
 
     await fireEvent.click(
       await screen.findByRole('button', { name: 'Remove – Notification webhook' }),
@@ -562,7 +603,7 @@ describe('the notification webhook', () => {
 
   it('offers nothing to remove while no address is stored', async () => {
     mount({ notification_webhook_url_configured: false });
-    await openSection('Automation');
+    await openSection('Notifications');
 
     await screen.findByLabelText('Notification webhook');
     expect(screen.queryByRole('button', { name: 'Remove – Notification webhook' })).toBeNull();
@@ -585,8 +626,7 @@ it('offers a switch in words of its own', async () => {
  */
 describe("a source's stored key", () => {
   it('is removed at the next save', async () => {
-    mount({ metadata_providers: 'arr', tmdb_api_key_configured: true });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr', tmdb_api_key_configured: true });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDb' }));
 
@@ -598,8 +638,7 @@ describe("a source's stored key", () => {
   });
 
   it('offers nothing to remove while no key is stored', async () => {
-    mount({ metadata_providers: 'arr' });
-    await openSection('Metadata');
+    mountSources({ metadata_providers: 'arr' });
 
     await screen.findByLabelText('TMDb');
     expect(screen.queryByRole('button', { name: 'Remove – TMDb' })).toBeNull();
@@ -675,11 +714,21 @@ describe('the section strip', () => {
   });
 
   it('opens the section named in the URL', async () => {
+    window.history.replaceState({}, '', '/settings#notifications');
+    mount({});
+
+    const tab = await screen.findByRole('tab', { name: 'Notifications' });
+    expect(tab.getAttribute('aria-selected')).toBe('true');
+  });
+
+  /** The sources are a screen of their own, so their old fragment opens nothing here. */
+  it('opens the first section for a fragment no section of the screen holds', async () => {
     window.history.replaceState({}, '', '/settings#metadata');
     mount({});
 
-    const tab = await screen.findByRole('tab', { name: 'Metadata' });
+    const tab = await screen.findByRole('tab', { name: 'General' });
     expect(tab.getAttribute('aria-selected')).toBe('true');
+    expect(screen.queryByRole('tab', { name: 'Metadata' })).toBeNull();
   });
 
   it('moves between sections with the arrow keys, not only with Tab', async () => {
@@ -1209,27 +1258,35 @@ describe('the getting-started guide', () => {
     expect(onboarding.current).toEqual(resumed);
   });
 
-  /** A link to another section of this page moves no route, only the fragment. */
-  it('follows the guide from the metadata section to the routing one', async () => {
+  it('follows the guide from the sources screen to the routing settings', async () => {
     const stop = interceptLinks();
     try {
       publishOnboarding(
         onboardingStatus(['instance', 'categories', 'metadata', 'rule', 'simulation']),
       );
-      window.history.replaceState({}, '', '/settings#metadata');
-      mount({});
+      window.history.replaceState({}, '', '/sources');
+      mountSources({});
 
       await fireEvent.click(await screen.findByRole('link', { name: 'Open the routing settings' }));
 
-      await waitFor(() =>
-        expect(screen.getByRole('tab', { name: 'Routing' })).toHaveAttribute(
-          'aria-selected',
-          'true',
-        ),
-      );
+      await waitFor(() => expect(window.location.pathname).toBe('/settings'));
+      expect(window.location.hash).toBe('#routing');
     } finally {
       stop();
     }
+  });
+
+  /** A link to another section of the screen on display moves no route, only the fragment. */
+  it('opens the section a link names without leaving the screen', async () => {
+    window.history.replaceState({}, '', '/settings#general');
+    mount({});
+    await screen.findByRole('tab', { name: 'General' });
+
+    navigate('/settings#routing');
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Routing' })).toHaveAttribute('aria-selected', 'true'),
+    );
   });
 
   it('leads back to a guide that already shows, without writing anything', async () => {

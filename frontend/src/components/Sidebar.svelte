@@ -62,7 +62,7 @@
       {/if}
       <ul class="nav-list" aria-labelledby={group.key ? `nav-group-${index}` : undefined}>
         {#each group.items as item (item.to)}
-          {@const active = isCurrent(item.to, item.exact)}
+          {@const active = isCurrent(item.to)}
           <li>
             <a
               href={href(item.to)}
