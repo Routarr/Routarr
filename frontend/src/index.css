@@ -3264,11 +3264,48 @@ select.form-select {
   padding: 8px 0;
 }
 .api-operation > summary {
-  display: flex;
-  flex-wrap: wrap;
+  /* The same columns on every line: the method, the path as wide as the
+     longest the contract holds, what it does, then the scope. Each column
+     starts where the one above it does. */
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  grid-template-areas: 'method path does scope';
   align-items: center;
-  gap: 8px;
+  column-gap: 12px;
+  row-gap: 4px;
   cursor: pointer;
+}
+/* As wide as the widest method, so the paths line up after it. */
+.api-method {
+  grid-area: method;
+  min-width: 5.5em;
+  justify-content: center;
+}
+/* The longest path of the contract is 27 characters, so 28 hold every one. */
+.api-path {
+  grid-area: path;
+  width: 28ch;
+  overflow-wrap: anywhere;
+}
+.api-does {
+  grid-area: does;
+}
+.api-scope {
+  grid-area: scope;
+  justify-self: end;
+}
+/* Beside a 28-character path, what an operation does would break every
+   second word: below this it takes a line of its own, under the path. */
+@media (max-width: 720px) {
+  .api-operation > summary {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'method path scope'
+      '. does does';
+  }
+  .api-path {
+    width: auto;
+  }
 }
 .api-operation-body {
   padding-block: 8px;

@@ -1398,9 +1398,14 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .ref-op { border-top: 1px solid var(--border); }
 .ref-op:last-child { border-bottom: 1px solid var(--border); }
 .ref-op > summary {
-  display: flex;
+  /* The same columns on every line: the marker, the method, the path as wide
+     as the longest the contract holds, what it does, then the scope. Each
+     column starts where the one above it does. */
+  display: grid;
+  grid-template-columns: 1em auto auto minmax(0, 1fr) auto;
+  grid-template-areas: 'mark method path does scope';
   align-items: baseline;
-  gap: 12px;
+  column-gap: 12px;
   padding: 10px 4px;
   cursor: pointer;
   list-style: none;
@@ -1409,8 +1414,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* The browser's marker is gone with the flex layout, and this one stands in
    for it: the only thing saying the line opens. */
 .ref-op > summary::before {
+  grid-area: mark;
   content: '\25B8';
-  flex: none;
   width: 1em;
   color: var(--text-muted);
   transition: transform 0.15s;
@@ -1419,7 +1424,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .ref-op > summary:hover .ref-does { color: var(--text); }
 
 .ref-method {
-  flex: none;
+  grid-area: method;
   min-width: 5.8em;
   padding: 1px 6px;
   border: 1px solid currentColor;
@@ -1433,10 +1438,11 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 .ref-post, .ref-put { color: var(--accent-text); }
 .ref-delete { color: var(--mark-unmet); }
 
-.ref-path { flex: none; color: var(--text); overflow-wrap: anywhere; }
-.ref-does { flex: 1 1 auto; color: var(--text-soft); font-size: 0.95rem; }
+/* The longest path of the contract is 27 characters, so 28 hold every one. */
+.ref-path { grid-area: path; width: 28ch; color: var(--text); overflow-wrap: anywhere; }
+.ref-does { grid-area: does; color: var(--text-soft); font-size: 0.95rem; }
 .ref-scope {
-  flex: none;
+  grid-area: scope;
   font-family: var(--mono);
   font-size: 0.78rem;
   color: var(--text-muted);
@@ -1458,9 +1464,14 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 /* On a phone what an operation does takes a line of its own under its method
    and path: beside them it would break every second word. */
 @media (max-width: 639px) {
-  .ref-op > summary { flex-wrap: wrap; row-gap: 2px; }
-  .ref-does { flex-basis: 100%; order: 3; padding-left: calc(1em + 12px); }
-  .ref-scope { margin-left: auto; }
+  .ref-op > summary {
+    grid-template-columns: 1em auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      'mark method path scope'
+      '. does does does';
+    row-gap: 2px;
+  }
+  .ref-path { width: auto; }
   .ref-detail { padding-left: 4px; }
   .ref-fields { grid-template-columns: minmax(0, 1fr); }
   .ref-fields dd { margin-bottom: 6px; }

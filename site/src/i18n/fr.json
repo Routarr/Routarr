@@ -3,7 +3,7 @@
   "api.h1": "Vos autres outils <em>peuvent interroger Routarr.</em>",
   "api.p": "Un script, n8n, Home Assistant ou un tableau de bord peut demander où irait un titre, en fixer un à une catégorie, lancer une simulation et l'appliquer, ou lire l'état, chacun avec une clé qui ne fait que ce que vous avez permis.",
   "api.step.1": "Créez une clé sur l'écran Applications, une par outil. Toute clé lit, et une portée qui change quelque chose, comme <code>operate</code> (piloter) pour appliquer ou <code>write</code> (écrire) pour fixer un titre, ne s'accorde que là où il le faut : la référence plus bas nomme celle que demande chaque opération. Routarr ne montre la clé qu'une fois, et <code>Authorization: Bearer</code> la transporte aussi.",
-  "api.step.2": "Demandez où irait un titre. Routarr le cherche dans l'Arr, le passe à vos règles et ne déplace rien.",
+  "api.step.2": "Demandez où irait un titre. Routarr le cherche dans l'Arr, le passe à vos règles et ne déplace rien. Ici, jq garde de la réponse ce dont un script a besoin.",
   "api.step.3": "Chaque opération et la portée qu'elle demande figurent sur l'écran Référence de l'API de votre Routarr, qui sert le contrat OpenAPI à ce chemin, pour la version qu'il exécute.",
   "api.stable": "Rien de ce qui est documenté sous <code>/api/v1</code> n'est retiré, renommé ni ne change de type. De nouvelles opérations et de nouveaux champs peuvent arriver avec chaque version.",
   "api.ref.span": "Référence",

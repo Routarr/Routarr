@@ -3,7 +3,7 @@
   "api.h1": "Ihre anderen Werkzeuge <em>können Routarr fragen.</em>",
   "api.p": "Ein Skript, n8n, Home Assistant oder ein Dashboard kann fragen, wohin ein Titel käme, einen Titel auf eine Kategorie festlegen, eine Simulation starten und anwenden oder den Zustand lesen, jeweils mit einem Schlüssel, der nur darf, was Sie erlaubt haben.",
   "api.step.1": "Erstellen Sie auf der Seite Apps einen Schlüssel pro Werkzeug. Jeder Schlüssel liest, und ein Geltungsbereich, der etwas ändert, etwa <code>operate</code> (Bedienen) zum Anwenden oder <code>write</code> (Schreiben) zum Festlegen eines Titels, wird nur gewährt, wo er nötig ist: Die Referenz unten nennt den, den jede Operation braucht. Routarr zeigt den Schlüssel nur einmal, und <code>Authorization: Bearer</code> trägt ihn ebenfalls.",
-  "api.step.2": "Fragen Sie, wohin ein Titel käme. Routarr schlägt ihn im Arr nach, schickt ihn durch Ihre Regeln und verschiebt nichts.",
+  "api.step.2": "Fragen Sie, wohin ein Titel käme. Routarr schlägt ihn im Arr nach, schickt ihn durch Ihre Regeln und verschiebt nichts. Hier behält jq von der Antwort, was ein Skript braucht.",
   "api.step.3": "Jede Operation und der Geltungsbereich, den sie braucht, stehen auf der Seite API-Referenz Ihres Routarr, das den OpenAPI-Vertrag unter diesem Pfad ausliefert, für die Version, die es ausführt.",
   "api.stable": "Nichts, was unter <code>/api/v1</code> dokumentiert ist, wird entfernt, umbenannt oder ändert seinen Typ. Neue Operationen und Felder können mit jeder Version kommen.",
   "api.ref.span": "Referenz",

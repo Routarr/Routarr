@@ -3,7 +3,7 @@
   "api.h1": "Your other tools <em>can ask Routarr.</em>",
   "api.p": "A script, n8n, Home Assistant or a dashboard can ask where a title would go, pin one to a category, run a simulation and apply it, or read the state, each with a key that does only what you allowed.",
   "api.step.1": "Make a key on the Applications screen, one per tool. Every key reads, and a scope that changes something, such as <code>operate</code> to apply or <code>write</code> to pin a title, is granted only where needed: the reference below names the one each operation takes. Routarr shows the key once, and <code>Authorization: Bearer</code> carries it too.",
-  "api.step.2": "Ask where a title would go. Routarr looks it up in the Arr, runs it through your rules and moves nothing.",
+  "api.step.2": "Ask where a title would go. Routarr looks it up in the Arr, runs it through your rules and moves nothing. Here jq keeps what a script needs from the answer.",
   "api.step.3": "Every operation and the scope it needs are on the API reference screen of your Routarr, which serves the OpenAPI contract at this path, for the version it runs.",
   "api.stable": "Nothing documented under <code>/api/v1</code> is removed, renamed or retyped. New operations and fields may come with any release.",
   "api.ref.span": "Reference",
