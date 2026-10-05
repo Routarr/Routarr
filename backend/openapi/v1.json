@@ -2020,7 +2020,7 @@
             "type": "string"
           },
           "actor": {
-            "description": "What set the write off: `manual`, `schedule` or `webhook`.",
+            "description": "What set the write off: `manual`, `schedule`, `webhook`, or `api` for an\napplication key.",
             "type": [
               "string",
               "null"
@@ -2069,7 +2069,7 @@
             ]
           },
           "subject": {
-            "description": "Who asked, when the mode vouched for a name.",
+            "description": "Who asked, when the mode vouched for a name, or the application key's\nname. An application key reads its own name here and `null` for anyone\nelse's.",
             "type": [
               "string",
               "null"
@@ -3000,7 +3000,7 @@
                   "type": "string"
                 },
                 "actor": {
-                  "description": "What set the write off: `manual`, `schedule` or `webhook`.",
+                  "description": "What set the write off: `manual`, `schedule`, `webhook`, or `api` for an\napplication key.",
                   "type": [
                     "string",
                     "null"
@@ -3049,7 +3049,7 @@
                   ]
                 },
                 "subject": {
-                  "description": "Who asked, when the mode vouched for a name.",
+                  "description": "Who asked, when the mode vouched for a name, or the application key's\nname. An application key reads its own name here and `null` for anyone\nelse's.",
                   "type": [
                     "string",
                     "null"

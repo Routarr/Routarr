@@ -3,6 +3,7 @@
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt;
 use serde_json::{Value, json};
 
 use super::fake_arr::FakeArr;
@@ -627,6 +628,14 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
         .execute(&app.state.pool)
         .await
         .unwrap();
+    sqlx::query(
+        "INSERT INTO execution_logs (id, action, success, media_title, actor, subject)
+         VALUES ('l-1', 'move', 1, 'Akira', 'manual', ?)",
+    )
+    .bind(person)
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
     let token = mint(&app, None, json!({ "name": "dashboard" })).await;
 
     let jobs = send(&app, "GET", "/api/v1/jobs", Some(&token), None).await;
@@ -640,11 +649,21 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     assert_eq!(decisions.assert_ok()["data"][0]["subject"], Value::Null);
     let pins = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
     assert_eq!(pins.assert_ok()[0]["subject"], Value::Null);
+    let log = send(&app, "GET", "/api/v1/logs", Some(&token), None).await;
+    assert_eq!(log.assert_ok()["data"][0]["subject"], Value::Null);
+    let export = Request::get("/api/v1/logs/export").header("x-api-key", &token);
+    let export = app.send_raw(export.body(Body::empty()).unwrap()).await;
+    let csv = export.into_body().collect().await.unwrap().to_bytes();
+    let csv = String::from_utf8_lossy(&csv);
+    assert!(csv.contains("Akira"), "{csv}");
+    assert!(!csv.contains(person), "the export named who runs Routarr: {csv}");
 
     let owner = send(&app, "GET", "/api/v1/jobs/j-person", None, None).await;
     assert_eq!(owner.assert_ok()["subject"], person, "the owner lost sight of who asked");
     let owner = send(&app, "GET", "/api/v1/overrides", None, None).await;
     assert_eq!(owner.assert_ok()[0]["subject"], person);
+    let owner = send(&app, "GET", "/api/v1/logs", None, None).await;
+    assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
 }
 
 /// `enrich=true` asks every metadata source now, on the owner's quotas, as
