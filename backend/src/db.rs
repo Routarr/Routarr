@@ -43,6 +43,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("../migrations/025_added_dates_stored_shape.sql"),
     ),
     ("026_unique_instance_names", include_str!("../migrations/026_unique_instance_names.sql")),
+    (
+        "027_stateless_sign_in_attempts",
+        include_str!("../migrations/027_stateless_sign_in_attempts.sql"),
+    ),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.

@@ -28,6 +28,7 @@ mod metadata_sources;
 mod metrics;
 mod move_confirmation;
 mod notify;
+mod oidc;
 mod onboarding;
 mod outbound_http;
 mod placement;

@@ -33,11 +33,19 @@ use crate::services::executor::Confirmed;
 /// The cookie the `forms` mode sets. Named for the application, since a browser
 /// pointed at several homelab services holds all of their cookies at once.
 pub const SESSION_COOKIE: &str = "routarr_session";
-/// Carries an OIDC attempt's `state` from the browser that left to the
-/// browser that comes back. The callback accepts a `code` for the attempt it
-/// names only from that browser: without it, a link carrying someone else's
-/// `code` and `state` would sign the reader in as that someone (login CSRF).
+/// Carries an OIDC attempt from the browser that left to the browser that
+/// comes back, one cookie per attempt under this prefix. The callback accepts
+/// a `code` for the attempt it names only from that browser: without it, a
+/// link carrying someone else's `code` and `state` would sign the reader in as
+/// that someone (login CSRF).
 pub const OIDC_COOKIE: &str = "routarr_oidc";
+
+/// The cookie one attempt travels in, named after its `state`, so two
+/// attempts started in one browser, in two tabs, both finish.
+fn attempt_cookie(state: &str) -> String {
+    let tag: String = state.chars().take(8).collect();
+    format!("{OIDC_COOKIE}_{tag}")
+}
 
 /// Who is making a request, once a mode has decided.
 ///
@@ -694,16 +702,20 @@ pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::
 /// to the log, where a configuration fault is fixed, and never to an anonymous
 /// caller.
 pub async fn oidc_start(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    match crate::services::oidc::start(&state).await {
-        Ok(start) => (
+    use crate::services::oidc::FLOW_MINUTES;
+    let started = crate::services::oidc::start(&state)
+        .await
+        .and_then(|start| Ok((start.attempt.sealed(&state.secrets)?, start)));
+    match started {
+        Ok((sealed, start)) => (
             [(
                 axum::http::header::SET_COOKIE,
                 cookie_header(
                     &state,
                     &headers,
-                    OIDC_COOKIE,
-                    &start.state,
-                    crate::services::oidc::FLOW_MINUTES * 60,
+                    &attempt_cookie(&start.attempt.state),
+                    &sealed,
+                    FLOW_MINUTES * 60,
                 ),
             )],
             axum::response::Redirect::to(&start.redirect_to),
@@ -734,6 +746,8 @@ pub struct Callback {
     /// What the provider says when the person refused, or when it did.
     #[serde(default)]
     pub error: Option<String>,
+    #[serde(default)]
+    pub error_description: Option<String>,
 }
 
 /// Where the provider sends the browser back.
@@ -746,35 +760,48 @@ pub async fn oidc_callback(
     headers: HeaderMap,
     super::Query(callback): super::Query<Callback>,
 ) -> Response {
+    use crate::services::oidc::Attempt;
     let home = home(&state);
 
     // The attempt is over either way, so the cookie that carried it goes.
-    let cleared = cookie_header(&state, &headers, OIDC_COOKIE, "", 0);
+    let cookie_name = callback.state.as_deref().map(attempt_cookie);
+    let cleared = cookie_name.as_deref().map(|name| cookie_header(&state, &headers, name, "", 0));
     let failed = || {
-        (
-            [(axum::http::header::SET_COOKIE, cleared.clone())],
-            axum::response::Redirect::to(&format!("{home}?signin=failed")),
-        )
-            .into_response()
+        let redirect = axum::response::Redirect::to(&format!("{home}?signin=failed"));
+        match &cleared {
+            Some(cleared) => {
+                ([(axum::http::header::SET_COOKIE, cleared.clone())], redirect).into_response()
+            }
+            None => redirect.into_response(),
+        }
     };
 
-    let (Some(code), Some(flow_state), None) =
-        (callback.code, callback.state, callback.error.as_deref())
+    // A person who refused and a client the provider does not know look alike
+    // on screen, so the reason goes to the log. The code never does.
+    if let Some(error) = callback.error.as_deref() {
+        let described: String =
+            callback.error_description.as_deref().unwrap_or_default().chars().take(200).collect();
+        tracing::warn!("The OpenID Connect provider refused the sign-in: {error} {described}");
+        return failed();
+    }
+    let (Some(code), Some(flow_state), Some(cookie_name)) =
+        (callback.code, callback.state, cookie_name)
     else {
         return failed();
     };
 
-    // Only the browser that started the attempt may finish it. Refused before
-    // the row is taken: a pair presented from elsewhere must not cost the
-    // browser that is answering its provider the attempt it started.
-    if cookie(&headers, OIDC_COOKIE).as_deref() != Some(flow_state.as_str()) {
+    // Only the browser that started the attempt may finish it.
+    let Some(attempt) = cookie(&headers, &cookie_name)
+        .and_then(|sealed| Attempt::opened(&state.secrets, &sealed, &flow_state))
+    else {
         tracing::warn!(
-            "An OpenID Connect callback arrived from a browser that did not start the attempt"
+            "An OpenID Connect callback arrived for an attempt this browser did not start, or \
+             one past its ten minutes"
         );
         return failed();
-    }
+    };
 
-    let subject = match crate::services::oidc::finish(&state, &code, &flow_state).await {
+    let subject = match crate::services::oidc::finish(&state, &code, attempt).await {
         Ok(subject) => subject,
         Err(e) => {
             tracing::warn!("An OpenID Connect sign-in failed: {e}");
@@ -791,12 +818,15 @@ pub async fn oidc_callback(
                     axum::http::header::SET_COOKIE,
                     session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
                 ),
-                (axum::http::header::SET_COOKIE, cleared),
+                (axum::http::header::SET_COOKIE, cleared.unwrap_or_default()),
             ]),
             axum::response::Redirect::to(&home),
         )
             .into_response(),
-        Err(e) => e.into_response(),
+        Err(e) => {
+            tracing::error!("An OpenID Connect sign-in could not open its session: {e}");
+            failed()
+        }
     }
 }
 

@@ -1,9 +1,16 @@
 //! OpenID Connect, authorization code flow with PKCE.
 //!
-//! One level of access: whoever the provider lets through gets in. Routarr
-//! reads no group claim and keeps no user table. The subject is stored beside
-//! every decision and every write it causes, and that is the whole of what an
-//! identity buys here.
+//! One level of access, for the people the operator names: by their `sub`, or
+//! by a group the provider says they belong to (`ROUTARR_OIDC_ALLOWED_*`).
+//! Routarr keeps no user table. The subject is stored beside every decision
+//! and every write it causes, and that is the whole of what an identity buys
+//! here.
+//!
+//! An attempt keeps nothing on the server. Its `state`, nonce, PKCE verifier
+//! and expiry travel in a cookie sealed with the master key, so the public
+//! route that starts one writes nothing, and a flood of starts evicts nobody's
+//! attempt. A code presented twice is refused by the provider, which spends it
+//! at the first exchange (RFC 6749 §4.1.2), and the callback clears the cookie.
 //!
 //! **On not verifying the ID token's signature.** This is a confidential client
 //! running the authorization code flow, so the token arrives in the body of a
@@ -30,22 +37,40 @@ use crate::state::AppState;
 /// an abandoned attempt is not a row waiting to be replayed.
 pub const FLOW_MINUTES: i64 = 10;
 
-/// How many sign-in attempts may sit unfinished at once.
-///
-/// `/auth/oidc/start` is public, so anyone who reaches the port can insert
-/// rows, and without this bound only the hourly maintenance pass removes them.
-/// Bounding it here rather than refusing past a threshold is deliberate: a cap
-/// that turns callers away hands an attacker a way to deny sign-in to the one
-/// account there is, the objection `SignInThrottle` already raises against
-/// lockouts. The *oldest* attempts are dropped instead, and a browser that has
-/// just started one is always among the newest.
-///
-/// Wide, because the rows are the only thing between an anonymous flood and
-/// the operator's own attempt: under a narrow cap, a few dozen requests in ten
-/// minutes evict the flow of somebody answering their provider. A row costs a
-/// few hundred bytes, so four thousand is a megabyte of disk for ten minutes
-/// against a flood nobody ever sees on a homelab port.
-const MAX_PENDING_FLOWS: i64 = 4096;
+/// What sets this cookie apart from any other value sealed with the master
+/// key, an Arr key among them: one presented as an attempt is refused.
+const PURPOSE: &str = "oidc-attempt";
+
+/// One attempt, as its cookie carries it.
+#[derive(Debug, serde::Serialize, Deserialize)]
+pub struct Attempt {
+    purpose: String,
+    pub state: String,
+    nonce: String,
+    verifier: String,
+    /// Unix seconds.
+    expires: i64,
+}
+
+impl Attempt {
+    /// The attempt sealed for its cookie.
+    pub fn sealed(&self, secrets: &crate::crypto::SecretBox) -> AppResult<String> {
+        secrets.seal(&serde_json::to_string(self)?)
+    }
+
+    /// The attempt a cookie carries, when it is one, it is still live and it
+    /// is the one `state` names.
+    pub fn opened(secrets: &crate::crypto::SecretBox, sealed: &str, state: &str) -> Option<Self> {
+        use subtle::ConstantTimeEq;
+        if !crate::crypto::SecretBox::is_sealed(sealed) {
+            return None;
+        }
+        let attempt: Self = serde_json::from_str(&secrets.open(sealed).ok()?).ok()?;
+        let named: bool = attempt.state.as_bytes().ct_eq(state.as_bytes()).into();
+        (attempt.purpose == PURPOSE && named && attempt.expires > chrono::Utc::now().timestamp())
+            .then_some(attempt)
+    }
+}
 
 /// The two endpoints a sign-in needs, as the provider states them, and how
 /// its token endpoint takes the client's credentials.
@@ -131,56 +156,43 @@ pub async fn discover(state: &AppState) -> AppResult<Provider> {
 /// Everything the browser has to be sent to, for one attempt.
 pub struct Start {
     pub redirect_to: String,
-    /// The attempt's `state`, which the browser that left carries back in a
-    /// cookie: without it, any browser presenting a known `code` and `state`
-    /// pair is signed in as whoever started the attempt.
-    pub state: String,
+    /// The attempt, which the browser that left carries back in a cookie:
+    /// without it, any browser presenting a known `code` and `state` pair is
+    /// signed in as whoever started the attempt.
+    pub attempt: Attempt,
 }
 
-/// Begin a sign-in: record the attempt and build the provider's URL.
+/// Begin a sign-in: make the attempt and build the provider's URL.
 pub async fn start(state: &AppState) -> AppResult<Start> {
     let provider = discover(state).await?;
     let client_id = require(&state.config.oidc_client_id, "ROUTARR_OIDC_CLIENT_ID")?;
     let redirect_uri = require(&state.config.oidc_redirect_url, "ROUTARR_OIDC_REDIRECT_URL")?;
 
-    let flow_state = crate::crypto::generate_secret()?;
-    let nonce = crate::crypto::generate_secret()?;
-    let verifier = crate::crypto::generate_secret()?;
-
-    sqlx::query(
-        "INSERT INTO oidc_flows (state, nonce, verifier, expires_at)
-         VALUES (?, ?, ?, datetime('now', ?))",
-    )
-    .bind(&flow_state)
-    .bind(&nonce)
-    .bind(&verifier)
-    .bind(format!("+{FLOW_MINUTES} minutes"))
-    .execute(&state.pool)
-    .await?;
-
-    // After the insert, so the attempt just started is never the one dropped.
-    // `expires_at` is stamped from `now` and indexed, so ordering by it orders
-    // by when the attempt began.
-    sqlx::query(
-        "DELETE FROM oidc_flows
-          WHERE expires_at <= datetime('now')
-             OR state NOT IN (SELECT state FROM oidc_flows ORDER BY expires_at DESC LIMIT ?)",
-    )
-    .bind(MAX_PENDING_FLOWS)
-    .execute(&state.pool)
-    .await?;
+    let attempt = Attempt {
+        purpose: PURPOSE.to_string(),
+        state: crate::crypto::generate_secret()?,
+        nonce: crate::crypto::generate_secret()?,
+        verifier: crate::crypto::generate_secret()?,
+        expires: chrono::Utc::now().timestamp() + FLOW_MINUTES * 60,
+    };
 
     // S256, never `plain`: the challenge is what travels through the browser,
     // and a plain one is the verifier itself.
-    let challenge = B64URL.encode(Sha256::digest(verifier.as_bytes()));
+    let challenge = B64URL.encode(Sha256::digest(attempt.verifier.as_bytes()));
+    // A group is read from a claim most providers send only for this scope.
+    let scope = if state.config.oidc_allowed_groups.is_empty() {
+        "openid profile"
+    } else {
+        "openid profile groups"
+    };
 
     let query = [
         ("response_type", "code"),
-        ("scope", "openid profile"),
+        ("scope", scope),
         ("client_id", client_id),
         ("redirect_uri", redirect_uri),
-        ("state", &flow_state),
-        ("nonce", &nonce),
+        ("state", &attempt.state),
+        ("nonce", &attempt.nonce),
         ("code_challenge", &challenge),
         ("code_challenge_method", "S256"),
     ];
@@ -189,7 +201,7 @@ pub async fn start(state: &AppState) -> AppResult<Start> {
             AppError::Config(format!("the provider's authorization URL is unusable: {e}"))
         })?;
 
-    Ok(Start { redirect_to: url.to_string(), state: flow_state })
+    Ok(Start { redirect_to: url.to_string(), attempt })
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,6 +224,22 @@ struct Claims {
     azp: Option<String>,
     #[serde(default)]
     preferred_username: Option<String>,
+    /// The groups claim is named by the operator, so every other claim is kept.
+    #[serde(flatten)]
+    others: serde_json::Map<String, serde_json::Value>,
+}
+
+impl Claims {
+    /// The groups the token names under `claim`: a list of names, or one.
+    fn groups(&self, claim: &str) -> Vec<&str> {
+        match self.others.get(claim) {
+            Some(serde_json::Value::Array(names)) => {
+                names.iter().filter_map(serde_json::Value::as_str).collect()
+            }
+            Some(serde_json::Value::String(name)) => vec![name.as_str()],
+            _ => Vec::new(),
+        }
+    }
 }
 
 /// `aud` is a string or an array of them, and providers use both.
@@ -234,24 +262,10 @@ impl Audience {
     }
 }
 
-/// Finish a sign-in and return the subject the provider vouched for.
-pub async fn finish(state: &AppState, code: &str, flow_state: &str) -> AppResult<String> {
-    // Taken, not read: a row that survives its use is an authorisation code
-    // that can be presented twice.
-    let flow: Option<(String, String)> = sqlx::query_as(
-        "DELETE FROM oidc_flows WHERE state = ? AND expires_at > datetime('now')
-         RETURNING nonce, verifier",
-    )
-    .bind(flow_state)
-    .fetch_optional(&state.pool)
-    .await?;
-
-    let Some((nonce, verifier)) = flow else {
-        return Err(AppError::BadRequest(
-            "This sign-in attempt is unknown or has expired. Start again.".into(),
-        ));
-    };
-
+/// Finish a sign-in and return the subject to record for the person the
+/// provider vouched for, if the operator lets them in.
+pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult<String> {
+    let Attempt { nonce, verifier, .. } = attempt;
     let provider = discover(state).await?;
     let client_id = require(&state.config.oidc_client_id, "ROUTARR_OIDC_CLIENT_ID")?;
     let client_secret = require(&state.config.oidc_client_secret, "ROUTARR_OIDC_CLIENT_SECRET")?;
@@ -296,7 +310,33 @@ pub async fn finish(state: &AppState, code: &str, flow_state: &str) -> AppResult
         return Err(AppError::BadRequest("The token belongs to another sign-in.".into()));
     }
 
-    Ok(claims.preferred_username.unwrap_or(claims.sub))
+    let config = &state.config;
+    let allowed = config.oidc_allow_anyone
+        || config.oidc_allowed_subjects.contains(&claims.sub)
+        || claims
+            .groups(&config.oidc_groups_claim)
+            .iter()
+            .any(|group| config.oidc_allowed_groups.iter().any(|allowed| allowed == group));
+    if !allowed {
+        return Err(AppError::Forbidden(format!(
+            "the provider signed in '{}', who is neither an allowed subject nor in an allowed \
+             group",
+            claims.sub
+        )));
+    }
+
+    Ok(recorded_subject(claims.preferred_username, claims.sub))
+}
+
+/// The name a session and every write it makes record. The `sub` is what the
+/// provider guarantees unique and constant, and a `preferred_username` is
+/// neither (OpenID Connect Core §5.7): many providers let a person change it.
+/// So a name shown beside the `sub`, never in place of it.
+fn recorded_subject(name: Option<String>, sub: String) -> String {
+    match name.filter(|name| !name.is_empty() && *name != sub) {
+        Some(name) => format!("{name} ({sub})"),
+        None => sub,
+    }
 }
 
 /// The payload of a JWT, without verifying its signature.
@@ -318,14 +358,6 @@ fn decode_claims(token: &str) -> AppResult<Claims> {
 
 fn require<'a>(value: &'a Option<String>, name: &str) -> AppResult<&'a str> {
     value.as_deref().ok_or_else(|| AppError::Config(format!("{name} is not set")))
-}
-
-/// Drop the attempts nobody came back from.
-pub async fn purge_expired_flows(pool: &sqlx::SqlitePool) -> AppResult<u64> {
-    Ok(sqlx::query("DELETE FROM oidc_flows WHERE expires_at <= datetime('now')")
-        .execute(pool)
-        .await?
-        .rows_affected())
 }
 
 #[cfg(test)]
@@ -366,33 +398,61 @@ mod tests {
         assert!(decode_claims(&format!("header.{}.sig", B64URL.encode("not json"))).is_err());
     }
 
+    /// A name a person can change is shown beside the `sub`, which they
+    /// cannot, and never in its place.
     #[test]
-    fn the_subject_falls_back_to_sub_when_there_is_no_username() {
-        let claims = decode_claims(&jwt(serde_json::json!({
-            "iss": "https://idp", "sub": "abc-123", "aud": "routarr", "exp": 1
-        })))
-        .unwrap();
-        assert!(claims.preferred_username.is_none());
-        assert_eq!(claims.sub, "abc-123");
+    fn the_recorded_subject_carries_the_sub_beside_any_name() {
+        assert_eq!(recorded_subject(Some("alice".into()), "u-42".into()), "alice (u-42)");
+        assert_eq!(recorded_subject(None, "u-42".into()), "u-42");
+        assert_eq!(recorded_subject(Some(String::new()), "u-42".into()), "u-42");
+        assert_eq!(recorded_subject(Some("u-42".into()), "u-42".into()), "u-42");
     }
 
-    /// Only the expired flow goes. A replayed code is refused through the real
-    /// callback in `tests::security`.
-    #[tokio::test]
-    async fn the_purge_removes_the_expired_flows_only() {
-        let pool = crate::db::test_pool().await;
-        sqlx::query(
-            "INSERT INTO oidc_flows (state, nonce, verifier, expires_at)
-             VALUES ('live', 'n', 'v', datetime('now', '+10 minutes')),
-                    ('stale', 'n', 'v', datetime('now', '-1 minute'))",
+    /// An attempt opens within its ten minutes, for the state it names, from
+    /// a value sealed as one and nothing else: a cookie written in clear
+    /// would let its writer choose the nonce and the verifier.
+    #[test]
+    fn an_attempt_opens_only_while_live_for_its_state_and_sealed_as_one() {
+        use crate::crypto::SecretBox;
+        let secrets = SecretBox::load(
+            Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh"),
+            None,
+            std::path::Path::new("/nonexistent"),
         )
-        .execute(&pool)
-        .await
         .unwrap();
+        let now = chrono::Utc::now().timestamp();
+        let state = "s".repeat(64);
+        let attempt = |expires: i64, purpose: &str| Attempt {
+            purpose: purpose.into(),
+            state: state.clone(),
+            nonce: "n".into(),
+            verifier: "v".into(),
+            expires,
+        };
 
-        assert_eq!(purge_expired_flows(&pool).await.unwrap(), 1);
-        let left: Vec<String> =
-            sqlx::query_scalar("SELECT state FROM oidc_flows").fetch_all(&pool).await.unwrap();
-        assert_eq!(left, ["live"]);
+        let live = attempt(now + 600, PURPOSE).sealed(&secrets).unwrap();
+        assert!(Attempt::opened(&secrets, &live, &state).is_some());
+        assert!(Attempt::opened(&secrets, &live, &"t".repeat(64)).is_none(), "another state");
+        let stale = attempt(now - 1, PURPOSE).sealed(&secrets).unwrap();
+        assert!(Attempt::opened(&secrets, &stale, &state).is_none(), "past its ten minutes");
+        let other = attempt(now + 600, "notification").sealed(&secrets).unwrap();
+        assert!(Attempt::opened(&secrets, &other, &state).is_none(), "sealed for another use");
+        let clear = serde_json::to_string(&attempt(now + 600, PURPOSE)).unwrap();
+        assert!(Attempt::opened(&secrets, &clear, &state).is_none(), "written in clear");
+    }
+
+    /// A list of groups, or one written as a string, under the claim the
+    /// operator named.
+    #[test]
+    fn groups_are_read_under_the_claim_named() {
+        let claims = decode_claims(&jwt(serde_json::json!({
+            "iss": "https://idp", "sub": "u1", "exp": 1,
+            "groups": ["media", "admins"], "role": "family", "count": 3
+        })))
+        .unwrap();
+        assert_eq!(claims.groups("groups"), ["media", "admins"]);
+        assert_eq!(claims.groups("role"), ["family"]);
+        assert!(claims.groups("count").is_empty());
+        assert!(claims.groups("absent").is_empty());
     }
 }

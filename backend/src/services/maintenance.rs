@@ -311,8 +311,6 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     // Housekeeping rather than a guard: an expired row already fails the
     // lookup, this is what stops the table growing for ever.
     report.sessions_removed = super::accounts::purge_expired_sessions(pool).await?;
-    // Sign-in attempts nobody came back from, swept for the same reason.
-    super::oidc::purge_expired_flows(pool).await?;
 
     // `decisions` deliberately carries no foreign key on `media_id`: an applied
     // decision must outlive the media it moved, or the audit trail would erase

@@ -123,13 +123,25 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   Routarr answers to an address, `localhost` and the names
   `ROUTARR_ALLOWED_HOSTS` lists. In `external` mode the proxy decides which names
   reach it, so the port is bound to the proxy alone.
+- **The `oidc` mode lets in the people the operator names, and nobody else.**
+  A provider left at its defaults lets every account of its directory use
+  every client, and a family member's account for another service would sign
+  in with full access. Routarr compares the token's `sub`, which the provider
+  never changes, with `ROUTARR_OIDC_ALLOWED_SUBJECTS`, and its groups with
+  `ROUTARR_OIDC_ALLOWED_GROUPS`. Naming neither stops the start, unless
+  `ROUTARR_OIDC_ALLOW_ANYONE=true` says that every account of the provider may
+  sign in, which Diagnostics then states. A session records the person's name
+  beside their `sub`, since many providers let a person change the name.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
-  issuer, the audience, the expiry and the nonce it generated, and takes each
-  sign-in attempt out of the table as it is used, so an authorisation code
-  cannot be presented twice. The ID token's signature is deliberately not
-  verified: it arrives in the body of a request this server made to the token
-  endpoint over TLS with its client secret, which OpenID Connect Core §3.1.3.7
-  accepts in place of the signature for exactly this flow.
+  issuer, the audience, the expiry and the nonce it generated. An attempt
+  travels in a cookie sealed with the master key, so the public route that
+  starts one writes nothing on the server and a flood of them evicts nobody's
+  sign-in. The provider spends a code at its first exchange and the callback
+  clears the attempt's cookie, so a code cannot be presented twice. The ID
+  token's signature is deliberately not verified: it arrives in the body of a
+  request this server made to the token endpoint over TLS with its client
+  secret, which OpenID Connect Core §3.1.3.7 accepts in place of the signature
+  for exactly this flow.
 - **The API key and the webhook token are compared in constant time**
   (`subtle::ConstantTimeEq`), on both accepted header forms. A webhook token
   that does not match answers 404 rather than 401, so it does not confirm

@@ -46,12 +46,11 @@ pub enum AuthMode {
     /// client cannot hold a cookie, and a header is immune to the cross-site
     /// request forgery a cookie invites.
     Forms,
-    /// An OpenID Connect provider authenticates, and Routarr trusts its answer.
+    /// An OpenID Connect provider authenticates, and Routarr lets in the
+    /// subjects and the groups the operator names.
     ///
-    /// One level of access: whoever the provider lets through gets in, and
-    /// Routarr does not decide again. There is no group claim to read and no
-    /// user table to keep: what it records is the subject, as the actor on
-    /// every decision and write.
+    /// One level of access, and no user table to keep: what it records is the
+    /// subject, as the actor on every decision and write.
     Oidc,
     /// A reverse proxy authenticates, and Routarr asks for nothing.
     ///
@@ -253,6 +252,15 @@ pub struct Config {
     /// Where the provider sends the browser back. Absolute, because the
     /// provider compares it against what it was registered with.
     pub oidc_redirect_url: Option<String>,
+    /// The `sub` of each person let in. A provider left at its defaults lets
+    /// every account of its directory use every client, so Routarr decides.
+    pub oidc_allowed_subjects: Vec<String>,
+    /// The groups whose members are let in, read from `oidc_groups_claim`.
+    pub oidc_allowed_groups: Vec<String>,
+    pub oidc_groups_claim: String,
+    /// Lets in every account the provider authenticates, which the operator
+    /// has to say in so many words.
+    pub oidc_allow_anyone: bool,
     /// Explicit CORS allow-list. Empty means "same-origin only" (no CORS layer).
     pub cors_origins: Vec<String>,
     /// The host names Routarr answers to under `ROUTARR_AUTH=none`, beside an
@@ -387,6 +395,10 @@ impl Config {
             oidc_client_id: non_empty("ROUTARR_OIDC_CLIENT_ID"),
             oidc_client_secret: non_empty("ROUTARR_OIDC_CLIENT_SECRET"),
             oidc_redirect_url: non_empty("ROUTARR_OIDC_REDIRECT_URL"),
+            oidc_allowed_subjects: list("ROUTARR_OIDC_ALLOWED_SUBJECTS"),
+            oidc_allowed_groups: list("ROUTARR_OIDC_ALLOWED_GROUPS"),
+            oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
+            oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
             cors_origins: non_empty("ROUTARR_CORS_ORIGINS")
                 .map(|v| {
                     v.split(',')
@@ -560,6 +572,20 @@ impl Config {
         required(&self.oidc_client_id, CLIENT_ID)?;
         required(&self.oidc_client_secret, CLIENT_SECRET)?;
         let redirect = required(&self.oidc_redirect_url, REDIRECT)?;
+        if self.oidc_allowed_subjects.is_empty()
+            && self.oidc_allowed_groups.is_empty()
+            && !self.oidc_allow_anyone
+        {
+            const SUBJECTS: &str = "ROUTARR_OIDC_ALLOWED_SUBJECTS";
+            const GROUPS: &str = "ROUTARR_OIDC_ALLOWED_GROUPS";
+            const ANYONE: &str = "ROUTARR_OIDC_ALLOW_ANYONE";
+            return Err(AppError::Config(format!(
+                "With ROUTARR_AUTH=oidc and nobody named, every account the provider \
+                 authenticates would get full access. Set {SUBJECTS} to the sub of each person, \
+                 or {GROUPS} to the groups whose members may sign in, or {ANYONE}=true to let \
+                 every account of the provider in"
+            )));
+        }
         for (name, url) in [(ISSUER, issuer), (REDIRECT, redirect)] {
             if !reaches_over_tls(&url) {
                 return Err(AppError::Config(format!(
@@ -608,6 +634,10 @@ impl Config {
             oidc_client_id: None,
             oidc_client_secret: None,
             oidc_redirect_url: None,
+            oidc_allowed_subjects: vec![],
+            oidc_allowed_groups: vec![],
+            oidc_groups_claim: "groups".into(),
+            oidc_allow_anyone: false,
             cors_origins: vec![],
             allowed_hosts: vec![],
             trusted_proxies: vec![],
@@ -661,6 +691,15 @@ fn path_or(raw: Option<String>, default: impl FnOnce() -> PathBuf) -> PathBuf {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default)
+}
+
+/// A comma separated variable, each entry trimmed, the empty ones dropped.
+fn list(key: &str) -> Vec<String> {
+    non_empty(key)
+        .map(|value| {
+            value.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect()
+        })
+        .unwrap_or_default()
 }
 
 fn non_empty(key: &str) -> Option<String> {
@@ -951,7 +990,32 @@ mod tests {
         config.oidc_client_id = Some("routarr".into());
         config.oidc_client_secret = Some("shhh".into());
         config.oidc_redirect_url = Some("https://routarr.example/api/v1/auth/oidc/callback".into());
+        config.oidc_allowed_subjects = vec!["u-42".into()];
         config
+    }
+
+    /// A provider left at its defaults lets every account of its directory use
+    /// every client. Naming nobody, the mode would let all of them in with full
+    /// access, so it refuses to start unless the operator says who, or says
+    /// in so many words that anyone may.
+    #[test]
+    fn oidc_mode_without_an_allow_list_refuses_to_start_unless_told_to() {
+        let mut config = oidc_config();
+        config.oidc_allowed_subjects.clear();
+        let err = config.validate().unwrap_err().to_string();
+        for name in [
+            "ROUTARR_OIDC_ALLOWED_SUBJECTS",
+            "ROUTARR_OIDC_ALLOWED_GROUPS",
+            "ROUTARR_OIDC_ALLOW_ANYONE",
+        ] {
+            assert!(err.contains(name), "{name} missing from: {err}");
+        }
+
+        config.oidc_allowed_groups = vec!["media".into()];
+        assert!(config.validate().is_ok());
+        config.oidc_allowed_groups.clear();
+        config.oidc_allow_anyone = true;
+        assert!(config.validate().is_ok());
     }
 
     /// Each of the four is needed before anyone can sign in, and a start that

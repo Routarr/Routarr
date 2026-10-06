@@ -729,6 +729,13 @@ fn warn_on_insecure_defaults(state: &AppState) {
              bind it to the proxy's network and nowhere else."
         );
     }
+    if state.config.auth_mode == AuthMode::Oidc && state.config.oidc_allow_anyone {
+        warn!(
+            "ROUTARR_OIDC_ALLOW_ANYONE=true: every account the OpenID Connect provider \
+             authenticates signs in with full access. Name the people or the groups who may in \
+             ROUTARR_OIDC_ALLOWED_SUBJECTS or ROUTARR_OIDC_ALLOWED_GROUPS instead."
+        );
+    }
     if state.config.auth_mode == AuthMode::None {
         // Only reachable by asking for it, so this states a decision back to
         // whoever made it rather than reporting an omission.
