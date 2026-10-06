@@ -201,3 +201,42 @@ async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
     let facet = certification_facet(&app, "R").await;
     assert_eq!(facet["group"], "17 and over", "{facet}");
 }
+
+/// An upgrade gives every cached rating the system it was issued under where
+/// the source settles it, and has TMDb and TheTVDB asked again for theirs,
+/// which they rated for a region they did not name.
+#[tokio::test]
+async fn an_upgrade_gives_each_cached_rating_its_system() {
+    let pool = super::database_through("014_routing_generation").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, certification, expires_at)
+         VALUES ('omdb', 'tt1', 'movie', 'PG-13', '2099-01-01 00:00:00'),
+                ('omdb', 'tt2', 'movie', NULL, '2099-01-01 00:00:00'),
+                ('jikan', '5', 'series', 'R+', '2099-01-01 00:00:00'),
+                ('tmdb', '8', 'movie', 'PG', '2099-01-01 00:00:00'),
+                ('tvdb', '9', 'series', NULL, '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT source || ':' || external_id, certification_scale, expires_at <= datetime('now')
+           FROM metadata_cache ORDER BY source, external_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let expected = [
+        ("jikan:5", Some("MAL"), false),
+        ("omdb:tt1", Some("US"), false),
+        ("omdb:tt2", None, false),
+        ("tmdb:8", None, true),
+        ("tvdb:9", None, false),
+    ];
+    let rows: Vec<(&str, Option<&str>, bool)> =
+        rows.iter().map(|(key, scale, due)| (key.as_str(), scale.as_deref(), *due)).collect();
+    assert_eq!(rows, expected);
+}

@@ -229,6 +229,12 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
         state.jobs.start(JobKind::Maintenance, by, None, Detail::new("JobDetailPurging")).await?;
     let outcome = purge(state).await;
 
+    // The planner's statistics, which a connection the pool never closes
+    // would otherwise not refresh. Not part of the purge's success.
+    if let Err(e) = sqlx::query("PRAGMA optimize").execute(&state.pool).await {
+        warn!("Could not refresh the query planner's statistics: {e}");
+    }
+
     match &outcome {
         Ok(report) => {
             job.succeed(
@@ -417,16 +423,24 @@ async fn prune_resolutions(pool: &SqlitePool) -> AppResult<u64> {
         })
         .collect();
 
+    // A chunk at a time, each its own write: one transaction over them all
+    // holds the write lock for as long as the whole prune takes, and every
+    // sync, webhook and job outcome waits on it. A key a sync brings back
+    // meanwhile only costs the next search.
+    let stale: Vec<&str> =
+        keys.iter().map(|(key,)| key.as_str()).filter(|key| !live.contains(*key)).collect();
     let mut removed = 0;
-    let mut tx = pool.begin().await?;
-    for (key,) in keys.iter().filter(|(key,)| !live.contains(key)) {
-        removed += sqlx::query("DELETE FROM source_identifiers WHERE local_key = ?")
-            .bind(key)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+    for chunk in stale.chunks(crate::services::routing::BIND_CHUNK) {
+        let sql = format!(
+            "DELETE FROM source_identifiers WHERE local_key IN ({})",
+            crate::db::placeholders(chunk.len())
+        );
+        let mut query = sqlx::query(AssertSqlSafe(sql.as_str()));
+        for key in chunk {
+            query = query.bind(*key);
+        }
+        removed += query.execute(pool).await?.rows_affected();
     }
-    tx.commit().await?;
     Ok(removed)
 }
 
