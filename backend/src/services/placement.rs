@@ -155,16 +155,11 @@ pub async fn place(
     Ok(placement)
 }
 
-/// `None` for a series named by its TMDb id, which Sonarr's lookup does not
-/// take: only a copy the library holds answers for it.
 async fn looked_up(
     state: &AppState,
     instance: &Instance,
     id: &ExternalId,
 ) -> AppResult<Option<ArrMedia>> {
-    if instance.instance_type == "sonarr" && matches!(id, ExternalId::Tmdb(_)) {
-        return Ok(None);
-    }
     state.adapter(instance)?.lookup(id).await
 }
 

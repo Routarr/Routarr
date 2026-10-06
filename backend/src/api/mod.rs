@@ -125,7 +125,8 @@ pub struct Deleted {
     pub deleted: bool,
 }
 
-/// Standard pagination envelope shared by every list endpoint.
+/// The envelope of every paged list: the media, the decisions, the tasks and
+/// the move log.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Page<T> {
     pub data: Vec<T>,

@@ -2066,6 +2066,56 @@ async fn a_delivery_for_a_title_already_waiting_is_folded_into_it() {
     assert_eq!(reads, 1, "the title was synced once per delivery");
 }
 
+/// Rows tied on what a list sorts by (tasks started in one second, a run's
+/// decisions written at once, two films of one title) page in one total
+/// order, ties broken by id, whatever order they were written in: a row on
+/// two pages, or on none, is otherwise up to the query plan.
+#[tokio::test]
+async fn every_paged_list_breaks_its_ties_by_id() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut seeds = Vec::new();
+    for n in [2, 3, 1] {
+        seeds.push(format!(
+            "INSERT INTO jobs (id, kind, status, trigger, started_at)
+             VALUES ('j-{n}', 'sync', 'success', 'manual', '2026-10-06 10:00:00')"
+        ));
+        seeds.push(format!(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
+             VALUES ('m-tie-{n}', 'inst-1', {}, 'movie', 'Twin', 1, 1)",
+            900 + n
+        ));
+        seeds.push(format!(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                    target_category, action, status, decided_at)
+             VALUES ('d-{n}', 'm-tie-{n}', 'Twin', 'movie', 'inst-1', 'anime', 'move', 'pending',
+                     '2026-10-06 10:00:00')"
+        ));
+        seeds.push(format!(
+            "INSERT INTO execution_logs (id, action, success, executed_at)
+             VALUES ('l-{n}', 'move', 1, '2026-10-06 10:00:00')"
+        ));
+    }
+    for seed in &seeds {
+        sqlx::query(sqlx::AssertSqlSafe(seed.as_str())).execute(&app.state.pool).await.unwrap();
+    }
+
+    for (list, filter, expected) in [
+        ("/api/v1/jobs", "", ["j-3", "j-2", "j-1"]),
+        ("/api/v1/decisions", "&search=Twin", ["d-1", "d-2", "d-3"]),
+        ("/api/v1/logs", "", ["l-3", "l-2", "l-1"]),
+        ("/api/v1/media", "&search=Twin", ["m-tie-1", "m-tie-2", "m-tie-3"]),
+    ] {
+        let mut paged = Vec::new();
+        for page in 1..=3 {
+            let answer = app.get(&format!("{list}?per_page=1&page={page}{filter}")).await;
+            paged
+                .push(answer.assert_ok()["data"][0]["id"].as_str().unwrap_or_default().to_string());
+        }
+        assert_eq!(paged, expected, "{list}");
+    }
+}
+
 #[tokio::test]
 async fn irrelevant_webhook_events_are_ignored() {
     let app = TestApp::new().await;

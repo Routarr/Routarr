@@ -164,7 +164,7 @@ pub async fn list(
     }
 
     let list_sql = format!(
-        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM jobs WHERE 1=1{filters}");
 

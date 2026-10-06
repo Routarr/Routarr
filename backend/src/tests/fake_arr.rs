@@ -759,8 +759,8 @@ fn spirited_away() -> serde_json::Value {
     })
 }
 
-/// Series by a term, as Sonarr's lookup answers: Cowboy Bebop by its TheTVDB
-/// id, which the library holds, and nothing for any other term.
+/// Series by a term, as Sonarr's lookup answers: Cowboy Bebop, which the
+/// library holds, Mushishi, which it does not, and nothing for any other term.
 async fn series_lookup(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -770,8 +770,10 @@ async fn series_lookup(
     let term = query.get("term").cloned().unwrap_or_default();
     record_read(&state, &format!("/api/v3/series/lookup/{term}"));
     match term.as_str() {
-        "tvdb:76885" => Json(serde_json::json!([bebop(&state, 20)])),
-        "tvdb:81178" | "imdb:tt0807832" => Json(serde_json::json!([mushishi()])),
+        "tvdb:76885" | "tmdb:30991" => {
+            Json(serde_json::json!([as_series_looked_up(bebop(&state, 20))]))
+        }
+        "tvdb:81178" | "imdb:tt0807832" | "tmdb:26209" => Json(serde_json::json!([mushishi()])),
         _ => Json(serde_json::json!([])),
     }
 }
@@ -950,6 +952,14 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "certification": "TV-14"
     });
     laid_over(&state.series_edits, id, &mut series);
+    series
+}
+
+/// A held series as Sonarr's lookup answers it: its id, with statistics of
+/// zero and no root folder, which only `/series/{id}` reads in full.
+fn as_series_looked_up(mut series: serde_json::Value) -> serde_json::Value {
+    series["statistics"] = serde_json::json!({ "episodeFileCount": 0, "sizeOnDisk": 0 });
+    series.as_object_mut().expect("an object").remove("rootFolderPath");
     series
 }
 

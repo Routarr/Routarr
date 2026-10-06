@@ -334,12 +334,18 @@ async fn a_series_is_placed_through_sonarr() {
     let unknown = app.get("/api/v1/route?type=series&tvdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 
-    // Named by TMDb, a series is found in the library alone: Sonarr's lookup
-    // does not take that id, and saying so per instance is no answer.
+    // Named by TMDb, a series is found in the library, and one the library
+    // does not hold through Sonarr's lookup of a `tmdb:` term.
     let by_tmdb = app.get("/api/v1/route?type=series&tmdb=30991").await;
     let found = by_tmdb.assert_ok();
     assert_eq!(found["answers"].as_array().unwrap().len(), 1, "{found}");
     assert_eq!(found["errors"], serde_json::json!([]), "{found}");
+    let not_held = app.get("/api/v1/route?type=series&tmdb=26209").await;
+    let looked_up = only(not_held.assert_ok());
+    assert_eq!(
+        (looked_up["source"].as_str(), looked_up["title"].as_str()),
+        (Some("lookup"), Some("Mushishi"))
+    );
     let unknown = app.get("/api/v1/route?type=series&tmdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{:?}", unknown.json);
 }

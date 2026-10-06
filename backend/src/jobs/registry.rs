@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::task::TaskTracker;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::AppResult;
@@ -451,18 +451,28 @@ impl JobHandle {
         self.forget_cancel();
         let english = detail.english();
         info!(job_id = %self.id, kind = self.kind.as_str(), status, "Job finished: {english}");
-        let _ = sqlx::query(
-            "UPDATE jobs SET status = ?, detail = ?, detail_key = ?, detail_params = ?, result = ?,
-                    finished_at = datetime('now')
-              WHERE id = ?",
-        )
-        .bind(status)
-        .bind(&english)
-        .bind(detail.key)
-        .bind(detail.stored_params())
-        .bind(&self.result)
-        .bind(&self.id)
-        .execute(&self.pool)
+        let (id, result) = (self.id.clone(), self.result.clone());
+        let params = detail.stored_params();
+        record_outcome(self.pool.clone(), self.id.clone(), move |pool| {
+            let (id, english, params, result) =
+                (id.clone(), english.clone(), params.clone(), result.clone());
+            async move {
+                sqlx::query(
+                    "UPDATE jobs SET status = ?, detail = ?, detail_key = ?, detail_params = ?,
+                            result = ?, finished_at = datetime('now')
+                      WHERE id = ?",
+                )
+                .bind(status)
+                .bind(english)
+                .bind(detail.key)
+                .bind(params)
+                .bind(result)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .map(|_| ())
+            }
+        })
         .await;
     }
 
@@ -474,15 +484,52 @@ impl JobHandle {
         self.settled = true;
         self.forget_cancel();
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
-        let error = error.public_message();
-        let _ = sqlx::query(
-            "UPDATE jobs SET status = 'failed', error_message = ?, finished_at = datetime('now') WHERE id = ?",
-        )
-        .bind(error)
-        .bind(&self.id)
-        .execute(&self.pool)
+        let (id, error) = (self.id.clone(), error.public_message());
+        record_outcome(self.pool.clone(), self.id.clone(), move |pool| {
+            let (id, error) = (id.clone(), error.clone());
+            async move {
+                sqlx::query(
+                    "UPDATE jobs SET status = 'failed', error_message = ?,
+                            finished_at = datetime('now')
+                      WHERE id = ?",
+                )
+                .bind(error)
+                .bind(id)
+                .execute(&pool)
+                .await
+                .map(|_| ())
+            }
+        })
         .await;
     }
+}
+
+/// How long a job's outcome waits before it is written again.
+const OUTCOME_RETRY: Duration =
+    if cfg!(test) { Duration::from_millis(20) } else { Duration::from_secs(1) };
+
+/// Write a job's outcome, and again twice on a task of its own when the
+/// database refuses it: a busy database past its timeout would otherwise leave
+/// the task `running` until the next start, and a caller following it waiting
+/// for ever. The last refusal is logged.
+async fn record_outcome<W, F>(pool: SqlitePool, id: String, write: W)
+where
+    W: Fn(SqlitePool) -> F + Send + 'static,
+    F: std::future::Future<Output = Result<(), sqlx::Error>> + Send,
+{
+    let Err(first) = write(pool.clone()).await else { return };
+    warn!(job_id = %id, "The outcome of a job could not be written, trying again: {first}");
+    tokio::spawn(async move {
+        let mut last = first;
+        for _ in 0..2 {
+            tokio::time::sleep(OUTCOME_RETRY).await;
+            match write(pool.clone()).await {
+                Ok(()) => return,
+                Err(e) => last = e,
+            }
+        }
+        error!(job_id = %id, "The outcome of a job was never written: {last}");
+    });
 }
 
 impl JobHandle {
@@ -659,6 +706,45 @@ mod tests {
         assert!(registry.try_wait("webhook:inst-1", 2).is_some(), "the place came back");
 
         drop(second);
+    }
+
+    /// A busy database refusing a job's outcome leaves the task running for
+    /// ever unless the write is tried again: written once the database takes
+    /// it, and logged when it never does.
+    #[tokio::test]
+    async fn a_job_outcome_the_database_refuses_is_written_again_or_logged() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let capture = crate::tests::LogCapture::default();
+        let subscriber = tracing_subscriber::registry()
+            .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(capture.clone()));
+        let _logging = tracing::subscriber::set_default(subscriber);
+        let pool = crate::db::test_pool().await;
+        let registry = JobRegistry::new(pool.clone());
+        let by = super::super::Attribution::manual(None);
+        let detail = || Detail::new("JobDetailSyncing").with("instance", "Radarr");
+        let hide = "ALTER TABLE jobs RENAME TO jobs_away";
+        let restore = "ALTER TABLE jobs_away RENAME TO jobs";
+
+        let refused_once = registry.start(JobKind::Sync, &by, None, detail()).await.unwrap();
+        let id = refused_once.id.clone();
+        sqlx::query(hide).execute(&pool).await.unwrap();
+        refused_once.succeed(detail()).await;
+        sqlx::query(restore).execute(&pool).await.unwrap();
+        tokio::time::sleep(OUTCOME_RETRY * 3).await;
+        let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
+            .bind(&id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "success", "the outcome was not written again");
+
+        let refused = registry.start(JobKind::Sync, &by, None, detail()).await.unwrap();
+        let id = refused.id.clone();
+        sqlx::query(hide).execute(&pool).await.unwrap();
+        refused.succeed(detail()).await;
+        tokio::time::sleep(OUTCOME_RETRY * 4).await;
+        let logged = capture.contents();
+        assert!(logged.contains("was never written") && logged.contains(&id), "{logged}");
     }
 
     #[tokio::test]
