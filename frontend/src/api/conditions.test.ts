@@ -46,7 +46,7 @@ describe('defaultConditionValue', () => {
  * the picker refuses, or a pair the editor accepts and the server refuses.
  */
 const FOLDING: [string, string][] = JSON.parse(
-  readFileSync(join(process.cwd(), '../backend/src/services/normalise_value_cases.json'), 'utf8'),
+  readFileSync(join(process.cwd(), '../backend/src/services/rule_engine/normalise_value_cases.json'), 'utf8'),
 ) as [string, string][];
 
 describe('canonicalKey', () => {
