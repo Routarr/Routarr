@@ -734,7 +734,7 @@
   "SettingConfirmationThreshold": "Confirmation threshold",
   "SettingConfirmationThresholdHelp": "Above this many items, applying requires a second, explicit confirmation.",
   "SettingDecisionRetention": "Decision retention (days)",
-  "SettingDecisionRetentionHelp": "Pending and skipped decisions older than this are purged. A reverted move stays as long as its execution log. 0 disables the purge.",
+  "SettingDecisionRetentionHelp": "Pending, skipped and failed decisions older than this are purged. A reverted or failed move stays as long as its execution log. Superseded proposals go at once whatever this says. 0 keeps the rest.",
   "SettingDefaultCategory": "Default category",
   "SettingDefaultCategoryHelp": "Used when no rule matches a media item.",
   "SettingGlobalDryRun": "Global dry-run",

@@ -490,3 +490,30 @@ async fn the_same_event_only_proposes_when_auto_apply_is_off() {
     assert_eq!(body["auto_applied"], 0);
     assert!(arr.recorded().writes.is_empty(), "nothing may be written while auto-apply is off");
 }
+
+/// An Arr that refuses a title's move refuses it again at the next pass. An
+/// unattended pass leaves a title whose move failed within the day to a
+/// person, rather than retry it, fail and notify every quarter of an hour,
+/// and tries it again the day after.
+#[tokio::test]
+async fn a_title_whose_move_failed_is_not_retried_unattended_within_the_day() {
+    let arr = FakeArr::refusing_unimported_movie(500).await;
+    let app = TestApp::one_film_to_move(&arr, false).await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let pass = || async {
+        let simulation = app.simulate().await;
+        let by = crate::jobs::Attribution::unattended("schedule");
+        auto_apply::apply_simulation(&app.state, &simulation, &by).await.unwrap();
+        arr.recorded().query_strings.len()
+    };
+
+    let tried = pass().await;
+    assert!(tried > 0, "the first pass did not try the move");
+    assert_eq!(pass().await, tried, "a move that just failed was tried again unattended");
+
+    app.execute(&["UPDATE decisions SET decided_at = datetime('now', '-2 days')
+                   WHERE status = 'failed'"])
+        .await;
+    assert!(pass().await > tried, "a day later the move is not tried again");
+}

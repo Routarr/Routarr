@@ -252,8 +252,8 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
 }
 
 async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
-    let decision_days: i64 = state.setting("decision_retention_days", 30).await;
-    let log_days: i64 = state.setting("log_retention_days", 90).await;
+    let decision_days: i64 = state.bounding_setting("decision_retention_days", 30).await?;
+    let log_days: i64 = state.bounding_setting("log_retention_days", 90).await?;
     let pool = &state.pool;
 
     let mut report = MaintenanceReport::default();
@@ -277,35 +277,36 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     }
 
     if decision_days > 0 {
-        // Applied and failed decisions are the audit trail and are never purged
-        // here, whatever the window: only proposals age out, and superseded
-        // ones carry no history and go immediately.
+        // Applied decisions are the audit trail and are never purged here,
+        // whatever the window: proposals and failures age out.
         //
         // Every delete also spares a decision that carries an execution log.
         // `revert` sets a decision back to `skipped`, so a move that was really
-        // written and then undone looks exactly like a stale proposal. And
+        // written and then undone looks exactly like a stale proposal, and a
+        // failure is logged too: each goes with its last log. And
         // `execution_logs.decision_id` has no `ON DELETE` clause, so SQLite
         // would reject the delete and the *whole* maintenance run would fail,
-        // hourly and for ever. A decision that caused a write is history, not a
-        // proposal.
+        // hourly and for ever.
         report.decisions_removed = delete_older_than(
             pool,
             "DELETE FROM decisions WHERE decided_at < datetime('now', ?)
-                AND status IN ('pending', 'skipped')
+                AND status IN ('pending', 'skipped', 'failed')
                 AND NOT EXISTS (SELECT 1 FROM execution_logs e WHERE e.decision_id = decisions.id)",
             decision_days,
         )
         .await?;
-
-        report.decisions_removed +=
-            sqlx::query(
-                "DELETE FROM decisions WHERE superseded = 1 AND status = 'pending'
-                    AND NOT EXISTS (SELECT 1 FROM execution_logs e WHERE e.decision_id = decisions.id)",
-            )
-                .execute(pool)
-                .await?
-                .rows_affected();
     }
+
+    // A superseded proposal carries no history, and goes whatever the window:
+    // a retention of 0 keeps decisions, and a pass writing a row per move and
+    // per skip would otherwise grow the table without end.
+    report.decisions_removed += sqlx::query(
+        "DELETE FROM decisions WHERE superseded = 1 AND status = 'pending'
+            AND NOT EXISTS (SELECT 1 FROM execution_logs e WHERE e.decision_id = decisions.id)",
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
 
     // Housekeeping rather than a guard: an expired row already fails the
     // lookup, this is what stops the table growing for ever.
@@ -527,35 +528,42 @@ mod tests {
         .unwrap();
     }
 
-    /// A reverted move is named by its execution logs, so it stays as long as
-    /// they do, whatever the decision retention reads. It goes in the pass
-    /// that removes the last of them, not an hour later.
+    /// A reverted move and a failed one are named by their execution logs, so
+    /// they stay as long as the logs do, whatever the decision retention
+    /// reads. Each goes in the pass that removes the last of them, not an
+    /// hour later.
     #[tokio::test]
-    async fn a_reverted_move_goes_in_the_pass_that_removes_its_log() {
+    async fn a_reverted_or_failed_move_goes_in_the_pass_that_removes_its_log() {
         let state = crate::state::AppState::for_tests().await;
         seed_media(&state, "m-1").await;
         sqlx::query(
             "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
                 target_category, action, status, decided_at, reverted_at)
              VALUES ('d-1', 'm-1', 'T', 'movie', 'i1', 'anime', 'move', 'skipped',
-                     datetime('now', '-40 days'), datetime('now', '-40 days'))",
+                     datetime('now', '-40 days'), datetime('now', '-40 days')),
+                    ('d-2', 'm-1', 'T', 'movie', 'i1', 'anime', 'move', 'failed',
+                     datetime('now', '-40 days'), NULL)",
         )
         .execute(&state.pool)
         .await
         .unwrap();
-        for (id, action) in [("l-1", "move"), ("l-2", "revert")] {
+        for (id, decision, action, success) in
+            [("l-1", "d-1", "move", 1), ("l-2", "d-1", "revert", 1), ("l-3", "d-2", "move", 0)]
+        {
             sqlx::query(
                 "INSERT INTO execution_logs (id, decision_id, action, success, executed_at)
-                 VALUES (?, 'd-1', ?, 1, datetime('now', '-40 days'))",
+                 VALUES (?, ?, ?, ?, datetime('now', '-40 days'))",
             )
             .bind(id)
+            .bind(decision)
             .bind(action)
+            .bind(success)
             .execute(&state.pool)
             .await
             .unwrap();
         }
         let kept = || async {
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM decisions WHERE id = 'd-1'")
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM decisions")
                 .fetch_one(&state.pool)
                 .await
                 .unwrap()
@@ -571,41 +579,76 @@ mod tests {
 
         retain_logs("90").await.unwrap();
         purge(&state).await.unwrap();
-        assert_eq!(kept().await, 1, "a reverted move went while its log remained");
+        assert_eq!(kept().await, 2, "a move went while its log remained");
 
         retain_logs("30").await.unwrap();
         purge(&state).await.unwrap();
-        assert_eq!(kept().await, 0, "the reverted move outlived the log that named it");
+        assert_eq!(kept().await, 0, "a move outlived the log that named it");
     }
 
+    /// A superseded proposal carries no history and goes at once, a decision
+    /// retention of 0, which keeps the rest, included.
     #[tokio::test]
     async fn superseded_pending_decisions_are_purged_immediately() {
-        let state = AppState::for_tests().await;
-        // A decision always points at a real media row. Without one, the orphan
-        // purge would claim these before the superseded rule is exercised.
-        seed_media(&state, "m1").await;
+        for retention in ["30", "0"] {
+            let state = AppState::for_tests().await;
+            // A decision always points at a real media row. Without one, the
+            // orphan purge would claim these before the superseded rule is
+            // exercised.
+            seed_media(&state, "m1").await;
+            sqlx::query("INSERT OR REPLACE INTO settings (key, value) VALUES ('decision_retention_days', ?)")
+                .bind(retention)
+                .execute(&state.pool)
+                .await
+                .unwrap();
 
-        for (id, superseded, decided_at) in
-            [("keep-fresh", 0, "now"), ("drop-superseded", 1, "now")]
-        {
-            sqlx::query(
-                "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                 target_category, action, status, decided_at, superseded)
-                 VALUES (?, 'm1', 'T', 'movie', 'i1', 'standard', 'move', 'pending', datetime(?), ?)",
-            )
-            .bind(id)
-            .bind(decided_at)
-            .bind(superseded)
+            for (id, superseded) in [("keep-fresh", 0), ("drop-superseded", 1)] {
+                sqlx::query(
+                    "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                     target_category, action, status, decided_at, superseded)
+                     VALUES (?, 'm1', 'T', 'movie', 'i1', 'standard', 'move', 'pending',
+                             datetime('now'), ?)",
+                )
+                .bind(id)
+                .bind(superseded)
+                .execute(&state.pool)
+                .await
+                .unwrap();
+            }
+
+            purge(&state).await.unwrap();
+
+            let remaining: Vec<String> = sqlx::query_scalar("SELECT id FROM decisions")
+                .fetch_all(&state.pool)
+                .await
+                .unwrap();
+            assert_eq!(remaining, vec!["keep-fresh"], "retention {retention}");
+        }
+    }
+
+    /// A retention the database fails to read deletes nothing: taken for the
+    /// default, it would delete what a longer retention keeps.
+    #[tokio::test]
+    async fn a_retention_that_cannot_be_read_purges_nothing() {
+        let state = AppState::for_tests().await;
+        sqlx::query(
+            "INSERT INTO execution_logs (id, action, success, executed_at)
+             VALUES ('l-1', 'move', 1, datetime('now', '-400 days'))",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query("ALTER TABLE settings RENAME TO settings_unreadable")
             .execute(&state.pool)
             .await
             .unwrap();
-        }
 
-        purge(&state).await.unwrap();
-
-        let remaining: Vec<String> =
-            sqlx::query_scalar("SELECT id FROM decisions").fetch_all(&state.pool).await.unwrap();
-        assert_eq!(remaining, vec!["keep-fresh"]);
+        assert!(purge(&state).await.is_err(), "the purge went ahead");
+        let logs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM execution_logs")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
+        assert_eq!(logs, 1);
     }
 
     /// History outlives both its age and its media: `m1` is never seeded.

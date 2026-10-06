@@ -180,6 +180,23 @@ async fn only_the_retained_count_survives_a_prune() {
     assert!(!left.contains(&"routarr-backup-20260101-000000.zip".to_string()));
 }
 
+/// A retention count the database fails to read deletes nothing: taken for
+/// the default, it would delete the archives a larger count keeps.
+#[tokio::test]
+async fn a_retention_that_cannot_be_read_removes_nothing() {
+    let (app, dir) = app_with_files("retention-unread").await;
+    let backups = dir.join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    for day in 1..=10 {
+        std::fs::write(backups.join(format!("routarr-backup-202601{day:02}-000000.zip")), b"x")
+            .unwrap();
+    }
+    app.execute(&["ALTER TABLE settings RENAME TO settings_unreadable"]).await;
+
+    assert!(backup::prune(&app.state).await.is_err(), "the prune went ahead");
+    assert_eq!(backup::list(&app.state).len(), 10);
+}
+
 #[tokio::test]
 async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
     let (app, dir) = app_with_files("schema").await;

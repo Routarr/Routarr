@@ -374,9 +374,9 @@ async fn a_pass_over_titles_that_are_gone_reads_nothing_else() {
     let (result, statements) = statements_of(routing::run_simulation(&pool, options)).await;
 
     assert_eq!(result.unwrap().total_media, 0);
-    // The one query, and the check the pool makes of its connection before
-    // lending it.
-    assert!(statements <= 2, "a pass over no title read the library: {statements} statements");
+    // The one query in its read transaction, and the check the pool makes of
+    // its connection before lending it. A whole-library load is a dozen more.
+    assert!(statements <= 4, "a pass over no title read the library: {statements} statements");
 }
 
 /// A pass computes for seconds over a large library with nothing to wait on.

@@ -72,6 +72,7 @@
             "type": "integer"
           },
           "failed_decisions": {
+            "description": "Failed moves still asking for attention, as `/status` counts them.",
             "format": "int64",
             "type": "integer"
           },
@@ -2015,7 +2016,7 @@
             "type": "integer"
           },
           "result": {
-            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, and for a kind no call starts."
+            "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, for a kind no call starts, and in the list\nunless it asks for it."
           },
           "started_at": {
             "type": "string"
@@ -3102,7 +3103,7 @@
                   "type": "integer"
                 },
                 "result": {
-                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, and for a kind no call starts."
+                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, for a kind no call starts, and in the list\nunless it asks for it."
                 },
                 "started_at": {
                   "type": "string"
@@ -4489,6 +4490,7 @@
             "type": "boolean"
           },
           "failed_decisions": {
+            "description": "Failed moves still asking for attention: each its title's latest\ndecision, which no later run has settled.",
             "format": "int64",
             "type": "integer"
           },
@@ -5661,6 +5663,15 @@
               "format": "int32",
               "minimum": 0,
               "type": "integer"
+            }
+          },
+          {
+            "description": "`result` to have each task carry its report, as `GET /jobs/{job_id}`\ndoes. Left out, `result` is null in the list.",
+            "in": "query",
+            "name": "include",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],

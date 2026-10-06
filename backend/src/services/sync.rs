@@ -692,7 +692,7 @@ where
     .bind(item.monitored)
     .bind(item.has_files)
     .bind(&item.status)
-    .bind(&item.added)
+    .bind(item.added.as_deref().map(stored_shape))
     .bind(&item.series_type)
     .bind(item.size_on_disk)
     .bind(item.season_count)
@@ -724,6 +724,13 @@ where
 /// beside an error badge, describing data two days old. One column says the
 /// scheduler is running, the other says the library is current, and they are
 /// not the same question.
+/// A date as every stored timestamp is shaped, where the Arr wrote it in its
+/// own, and as it came when it cannot be read.
+fn stored_shape(raw: &str) -> String {
+    crate::services::routing::parse_timestamp(raw)
+        .map_or_else(|| raw.to_string(), crate::services::routing::format_timestamp)
+}
+
 async fn update_sync_status(pool: &SqlitePool, instance_id: &str, status: &str) {
     let succeeded = status == "success";
     let _ = sqlx::query(

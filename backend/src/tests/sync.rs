@@ -127,8 +127,8 @@ async fn sync_populates_media_and_root_folders() {
     assert_eq!(report.media, 1);
     assert_eq!(report.root_folders, 3);
 
-    let (id, root, has_files): (String, String, bool) =
-        sqlx::query_as("SELECT id, current_root_folder, has_files FROM media")
+    let (id, root, has_files, added): (String, String, bool, String) =
+        sqlx::query_as("SELECT id, current_root_folder, has_files, added_at FROM media")
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
@@ -136,6 +136,8 @@ async fn sync_populates_media_and_root_folders() {
     assert_eq!(id, "m-inst-1-10", "local ids are derived from the instance and arr id");
     assert_eq!(root, "/movies/standard");
     assert!(has_files);
+    // The one shape every stored timestamp has, whatever the Arr wrote.
+    assert_eq!(added, "2026-08-20 10:00:00");
 }
 
 #[tokio::test]

@@ -392,7 +392,7 @@ pub async fn prune(state: &AppState) -> AppResult<usize> {
     // Read as stored, a value above the ceiling included: lowering a retention
     // count removes archives, so only the operator's own save does (see
     // `settings::Kind::Retention`).
-    let keep: usize = state.setting("backup_retention_count", 7usize).await.max(1);
+    let keep: usize = state.bounding_setting("backup_retention_count", 7usize).await?.max(1);
     let files = list(state);
     if files.len() <= keep {
         return Ok(0);

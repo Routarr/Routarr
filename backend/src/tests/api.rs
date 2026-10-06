@@ -1544,6 +1544,44 @@ async fn a_titles_tags_and_genres_read_as_lists() {
     assert_eq!(media["tags"], r#"["4K","Kids"]"#, "{media}");
 }
 
+/// A failed move asks for attention while it is still its title's word: a
+/// later decision about the title, or a run that read it since, settles it.
+#[tokio::test]
+async fn a_failed_move_stops_counting_once_the_title_is_settled() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          target_category, action, status, decided_at)
+                   VALUES ('d-failed', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
+                           'failed', '2026-09-01 10:00:00')"])
+        .await;
+    let failed = || {
+        let app = &app;
+        async move {
+            let status = app.get("/api/v1/status").await.assert_ok()["failed_decisions"].clone();
+            let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
+            assert_eq!(health["stats"]["failed_decisions"], status, "{health}");
+            status
+        }
+    };
+    assert_eq!(failed().await, 1);
+
+    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                          target_category, action, status, decided_at)
+                   VALUES ('d-applied', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
+                           'applied', '2026-09-01 11:00:00')"])
+        .await;
+    assert_eq!(failed().await, 0, "a later move left the failure counting");
+
+    app.execute(&[
+        "DELETE FROM decisions WHERE id = 'd-applied'",
+        "INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
+         VALUES ('m-1', 'anime', 1, '2026-09-02 10:00:00')",
+    ])
+    .await;
+    assert_eq!(failed().await, 0, "a later run left the failure counting");
+}
+
 /// An upgrade drops the column and keeps every override.
 #[tokio::test]
 async fn an_upgrade_drops_the_override_lock_and_keeps_the_override() {
@@ -2862,12 +2900,12 @@ async fn purging_removes_what_outlived_its_retention_and_reports_it() {
 
     assert_eq!(report["logs_removed"], 1, "{report}");
     assert_eq!(report["jobs_removed"], 1, "{report}");
-    assert_eq!(report["decisions_removed"], 1, "{report}");
+    assert_eq!(report["decisions_removed"], 2, "{report}");
     for (table, kept) in [
         ("execution_logs", vec!["log-new"]),
         ("jobs", vec!["job-new", "job-running"]),
-        // A failed move is the audit trail, whatever its age.
-        ("decisions", vec!["d-failed-old", "d-new"]),
+        // A failed move with no log left ages out, as a proposal does.
+        ("decisions", vec!["d-new"]),
     ] {
         let left: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
             "SELECT id FROM {table} WHERE id LIKE '%-old' OR id LIKE '%-new' OR id LIKE '%-running'

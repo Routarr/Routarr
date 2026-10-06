@@ -84,7 +84,7 @@ pub(super) async fn guard_batch_limit(state: &AppState, count: usize) -> AppResu
         return Err(AppError::BadRequest(localizer.translate("ErrorNoSelection", &[])));
     }
 
-    let batch_limit: usize = state.setting("batch_limit", 50usize).await;
+    let batch_limit: usize = state.bounding_setting("batch_limit", 50usize).await?;
     if count > batch_limit {
         return Err(AppError::BadRequest(localizer.translate(
             "ErrorBatchLimit",
@@ -101,7 +101,7 @@ pub(super) async fn guard_confirmation(
     confirmed: &Confirmed,
 ) -> AppResult<()> {
     let localizer = state.localizer().await;
-    let threshold: usize = state.setting("confirmation_threshold", 10usize).await;
+    let threshold: usize = state.bounding_setting("confirmation_threshold", 10usize).await?;
     if count > threshold && !confirmed.has(confirm::THRESHOLD) {
         return Err(AppError::ConfirmationRequired {
             includes: Vec::new(),

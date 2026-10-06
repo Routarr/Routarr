@@ -475,9 +475,9 @@ async fn store_metadata(
     data: &ProviderMetadata,
     ttl_days: i64,
 ) -> AppResult<()> {
-    let expires_at = (Utc::now() + chrono::Duration::days(ttl_days.max(1)))
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string();
+    let expires_at = crate::services::routing::format_timestamp(
+        Utc::now() + chrono::Duration::days(ttl_days.max(1)),
+    );
 
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
@@ -528,11 +528,14 @@ pub async fn resolve_for_media(
     media: &crate::models::Media,
 ) -> AppResult<Option<crate::models::MediaMetadata>> {
     let providers = state.metadata_order().await;
-    let identifiers =
-        metadata::load_identifiers_of(&state.pool, std::slice::from_ref(media)).await?;
-    let cache =
-        metadata::load_cache_of(&state.pool, std::slice::from_ref(media), &providers, &identifiers)
-            .await?;
+    let (identifiers, cache) = {
+        let mut connection = state.pool.acquire().await?;
+        let title = std::slice::from_ref(media);
+        let identifiers = metadata::load_identifiers_of(&mut connection, title).await?;
+        let cache =
+            metadata::load_cache_of(&mut connection, title, &providers, &identifiers).await?;
+        (identifiers, cache)
+    };
     let regions = AppState::certification_regions_from(&state.settings().await);
     let country: Option<String> =
         sqlx::query_scalar("SELECT certification_country FROM instances WHERE id = ?")

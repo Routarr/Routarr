@@ -557,10 +557,10 @@ pub fn local_key_of(
 /// Resolutions already made, including the ones that found nothing.
 pub type Identifiers = HashMap<(String, String, String), Option<String>>;
 
-pub async fn load_identifiers(pool: &SqlitePool) -> AppResult<Identifiers> {
+pub async fn load_identifiers(connection: &mut sqlx::SqliteConnection) -> AppResult<Identifiers> {
     let rows: Vec<(String, String, String, Option<String>)> =
         sqlx::query_as("SELECT source, media_type, local_key, external_id FROM source_identifiers")
-            .fetch_all(pool)
+            .fetch_all(connection)
             .await?;
 
     Ok(rows
@@ -570,7 +570,10 @@ pub async fn load_identifiers(pool: &SqlitePool) -> AppResult<Identifiers> {
 }
 
 /// The resolutions made for one item, which is all one media page reads.
-pub async fn load_identifiers_of(pool: &SqlitePool, media: &[Media]) -> AppResult<Identifiers> {
+pub async fn load_identifiers_of(
+    connection: &mut sqlx::SqliteConnection,
+    media: &[Media],
+) -> AppResult<Identifiers> {
     let mut keys: HashMap<&str, Vec<String>> = HashMap::new();
     for item in media {
         keys.entry(item.media_type.as_str()).or_default().push(local_key(item));
@@ -592,7 +595,7 @@ pub async fn load_identifiers_of(pool: &SqlitePool, media: &[Media]) -> AppResul
             }
             identifiers.extend(
                 query
-                    .fetch_all(pool)
+                    .fetch_all(&mut *connection)
                     .await?
                     .into_iter()
                     .map(|(source, kind, key, external)| ((source, kind, key), external)),
@@ -740,7 +743,7 @@ impl CacheRow {
 /// Loaded whole, once per simulation: the alternative is one query per item and
 /// per source, which the query count in `tests/scale.rs` refuses.
 pub async fn load_cache(
-    pool: &SqlitePool,
+    connection: &mut sqlx::SqliteConnection,
 ) -> AppResult<std::collections::HashMap<(String, String, String), ProviderMetadata>> {
     /// The evaluated columns and nothing else. A named `FromRow` for the same
     /// reason `CacheRow` is one: sqlx has no compile-time macros here, so a
@@ -760,7 +763,7 @@ pub async fn load_cache(
 
     let rows: Vec<EvaluatedRow> =
         sqlx::query_as(AssertSqlSafe(format!("SELECT {EVALUATED_COLUMNS} FROM metadata_cache")))
-            .fetch_all(pool)
+            .fetch_all(connection)
             .await?;
 
     Ok(rows
@@ -793,7 +796,7 @@ pub async fn load_cache(
 /// per source and media type that holds an identifier for an item, its ids
 /// bound in chunks.
 pub async fn load_cache_of(
-    pool: &SqlitePool,
+    connection: &mut sqlx::SqliteConnection,
     media: &[Media],
     providers: &[&'static ProviderInfo],
     identifiers: &Identifiers,
@@ -827,7 +830,7 @@ pub async fn load_cache_of(
                 for id in chunk {
                     query = query.bind(id);
                 }
-                for row in query.fetch_all(pool).await? {
+                for row in query.fetch_all(&mut *connection).await? {
                     let key = (provider.id.to_string(), row.external_id, kind.to_string());
                     cache.insert(key, row.answer.into_answer());
                 }

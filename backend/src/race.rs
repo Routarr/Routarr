@@ -1,12 +1,14 @@
-//! A point between a check and the write it guards.
+//! A point between a check and the write it guards, or between two reads that
+//! have to agree.
 //!
 //! Nothing in a build that is not a test. A test holds one request there and
-//! sends another, which proves that no write slips between the two: the check
+//! sends another, which proves that nothing slips between the two: the check
 //! and its write share one transaction taken for writing from its start
-//! (`db::write_transaction`).
+//! (`db::write_transaction`), and the reads one transaction reading one moment.
 
-/// Reached once the check about `subject` (a category name) has passed and
-/// before the write it guards. `point` names the check.
+/// Reached once the check or the first read about `subject` (a category name,
+/// a run's trigger, a rule id) is done, before what has to agree with it.
+/// `point` names the place.
 #[cfg(not(test))]
 pub async fn checked(_point: &'static str, _subject: &str) {}
 

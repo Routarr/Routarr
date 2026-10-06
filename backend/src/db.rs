@@ -38,6 +38,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("../migrations/023_constraints_the_code_keeps.sql"),
     ),
     ("024_opened_by_schema", include_str!("../migrations/024_opened_by_schema.sql")),
+    (
+        "025_added_dates_stored_shape",
+        include_str!("../migrations/025_added_dates_stored_shape.sql"),
+    ),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.

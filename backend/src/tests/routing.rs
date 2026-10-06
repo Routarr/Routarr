@@ -114,7 +114,9 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     .await
     .unwrap();
 
-    let cache = crate::services::metadata::load_cache(&app.state.pool).await.unwrap();
+    let cache = crate::services::metadata::load_cache(&mut app.state.pool.acquire().await.unwrap())
+        .await
+        .unwrap();
     let answer = cache
         .get(&("tmdb".to_string(), "129".to_string(), "movie".to_string()))
         .expect("the row is in the cache");
@@ -820,4 +822,28 @@ async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
         ]
     );
     assert_eq!(days("r-2"), [crate::models::Condition::AddedWithinDays(30)]);
+}
+
+/// An upgrade gives every title's added date the shape every stored timestamp
+/// has, as the Arr wrote it in its own.
+#[tokio::test]
+async fn an_upgrade_gives_each_added_date_the_stored_shape() {
+    let pool = crate::tests::database_through("024_opened_by_schema").await;
+    for statement in [
+        crate::tests::AN_INSTANCE,
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, added_at)
+         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', '2026-08-19T08:30:00Z'),
+                ('m-2', 'inst-1', 11, 'movie', 'Heat', '2026-08-19 08:30:00'),
+                ('m-3', 'inst-1', 12, 'movie', 'Akira', 'not a date')",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let added: Vec<String> = sqlx::query_scalar("SELECT added_at FROM media ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(added, ["2026-08-19 08:30:00", "2026-08-19 08:30:00", "not a date"]);
 }
