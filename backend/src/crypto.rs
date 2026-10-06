@@ -238,16 +238,20 @@ fn key_from_file(key_path: &Path) -> AppResult<String> {
 }
 
 /// The salt a passphrase given as the master key is stretched with, one per
-/// installation, made by a migration and kept in the database.
+/// installation, made by a migration and kept in the database. A database
+/// without it has been edited by hand: a new salt would leave every value it
+/// sealed unreadable, so the start stops.
 pub async fn installation_salt(pool: &sqlx::SqlitePool) -> AppResult<String> {
-    if let Some(salt) =
-        sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1").fetch_optional(pool).await?
-    {
-        return Ok(salt);
-    }
-    let salt = generate_secret()?[..32].to_string();
-    sqlx::query("INSERT INTO secret_salt (salt) VALUES (?)").bind(&salt).execute(pool).await?;
-    Ok(salt)
+    sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1")
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(|| {
+            AppError::Config(
+                "the database holds no salt in secret_salt, which every stored secret is opened \
+                 with. Restore the database from a backup"
+                    .into(),
+            )
+        })
 }
 
 /// 32 bytes of OS randomness, hex-encoded.

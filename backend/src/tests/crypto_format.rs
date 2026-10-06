@@ -180,3 +180,19 @@ fn a_master_key_file_that_cannot_be_read_is_refused_and_left_as_it_is() {
     SecretBox::load(None, None, &path, None).unwrap();
     assert!(path.exists());
 }
+
+/// Every value a passphrase sealed is opened with the installation's salt.
+/// A database without it has been edited by hand, and a new salt would leave
+/// all of them unreadable: the start stops instead.
+#[tokio::test]
+async fn a_database_without_its_salt_refuses_to_start() {
+    let dir = super::TempDir::new("no-salt");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    let (_, pool, _) = crate::open_storage(&config).await.unwrap();
+    sqlx::query("DELETE FROM secret_salt").execute(&pool).await.unwrap();
+    pool.close().await;
+
+    let refused = crate::open_storage(&config).await.err().map(|e| e.to_string());
+    assert!(refused.as_deref().is_some_and(|e| e.contains("secret_salt")), "{refused:?}");
+}
