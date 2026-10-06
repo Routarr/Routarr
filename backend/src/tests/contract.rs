@@ -283,36 +283,33 @@ async fn every_documented_operation_answers_as_its_schema_says() {
     });
     followed.await.expect("the sync was never followed");
 
-    // The answers that do not wait, each a schema of its own.
-    let pending = app.get("/api/v1/decisions?status=pending").await;
-    let ids: Vec<Value> =
-        pending.json["data"].as_array().unwrap().iter().map(|d| d["id"].clone()).collect();
+    // The answers that do not wait, each a schema of its own: a proposal the
+    // pass after the sync wrote, applied, reverted, then proposed again by a
+    // fresh simulation and applied whole.
     let proposals = app.post("/api/v1/simulate", json!({ "persist": true })).await;
     assert_eq!(proposals.status, StatusCode::OK, "{}", proposals.json);
-    for (route, body) in [
-        ("/simulate", json!({ "persist": false })),
-        (
-            "/decisions/apply",
-            json!({ "decision_ids": [ids[0].clone()], "confirm": every_guardrail }),
-        ),
-        (
-            "/decisions/revert",
-            json!({ "decision_ids": [ids[0].clone()], "confirm": every_guardrail }),
-        ),
-        (
-            "/decisions/apply-all",
-            json!({ "simulation_id": proposals.json["simulation_id"], "confirm": every_guardrail }),
-        ),
-    ] {
-        let request = axum::http::Request::post(format!("/api/v1{route}"))
+    let proposed = proposals.json["decisions"][0]["id"].clone();
+    let asynchronously = |route: &str, body: Value| {
+        axum::http::Request::post(format!("/api/v1{route}"))
             .header("prefer", "respond-async")
             .header("content-type", "application/json")
             .body(axum::body::Body::from(body.to_string()))
-            .unwrap();
-        let started = app.send(request).await;
+            .unwrap()
+    };
+    for (route, body) in [
+        ("/simulate", json!({ "persist": false })),
+        ("/decisions/apply", json!({ "decision_ids": [proposed], "confirm": every_guardrail })),
+        ("/decisions/revert", json!({ "decision_ids": [proposed], "confirm": every_guardrail })),
+    ] {
+        let started = app.send(asynchronously(route, body)).await;
         checker.check("POST", route, 202, &started);
         finished(&app, started.json["job_id"].as_str().unwrap()).await;
     }
+    let again = app.post("/api/v1/simulate", json!({ "persist": true })).await;
+    let body = json!({ "simulation_id": again.json["simulation_id"], "confirm": every_guardrail });
+    let started = app.send(asynchronously("/decisions/apply-all", body)).await;
+    checker.check("POST", "/decisions/apply-all", 202, &started);
+    finished(&app, started.json["job_id"].as_str().unwrap()).await;
     // Last: the simulation that follows a sync holds the lock the ones above take.
     let started = app.send(preferring_async("/api/v1/instances/sync", json!({}))).await;
     checker.check("POST", "/instances/sync", 202, &started);

@@ -1,7 +1,7 @@
 pub mod registry;
 pub mod scheduler;
 
-pub use registry::{Detail, JobHandle, JobKind, JobRegistry, Progress, announcing};
+pub use registry::{Detail, JobHandle, JobKind, JobRegistry, Progress, Stop, announcing};
 
 /// Run work that writes on a task of its own, and wait for it.
 ///
@@ -11,12 +11,13 @@ pub use registry::{Detail, JobHandle, JobKind, JobRegistry, Progress, announcing
 /// does: an apply the Arr has performed is recorded, a sync that read the
 /// library stores it. Spawned, the work keeps its lock and its job handle, so
 /// the next caller still waits its turn and the Tasks screen sees it finish.
-pub async fn detached<T, F>(work: F) -> crate::error::AppResult<T>
+/// The registry tracks it, so a stop of the server waits for it too.
+pub async fn detached<T, F>(jobs: &JobRegistry, work: F) -> crate::error::AppResult<T>
 where
     F: std::future::Future<Output = crate::error::AppResult<T>> + Send + 'static,
     T: Send + 'static,
 {
-    tokio::spawn(work).await.map_err(|e| {
+    jobs.spawn_tracked(work).await.map_err(|e| {
         crate::error::AppError::Internal(format!("the task ended before it reported: {e}"))
     })?
 }

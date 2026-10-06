@@ -578,9 +578,12 @@ mod tests {
             .1;
         let shutdown =
             after_serving.split_once("Routarr stopped cleanly").expect("main says it stopped").0;
+        let (drained, closed) = shutdown
+            .split_once("db::checkpoint_and_close(&pool)")
+            .unwrap_or_else(|| panic!("main stops without folding the log back:\n{shutdown}"));
         assert!(
-            shutdown.contains("db::checkpoint_and_close(&pool)"),
-            "main stops without folding the log back:\n{shutdown}"
+            drained.contains("jobs.drain(") && !closed.contains("jobs.drain("),
+            "main closes the database before the moves in flight are recorded:\n{shutdown}"
         );
     }
 

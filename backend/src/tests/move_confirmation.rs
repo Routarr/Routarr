@@ -124,6 +124,66 @@ async fn a_requested_move_the_arr_undid_is_failed_by_the_next_sync() {
     assert_eq!(totoro_path(&app).await, BEFORE);
 }
 
+/// A title the Arr stopped holding while its move ran is gone from the
+/// library after the next sync, and its requested move fails saying so.
+#[tokio::test]
+async fn a_requested_move_whose_title_is_gone_is_failed_by_the_next_sync() {
+    let arr = FakeArr::start().await;
+    arr.moving_for(Duration::from_millis(300));
+    let app = TestApp::films_to_move(&arr, 1).await.with_move_wait(Duration::from_millis(100));
+    app.simulate().await;
+    let decision_id: String =
+        sqlx::query_scalar("SELECT id FROM decisions WHERE media_id = 'm-0' AND superseded = 0")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    apply_with_files(&app, &decision_id).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    arr.forget_movie(100);
+
+    sync(&app).await;
+
+    let (status, reason) = decision(&app, &decision_id).await;
+    assert_eq!(status, "failed", "{reason:?}");
+    assert!(reason.unwrap_or_default().contains("no longer holds"));
+}
+
+/// A revert still moving when the run stopped waiting is settled the same
+/// way: once the Arr holds the title back where it came from, it is undone.
+#[tokio::test]
+async fn a_requested_revert_is_settled_by_the_next_sync() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    let app = app.with_move_wait(Duration::from_millis(100));
+    executor::apply_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    arr.moving_for(Duration::from_millis(300));
+
+    let reverted = executor::revert_decisions(
+        &app.state,
+        std::slice::from_ref(&decision_id),
+        true,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(reverted.moving, 1, "{reverted:?}");
+    assert_eq!(decision(&app, &decision_id).await.0, "requested");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    sync(&app).await;
+    assert_eq!(decision(&app, &decision_id).await.0, "skipped");
+    assert_eq!(totoro_path(&app).await, BEFORE);
+}
+
 /// The decision says `requested` before the write leaves: a stop or a crash
 /// between the Arr's answer and the record then leaves a move the next sync
 /// settles from what the Arr holds, rather than one nobody recorded.
@@ -168,7 +228,7 @@ async fn a_move_answered_after_the_timeout_is_recorded_from_what_the_arr_holds()
 
     let report = executor::apply_decisions(
         &app.state,
-        &[decision_id.clone()],
+        std::slice::from_ref(&decision_id),
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),

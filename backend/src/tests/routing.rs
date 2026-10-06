@@ -719,3 +719,36 @@ async fn the_plan_weighs_what_each_folder_receives() {
         ]
     );
 }
+
+/// Two destinations reporting the same free space are one volume, and the
+/// forecast weighs what they receive together, as the apply's guard does.
+#[tokio::test]
+async fn two_destinations_on_one_volume_are_forecast_together() {
+    let app = TestApp::new().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+        "INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime'), ('cat-kids', 'kids')",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category, free_space)
+         VALUES ('rf-s', 'inst-1', 1, '/movies/standard', 1, 'standard', 9000),
+                ('rf-a', 'inst-1', 2, '/movies/anime', 1, 'anime', 2000),
+                ('rf-k', 'inst-1', 3, '/movies/kids', 1, 'kids', 2000)",
+        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, target_category,
+                            match_mode)
+         VALUES ('r-a', 'Anime', 10, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]', 'anime', 'all'),
+                ('r-k', 'Kids', 20, 1, 'both',
+                 '[{\"type\":\"genre_contains\",\"value\":[\"Family\"]}]', 'kids', 'all')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            size_on_disk, genres, monitored, has_files)
+         VALUES ('m-1', 'inst-1', 1, 'movie', 'One', '/movies/standard', 1500, '[\"Animation\"]', 1, 1),
+                ('m-2', 'inst-1', 2, 'movie', 'Two', '/movies/standard', 1000, '[\"Family\"]', 1, 1)",
+    ])
+    .await;
+
+    let plan = simulate(&app, SimulationOptions::default()).await;
+
+    let fits: Vec<(String, bool)> =
+        plan.capacity.iter().map(|c| (c.path.clone(), c.fits)).collect();
+    assert_eq!(fits, [("/movies/anime".into(), false), ("/movies/kids".into(), false)]);
+}

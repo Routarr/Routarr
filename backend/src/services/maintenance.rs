@@ -441,7 +441,7 @@ async fn delete_older_than(pool: &SqlitePool, sql: &'static str, days: i64) -> A
 #[cfg(test)]
 mod tests {
 
-    /// Reverting sets a decision to `skipped` (executor.rs), and a reverted
+    /// Reverting sets a decision to `skipped` (`services::executor`), and a reverted
     /// decision necessarily carries the `move` and `revert` execution logs. The
     /// purge targets `skipped`, `execution_logs.decision_id` has no `ON DELETE`
     /// clause, and `foreign_keys` is ON, so deleting that decision is rejected

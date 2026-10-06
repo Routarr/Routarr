@@ -221,6 +221,22 @@
           "skipped": {
             "minimum": 0,
             "type": "integer"
+          },
+          "stopped": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopReason",
+                "description": "Why the run ended before its last move, `null` when it ran through.\nWhat was not attempted is still pending, or still applied for a revert."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "superseded": {
+            "description": "Selected proposals a newer simulation replaced with a different move,\nnot applied. One replaced by the same move is applied through it.",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -229,6 +245,7 @@
           "failed",
           "skipped",
           "moving",
+          "superseded",
           "errors"
         ],
         "type": "object"
@@ -306,13 +323,34 @@
             "minimum": 0,
             "type": "integer"
           },
+          "moving": {
+            "description": "Moves of files the Arr was still making when the run stopped waiting,\nas in `ApplyReport`.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "skipped": {
             "minimum": 0,
             "type": "integer"
           },
+          "stopped": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/StopReason",
+                "description": "Why the run was stopped, `null` when it was not."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "stopped_early": {
-            "description": "True when the Arr refused a slice whole, or one could not be read once\nothers had moved titles, and the remaining ones were abandoned.",
+            "description": "True when the Arr refused a slice whole, one could not be read once\nothers had moved titles, or the run was stopped, and the remaining\nones were abandoned.",
             "type": "boolean"
+          },
+          "superseded": {
+            "description": "Proposals of the simulation a newer one replaced with a different\nmove, not applied.",
+            "minimum": 0,
+            "type": "integer"
           }
         },
         "required": [
@@ -322,6 +360,8 @@
           "skipped",
           "batches_run",
           "batches_planned",
+          "moving",
+          "superseded",
           "stopped_early",
           "errors"
         ],
@@ -1920,7 +1960,7 @@
             "type": "string"
           },
           "status": {
-            "description": "`running`, `success` or `failed`.",
+            "description": "`running`, `success`, `failed`, or `cancelled` for an apply or a\nrevert somebody stopped.",
             "type": "string"
           },
           "subject": {
@@ -2958,7 +2998,7 @@
                   "type": "string"
                 },
                 "status": {
-                  "description": "`running`, `success` or `failed`.",
+                  "description": "`running`, `success`, `failed`, or `cancelled` for an apply or a\nrevert somebody stopped.",
                   "type": "string"
                 },
                 "subject": {
@@ -4308,6 +4348,15 @@
           "warnings"
         ],
         "type": "object"
+      },
+      "StopReason": {
+        "description": "Why a run that moves titles ended before its last move.",
+        "enum": [
+          "dry_run",
+          "cancelled",
+          "shutdown"
+        ],
+        "type": "string"
       },
       "SyncReport": {
         "description": "Result of syncing one instance.",

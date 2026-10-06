@@ -854,6 +854,28 @@ async fn a_declared_destination_inherits_from_the_folder_it_sits_under() {
     assert!(!accessible, "nor its parent's reachability");
 }
 
+/// `/movies/anime/../kids` is `/movies/kids`, whatever its letters say: it
+/// would take the free space and reachability of a folder it is not under.
+#[tokio::test]
+async fn a_destination_with_a_parent_segment_is_refused() {
+    let app = TestApp::new().await;
+    // An Arr that cannot be asked does not block a save, so the refusal is
+    // this one alone.
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+
+    let refused = app
+        .post(
+            "/api/v1/root-folders",
+            serde_json::json!({ "instance_id": "i-1", "path": "/movies/anime/../kids" }),
+        )
+        .await;
+
+    assert_eq!(refused.status, 400, "{}", refused.json);
+    let message = refused.message();
+    assert!(message.contains("without") && message.contains("/movies/anime/../kids"), "{message}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM root_folders").await, 0);
+}
+
 /// A path the instance cannot see is refused at the point it is typed.
 ///
 /// Routarr and the Arr run in different containers as often as not, so

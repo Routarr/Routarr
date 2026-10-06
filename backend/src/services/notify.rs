@@ -50,7 +50,7 @@ pub enum Event {
     /// `notify_simulation_completed`.
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
     /// An apply or a revert finished. Asked for by `notify_moves_completed`.
-    MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize },
+    MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize, moving: usize },
     /// Sent from Settings to check the address and the format.
     Test,
 }
@@ -126,8 +126,9 @@ impl Event {
             Event::SimulationCompleted { total, moves, .. } => {
                 format!("Routarr simulated the library. Titles: {total}, moves proposed: {moves}.")
             }
-            Event::MovesCompleted { reverted, applied, failed, skipped } => format!(
-                "Routarr {} titles. Moved: {applied}, failed: {failed}, skipped: {skipped}.",
+            Event::MovesCompleted { reverted, applied, failed, skipped, moving } => format!(
+                "Routarr {} titles. Moved: {applied}, still moving: {moving}, failed: {failed}, \
+                 skipped: {skipped}.",
                 if *reverted { "moved back" } else { "moved" }
             ),
             Event::Test => {
@@ -167,9 +168,9 @@ impl Event {
             Event::SimulationCompleted { simulation_id, total, moves } => serde_json::json!({
                 "simulation_id": simulation_id, "total": total, "moves": moves
             }),
-            Event::MovesCompleted { applied, failed, skipped, .. } => {
-                serde_json::json!({ "applied": applied, "failed": failed, "skipped": skipped })
-            }
+            Event::MovesCompleted { applied, failed, skipped, moving, .. } => serde_json::json!({
+                "applied": applied, "failed": failed, "skipped": skipped, "moving": moving
+            }),
             Event::Test => serde_json::json!({}),
         }
     }
@@ -721,8 +722,8 @@ mod receivers {
                 error: "refused".into(),
             },
             Event::SimulationCompleted { simulation_id: "s-1".into(), total: 3, moves: 1 },
-            Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0 },
-            Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0 },
+            Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0, moving: 0 },
+            Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0, moving: 0 },
             Event::Test,
         ]
     }
@@ -752,8 +753,16 @@ mod receivers {
                 "info",
                 json!({ "simulation_id": "s-1", "total": 3, "moves": 1 }),
             ),
-            ("apply_completed", "warning", json!({ "applied": 1, "failed": 1, "skipped": 0 })),
-            ("revert_completed", "info", json!({ "applied": 1, "failed": 0, "skipped": 0 })),
+            (
+                "apply_completed",
+                "warning",
+                json!({ "applied": 1, "failed": 1, "skipped": 0, "moving": 0 }),
+            ),
+            (
+                "revert_completed",
+                "info",
+                json!({ "applied": 1, "failed": 0, "skipped": 0, "moving": 0 }),
+            ),
             ("test", "info", json!({})),
         ];
         for (event, (name, severity, data)) in every_event().iter().zip(expected) {

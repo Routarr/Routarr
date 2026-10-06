@@ -39,6 +39,7 @@ mod rule_tests;
 mod scale;
 mod scheduler;
 mod security;
+mod stopped_runs;
 mod sync;
 mod webhook_fuzz;
 mod windows;

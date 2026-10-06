@@ -46,6 +46,10 @@ services:
       # after Radarr and Sonarr. Afterwards, TMDb is turned on in the interface.
       - TMDB_API_KEY=${TMDB_API_KEY:-}
     restart: unless-stopped
+    # An apply that is stopping records the moves the Arr has made before the
+    # database closes, which can take Routarr up to 20 seconds. Docker's
+    # default 10 would kill it halfway.
+    stop_grace_period: 30s
     # Routarr opens a socket, reads and writes /data, and makes outbound HTTPS
     # calls. None of that needs a Linux capability, so it drops all of them.
     # The image already runs as uid 1000, and this is what stops a future

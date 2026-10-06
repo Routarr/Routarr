@@ -576,10 +576,8 @@ async fn applying_moves_the_media_and_records_it() {
 
     assert_eq!((report.applied, report.failed), (1, 0));
 
-    let recorded = arr.recorded();
-    assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
-    assert_eq!(recorded.query_strings, ["moveFiles=true"]);
-    drop(recorded);
+    assert_eq!(arr.recorded().writes[0]["rootFolderPath"], "/movies/anime");
+    assert_eq!(arr.recorded().query_strings, ["moveFiles=true"]);
 
     let (status, applied_at): (String, Option<String>) =
         sqlx::query_as("SELECT status, applied_at FROM decisions WHERE id = ?")
@@ -847,16 +845,30 @@ async fn a_revert_the_arr_refuses_leaves_the_decision_applied() {
     assert_eq!(revert().await.unwrap().applied, 1, "the second Revert could not find the move");
 }
 
+/// The proposals a person reviewed, written again by a scheduled pass in the
+/// meantime: the one still proposing the same move is applied through its
+/// successor, and the one now going elsewhere is counted as replaced.
 #[tokio::test]
-async fn a_superseded_decision_is_never_applied() {
+async fn a_selection_replaced_by_the_same_proposal_is_still_applied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = one_move_ready(&arr).await;
-
-    sqlx::query("UPDATE decisions SET superseded = 1").execute(&app.state.pool).await.unwrap();
+    let app = TestApp::films_to_move(&arr, 2).await;
+    let reviewed = app.simulate().await;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM decisions WHERE simulation_id = ? AND action = 'move' ORDER BY media_title",
+    )
+    .bind(&reviewed)
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
 
     let report = executor::apply_decisions(
         &app.state,
-        &[decision_id],
+        &ids,
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -864,9 +876,52 @@ async fn a_superseded_decision_is_never_applied() {
     .await
     .unwrap();
 
-    assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped, 1);
-    assert!(arr.recorded().writes.is_empty(), "nothing may be sent upstream");
+    assert_eq!((report.requested, report.applied, report.superseded), (2, 1, 1), "{report:?}");
+    assert_eq!(moved(&arr), ["/movies/anime/Film 100"]);
+}
+
+/// A selection whose every proposal now goes elsewhere is refused with the
+/// reason, rather than answered as a success that moved nothing.
+#[tokio::test]
+async fn a_selection_whose_proposals_all_go_elsewhere_now_is_refused() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
+
+    let refused = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": [decision_id], "move_files": false }),
+        )
+        .await;
+
+    assert_eq!(refused.status, 409, "{}", refused.json);
+    assert!(refused.message().contains("newer simulation"), "{}", refused.message());
+    assert!(arr.recorded().writes.is_empty());
+}
+
+/// An id sent twice names one decision: one move, counted once, and asked
+/// about once by the guards.
+#[tokio::test]
+async fn a_decision_named_twice_is_applied_once_and_counted_once() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id.clone(), decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.requested, report.applied, report.skipped), (1, 1, 0), "{report:?}");
 }
 
 /// `ready`, with its proposal applied: the film sits in `/movies/anime` and
@@ -1492,6 +1547,27 @@ async fn moves_that_each_fit_but_not_together_ask_about_capacity() {
 
     assert_eq!(asked.status, axum::http::StatusCode::CONFLICT, "{:?}", asked.json);
     assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+}
+
+/// Two folders reporting the same free space are one volume: what they
+/// receive together is weighed against it, each fitting alone.
+#[tokio::test]
+async fn moves_into_two_folders_of_one_volume_ask_about_their_sum() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 10 << 30).await;
+    app.execute(&[
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible, category)
+         VALUES ('rf-kids', 'i1', 3, '/movies/kids', 10737418240, 1, 'kids')",
+    ])
+    .await;
+    second_pending_move(&app, "kids").await;
+
+    let asked = apply_both(&app).await;
+
+    assert_eq!(asked.status, axum::http::StatusCode::CONFLICT, "{:?}", asked.json);
+    assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+    let message = asked.message();
+    assert!(message.contains("/movies/anime, /movies/kids"), "{message}");
 }
 
 /// Every destination is weighed, not the first the query returns: a roomy
