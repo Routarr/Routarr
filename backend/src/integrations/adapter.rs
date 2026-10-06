@@ -68,6 +68,13 @@ pub struct ArrRootFolder {
     pub accessible: bool,
 }
 
+/// A mount and its free space, as either Arr reports it.
+#[derive(Debug, Clone)]
+pub struct ArrDiskSpace {
+    pub path: String,
+    pub free_space: Option<i64>,
+}
+
 /// Connectivity probe result.
 #[derive(Debug, Clone)]
 pub struct ArrStatus {
@@ -135,6 +142,19 @@ impl ArrAdapter {
                 free_space: rf.free_space,
                 accessible: rf.accessible.unwrap_or(true),
             })
+            .collect())
+    }
+
+    /// The free space of each mount the Arr sees, read without listing the
+    /// folders inside the root folders as `get_root_folders` makes the Arr do.
+    pub async fn get_disk_space(&self) -> AppResult<Vec<ArrDiskSpace>> {
+        let mounts = match self {
+            Self::Radarr(c) => c.get_disk_space().await?,
+            Self::Sonarr(c) => c.get_disk_space().await?,
+        };
+        Ok(mounts
+            .into_iter()
+            .map(|mount| ArrDiskSpace { path: mount.path, free_space: mount.free_space })
             .collect())
     }
 
@@ -210,6 +230,36 @@ impl ArrAdapter {
             Self::Radarr(c) => c.move_commands().await,
             Self::Sonarr(c) => c.move_commands().await,
         }
+    }
+}
+
+/// The oldest release of each Arr Routarr supports in full, and what is lost
+/// below it: Radarr sends `MovieAdded` from 4.2, and Sonarr sends `SeriesAdd`
+/// and describes a series' language from 4.
+pub fn below_minimum(kind: &str, version: &str) -> Option<&'static str> {
+    let minimum: &[u64] = match kind {
+        "radarr" => &[4, 2],
+        "sonarr" => &[4],
+        _ => return None,
+    };
+    let parts: Vec<u64> = version.split('.').map_while(|part| part.trim().parse().ok()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    (parts.as_slice() < minimum).then_some(if kind == "radarr" { "4.2" } else { "4" })
+}
+
+#[cfg(test)]
+mod versions {
+    #[test]
+    fn a_release_below_the_minimum_is_named_and_one_at_or_above_it_is_not() {
+        use super::below_minimum;
+        assert_eq!(below_minimum("radarr", "4.1.0.6175"), Some("4.2"));
+        assert_eq!(below_minimum("radarr", "4.2.0.6370"), None);
+        assert_eq!(below_minimum("radarr", "6.0.4.10291"), None);
+        assert_eq!(below_minimum("sonarr", "3.0.10.1567"), Some("4"));
+        assert_eq!(below_minimum("sonarr", "4.0.0.738"), None);
+        assert_eq!(below_minimum("sonarr", "not a version"), None);
     }
 }
 

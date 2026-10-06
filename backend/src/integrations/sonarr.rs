@@ -92,7 +92,7 @@ pub struct SonarrSeriesStatistics {
     pub size_on_disk: Option<i64>,
 }
 
-pub use super::radarr::{ArrLanguage, ArrRootFolderDto, ArrStatusDto, ArrTagDto};
+pub use super::radarr::{ArrDiskSpaceDto, ArrLanguage, ArrRootFolderDto, ArrStatusDto, ArrTagDto};
 
 impl SonarrClient {
     pub fn new(client: Client, base_url: &str, api_key: &str) -> Self {
@@ -155,6 +155,10 @@ impl SonarrClient {
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
+    }
+
+    pub async fn get_disk_space(&self) -> AppResult<Vec<ArrDiskSpaceDto>> {
+        send_json(SERVICE, self.get("/api/v3/diskspace")).await
     }
 
     /// Whether Sonarr can see this directory (`integrations::directory_exists`).

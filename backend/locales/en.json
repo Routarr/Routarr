@@ -966,11 +966,15 @@
   "NotificationTestNoAddress": "No notification webhook address is saved. Save one, then send the test again.",
   "NotificationTestRefused": "The receiver refused the test notification with HTTP {status}. Check the address and the format.",
   "NotificationTestUnreachable": "The test notification did not reach the address. Check that it is right and that Routarr can reach it.",
+  "RadarrBelowVersion": "Radarr {version} is older than {minimum}, the oldest release Routarr supports in full: a film it adds is routed at the next sync, not before it downloads.",
   "RequestedHint": "The Arr is moving the files. The next sync confirms the move.",
+  "SonarrBelowVersion": "Sonarr {version} is older than {minimum}, the oldest release Routarr supports in full: a series it adds is routed at the next sync, not before it downloads, and its original language is unknown.",
   "StatusCancelled": "Stopped",
   "StatusRequested": "Requested",
   "StopTask": "Stop",
   "TaskStopRequested": "Stop requested: the task ends before its next move.",
   "TriggerAuto": "Automatic",
-  "WarnAutoApplyHeld": "Automatic application is holding back {count} moves, more than the batch limit of {limit} allows in one unattended run. Apply them from the Simulation screen, or raise the batch limit."
+  "WarnAutoApplyHeld": "Automatic application is holding back {count} moves, more than the batch limit of {limit} allows in one unattended run. Apply them from the Simulation screen, or raise the batch limit.",
+  "WarnRadarrBelowVersion": "{name} runs Radarr {version}, older than {minimum}, the oldest release Routarr supports in full: a film it adds is routed at the next sync, not before it downloads.",
+  "WarnSonarrBelowVersion": "{name} runs Sonarr {version}, older than {minimum}, the oldest release Routarr supports in full: a series it adds is routed at the next sync, not before it downloads, and its original language is unknown."
 }

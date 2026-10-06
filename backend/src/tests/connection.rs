@@ -804,3 +804,47 @@ async fn the_form_is_answered_in_the_readers_language() {
         said(&app, "ArrUnreachableLoopback", &params).await
     );
 }
+
+/// Sonarr 3 sends no `SeriesAdd` and knows no series language: Routarr works
+/// with it, and says what is lost, in the test of the form and in the
+/// diagnostics once a sync has read the version. A release at the minimum
+/// is not warned of.
+#[tokio::test]
+async fn an_arr_older_than_the_minimum_is_named_with_what_it_lacks() {
+    let arr = FakeArr::start().await;
+    arr.report_version("3.0.10.1567", "Sonarr");
+    let app = TestApp::new().await;
+
+    let tested = probe_as(&app, "sonarr", &arr.base_url).await;
+    let warning = tested.assert_ok()["warning"].as_str().unwrap_or_default().to_string();
+    assert!(warning.contains("3.0.10.1567") && warning.contains("next sync"), "{warning}");
+
+    app.seed_instance_at("inst-1", "sonarr", &arr.base_url).await;
+    crate::services::sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    let below = |body: &serde_json::Value| {
+        body["warnings"].as_array().unwrap().iter().any(|w| w["code"] == "arr_below_version")
+    };
+    let status = app.get("/api/v1/status").await;
+    assert!(below(status.assert_ok()), "{}", status.json);
+
+    arr.report_version("4.0.0.738", "Sonarr");
+    crate::services::sync::sync_instance(
+        &app.state,
+        "inst-1",
+        &crate::jobs::Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+    let status = app.get("/api/v1/status").await;
+    assert!(!below(status.assert_ok()), "{}", status.json);
+    assert_eq!(
+        probe_as(&app, "sonarr", &arr.base_url).await.json["warning"],
+        serde_json::Value::Null
+    );
+}

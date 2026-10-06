@@ -107,6 +107,14 @@ pub struct ArrRootFolderDto {
     pub accessible: Option<bool>,
 }
 
+/// A mount as either Arr reports it on `/api/v3/diskspace`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArrDiskSpaceDto {
+    pub path: String,
+    #[serde(rename = "freeSpace", default, deserialize_with = "super::lenient_bytes")]
+    pub free_space: Option<i64>,
+}
+
 /// What either Arr answers on `/api/v3/system/status`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ArrStatusDto {
@@ -217,6 +225,10 @@ impl RadarrClient {
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
+    }
+
+    pub async fn get_disk_space(&self) -> AppResult<Vec<ArrDiskSpaceDto>> {
+        send_json(SERVICE, self.get("/api/v3/diskspace")).await
     }
 
     /// Whether Radarr can see this directory (`integrations::directory_exists`).

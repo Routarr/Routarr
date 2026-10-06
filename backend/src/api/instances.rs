@@ -207,6 +207,8 @@ pub struct TestConnectionResponse {
     pub app_name: Option<String>,
     pub root_folders: usize,
     pub inaccessible_root_folders: usize,
+    /// What this release of the Arr lacks, below the oldest Routarr supports.
+    pub warning: Option<String>,
 }
 
 pub async fn test(
@@ -279,9 +281,11 @@ async fn check(
     }
     let root_folders = adapter.get_root_folders().await.map_err(explain)?;
 
+    let warning = crate::api::health::below_version(localizer, kind, None, &status.version);
     Ok(TestConnectionResponse {
         success: true,
         version: status.version,
+        warning,
         app_name: status.app_name,
         root_folders: root_folders.len(),
         inaccessible_root_folders: root_folders.iter().filter(|rf| !rf.accessible).count(),

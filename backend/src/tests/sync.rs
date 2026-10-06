@@ -435,6 +435,36 @@ async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
     assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
 }
 
+/// Listing its root folders makes the Arr walk every folder inside each, so a
+/// scheduled sync lists them once a day, and reads the free space of the
+/// mounts in between. A sync somebody asked for lists them whatever the hour.
+#[tokio::test]
+async fn a_scheduled_sync_lists_the_root_folders_once_a_day() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let (scheduled, manual) =
+        (crate::jobs::Attribution::unattended("schedule"), crate::jobs::Attribution::manual(None));
+    let listings = || arr.recorded().reads.iter().filter(|p| *p == "/api/v3/rootfolder").count();
+
+    for _ in 0..2 {
+        sync::sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    }
+    assert_eq!(listings(), 1, "a scheduled sync listed the folders again within the day");
+    let free: Vec<Option<i64>> =
+        sqlx::query_scalar("SELECT free_space FROM root_folders ORDER BY path")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(free, [Some(777); 3], "the free space was not read from the mount");
+
+    sync::sync_instance(&app.state, "inst-1", &manual).await.unwrap();
+    assert_eq!(listings(), 2, "a sync somebody asked for did not list the folders");
+    app.execute(&["UPDATE instances SET root_folders_read_at = '2020-01-01 00:00:00'"]).await;
+    sync::sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert_eq!(listings(), 3, "a day on, the folders were not listed");
+}
+
 /// A corrected secondary id is a metadata fix, not an Arr id given to another
 /// title: only the id the Arr holds unique tells that, the TMDb id of a film
 /// and the TheTVDB id of a series. The exception and the proposal stay.
