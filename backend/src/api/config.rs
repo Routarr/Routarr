@@ -417,7 +417,7 @@ pub async fn import(
         // second instance the check cannot see.
         let name = instance.name.trim();
         let existing: Option<String> =
-            sqlx::query_scalar("SELECT id FROM instances WHERE TRIM(name) = ?")
+            sqlx::query_scalar("SELECT id FROM instances WHERE lower(trim(name)) = lower(?)")
                 .bind(name)
                 .fetch_optional(&mut *tx)
                 .await?;

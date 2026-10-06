@@ -381,3 +381,41 @@ async fn a_fallback_category_that_cannot_be_read_fails_the_run() {
     assert!(run.is_err(), "the run routed to the shipped default");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions").await, 0);
 }
+
+/// One name has one stored form: an accent written apart from its letter is
+/// the same name as the letter with the accent, as two looking alike would be
+/// to whoever reads them.
+#[tokio::test]
+async fn a_name_written_with_its_accent_apart_is_the_same_name() {
+    let app = TestApp::new().await;
+    app.post("/api/v1/categories", serde_json::json!({ "name": "série" })).await.assert_ok();
+
+    let again = app.post("/api/v1/categories", serde_json::json!({ "name": "se\u{301}rie" })).await;
+
+    again.assert_status(StatusCode::CONFLICT);
+}
+
+/// A name stored with its accent apart takes the one stored form at the
+/// next start, and every row naming it follows.
+#[tokio::test]
+async fn a_name_stored_with_its_accent_apart_takes_the_stored_form() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO categories (id, name) VALUES ('cat-serie', 'se\u{301}rie')",
+        "INSERT INTO rules (id, name, priority, media_type, conditions, target_category)
+         VALUES ('r-1', 'Series', 10, 'both', '[]', 'se\u{301}rie')",
+    ])
+    .await;
+
+    crate::api::categories::converge_names(&app.state).await.unwrap();
+
+    let names: Vec<String> = sqlx::query_scalar(
+        "SELECT name FROM categories WHERE id = 'cat-serie'
+                            UNION ALL SELECT target_category FROM rules WHERE id = 'r-1'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(names, ["série", "série"]);
+}

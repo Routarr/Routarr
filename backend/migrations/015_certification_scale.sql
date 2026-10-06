@@ -18,7 +18,7 @@ UPDATE metadata_cache SET expires_at = datetime('now')
 -- each sync. A Sonarr rates for the United States.
 ALTER TABLE instances ADD COLUMN certification_country TEXT;
 
--- The routing context reads the certification regions as well now.
+-- The routing context reads the certification regions.
 DROP TRIGGER settings_insert_moves_routing;
 DROP TRIGGER settings_update_moves_routing;
 DROP TRIGGER settings_delete_moves_routing;

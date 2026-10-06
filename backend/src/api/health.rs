@@ -38,6 +38,8 @@ pub struct StatusResponse {
     pub dry_run: bool,
     pub running_jobs: i64,
     pub pending_decisions: i64,
+    /// Failed moves still asking for attention: each its title's latest
+    /// decision, which no later run has settled.
     pub failed_decisions: i64,
     /// Configuration problems detectable without touching the network.
     pub warnings: Vec<Warning>,
@@ -71,16 +73,30 @@ impl Warning {
     }
 }
 
+/// A failed move still asking for attention, as a condition over `decisions
+/// d`: the title's latest standing decision, and no stored run has read the
+/// title since. A later proposal, a move that went through, or a run finding
+/// the title where it belongs settles it.
+fn open_failure() -> String {
+    format!(
+        "d.status = 'failed' AND {}
+         AND NOT EXISTS (SELECT 1 FROM media_routing r
+                          WHERE r.media_id = d.media_id AND r.evaluated_at > d.decided_at)",
+        crate::api::metrics::LATEST
+    )
+}
+
 /// Cheap status for the persistent chrome of the UI.
 pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusResponse>> {
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));
-    let row: (i64, i64, i64) = sqlx::query_as(
+    let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
             (SELECT COUNT(*) FROM jobs WHERE status = 'running'),
             (SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0),
-            (SELECT COUNT(*) FROM decisions WHERE status = 'failed')",
-    )
+            (SELECT COUNT(*) FROM decisions d WHERE {})",
+        open_failure()
+    )))
     .fetch_one(&state.pool)
     .await?;
 
@@ -154,6 +170,7 @@ pub struct AppStats {
     pub total_overrides: i64,
     pub pending_decisions: i64,
     pub applied_decisions: i64,
+    /// Failed moves still asking for attention, as `/status` counts them.
     pub failed_decisions: i64,
     pub unmapped_categories: i64,
     pub running_jobs: i64,
@@ -713,6 +730,7 @@ async fn probe_instance(state: &AppState, instance: &Instance) -> InstanceHealth
 
 /// All counters in one round trip instead of a dozen sequential `COUNT(*)`s.
 async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
+    let open = open_failure();
     let row: (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) =
         sqlx::query_as(AssertSqlSafe(format!(
             "SELECT
@@ -725,7 +743,7 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
             (SELECT COUNT(*) FROM overrides),
             (SELECT COUNT(*) FROM decisions WHERE status = 'pending' AND superseded = 0),
             (SELECT COUNT(*) FROM decisions WHERE status = 'applied'),
-            (SELECT COUNT(*) FROM decisions WHERE status = 'failed'),
+            (SELECT COUNT(*) FROM decisions d WHERE {open}),
             (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),
             (SELECT COUNT(*) FROM jobs WHERE status = 'running')"
         )))

@@ -247,15 +247,17 @@ async fn unheld(
 async fn answered_now(state: &AppState, media: &Media) -> routing::Fresh {
     let mut fresh = routing::Fresh::default();
     let providers = state.metadata_order().await;
-    let Ok(identifiers) =
-        metadata::load_identifiers_of(&state.pool, std::slice::from_ref(media)).await
-    else {
-        return fresh;
+    // Given back before any source is asked: held through their answers, it
+    // would starve the pool.
+    let read = async {
+        let mut connection = state.pool.acquire().await?;
+        let title = std::slice::from_ref(media);
+        let identifiers = metadata::load_identifiers_of(&mut connection, title).await?;
+        let cached =
+            metadata::load_cache_of(&mut connection, title, &providers, &identifiers).await?;
+        crate::error::AppResult::Ok((identifiers, cached))
     };
-    let Ok(cached) =
-        metadata::load_cache_of(&state.pool, std::slice::from_ref(media), &providers, &identifiers)
-            .await
-    else {
+    let Ok((identifiers, cached)) = read.await else {
         return fresh;
     };
     for source in state.metadata_sources().await {

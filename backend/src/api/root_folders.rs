@@ -207,6 +207,11 @@ pub async fn create(
     Json(req): Json<DeclareRootFolder>,
 ) -> AppResult<Json<Declared>> {
     let localizer = state.localizer().await;
+    // A share to Windows and a plain folder to Linux, so read one way or the
+    // other it is somewhere the operator did not mean.
+    if req.path.trim().starts_with("//") {
+        return Err(AppError::BadRequest(localizer.translate("ErrorDestinationTwoSlashes", &[])));
+    }
     // As the Arr writes it once trimmed: `/data/movies/4k` for an Arr in a
     // Linux container, `D:\Media\4K` or `\\nas\films` for one on Windows.
     if !crate::paths::is_absolute(&req.path) {
@@ -252,6 +257,7 @@ pub async fn create(
         ));
     }
 
+    crate::race::checked("root_folders::declare", &req.instance_id).await;
     let id = format!("rf-declared-{}", uuid::Uuid::new_v4());
     // A declared folder shares `root_folders` with the ones the Arrs report,
     // told apart by `origin`: a table of its own would put a `UNION` in
@@ -272,7 +278,8 @@ pub async fn create(
     .bind(&req.instance_id)
     .bind(&path)
     .execute(&state.pool)
-    .await?
+    .await
+    .map_err(|e| gone_instance(e, &req.instance_id))?
     .rows_affected();
     if inserted == 0 {
         return Err(AppError::Conflict(
@@ -288,6 +295,16 @@ pub async fn create(
     crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
 
     Ok(Json(Declared { id, path, verified: seen == Some(true) }))
+}
+
+/// An instance removed since it was read leaves the insert pointing at
+/// nothing, which is a missing instance, not a server error.
+fn gone_instance(e: sqlx::Error, instance_id: &str) -> AppError {
+    if e.as_database_error().is_some_and(|d| d.is_foreign_key_violation()) {
+        AppError::NotFound(format!("Instance {instance_id} not found"))
+    } else {
+        e.into()
+    }
 }
 
 /// A destination as declared.
@@ -315,24 +332,27 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<super::Deleted>> {
-    let origin: Option<String> = sqlx::query_scalar("SELECT origin FROM root_folders WHERE id = ?")
+    crate::race::checked("root_folders::delete", &id).await;
+    // The statement is its own check: a sync may promote the folder to the
+    // Arr's own at any moment, and that one, with its category, stays.
+    let deleted = sqlx::query("DELETE FROM root_folders WHERE id = ? AND origin = 'declared'")
         .bind(&id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    match origin.as_deref() {
-        None => Err(AppError::NotFound("No such folder".into())),
-        Some("arr") => Err(AppError::Conflict(
-            state.localizer().await.translate("ErrorDestinationNotOurs", &[]),
-        )),
-        _ => {
-            sqlx::query("DELETE FROM root_folders WHERE id = ?")
+        .execute(&state.pool)
+        .await?
+        .rows_affected();
+    if deleted == 0 {
+        let still_there: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM root_folders WHERE id = ?)")
                 .bind(&id)
-                .execute(&state.pool)
+                .fetch_one(&state.pool)
                 .await?;
-            Ok(Json(super::Deleted { deleted: true }))
-        }
+        return Err(if still_there {
+            AppError::Conflict(state.localizer().await.translate("ErrorDestinationNotOurs", &[]))
+        } else {
+            AppError::NotFound("No such folder".into())
+        });
     }
+    Ok(Json(super::Deleted { deleted: true }))
 }
 
 pub async fn update_category(

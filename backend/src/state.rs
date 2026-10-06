@@ -376,7 +376,8 @@ impl AppState {
         .unwrap_or_else(|| vec!["US".to_string()])
     }
 
-    /// Read a setting, falling back to `default` when absent or unparseable.
+    /// Read a setting, falling back to `default` when absent or unparseable,
+    /// and when the database fails to answer: for what only shows or paces.
     pub async fn setting<T: std::str::FromStr>(&self, key: &str, default: T) -> T {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
@@ -386,6 +387,23 @@ impl AppState {
             .flatten()
             .and_then(|v| v.trim().parse().ok())
             .unwrap_or(default)
+    }
+
+    /// Read a setting that bounds what is deleted or written, falling back to
+    /// `default` only when it is absent or unparseable. A database that fails
+    /// to answer is an error: taken for the default, a retention would delete
+    /// what a longer one keeps, and a batch limit would let through more than
+    /// the operator allows.
+    pub async fn bounding_setting<T: std::str::FromStr>(
+        &self,
+        key: &str,
+        default: T,
+    ) -> AppResult<T> {
+        let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(stored.and_then(|v| v.trim().parse().ok()).unwrap_or(default))
     }
 
     /// The category the engine falls back to when no rule matched.

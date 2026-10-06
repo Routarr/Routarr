@@ -579,7 +579,13 @@ impl Delivery {
         let Some(url) = webhook_url(state, kind).await else {
             return Err(Undelivered::NoAddress);
         };
-        let keys = match signing_keys(state).await {
+        // A read that fails is no answer to whether the owner signs: sent
+        // unsigned, the message would pass a receiver that checks a signature
+        // only when one is there. It is tried again later.
+        let signing = signing_keys(state)
+            .await
+            .map_err(|error| Undelivered::Failed { error, again: Some(None) })?;
+        let keys = match signing {
             Signing::Unsigned => Vec::new(),
             Signing::Keys(keys) => keys,
             Signing::Unreadable => {
@@ -657,25 +663,24 @@ enum Signing {
     Unreadable,
 }
 
-async fn signing_keys(state: &AppState) -> Signing {
+async fn signing_keys(state: &AppState) -> AppResult<Signing> {
     let rows: Vec<(String, bool)> = sqlx::query_as(
         "SELECT secret, created_at > datetime('now', '-1 day')
            FROM webhook_secrets ORDER BY created_at DESC, rowid DESC LIMIT 2",
     )
     .fetch_all(&state.pool)
-    .await
-    .unwrap_or_default();
+    .await?;
     let open = |sealed: &str| {
         state.secrets.open(sealed).ok().and_then(|secret| crate::crypto::signing_key(&secret))
     };
     let Some((newest, fresh)) = rows.first() else {
-        return Signing::Unsigned;
+        return Ok(Signing::Unsigned);
     };
     let Some(newest) = open(newest) else {
-        return Signing::Unreadable;
+        return Ok(Signing::Unreadable);
     };
     let replaced = rows.get(1).filter(|_| *fresh).and_then(|(sealed, _)| open(sealed));
-    Signing::Keys(std::iter::once(newest).chain(replaced).collect())
+    Ok(Signing::Keys(std::iter::once(newest).chain(replaced).collect()))
 }
 
 /// Whether notifications are signed, and since when.
@@ -692,7 +697,7 @@ pub async fn signing_status(state: &AppState) -> AppResult<SigningStatus> {
     let since: Option<String> = sqlx::query_scalar("SELECT MAX(created_at) FROM webhook_secrets")
         .fetch_one(&state.pool)
         .await?;
-    let readable = !matches!(signing_keys(state).await, Signing::Unreadable);
+    let readable = !matches!(signing_keys(state).await?, Signing::Unreadable);
     Ok(SigningStatus { signed: since.is_some(), since, readable })
 }
 

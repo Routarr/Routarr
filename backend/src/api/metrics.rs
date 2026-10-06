@@ -49,8 +49,8 @@ fn label(value: &str) -> String {
 
 /// The labels naming an Arr instance. Not `instance`: Prometheus sets that on
 /// every series to the target it scraped, and renames a label of that name
-/// `exported_instance`. Keyed by id, since two instances may share a name and
-/// one series per name would add them together.
+/// `exported_instance`. Keyed by id as well, which a rename leaves alone, so a
+/// renamed instance keeps its series.
 fn arr_instance(id: &str, name: &str) -> String {
     format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
 }
@@ -58,7 +58,7 @@ fn arr_instance(id: &str, name: &str) -> String {
 /// Each title's latest standing decision, over `decisions d`: what the
 /// engine wants for it now. An older one an apply left standing is history,
 /// and counted, it reads as a library still moving.
-const LATEST: &str = "d.superseded = 0
+pub(crate) const LATEST: &str = "d.superseded = 0
     AND NOT EXISTS (SELECT 1 FROM decisions later
                      WHERE later.media_id = d.media_id AND later.superseded = 0
                        AND (later.decided_at > d.decided_at

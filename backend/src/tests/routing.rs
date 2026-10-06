@@ -114,7 +114,9 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     .await
     .unwrap();
 
-    let cache = crate::services::metadata::load_cache(&app.state.pool).await.unwrap();
+    let cache = crate::services::metadata::load_cache(&mut app.state.pool.acquire().await.unwrap())
+        .await
+        .unwrap();
     let answer = cache
         .get(&("tmdb".to_string(), "129".to_string(), "movie".to_string()))
         .expect("the row is in the cache");
@@ -820,4 +822,59 @@ async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
         ]
     );
     assert_eq!(days("r-2"), [crate::models::Condition::AddedWithinDays(30)]);
+}
+
+/// An upgrade gives every title's added date the shape every stored timestamp
+/// has, as the Arr wrote it in its own.
+#[tokio::test]
+async fn an_upgrade_gives_each_added_date_the_stored_shape() {
+    let pool = crate::tests::database_through("024_opened_by_schema").await;
+    for statement in [
+        crate::tests::AN_INSTANCE,
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, added_at)
+         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro', '2026-08-19T08:30:00Z'),
+                ('m-2', 'inst-1', 11, 'movie', 'Heat', '2026-08-19 08:30:00'),
+                ('m-3', 'inst-1', 12, 'movie', 'Akira', 'not a date')",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let added: Vec<String> = sqlx::query_scalar("SELECT added_at FROM media ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(added, ["2026-08-19 08:30:00", "2026-08-19 08:30:00", "not a date"]);
+}
+
+/// An upgrade tells apart instances that shared a name, the earliest keeping
+/// it, so a bundle naming one names one.
+#[tokio::test]
+async fn an_upgrade_tells_apart_instances_sharing_a_name() {
+    let pool = crate::tests::database_through("025_added_dates_stored_shape").await;
+    sqlx::query(
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, created_at)
+         VALUES ('i-1', 'Radarr', 'radarr', 'http://a', 'k', '2026-01-01 00:00:00'),
+                ('i-2', 'radarr ', 'radarr', 'http://b', 'k', '2026-01-02 00:00:00'),
+                ('i-3', 'Radarr', 'radarr', 'http://c', 'k', '2026-01-03 00:00:00'),
+                ('i-4', 'Radarr (2)', 'radarr', 'http://d', 'k', '2026-01-04 00:00:00'),
+                ('i-5', 'Sonarr', 'sonarr', 'http://e', 'k', '2026-01-05 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM instances ORDER BY id")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    let mut folded: Vec<String> = names.iter().map(|n| n.trim().to_lowercase()).collect();
+    folded.sort();
+    folded.dedup();
+    assert_eq!(folded.len(), 5, "{names:?}");
+    assert_eq!(names[0], "Radarr", "the earliest lost its name: {names:?}");
+    assert_eq!(names[4], "Sonarr");
 }

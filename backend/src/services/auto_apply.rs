@@ -154,7 +154,7 @@ async fn decide(
     // worse than doing none: the library ends up half-reorganised with no record
     // of the intent. A sweep that large is a library reclassification, which is
     // a deliberate human act.
-    let cap: usize = state.setting("batch_limit", 50usize).await;
+    let cap: usize = state.bounding_setting("batch_limit", 50usize).await?;
     if candidates.len() > cap {
         return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
     }
@@ -216,6 +216,15 @@ async fn eligible_decisions(state: &AppState, simulation_id: &str) -> AppResult<
                  WHERE rf.instance_id = d.instance_id
                    AND rf.path = d.target_root_folder COLLATE path
                    AND rf.accessible = 1
+            )
+            -- And its move did not fail within the day. An Arr that refused it
+            -- refuses it again at the next pass, and a retry every pass is a
+            -- failed row, a log and a notification every quarter of an hour.
+            -- A person can still apply it.
+            AND NOT EXISTS (
+                SELECT 1 FROM decisions f
+                 WHERE f.media_id = d.media_id AND f.status = 'failed'
+                   AND f.decided_at > datetime('now', '-1 day')
             )
           ORDER BY d.media_title",
     )

@@ -423,11 +423,6 @@ impl Config {
         })
     }
 
-    /// Returns the database URL for sqlx.
-    pub fn database_url(&self) -> String {
-        format!("sqlite://{}?mode=rwc", self.db_path.display())
-    }
-
     /// Returns the socket address to bind to.
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
@@ -802,7 +797,6 @@ mod tests {
         assert_eq!(config.data_dir, PathBuf::from("/srv/routarr/data"));
         assert_eq!(config.secret_key_path(), PathBuf::from("/srv/routarr/data/routarr.key"));
         assert_eq!(config.api_key_path(), PathBuf::from("/srv/routarr/data/routarr.api_key"));
-        assert!(config.database_url().contains("/srv/routarr/data/routarr.db"));
     }
 
     /// A wildcard handed to `AllowOrigin::list` panics, so an installation that
@@ -933,15 +927,5 @@ mod tests {
         config.host = "127.0.0.1".into();
         config.port = 9876;
         assert_eq!(config.bind_address(), "127.0.0.1:9876");
-    }
-
-    /// `mode=rwc` is what creates the file on a first start. Without it the
-    /// first run of a fresh installation fails on a missing database rather
-    /// than making one.
-    #[test]
-    fn the_database_url_asks_sqlite_to_create_the_file() {
-        let mut config = Config::for_tests();
-        config.set_db_path(PathBuf::from("./data/routarr.db"));
-        assert!(config.database_url().ends_with("?mode=rwc"), "{}", config.database_url());
     }
 }

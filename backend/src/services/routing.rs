@@ -166,22 +166,31 @@ pub async fn load_library(
     // cache once per episode, queued behind the previews. A title deleted
     // meanwhile leaves nothing to load.
     if let Some(ids) = options.media_ids.as_deref() {
-        let media =
-            load_media(pool, &options.instance_ids, Some(ids), options.media_type.as_deref())
-                .await?;
+        let mut snapshot = pool.begin().await?;
+        let media = load_media(
+            &mut *snapshot,
+            &options.instance_ids,
+            Some(ids),
+            options.media_type.as_deref(),
+        )
+        .await?;
         let ctx = if media.is_empty() {
             RoutingContext::default()
         } else {
-            load_context(pool, Scope::Items(&media)).await?
+            load_context(&mut snapshot, Scope::Items(&media)).await?
         };
+        snapshot.commit().await?;
         let loaded_in = started.elapsed();
         return Ok(Arc::new(LoadedLibrary { _pass: None, loaded_in, order, ctx, media }));
     }
 
     let pass = library_pass().await;
-    let ctx = load_context(pool, Scope::Library).await?;
+    let mut snapshot = pool.begin().await?;
+    let ctx = load_context(&mut snapshot, Scope::Library).await?;
     let media =
-        load_media(pool, &options.instance_ids, None, options.media_type.as_deref()).await?;
+        load_media(&mut *snapshot, &options.instance_ids, None, options.media_type.as_deref())
+            .await?;
+    snapshot.commit().await?;
 
     let loaded_in = started.elapsed();
     Ok(Arc::new(LoadedLibrary { _pass: Some(pass), loaded_in, order, ctx, media }))
@@ -628,7 +637,9 @@ pub async fn route_one_with(
     now: chrono::DateTime<Utc>,
     fresh: Fresh,
 ) -> AppResult<ItemRoute> {
-    let mut ctx = load_context(pool, Scope::Items(std::slice::from_ref(media))).await?;
+    let mut snapshot = pool.begin().await?;
+    let mut ctx = load_context(&mut snapshot, Scope::Items(std::slice::from_ref(media))).await?;
+    snapshot.commit().await?;
     for (key, answer) in fresh.metadata {
         ctx.metadata.entry(key).or_insert(answer);
     }
@@ -652,14 +663,16 @@ pub async fn revalidated_targets(
     pool: &SqlitePool,
     media_ids: &[String],
 ) -> AppResult<HashMap<String, Option<String>>> {
+    let mut snapshot = pool.begin().await?;
     let mut media = Vec::with_capacity(media_ids.len());
     for chunk in media_ids.chunks(BIND_CHUNK) {
-        media.extend(load_media(pool, &[], Some(chunk), None).await?);
+        media.extend(load_media(&mut *snapshot, &[], Some(chunk), None).await?);
     }
     if media.is_empty() {
         return Ok(HashMap::new());
     }
-    let ctx = load_context(pool, Scope::Items(&media)).await?;
+    let ctx = load_context(&mut snapshot, Scope::Items(&media)).await?;
+    snapshot.commit().await?;
     let now = Utc::now();
     Ok(media
         .into_iter()
@@ -796,15 +809,25 @@ pub fn format_timestamp(ts: chrono::DateTime<Utc>) -> String {
     ts.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-/// The inverse, so the shape of a stored timestamp is stated once.
+/// The inverse, so the shape of a stored timestamp is stated once. It reads
+/// the shapes an Arr writes as well, RFC 3339 and a bare date, which a rule
+/// test's snapshot of a title may still hold.
 ///
 /// `None` rather than a fallback to the current instant: a caller reading a
 /// pinned instant that turned out unreadable must say so, not silently answer
 /// a different question with today's clock.
 pub fn parse_timestamp(raw: &str) -> Option<chrono::DateTime<Utc>> {
-    chrono::NaiveDateTime::parse_from_str(raw.trim(), "%Y-%m-%d %H:%M:%S")
-        .ok()
-        .map(|naive| naive.and_utc())
+    let raw = raw.trim();
+    if let Ok(stamp) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return Some(stamp.with_timezone(&Utc));
+    }
+    for shape in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"] {
+        if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(raw, shape) {
+            return Some(naive.and_utc());
+        }
+    }
+    let date = chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d").ok()?;
+    Some(date.and_hms_opt(0, 0, 0)?.and_utc())
 }
 
 /// Which items a context is loaded for.
@@ -822,8 +845,12 @@ enum Scope<'a> {
 /// One statement per table whatever the scope, the items' ids bound in chunks:
 /// the panel, an apply and the simulation read the mappings alike. A single
 /// item's narrowed to its instance.
-async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingContext> {
-    let rules = load_rules(pool).await?;
+async fn load_context(
+    snapshot: &mut sqlx::SqliteConnection,
+    scope: Scope<'_>,
+) -> AppResult<RoutingContext> {
+    let rules = load_rules(&mut *snapshot).await?;
+    crate::race::checked("routing::load", rules.first().map_or("", |rule| rule.id.as_str())).await;
     let instance_id = match scope {
         Scope::Items([media]) => Some(media.instance_id.as_str()),
         _ => None,
@@ -832,7 +859,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
     let overrides: HashMap<String, String> = match scope {
         Scope::Library => {
             sqlx::query_as::<_, (String, String)>("SELECT media_id, target_category FROM overrides")
-                .fetch_all(pool)
+                .fetch_all(&mut *snapshot)
                 .await?
                 .into_iter()
                 .collect()
@@ -848,7 +875,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
                 for item in chunk {
                     query = query.bind(&item.id);
                 }
-                overrides.extend(query.fetch_all(pool).await?);
+                overrides.extend(query.fetch_all(&mut *snapshot).await?);
             }
             overrides
         }
@@ -869,7 +896,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         )
         .bind(instance_id)
         .bind(instance_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *snapshot)
         .await?
         .into_iter()
         .map(|(instance_id, category, path)| ((instance_id, category), path))
@@ -882,7 +909,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         )
         .bind(instance_id)
         .bind(instance_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *snapshot)
         .await?
         .into_iter()
         .map(|(instance_id, path, free)| ((instance_id, crate::paths::key(&path)), free))
@@ -893,7 +920,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
     )
     .bind(instance_id)
     .bind(instance_id)
-    .fetch_all(pool)
+    .fetch_all(&mut *snapshot)
     .await?;
     let instance_countries: HashMap<String, String> = instances
         .iter()
@@ -903,7 +930,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         instances.into_iter().map(|(id, name, _)| (id, name)).collect();
     let regions_setting: Option<String> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'certification_regions'")
-            .fetch_optional(pool)
+            .fetch_optional(&mut *snapshot)
             .await?;
     let regions = crate::state::AppState::certification_regions_of(regions_setting.as_deref());
 
@@ -914,22 +941,24 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
     // way after, with nothing fetched in between.
     let providers_setting: Option<String> =
         sqlx::query_scalar("SELECT value FROM settings WHERE key = 'metadata_providers'")
-            .fetch_optional(pool)
+            .fetch_optional(&mut *snapshot)
             .await?;
     let providers = metadata::configured_order(providers_setting.as_deref());
 
     let (identifiers, metadata) = match scope {
-        Scope::Library => {
-            (metadata::load_identifiers(pool).await?, metadata::load_cache(pool).await?)
-        }
+        Scope::Library => (
+            metadata::load_identifiers(&mut *snapshot).await?,
+            metadata::load_cache(&mut *snapshot).await?,
+        ),
         Scope::Items(media) => {
-            let identifiers = metadata::load_identifiers_of(pool, media).await?;
-            let cache = metadata::load_cache_of(pool, media, &providers, &identifiers).await?;
+            let identifiers = metadata::load_identifiers_of(&mut *snapshot, media).await?;
+            let cache =
+                metadata::load_cache_of(&mut *snapshot, media, &providers, &identifiers).await?;
             (identifiers, cache)
         }
     };
 
-    let default_category = crate::state::AppState::default_category(pool).await?;
+    let default_category = crate::state::AppState::default_category(&mut *snapshot).await?;
 
     Ok(RoutingContext {
         rules,
@@ -1086,11 +1115,14 @@ pub async fn media_by_external_id(
 
 /// Load every rule, in the order the engine tries them (`rule_engine::in_order`),
 /// tolerating rows whose JSON payload got corrupted.
-pub async fn load_rules(pool: &SqlitePool) -> AppResult<Vec<Rule>> {
+pub async fn load_rules<'e, E>(executor: E) -> AppResult<Vec<Rule>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     let rows: Vec<RuleRecord> = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT {RULE_COLUMNS} FROM rules ORDER BY priority, name, id"
     )))
-    .fetch_all(pool)
+    .fetch_all(executor)
     .await?;
 
     Ok(rows.into_iter().map(rule_from_row).collect())
@@ -1157,12 +1189,15 @@ pub fn rule_from_row(r: RuleRecord) -> Rule {
 /// spelling of "all" for a caller to get wrong. `media_ids` is not: an empty
 /// list there is these zero items, which a webhook whose item has just been
 /// deleted needs to say.
-async fn load_media(
-    pool: &SqlitePool,
+async fn load_media<'e, E>(
+    executor: E,
     instance_filter: &[String],
     media_ids: Option<&[String]>,
     media_type: Option<&str>,
-) -> AppResult<Vec<Media>> {
+) -> AppResult<Vec<Media>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
     // A switched-off instance is neither synced nor routed.
     let mut sql = String::from(&format!(
         "SELECT {MEDIA_COLUMNS} FROM media
@@ -1203,7 +1238,7 @@ async fn load_media(
         query = query.bind(id.clone());
     }
 
-    Ok(query.fetch_all(pool).await?)
+    Ok(query.fetch_all(executor).await?)
 }
 
 /// How many whole-library passes may run at once, across every caller.

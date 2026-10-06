@@ -203,3 +203,39 @@ async fn a_windows_title_is_placed_in_the_folder_it_sits_in() {
     assert_eq!(placed["action"], "none", "{placed}");
     assert_eq!(placed["root_folder"]["path"], "D:\\Media\\movies\\standard\\", "{placed}");
 }
+
+/// One folder written two ways, as two Arrs or two syncs of a Windows Arr may
+/// write it, is one entry in the library's folders.
+#[tokio::test]
+async fn one_windows_folder_written_two_ways_is_one_facet() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "UPDATE media SET current_root_folder = 'D:\\Media\\Movies\\'",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', 'd:/media/movies')",
+    ])
+    .await;
+
+    let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
+
+    let folders = facets["root_folders"].as_array().unwrap();
+    assert_eq!(folders.len(), 1, "{folders:?}");
+    assert_eq!(folders[0]["count"], 2);
+}
+
+/// A path opening with two slashes is a share to Windows and a plain folder to
+/// Linux, so a destination is refused written that way, and the refusal says
+/// how to write each.
+#[tokio::test]
+async fn a_destination_opening_with_two_slashes_is_refused() {
+    let arr = FakeArr::on_windows().await;
+    let app = synced_on_windows("radarr", &arr).await;
+
+    let declared = app
+        .post("/api/v1/root-folders", json!({ "instance_id": "inst-1", "path": "//nas/films" }))
+        .await;
+
+    declared.assert_status(axum::http::StatusCode::BAD_REQUEST);
+    assert!(declared.message().contains("\\\\"), "{}", declared.message());
+}

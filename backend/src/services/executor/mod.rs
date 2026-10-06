@@ -221,7 +221,7 @@ pub async fn apply_simulation_in_batches(
         return Err(AppError::Conflict(localizer.translate("ErrorApplyInProgress", &[])));
     };
 
-    let size: usize = state.setting("batch_limit", 50usize).await.max(1);
+    let size: usize = state.bounding_setting("batch_limit", 50usize).await?.max(1);
     let batches_planned = ids.len().div_ceil(size);
 
     let mut job = state

@@ -32,7 +32,21 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("019_instance_reads", include_str!("../migrations/019_instance_reads.sql")),
     ("020_media_routing", include_str!("../migrations/020_media_routing.sql")),
     ("021_added_within_one_day", include_str!("../migrations/021_added_within_one_day.sql")),
+    ("022_indexes_that_serve", include_str!("../migrations/022_indexes_that_serve.sql")),
+    (
+        "023_constraints_the_code_keeps",
+        include_str!("../migrations/023_constraints_the_code_keeps.sql"),
+    ),
+    ("024_opened_by_schema", include_str!("../migrations/024_opened_by_schema.sql")),
+    (
+        "025_added_dates_stored_shape",
+        include_str!("../migrations/025_added_dates_stored_shape.sql"),
+    ),
+    ("026_unique_instance_names", include_str!("../migrations/026_unique_instance_names.sql")),
 ];
+
+/// How large the write-ahead log stays once checkpointed, in bytes.
+const JOURNAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
 
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
@@ -47,19 +61,33 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
         tracing::error!("Cannot create the data directory {}: {e}", config.data_dir.display());
     }
 
+    // A path, never a URL: read as one, `%41` would be `A` and a `?` would end
+    // the file name.
+    let file = if config.db_path == *":memory:" {
+        SqliteConnectOptions::from_str("sqlite::memory:")?
+    } else {
+        SqliteConnectOptions::new().filename(&config.db_path)
+    };
     // PRAGMAs belong on the connect options: setting them with a one-off query
     // only configures whichever pooled connection happened to serve it.
-    let options = with_paths(SqliteConnectOptions::from_str(&config.database_url())?)
+    let options = with_paths(file)
         .create_if_missing(true)
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         // NORMAL is the documented companion of WAL: durable across app crashes,
         // and an order of magnitude faster than FULL for the write bursts a
-        // simulation produces.
+        // simulation produces. A power cut can roll back the last commits, so
+        // the record of a move the Arr made is written under FULL
+        // (`executor::record::record_outcome`).
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .foreign_keys(true)
         // Without this, concurrent writers surface as "database is locked"
         // instead of waiting their turn.
-        .busy_timeout(Duration::from_secs(10));
+        .busy_timeout(Duration::from_secs(10))
+        // The log grows to the largest transaction, a sync of the whole
+        // library, and is trimmed back to this once checkpointed.
+        .pragma("journal_size_limit", JOURNAL_SIZE_LIMIT.to_string())
+        // The planner's statistics, refreshed on what each connection ran.
+        .optimize_on_close(true, Some(400));
 
     let pool = SqlitePoolOptions::new()
         .max_connections(8)
@@ -72,6 +100,30 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     if on_disk {
         crypto::restrict_permissions(&config.db_path);
         info!("Database connected at {}", config.db_path.display());
+    }
+
+    // Refused with the way back: the restore that needs no server, of the
+    // newest archive this build can open.
+    if let Some(newer) = opened_ahead(&mut *pool.acquire().await?).await? {
+        let archive = crate::services::backup::newest_openable(config)
+            .unwrap_or_else(|| "<archive>".to_string());
+        return Err(crate::error::AppError::Config(format!(
+            "{}. Start that release again, or restore a backup this one can open, with the \
+             server stopped: routarr restore {archive}",
+            ahead_of_this_build(&newer)
+        )));
+    }
+    if on_disk && migrates_a_schema(&pool).await? {
+        match crate::services::backup::before_migrating(config, &pool).await {
+            Ok(file) => info!(
+                "Backup taken before migrating to v{}: {}",
+                env!("CARGO_PKG_VERSION"),
+                file.name
+            ),
+            // Not a reason to stay on the old schema: the archives taken
+            // before this start are still there.
+            Err(e) => tracing::error!("No backup could be taken before migrating: {e}"),
+        }
     }
 
     run_migrations(&pool).await?;
@@ -100,13 +152,28 @@ pub fn is_newer_schema(name: &str) -> bool {
     !MIGRATIONS.iter().any(|(known, _)| *known == name)
 }
 
+/// Whether running the migrations would change a schema some release already
+/// built: the database holds migrations, and this build lists one it lacks.
+async fn migrates_a_schema(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    let migrated: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !migrated {
+        return Ok(false);
+    }
+    let applied: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM _migrations").fetch_all(pool).await?;
+    Ok(!applied.is_empty() && MIGRATIONS.iter().any(|(name, _)| !applied.iter().any(|a| a == name)))
+}
+
 /// Fold the write-ahead log back into the database file, then close the pool.
 ///
 /// In WAL mode a commit lands in `routarr.db-wal`, and SQLite only checkpoints
 /// when the *last* connection closes, which dropping the pool does not do.
-/// Without this, a stopped Routarr leaves an almost-empty `routarr.db` beside a
-/// WAL holding everything, and the documented "copy the database" backup takes
-/// a file with no tables in it.
+/// After a clean stop `routarr.db` is complete on its own, so a copy of it
+/// taken without its `-wal` loses nothing.
 ///
 /// A failure is logged rather than propagated: the data is still in the WAL and
 /// the next start recovers it.
@@ -125,39 +192,74 @@ pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
     Ok(record_this_release(pool).await?)
 }
 
-/// Every release records itself as having opened the database, and one that
-/// finds a newer release recorded stops: run on, it would read and write a
-/// schema it does not know. Migration names cannot tell, since builds from
-/// before the first release used names no release lists, and a database
-/// without the record, opened only by releases before it, passes.
+/// Refuse a database a newer release migrated further than this build knows:
+/// run on, this one would read and write a schema it does not know.
 async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()> {
-    let recorded: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_opened_by')",
-    )
-    .fetch_one(pool)
-    .await?;
-    if !recorded {
-        return Ok(());
-    }
-    let versions: Vec<String> =
-        sqlx::query_scalar("SELECT version FROM _opened_by").fetch_all(pool).await?;
-    let this = release(env!("CARGO_PKG_VERSION"));
-    match versions.iter().filter(|v| release(v) > this).max_by_key(|v| release(v)) {
+    match opened_ahead(&mut *pool.acquire().await?).await? {
         None => Ok(()),
-        Some(newer) => Err(crate::error::AppError::Config(format!(
-            "the database was opened by Routarr v{newer}, newer than this v{}. Start that \
-             release again, or restore a backup this one took",
-            env!("CARGO_PKG_VERSION")
-        ))),
+        Some(newer) => Err(crate::error::AppError::Config(ahead_of_this_build(&newer))),
     }
 }
 
-/// Record this release as one that opened the database.
+/// Why a database `newer` migrated is refused.
+fn ahead_of_this_build(newer: &str) -> String {
+    format!(
+        "the database was opened by Routarr v{newer}, which migrated it further than this \
+         v{} knows",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+/// The newer release that migrated this database further than this build
+/// knows, if one did. Every release records itself and the last migration it
+/// had applied, and one newer than this build that recorded a migration this
+/// build does not list, or recorded none, is ahead of it. Migration names
+/// alone cannot tell: a database a newer release never opened passes whatever
+/// it holds.
+pub async fn opened_ahead(
+    connection: &mut sqlx::SqliteConnection,
+) -> Result<Option<String>, sqlx::Error> {
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_opened_by')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if !recorded {
+        return Ok(None);
+    }
+    let with_schema: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('_opened_by') WHERE name = 'schema')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    let sql = if with_schema {
+        "SELECT version, schema FROM _opened_by"
+    } else {
+        "SELECT version, NULL FROM _opened_by"
+    };
+    let openers: Vec<(String, Option<String>)> =
+        sqlx::query_as(sql).fetch_all(&mut *connection).await?;
+    let this = release(env!("CARGO_PKG_VERSION"));
+    Ok(openers
+        .into_iter()
+        .filter(|(version, schema)| {
+            release(version) > this && schema.as_deref().is_none_or(is_newer_schema)
+        })
+        .max_by_key(|(version, _)| release(version))
+        .map(|(version, _)| version))
+}
+
+/// Record this release, and the last migration it applied, as having opened
+/// the database.
 async fn record_this_release(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT OR IGNORE INTO _opened_by (version) VALUES (?)")
-        .bind(env!("CARGO_PKG_VERSION"))
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO _opened_by (version, schema) VALUES (?, ?)
+         ON CONFLICT(version) DO UPDATE SET schema = excluded.schema",
+    )
+    .bind(env!("CARGO_PKG_VERSION"))
+    .bind(MIGRATIONS.last().map(|(name, _)| *name))
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -230,9 +332,9 @@ async fn apply_migration(
 ) -> Result<(), sqlx::Error> {
     use sqlx::Connection;
     let mut tx = connection.begin_with("BEGIN IMMEDIATE").await?;
-    for statement in split_statements(sql) {
-        sqlx::query(AssertSqlSafe(statement.as_str())).execute(&mut *tx).await?;
-    }
+    // SQLite's own parser walks the script, statement after statement, so a
+    // comment, a quoted name or a trigger body is read as SQLite reads it.
+    sqlx::raw_sql(AssertSqlSafe(sql)).execute(&mut *tx).await?;
     let orphans: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
         .fetch_all(&mut *tx)
         .await?;
@@ -243,73 +345,6 @@ async fn apply_migration(
     }
     sqlx::query("INSERT INTO _migrations (name) VALUES (?)").bind(name).execute(&mut *tx).await?;
     tx.commit().await
-}
-
-/// Split a migration into statements.
-///
-/// Naively splitting on `;` breaks on semicolons inside string literals and
-/// inside `BEGIN ... END` trigger bodies, so both are tracked here. Blocks are
-/// counted by whole words: a `CASE` also closes with `END`, and `ended` is no
-/// `END`.
-fn split_statements(sql: &str) -> Vec<String> {
-    let mut statements = Vec::new();
-    let mut current = String::new();
-    let mut word = String::new();
-    let mut in_string = false;
-    let mut block_depth = 0usize;
-    let mut chars = sql.chars().peekable();
-
-    while let Some(c) = chars.next() {
-        if !in_string && (c.is_alphanumeric() || c == '_') {
-            word.push(c);
-            current.push(c);
-            continue;
-        }
-        count_block_word(&mut word, &mut block_depth);
-        match c {
-            '-' if !in_string && chars.peek() == Some(&'-') => {
-                // Line comment: drop through to the newline.
-                for c in chars.by_ref() {
-                    if c == '\n' {
-                        current.push('\n');
-                        break;
-                    }
-                }
-            }
-            // An escaped quote, `''`, needs no case of its own: it closes the
-            // string and opens it again at once, with nothing in between.
-            '\'' => {
-                in_string = !in_string;
-                current.push(c);
-            }
-            ';' if !in_string && block_depth == 0 => {
-                push_statement(&mut statements, &mut current);
-            }
-            _ => current.push(c),
-        }
-    }
-    count_block_word(&mut word, &mut block_depth);
-    push_statement(&mut statements, &mut current);
-
-    statements
-}
-
-/// Count a whole word that opens or closes a block, and start the next one.
-fn count_block_word(word: &mut String, block_depth: &mut usize) {
-    if word.eq_ignore_ascii_case("BEGIN") || word.eq_ignore_ascii_case("CASE") {
-        *block_depth += 1;
-    } else if word.eq_ignore_ascii_case("END") {
-        *block_depth = block_depth.saturating_sub(1);
-    }
-    word.clear();
-}
-
-fn push_statement(statements: &mut Vec<String>, current: &mut String) {
-    let trimmed = current.trim();
-    if !trimmed.is_empty() {
-        statements.push(trimmed.to_string());
-    }
-    current.clear();
 }
 
 /// The `?, ?, ?` an `IN (...)` binds `n` values through.
@@ -370,30 +405,52 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// A database a newer release migrated is refused, naming the migration
-    /// this build does not know, rather than read and written as if its
-    /// schema were this build's.
+    /// A newer release that migrated no further than this build leaves a
+    /// database this build reads as its own: going back a patch release is
+    /// no reason to stop.
     #[tokio::test]
-    async fn a_database_a_newer_release_opened_is_refused() {
+    async fn a_newer_release_with_the_same_schema_is_not_refused() {
         let pool = test_pool().await;
-        // Names no release lists, as builds before the first one wrote: no
-        // reason to refuse.
-        sqlx::query("INSERT INTO _migrations (name) VALUES ('019_from_before_the_first_release')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        run_migrations(&pool).await.expect("an older database was refused");
-        sqlx::query("INSERT INTO _opened_by (version) VALUES ('99.0.0')")
+        let last = MIGRATIONS.last().unwrap().0;
+        sqlx::query("INSERT INTO _opened_by (version, schema) VALUES ('99.0.0', ?)")
+            .bind(last)
             .execute(&pool)
             .await
             .unwrap();
 
-        let refused = run_migrations(&pool).await;
+        run_migrations(&pool).await.expect("a database of this schema was refused");
+    }
 
-        let Err(crate::error::AppError::Config(message)) = refused else {
-            panic!("a newer schema was opened: {refused:?}");
-        };
-        assert!(message.contains("v99.0.0"), "{message}");
+    /// A database a newer release migrated further is refused, naming that
+    /// release, rather than read and written as if its schema were this
+    /// build's. So is one a newer release opened without saying how far it
+    /// had migrated. A name no release lists, with no newer opener, is no
+    /// reason to refuse.
+    #[tokio::test]
+    async fn a_newer_release_that_migrated_further_is_refused() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO _migrations (name) VALUES ('900_listed_by_no_release')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.expect("an unknown migration alone was refused");
+
+        for (version, schema) in [("99.0.0", Some("099_from_a_later_release")), ("98.0.0", None)] {
+            let pool = test_pool().await;
+            sqlx::query("INSERT INTO _opened_by (version, schema) VALUES (?, ?)")
+                .bind(version)
+                .bind(schema)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let refused = run_migrations(&pool).await;
+
+            let Err(crate::error::AppError::Config(message)) = refused else {
+                panic!("a database v{version} migrated further was opened: {refused:?}");
+            };
+            assert!(message.contains(&format!("v{version}")), "{message}");
+        }
         assert!(release("0.1.10") > release("0.1.9"));
     }
 
@@ -430,8 +487,8 @@ mod tests {
             names,
             [
                 "idx_root_folders_category",
-                "idx_root_folders_instance",
                 "idx_source_identifiers_external",
+                "idx_source_identifiers_local",
                 "idx_source_identifiers_resolved",
             ]
         );
@@ -498,6 +555,206 @@ mod tests {
         assert_eq!((titles, overrides(&pool).await), (1, 1), "the migration was not rolled back");
     }
 
+    /// A migration is read as SQLite reads it: a block comment and a quoted
+    /// name may hold a `;` or a `'` without cutting the statement.
+    #[tokio::test]
+    async fn a_migration_is_read_as_sqlite_reads_it() {
+        let pool = test_pool().await;
+
+        apply_migrations(
+            &pool,
+            &[(
+                "test_parsing",
+                "/* a note; it's not a statement */
+                 CREATE TABLE \"a;b\" (x INTEGER);
+                 CREATE TRIGGER t AFTER INSERT ON \"a;b\" BEGIN
+                     UPDATE \"a;b\" SET x = CASE WHEN new.x > 0 THEN 1 ELSE 0 END;
+                 END;",
+            )],
+        )
+        .await
+        .expect("the migration was cut");
+
+        let tables: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name IN ('a;b', 't')")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(tables, 2);
+    }
+
+    /// The query plans of `statement`, one line each.
+    async fn plan(pool: &SqlitePool, statement: &str) -> String {
+        let rows: Vec<(i64, i64, i64, String)> =
+            sqlx::query_as(AssertSqlSafe(format!("EXPLAIN QUERY PLAN {statement}")))
+                .fetch_all(pool)
+                .await
+                .unwrap();
+        rows.into_iter().map(|(_, _, _, detail)| detail).collect::<Vec<_>>().join("\n")
+    }
+
+    /// A title's resolutions are read by its key, for every explanation and
+    /// every webhook, and pruned by key every hour: neither reads the whole
+    /// table, which holds a row per title and per source found by search.
+    #[tokio::test]
+    async fn the_identifier_lookups_seek_an_index() {
+        let pool = test_pool().await;
+        for statement in [
+            "SELECT source, media_type, local_key, external_id FROM source_identifiers
+              WHERE media_type = 'movie' AND local_key IN ('tmdb:1', 'tmdb:2')",
+            "DELETE FROM source_identifiers WHERE local_key IN ('tmdb:1', 'tmdb:2')",
+        ] {
+            let plan = plan(&pool, statement).await;
+            assert!(!plan.contains("SCAN source_identifiers"), "{statement}\n{plan}");
+        }
+    }
+
+    /// A title's history and an instance's are read from the move log by the
+    /// title or the instance, newest first.
+    #[tokio::test]
+    async fn the_log_filters_seek_an_index() {
+        let pool = test_pool().await;
+        for column in ["media_id", "instance_id"] {
+            for statement in [
+                format!(
+                    "SELECT id FROM execution_logs WHERE {column} = 'x'
+                      ORDER BY executed_at DESC, id DESC LIMIT 50"
+                ),
+                format!("SELECT COUNT(*) FROM execution_logs WHERE {column} = 'x'"),
+            ] {
+                let plan = plan(&pool, &statement).await;
+                assert!(plan.contains(&format!("({column}=?)")), "{statement}\n{plan}");
+            }
+        }
+    }
+
+    /// An index whose columns start another's is kept up on every write for
+    /// nothing: the longer one answers its lookups.
+    #[tokio::test]
+    async fn no_index_repeats_the_start_of_another() {
+        let pool = test_pool().await;
+        let indexes: Vec<(String, String, bool)> = sqlx::query_as(
+            "SELECT m.name, l.name, l.\"unique\" FROM sqlite_master m
+               JOIN pragma_index_list(m.name) l
+              WHERE m.type = 'table' AND l.partial = 0",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        let mut columns = Vec::new();
+        for (table, index, unique) in indexes {
+            let keyed: Vec<(String, String)> = sqlx::query_as(
+                "SELECT COALESCE(name, ''), coll FROM pragma_index_xinfo(?) WHERE key = 1
+                  ORDER BY seqno",
+            )
+            .bind(&index)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+            columns.push((table, index, unique, keyed));
+        }
+        let mut repeated = Vec::new();
+        for (table, index, unique, keyed) in &columns {
+            for (other_table, other, _, longer) in &columns {
+                let starts = longer.len() >= keyed.len() && longer[..keyed.len()] == keyed[..];
+                if table == other_table && index != other && starts && !unique {
+                    repeated.push(format!("{index} starts {other}"));
+                }
+            }
+        }
+        assert_eq!(repeated, Vec::<String>::new());
+    }
+
+    /// A database opened where the path says, whatever it holds: a URL would
+    /// read `%41` as `A` and stop at a `?`.
+    #[tokio::test]
+    async fn the_database_opens_at_the_path_as_written() {
+        let dir = crate::tests::TempDir::new("db-path");
+        let mut config = Config::for_tests();
+        config.set_db_path(dir.join("a%41b").join("routarr.db"));
+
+        let pool = init_pool(&config).await.expect("the database opened");
+        pool.close().await;
+
+        assert!(dir.join("a%41b").join("routarr.db").exists(), "not created where named");
+        assert!(!dir.join("aAb").exists(), "the path was read as a URL");
+    }
+
+    /// The write-ahead log takes the size of the largest transaction, a sync
+    /// of the whole library, and keeps it unless a limit trims it.
+    #[tokio::test]
+    async fn the_write_ahead_log_is_kept_small() {
+        let dir = crate::tests::TempDir::new("wal-limit");
+        let mut config = Config::for_tests();
+        config.set_db_path(dir.join("routarr.db"));
+
+        let pool = init_pool(&config).await.unwrap();
+        let limit: i64 =
+            sqlx::query_scalar("PRAGMA journal_size_limit").fetch_one(&pool).await.unwrap();
+        pool.close().await;
+
+        assert_eq!(limit, 64 * 1024 * 1024);
+    }
+
+    /// The schema refuses what the code never writes: a state nothing sets, a
+    /// folder of no known origin, a flag that is neither 0 nor 1, a title's
+    /// countries left NULL where every reader expects a list.
+    #[tokio::test]
+    async fn the_schema_refuses_values_the_code_never_writes() {
+        let pool = library_with_an_override().await;
+        for statement in [
+            "INSERT INTO jobs (id, kind, status) VALUES ('j-1', 'sync', 'queued')",
+            "INSERT INTO root_folders (id, instance_id, path, origin)
+             VALUES ('rf-1', 'i-1', '/movies', 'somewhere')",
+            "INSERT INTO root_folders (id, instance_id, path, accessible)
+             VALUES ('rf-2', 'i-1', '/movies', 2)",
+            "INSERT INTO metadata_cache (source, external_id, media_type, origin_countries,
+                                         expires_at)
+             VALUES ('tmdb', '1', 'movie', NULL, '2099-01-01')",
+            "UPDATE instances SET enabled = 2",
+            "UPDATE media SET monitored = 2",
+            "UPDATE media SET has_files = -1",
+        ] {
+            let refused = sqlx::query(statement).execute(&pool).await;
+            assert!(refused.is_err(), "accepted: {statement}");
+        }
+    }
+
+    /// The tables the schema rebuilds keep every row, and the rows that point
+    /// at them, through an upgrade.
+    #[tokio::test]
+    async fn an_upgrade_that_tightens_the_schema_keeps_every_row() {
+        let pool = crate::tests::database_through("022_indexes_that_serve").await;
+        for statement in [
+            "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+             VALUES ('i-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
+             VALUES ('m-1', 'i-1', 10, 'movie', 'Totoro', 1, 0)",
+            "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'anime')",
+            "INSERT INTO root_folders (id, instance_id, path, origin)
+             VALUES ('rf-1', 'i-1', '/movies', 'declared')",
+            "INSERT INTO metadata_cache (source, external_id, media_type, origin_countries,
+                                         expires_at)
+             VALUES ('tmdb', '1', 'movie', NULL, '2099-01-01')",
+            "INSERT INTO jobs (id, kind, status) VALUES ('j-1', 'sync', 'success')",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+
+        run_migrations(&pool).await.unwrap();
+
+        let kept: (i64, i64, i64, i64, i64, String) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM instances), (SELECT COUNT(*) FROM media),
+                    (SELECT COUNT(*) FROM overrides), (SELECT COUNT(*) FROM root_folders),
+                    (SELECT COUNT(*) FROM jobs),
+                    (SELECT origin_countries FROM metadata_cache)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(kept, (1, 1, 1, 1, 1, "[]".to_string()));
+    }
+
     #[test]
     fn placeholders_are_one_question_mark_per_value() {
         assert_eq!(placeholders(0), "");
@@ -505,21 +762,17 @@ mod tests {
         assert_eq!(placeholders(3), "?, ?, ?");
     }
 
-    /// A stopped Routarr must leave a database file that is complete on its own.
-    ///
-    /// In WAL mode an unfolded `routarr.db-wal` holds every table, so the backup
-    /// the README describes (stop, copy the `.db`) would restore a database with
-    /// **no tables at all**. The documentation relies on this property, checked
-    /// against a real file rather than the in-memory pool the rest of the suite
-    /// uses.
+    /// A stopped Routarr must leave a database file that is complete on its own:
+    /// an unfolded `routarr.db-wal` holds the latest writes, and a copy of the
+    /// `.db` alone would lack them. Checked against a real file rather than the
+    /// in-memory pool the rest of the suite uses.
     #[tokio::test]
     async fn a_closed_database_needs_no_sidecar_files_to_be_complete() {
         let dir = crate::tests::TempDir::new("wal");
         let path = dir.join("r.db");
-        let url = format!("sqlite://{}?mode=rwc", path.display());
-
-        let options = SqliteConnectOptions::from_str(&url)
-            .unwrap()
+        let options = SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             .foreign_keys(true);
         let pool = SqlitePoolOptions::new()
@@ -551,7 +804,7 @@ mod tests {
         let leftover = std::fs::metadata(&wal).map(|m| m.len()).unwrap_or(0);
         assert_eq!(leftover, 0, "the WAL still holds {leftover} bytes after closing");
 
-        // Copy only the `.db`, exactly as the documented backup does.
+        // Copy only the `.db`.
         let copy = dir.join("backup.db");
         std::fs::copy(&path, &copy).unwrap();
         let restored = SqlitePoolOptions::new()
@@ -571,8 +824,7 @@ mod tests {
 
     /// `main` folds the log back once the server has stopped serving. Read out
     /// of its source, since no test runs `main`: a shutdown that drops the pool
-    /// instead leaves the documented backup, a copy of the `.db`, without the
-    /// last writes.
+    /// instead leaves the `.db` without the last writes.
     #[test]
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("main.rs");
@@ -589,62 +841,6 @@ mod tests {
             drained.contains("jobs.drain(") && !closed.contains("jobs.drain("),
             "main closes the database before the moves in flight are recorded:\n{shutdown}"
         );
-    }
-
-    #[test]
-    fn splits_plain_statements() {
-        let s = split_statements("CREATE TABLE a (x INT);\nCREATE TABLE b (y INT);");
-        assert_eq!(s.len(), 2);
-        assert!(s[1].starts_with("CREATE TABLE b"));
-    }
-
-    #[test]
-    fn keeps_semicolons_inside_string_literals() {
-        let s = split_statements("INSERT INTO t VALUES ('a;b');\nSELECT 1;");
-        assert_eq!(s.len(), 2);
-        assert!(s[0].contains("'a;b'"));
-    }
-
-    #[test]
-    fn an_escaped_quote_keeps_the_semicolon_after_it_in_the_string() {
-        let s = split_statements("INSERT INTO t VALUES ('it''s; fine');\nSELECT 1;");
-        assert_eq!(s, ["INSERT INTO t VALUES ('it''s; fine')", "SELECT 1"]);
-    }
-
-    #[test]
-    fn keeps_trigger_bodies_intact() {
-        let sql = "CREATE TRIGGER t AFTER INSERT ON x BEGIN UPDATE y SET a = 1; END;\nSELECT 1;";
-        let s = split_statements(sql);
-        assert_eq!(s.len(), 2, "trigger body must stay in one statement: {s:?}");
-        assert!(s[0].contains("UPDATE y SET a = 1"));
-    }
-
-    /// A `CASE` closes with `END` as a trigger's block does, and a word that
-    /// only starts like a keyword is none: counted otherwise, a trigger is cut
-    /// at the first `;` inside it, or two statements are run as one.
-    #[test]
-    fn a_trigger_stays_one_statement_whatever_its_body_holds() {
-        let sql = "CREATE TRIGGER t AFTER UPDATE ON a BEGIN
-                     UPDATE b SET ended = CASE WHEN new.x THEN 1 ELSE 0 END;
-                     UPDATE b SET beginner = 1;
-                   END;
-                   SELECT 1;";
-        let s = split_statements(sql);
-        assert_eq!(s.len(), 2, "{s:?}");
-        assert!(s[0].starts_with("CREATE TRIGGER") && s[0].ends_with("END"), "{s:?}");
-    }
-
-    #[test]
-    fn drops_line_comments() {
-        let s = split_statements("-- a comment; not a statement\nSELECT 1;");
-        assert_eq!(s.len(), 1);
-        assert!(s[0].contains("SELECT 1"));
-    }
-
-    #[test]
-    fn trailing_statement_without_semicolon_is_kept() {
-        let s = split_statements("SELECT 1;\nSELECT 2");
-        assert_eq!(s.len(), 2);
     }
 
     #[tokio::test]

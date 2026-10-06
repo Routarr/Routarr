@@ -51,7 +51,8 @@ pub struct Job {
     /// without `decisions`, which `GET /decisions?simulation_id=` lists, and a
     /// preview's keeps the ones it returned. An apply or a revert that failed
     /// keeps the report of what it attempted. Null while the task runs, when
-    /// any other task failed, and for a kind no call starts.
+    /// any other task failed, for a kind no call starts, and in the list
+    /// unless it asks for it.
     #[sqlx(skip)]
     pub result: Option<serde_json::Value>,
     #[serde(skip)]
@@ -59,9 +60,18 @@ pub struct Job {
     pub stored_result: Option<String>,
 }
 
-const JOB_COLUMNS: &str =
-    "id, kind, status, trigger, subject, instance_id, detail, detail_key, detail_params,
-     progress_current, progress_total, error_message, started_at, finished_at, result";
+macro_rules! job_fields {
+    () => {
+        "id, kind, status, trigger, subject, instance_id, detail, detail_key, detail_params,
+         progress_current, progress_total, error_message, started_at, finished_at"
+    };
+}
+
+const JOB_COLUMNS: &str = concat!(job_fields!(), ", result");
+
+/// The list's columns: a report holds up to thousands of decisions, and the
+/// list is polled.
+const LISTED_COLUMNS: &str = concat!(job_fields!(), ", NULL AS result");
 
 impl Job {
     fn localized(mut self, localizer: &Localizer) -> Self {
@@ -144,6 +154,9 @@ pub struct JobQuery {
     pub page: Option<u32>,
     /// From 1 to 200. Defaults to 50.
     pub per_page: Option<u32>,
+    /// `result` to have each task carry its report, as `GET /jobs/{job_id}`
+    /// does. Left out, `result` is null in the list.
+    pub include: Option<String>,
 }
 
 pub async fn list(
@@ -164,8 +177,12 @@ pub async fn list(
         binds.push(kind);
     }
 
+    let columns = match query.include.as_deref() {
+        Some(asked) if asked.split(',').any(|part| part.trim() == "result") => JOB_COLUMNS,
+        _ => LISTED_COLUMNS,
+    };
     let list_sql = format!(
-        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
+        "SELECT {columns} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM jobs WHERE 1=1{filters}");
 

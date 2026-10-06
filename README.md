@@ -83,6 +83,12 @@ Back up the whole `data/` directory: the Arr and metadata keys, the notification
 signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
 the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
 
+A start that applies new migrations archives the database first. Going back to an earlier release
+works while it knows every migration the database holds. When a start refuses the database, it
+names an archive it can open: restore it with the server stopped, through
+`docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
+Routarr.
+
 ## Stronger isolation
 
 The container already runs as uid 1000 with every capability dropped. To put a kernel of its own

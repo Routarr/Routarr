@@ -1,4 +1,4 @@
--- The schema Routarr 0.1.0 creates, in one migration.
+-- The initial schema.
 --
 -- Its statements and its name stay as they are: `_migrations` records names,
 -- so an edit here never reaches a database that already ran it, and a backup's

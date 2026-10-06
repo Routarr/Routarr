@@ -77,7 +77,7 @@ const MAX_CATEGORY_NAME_LENGTH: usize = 64;
 /// the way. The refusal is read under the field the name was typed in, so it
 /// speaks the interface's language.
 pub fn normalise(raw: &str, localizer: &Localizer) -> AppResult<String> {
-    let name = raw.trim().to_lowercase();
+    let name = stored_form(raw);
     if name.is_empty() {
         return Err(AppError::BadRequest(localizer.translate("CategoryNameEmpty", &[])));
     }
@@ -94,6 +94,14 @@ pub fn normalise(raw: &str, localizer: &Localizer) -> AppResult<String> {
         return Err(AppError::BadRequest(localizer.translate("CategoryNameRefused", &[])));
     }
     Ok(name)
+}
+
+/// The one form a name is stored in: trimmed, lower-cased and composed, so an
+/// accent written apart from its letter names what the letter with its accent
+/// names (Unicode normalisation form C).
+pub fn stored_form(raw: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    raw.trim().to_lowercase().nfc().collect()
 }
 
 /// A combining mark, which some letters are written with: lower-cased, the
@@ -222,6 +230,25 @@ pub async fn rename(
         }));
     }
 
+    move_references(&mut tx, &previous, &name).await?;
+    tx.commit().await?;
+
+    Ok(Json(Category {
+        id,
+        name,
+        description: existing.2,
+        is_default: existing.3,
+        display_order: existing.4,
+        created_at: existing.5,
+    }))
+}
+
+/// Rename a category and every row naming it, in `tx`.
+pub(crate) async fn move_references(
+    tx: &mut sqlx::SqliteConnection,
+    previous: &str,
+    name: &str,
+) -> AppResult<()> {
     for statement in [
         "UPDATE categories SET name = ? WHERE name = ?",
         "UPDATE rules SET target_category = ? WHERE target_category = ?",
@@ -238,22 +265,13 @@ pub async fn rename(
          WHERE key = 'default_category' AND value = ?",
     ] {
         sqlx::query(statement)
-            .bind(&name)
-            .bind(&previous)
+            .bind(name)
+            .bind(previous)
             .execute(&mut *tx)
             .await
-            .map_err(|e| name_conflict(e, &name))?;
+            .map_err(|e| name_conflict(e, name))?;
     }
-    tx.commit().await?;
-
-    Ok(Json(Category {
-        id,
-        name,
-        description: existing.2,
-        is_default: existing.3,
-        display_order: existing.4,
-        created_at: existing.5,
-    }))
+    Ok(())
 }
 
 pub async fn remove(
@@ -312,4 +330,36 @@ pub async fn remove(
     tx.commit().await?;
 
     Ok(Json(super::Deleted { deleted: true }))
+}
+
+/// Give each category name the one form names are stored in, and every row
+/// naming it with it. A name whose stored form another category holds is left,
+/// and said: merging two categories is the operator's to decide.
+pub async fn converge_names(state: &AppState) -> AppResult<()> {
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?;
+    for previous in names {
+        let name = stored_form(&previous);
+        if name == previous {
+            continue;
+        }
+        if names_held(state, &name).await? {
+            tracing::warn!(
+                "The category '{previous}' reads as '{name}', which another category holds"
+            );
+            continue;
+        }
+        let mut tx = crate::db::write_transaction(&state.pool).await?;
+        move_references(&mut tx, &previous, &name).await?;
+        tx.commit().await?;
+        tracing::info!("The category '{previous}' is stored as '{name}'");
+    }
+    Ok(())
+}
+
+async fn names_held(state: &AppState, name: &str) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE name = ?)")
+        .bind(name)
+        .fetch_one(&state.pool)
+        .await?)
 }

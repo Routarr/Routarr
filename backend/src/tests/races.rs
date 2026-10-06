@@ -345,3 +345,93 @@ async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() 
     reorder.await.unwrap().assert_ok();
     creating.await.unwrap().assert_ok();
 }
+
+/// A pass reads the rules, the mappings and the titles at one moment: a
+/// category renamed while it reads, rules and mappings together, would
+/// otherwise reach it half renamed, and every title bound for that category
+/// would read as having no folder.
+#[tokio::test]
+async fn a_category_renamed_while_a_pass_reads_reaches_it_whole() {
+    let (app, _dir) = crate::tests::backup::app_with_files("snapshot").await;
+    app.seed_library().await;
+    app.execute(&["INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
+                                      target_category, match_mode)
+                   VALUES ('rule-read-at-one-moment', 'Anime', 10, 1, 'both',
+                           '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]',
+                           'anime', 'all')"])
+        .await;
+    let app = Arc::new(app);
+    let gate = arm("routing::load", "rule-read-at-one-moment");
+    let pass = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            run_simulation(&app.state.pool, SimulationOptions::default()).await.unwrap()
+        })
+    };
+    gate.reached().await;
+
+    putting(&app, "/api/v1/categories/cat-anime".into(), json!({ "name": "animation" }))
+        .await
+        .assert_ok();
+    gate.release();
+
+    let result = pass.await.unwrap();
+    let actions: Vec<&str> = result.decisions.iter().map(|d| d.action.as_str()).collect();
+    assert_eq!(actions, ["move"], "{:?}", result.decisions);
+}
+
+/// A folder the operator declared and a sync promoted to the Arr's own while
+/// its delete was asked is the Arr's: the delete leaves it, and its category.
+#[tokio::test]
+async fn a_declared_folder_promoted_while_it_is_deleted_is_kept() {
+    let app = Arc::new(TestApp::new().await);
+    app.seed_library().await;
+    app.execute(&["INSERT INTO root_folders (id, instance_id, path, origin, category)
+                   VALUES ('rf-declared', 'inst-1', '/movies/kids', 'declared', 'anime')"])
+        .await;
+    let gate = arm("root_folders::delete", "rf-declared");
+    let deleting = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move { app.delete("/api/v1/root-folders/rf-declared").await })
+    };
+    gate.reached().await;
+    app.execute(&["UPDATE root_folders SET origin = 'arr', arr_id = 9 WHERE id = 'rf-declared'"])
+        .await;
+    gate.release();
+
+    deleting.await.unwrap().assert_status(axum::http::StatusCode::CONFLICT);
+    let kept: i64 = app.count("SELECT COUNT(*) FROM root_folders WHERE id = 'rf-declared'").await;
+    assert_eq!(kept, 1, "the Arr's folder was deleted with its category");
+}
+
+/// An instance removed while a folder is declared on it, or a title removed
+/// while it is pinned, answers that it is not found, not a server error.
+#[tokio::test]
+async fn what_goes_while_it_is_written_to_is_not_found() {
+    for (point, subject, path, body, removal) in [
+        (
+            "root_folders::declare",
+            "inst-1",
+            "/api/v1/root-folders",
+            json!({ "instance_id": "inst-1", "path": "/movies/new" }),
+            "DELETE FROM instances WHERE id = 'inst-1'",
+        ),
+        (
+            "overrides::create",
+            "m-1",
+            "/api/v1/overrides",
+            json!({ "media_id": "m-1", "target_category": "anime" }),
+            "DELETE FROM media WHERE id = 'm-1'",
+        ),
+    ] {
+        let app = Arc::new(TestApp::new().await);
+        app.seed_library().await;
+        let gate = arm(point, subject);
+        let writing = tokio::spawn(posting(&app, path, body));
+        gate.reached().await;
+        sqlx::query(removal).execute(&app.state.pool).await.unwrap();
+        gate.release();
+
+        writing.await.unwrap().assert_status(axum::http::StatusCode::NOT_FOUND);
+    }
+}

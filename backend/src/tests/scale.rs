@@ -374,9 +374,9 @@ async fn a_pass_over_titles_that_are_gone_reads_nothing_else() {
     let (result, statements) = statements_of(routing::run_simulation(&pool, options)).await;
 
     assert_eq!(result.unwrap().total_media, 0);
-    // The one query, and the check the pool makes of its connection before
-    // lending it.
-    assert!(statements <= 2, "a pass over no title read the library: {statements} statements");
+    // The one query in its read transaction, and the check the pool makes of
+    // its connection before lending it. A whole-library load is a dozen more.
+    assert!(statements <= 4, "a pass over no title read the library: {statements} statements");
 }
 
 /// A pass computes for seconds over a large library with nothing to wait on.
@@ -412,6 +412,41 @@ async fn a_pass_over_the_library_leaves_the_runtime_free() {
     let longest = Duration::from_nanos(longest_wait.load(Ordering::Relaxed));
     println!("a pass of {pass:?}, the runtime held at most {longest:?}");
     assert!(longest * 4 < pass, "the pass held the runtime {longest:?} out of {pass:?}");
+}
+
+/// The hourly prune of the search resolutions no title holds any more removes
+/// them a chunk at a time, not a statement per key: after an instance of
+/// thousands of titles is deleted, a statement each held the write lock for
+/// minutes.
+#[tokio::test]
+async fn pruning_stale_resolutions_does_not_query_once_per_key() {
+    let mut counts = Vec::new();
+    for count in [200, 2000] {
+        let app = TestApp::around(crate::state::AppState::for_tests_on(library_pool().await));
+        let mut tx = app.state.pool.begin().await.unwrap();
+        for i in 0..count {
+            sqlx::query(
+                "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+                 VALUES ('anilist', 'movie', ?, ?)",
+            )
+            .bind(format!("tmdb:{i}"))
+            .bind(i.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+
+        let by = crate::jobs::Attribution::manual(None);
+        let (report, statements) = statements_of(maintenance::run(&app.state, &by)).await;
+        assert_eq!(report.unwrap().source_identifiers_removed, count as u64);
+        counts.push(statements);
+    }
+    let (small, large) = (counts[0], counts[1]);
+    println!("pruned: 200 keys in {small} statements, 2000 in {large}");
+    let more_chunks =
+        2000_usize.div_ceil(routing::BIND_CHUNK) - 200_usize.div_ceil(routing::BIND_CHUNK);
+    assert!(large <= small + 2 * more_chunks, "{large} statements for 2000 keys against {small}");
 }
 
 /// The ceiling on how much more work ten times the library may cost. Linear

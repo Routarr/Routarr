@@ -732,6 +732,21 @@ async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
     assert_eq!(app.get("/api/v1/notifications/webhook-secret").await.json["readable"], true);
 }
 
+/// Secrets the database fails to read sign nothing: sent unsigned, a message
+/// would pass a receiver that checks a signature only when one is there.
+#[tokio::test]
+async fn secrets_that_cannot_be_read_send_nothing() {
+    let app = TestApp::new().await;
+    let receiver = Receiver::start().await;
+    listening(&app, &receiver).await;
+    app.post("/api/v1/notifications/webhook-secret", serde_json::json!({})).await.assert_ok();
+    app.execute(&["ALTER TABLE webhook_secrets RENAME TO webhook_secrets_unreadable"]).await;
+
+    notify::send(&app.state, recovered()).await;
+
+    assert!(receiver.deliveries().is_empty(), "an unsigned message went out");
+}
+
 /// A retry is signed with the secrets of its own time and sent to the address
 /// of its own time: a secret replaced because it leaked stops being the only
 /// one, and a cleared address receives nothing more.

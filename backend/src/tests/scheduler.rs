@@ -433,21 +433,28 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
 #[tokio::test]
 async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     let arr = FakeArr::start().await;
-    // TMDb answers the library's one film slowly, so the enrichment is still
-    // running when a tick that hands it off returns.
-    let tmdb = super::fake_tmdb::FakeTmdb::with(vec![], vec![8392]).await;
+    // TMDb holds its answer until the tick is back, and the call outlasts the
+    // tick's bound, so the enrichment cannot end first however long the rest of
+    // the tick takes.
+    let tmdb = super::fake_tmdb::FakeTmdb::holding().await;
+    let bound = std::time::Duration::from_secs(10);
     let mut config = crate::config::Config::for_tests();
     config.tmdb_api_key = Some("tmdb-key".into());
     config.tmdb_base_url = format!("{}/3", tmdb.base_url);
     let app = ready(&arr).await;
-    let app = TestApp::around(app.state.clone().with_config(config));
+    let app = TestApp::around(app.state.clone().with_config(config)).with_http_budget(bound * 3);
+    crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
 
-    let chain = tick_only(&app).await;
+    let chain = tokio::time::timeout(bound, tick_only(&app))
+        .await
+        .expect("the tick waited for the enrichment before returning");
     let kinds = scheduled_jobs(&app).await;
     assert!(kinds.contains(&"sync".to_string()), "nothing synced: {kinds:?}");
     let chain = chain.expect("a tick that synced hands back the work that follows");
-    assert!(!chain.is_finished(), "the tick waited for the enrichment before returning");
+    assert!(!chain.is_finished(), "the enrichment ended without its answer");
+    tmdb.release();
     chain.await.unwrap();
+    assert!(!tmdb.recorded().paths.is_empty(), "the enrichment never asked TMDb");
     let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
         .fetch_one(&app.state.pool)
         .await

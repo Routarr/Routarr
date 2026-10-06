@@ -3,7 +3,7 @@
 //! Everything here is deliberately free of I/O so the whole engine is unit
 //! testable and so a simulation over thousands of items does no per-item query.
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
@@ -533,7 +533,8 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
         }
 
         Condition::AddedWithinDays(days) => {
-            let added = media.added_at.as_deref().and_then(parse_timestamp);
+            let added =
+                media.added_at.as_deref().and_then(crate::services::routing::parse_timestamp);
             ConditionOutcome::new(
                 kind,
                 added.is_some_and(|added| added_within(ctx.now - added, *days)),
@@ -570,22 +571,6 @@ fn language_listed(lang: &str, values: &[String]) -> bool {
 
 fn join_ids(ids: &[i64]) -> String {
     ids.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(", ")
-}
-
-/// Parse the timestamp formats Arr and SQLite hand us.
-fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
-    if let Ok(dt) = DateTime::parse_from_rfc3339(raw) {
-        return Some(dt.with_timezone(&Utc));
-    }
-    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"] {
-        if let Ok(naive) = NaiveDateTime::parse_from_str(raw, fmt) {
-            return Some(naive.and_utc());
-        }
-        if let Ok(date) = chrono::NaiveDate::parse_from_str(raw, fmt) {
-            return Some(date.and_hms_opt(0, 0, 0)?.and_utc());
-        }
-    }
-    None
 }
 
 #[cfg(test)]

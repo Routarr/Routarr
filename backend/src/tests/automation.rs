@@ -183,6 +183,27 @@ async fn a_preview_is_a_task_of_its_own_kind() {
     assert_eq!(kinds, ["preview", "simulate"]);
 }
 
+/// The task list is polled, and a preview's report holds up to thousands of
+/// decisions: the list leaves each report out unless asked for it, and the
+/// task itself always carries it.
+#[tokio::test]
+async fn the_task_list_carries_a_report_only_when_asked() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.post("/api/v1/simulate", json!({ "persist": false })).await.assert_ok();
+    let report = |path: &'static str| {
+        let app = &app;
+        async move { app.get(path).await.assert_ok()["data"][0]["result"].clone() }
+    };
+
+    assert!(report("/api/v1/jobs").await.is_null(), "the list sent a report");
+    let asked = report("/api/v1/jobs?include=result").await;
+    assert!(asked["decisions"].is_array(), "{asked}");
+    let listed = app.get("/api/v1/jobs").await.assert_ok()["data"][0]["id"].clone();
+    let task = app.get(&format!("/api/v1/jobs/{}", listed.as_str().unwrap())).await;
+    assert_eq!(task.assert_ok()["result"], asked);
+}
+
 /// Followed rather than waited for, a run says how far it has gone, and has
 /// gone through every title once it has finished.
 #[tokio::test]
