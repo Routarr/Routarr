@@ -213,6 +213,13 @@ pub async fn create(
         return Err(AppError::BadRequest(localizer.translate("ErrorDestinationAbsolute", &[])));
     }
     let path = crate::paths::trimmed(&req.path);
+    // A path climbing out of a folder would take that folder's free space
+    // and reachability, and weigh its moves as renames on that volume.
+    if !crate::paths::is_plain(&path) {
+        return Err(AppError::BadRequest(
+            localizer.translate("ErrorDestinationNotPlain", &[("path", &path)]),
+        ));
+    }
 
     let instance = state.instance(&req.instance_id).await?;
 

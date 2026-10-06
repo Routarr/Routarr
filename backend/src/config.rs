@@ -8,6 +8,12 @@ pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 /// `ROUTARR_HTTP_TIMEOUT_SECS` when unset.
 pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 
+/// How long an apply follows the Arr's moves of files. A move within one
+/// filesystem is a rename the Arr ends in a second. One copying across disks
+/// takes minutes a film, longer than anyone watches an apply, and is left to
+/// the next sync.
+const MOVE_WAIT: Duration = Duration::from_secs(60);
+
 /// The directory a database file lives in.
 ///
 /// One place for every caller: `Path::new(":memory:").parent()` is `Some("")`,
@@ -214,6 +220,9 @@ pub struct Config {
     /// other call: tens of thousands of titles from a NAS take far longer than
     /// a probe is given to answer.
     pub library_timeout: Duration,
+    /// How long an apply follows the Arr's moves of files before it records
+    /// the ones still running as requested, for the next sync to settle.
+    pub move_wait: Duration,
     /// Master key sealing the stored secrets (the Arr and metadata source keys).
     /// Generated beside the database if absent.
     pub secret_key: Option<String>,
@@ -366,6 +375,7 @@ impl Config {
                 DEFAULT_HTTP_TIMEOUT_SECS,
             )?),
             library_timeout: crate::http::LIBRARY_TIMEOUT,
+            move_wait: MOVE_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
             // Bounds how many requests are *open* per source, and `rate_limit`
@@ -546,6 +556,7 @@ impl Config {
             trusted_proxies: vec![],
             http_timeout: Duration::from_millis(300),
             library_timeout: Duration::from_millis(900),
+            move_wait: Duration::from_secs(2),
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
             previous_secret_key: None,
             metadata_concurrency: 2,

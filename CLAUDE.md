@@ -100,7 +100,7 @@ resources query from their handler on purpose. What would still be logic without
 
 Invariants a change must keep:
 
-- `services/executor.rs` is the only code that writes to an Arr, behind its guardrails.
+- `services/executor/` is the only code that writes to an Arr, behind its guardrails.
 - Categories are strings joined by name, with no foreign key. The fallback category is read
   through `AppState::default_category` and nowhere else, and a rename goes through
   `api::categories::rename`.

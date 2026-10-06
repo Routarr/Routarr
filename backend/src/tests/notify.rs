@@ -749,13 +749,14 @@ async fn an_apply_and_a_revert_are_announced_apart_once_asked_for() {
     executor::revert_decisions(&app.state, &quiet, false, &Confirmed::all(), &by).await.unwrap();
     let reverted = &receiver.arrived(1).await[0];
     assert_eq!(reverted["event"], "revert_completed");
-    assert_eq!(reverted["data"], serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0 }));
+    let done = serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0, "moving": 0 });
+    assert_eq!(reverted["data"], done);
 
     let again = pending().await;
     executor::apply_decisions(&app.state, &again, false, &Confirmed::all(), &by).await.unwrap();
     let applied = &receiver.arrived(2).await[1];
     assert_eq!(applied["event"], "apply_completed");
-    assert_eq!(applied["data"], serde_json::json!({ "applied": 1, "failed": 0, "skipped": 0 }));
+    assert_eq!(applied["data"], done);
 }
 
 /// A failed sync is told every time once asked for, beside the one message

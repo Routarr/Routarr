@@ -109,8 +109,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let bind_addr = state.config.bind_address();
     // Kept past `build_router`, which consumes the state: the pool has to be
-    // closed *after* the server stops, not dropped along with it.
+    // closed *after* the server stops and the work in flight has recorded
+    // what it did, not dropped along with it.
     let pool = state.pool.clone();
+    let jobs = state.jobs.clone();
     let app = build_router(state);
 
     let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -124,9 +126,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
     // SIGTERM is counting. Past the deadline SQLite rolls the sweep back and
-    // only the WAL truncation is lost.
+    // only the WAL truncation is lost. An apply ends before its next move and
+    // records the moves the Arr has made, within the Compose file's 30s grace.
     let _ = stop_scheduler.send(true);
-    if tokio::time::timeout(std::time::Duration::from_secs(10), scheduler).await.is_err() {
+    let (drained, scheduler) = tokio::join!(
+        jobs.drain(std::time::Duration::from_secs(20)),
+        tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
+    );
+    if !drained {
+        warn!("Moves were still being recorded after 20s, closing the database anyway");
+    }
+    if scheduler.is_err() {
         warn!("The scheduler did not stop within 10s, closing the database anyway");
     }
 
@@ -362,6 +372,7 @@ fn build_router(state: AppState) -> Router {
         .route("/overrides/{id}", delete(api::overrides::remove))
         .route("/jobs", get(api::jobs::list))
         .route("/jobs/{id}", get(api::jobs::get_one))
+        .route("/jobs/{id}/cancel", post(api::jobs::cancel))
         .route("/logs", get(api::logs::list))
         .route("/logs/export", get(api::logs::export))
         .route("/maintenance/purge", post(api::maintenance::purge))

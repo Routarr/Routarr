@@ -6,7 +6,7 @@ use crate::services::routing::{self, SimulationOptions};
 use crate::services::sync;
 
 use super::fake_arr::FakeArr;
-use super::{TestApp, TestResponse};
+use super::{TestApp, TestResponse, one_move_ready};
 
 /// The client hanging up mid-apply (a browser navigating away, an Arr whose
 /// webhook timed out) must not leave a move done at the Arr and unknown here.
@@ -22,7 +22,7 @@ async fn hanging_up_mid_apply_still_records_the_move() {
     // test client's own timeout, or the move fails on its own and proves
     // nothing about the hang-up.
     let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     // Driven until the Arr has the edit in hand, then dropped, which is what a
     // request future undergoes when its connection goes away.
@@ -92,7 +92,7 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
     use tracing_subscriber::layer::SubscriberExt;
 
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     // The one column only the loader reads, so the guards before the job pass.
     sqlx::query("ALTER TABLE media DROP COLUMN current_path")
         .execute(&app.state.pool)
@@ -134,7 +134,7 @@ async fn an_apply_that_cannot_load_its_moves_reports_a_failed_job() {
 #[tokio::test]
 async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query(
         "UPDATE media SET current_root_folder = '/movies/anime',
                 current_path = '/movies/anime/My Neighbor Totoro (1988)' WHERE id = 'm-1'",
@@ -163,7 +163,7 @@ async fn a_decision_whose_item_has_moved_since_is_skipped_rather_than_reapplied(
 #[tokio::test]
 async fn a_proposal_the_rules_no_longer_justify_is_skipped_at_apply_time() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
 
     let report = executor::apply_decisions(
@@ -194,7 +194,7 @@ async fn a_proposal_the_rules_no_longer_justify_is_skipped_at_apply_time() {
 #[tokio::test]
 async fn a_proposal_whose_category_was_remapped_is_skipped_at_apply_time() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query("UPDATE root_folders SET category = NULL WHERE id = 'rf-2'")
         .execute(&app.state.pool)
         .await
@@ -226,7 +226,7 @@ async fn a_proposal_whose_category_was_remapped_is_skipped_at_apply_time() {
 #[tokio::test]
 async fn apply_all_skips_a_proposal_the_rules_no_longer_justify() {
     let arr = FakeArr::start().await;
-    let (app, _) = ready(&arr).await;
+    let (app, _) = one_move_ready(&arr).await;
     let simulation_id: String = sqlx::query_scalar("SELECT simulation_id FROM decisions")
         .fetch_one(&app.state.pool)
         .await
@@ -253,7 +253,7 @@ async fn apply_all_skips_a_proposal_the_rules_no_longer_justify() {
 #[tokio::test]
 async fn a_proposal_another_rule_now_justifies_is_still_applied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query(
         "INSERT INTO rules (id, name, priority, enabled, media_type, conditions,
          target_category, match_mode)
@@ -289,7 +289,7 @@ async fn a_proposal_another_rule_now_justifies_is_still_applied() {
 #[tokio::test]
 async fn a_folder_respelt_with_a_trailing_slash_does_not_make_a_proposal_stale() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query("UPDATE root_folders SET path = '/movies/anime/' WHERE id = 'rf-2'")
         .execute(&app.state.pool)
         .await
@@ -314,9 +314,10 @@ async fn a_folder_respelt_with_a_trailing_slash_does_not_make_a_proposal_stale()
 #[tokio::test]
 async fn only_the_stale_proposal_of_a_selection_is_retired() {
     let arr = FakeArr::start().await;
-    let (app, _) = ready(&arr).await;
+    let (app, _) = one_move_ready(&arr).await;
     // A second film, pinned to `anime`, so it keeps its destination when the
     // rules go.
+    arr.hold_film(11);
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
          current_root_folder, monitored, has_files)
@@ -377,7 +378,7 @@ async fn only_the_stale_proposal_of_a_selection_is_retired() {
 #[tokio::test]
 async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query("DELETE FROM rules").execute(&app.state.pool).await.unwrap();
     sqlx::query(
         "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
@@ -414,7 +415,7 @@ async fn retiring_a_stale_proposal_leaves_a_newer_one_for_the_same_item() {
 #[tokio::test]
 async fn a_folder_reported_again_with_a_trailing_slash_keeps_its_proposal() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     app.execute(&["UPDATE media SET current_root_folder = '/movies/standard/'"]).await;
 
     let report = executor::apply_decisions(
@@ -430,31 +431,13 @@ async fn a_folder_reported_again_with_a_trailing_slash_keeps_its_proposal() {
     assert_eq!((report.applied, report.skipped), (1, 0), "{report:?}");
 }
 
-/// A library wired to a fake Radarr, with dry-run off and one pending move.
-async fn ready(arr: &FakeArr) -> (TestApp, String) {
-    let app = TestApp::one_film_to_move(arr, true).await;
-    app.store_setting("global_dry_run", "false").await;
-
-    let result = routing::run_simulation(
-        &app.state.pool,
-        SimulationOptions { persist: true, ..Default::default() },
-    )
-    .await
-    .unwrap();
-    assert_eq!(result.moves_required, 1);
-    let decision_id = result.decisions[0].id.clone();
-
-    (app, decision_id)
-}
-
-/// With its files, Radarr names the moved folder from its own naming format
-/// and answers with the path it chose. That is the path recorded: composed
-/// from the old folder name instead, it names a folder that does not exist,
-/// and the explanation, a revert or the next plan read it until a sync.
+/// Radarr's editor names a folder moved with its files from Radarr's naming
+/// format, which renames it on disk under every tool reading the library by
+/// path. The film's own record is sent instead, its folder name kept.
 #[tokio::test]
-async fn a_move_with_its_files_records_the_folder_radarr_chose() {
-    let arr = FakeArr::renaming_folders_to("My Neighbor Totoro (1988) {tmdb-8392}").await;
-    let (app, decision_id) = ready(&arr).await;
+async fn a_radarr_move_with_its_files_keeps_the_folder_name() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -466,11 +449,60 @@ async fn a_move_with_its_files_records_the_folder_radarr_chose() {
     .await
     .unwrap();
 
+    let kept = "/movies/anime/My Neighbor Totoro (1988)";
+    let sent = arr.recorded().writes[0]["path"].clone();
+    assert_eq!(sent, kept, "Radarr was not sent the folder name");
     let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 'm-1'")
         .fetch_one(&app.state.pool)
         .await
         .unwrap();
-    assert_eq!(path, "/movies/anime/My Neighbor Totoro (1988) {tmdb-8392}");
+    assert_eq!(path, kept);
+}
+
+/// Radarr's editor refuses a root folder Radarr does not list, and a
+/// declared destination is one it never lists: each film goes through its
+/// own record, with its files or without.
+#[tokio::test]
+async fn a_declared_destination_on_radarr_is_reached_film_by_film() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 2).await;
+    sqlx::query("UPDATE root_folders SET category = NULL WHERE id = 'rf-2'")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO root_folders (id, instance_id, path, accessible, category, origin)
+         VALUES ('rf-declared', 'inst-1', '/movies/anime/films', 1, 'anime', 'declared')",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    let mut proposed = routing::run_simulation(
+        &app.state.pool,
+        SimulationOptions { persist: true, ..Default::default() },
+    )
+    .await
+    .unwrap()
+    .decisions;
+    proposed.sort_by(|a, b| a.media_title.cmp(&b.media_title));
+
+    for (decision, move_files) in proposed.iter().zip([true, false]) {
+        let report = executor::apply_decisions(
+            &app.state,
+            std::slice::from_ref(&decision.id),
+            move_files,
+            &executor::Confirmed::all(),
+            &Attribution::manual(None),
+        )
+        .await
+        .unwrap();
+        assert_eq!(report.applied, 1, "{report:?}");
+    }
+
+    let recorded = arr.recorded();
+    let sent: Vec<&serde_json::Value> = recorded.writes.iter().map(|w| &w["path"]).collect();
+    assert_eq!(sent, ["/movies/anime/films/Film 100", "/movies/anime/films/Film 101"]);
+    assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }
 
 /// A title moved twice can only have its latest move undone. Undoing the older
@@ -480,7 +512,7 @@ async fn a_move_with_its_files_records_the_folder_radarr_chose() {
 #[tokio::test]
 async fn only_the_latest_move_of_a_title_can_be_reverted() {
     let arr = FakeArr::start().await;
-    let (app, first) = ready(&arr).await;
+    let (app, first) = one_move_ready(&arr).await;
     executor::apply_decisions(
         &app.state,
         std::slice::from_ref(&first),
@@ -530,7 +562,7 @@ async fn only_the_latest_move_of_a_title_can_be_reverted() {
 #[tokio::test]
 async fn applying_moves_the_media_and_records_it() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     let report = executor::apply_decisions(
         &app.state,
@@ -544,9 +576,8 @@ async fn applying_moves_the_media_and_records_it() {
 
     assert_eq!((report.applied, report.failed), (1, 0));
 
-    let write = arr.recorded().writes[0].clone();
-    assert_eq!(write["rootFolderPath"], "/movies/anime");
-    assert_eq!(write["moveFiles"], true);
+    assert_eq!(arr.recorded().writes[0]["rootFolderPath"], "/movies/anime");
+    assert_eq!(arr.recorded().query_strings, ["moveFiles=true"]);
 
     let (status, applied_at): (String, Option<String>) =
         sqlx::query_as("SELECT status, applied_at FROM decisions WHERE id = ?")
@@ -561,7 +592,7 @@ async fn applying_moves_the_media_and_records_it() {
 #[tokio::test]
 async fn applying_rewrites_the_local_path_so_the_move_is_not_reproposed() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -591,15 +622,18 @@ async fn applying_rewrites_the_local_path_so_the_move_is_not_reproposed() {
     assert_eq!(again.already_correct, 1);
 }
 
+/// The Arr moves the files in a command of its own after answering, and a
+/// rescan running beside it deletes the file records of a title whose files
+/// have not arrived yet. Nothing upstream rescans after its own move.
 #[tokio::test]
-async fn applying_triggers_a_rescan() {
+async fn a_move_asks_the_arr_for_no_rescan() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
         &[decision_id],
-        false,
+        true,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
     )
@@ -607,38 +641,16 @@ async fn applying_triggers_a_rescan() {
     .unwrap();
 
     let recorded = arr.recorded();
-    assert!(
-        recorded.writes.iter().any(|w| w["name"] == "RefreshMovie"),
-        "the Arr must be told to rescan the new location"
-    );
-}
-
-#[tokio::test]
-async fn a_rescan_can_be_turned_off() {
-    let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
-    sqlx::query("UPDATE settings SET value = 'false' WHERE key = 'refresh_after_move'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-
-    executor::apply_decisions(
-        &app.state,
-        &[decision_id],
-        false,
-        &executor::Confirmed::all(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
-
-    assert!(!arr.recorded().writes.iter().any(|w| w["name"] == "RefreshMovie"));
+    assert!(!recorded.writes.is_empty(), "nothing reached the Arr");
+    let commands: Vec<&serde_json::Value> =
+        recorded.writes.iter().filter(|w| w.get("name").is_some()).collect();
+    assert!(commands.is_empty(), "a command was posted beside the move: {commands:?}");
 }
 
 #[tokio::test]
 async fn an_upstream_failure_marks_the_decision_failed_and_logs_it() {
     let arr = FakeArr::failing(500).await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     let report = executor::apply_decisions(
         &app.state,
@@ -683,7 +695,7 @@ async fn an_upstream_failure_marks_the_decision_failed_and_logs_it() {
 #[tokio::test]
 async fn an_apply_in_which_every_move_failed_is_a_failed_job() {
     let arr = FakeArr::failing(500).await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -734,7 +746,7 @@ async fn a_revert_in_which_every_move_failed_is_a_failed_job() {
 #[tokio::test]
 async fn a_proposal_for_a_disabled_instance_is_not_applied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     sqlx::query("UPDATE instances SET enabled = 0").execute(&app.state.pool).await.unwrap();
 
     let report = executor::apply_decisions(
@@ -756,7 +768,7 @@ async fn a_proposal_for_a_disabled_instance_is_not_applied() {
 #[tokio::test]
 async fn a_move_on_a_disabled_instance_is_not_reverted() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     let by = Attribution::manual(None);
     let applied = executor::apply_decisions(
         &app.state,
@@ -790,7 +802,7 @@ async fn a_move_on_a_disabled_instance_is_not_reverted() {
 #[tokio::test]
 async fn a_revert_the_arr_refuses_leaves_the_decision_applied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     let by = Attribution::manual(None);
     let nothing_answered = executor::Confirmed::none();
     let revert = || {
@@ -833,16 +845,30 @@ async fn a_revert_the_arr_refuses_leaves_the_decision_applied() {
     assert_eq!(revert().await.unwrap().applied, 1, "the second Revert could not find the move");
 }
 
+/// The proposals a person reviewed, written again by a scheduled pass in the
+/// meantime: the one still proposing the same move is applied through its
+/// successor, and the one now going elsewhere is counted as replaced.
 #[tokio::test]
-async fn a_superseded_decision_is_never_applied() {
+async fn a_selection_replaced_by_the_same_proposal_is_still_applied() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
-
-    sqlx::query("UPDATE decisions SET superseded = 1").execute(&app.state.pool).await.unwrap();
+    let app = TestApp::films_to_move(&arr, 2).await;
+    let reviewed = app.simulate().await;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM decisions WHERE simulation_id = ? AND action = 'move' ORDER BY media_title",
+    )
+    .bind(&reviewed)
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
 
     let report = executor::apply_decisions(
         &app.state,
-        &[decision_id],
+        &ids,
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
@@ -850,15 +876,58 @@ async fn a_superseded_decision_is_never_applied() {
     .await
     .unwrap();
 
-    assert_eq!(report.applied, 0);
-    assert_eq!(report.skipped, 1);
-    assert!(arr.recorded().writes.is_empty(), "nothing may be sent upstream");
+    assert_eq!((report.requested, report.applied, report.superseded), (2, 1, 1), "{report:?}");
+    assert_eq!(moved(&arr), ["/movies/anime/Film 100"]);
+}
+
+/// A selection whose every proposal now goes elsewhere is refused with the
+/// reason, rather than answered as a success that moved nothing.
+#[tokio::test]
+async fn a_selection_whose_proposals_all_go_elsewhere_now_is_refused() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
+
+    let refused = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": [decision_id], "move_files": false }),
+        )
+        .await;
+
+    assert_eq!(refused.status, 409, "{}", refused.json);
+    assert!(refused.message().contains("newer simulation"), "{}", refused.message());
+    assert!(arr.recorded().writes.is_empty());
+}
+
+/// An id sent twice names one decision: one move, counted once, and asked
+/// about once by the guards.
+#[tokio::test]
+async fn a_decision_named_twice_is_applied_once_and_counted_once() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+
+    let report = executor::apply_decisions(
+        &app.state,
+        &[decision_id.clone(), decision_id],
+        false,
+        &executor::Confirmed::all(),
+        &Attribution::manual(None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!((report.requested, report.applied, report.skipped), (1, 1, 0), "{report:?}");
 }
 
 /// `ready`, with its proposal applied: the film sits in `/movies/anime` and
 /// came from `/movies/standard`, which a revert writes into.
 async fn applied(arr: &FakeArr) -> (TestApp, String) {
-    let (app, decision_id) = ready(arr).await;
+    let (app, decision_id) = one_move_ready(arr).await;
     executor::apply_decisions(
         &app.state,
         std::slice::from_ref(&decision_id),
@@ -881,14 +950,14 @@ async fn every_route_that_moves_sends_the_arr_the_files_choice_it_was_given() {
         for route in ["apply", "apply-all", "revert"] {
             let arr = FakeArr::start().await;
             let (app, decision_id) =
-                if route == "revert" { applied(&arr).await } else { ready(&arr).await };
+                if route == "revert" { applied(&arr).await } else { one_move_ready(&arr).await };
             let simulation: String =
                 sqlx::query_scalar("SELECT simulation_id FROM decisions WHERE id = ?")
                     .bind(&decision_id)
                     .fetch_one(&app.state.pool)
                     .await
                     .unwrap();
-            let before = arr.recorded().writes.len();
+            let before = arr.recorded().query_strings.len();
             let body = match route {
                 "apply-all" => serde_json::json!({
                     "simulation_id": simulation, "move_files": move_files, "confirm": every_question
@@ -901,13 +970,12 @@ async fn every_route_that_moves_sends_the_arr_the_files_choice_it_was_given() {
             let answer = app.post(&format!("/api/v1/decisions/{route}"), body).await;
 
             assert_eq!(answer.assert_ok()["applied"], 1, "{route} moving files {move_files}");
-            let recorded = arr.recorded();
-            let edits: Vec<_> = recorded.writes[before..]
-                .iter()
-                .filter(|w| w["rootFolderPath"].is_string())
-                .collect();
-            assert_eq!(edits.len(), 1, "{route}: {:?}", recorded.writes);
-            assert_eq!(edits[0]["moveFiles"], move_files, "{route} sent the wrong files choice");
+            let sent = arr.recorded().query_strings[before..].to_vec();
+            assert_eq!(
+                sent,
+                [format!("moveFiles={move_files}")],
+                "{route} sent the wrong files choice"
+            );
         }
     }
 }
@@ -921,7 +989,7 @@ async fn every_route_that_moves_waits_for_the_move_already_running() {
     for route in ["apply", "apply-all", "revert"] {
         let arr = FakeArr::start().await;
         let (app, decision_id) =
-            if route == "revert" { applied(&arr).await } else { ready(&arr).await };
+            if route == "revert" { applied(&arr).await } else { one_move_ready(&arr).await };
         let simulation: String =
             sqlx::query_scalar("SELECT simulation_id FROM decisions WHERE id = ?")
                 .bind(&decision_id)
@@ -1000,9 +1068,8 @@ async fn an_apply_stamps_its_move_in_the_shape_a_sync_compares() {
     assert_eq!(stamp, crate::services::routing::format_timestamp(moved), "{stamp}");
 }
 
-/// Sonarr moves one series per call, and each answer settles its own title:
-/// a refused series fails alone, and the other is applied, its path relocated
-/// under the new folder since Sonarr does not answer one.
+/// Each series is its own call, settled on its own answer: a refused series
+/// fails alone, and the other is applied under the path it was sent.
 #[tokio::test]
 async fn a_sonarr_batch_settles_each_series_on_its_own_answer() {
     let arr = FakeArr::start().await;
@@ -1209,7 +1276,7 @@ async fn a_revert_into_a_folder_the_instance_no_longer_has_is_skipped() {
 #[tokio::test]
 async fn reverting_puts_the_media_back() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -1255,7 +1322,7 @@ async fn reverting_puts_the_media_back() {
 #[tokio::test]
 async fn a_decision_cannot_be_reverted_twice() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -1293,7 +1360,7 @@ async fn a_decision_cannot_be_reverted_twice() {
 #[tokio::test]
 async fn a_pending_decision_cannot_be_reverted() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     let ids = std::slice::from_ref(&decision_id);
     let by = Attribution::manual(None);
 
@@ -1322,7 +1389,7 @@ async fn a_pending_decision_cannot_be_reverted() {
 #[tokio::test]
 async fn an_unattended_apply_is_held_by_the_dry_run() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
     app.store_setting("global_dry_run", "true").await;
     let turn = executor::unattended_turn(&app.state).await.expect("the lock is free");
 
@@ -1334,48 +1401,35 @@ async fn an_unattended_apply_is_held_by_the_dry_run() {
     assert!(arr.recorded().writes.is_empty(), "the dry run let an unattended move through");
 }
 
+/// One run sends its moves, and reports what failed, in the order the
+/// decisions were given, from one run to the next.
 #[tokio::test]
-async fn moves_to_the_same_folder_are_batched_into_one_call() {
-    let arr = FakeArr::start().await;
-    let (app, _) = ready(&arr).await;
-
-    // A second movie on the same instance heading for the same folder.
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
-         current_root_folder, monitored, has_files)
-         VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira', 8392,
-                 '/movies/standard/Akira', '/movies/standard', 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-
+async fn errors_are_reported_in_the_order_the_moves_were_given() {
+    let arr = FakeArr::failing(500).await;
+    let app = TestApp::films_to_move(&arr, 4).await;
     let result = routing::run_simulation(
         &app.state.pool,
         SimulationOptions { persist: true, ..Default::default() },
     )
     .await
     .unwrap();
-    let ids: Vec<String> = result.decisions.iter().map(|d| d.id.clone()).collect();
-    assert_eq!(ids.len(), 2);
+    let mut given: Vec<(String, String)> =
+        result.decisions.iter().map(|d| (d.media_title.clone(), d.id.clone())).collect();
+    given.sort();
+    let given: Vec<String> = given.into_iter().rev().map(|(_, id)| id).collect();
 
     let report = executor::apply_decisions(
         &app.state,
-        &ids,
+        &given,
         false,
         &executor::Confirmed::all(),
         &Attribution::manual(None),
     )
     .await
     .unwrap();
-    assert_eq!(report.applied, 2);
 
-    let recorded = arr.recorded();
-    // The refresh command also carries `movieIds`, so match on the editor payload.
-    let edits: Vec<_> =
-        recorded.writes.iter().filter(|w| w["rootFolderPath"].is_string()).collect();
-    assert_eq!(edits.len(), 1, "both movies share one editor call");
-    assert_eq!(edits[0]["movieIds"].as_array().unwrap().len(), 2);
+    let reported: Vec<&str> = report.errors.iter().map(|e| e.decision_id.as_str()).collect();
+    assert_eq!(reported, given);
 }
 
 // ------------------------------------------------------- asking before a move
@@ -1495,6 +1549,27 @@ async fn moves_that_each_fit_but_not_together_ask_about_capacity() {
     assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
 }
 
+/// Two folders reporting the same free space are one volume: what they
+/// receive together is weighed against it, each fitting alone.
+#[tokio::test]
+async fn moves_into_two_folders_of_one_volume_ask_about_their_sum() {
+    let app = TestApp::new().await;
+    pending_move(&app, SIX_GIB, 1 << 40, 10 << 30).await;
+    app.execute(&[
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, free_space, accessible, category)
+         VALUES ('rf-kids', 'i1', 3, '/movies/kids', 10737418240, 1, 'kids')",
+    ])
+    .await;
+    second_pending_move(&app, "kids").await;
+
+    let asked = apply_both(&app).await;
+
+    assert_eq!(asked.status, axum::http::StatusCode::CONFLICT, "{:?}", asked.json);
+    assert_eq!(asked.json["confirm"], "capacity", "{:?}", asked.json);
+    let message = asked.message();
+    assert!(message.contains("/movies/anime, /movies/kids"), "{message}");
+}
+
 /// Every destination is weighed, not the first the query returns: a roomy
 /// folder first does not let a short one through after it.
 #[tokio::test]
@@ -1520,6 +1595,7 @@ async fn the_capacity_question_names_a_short_destination_after_a_roomy_one() {
 async fn two_instances(app: &TestApp, first: &FakeArr, second: &FakeArr) {
     app.seed_instance_at("inst-a", "radarr", &first.base_url).await;
     app.seed_instance_at("inst-b", "radarr", &second.base_url).await;
+    second.hold_film(11);
     for (instance, arr_id) in [("inst-a", 10), ("inst-b", 11)] {
         for (folder, path, category, free) in [
             ("src", "/movies/standard", "standard", 1_i64 << 40),
@@ -1577,14 +1653,9 @@ async fn two_instances(app: &TestApp, first: &FakeArr, second: &FakeArr) {
     app.store_setting("global_dry_run", "false").await;
 }
 
-/// The Arr ids each editor call carried.
-fn edited(arr: &FakeArr) -> Vec<serde_json::Value> {
-    arr.recorded()
-        .writes
-        .iter()
-        .filter(|w| w["rootFolderPath"].is_string())
-        .map(|w| w["movieIds"].clone())
-        .collect()
+/// The path each update sent the Arr.
+fn moved(arr: &FakeArr) -> Vec<serde_json::Value> {
+    arr.recorded().writes.iter().map(|w| w["path"].clone()).collect()
 }
 
 #[tokio::test]
@@ -1604,8 +1675,8 @@ async fn one_apply_across_two_instances_sends_each_arr_only_its_own_film() {
         .await;
 
     assert_eq!(applied.assert_ok()["applied"], 2, "a folder weighed the other instance's film");
-    assert_eq!(edited(&first), [serde_json::json!([10])]);
-    assert_eq!(edited(&second), [serde_json::json!([11])]);
+    assert_eq!(moved(&first), ["/movies/anime/My Neighbor Totoro (1988)"]);
+    assert_eq!(moved(&second), ["/movies/anime/Film 11"]);
 }
 
 /// `confirmed` names the guardrail the caller looked at, so a test that answers
@@ -1846,7 +1917,7 @@ async fn the_moving_routes_refuse_an_unknown_decision() {
 #[tokio::test]
 async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -1883,7 +1954,7 @@ async fn a_sync_that_read_before_the_move_does_not_put_the_old_path_back() {
 #[tokio::test]
 async fn a_sync_that_read_after_the_move_still_follows_the_arr() {
     let arr = FakeArr::start().await;
-    let (app, decision_id) = ready(&arr).await;
+    let (app, decision_id) = one_move_ready(&arr).await;
 
     executor::apply_decisions(
         &app.state,
@@ -1895,6 +1966,11 @@ async fn a_sync_that_read_after_the_move_still_follows_the_arr() {
     .await
     .unwrap();
 
+    // Moved back in Radarr's own interface, after the apply.
+    arr.edit_movie(serde_json::json!({
+        "path": "/movies/standard/My Neighbor Totoro (1988)",
+        "rootFolderPath": "/movies/standard",
+    }));
     sqlx::query("UPDATE media SET moved_at = datetime('now', '-1 minute') WHERE id = 'm-1'")
         .execute(&app.state.pool)
         .await

@@ -91,13 +91,13 @@ COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
 # The placeholders that hold anything but a count: names, paths, codes, sizes
 # already written with their unit, years, ids, statuses and ordinals.
 NOT_COUNTS = {
-    "address", "age", "base", "category", "cause", "certification", "code",
-    "condition", "countries", "country", "detail", "error", "expected", "field", "file",
-    "first", "found", "free", "host", "id", "index", "instance", "key", "kind", "label",
-    "language", "max", "message", "min", "name", "names", "needed", "next", "number",
-    "observed", "path", "provider", "query", "reason", "regions", "rule", "screen", "second",
-    "section", "service", "since", "size", "source", "sources", "status", "title", "url", "value",
-    "values", "variable", "version", "when", "year",
+    "address", "age", "arr", "base", "category", "cause", "certification", "code", "condition",
+    "countries", "country", "detail", "error", "expected", "field", "file", "first", "found",
+    "free", "host", "id", "index", "instance", "key", "kind", "label", "language", "max",
+    "message", "min", "name", "names", "needed", "next", "number", "observed", "path", "paths",
+    "provider", "query", "reason", "regions", "rule", "screen", "second", "section", "service",
+    "since", "size", "source", "sources", "status", "title", "url", "value", "values",
+    "variable", "version", "when", "year",
 }
 
 

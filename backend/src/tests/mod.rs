@@ -25,6 +25,7 @@ mod live_sources;
 mod localization;
 mod metadata_sources;
 mod metrics;
+mod move_confirmation;
 mod notify;
 mod onboarding;
 mod outbound_http;
@@ -38,6 +39,7 @@ mod rule_tests;
 mod scale;
 mod scheduler;
 mod security;
+mod stopped_runs;
 mod sync;
 mod webhook_fuzz;
 mod windows;
@@ -408,13 +410,13 @@ impl TestApp {
 
     /// A library of `count` films the anime rule wants to move off `arr`,
     /// with the global dry run off, ready to apply. Film `n` is `m-n`, Arr id
-    /// `100 + n`, in the folder `Film <its Arr id>`, the one the fake's editor
-    /// answers for it.
+    /// `100 + n`, in the folder `Film <its Arr id>`, as `arr` holds it.
     pub async fn films_to_move(arr: &fake_arr::FakeArr, count: usize) -> Self {
         let app = Self::new().await;
         app.seed_routing_off(arr).await;
 
         for index in 0..count {
+            arr.hold_film(index as i64 + 100);
             sqlx::query(
                 "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id,
                  current_path, current_root_folder, monitored, has_files)
@@ -569,6 +571,23 @@ impl TestResponse {
     }
 }
 
+/// A library wired to a fake Radarr, with dry-run off and one pending move.
+pub async fn one_move_ready(arr: &fake_arr::FakeArr) -> (TestApp, String) {
+    let app = TestApp::one_film_to_move(arr, true).await;
+    app.store_setting("global_dry_run", "false").await;
+
+    let result = crate::services::routing::run_simulation(
+        &app.state.pool,
+        crate::services::routing::SimulationOptions { persist: true, ..Default::default() },
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.moves_required, 1);
+    let decision_id = result.decisions[0].id.clone();
+
+    (app, decision_id)
+}
+
 /// A database as the release that shipped migration `last` hands it to an
 /// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
 pub async fn database_through(last: &str) -> sqlx::SqlitePool {
@@ -633,6 +652,13 @@ impl TestApp {
         let mut state = self.state.with_config(config.clone());
         state.http = crate::http::build_client(&config).unwrap();
         Self::around(state)
+    }
+
+    /// A harness whose applies follow the Arr's moves of files for `wait`.
+    pub fn with_move_wait(self, wait: std::time::Duration) -> Self {
+        let mut config = (*self.state.config).clone();
+        config.move_wait = wait;
+        Self::around(self.state.with_config(config))
     }
 
     /// A harness whose client resolves no name.

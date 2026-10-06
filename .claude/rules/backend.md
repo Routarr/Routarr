@@ -56,6 +56,8 @@ Each of these questions has one function. Call it, never spell the question agai
 - `backend/migrations/001_initial_schema.sql` is part of v0.1.0. Change the schema in a new
   file listed in `MIGRATIONS` (`backend/src/db.rs`): `_migrations` records names, so an edit to
   a shipped file never reaches an existing database.
+- A migration may rebuild a table to change a CHECK or a type: `apply_migrations` runs it with
+  foreign keys off and refuses a commit `foreign_key_check` faults. Recreate its indexes there.
 - Timestamps are TEXT in `%Y-%m-%d %H:%M:%S` UTC, the shape `datetime('now')` writes, so both
   compare as strings. Booleans are INTEGER.
 - A tuple `query_as` target binds by position and stops at 16 fields. Use a named `FromRow`
@@ -162,7 +164,8 @@ Each of these questions has one function. Call it, never spell the question agai
   in-process stand-in on an ephemeral port, started with `tests::serve` (`listen` and `serve_on`
   for one that names its own address) (`fake_arr.rs`, `fake_tmdb.rs`, `fake_sources.rs`,
   `fake_oidc.rs` in `backend/src/tests/`) and asserts on what it recorded.
-  `FakeArr::failing(status)` drives the error paths.
+  `FakeArr::failing(status)` drives the error paths. Its Radarr holds Totoro (10) and the films
+  `hold_film` names (`films_to_move` does), and a move reads the film before writing it.
 - A test asserting that nothing happened needs a positive control proving the fixture can
   make it happen (`ready_to_apply` in `backend/src/tests/scheduler.rs`).
 - `backend/src/tests/scale.rs` counts the statements a simulation runs at two library sizes. A

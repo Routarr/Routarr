@@ -160,18 +160,53 @@ async fn a_simulation_with_nothing_to_move_is_refused_rather_than_reported_empty
     assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))));
 }
 
+/// A scheduled pass after a sync writes every proposal again under a new
+/// simulation. Applying the earlier one applies the identical proposals that
+/// replaced its own, leaves the one now going elsewhere, and touches no title
+/// it did not propose.
 #[tokio::test]
-async fn it_only_touches_what_its_own_simulation_proposed() {
+async fn an_earlier_simulation_is_applied_through_the_identical_proposals_since() {
     let arr = FakeArr::start().await;
     let app = TestApp::films_to_move(&arr, 4).await;
     set_batch_limit(&app, 50).await;
-
     let earlier = app.simulate().await;
-    let later = app.simulate().await;
-    assert_ne!(earlier, later);
+    arr.hold_film(104);
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-4', 'inst-1', 104, 'movie', 'Film 004', 8392, '/movies/standard/Film 104',
+                 '/movies/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-3', 'm-3', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
 
-    // The earlier run's proposals were superseded, so asking for them applies
-    // nothing rather than replaying a stale view of the library.
+    let report = apply(&app, &earlier).await;
+
+    assert_eq!((report.applied, report.superseded), (3, 1), "{report:?}");
+    let pending: Vec<String> = sqlx::query_scalar(
+        "SELECT media_id FROM decisions
+          WHERE status = 'pending' AND superseded = 0 AND action = 'move'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(pending, ["m-4"], "a title the earlier simulation never proposed was moved");
+}
+
+/// Every proposal of a simulation replaced by another move: refused with the
+/// reason, not "no decision selected".
+#[tokio::test]
+async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::films_to_move(&arr, 1).await;
+    let earlier = app.simulate().await;
+    app.execute(&[
+        "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-0', 'm-0', 'standard')",
+    ])
+    .await;
+    app.simulate().await;
+
     let refused = executor::apply_simulation_in_batches(
         &app.state,
         &earlier,
@@ -180,62 +215,17 @@ async fn it_only_touches_what_its_own_simulation_proposed() {
         &Attribution::manual(None),
     )
     .await;
-    assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))));
 
-    let report = executor::apply_simulation_in_batches(
-        &app.state,
-        &later,
-        false,
-        &executor::Confirmed::all(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
-    assert_eq!(report.applied, 4);
+    assert!(matches!(refused, Err(crate::error::AppError::Conflict(_))), "{refused:?}");
+    assert!(arr.recorded().writes.is_empty());
 }
 
-/// Radarr moves a batch in one request and answers every film with its new
-/// path, and each path belongs to the film it names.
-#[tokio::test]
-async fn each_film_of_a_batch_takes_the_path_the_arr_answered_for_it() {
-    let arr = FakeArr::start().await;
-    let app = TestApp::films_to_move(&arr, 2).await;
-    let simulation = app.simulate().await;
-
-    executor::apply_simulation_in_batches(
-        &app.state,
-        &simulation,
-        false,
-        &executor::Confirmed::all(),
-        &Attribution::manual(None),
-    )
-    .await
-    .unwrap();
-
-    let paths: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, current_path FROM media ORDER BY id")
-            .fetch_all(&app.state.pool)
-            .await
-            .unwrap();
-    assert_eq!(
-        paths,
-        [
-            ("m-0".into(), "/movies/anime/Film 100".into()),
-            ("m-1".into(), "/movies/anime/Film 101".into())
-        ]
-    );
-}
-
-/// Progress is written as each slice ends, so the operations queue shows a
-/// run moving rather than one that jumps to its end. Each edit is held, so the
-/// count between two slices stands long enough to be read.
-/// Radarr looks a batch's films up together and fails the whole edit on one
-/// it no longer holds. The others still move, and that one fails alone.
+/// A film Radarr no longer holds fails alone, and the others still move.
 #[tokio::test]
 async fn a_film_radarr_no_longer_holds_fails_alone() {
     let arr = FakeArr::start().await;
-    arr.forget_movie(101);
     let app = TestApp::films_to_move(&arr, 3).await;
+    arr.forget_movie(101);
     let simulation = app.simulate().await;
 
     let report = apply(&app, &simulation).await;
@@ -247,25 +237,6 @@ async fn a_film_radarr_no_longer_holds_fails_alone() {
             .await
             .unwrap();
     assert_eq!(failed, ["m-1"]);
-}
-
-/// A film Radarr's answer leaves out was not moved, whatever the answer says
-/// about the others, and is not recorded as moved.
-#[tokio::test]
-async fn a_film_the_answer_leaves_out_is_not_recorded_as_moved() {
-    let arr = FakeArr::start().await;
-    arr.leave_out_of_the_answer(101);
-    let app = TestApp::films_to_move(&arr, 2).await;
-    let simulation = app.simulate().await;
-
-    let report = apply(&app, &simulation).await;
-
-    assert_eq!((report.applied, report.failed), (1, 1), "{report:?}");
-    let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 'm-1'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(path, "/movies/standard/Film 101", "the film left out was recorded as moved");
 }
 
 /// Apply a whole simulation, every guardrail confirmed.
@@ -281,6 +252,9 @@ async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::Ba
     .unwrap()
 }
 
+/// Progress is written as each slice ends, so the operations queue shows a
+/// run moving rather than one that jumps to its end. Each edit is held, so the
+/// count between two slices stands long enough to be read.
 #[tokio::test]
 async fn progress_is_recorded_as_each_slice_ends() {
     use std::time::Duration;
@@ -318,13 +292,16 @@ async fn progress_is_recorded_as_each_slice_ends() {
     assert!(current < total, "{current} of {total} while running");
 }
 
-/// A run stops at the first refused slice however much moved before it, and
-/// what moved counts: the job succeeded, and its counts say what failed.
+/// A run stops at the first slice the Arr refuses whole however much moved
+/// before it, and what moved counts: the job succeeded, and its counts say
+/// what failed.
 #[tokio::test]
 async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     let arr = FakeArr::start().await;
-    // Film 005, in the second slice of five.
-    arr.refuse_movie(105);
+    // Films 005 to 009, the second slice of five.
+    for id in 105..110 {
+        arr.refuse_movie(id);
+    }
     let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
@@ -343,6 +320,50 @@ async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     assert_eq!((report.batches_run, report.applied, report.failed), (2, 5, 5), "{report:?}");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 2);
     assert_eq!(app.last_job_status("apply").await, "success");
+}
+
+/// The dry-run turned on while a whole simulation is applied stops the
+/// slice running before its next move, and the slices after it never run.
+#[tokio::test]
+async fn turning_the_dry_run_on_stops_the_slices_still_to_run() {
+    use std::time::Duration;
+
+    let arr = FakeArr::holding_edits(Duration::from_millis(100)).await;
+    let app = TestApp::films_to_move(&arr, 10).await;
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+    let (confirmed, by) = (executor::Confirmed::all(), Attribution::manual(None));
+
+    let run =
+        executor::apply_simulation_in_batches(&app.state, &simulation, false, &confirmed, &by);
+    let switch = async {
+        while arr.recorded().writes.is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        app.store_setting("global_dry_run", "true").await;
+    };
+    let (report, ()) = tokio::join!(run, switch);
+
+    let report = report.unwrap();
+    assert_eq!(report.stopped, Some(executor::StopReason::DryRun), "{report:?}");
+    assert_eq!((report.batches_run, report.applied), (1, 1), "{report:?}");
+    assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 9);
+}
+
+/// One film the Arr refuses, deleted there since the last sync say, fails
+/// alone, and the slices after it still run.
+#[tokio::test]
+async fn one_refused_film_does_not_end_the_run() {
+    let arr = FakeArr::start().await;
+    arr.refuse_movie(105);
+    let app = TestApp::films_to_move(&arr, 12).await;
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+
+    let report = apply(&app, &simulation).await;
+
+    assert!(!report.stopped_early, "{report:?}");
+    assert_eq!((report.batches_run, report.applied, report.failed), (3, 11, 1), "{report:?}");
 }
 
 #[tokio::test]

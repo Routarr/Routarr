@@ -489,14 +489,14 @@ mod settings_tests {
             ("confirmation_threshold", "many"),
             ("global_dry_run", "TRUE"),
             ("auto_apply_enabled", "1"),
-            ("refresh_after_move", "yes"),
+            ("notify_sync_failed", "yes"),
         ]);
         assert_eq!(settings.get("batch_limit", 50i64), 12);
         assert_eq!(settings.get("confirmation_threshold", 10i64), 10, "unparseable is the default");
         assert_eq!(settings.get("absent", 7i64), 7);
         assert!(settings.bool("global_dry_run", false));
         assert!(settings.bool("auto_apply_enabled", false));
-        assert!(!settings.bool("refresh_after_move", true), "`yes` is not a switch");
+        assert!(!settings.bool("notify_sync_failed", true), "`yes` is not a switch");
         assert!(settings.bool("absent", true));
         assert_eq!(settings.raw("batch_limit"), Some(" 12 "), "raw is as stored");
     }

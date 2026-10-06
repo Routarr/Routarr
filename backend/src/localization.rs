@@ -112,6 +112,7 @@ pub const COUNTS: &[&str] = &[
     "logs",
     "media",
     "moves",
+    "moving",
     "overrides",
     "page",
     "planned",

@@ -8,7 +8,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::routing::{get, post, put};
+use axum::routing::get;
 use axum::{Json, Router};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -51,15 +51,40 @@ pub struct Recorded {
     pub reads: Vec<String>,
 }
 
-/// The ids the movie editor treats apart.
+/// The films this Radarr holds beside Totoro, and those it treats apart.
 #[derive(Clone, Default)]
-struct EditorQuirks {
-    /// Refused with every other movie of their batch.
+struct Films {
+    /// Held as `Film <id>`, in `/movies/standard`.
+    held: Vec<i64>,
+    /// An update of these is refused.
     refused: Vec<i64>,
-    /// Gone from the library.
-    forgotten: Vec<i64>,
-    /// Edited and left out of the answer.
-    unreported: Vec<i64>,
+}
+
+/// A move the Arr queued as a command of its own, as both Arrs carry files.
+#[derive(Clone)]
+struct QueuedMove {
+    id: i64,
+    /// `MoveMovie` or `MoveSeries`.
+    name: &'static str,
+    item: i64,
+    source: String,
+    destination: String,
+    ends_at: std::time::Instant,
+    /// Whether its end has been laid over the title.
+    settled: bool,
+}
+
+/// How the moves the Arr queues end.
+#[derive(Clone, Default)]
+struct Moving {
+    /// How long a queued move runs before it ends.
+    lasts: std::time::Duration,
+    /// Titles whose move fails on disk: the Arr puts the old path back and
+    /// ends the command as completed, as Radarr's and Sonarr's move services do.
+    rolled_back: Vec<i64>,
+    /// Titles whose move command fails, leaving the new path recorded.
+    failed: Vec<i64>,
+    queued: Vec<QueuedMove>,
 }
 
 #[derive(Clone)]
@@ -91,9 +116,6 @@ struct FakeState {
     max_in_flight: Arc<AtomicUsize>,
     /// Whether the tag catalogue answers a 500, as an Arr failing on it does.
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
-    /// The folder name the movie editor gives a movie moved with its files,
-    /// as Radarr's naming format does. `None` keeps the folder it had.
-    renames_to: Arc<Mutex<Option<String>>>,
     /// Whether the movie and series listings answer an empty list.
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     /// Whether the root folder listing answers an empty list.
@@ -101,12 +123,16 @@ struct FakeState {
     /// The series ids an update is refused for, as Sonarr refuses a path it
     /// cannot write.
     refused_series: Arc<Mutex<Vec<i64>>>,
-    /// How the movie editor answers particular ids.
-    editor: Arc<Mutex<EditorQuirks>>,
-    /// Fields the film now has in the Arr, laid over its body.
-    movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
-    /// Fields the series now has in the Arr, laid over its body.
-    series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    /// The films held beside Totoro.
+    films: Arc<Mutex<Films>>,
+    /// Fields each film now has in the Arr, by id, laid over its body.
+    movie_edits: Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>,
+    /// Fields each series now has in the Arr, by id, laid over its body.
+    series_edits: Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>,
+    /// The moves queued, and how they end.
+    moving: Arc<Mutex<Moving>>,
+    /// How long an update is answered after it was made.
+    answers_late: Arc<Mutex<std::time::Duration>>,
     /// Root folders reported beside the usual three.
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     /// The country Radarr's metadata settings rate films for, as its
@@ -124,13 +150,14 @@ pub struct FakeArr {
     series_body: Arc<Mutex<Option<serde_json::Value>>>,
     max_in_flight: Arc<AtomicUsize>,
     tags_broken: Arc<std::sync::atomic::AtomicBool>,
-    renames_to: Arc<Mutex<Option<String>>>,
     no_titles: Arc<std::sync::atomic::AtomicBool>,
     no_root_folders: Arc<std::sync::atomic::AtomicBool>,
     refused_series: Arc<Mutex<Vec<i64>>>,
-    editor: Arc<Mutex<EditorQuirks>>,
-    movie_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
-    series_edits: Arc<Mutex<serde_json::Map<String, serde_json::Value>>>,
+    films: Arc<Mutex<Films>>,
+    movie_edits: Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>,
+    series_edits: Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>,
+    moving: Arc<Mutex<Moving>>,
+    answers_late: Arc<Mutex<std::time::Duration>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
     certification_country: Arc<Mutex<String>>,
     /// Serving until the fake is dropped.
@@ -159,14 +186,6 @@ impl FakeArr {
             Self::build(None, "/tv/standard/Cowboy Bebop (1998)", true, std::time::Duration::ZERO)
                 .await;
         fake.series_body.lock().expect("lock").replace(body);
-        fake
-    }
-
-    /// Start a fake whose movie editor names a movie moved with its files
-    /// `folder`, as Radarr's naming format may.
-    pub async fn renaming_folders_to(folder: &str) -> Self {
-        let fake = Self::start().await;
-        fake.renames_to.lock().expect("lock").replace(folder.to_string());
         fake
     }
 
@@ -209,20 +228,41 @@ impl FakeArr {
         self.no_root_folders.store(true, Ordering::SeqCst);
     }
 
-    /// From now on the film has these fields, as an edit in the Arr leaves it.
+    /// From now on Totoro has these fields, as an edit in the Arr leaves it.
     pub fn edit_movie(&self, edits: serde_json::Value) {
-        let mut held = self.movie_edits.lock().expect("lock");
-        for (field, value) in edits.as_object().expect("an object of fields") {
-            held.insert(field.clone(), value.clone());
-        }
+        lay_over(&self.movie_edits, 10, &edits);
     }
 
-    /// From now on the series has these fields, as an edit in the Arr leaves it.
+    /// From now on Cowboy Bebop has these fields, as an edit in the Arr leaves it.
     pub fn edit_series(&self, edits: serde_json::Value) {
-        let mut held = self.series_edits.lock().expect("lock");
-        for (field, value) in edits.as_object().expect("an object of fields") {
-            held.insert(field.clone(), value.clone());
-        }
+        lay_over(&self.series_edits, 20, &edits);
+    }
+
+    /// From now on this Radarr holds `Film <id>` in `/movies/standard`.
+    pub fn hold_film(&self, id: i64) {
+        self.films.lock().expect("lock").held.push(id);
+    }
+
+    /// From now on an update is answered `late` after it was made, as an Arr
+    /// whose answer is lost on the way back.
+    pub fn answering_updates_after(&self, late: std::time::Duration) {
+        *self.answers_late.lock().expect("lock") = late;
+    }
+
+    /// From now on each move queued runs for `lasts` before it ends.
+    pub fn moving_for(&self, lasts: std::time::Duration) {
+        self.moving.lock().expect("lock").lasts = lasts;
+    }
+
+    /// From now on a move of title `id` fails on disk, and the Arr puts its
+    /// old path back.
+    pub fn rolling_back(&self, id: i64) {
+        self.moving.lock().expect("lock").rolled_back.push(id);
+    }
+
+    /// From now on the command moving title `id` fails, its new path kept.
+    pub fn failing_the_move_of(&self, id: i64) {
+        self.moving.lock().expect("lock").failed.push(id);
     }
 
     /// From now on the root folder listing reports `folder` as well.
@@ -235,21 +275,14 @@ impl FakeArr {
         self.refused_series.lock().expect("lock").push(id);
     }
 
-    /// From now on an edit naming movie `id` is refused, with every other
-    /// movie of its batch.
+    /// From now on an update of movie `id` is refused.
     pub fn refuse_movie(&self, id: i64) {
-        self.editor.lock().expect("lock").refused.push(id);
+        self.films.lock().expect("lock").refused.push(id);
     }
 
-    /// From now on movie `id` is gone from the library: an edit naming it
-    /// fails whole, as Radarr's lookup of a batch fails on one id it lacks.
+    /// From now on movie `id` is gone from the library.
     pub fn forget_movie(&self, id: i64) {
-        self.editor.lock().expect("lock").forgotten.push(id);
-    }
-
-    /// From now on an edit naming movie `id` succeeds without listing it.
-    pub fn leave_out_of_the_answer(&self, id: i64) {
-        self.editor.lock().expect("lock").unreported.push(id);
+        self.films.lock().expect("lock").held.retain(|held| *held != id);
     }
 
     /// The most requests this fake ever had open at the same moment.
@@ -302,13 +335,14 @@ impl FakeArr {
         let series_body: Arc<Mutex<Option<serde_json::Value>>> = Arc::new(Mutex::new(None));
         let max_in_flight = Arc::new(AtomicUsize::new(0));
         let tags_broken = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let renames_to: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
         let no_titles = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let no_root_folders = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let refused_series: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
-        let editor = Arc::new(Mutex::new(EditorQuirks::default()));
-        let movie_edits = Arc::new(Mutex::new(serde_json::Map::new()));
-        let series_edits = Arc::new(Mutex::new(serde_json::Map::new()));
+        let films = Arc::new(Mutex::new(Films::default()));
+        let movie_edits = Arc::new(Mutex::new(HashMap::new()));
+        let series_edits = Arc::new(Mutex::new(HashMap::new()));
+        let moving = Arc::new(Mutex::new(Moving::default()));
+        let answers_late = Arc::new(Mutex::new(std::time::Duration::ZERO));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
         let certification_country = Arc::new(Mutex::new("us".to_string()));
@@ -322,13 +356,14 @@ impl FakeArr {
             in_flight: Arc::new(AtomicUsize::new(0)),
             max_in_flight: Arc::clone(&max_in_flight),
             tags_broken: Arc::clone(&tags_broken),
-            renames_to: Arc::clone(&renames_to),
             no_titles: Arc::clone(&no_titles),
             no_root_folders: Arc::clone(&no_root_folders),
             refused_series: Arc::clone(&refused_series),
-            editor: Arc::clone(&editor),
+            films: Arc::clone(&films),
             movie_edits: Arc::clone(&movie_edits),
             series_edits: Arc::clone(&series_edits),
+            moving: Arc::clone(&moving),
+            answers_late: Arc::clone(&answers_late),
             more_root_folders: Arc::clone(&more_root_folders),
             certification_country: Arc::clone(&certification_country),
             windows,
@@ -343,12 +378,11 @@ impl FakeArr {
             .route("/api/v3/movie", get(movies))
             .route("/api/v3/movie/lookup/tmdb", get(movie_lookup_tmdb))
             .route("/api/v3/movie/lookup/imdb", get(movie_lookup_imdb))
-            .route("/api/v3/movie/{id}", get(movie_one))
-            .route("/api/v3/movie/editor", put(movie_editor))
+            .route("/api/v3/movie/{id}", get(movie_one).put(movie_update))
             .route("/api/v3/series/lookup", get(series_lookup))
             .route("/api/v3/series", get(series_list))
             .route("/api/v3/series/{id}", get(series_one).put(series_update))
-            .route("/api/v3/command", post(command))
+            .route("/api/v3/command", get(commands).post(command))
             .layer(axum::middleware::from_fn(refuse_without_a_key))
             .with_state(state);
 
@@ -360,13 +394,14 @@ impl FakeArr {
             series_body,
             max_in_flight,
             tags_broken,
-            renames_to,
             no_titles,
             no_root_folders,
             refused_series,
-            editor,
+            films,
             movie_edits,
             series_edits,
+            moving,
+            answers_late,
             more_root_folders,
             certification_country,
             _server: server,
@@ -547,6 +582,7 @@ async fn movies(
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/movie");
+    settle_moves(&state);
     hold_and_count(&state).await;
     if state.no_titles.load(Ordering::SeqCst) {
         return Json(serde_json::json!([]));
@@ -560,7 +596,8 @@ async fn movies(
     }
 }
 
-/// The one movie by id: Totoro is 10, anything else is unknown to this Radarr.
+/// The one movie by id: Totoro is 10, a film [`FakeArr::hold_film`] names is
+/// held as well, and anything else is unknown to this Radarr.
 async fn movie_one(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -568,15 +605,37 @@ async fn movie_one(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     record_key(&state, &headers);
     record_read(&state, &format!("/api/v3/movie/{id}"));
-    if id != 10 {
-        return Err(StatusCode::NOT_FOUND);
-    }
+    settle_moves(&state);
+    let movie = movie_by_id(&state, id).ok_or(StatusCode::NOT_FOUND)?;
     // Held like an edit: a webhook's read can be in flight while an apply
     // lands, and that overlap is what the `moved_at` gate exists for.
     if !state.hold.is_zero() {
         tokio::time::sleep(state.hold).await;
     }
-    Ok(Json(totoro(&state)))
+    Ok(Json(movie))
+}
+
+fn movie_by_id(state: &FakeState, id: i64) -> Option<serde_json::Value> {
+    if id == 10 {
+        return Some(totoro(state));
+    }
+    if !state.films.lock().expect("lock").held.contains(&id) {
+        return None;
+    }
+    let mut film = serde_json::json!({
+        "id": id,
+        "title": format!("Film {id}"),
+        "year": 2001,
+        "tmdbId": 8392,
+        "path": shown(state, &format!("/movies/standard/Film {id}")),
+        "rootFolderPath": shown(state, "/movies/standard"),
+        "monitored": true,
+        "hasFile": true,
+        "status": "released",
+        "tags": [],
+    });
+    laid_over(&state.movie_edits, id, &mut film);
+    Some(film)
 }
 
 fn totoro(state: &FakeState) -> serde_json::Value {
@@ -602,10 +661,26 @@ fn totoro(state: &FakeState) -> serde_json::Value {
         "originalLanguage": { "id": 8, "name": "Japanese" },
         "certification": "G"
     });
-    for (field, value) in state.movie_edits.lock().expect("lock").iter() {
-        movie[field] = value.clone();
-    }
+    laid_over(&state.movie_edits, 10, &mut movie);
     movie
+}
+
+type Edits = Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>;
+
+/// Record `edits` as fields title `id` now has.
+fn lay_over(held: &Edits, id: i64, edits: &serde_json::Value) {
+    let mut held = held.lock().expect("lock");
+    let fields = held.entry(id).or_default();
+    for (field, value) in edits.as_object().expect("an object of fields") {
+        fields.insert(field.clone(), value.clone());
+    }
+}
+
+/// Title `id`'s body with the fields it now has laid over it.
+fn laid_over(held: &Edits, id: i64, body: &mut serde_json::Value) {
+    for (field, value) in held.lock().expect("lock").get(&id).into_iter().flatten() {
+        body[field] = value.clone();
+    }
 }
 
 /// A film by its TMDb id, as Radarr's lookup answers: built afresh from TMDb,
@@ -704,68 +779,129 @@ fn refusal() -> String {
     format!("upstream rejected the edit: {}", "a folder the Arr cannot write to, ".repeat(30))
 }
 
-async fn movie_editor(
+/// An update of one film, as Radarr takes it: the record as sent, and with
+/// `moveFiles` a command queued to carry the files to the path it names.
+async fn movie_update(
     State(state): State<FakeState>,
     headers: HeaderMap,
+    Path(id): Path<i64>,
+    Query(params): Query<HashMap<String, String>>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
     record_key(&state, &headers);
-    state.recorded.lock().expect("lock").writes.push(body.clone());
+    record_write(&state, &body, &params);
 
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), refusal()));
     }
-    let quirks = state.editor.lock().expect("lock").clone();
-    let ids = body["movieIds"].as_array().into_iter().flatten().filter_map(|id| id.as_i64());
-    if ids.clone().any(|id| quirks.refused.contains(&id)) {
+    if state.films.lock().expect("lock").refused.contains(&id) {
         return Err((StatusCode::BAD_REQUEST, refusal()));
     }
-    let held = ids.clone().filter(|id| !quirks.forgotten.contains(id)).count();
-    if held < ids.clone().count() {
-        // Radarr's own words, from the lookup of every id at once.
-        let message =
-            format!("Expected query to return {} rows but returned {held}", ids.clone().count());
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            serde_json::json!({ "message": message }).to_string(),
-        ));
-    }
-    let ids = ids.filter(move |id| !quirks.unreported.contains(id));
+    let Some(held) = movie_by_id(&state, id) else {
+        return Err((StatusCode::NOT_FOUND, "Movie not found".to_string()));
+    };
     // Recorded first, then held: a test can see the edit arrive before the
     // Arr is done with it.
     if !state.hold.is_zero() {
         tokio::time::sleep(state.hold).await;
     }
-    // As Radarr answers: each movie edited, with the path it now has. Without
-    // its files a movie keeps its folder name, with them the naming format
-    // may give Totoro another. Any other id is one of `films_to_move`, whose
-    // folder is `Film <id>`.
-    let separator = if state.windows { '\\' } else { '/' };
-    let root = body["rootFolderPath"]
-        .as_str()
-        .unwrap_or_default()
-        .trim_end_matches(['/', '\\'])
-        .to_string();
-    let movie = totoro(&state);
-    let kept =
-        movie["path"].as_str().unwrap_or_default().rsplit(['/', '\\']).next().unwrap_or_default();
-    let renamed = state.renames_to.lock().expect("lock").clone();
-    let totoro_folder = match renamed {
-        Some(name) if body["moveFiles"].as_bool() == Some(true) => name,
-        _ => kept.to_string(),
-    };
-    let moved: Vec<serde_json::Value> = ids
-        .map(|id| {
-            let folder = if Some(id) == movie["id"].as_i64() {
-                totoro_folder.clone()
+    take_update(&state, &state.movie_edits, "MoveMovie", id, &held, &body, &params);
+    let late = *state.answers_late.lock().expect("lock");
+    tokio::time::sleep(late).await;
+    // 202, as Radarr's movie update answers.
+    Ok((StatusCode::ACCEPTED, Json(body)))
+}
+
+fn record_write(state: &FakeState, body: &serde_json::Value, params: &HashMap<String, String>) {
+    let mut recorded = state.recorded.lock().expect("lock");
+    recorded.writes.push(body.clone());
+    recorded
+        .query_strings
+        .push(params.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&"));
+}
+
+/// What an update leaves in the Arr: the path written at once, as both Arrs
+/// write it before the files move, and with `moveFiles` a move queued from
+/// the folder the title had.
+fn take_update(
+    state: &FakeState,
+    edits: &Edits,
+    command: &'static str,
+    id: i64,
+    held: &serde_json::Value,
+    body: &serde_json::Value,
+    params: &HashMap<String, String>,
+) {
+    if params.get("moveFiles").map(String::as_str) == Some("true") {
+        let mut moving = state.moving.lock().expect("lock");
+        let next = moving.queued.len() as i64 + 1;
+        let ends_at = std::time::Instant::now() + moving.lasts;
+        moving.queued.push(QueuedMove {
+            id: next,
+            name: command,
+            item: id,
+            source: held["path"].as_str().unwrap_or_default().to_string(),
+            destination: body["path"].as_str().unwrap_or_default().to_string(),
+            ends_at,
+            settled: false,
+        });
+    }
+    lay_over(
+        edits,
+        id,
+        &serde_json::json!({ "path": body["path"], "rootFolderPath": body["rootFolderPath"] }),
+    );
+}
+
+/// Lay the end of every move that has run its course over its title: one
+/// that failed on disk puts the old path back.
+fn settle_moves(state: &FakeState) {
+    let mut moving = state.moving.lock().expect("lock");
+    let now = std::time::Instant::now();
+    let rolled_back = moving.rolled_back.clone();
+    for queued in moving.queued.iter_mut().filter(|q| !q.settled && q.ends_at <= now) {
+        queued.settled = true;
+        if rolled_back.contains(&queued.item) {
+            let edits =
+                if queued.name == "MoveMovie" { &state.movie_edits } else { &state.series_edits };
+            lay_over(edits, queued.item, &serde_json::json!({ "path": queued.source }));
+        }
+    }
+}
+
+/// The commands the Arr lists, as `GET /api/v3/command` answers.
+async fn commands(State(state): State<FakeState>, headers: HeaderMap) -> Json<serde_json::Value> {
+    record_key(&state, &headers);
+    record_read(&state, "/api/v3/command");
+    settle_moves(&state);
+    let moving = state.moving.lock().expect("lock");
+    let now = std::time::Instant::now();
+    let listed: Vec<serde_json::Value> = moving
+        .queued
+        .iter()
+        .map(|queued| {
+            let (status, message) = if queued.ends_at > now {
+                ("started", "Moving")
+            } else if moving.failed.contains(&queued.item) {
+                ("failed", "Access to the path is denied")
             } else {
-                format!("Film {id}")
+                ("completed", "Completed")
             };
-            serde_json::json!({ "id": id, "path": format!("{root}{separator}{folder}") })
+            let key = if queued.name == "MoveMovie" { "movieId" } else { "seriesId" };
+            serde_json::json!({
+                "id": queued.id,
+                "name": queued.name,
+                "status": status,
+                "message": message,
+                "body": {
+                    key: queued.item,
+                    "sourcePath": queued.source,
+                    "destinationPath": queued.destination,
+                },
+            })
         })
         .collect();
-    // 202, as Radarr's movie editor answers.
-    Ok((StatusCode::ACCEPTED, Json(serde_json::Value::Array(moved))))
+    Json(serde_json::Value::Array(listed))
 }
 
 async fn series_list(
@@ -774,6 +910,7 @@ async fn series_list(
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/series");
+    settle_moves(&state);
     hold_and_count(&state).await;
     if state.no_titles.load(Ordering::SeqCst) {
         return Json(serde_json::json!([]));
@@ -809,9 +946,7 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "originalLanguage": { "id": 8, "name": "Japanese" },
         "certification": "TV-14"
     });
-    for (field, value) in state.series_edits.lock().expect("lock").iter() {
-        series[field] = value.clone();
-    }
+    laid_over(&state.series_edits, id, &mut series);
     series
 }
 
@@ -846,6 +981,7 @@ async fn series_one(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     record_key(&state, &headers);
     record_read(&state, &format!("/api/v3/series/{id}"));
+    settle_moves(&state);
     if let Some(body) = state.series_body.lock().expect("lock").clone() {
         return Ok(Json(body));
     }
@@ -863,13 +999,7 @@ async fn series_update(
     Json(body): Json<serde_json::Value>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, String)> {
     record_key(&state, &headers);
-    {
-        let mut recorded = state.recorded.lock().expect("lock");
-        recorded.writes.push(body.clone());
-        recorded
-            .query_strings
-            .push(params.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join("&"));
-    }
+    record_write(&state, &body, &params);
 
     if let Some(status) = state.fail_with {
         return Err((StatusCode::from_u16(status).unwrap(), "nope".to_string()));
@@ -877,10 +1007,13 @@ async fn series_update(
     if state.refused_series.lock().expect("lock").contains(&id) {
         return Err((StatusCode::BAD_REQUEST, "Path is not writable".to_string()));
     }
+    let held = bebop(&state, id);
+    take_update(&state, &state.series_edits, "MoveSeries", id, &held, &body, &params);
     // 202, as Sonarr's series update answers.
     Ok((StatusCode::ACCEPTED, Json(body)))
 }
 
+/// A command posted, recorded with the writes, as both Arrs queue it.
 async fn command(
     State(state): State<FakeState>,
     headers: HeaderMap,

@@ -47,23 +47,24 @@ async fn an_answer_without_end_stops_at_the_cap() {
 
 /// A write redirected with a 301 or a 302 reaches its new address as a GET,
 /// without its body, and the GET's 200 would read as the write done. Refused,
-/// the move's rescan is reported as failed rather than lost without a word.
+/// the move is reported as failed rather than recorded as made.
 #[tokio::test]
 async fn a_write_redirected_to_a_read_is_a_failure() {
-    use axum::routing::{get, post};
+    use axum::routing::get;
 
+    let film = || async { axum::Json(serde_json::json!({ "id": 10, "path": "/movies/Totoro" })) };
     let app = axum::Router::new()
         .route(
-            "/api/v3/command",
-            post(|| async { axum::response::Redirect::to("/api/v3/command/list") }),
+            "/api/v3/movie/10",
+            get(film).put(|| async { axum::response::Redirect::to("/api/v3/movie/10/read") }),
         )
-        .route("/api/v3/command/list", get(|| async { axum::Json(serde_json::json!([])) }));
+        .route("/api/v3/movie/10/read", get(film));
     let address = super::serve(app).await;
     let radarr = RadarrClient::new(client(), &address, "k");
 
-    let refreshed = radarr.refresh_movies(&[10]).await;
+    let moved = radarr.update_movie_path(10, "/movies/anime", false).await;
 
-    assert!(refreshed.is_err(), "a redirected rescan read as done: {refreshed:?}");
+    assert!(moved.is_err(), "a redirected move read as done: {moved:?}");
 }
 
 #[tokio::test]
@@ -101,50 +102,6 @@ async fn root_folder_accessibility_is_preserved() {
     assert!(folders[2].accessible);
 }
 
-#[tokio::test]
-async fn radarr_moves_the_whole_batch_in_one_call() {
-    let arr = FakeArr::start().await;
-    let adapter = ArrAdapter::Radarr(RadarrClient::new(client(), &arr.base_url, "k"));
-
-    let results = adapter.move_to_root_folder(&[1, 2, 3], "/movies/anime", true).await;
-    adapter.move_to_root_folder(&[4], "/movies/anime", false).await;
-
-    assert_eq!(results.len(), 3);
-    assert!(results.iter().all(|(_, outcome)| outcome.is_ok()));
-
-    let recorded = arr.recorded();
-    assert_eq!(recorded.writes.len(), 2, "one bulk call per batch, not one per movie");
-    assert_eq!(recorded.writes[0]["movieIds"], serde_json::json!([1, 2, 3]));
-    assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
-    assert_eq!(recorded.writes[0]["moveFiles"], true);
-    assert_eq!(recorded.writes[1]["moveFiles"], false);
-}
-
-#[tokio::test]
-async fn an_empty_batch_makes_no_request() {
-    let arr = FakeArr::start().await;
-    let radarr = RadarrClient::new(client(), &arr.base_url, "k");
-
-    radarr.update_movies_root_folder(&[], "/movies/anime", false).await.unwrap();
-    radarr.refresh_movies(&[]).await.unwrap();
-
-    assert!(arr.recorded().writes.is_empty());
-}
-
-#[tokio::test]
-async fn a_bulk_failure_is_reported_for_every_item() {
-    let arr = FakeArr::failing(500).await;
-    let adapter = ArrAdapter::Radarr(RadarrClient::new(client(), &arr.base_url, "k"));
-
-    let results = adapter.move_to_root_folder(&[1, 2], "/movies/anime", false).await;
-
-    assert_eq!(results.len(), 2);
-    assert!(
-        results.iter().all(|(_, outcome)| outcome.is_err()),
-        "a failed bulk call must not report partial success"
-    );
-}
-
 /// The refusal names its service and status, and keeps the start of what the
 /// Arr said, cut: the fake's refusal is over a thousand characters long, and
 /// the message goes into the log and back to the screen.
@@ -153,7 +110,7 @@ async fn upstream_errors_carry_the_status_and_are_truncated() {
     let arr = FakeArr::failing(422).await;
     let radarr = RadarrClient::new(client(), &arr.base_url, "k");
 
-    let error = radarr.update_movies_root_folder(&[1], "/movies/anime", false).await.unwrap_err();
+    let error = radarr.update_movie_path(10, "/movies/anime", false).await.unwrap_err();
 
     match error {
         AppError::ExternalApi { service, status, message, .. } => {
@@ -183,16 +140,32 @@ async fn a_refused_connection_is_named_unreachable_with_no_status() {
     }
 }
 
+/// Radarr filters its list by `tmdbId`, and a proxy or a fork that ignores the
+/// filter answers the whole library: the film looked up is the one asked.
 #[tokio::test]
-async fn a_refresh_command_names_the_moved_items() {
-    let arr = FakeArr::start().await;
-    let adapter = ArrAdapter::Radarr(RadarrClient::new(client(), &arr.base_url, "k"));
+async fn a_radarr_lookup_is_held_to_the_film_asked() {
+    use axum::routing::get;
 
-    adapter.refresh(&[10, 11]).await.unwrap();
+    let app = axum::Router::new()
+        .route(
+            "/api/v3/movie/lookup/tmdb",
+            get(|| async { axum::Json(serde_json::json!({ "title": "Totoro", "tmdbId": 8392 })) }),
+        )
+        .route(
+            "/api/v3/movie",
+            get(|| async {
+                axum::Json(serde_json::json!([
+                    { "id": 1, "title": "Akira", "tmdbId": 149 },
+                    { "id": 10, "title": "Totoro", "tmdbId": 8392 },
+                ]))
+            }),
+        );
+    let address = super::serve(app).await;
+    let radarr = RadarrClient::new(client(), &address, "k");
 
-    let recorded = arr.recorded();
-    assert_eq!(recorded.writes[0]["name"], "RefreshMovie");
-    assert_eq!(recorded.writes[0]["movieIds"], serde_json::json!([10, 11]));
+    let found = radarr.lookup_movie(&crate::models::ExternalId::Tmdb(8392)).await.unwrap();
+
+    assert_eq!(found.map(|movie| movie.id), Some(10), "another film of the library was taken");
 }
 
 // ------------------------------------------------------------------ Sonarr
@@ -208,22 +181,26 @@ async fn sonarr_derives_has_files_from_the_statistics_block() {
     assert_eq!(media[0].tvdb_id, Some(76885));
 }
 
+/// Both Arrs are sent the title's whole record with its path in full: the
+/// folder name kept, deriving it from the slug would rename it on disk, and
+/// every other field kept, since a PUT drops what it leaves out.
 #[tokio::test]
-async fn moving_a_series_keeps_its_existing_folder_name() {
+async fn a_move_keeps_the_folder_name_and_every_other_field() {
     let arr = FakeArr::with_series_path("/tv/standard/Cowboy Bebop (1998)").await;
-    let sonarr = SonarrClient::new(client(), &arr.base_url, "k");
+    let radarr = ArrAdapter::Radarr(RadarrClient::new(client(), &arr.base_url, "k"));
+    let sonarr = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
 
-    sonarr.update_series_path(20, "/tv/anime", true).await.unwrap();
-    sonarr.update_series_path(20, "/tv/anime", false).await.unwrap();
+    let film = radarr.move_item(10, "/movies/anime", true).await.unwrap();
+    let series = sonarr.move_item(20, "/tv/anime/", false).await.unwrap();
 
+    assert_eq!(film, "/movies/anime/My Neighbor Totoro (1988)");
+    assert_eq!(series, "/tv/anime/Cowboy Bebop (1998)");
     let recorded = arr.recorded();
-    let sent = &recorded.writes[0];
-    assert_eq!(sent["rootFolderPath"], "/tv/anime");
-    assert_eq!(
-        sent["path"], "/tv/anime/Cowboy Bebop (1998)",
-        "deriving the folder from titleSlug would silently rename it on disk"
-    );
-    assert_eq!(sent["qualityProfileId"], 3, "unrelated fields must survive the round trip");
+    assert_eq!(recorded.writes[0]["path"], film);
+    assert_eq!(recorded.writes[0]["certification"], "G", "a field was dropped");
+    assert_eq!(recorded.writes[1]["rootFolderPath"], "/tv/anime/");
+    assert_eq!(recorded.writes[1]["path"], series);
+    assert_eq!(recorded.writes[1]["qualityProfileId"], 3, "a field was dropped");
     assert_eq!(recorded.query_strings, ["moveFiles=true", "moveFiles=false"]);
 }
 
@@ -235,28 +212,6 @@ async fn a_series_that_was_never_scanned_falls_back_to_the_slug() {
     sonarr.update_series_path(20, "/tv/anime", false).await.unwrap();
 
     assert_eq!(arr.recorded().writes[0]["path"], "/tv/anime/cowboy-bebop");
-}
-
-/// Sonarr moves one series per request, so the first refusal must not keep
-/// the next series from being asked: each is asked, and each failure reported
-/// against its own id. The fake refuses the edit of 20 and holds no 21.
-#[tokio::test]
-async fn sonarr_reports_failures_per_item() {
-    let arr = FakeArr::failing(409).await;
-    let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
-
-    let results = adapter.move_to_root_folder(&[20, 21], "/tv/anime", false).await;
-
-    let ids: Vec<i64> = results.iter().map(|(id, _)| *id).collect();
-    assert_eq!(ids, [20, 21]);
-    assert!(results.iter().all(|(_, outcome)| outcome.is_err()));
-    let recorded = arr.recorded();
-    assert_eq!(recorded.writes.len(), 1, "the edit of 20 was never sent");
-    assert!(
-        recorded.reads.contains(&"/api/v3/series/21".to_string()),
-        "one failure aborted the rest of the batch: {:?}",
-        recorded.reads
-    );
 }
 
 #[tokio::test]
@@ -282,8 +237,8 @@ async fn the_adapter_refuses_an_unknown_instance_type() {
 
 /// A 2xx body that is not a series object is reported, not patched.
 ///
-/// `update_series_path` reads the series back, patches two fields and re-sends
-/// it, one series per request. Indexing a `serde_json::Value` that
+/// A move reads the series back, patches two fields and re-sends it.
+/// Indexing a `serde_json::Value` that
 /// is not an object *panics* (`[]`, a string and a number all do), so a reverse
 /// proxy answering 200 with a cached empty array, or a base URL pointing at
 /// some other service on the same host, would abort the apply with a 500 that
@@ -305,40 +260,6 @@ async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched(
             "nothing may be sent back when the payload was not understood: {described}"
         );
     }
-}
-
-/// Sonarr has no batch rescan: each series is a command of its own. One the
-/// Arr refuses must not keep the series after it from being rescanned, or
-/// their files, just moved, read as missing until Sonarr's next scan.
-#[tokio::test]
-async fn a_refused_rescan_does_not_skip_the_series_after_it() {
-    use axum::routing::post;
-    use std::sync::{Arc, Mutex};
-
-    let asked: Arc<Mutex<Vec<i64>>> = Arc::default();
-    let seen = Arc::clone(&asked);
-    let app = axum::Router::new().route(
-        "/api/v3/command",
-        post(move |axum::Json(body): axum::Json<serde_json::Value>| {
-            let seen = Arc::clone(&seen);
-            async move {
-                let series = body["seriesId"].as_i64().unwrap_or_default();
-                seen.lock().unwrap().push(series);
-                if series == 1 {
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR
-                } else {
-                    axum::http::StatusCode::CREATED
-                }
-            }
-        }),
-    );
-    let address = super::serve(app).await;
-    let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &address, "k"));
-
-    let outcome = adapter.refresh(&[1, 2, 3]).await;
-
-    assert!(outcome.is_err(), "the refused rescan went unreported");
-    assert_eq!(*asked.lock().unwrap(), [1, 2, 3], "the series after the refused one were skipped");
 }
 
 /// A series Sonarr knows and does not hold is found by its TheTVDB id and by

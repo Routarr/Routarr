@@ -391,6 +391,17 @@ pub async fn simulate_loaded(
             })
         })
         .collect();
+    // Folders of one instance reporting the same free space are one volume,
+    // on the evidence the same-filesystem test reads: what they receive
+    // together has to fit, as the executor's capacity guard weighs it.
+    let mut volumes: HashMap<(String, i64), i64> = HashMap::new();
+    for row in &capacity {
+        *volumes.entry((row.instance_id.clone(), row.free_bytes)).or_default() +=
+            row.incoming_bytes;
+    }
+    for row in &mut capacity {
+        row.fits = volumes[&(row.instance_id.clone(), row.free_bytes)] <= row.free_bytes;
+    }
     capacity
         .sort_by(|a, b| a.fits.cmp(&b.fits).then_with(|| b.incoming_bytes.cmp(&a.incoming_bytes)));
 

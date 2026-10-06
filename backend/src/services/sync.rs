@@ -113,6 +113,11 @@ async fn sync_instance_inner(
     let was_failing = instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with("error"));
 
     let outcome = do_sync(state, instance).await;
+    if outcome.is_ok()
+        && let Err(e) = crate::services::executor::settle_requested(state, instance, by).await
+    {
+        warn!(instance = %instance.name, "The moves left requested could not be settled: {e}");
+    }
 
     // The notifications go out on their own task: awaited here, a receiver
     // slow to answer would hold the sync's answer and its lock.

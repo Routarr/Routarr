@@ -1,5 +1,6 @@
 pub mod adapter;
 pub mod anilist;
+pub mod arr_moves;
 pub mod certification;
 pub mod jikan;
 pub mod language;

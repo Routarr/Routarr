@@ -52,6 +52,26 @@ pub fn trimmed(path: &str) -> String {
     if rest.len() == 2 && rest.ends_with(':') { format!("{rest}\\") } else { rest.to_string() }
 }
 
+/// Whether `path` names its folder plainly: no `.` or `..` segment, which
+/// names another folder than its letters read (`/data/movies/../tv` is
+/// `/data/tv`), and no empty one, which names the folder of a shorter
+/// spelling that no comparison here takes it for.
+pub fn is_plain(path: &str) -> bool {
+    let path = trimmed(path);
+    let windows = is_windows(&path);
+    let separators: &[char] = if windows { &['\\', '/'] } else { &['/'] };
+    let rest = path.strip_prefix("\\\\").unwrap_or(&path).trim_end_matches(separators);
+    rest.split(separators)
+        .enumerate()
+        .all(|(at, segment)| !matches!(segment, "." | "..") && (at == 0 || !segment.is_empty()))
+}
+
+/// Whether a segment of `path` is `.` or `..`.
+fn climbs(path: &str) -> bool {
+    let separators: &[char] = if is_windows(path) { &['\\', '/'] } else { &['/'] };
+    path.split(separators).any(|segment| matches!(segment, "." | ".."))
+}
+
 /// What two writings of one folder share: [`trimmed`], and a Windows path
 /// lowered, as Windows reads names whatever their case.
 pub fn key(path: &str) -> String {
@@ -68,7 +88,7 @@ pub fn same(a: &str, b: &str) -> bool {
 /// does not hold a sibling that shares its letters (`/data/movies` against
 /// `/data/movies-4k`), and a Linux folder holds no Windows path.
 pub fn within(path: &str, folder: &str) -> bool {
-    if is_windows(path) != is_windows(folder) {
+    if is_windows(path) != is_windows(folder) || climbs(path) || climbs(folder) {
         return false;
     }
     let (path, folder) = (key(path), key(folder));
@@ -87,6 +107,28 @@ pub fn collate(a: &str, b: &str) -> Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `/data/movies/../tv` is `/data/tv`, on another disk perhaps: it is not
+    /// under `/data/movies`, whatever its letters say.
+    #[test]
+    fn a_folder_does_not_hold_a_path_that_climbs_out_of_it() {
+        assert!(!within("/data/movies/../tv", "/data/movies"));
+        assert!(!within("D:\\Media\\..\\TV", "D:\\Media"));
+        assert!(within("/data/movies/anime", "/data/movies"));
+        assert!(within("/data/movies/..anime", "/data/movies"), "a name may start with dots");
+    }
+
+    #[test]
+    fn a_plain_path_has_no_dot_and_no_empty_segment() {
+        for plain in
+            ["/", "/data/movies/", "D:\\", "D:\\Media\\4K", "\\\\nas\\films", "/data/.hidden"]
+        {
+            assert!(is_plain(plain), "{plain}");
+        }
+        for not in ["/data/movies/../tv", "/data/./movies", "/data//movies", "D:\\Media\\..\\TV"] {
+            assert!(!is_plain(not), "{not}");
+        }
+    }
 
     #[test]
     fn a_folder_reads_the_same_with_or_without_its_closing_separator() {

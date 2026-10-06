@@ -8,9 +8,11 @@
 
 use sqlx::SqlitePool;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio_util::task::TaskTracker;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -119,7 +121,17 @@ pub struct JobRegistry {
     locks: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
     /// How many callers are waiting for each key, so a wait can be bounded.
     waiting: Arc<Mutex<HashMap<String, usize>>>,
+    /// The work that writes, spawned through `jobs::detached`, which a stop
+    /// of the server waits for.
+    tracker: TaskTracker,
+    /// Set as the server stops: a run that moves titles ends before its next
+    /// move.
+    closing: Arc<AtomicBool>,
+    /// The cancel flag of each running job that reads one, by job id.
+    cancels: Cancels,
 }
+
+type Cancels = Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>;
 
 impl JobRegistry {
     pub fn new(pool: SqlitePool) -> Self {
@@ -127,7 +139,35 @@ impl JobRegistry {
             pool,
             locks: Arc::new(Mutex::new(HashMap::new())),
             waiting: Arc::new(Mutex::new(HashMap::new())),
+            tracker: TaskTracker::new(),
+            closing: Arc::new(AtomicBool::new(false)),
+            cancels: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    /// Run `work` on a task of its own that a stop of the server waits for.
+    pub fn spawn_tracked<F>(&self, work: F) -> tokio::task::JoinHandle<F::Output>
+    where
+        F: std::future::Future + Send + 'static,
+        F::Output: Send + 'static,
+    {
+        self.tracker.spawn(work)
+    }
+
+    /// End every run that moves titles before its next move, then wait up to
+    /// `grace` for the work in flight to record what it did. `false` when
+    /// some was still running at the bound.
+    pub async fn drain(&self, grace: Duration) -> bool {
+        self.closing.store(true, Ordering::SeqCst);
+        self.tracker.close();
+        tokio::time::timeout(grace, self.tracker.wait()).await.is_ok()
+    }
+
+    /// Ask the running job `id` to stop before its next move. `false` when no
+    /// running job of that id reads a cancel.
+    pub fn cancel(&self, id: &str) -> bool {
+        let cancels = self.cancels.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        cancels.get(id).map(|flag| flag.store(true, Ordering::SeqCst)).is_some()
     }
 
     /// The permit for `key`, made on first sight.
@@ -237,7 +277,34 @@ impl JobRegistry {
         info!(job_id = %id, kind = kind.as_str(), trigger, "Job started: {english}");
 
         announce(&id);
-        Ok(JobHandle { id, pool: self.pool.clone(), kind, settled: false, result: None })
+        Ok(JobHandle {
+            id,
+            pool: self.pool.clone(),
+            kind,
+            settled: false,
+            result: None,
+            cancels: Arc::clone(&self.cancels),
+            closing: Arc::clone(&self.closing),
+        })
+    }
+}
+
+/// What ends a run that moves titles before its last move, read before each.
+#[derive(Clone, Default)]
+pub struct Stop {
+    cancelled: Arc<AtomicBool>,
+    closing: Arc<AtomicBool>,
+}
+
+impl Stop {
+    /// A person cancelled the job.
+    pub fn cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// The server is stopping.
+    pub fn closing(&self) -> bool {
+        self.closing.load(Ordering::SeqCst)
     }
 }
 
@@ -274,6 +341,8 @@ pub struct JobHandle {
     settled: bool,
     /// The report the job answers, written with its outcome.
     result: Option<String>,
+    cancels: Cancels,
+    closing: Arc<AtomicBool>,
 }
 
 /// The first job a piece of work started, and where to say its id.
@@ -352,9 +421,23 @@ impl JobHandle {
         self.result = serde_json::to_string(result).ok();
     }
 
+    /// What stops this job's run before its end: a cancel, which this lets
+    /// [`JobRegistry::cancel`] send, or the server stopping.
+    pub fn stop(&self) -> Stop {
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut cancels = self.cancels.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        cancels.insert(self.id.clone(), Arc::clone(&cancelled));
+        Stop { cancelled, closing: Arc::clone(&self.closing) }
+    }
+
     /// Mark the job finished successfully, saying what it did.
     pub async fn succeed(self, detail: Detail) {
         self.settle("success", detail).await;
+    }
+
+    /// Mark the job cancelled, saying what it did before it stopped.
+    pub async fn cancelled(self, detail: Detail) {
+        self.settle("cancelled", detail).await;
     }
 
     /// Mark the job failed on an outcome it reports itself, such as every move
@@ -365,6 +448,7 @@ impl JobHandle {
 
     async fn settle(mut self, status: &'static str, detail: Detail) {
         self.settled = true;
+        self.forget_cancel();
         let english = detail.english();
         info!(job_id = %self.id, kind = self.kind.as_str(), status, "Job finished: {english}");
         let _ = sqlx::query(
@@ -388,6 +472,7 @@ impl JobHandle {
     /// it: any key reads the task list.
     pub async fn fail(mut self, error: &crate::error::AppError) {
         self.settled = true;
+        self.forget_cancel();
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
         let error = error.public_message();
         let _ = sqlx::query(
@@ -400,6 +485,13 @@ impl JobHandle {
     }
 }
 
+impl JobHandle {
+    fn forget_cancel(&self) {
+        let mut cancels = self.cancels.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        cancels.remove(&self.id);
+    }
+}
+
 /// A handle dropped before an outcome was recorded is a job that ended
 /// without saying how (a `?` between `start` and the outcome, or a panic on
 /// the task), and the row would otherwise sit `running` until the next restart
@@ -409,6 +501,7 @@ impl Drop for JobHandle {
         if self.settled {
             return;
         }
+        self.forget_cancel();
         // No runtime means the process is going down, and `recover_orphans`
         // will say so at the next start.
         let Ok(runtime) = tokio::runtime::Handle::try_current() else {

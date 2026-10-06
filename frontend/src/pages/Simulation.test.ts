@@ -37,6 +37,10 @@ const STRINGS = {
   BatchApplyStopped: 'Stopped at batch {run} of {planned}: {applied} of {candidates} applied',
   Dismiss: 'Dismiss',
   MoveFilesLabel: 'Move the files on disk too',
+  ApplyStillMoving: 'Still moving: {count}',
+  ApplyReplaced: 'Replaced: {count}',
+  ApplyStoppedOnRequest: 'Stopped on request',
+  StopTask: 'Stop',
 };
 
 /** What each run stored, as `/decisions` lists it under the run's id. */
@@ -76,7 +80,10 @@ const batchReport = {
   skipped: 0,
   batches_run: 1,
   batches_planned: 1,
+  moving: 0,
+  superseded: 0,
   stopped_early: false,
+  stopped: null,
   errors: [],
 };
 
@@ -177,9 +184,16 @@ describe('what the screen shows', () => {
     const moving = decision({ media_title: 'Akira' });
     const skip = decision({ media_title: 'Dune', action: 'skip', target_root_folder: null });
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([moving, skip]));
-    const apply = vi
-      .spyOn(api, 'applyDecisions')
-      .mockResolvedValue({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
+      errors: [],
+    });
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await waitFor(() => expect(screen.getByText('Akira')).toBeTruthy());
@@ -204,7 +218,16 @@ describe('what the screen shows', () => {
  * take back, and it travels as a flag no other part of the screen shows.
  */
 describe('the file move', () => {
-  const ok = { requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] };
+  const ok = {
+    requested: 1,
+    applied: 1,
+    failed: 0,
+    skipped: 0,
+    moving: 0,
+    superseded: 0,
+    stopped: null,
+    errors: [],
+  };
 
   it('is left off unless ticked', async () => {
     await show([]);
@@ -292,10 +315,16 @@ describe('what the screen refuses to do', () => {
       null,
       'threshold',
     );
-    const apply = vi
-      .spyOn(api, 'applyDecisions')
-      .mockRejectedValueOnce(refusal)
-      .mockResolvedValue({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
+    const apply = vi.spyOn(api, 'applyDecisions').mockRejectedValueOnce(refusal).mockResolvedValue({
+      requested: 1,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
+      errors: [],
+    });
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
@@ -371,7 +400,16 @@ describe('what the screen refuses to do', () => {
  * of that apply.
  */
 describe('what the screen says after applying', () => {
-  const ok = { requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] };
+  const ok = {
+    requested: 1,
+    applied: 1,
+    failed: 0,
+    skipped: 0,
+    moving: 0,
+    superseded: 0,
+    stopped: null,
+    errors: [],
+  };
 
   it('takes the previous report off screen when the next apply is refused', async () => {
     await show([]);
@@ -424,6 +462,9 @@ describe('what the screen says after applying', () => {
       applied: 0,
       failed: 1,
       skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
     });
 
@@ -489,7 +530,10 @@ describe('what the screen says after applying', () => {
         skipped: 0,
         batches_run: 1,
         batches_planned: 1,
+        moving: 0,
+        superseded: 0,
         stopped_early: true,
+        stopped: null,
         errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
       });
 
@@ -501,6 +545,68 @@ describe('what the screen says after applying', () => {
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
   });
 
+  /**
+   * A move the Arr is still making and a proposal replaced since leave the
+   * apply unfinished, each said beside the count.
+   */
+  it('says what the Arr is still moving and what was replaced', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue({
+      requested: 3,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      moving: 1,
+      superseded: 1,
+      stopped: null,
+      errors: [],
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+
+    const summary = await screen.findByText('Applied: 1 of 3.');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.getByText('Still moving: 1')).toBeTruthy();
+    expect(screen.getByText('Replaced: 1')).toBeTruthy();
+  });
+
+  /** Stop reaches the task the screen follows, and the report says why it ended. */
+  it('stops the apply it follows', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision({ id: 'd1' })]));
+    let finish: () => void = () => undefined;
+    vi.spyOn(api, 'applyDecisions').mockImplementation(
+      (_ids, _files, _confirm, following?: Following) => {
+        following?.onProgress?.(job({ id: 'j-apply', kind: 'apply', status: 'running' }));
+        return new Promise((resolve) => {
+          finish = () =>
+            resolve({
+              requested: 1,
+              applied: 0,
+              failed: 0,
+              skipped: 0,
+              moving: 0,
+              superseded: 0,
+              stopped: 'cancelled',
+              errors: [],
+            });
+        });
+      },
+    );
+    const cancelJob = vi.spyOn(api, 'cancelJob').mockResolvedValue(undefined);
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Stop' }));
+    finish();
+
+    expect(cancelJob).toHaveBeenCalledWith('j-apply');
+    expect(await screen.findByText('Stopped on request')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+  });
+
   /** One whole sentence per case: a clause appended to a translated one is English grammar. */
   it('says how many proposals had gone stale in the same sentence as the count', async () => {
     await show([]);
@@ -510,6 +616,9 @@ describe('what the screen says after applying', () => {
       applied: 1,
       failed: 0,
       skipped: 1,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [],
     });
 
@@ -544,6 +653,9 @@ describe('what the screen says after applying', () => {
       applied: 1,
       failed: 1,
       skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [{ decision_id: 'd2', media_title: 'Heat', message: 'The Arr refused the move' }],
     });
 
@@ -584,6 +696,9 @@ describe('what the screen says after applying', () => {
       applied: 0,
       failed: 1,
       skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [{ decision_id: 'd1', media_title: 'Akira', message: 'The Arr refused the move' }],
     });
 

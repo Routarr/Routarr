@@ -135,13 +135,6 @@ export const FIELDS: Field[] = [
     range: [1, 10_000],
   },
   {
-    key: 'refresh_after_move',
-    labelKey: 'SettingRefreshAfterMove',
-    helpKey: 'SettingRefreshAfterMoveHelp',
-    kind: 'bool',
-    fallback: 'true',
-  },
-  {
     key: 'auto_sync_enabled',
     labelKey: 'SettingAutoSync',
     helpKey: 'SettingAutoSyncHelp',
@@ -332,13 +325,7 @@ export const SECTIONS = [
     id: 'routing',
     page: 'settings',
     labelKey: 'SettingsTabRouting',
-    keys: [
-      'global_dry_run',
-      'default_category',
-      'batch_limit',
-      'confirmation_threshold',
-      'refresh_after_move',
-    ],
+    keys: ['global_dry_run', 'default_category', 'batch_limit', 'confirmation_threshold'],
   },
   {
     id: 'automation',

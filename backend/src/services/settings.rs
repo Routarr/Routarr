@@ -26,7 +26,6 @@ const KNOWN: &[(&str, Kind)] = &[
     ("auto_sync_enabled", Kind::Bool),
     ("auto_simulate_enabled", Kind::Bool),
     ("auto_apply_enabled", Kind::Bool),
-    ("refresh_after_move", Kind::Bool),
     // Every count is bounded on both sides: a number that decides how long a
     // list gets and how much disk it costs is not special to backups.
     // Unbounded, each of these has a value that reads as "off" while the

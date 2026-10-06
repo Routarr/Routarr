@@ -23,7 +23,8 @@ pub struct Job {
     /// stores nothing), `apply`, `revert`, `backup`, `maintenance` or
     /// `scheduler`.
     pub kind: String,
-    /// `running`, `success` or `failed`.
+    /// `running`, `success`, `failed`, or `cancelled` for an apply or a
+    /// revert somebody stopped.
     pub status: String,
     /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
     pub trigger: String,
@@ -195,4 +196,25 @@ pub async fn get_one(
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Job {id} not found")))?;
     Ok(Json(job.localized(&state.localizer().await).seen_by(&identity)))
+}
+
+/// Ask a running apply or revert to stop before its next move. What already
+/// reached the Arr stays done, and the task's report says where it stopped.
+pub async fn cancel(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> AppResult<StatusCode> {
+    if state.jobs.cancel(&id) {
+        return Ok(StatusCode::ACCEPTED);
+    }
+    let known: Option<String> = sqlx::query_scalar("SELECT status FROM jobs WHERE id = ?")
+        .bind(&id)
+        .fetch_optional(&state.pool)
+        .await?;
+    match known {
+        None => Err(AppError::NotFound(format!("Job {id} not found"))),
+        Some(_) => Err(AppError::Conflict(
+            state.localizer().await.translate("ErrorTaskNotCancellable", &[]),
+        )),
+    }
 }
