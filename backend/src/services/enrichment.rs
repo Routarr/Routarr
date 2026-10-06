@@ -530,8 +530,11 @@ pub async fn resolve_for_media(
     media: &crate::models::Media,
 ) -> AppResult<Option<crate::models::MediaMetadata>> {
     let providers = state.metadata_order().await;
-    let identifiers = metadata::load_identifiers_of(&state.pool, media).await?;
-    let cache = metadata::load_cache_of(&state.pool, media, &providers, &identifiers).await?;
+    let identifiers =
+        metadata::load_identifiers_of(&state.pool, std::slice::from_ref(media)).await?;
+    let cache =
+        metadata::load_cache_of(&state.pool, std::slice::from_ref(media), &providers, &identifiers)
+            .await?;
     let regions = AppState::certification_regions_from(&state.settings().await);
     let country: Option<String> =
         sqlx::query_scalar("SELECT certification_country FROM instances WHERE id = ?")

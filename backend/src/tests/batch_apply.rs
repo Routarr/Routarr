@@ -129,7 +129,7 @@ async fn a_slice_that_cannot_be_loaded_after_one_that_moved_ends_the_run_with_it
         while arr.recorded().writes.is_empty() {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        app.execute(&["ALTER TABLE routing_generation RENAME TO routing_generation_gone"]).await;
+        app.execute(&["ALTER TABLE overrides RENAME TO overrides_gone"]).await;
     };
     let (report, ()) = tokio::join!(run, unreadable);
 

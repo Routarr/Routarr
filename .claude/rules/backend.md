@@ -38,7 +38,7 @@ paths:
 Each of these questions has one function. Call it, never spell the question again:
 
 - where an item goes: `routing::route`, shared by the simulation, the executor's revalidation
-  (`routing::Revalidation`), the explanation and `GET /route` (`routing::route_one_with`,
+  (`routing::revalidated_targets`), the explanation and `GET /route` (`routing::route_one_with`,
   which takes a title the library does not hold as a media row it never writes)
 - whether an item has matchable metadata: `api::media::metadata_predicate`
 - every warning: `offline_warnings` in `backend/src/api/health.rs`, returned by both `/status`

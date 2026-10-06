@@ -277,55 +277,24 @@ async fn revalidating_moves_does_not_query_once_per_item() {
     for count in [200, 2000] {
         let pool = described_library(count).await;
         let ids: Vec<String> = (0..count).map(|i| format!("m-{i}")).collect();
-        let mut revalidation = routing::Revalidation::default();
-        let (targets, statements) = statements_of(revalidation.targets(&pool, &ids)).await;
+        let (targets, statements) = statements_of(routing::revalidated_targets(&pool, &ids)).await;
         assert_eq!(targets.unwrap().len(), count, "not every item was revalidated");
         counts.push(statements);
         pool.close().await;
     }
     let (small, large) = (counts[0], counts[1]);
     println!("revalidated: 200 items in {small} statements, 2000 in {large}");
-    // Two statements bind the ids, a chunk of `BIND_CHUNK` at a time: a
-    // statement per chunk is the growth allowed, a statement per item is not.
+    // The ids are bound a chunk of `BIND_CHUNK` at a time, into the titles,
+    // their pins, and per media type their identifiers and each source's
+    // answers: a statement per chunk for each is the growth allowed, a
+    // statement per item is not.
     let chunk = routing::BIND_CHUNK;
     let more_chunks = 2000_usize.div_ceil(chunk) - 200_usize.div_ceil(chunk);
+    let per_chunk = 2 + 2 * (1 + crate::services::metadata::PROVIDERS.len());
     assert!(
-        large <= small + 2 * more_chunks,
+        large <= small + per_chunk * more_chunks,
         "{large} statements for 2000 items against {small} for 200"
     );
-}
-
-/// An apply in slices loads the routing context for its first slice, keeps it
-/// while nothing it reads changes, and loads it again once something does:
-/// the whole metadata cache per slice is what a large library cannot afford,
-/// and a rule changed between two slices still reaches the next one.
-#[tokio::test]
-async fn an_apply_in_slices_reloads_the_routing_context_only_after_a_change() {
-    let pool = described_library(400).await;
-    let slice: Vec<String> = (0..50).map(|i| format!("m-{i}")).collect();
-    let mut revalidation = routing::Revalidation::default();
-
-    let (_, first) = statements_of(revalidation.targets(&pool, &slice)).await;
-    let (_, unchanged) = statements_of(revalidation.targets(&pool, &slice)).await;
-    sqlx::query(
-        "INSERT INTO rules (id, name, priority, enabled, media_type, conditions, target_category)
-         VALUES ('r-new', 'A new rule', 99, 1, 'both', '[]', 'standard')",
-    )
-    .execute(&pool)
-    .await
-    .unwrap();
-    let (_, changed) = statements_of(revalidation.targets(&pool, &slice)).await;
-
-    println!("slices: {first} statements, then {unchanged}, then {changed} after a change");
-    assert!(
-        unchanged + 5 <= first,
-        "{unchanged} statements for an unchanged slice, {first} for the first"
-    );
-    assert!(
-        changed + 1 >= first,
-        "{changed} statements after a rule changed, {first} for the first"
-    );
-    pool.close().await;
 }
 
 /// A preview evaluates two rule sets over one library. Loaded once, an

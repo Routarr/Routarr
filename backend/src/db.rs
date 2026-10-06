@@ -28,6 +28,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("015_certification_scale", include_str!("../migrations/015_certification_scale.sql")),
     ("016_requested_moves", include_str!("../migrations/016_requested_moves.sql")),
     ("017_drop_refresh_after_move", include_str!("../migrations/017_drop_refresh_after_move.sql")),
+    ("018_drop_routing_generation", include_str!("../migrations/018_drop_routing_generation.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.

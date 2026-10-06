@@ -2783,7 +2783,7 @@
         "description": "An exception, with the title it pins."
       },
       "Page_Decision": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -2946,7 +2946,7 @@
         "type": "object"
       },
       "Page_Job": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -3037,7 +3037,7 @@
         "type": "object"
       },
       "Page_LogEntry": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -3126,7 +3126,7 @@
         "type": "object"
       },
       "Page_MediaListItem": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {

@@ -135,7 +135,6 @@ pub(super) async fn applicable_from_simulation(
 pub(super) async fn load_pending_moves(
     pool: &SqlitePool,
     ids: &[String],
-    revalidation: &mut routing::Revalidation,
 ) -> AppResult<Vec<PendingMove>> {
     if ids.is_empty() {
         return Ok(vec![]);
@@ -167,7 +166,7 @@ pub(super) async fn load_pending_moves(
     let rows = query.fetch_all(pool).await?;
 
     let media_ids: Vec<String> = rows.iter().map(|row| row.1.clone()).collect();
-    let targets = revalidation.targets(pool, &media_ids).await?;
+    let targets = routing::revalidated_targets(pool, &media_ids).await?;
     let (current, stale): (Vec<MoveRow>, Vec<MoveRow>) = rows.into_iter().partition(|row| {
         targets
             .get(&row.1)

@@ -904,6 +904,31 @@ async fn a_selection_whose_proposals_all_go_elsewhere_now_is_refused() {
     assert!(arr.recorded().writes.is_empty());
 }
 
+/// An apply revalidates its titles against their own context, and so waits
+/// for no library pass: a webhook's automatic move of one film would queue
+/// behind two previews of a large library otherwise.
+#[tokio::test]
+async fn an_apply_of_one_title_does_not_wait_for_the_library_passes() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    let _passes = (routing::library_pass().await, routing::library_pass().await);
+
+    let applied = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        executor::apply_decisions(
+            &app.state,
+            std::slice::from_ref(&decision_id),
+            false,
+            &executor::Confirmed::all(),
+            &Attribution::manual(None),
+        ),
+    )
+    .await
+    .expect("the apply waited for the library passes");
+
+    assert_eq!(applied.unwrap().applied, 1);
+}
+
 /// An id sent twice names one decision: one move, counted once, and asked
 /// about once by the guards.
 #[tokio::test]

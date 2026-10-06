@@ -17,7 +17,6 @@ use crate::integrations::adapter::ArrAdapter;
 use crate::jobs::registry::JobLock;
 use crate::jobs::{Attribution, Detail, JobKind, Stop, detached};
 use crate::services::notify;
-use crate::services::routing;
 use crate::state::AppState;
 
 pub use follow::settle_requested;
@@ -248,9 +247,6 @@ pub async fn apply_simulation_in_batches(
             superseded,
             ..Default::default()
         };
-        // One for the run: a slice reloads the routing context only when what
-        // it reads changed since the previous one.
-        let mut revalidation = routing::Revalidation::default();
 
         for batch in ids.chunks(size) {
             if let Some(reason) = stop_reason(&state, &stop).await {
@@ -260,7 +256,7 @@ pub async fn apply_simulation_in_batches(
             }
             // The lock is already held, so this goes straight to the writer
             // rather than through run_apply, which would try to take it again.
-            let outcome = match load_pending_moves(&state.pool, batch, &mut revalidation).await {
+            let outcome = match load_pending_moves(&state.pool, batch).await {
                 Ok(moves) => {
                     report.skipped += batch.len() - moves.len();
                     report.batches_run += 1;
@@ -413,13 +409,7 @@ async fn run_locked(
     let stop = job.stop();
     detached(&state.jobs.clone(), async move {
         let _lock = lock;
-        let moves = match load_pending_moves(
-            &state.pool,
-            &ids,
-            &mut routing::Revalidation::default(),
-        )
-        .await
-        {
+        let moves = match load_pending_moves(&state.pool, &ids).await {
             Ok(moves) => moves,
             Err(e) => {
                 job.fail(&e).await;
