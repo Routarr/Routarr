@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Conexiunea securizată la {address} a eșuat. Dacă portul folosește HTTP necriptat, introdu adresa cu http://. Altfel, Routarr nu are încredere în certificatul {service}.",
   "ArrInstances": "Instanțe Arr",
   "ArrKeyRefused": "{service} a refuzat cheia API. Copiaz-o din nou din {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} este o adresă link-local, la care răspunde serviciul de metadate al unui furnizor cloud, nu {service}. Routarr nu se conectează acolo: folosește adresa mașinii sau a containerului care rulează {service}.",
+  "ArrMetadataAddress": "{address} este o adresă link-local, la care răspunde serviciul de metadate al unui furnizor cloud, nu {service}. Routarr nu se conectează acolo: folosește adresa mașinii sau a containerului care rulează {service}.",
   "ArrNameUnresolved": "Numele din {address} nu poate fi rezolvat. Verifică dacă este scris corect. În Docker, numele unui container se rezolvă doar dacă Routarr și {service} sunt în aceeași rețea.",
   "ArrNotHttp": "{address} nu răspunde prin HTTP. Dacă portul folosește HTTPS, introdu adresa cu https://. Altfel, verifică portul.",
   "ArrNotTheApi": "La {address} răspunde ceva, dar nu API-ul {service}. Verifică portul și adaugă URL-ul de bază, dacă {service} are unul, de exemplu {base}.",

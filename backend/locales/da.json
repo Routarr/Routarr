@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Den sikre forbindelse til {address} mislykkedes. Hvis porten bruger almindelig HTTP, skal adressen begynde med http://. Ellers stoler Routarr ikke på {service}s certifikat.",
   "ArrInstances": "Arr-instanser",
   "ArrKeyRefused": "{service} afviste API-nøglen. Kopiér den igen fra {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} er en link-local-adresse, hvor en cloud-værts metadatatjeneste svarer og ingen {service}. Routarr forbinder ikke dertil: brug adressen på den maskine eller container, der kører {service}.",
+  "ArrMetadataAddress": "{address} er en link-local-adresse, hvor en cloud-værts metadatatjeneste svarer og ingen {service}. Routarr forbinder ikke dertil: brug adressen på den maskine eller container, der kører {service}.",
   "ArrNameUnresolved": "Navnet i {address} kan ikke slås op. Tjek stavemåden. I Docker kan et containernavn kun slås op, når Routarr og {service} er på samme netværk.",
   "ArrNotHttp": "{address} svarer ikke via HTTP. Hvis porten bruger HTTPS, skal adressen begynde med https://. Tjek ellers porten.",
   "ArrNotTheApi": "Noget svarer på {address}, men ikke {service}s API. Tjek porten, og tilføj URL-basen, hvis {service} har en, for eksempel {base}.",

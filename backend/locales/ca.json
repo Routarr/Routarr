@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "La connexió segura amb {address} ha fallat. Si el port fa servir HTTP sense xifrar, escriu l'adreça amb http://. Si no, Routarr no confia en el certificat de {service}.",
   "ArrInstances": "Instàncies Arr",
   "ArrKeyRefused": "{service} ha rebutjat la clau API. Torna-la a copiar des de {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} és una adreça d'enllaç local (link-local), on respon el servei de metadades d'un proveïdor al núvol i no pas {service}. Routarr no s'hi connecta: fes servir l'adreça de la màquina o del contenidor on s'executa {service}.",
+  "ArrMetadataAddress": "{address} és una adreça d'enllaç local (link-local), on respon el servei de metadades d'un proveïdor al núvol i no pas {service}. Routarr no s'hi connecta: fes servir l'adreça de la màquina o del contenidor on s'executa {service}.",
   "ArrNameUnresolved": "El nom de {address} no es resol. Comprova que estigui ben escrit. A Docker, el nom d'un contenidor només es resol si Routarr i {service} comparteixen una xarxa.",
   "ArrNotHttp": "{address} no respon en HTTP. Si el port fa servir HTTPS, escriu l'adreça amb https://. Si no, comprova el port.",
   "ArrNotTheApi": "Alguna cosa respon a {address}, però no és l'API de {service}. Comprova el port i afegeix el prefix d'URL si {service} en té un, per exemple {base}.",

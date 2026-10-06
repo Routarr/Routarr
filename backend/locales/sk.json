@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Zabezpečené pripojenie k adrese {address} zlyhalo. Ak port používa nešifrované HTTP, zadajte adresu s http://. Inak Routarr nedôveruje certifikátu aplikácie {service}.",
   "ArrInstances": "Inštancie Arr",
   "ArrKeyRefused": "{service} odmietol kľúč API. Skopírujte ho znova z aplikácie {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} je link-local adresa, na ktorej odpovedá služba metaúdajov cloudového hostiteľa, a nie {service}. Routarr sa tam nepripája: použite adresu počítača alebo kontajnera, v ktorom beží {service}.",
+  "ArrMetadataAddress": "{address} je link-local adresa, na ktorej odpovedá služba metaúdajov cloudového hostiteľa, a nie {service}. Routarr sa tam nepripája: použite adresu počítača alebo kontajnera, v ktorom beží {service}.",
   "ArrNameUnresolved": "Názov v adrese {address} sa nedá preložiť. Skontrolujte, či v ňom nie je preklep. V Dockeri sa názov kontajnera preloží iba vtedy, keď sú Routarr a {service} v rovnakej sieti.",
   "ArrNotHttp": "Adresa {address} neodpovedá cez HTTP. Ak port používa HTTPS, zadajte adresu s https://. Inak skontrolujte port.",
   "ArrNotTheApi": "Na adrese {address} niečo odpovedá, ale nie je to API aplikácie {service}. Skontrolujte port a pridajte základnú cestu, ak ju {service} používa, napríklad {base}.",

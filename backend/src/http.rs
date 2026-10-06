@@ -4,7 +4,7 @@
 //! connection pool, so a client per request costs a TCP and TLS handshake on
 //! every sync, health check and metadata fetch.
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -15,48 +15,71 @@ use crate::error::{AppError, AppResult};
 /// `Config::library_timeout`.
 pub const LIBRARY_TIMEOUT: Duration = Duration::from_secs(300);
 
-/// Whether an address is link-local: 169.254.0.0/16 and fe80::/10, the IPv4
-/// form inside an IPv6 one included. A cloud host's metadata service answers
-/// there with the machine's own credentials, and no Arr, metadata source,
-/// identity provider or notification receiver does, so nothing Routarr sends
-/// goes there, whoever typed the address.
-pub(crate) fn is_link_local(ip: IpAddr) -> bool {
+/// Where Alibaba Cloud's metadata service answers, in the shared address space.
+const ALIBABA_METADATA: Ipv4Addr = Ipv4Addr::new(100, 100, 100, 200);
+/// Where AWS's answers over IPv6, a unique local address.
+const AWS_METADATA_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
+
+/// Whether a cloud host's metadata service can answer at an address: the
+/// link-local ranges (169.254.0.0/16, fe80::/10), where most of them do, and
+/// the two that answer elsewhere, each also written inside an IPv6 address as
+/// a mapped address or through a NAT64 gateway. It hands out the machine's own
+/// credentials, and no Arr, metadata source, identity provider or
+/// notification receiver answers there, so nothing Routarr sends goes there,
+/// whoever typed the address.
+pub(crate) fn is_metadata_address(ip: IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => v4.is_link_local(),
+        IpAddr::V4(v4) => is_metadata_v4(v4),
         IpAddr::V6(v6) => {
-            v6.is_unicast_link_local() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_link_local())
+            v6.is_unicast_link_local()
+                || v6 == AWS_METADATA_V6
+                || v6.to_ipv4_mapped().is_some_and(is_metadata_v4)
+                || through_nat64(v6).is_some_and(is_metadata_v4)
         }
     }
 }
 
-/// A connection refused for a link-local address, which the transport
+fn is_metadata_v4(v4: Ipv4Addr) -> bool {
+    v4.is_link_local() || v4 == ALIBABA_METADATA
+}
+
+/// The IPv4 address a NAT64 gateway reaches for `v6`, under the well-known
+/// prefix 64:ff9b::/96.
+fn through_nat64(v6: Ipv6Addr) -> Option<Ipv4Addr> {
+    let [a, b, c, d, e, f, high, low] = v6.segments();
+    let [h1, h2] = high.to_be_bytes();
+    let [l1, l2] = low.to_be_bytes();
+    ([a, b, c, d, e, f] == [0x64, 0xff9b, 0, 0, 0, 0]).then(|| Ipv4Addr::new(h1, h2, l1, l2))
+}
+
+/// A connection refused for a metadata address, which the transport
 /// description finds in the error chain.
 #[derive(Debug)]
-pub(crate) struct LinkLocal;
+pub(crate) struct MetadataAddress;
 
-impl std::fmt::Display for LinkLocal {
+impl std::fmt::Display for MetadataAddress {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("the address is link-local")
+        f.write_str("a cloud host's metadata service answers at the address")
     }
 }
 
-impl std::error::Error for LinkLocal {}
+impl std::error::Error for MetadataAddress {}
 
-/// The addresses a name resolved to that Routarr connects to, or `LinkLocal`
-/// when every one of them is link-local.
-fn reachable(resolved: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, LinkLocal> {
+/// The addresses a name resolved to that Routarr connects to, or
+/// `MetadataAddress` when every one of them is a metadata address.
+fn reachable(resolved: Vec<SocketAddr>) -> Result<Vec<SocketAddr>, MetadataAddress> {
     let kept: Vec<SocketAddr> =
-        resolved.iter().copied().filter(|a| !is_link_local(a.ip())).collect();
-    if kept.is_empty() && !resolved.is_empty() { Err(LinkLocal) } else { Ok(kept) }
+        resolved.iter().copied().filter(|a| !is_metadata_address(a.ip())).collect();
+    if kept.is_empty() && !resolved.is_empty() { Err(MetadataAddress) } else { Ok(kept) }
 }
 
-/// The system resolver, without the link-local addresses. Checked when the
+/// The system resolver, without the metadata addresses. Checked when the
 /// connection is made, since a name typed today can resolve anywhere
 /// tomorrow. A literal address never reaches a resolver, and is checked where
 /// every request is sent (`integrations::check_status`).
-struct NoLinkLocal;
+struct NoMetadataAddresses;
 
-impl reqwest::dns::Resolve for NoLinkLocal {
+impl reqwest::dns::Resolve for NoMetadataAddresses {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let host = name.as_str().to_string();
         Box::pin(async move {
@@ -150,7 +173,7 @@ pub fn build_client(config: &Config) -> AppResult<reqwest::Client> {
         .pool_idle_timeout(Duration::from_secs(90))
         .pool_max_idle_per_host(8)
         .user_agent(concat!("Routarr/", env!("CARGO_PKG_VERSION")))
-        .dns_resolver(Arc::new(NoLinkLocal))
+        .dns_resolver(Arc::new(NoMetadataAddresses))
         .build()
         .map_err(|e| AppError::Config(format!("cannot build the HTTP client: {e}")))
 }
@@ -206,19 +229,38 @@ pub fn with_saved_credentials(typed: &str, saved: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        is_link_local, masked, reachable, stays_on_origin, with_saved_credentials,
+        is_metadata_address, masked, reachable, stays_on_origin, with_saved_credentials,
         without_credentials,
     };
 
-    /// The link-local ranges, the IPv4 one written inside an IPv6 address
-    /// too, and none of the loopback and private ranges where Arrs live.
+    /// The link-local ranges and the two metadata services outside them, each
+    /// written inside an IPv6 address too, and none of the loopback, private
+    /// and shared ranges where Arrs live.
     #[test]
-    fn link_local_addresses_and_only_those_are_refused() {
-        for refused in ["169.254.169.254", "169.254.0.1", "fe80::1", "::ffff:169.254.169.254"] {
-            assert!(is_link_local(refused.parse().unwrap()), "{refused}");
+    fn metadata_addresses_and_only_those_are_refused() {
+        for refused in [
+            "169.254.169.254",
+            "169.254.0.1",
+            "fe80::1",
+            "::ffff:169.254.169.254",
+            "100.100.100.200",
+            "fd00:ec2::254",
+            "64:ff9b::a9fe:a9fe",
+            "64:ff9b::6464:64c8",
+        ] {
+            assert!(is_metadata_address(refused.parse().unwrap()), "{refused}");
         }
-        for kept in ["127.0.0.1", "10.0.0.5", "172.17.0.2", "192.168.1.20", "::1", "fd00::5"] {
-            assert!(!is_link_local(kept.parse().unwrap()), "{kept}");
+        for kept in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "172.17.0.2",
+            "192.168.1.20",
+            "100.64.0.1",
+            "::1",
+            "fd00::5",
+            "64:ff9b::a00:5",
+        ] {
+            assert!(!is_metadata_address(kept.parse().unwrap()), "{kept}");
         }
         let at = |ip: &str| std::net::SocketAddr::new(ip.parse().unwrap(), 0);
         assert!(reachable(vec![at("169.254.169.254")]).is_err());

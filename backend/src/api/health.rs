@@ -184,7 +184,8 @@ pub struct AppStats {
 #[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct HealthQuery {
-    /// `false` answers from what the last probe recorded. Defaults to true.
+    /// `false` answers from what the last probe recorded. Defaults to true,
+    /// except for a request another site set off.
     probe: Option<bool>,
 }
 
@@ -193,9 +194,17 @@ pub struct HealthQuery {
 /// every connection attempt.
 pub async fn health_check(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Query(query): Query<HealthQuery>,
 ) -> AppResult<Json<HealthResponse>> {
-    let probe = query.probe.unwrap_or(true);
+    // A page of another site can send a browser here with its cookie, and a
+    // probe reaches every Arr and source and writes what it found. Such a
+    // request reads what the last probe recorded instead.
+    let cross_site = headers
+        .get("sec-fetch-site")
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|site| site.eq_ignore_ascii_case("cross-site"));
+    let probe = query.probe.unwrap_or(true) && !cross_site;
     let pool = &state.pool;
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));

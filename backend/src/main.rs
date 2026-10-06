@@ -22,6 +22,7 @@ mod error;
 mod http;
 mod integrations;
 mod jobs;
+mod listener;
 mod localization;
 mod models;
 mod paths;
@@ -118,13 +119,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jobs = state.jobs.clone();
     let app = build_router(state);
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+    let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Routarr web server listening on http://{bind_addr}");
 
-    // The peer's address is what a refused sign-in is logged and throttled by.
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    listener::serve(socket, app, shutdown_signal(), listener::HEADER_READ_TIMEOUT).await;
 
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
@@ -453,6 +451,11 @@ fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(security_headers))
 }
 
+/// How long a request body may take to arrive, whole. A body sent a byte at a
+/// time would otherwise hold its connection open as long as the sender likes.
+/// The largest body taken is 2 MiB, seconds on the slowest link.
+pub(crate) const BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The layers every API request passes through, around `routes`.
 ///
 /// One function for the router and for the tests that make a handler panic: a
@@ -478,8 +481,21 @@ where
         // It hides nothing: `log_panics` logs the panic in the request span,
         // and the caller learns something too.
         .layer(CatchPanicLayer::custom(panic_response))
+        .layer(tower_http::timeout::RequestBodyDeadlineLayer::new(BODY_DEADLINE))
+        .layer(middleware::map_response(not_stored))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// An API answer may carry a key, a webhook token or an archive holding the
+/// master key, and a shared browser profile or a proxy cache must keep none of
+/// them. A handler that states its own caching keeps it.
+async fn not_stored(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .entry(axum::http::header::CACHE_CONTROL)
+        .or_insert(axum::http::HeaderValue::from_static("no-store"));
+    response
 }
 
 /// The span every line logged while serving a request sits in, and the one a

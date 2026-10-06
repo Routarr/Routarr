@@ -5355,7 +5355,7 @@
         "operationId": "health",
         "parameters": [
           {
-            "description": "`false` answers from what the last probe recorded. Defaults to true.",
+            "description": "`false` answers from what the last probe recorded. Defaults to true,\nexcept for a request another site set off.",
             "in": "query",
             "name": "probe",
             "required": false,

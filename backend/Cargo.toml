@@ -29,7 +29,11 @@ serde_json = "1"
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "form", "rustls"] }
 # Already built for axum and reqwest. Named here for one question reqwest does
 # not answer: whether what came back was HTTP at all (`hyper::Error::is_parse`).
-hyper = "1"
+# And the server `listener.rs` builds, HTTP/1 only as axum::serve was here.
+hyper = { version = "1", features = ["http1", "server"] }
+# The listener axum::serve would be, with the header deadline and the bound on
+# open connections it does not expose (`listener.rs`). Already built for axum.
+hyper-util = { version = "0.1", features = ["server-graceful", "service", "tokio"] }
 tower = { version = "0.5", features = ["util"] }
 tokio-util = { version = "0.7", features = ["io", "rt"] }
 tower-http = { version = "0.7", features = [
@@ -42,6 +46,8 @@ tower-http = { version = "0.7", features = [
     # A panicking handler must answer 500 rather than dropping the connection
     # with no response at all (the layer in main.rs).
     "catch-panic",
+    # The deadline on a request body sent a byte at a time (`BODY_DEADLINE`).
+    "timeout",
 ]  }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

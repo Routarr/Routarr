@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Den säkra anslutningen till {address} misslyckades. Om porten använder vanlig HTTP ska adressen börja med http://. Annars litar Routarr inte på {service}s certifikat.",
   "ArrInstances": "Arr-instanser",
   "ArrKeyRefused": "{service} avvisade API-nyckeln. Kopiera den igen från {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} är en länklokal adress, där en molnvärds metadatatjänst svarar och ingen {service}. Routarr ansluter inte dit: använd adressen till den dator eller container som kör {service}.",
+  "ArrMetadataAddress": "{address} är en länklokal adress, där en molnvärds metadatatjänst svarar och ingen {service}. Routarr ansluter inte dit: använd adressen till den dator eller container som kör {service}.",
   "ArrNameUnresolved": "Namnet i {address} går inte att slå upp. Kontrollera stavningen. I Docker kan ett containernamn bara slås upp när Routarr och {service} är i samma nätverk.",
   "ArrNotHttp": "{address} svarar inte via HTTP. Om porten använder HTTPS ska adressen börja med https://. Kontrollera annars porten.",
   "ArrNotTheApi": "Något svarar på {address}, men inte {service}s API. Kontrollera porten och lägg till URL-basen om {service} har en, till exempel {base}.",

@@ -786,3 +786,45 @@ async fn no_key_can_mint_another() {
     assert_eq!(refused.status, StatusCode::FORBIDDEN);
     assert!(refused.message().contains("owner"), "{}", refused.message());
 }
+
+/// HEAD answers the headers GET would, so it asks what GET does: a read key
+/// may ask it, and a route the owner keeps stays the owner's.
+#[tokio::test]
+async fn a_read_key_may_ask_head() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token = mint(&app, Some(MASTER), json!({ "name": "monitor" })).await;
+    assert_eq!(
+        send(&app, "HEAD", "/api/v1/media", Some(&token), None).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(&app, "HEAD", "/api/v1/settings", Some(&token), None).await.status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+/// The fallback category is a setting, which no key reaches. A key that may
+/// configure the categories creates one, and cannot make it the fallback.
+#[tokio::test]
+async fn a_configure_key_cannot_change_the_fallback_category() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token =
+        mint(&app, Some(MASTER), json!({ "name": "editor", "scopes": ["configure"] })).await;
+    let before = AppState::default_category(&app.state.pool).await.unwrap();
+
+    let refused = send(
+        &app,
+        "POST",
+        "/api/v1/categories",
+        Some(&token),
+        Some(json!({ "name": "hijack", "is_default": true })),
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.json);
+    assert_eq!(AppState::default_category(&app.state.pool).await.unwrap(), before);
+    assert!(app.count("SELECT COUNT(*) FROM categories WHERE name = 'hijack'").await == 0);
+
+    send(&app, "POST", "/api/v1/categories", Some(&token), Some(json!({ "name": "concerts" })))
+        .await
+        .assert_ok();
+}

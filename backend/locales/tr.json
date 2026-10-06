@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "{address} adresine güvenli bağlantı kurulamadı. Port düz HTTP kullanıyorsa adresi http:// ile yazın. Öyle değilse Routarr, {service} sertifikasına güvenmiyor demektir.",
   "ArrInstances": "Arr örnekleri",
   "ArrKeyRefused": "{service}, API anahtarını reddetti. Anahtarı {service} içinden yeniden kopyalayın: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} bir link-local adres: orada {service} değil, bir bulut sunucusunun üst veri hizmeti yanıt verir. Routarr oraya bağlanmaz: {service} hizmetini çalıştıran makinenin veya kapsayıcının adresini kullanın.",
+  "ArrMetadataAddress": "{address} bir link-local adres: orada {service} değil, bir bulut sunucusunun üst veri hizmeti yanıt verir. Routarr oraya bağlanmaz: {service} hizmetini çalıştıran makinenin veya kapsayıcının adresini kullanın.",
   "ArrNameUnresolved": "{address} adresindeki ana makine adı çözümlenemiyor. Yazımını kontrol edin. Docker'da bir kapsayıcı adı, yalnızca Routarr ile {service} aynı ağdaysa çözümlenir.",
   "ArrNotHttp": "{address} adresi HTTP ile yanıt vermiyor. Port HTTPS kullanıyorsa adresi https:// ile yazın. Öyle değilse portu kontrol edin.",
   "ArrNotTheApi": "{address} adresinde bir şey yanıt veriyor, ancak bu {service} API'si değil. Portu kontrol edin ve {service} bir temel URL kullanıyorsa onu da ekleyin, örneğin {base}.",

@@ -84,8 +84,9 @@ pub const GRANTS: &[(&str, &str, Scope)] = &[
 ];
 
 /// The scope a route asks of an application key, or `None` when no key may
-/// call it.
+/// call it. HEAD asks what GET does, since it answers the same headers.
 pub fn scope_for(method: &Method, route: &str) -> Option<Scope> {
+    let method = if *method == Method::HEAD { &Method::GET } else { method };
     GRANTS
         .iter()
         .find(|(granted_method, granted_route, _)| {

@@ -829,7 +829,7 @@ mod tests {
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("main.rs");
         let after_serving = MAIN
-            .split_once(".with_graceful_shutdown(shutdown_signal())")
+            .split_once("listener::serve(socket, app, shutdown_signal()")
             .expect("main serves until a shutdown signal")
             .1;
         let shutdown =

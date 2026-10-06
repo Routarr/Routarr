@@ -513,18 +513,18 @@ async fn a_redirect_loop_is_named_as_one() {
     assert_eq!(message, expected);
 }
 
-/// A link-local address is where a cloud host's metadata service answers,
-/// with the machine's credentials, and never where an Arr runs. Routarr does
-/// not connect there, written as a literal address or behind a name, and says
-/// why rather than waiting out a timeout.
+/// A cloud host's metadata service answers with the machine's credentials,
+/// and never where an Arr runs. Routarr does not connect there, written as a
+/// literal address or behind a name, and says why rather than waiting out a
+/// timeout.
 #[tokio::test]
-async fn a_link_local_address_is_refused_before_any_connection() {
+async fn a_metadata_address_is_refused_before_any_connection() {
     let app = TestApp::new().await;
-    for address in ["http://169.254.169.254", "http://[fe80::1]:7878"] {
+    for address in ["http://169.254.169.254", "http://[fe80::1]:7878", "http://100.100.100.200"] {
         let message = refusal(&probe(&app, address).await);
 
         let expected =
-            said(&app, "ArrLinkLocal", &[("service", "Radarr"), ("address", address)]).await;
+            said(&app, "ArrMetadataAddress", &[("service", "Radarr"), ("address", address)]).await;
         assert_eq!(message, expected, "{address}");
     }
 

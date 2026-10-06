@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "La conexión segura con {address} falló. Si el puerto usa HTTP sin cifrar, introduce la dirección con http://. Si no, Routarr no confía en el certificado de {service}.",
   "ArrInstances": "Instancias Arr",
   "ArrKeyRefused": "{service} rechazó la clave de API. Vuelve a copiarla desde {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} es una dirección de enlace local (link-local), donde responde el servicio de metadatos de un proveedor en la nube y no {service}. Routarr no se conecta allí: usa la dirección de la máquina o del contenedor que ejecuta {service}.",
+  "ArrMetadataAddress": "{address} es una dirección de enlace local (link-local), donde responde el servicio de metadatos de un proveedor en la nube y no {service}. Routarr no se conecta allí: usa la dirección de la máquina o del contenedor que ejecuta {service}.",
   "ArrNameUnresolved": "El nombre indicado en {address} no se puede resolver. Comprueba que esté bien escrito. En Docker, el nombre de un contenedor solo se resuelve si Routarr y {service} están en la misma red.",
   "ArrNotHttp": "{address} no responde por HTTP. Si el puerto usa HTTPS, introduce la dirección con https://. Si no, comprueba el puerto.",
   "ArrNotTheApi": "Algo responde en {address}, pero no es la API de {service}. Comprueba el puerto y añade el prefijo de URL si {service} tiene uno, por ejemplo {base}.",

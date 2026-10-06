@@ -259,17 +259,19 @@ async fn no_near_miss_key_is_accepted() {
     }
 }
 
-/// A `Bearer` token is accepted, but only under that exact scheme: `Basic`, a
-/// bare token, or a lowercased scheme must not slip through.
+/// A `Bearer` token is accepted under that scheme however it is cased, as
+/// HTTP compares a scheme. `Basic` and a bare token do not slip through.
 #[tokio::test]
 async fn only_the_bearer_scheme_is_honoured() {
     let app = TestApp::with_api_key("s3cret").await;
 
     let cases = [
         ("Bearer s3cret", StatusCode::OK),
-        ("bearer s3cret", StatusCode::UNAUTHORIZED),
+        ("bearer s3cret", StatusCode::OK),
+        ("BEARER s3cret", StatusCode::OK),
         ("Basic s3cret", StatusCode::UNAUTHORIZED),
         ("s3cret", StatusCode::UNAUTHORIZED),
+        ("Bearers3cret", StatusCode::UNAUTHORIZED),
         ("Bearer  s3cret", StatusCode::OK), // extra space is trimmed
     ];
 
@@ -280,6 +282,26 @@ async fn only_the_bearer_scheme_is_honoured() {
             .unwrap();
         assert_eq!(app.send(request).await.status, expected, "authorization: {header:?}");
     }
+}
+
+/// A page of another site can send a browser to `/health` with its cookie,
+/// and a probe reaches every Arr and source and records what it found. Such a
+/// request answers from the last probe, and the same request from this site
+/// still probes.
+#[tokio::test]
+async fn a_cross_site_health_request_does_not_probe() {
+    let arr = super::fake_arr::FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let health = |site: &'static str| {
+        Request::get("/api/v1/health").header("sec-fetch-site", site).body(Body::empty()).unwrap()
+    };
+
+    app.send(health("cross-site")).await.assert_ok();
+    assert_eq!(app.count("SELECT COUNT(*) FROM probe_results").await, 0, "probed for another site");
+
+    app.send(health("same-origin")).await.assert_ok();
+    assert!(app.count("SELECT COUNT(*) FROM probe_results").await > 0, "this site's probe ran");
 }
 
 /// The header name is case-insensitive per HTTP, and the middleware must honour

@@ -115,12 +115,7 @@ impl Identity {
     /// Whether this caller holds `scope`: an application its grant's, anyone
     /// else every scope.
     pub fn holds(&self, scope: crate::services::applications::Scope) -> bool {
-        match &self.application {
-            Some(grant) => {
-                scope == crate::services::applications::Scope::Read || grant.scopes.contains(&scope)
-            }
-            None => true,
-        }
+        self.application.as_ref().is_none_or(|grant| grant.allows(scope))
     }
 
     /// Who asked, as this caller may read it. An application reads its own
@@ -422,11 +417,13 @@ fn extract_key(headers: &HeaderMap) -> Option<String> {
     if let Some(value) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
         return Some(value.trim().to_string());
     }
-    headers
+    // The scheme is a token compared without regard to case (RFC 9110 §11.1).
+    let (scheme, token) = headers
         .get(axum::http::header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .map(|v| v.trim().to_string())
+        .and_then(|v| v.to_str().ok())?
+        .trim()
+        .split_once(' ')?;
+    scheme.eq_ignore_ascii_case("bearer").then(|| token.trim().to_string())
 }
 
 /// Compare without leaking the position of the first differing byte.

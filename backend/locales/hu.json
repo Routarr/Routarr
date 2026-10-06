@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Nem sikerült biztonságos kapcsolatot létesíteni a(z) {address} címmel. Ha a porton titkosítatlan HTTP fut, adja meg a címet http:// előtaggal. Ellenkező esetben a Routarr nem bízik meg a(z) {service} tanúsítványában.",
   "ArrInstances": "Arr-példányok",
   "ArrKeyRefused": "A(z) {service} elutasította az API-kulcsot. Másolja ki újra a(z) {service} felületéről: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "A(z) {address} link-local cím, ahol egy felhőszolgáltató metaadat-szolgáltatása válaszol, és sosem a(z) {service}. A Routarr nem csatlakozik oda: annak a gépnek vagy konténernek a címét adja meg, amelyen a(z) {service} fut.",
+  "ArrMetadataAddress": "A(z) {address} link-local cím, ahol egy felhőszolgáltató metaadat-szolgáltatása válaszol, és sosem a(z) {service}. A Routarr nem csatlakozik oda: annak a gépnek vagy konténernek a címét adja meg, amelyen a(z) {service} fut.",
   "ArrNameUnresolved": "A(z) {address} címben szereplő név nem oldható fel. Ellenőrizze, nincs-e elírva. Dockerben egy konténernév csak akkor oldható fel, ha a Routarr és a(z) {service} ugyanazon a hálózaton van.",
   "ArrNotHttp": "A(z) {address} cím nem HTTP-n válaszol. Ha a porton HTTPS fut, adja meg a címet https:// előtaggal. Ellenkező esetben ellenőrizze a portot.",
   "ArrNotTheApi": "A(z) {address} címen valami válaszol, de nem a(z) {service} API-ja. Ellenőrizze a portot, és ha a(z) {service} használ alap-URL-t, adja meg azt is, például {base}.",

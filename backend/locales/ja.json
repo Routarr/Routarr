@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "{address} への安全な接続に失敗しました。そのポートが暗号化されていない HTTP で応答する場合は、アドレスを http:// で始めてください。そうでない場合は、Routarr が {service} の証明書を信頼していません。",
   "ArrInstances": "Arr インスタンス",
   "ArrKeyRefused": "{service} が API キーを拒否しました。{service} の Settings → General → Security → API Key から、もう一度コピーしてください。",
-  "ArrLinkLocal": "{address} はリンクローカルアドレスです。ここで応答するのはクラウドホストのメタデータサービスで、{service} ではありません。Routarr はこのアドレスには接続しません。{service} を実行しているマシンまたはコンテナのアドレスを使用してください。",
+  "ArrMetadataAddress": "{address} はリンクローカルアドレスです。ここで応答するのはクラウドホストのメタデータサービスで、{service} ではありません。Routarr はこのアドレスには接続しません。{service} を実行しているマシンまたはコンテナのアドレスを使用してください。",
   "ArrNameUnresolved": "{address} のホスト名を解決できません。スペルを確認してください。Docker では、Routarr と {service} が同じネットワークに接続されている場合にのみ、コンテナ名を解決できます。",
   "ArrNotHttp": "{address} は HTTP で応答しません。そのポートが HTTPS で応答する場合は、アドレスを https:// で始めてください。そうでない場合は、ポートを確認してください。",
   "ArrNotTheApi": "{address} で何かが応答していますが、{service} の API ではありません。ポートを確認し、{service} に URL ベースが設定されている場合は追加してください (例: {base})。",

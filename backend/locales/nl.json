@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "De beveiligde verbinding met {address} is mislukt. Gebruikt de poort gewoon HTTP, begin het adres dan met http://. Anders vertrouwt Routarr het certificaat van {service} niet.",
   "ArrInstances": "Arr-instanties",
   "ArrKeyRefused": "{service} heeft de API-sleutel geweigerd. Kopieer hem opnieuw uit {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} is een link-local-adres, waar de metadatadienst van een cloudhost antwoordt en geen {service}. Routarr maakt daar geen verbinding mee: gebruik het adres van de machine of de container waarop {service} draait.",
+  "ArrMetadataAddress": "{address} is een link-local-adres, waar de metadatadienst van een cloudhost antwoordt en geen {service}. Routarr maakt daar geen verbinding mee: gebruik het adres van de machine of de container waarop {service} draait.",
   "ArrNameUnresolved": "De naam in {address} wordt niet gevonden. Controleer de spelling. In Docker wordt een containernaam alleen gevonden als Routarr en {service} hetzelfde netwerk delen.",
   "ArrNotHttp": "{address} antwoordt niet via HTTP. Gebruikt de poort HTTPS, begin het adres dan met https://. Controleer anders de poort.",
   "ArrNotTheApi": "Op {address} antwoordt iets, maar niet de API van {service}. Controleer de poort en voeg de URL-basis toe als {service} die heeft, bijvoorbeeld {base}.",

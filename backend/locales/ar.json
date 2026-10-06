@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "فشل الاتصال الآمن بـ {address}. إذا كان المنفذ يستخدم HTTP غير مشفّر، فابدأ العنوان بـ http://‎. وإن لم يكن كذلك، فإن Routarr لا يثق بشهادة {service}.",
   "ArrInstances": "خوادم Arr",
   "ArrKeyRefused": "رفض {service} مفتاح API. انسخه مجددًا من {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "العنوان {address} من نوع link-local، وعليه تستجيب خدمة البيانات الوصفية لدى مزوّد سحابي، لا {service}. لا يتصل Routarr به: استخدم عنوان الجهاز أو الحاوية التي تشغّل {service}.",
+  "ArrMetadataAddress": "العنوان {address} من نوع link-local، وعليه تستجيب خدمة البيانات الوصفية لدى مزوّد سحابي، لا {service}. لا يتصل Routarr به: استخدم عنوان الجهاز أو الحاوية التي تشغّل {service}.",
   "ArrNameUnresolved": "تعذّر تحليل اسم المضيف في {address}. تحقق من صحة كتابته. في Docker، لا ينجح تحليل اسم الحاوية إلا إذا كان Routarr و {service} على الشبكة نفسها.",
   "ArrNotHttp": "لا يستجيب {address} ببروتوكول HTTP. إذا كان المنفذ يستخدم HTTPS، فابدأ العنوان بـ https://‎. وإن لم يكن كذلك، فتحقق من المنفذ.",
   "ArrNotTheApi": "هناك ما يستجيب على {address}، لكنه ليس واجهة API الخاصة بـ {service}. تحقق من المنفذ، وأضف مسار URL الأساسي إن كان {service} يستخدم واحدًا، مثل ‎{base}.",

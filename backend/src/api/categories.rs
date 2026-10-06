@@ -120,8 +120,14 @@ fn is_mark(c: char) -> bool {
 
 pub async fn create(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateCategoryRequest>,
 ) -> AppResult<Json<Category>> {
+    // The fallback is a setting, and no application key reaches the settings.
+    if req.is_default && identity.application.is_some() {
+        let refusal = state.localizer().await.translate("ErrorFallbackOwnerOnly", &[]);
+        return Err(AppError::Forbidden(refusal));
+    }
     let name = normalise(&req.name, &state.localizer().await)?;
 
     let id = format!("cat-{}", Uuid::new_v4());

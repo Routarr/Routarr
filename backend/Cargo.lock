@@ -1871,6 +1871,7 @@ dependencies = [
  "hmac",
  "http-body-util",
  "hyper",
+ "hyper-util",
  "jsonschema",
  "reqwest",
  "serde",

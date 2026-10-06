@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "与 {address} 的安全连接失败。如果该端口提供的是未加密的 HTTP，请使用以 http:// 开头的地址。否则，说明 Routarr 不信任 {service} 的证书。",
   "ArrInstances": "Arr 实例",
   "ArrKeyRefused": "{service} 拒绝了该 API 密钥。请从 {service} 的 Settings → General → Security → API Key 重新复制。",
-  "ArrLinkLocal": "{address} 是链路本地地址，在那里响应的是云主机的元数据服务，而不是 {service}。Routarr 不会连接该地址：请使用运行 {service} 的机器或容器的地址。",
+  "ArrMetadataAddress": "{address} 是链路本地地址，在那里响应的是云主机的元数据服务，而不是 {service}。Routarr 不会连接该地址：请使用运行 {service} 的机器或容器的地址。",
   "ArrNameUnresolved": "无法解析 {address} 中的主机名。请检查拼写。在 Docker 中，只有当 Routarr 与 {service} 位于同一网络时，容器名称才能解析。",
   "ArrNotHttp": "{address} 未以 HTTP 响应。如果该端口提供的是 HTTPS，请使用以 https:// 开头的地址。否则，请检查端口。",
   "ArrNotTheApi": "{address} 上有程序响应，但不是 {service} 的 API。请检查端口，若 {service} 设置了 URL 基础路径，也请一并加上，例如 {base}。",

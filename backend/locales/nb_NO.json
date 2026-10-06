@@ -94,7 +94,7 @@
   "ArrHandshakeFailed": "Den sikre tilkoblingen til {address} mislyktes. Hvis porten bruker vanlig HTTP, må adressen begynne med http://. Ellers stoler Routarr ikke på {service}s sertifikat.",
   "ArrInstances": "Arr-instanser",
   "ArrKeyRefused": "{service} avviste API-nøkkelen. Kopier den på nytt fra {service}: Settings → General → Security → API Key.",
-  "ArrLinkLocal": "{address} er en link-local-adresse, der en skyverts metadatatjeneste svarer og ingen {service}. Routarr oppretter ikke tilkobling dit: bruk adressen til maskinen eller containeren som kjører {service}.",
+  "ArrMetadataAddress": "{address} er en link-local-adresse, der en skyverts metadatatjeneste svarer og ingen {service}. Routarr oppretter ikke tilkobling dit: bruk adressen til maskinen eller containeren som kjører {service}.",
   "ArrNameUnresolved": "Navnet i {address} kan ikke slås opp. Sjekk stavemåten. I Docker kan et containernavn bare slås opp når Routarr og {service} er på samme nettverk.",
   "ArrNotHttp": "{address} svarer ikke via HTTP. Hvis porten bruker HTTPS, må adressen begynne med https://. Sjekk ellers porten.",
   "ArrNotTheApi": "Noe svarer på {address}, men ikke {service}s API. Sjekk porten, og legg til URL-basen hvis {service} har en, for eksempel {base}.",
