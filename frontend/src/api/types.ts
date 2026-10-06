@@ -32,7 +32,11 @@ export interface Instance {
   /** When one was last attempted, successful or not. */
   last_sync_attempt_at: string | null;
   last_sync_status: string | null;
+  /** The webhook address with its token in it, for an Arr that sends no header. */
   webhook_url: string | null;
+  /** The address without the token, which goes in `X-Routarr-Token`. */
+  webhook_path: string | null;
+  webhook_token: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -631,6 +635,8 @@ export interface TestConnectionResponse {
   app_name: string | null;
   root_folders: number;
   inaccessible_root_folders: number;
+  /** What this release of the Arr lacks, below the oldest Routarr supports. */
+  warning: string | null;
 }
 
 export interface SyncReport {

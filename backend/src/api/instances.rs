@@ -43,9 +43,13 @@ pub async fn get_one(
 fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceResponse {
     let response = InstanceResponse::from_instance(instance, &state.config.base_path);
     match identity.application {
-        Some(_) => {
-            InstanceResponse { webhook_url: None, api_key_masked: String::new(), ..response }
-        }
+        Some(_) => InstanceResponse {
+            webhook_url: None,
+            webhook_path: None,
+            webhook_token: None,
+            api_key_masked: String::new(),
+            ..response
+        },
         None => response,
     }
 }

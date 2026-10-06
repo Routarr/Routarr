@@ -1889,8 +1889,22 @@
           "updated_at": {
             "type": "string"
           },
+          "webhook_path": {
+            "description": "The same without the token, which goes in `X-Routarr-Token`: Radarr\n5.16 and Sonarr 4.0.11 send custom headers. `null` for an application\nkey.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhook_token": {
+            "description": "The token for `X-Routarr-Token`. `null` for an application key.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "webhook_url": {
-            "description": "Relative URL to register in Radarr/Sonarr's webhook connection. `null`\nfor an application key: its token lets anyone post events as the Arr.",
+            "description": "Relative URL to register in Radarr/Sonarr's webhook connection, the\ntoken in it, for an Arr that sends no custom header. `null` for an\napplication key: its token lets anyone post events as the Arr.",
             "type": [
               "string",
               "null"

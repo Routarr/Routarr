@@ -89,9 +89,16 @@ pub struct InstanceResponse {
     pub last_sync_status: Option<String>,
     pub created_at: String,
     pub updated_at: String,
-    /// Relative URL to register in Radarr/Sonarr's webhook connection. `null`
-    /// for an application key: its token lets anyone post events as the Arr.
+    /// Relative URL to register in Radarr/Sonarr's webhook connection, the
+    /// token in it, for an Arr that sends no custom header. `null` for an
+    /// application key: its token lets anyone post events as the Arr.
     pub webhook_url: Option<String>,
+    /// The same without the token, which goes in `X-Routarr-Token`: Radarr
+    /// 5.16 and Sonarr 4.0.11 send custom headers. `null` for an application
+    /// key.
+    pub webhook_path: Option<String>,
+    /// The token for `X-Routarr-Token`. `null` for an application key.
+    pub webhook_token: Option<String>,
     /// Whether the stored API key is encrypted at rest.
     pub api_key_encrypted: bool,
 }
@@ -111,8 +118,12 @@ impl InstanceResponse {
         } else {
             mask(&i.api_key)
         };
-        let webhook_url =
-            i.webhook_token.as_ref().map(|t| format!("{base_path}/api/v1/webhook/{}/{}", i.id, t));
+        let webhook_path =
+            i.webhook_token.as_ref().map(|_| format!("{base_path}/api/v1/webhook/{}", i.id));
+        let webhook_url = webhook_path
+            .as_ref()
+            .zip(i.webhook_token.as_ref())
+            .map(|(path, t)| format!("{path}/{t}"));
         Self {
             id: i.id,
             name: i.name,
@@ -127,6 +138,8 @@ impl InstanceResponse {
             created_at: i.created_at,
             updated_at: i.updated_at,
             webhook_url,
+            webhook_path,
+            webhook_token: i.webhook_token,
             api_key_encrypted: encrypted,
         }
     }

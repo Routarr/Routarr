@@ -67,7 +67,7 @@
   const list = createAsync((signal) => api.getInstances(signal));
   const outcome = createOutcome();
   let busyId = $state<string | null>(null);
-  let editing = $state<{ form: FormState; id?: string; webhookUrl?: string | null } | null>(null);
+  let editing = $state<{ form: FormState; id?: string; webhook?: Instance } | null>(null);
 
   const instances = $derived(list.data ?? []);
 
@@ -108,7 +108,12 @@
   // What the typed values answered, a success or a failure, kept with the
   // values it answered for: once one of them changes, the result would vouch
   // for values nobody tried.
-  let probe = $state<{ tried: string; ok: boolean; text: string } | null>(null);
+  let probe = $state<{
+    tried: string;
+    ok: boolean;
+    text: string;
+    warning?: string | null;
+  } | null>(null);
   let probing = $state(false);
   const typed = $derived(
     editing
@@ -153,6 +158,7 @@
           version: answer.version,
           folders: answer.root_folders,
         }),
+        warning: answer.warning,
       };
     } catch (err) {
       if (attempt.signal.aborted) return;
@@ -355,7 +361,7 @@
     probe = null;
     editing = {
       id: instance.id,
-      webhookUrl: instance.webhook_url,
+      webhook: instance,
       form: {
         name: instance.name,
         instance_type: instance.instance_type,
@@ -711,21 +717,46 @@
             {t('InstanceKeyHelp', { service: SERVICE[form.instance_type] })}
           </p>
         </div>
-        {#if editing.webhookUrl}
+        {#if editing.webhook?.webhook_path && editing.webhook.webhook_url}
           <!-- Here and not only behind Copy: on a plain http origin the
                clipboard is closed, and a failed copy would be the one place
                the URL shows. -->
           <div class="form-group">
-            <label class="form-label" for="instances-webhook-url">{t('WebhookUrl')}</label>
+            <label class="form-label" for="instances-webhook-path">{t('WebhookUrl')}</label>
+            <input
+              id="instances-webhook-path"
+              class="form-input mono"
+              value={webhookAddress(editing.webhook.webhook_path)}
+              readonly
+              aria-describedby="instances-webhook-path-help"
+            />
+            <p id="instances-webhook-path-help" class="text-muted text-sm mt-1">
+              {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
+              {t(
+                form.instance_type === 'radarr' ? 'WebhookTriggersRadarr' : 'WebhookTriggersSonarr',
+              )}
+            </p>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="instances-webhook-token">{t('WebhookToken')}</label>
+            <input
+              id="instances-webhook-token"
+              class="form-input mono"
+              value={editing.webhook.webhook_token ?? ''}
+              readonly
+            />
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="instances-webhook-url">{t('WebhookUrlWithToken')}</label>
             <input
               id="instances-webhook-url"
               class="form-input mono"
-              value={webhookAddress(editing.webhookUrl)}
+              value={webhookAddress(editing.webhook.webhook_url)}
               readonly
               aria-describedby="instances-webhook-url-help"
             />
             <p id="instances-webhook-url-help" class="text-muted text-sm mt-1">
-              {t('WebhookUrlHelp', { service: SERVICE[form.instance_type] })}
+              {t('WebhookUrlWithTokenHelp')}
             </p>
           </div>
         {/if}
@@ -741,6 +772,9 @@
               <CheckCircle2 size={16} aria-hidden="true" />
               {probed.text}
             </p>
+            {#if probed.warning}
+              <p class="text-warning text-sm">{probed.warning}</p>
+            {/if}
           {/if}
         </div>
         <div class="dialog-actions">
