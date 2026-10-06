@@ -40,6 +40,8 @@ const STRINGS = {
   StatusPending: 'pending',
   StatusFailed: 'failed',
   StatusSkipped: 'skipped',
+  StatusRequested: 'requested',
+  RequestedHint: 'The Arr is moving the files.',
   PageOf: 'Page {page} of {total}',
   DecisionCount: 'Decisions: {count}',
   Next: 'Next',
@@ -59,6 +61,18 @@ describe('History', () => {
     show();
 
     expect(await screen.findByRole('button', { name: /Revert – Akira/ })).toBeTruthy();
+  });
+
+  /** A move the Arr took and is still making is neither done nor revertible yet. */
+  it('says a requested move is still being made, and offers no revert for it', async () => {
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'requested', applied_at: '2026-08-27 11:00:00' })]),
+    );
+    show();
+
+    expect(await screen.findByText('requested')).toBeTruthy();
+    expect(screen.getByText('The Arr is moving the files.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Revert/ })).toBeNull();
   });
 
   /**
@@ -108,9 +122,16 @@ describe('History', () => {
     ['leaves the files alone unless that box is ticked', false],
     ['moves the files back when that box is ticked', true],
   ])('%s', async (_claim, moveFiles) => {
-    const revertDecisions = vi
-      .spyOn(api, 'revertDecisions')
-      .mockResolvedValue({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
+    const revertDecisions = vi.spyOn(api, 'revertDecisions').mockResolvedValue({
+      requested: 1,
+      applied: 1,
+      failed: 0,
+      skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
+      errors: [],
+    });
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', revertible: true })]),
     );
@@ -143,7 +164,16 @@ describe('History', () => {
     const revertDecisions = vi
       .spyOn(api, 'revertDecisions')
       .mockRejectedValueOnce(unreachable())
-      .mockResolvedValueOnce({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] });
+      .mockResolvedValueOnce({
+        requested: 1,
+        applied: 1,
+        failed: 0,
+        skipped: 0,
+        moving: 0,
+        superseded: 0,
+        stopped: null,
+        errors: [],
+      });
     vi.spyOn(api, 'getDecisions').mockResolvedValue(
       paginated([decision({ status: 'applied', revertible: true })]),
     );
@@ -188,6 +218,9 @@ describe('History', () => {
       applied: 0,
       failed: 1,
       skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [{ decision_id: 'd1', message: 'The file is no longer there' }],
     } as never);
     show();
@@ -216,7 +249,16 @@ describe('History', () => {
       ]),
     );
     vi.spyOn(api, 'revertDecisions')
-      .mockResolvedValueOnce({ requested: 1, applied: 1, failed: 0, skipped: 0, errors: [] })
+      .mockResolvedValueOnce({
+        requested: 1,
+        applied: 1,
+        failed: 0,
+        skipped: 0,
+        moving: 0,
+        superseded: 0,
+        stopped: null,
+        errors: [],
+      })
       .mockRejectedValueOnce(new ApiError('The Arr refused the move', 502, 'bad_gateway'));
     show();
 
@@ -337,6 +379,9 @@ describe('History', () => {
       applied: 1,
       failed: 0,
       skipped: 0,
+      moving: 0,
+      superseded: 0,
+      stopped: null,
       errors: [],
     });
     show();
@@ -393,6 +438,9 @@ it('hands the focus to the next Revert once a row cannot be reverted again', asy
     applied: 1,
     failed: 0,
     skipped: 0,
+    moving: 0,
+    superseded: 0,
+    stopped: null,
     errors: [],
   });
   show();

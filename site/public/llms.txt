@@ -11,8 +11,8 @@ affiliated with the Servarr project.
 
 Routarr never manages downloads, indexers or the library itself, and it does not replace Radarr
 or Sonarr. A move writes exactly two things through the Arr API, the root folder and the path,
-then asks for a rescan. The folder name stays as it is, so a library that Plex or Jellyfin reads
-keeps working.
+and the Arr moves the files itself. The folder name stays as it is, so a library that Plex or
+Jellyfin reads keeps working.
 
 It works in four steps, and only the last one writes to the library:
 
@@ -23,8 +23,8 @@ It works in four steps, and only the last one writes to the library:
 3. Decide runs the rules by ascending priority, and the first match wins. Exclusions veto a rule
    that otherwise matched, and a title no rule matches falls to the default category. The result
    is a plan the user can read.
-4. Apply groups the moves per instance and target folder, writes them through the Arr API, then
-   asks for a rescan. Every applied move can be reverted.
+4. Apply writes each move through the Arr API title by title, and follows the Arr until its move
+   is done. Every applied move can be reverted.
 
 A rule combines conditions with ALL or ANY, can carry explicit exclusions, has a priority, and
 routes to a category. The 28 conditions include genre, keywords, language, country,

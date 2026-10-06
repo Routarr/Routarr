@@ -20,6 +20,7 @@
 
   const STATUS_TONE: Record<string, string> = {
     applied: 'badge-success',
+    requested: 'badge-info',
     pending: 'badge-warning',
     failed: 'badge-danger',
     skipped: 'badge-info',
@@ -124,6 +125,7 @@
     >
       <option value="">{t('AllStatuses')}</option>
       <option value="pending">{t('StatusPending')}</option>
+      <option value="requested">{t('StatusRequested')}</option>
       <option value="applied">{t('StatusApplied')}</option>
       <option value="failed">{t('StatusFailed')}</option>
       <option value="skipped">{t('StatusSkipped')}</option>
@@ -213,6 +215,9 @@
                   <span class="badge {STATUS_TONE[decision.status] ?? 'badge-info'}">
                     {t(statusKey(decision.status))}
                   </span>
+                  {#if decision.status === 'requested'}
+                    <div class="text-muted text-xs">{t('RequestedHint')}</div>
+                  {/if}
                   {#if decision.superseded}
                     <div class="text-muted text-xs">{t('Superseded')}</div>
                   {/if}

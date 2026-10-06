@@ -7,6 +7,7 @@ import { job, paginated } from '../test/fixtures';
 import { nthCall } from '../test/spy';
 import { api } from '../api/client';
 import Jobs from './Jobs.svelte';
+import { answerConfirmation } from '../test/confirm';
 
 /**
  * Tasks is the window onto the only code that writes without anyone asking.
@@ -27,6 +28,11 @@ const STRINGS = {
   TriggerApi: 'application',
   StatusRunning: 'Running',
   StatusSuccess: 'Succeeded',
+  StatusCancelled: 'Stopped',
+  JobApply: 'Apply',
+  StopTask: 'Stop',
+  ConfirmStopTask: 'Stop this task?',
+  TaskStopRequested: 'Stop requested',
   None: '-',
   Next: 'Next',
   TaskCount: 'Tasks: {count}',
@@ -40,6 +46,28 @@ afterEach(() => {
 });
 
 describe('Tasks', () => {
+  /** A running apply can be stopped from here, after a question, and nothing else can. */
+  it('stops a running apply once asked, and reads a stopped task as stopped', async () => {
+    vi.spyOn(api, 'getJobs').mockResolvedValue(
+      paginated([
+        job({ id: 'j-apply', kind: 'apply', status: 'running' }),
+        job({ id: 'j-sync', kind: 'sync', status: 'running' }),
+        job({ id: 'j-old', kind: 'apply', status: 'cancelled' }),
+      ]),
+    );
+    const cancelJob = vi.spyOn(api, 'cancelJob').mockResolvedValue(undefined);
+    show();
+
+    const stops = await screen.findAllByRole('button', { name: /^Stop/ });
+    expect(stops).toHaveLength(1);
+    expect(screen.getByText('Stopped', { selector: '.badge' })).toBeTruthy();
+    await userEvent.click(stops[0]!);
+    await answerConfirmation();
+
+    await waitFor(() => expect(cancelJob).toHaveBeenCalledWith('j-apply'));
+    expect(await screen.findByText('Stop requested')).toBeTruthy();
+  });
+
   /** A kind of two words reads its own label, not its raw name. */
   it('names a task whose kind has two words', async () => {
     vi.spyOn(api, 'getJobs').mockResolvedValue(paginated([job({ kind: 'sync_all' })]));

@@ -5,8 +5,9 @@ Deliberately separate from backend/src/tests/fake_arr.rs: that one lives inside
 the Rust test process, this one has to be a real server the release binary can
 reach.
 
-State is in memory and mutated by the bulk editor, so a test can assert that a
-move really reached "Radarr" rather than only that Routarr thinks it did.
+State is in memory and mutated by each film's update, so a test can assert
+that a move really reached "Radarr" rather than only that Routarr thinks it
+did.
 """
 
 import json
@@ -65,8 +66,8 @@ def initial_movies():
 
 MOVIES = initial_movies()
 
-# Each bulk edit as Radarr received it: whether the files moved on disk is only
-# in the request, never in the movies it leaves behind.
+# Each film's update as Radarr received it: whether the files moved on disk is
+# only in the request, never in the movie it leaves behind.
 EDITS = []
 
 
@@ -88,6 +89,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = self.path.split("?")[0]
+        held = held_movie(path)
+        if held is not None:
+            return self._send(held)
+        # Moves end at once here, and Radarr stops listing an ended command
+        # after a few minutes: an empty list reads the same.
+        if path == "/api/v3/command":
+            return self._send([])
         if path == "/api/v3/system/status":
             return self._send({"version": "5.14.0.9383", "appName": "Radarr"})
         if path == "/api/v3/rootfolder":
@@ -113,26 +121,26 @@ class Handler(BaseHTTPRequestHandler):
         self._send({}, 404)
 
     def do_PUT(self):
-        if self.path.startswith("/api/v3/movie/editor"):
-            payload = self._body()
-            EDITS.append({"movieIds": payload["movieIds"], "moveFiles": payload.get("moveFiles")})
-            target = payload["rootFolderPath"]
-            edited = []
-            for arr_id in payload["movieIds"]:
-                for item in MOVIES:
-                    if item["id"] == arr_id:
-                        item["rootFolderPath"] = target
-                        item["path"] = f"{target}/{item['path'].rsplit('/', 1)[-1]}"
-                        edited.append(item)
-            # Radarr answers 202 with every movie it edited, as they now are.
-            return self._send(edited, 202)
-        self._send({}, 404)
+        path = self.path.split("?")[0]
+        item = held_movie(path)
+        if item is None:
+            return self._send({}, 404)
+        payload = self._body()
+        move_files = "moveFiles=true" in self.path
+        EDITS.append({"movieIds": [item["id"]], "moveFiles": move_files})
+        item["rootFolderPath"] = payload["rootFolderPath"]
+        item["path"] = payload["path"]
+        # Radarr answers 202 with the movie as it now is.
+        return self._send(item, 202)
 
-    def do_POST(self):
-        if self.path.startswith("/api/v3/command"):
-            self._body()
-            return self._send({"id": 1})
-        self._send({}, 404)
+
+def held_movie(path):
+    """The movie `/api/v3/movie/{id}` names, `None` for any other path."""
+    prefix = "/api/v3/movie/"
+    if not path.startswith(prefix) or not path[len(prefix):].isdigit():
+        return None
+    arr_id = int(path[len(prefix):])
+    return next((item for item in MOVIES if item["id"] == arr_id), None)
 
 
 if __name__ == "__main__":

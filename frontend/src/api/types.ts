@@ -12,7 +12,10 @@ export type MediaType = 'movie' | 'series';
 export type RuleMediaType = MediaType | 'both';
 export type MatchMode = 'all' | 'any';
 export type DecisionAction = 'move' | 'none' | 'skip';
-export type DecisionStatus = 'pending' | 'applied' | 'failed' | 'skipped';
+/** `requested`: the Arr took the move and was not yet seen to finish it. */
+export type DecisionStatus = 'pending' | 'requested' | 'applied' | 'failed' | 'skipped';
+/** Why a run that moves titles ended before its last move. */
+export type StopReason = 'dry_run' | 'cancelled' | 'shutdown';
 export type LogAction = 'move' | 'revert';
 
 export interface Instance {
@@ -324,6 +327,11 @@ export interface ApplyReport {
   applied: number;
   failed: number;
   skipped: number;
+  /** Moves of files the Arr was still making: requested, settled by the next sync. */
+  moving: number;
+  /** Selected proposals a newer simulation replaced with another move. */
+  superseded: number;
+  stopped: StopReason | null;
   errors: { decision_id: string; media_title: string; message: string }[];
 }
 
@@ -335,8 +343,11 @@ export interface BatchApplyReport {
   skipped: number;
   batches_run: number;
   batches_planned: number;
-  /** A slice failed and the remaining ones were abandoned. */
+  moving: number;
+  superseded: number;
+  /** A slice was refused whole, or the run was stopped, and the rest abandoned. */
   stopped_early: boolean;
+  stopped: StopReason | null;
   errors: { decision_id: string; media_title: string; message: string }[];
 }
 
@@ -462,7 +473,7 @@ export interface OverrideEntry {
 export interface Job {
   id: string;
   kind: string;
-  status: 'running' | 'success' | 'failed';
+  status: 'running' | 'success' | 'failed' | 'cancelled';
   trigger: string;
   /** Who asked: an application's name, or the person a sign-in mode names. */
   subject: string | null;

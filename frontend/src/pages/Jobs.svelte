@@ -4,6 +4,8 @@
   import { formatTimestamp, capitalize, statusKey, triggerKey } from '../api/format';
   import type { Job } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
+  import { askConfirmation } from '../lib/confirm.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
   import { poll } from '../lib/poll.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import ProgressBar from '../components/ProgressBar.svelte';
@@ -12,6 +14,7 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import Pager from '../components/Pager.svelte';
+  import OutcomeBanner from '../components/OutcomeBanner.svelte';
 
   /** Backend enum values are lower-case, and the dictionary keys are PascalCase. */
   // `sync_all` reads `JobSyncAll`, as the backend's test of the labels builds it.
@@ -21,7 +24,23 @@
     running: 'badge-info',
     success: 'badge-success',
     failed: 'badge-danger',
+    cancelled: 'badge-warning',
   };
+
+  /** The kinds of task that read a cancel: they stop before their next move. */
+  const CANCELLABLE = new Set(['apply', 'revert']);
+  const outcome = createOutcome();
+
+  async function cancel(job: Job) {
+    if (!(await askConfirmation(t('ConfirmStopTask'), 'StopTask'))) return;
+    try {
+      await api.cancelJob(job.id);
+      outcome.succeed(t('TaskStopRequested'));
+    } catch (err) {
+      outcome.fail(err);
+    }
+    await jobsPage.reload();
+  }
 
   let status = $state('');
   // A sync every 15 minutes fills a page of 50 in half a day, and last night's
@@ -64,6 +83,8 @@
     onRetry={() => void jobsPage.reload()}
   />
 
+  <OutcomeBanner {outcome} />
+
   <div class="toolbar">
     <select
       class="form-select"
@@ -75,6 +96,7 @@
       <option value="running">{t('StatusRunning')}</option>
       <option value="success">{t('StatusSuccess')}</option>
       <option value="failed">{t('StatusFailed')}</option>
+      <option value="cancelled">{t('StatusCancelled')}</option>
     </select>
     {#if status}
       <button type="button" class="btn btn-ghost" onclick={() => ((status = ''), (page = 1))}
@@ -99,14 +121,15 @@
             <th>{t('Detail')}</th>
             <th>{t('Started')}</th>
             <th>{t('Finished')}</th>
+            <th><span class="visually-hidden">{t('Actions')}</span></th>
           </tr>
         </thead>
         <tbody>
           {#if jobsPage.loading && jobs.length === 0}
-            <TableSkeleton columns={7} />
+            <TableSkeleton columns={8} />
           {:else if jobs.length === 0 && !jobsPage.error}
             <tr>
-              <td colspan="7"><EmptyState>{t('NoTaskYet')}</EmptyState></td>
+              <td colspan="8"><EmptyState>{t('NoTaskYet')}</EmptyState></td>
             </tr>
           {:else}
             {#each jobs as job (job.id)}
@@ -148,6 +171,16 @@
                 </td>
                 <td class="cell-timestamp" title={job.finished_at ?? undefined}>
                   {formatTimestamp(job.finished_at, i18n.language, t('None'))}
+                </td>
+                <td>
+                  {#if job.status === 'running' && CANCELLABLE.has(job.kind)}
+                    <button
+                      type="button"
+                      class="btn btn-secondary btn-sm"
+                      aria-label="{t('StopTask')} – {t(jobKindKey(job.kind))}"
+                      onclick={() => void cancel(job)}>{t('StopTask')}</button
+                    >
+                  {/if}
                 </td>
               </tr>
             {/each}

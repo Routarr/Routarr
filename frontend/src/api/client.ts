@@ -510,23 +510,38 @@ export const api = {
   getDecisions: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Decision>>(`/decisions${query(params)}`, { signal }),
   /** `confirm` names the guardrails already answered, not a blanket yes. */
-  applyDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
-    followed<ApplyReport>('/decisions/apply', {
-      method: 'POST',
-      body: body({ decision_ids, move_files, confirm }),
-    }),
+  applyDecisions: (
+    decision_ids: string[],
+    move_files = false,
+    confirm: string[] = [],
+    following?: Following,
+  ) =>
+    followed<ApplyReport>(
+      '/decisions/apply',
+      { method: 'POST', body: body({ decision_ids, move_files, confirm }) },
+      following,
+    ),
   /** Apply everything one simulation proposed, in slices of `batch_limit`. */
-  applyAllDecisions: (simulation_id: string, move_files = false, confirm: string[] = []) =>
-    followed<BatchApplyReport>('/decisions/apply-all', {
-      method: 'POST',
-      body: body({ simulation_id, move_files, confirm }),
-    }),
+  applyAllDecisions: (
+    simulation_id: string,
+    move_files = false,
+    confirm: string[] = [],
+    following?: Following,
+  ) =>
+    followed<BatchApplyReport>(
+      '/decisions/apply-all',
+      { method: 'POST', body: body({ simulation_id, move_files, confirm }) },
+      following,
+    ),
 
   revertDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
     followed<ApplyReport>('/decisions/revert', {
       method: 'POST',
       body: body({ decision_ids, move_files, confirm }),
     }),
+  /** Stop a running apply or revert before its next move. It answers before it stops. */
+  cancelJob: (id: string) =>
+    request<void>(`/jobs/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),
 
   // ---------------------------------------------------------- overrides
   /** The contract other applications call, as the running version describes it. */

@@ -2,7 +2,7 @@
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes } from '../api/format';
   import { api, type Following } from '../api/client';
-  import type { ApplyReport, Decision, SimulationResult } from '../api/types';
+  import type { ApplyReport, Decision, SimulationResult, StopReason } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
@@ -26,6 +26,9 @@
   const selected = new SvelteSet<string>();
   let moveFiles = $state(false);
   let busy = $state<'run' | 'apply' | null>(null);
+  /** The task of the apply being followed, which Cancel stops. */
+  let applying = $state<string | null>(null);
+  const followingApply: Following = { onProgress: (job) => (applying = job.id) };
   /** The refresh after an apply, whose failure sits beside the apply's report. */
   let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
@@ -138,21 +141,44 @@
     }
   }
 
+  const STOPPED: Record<StopReason, string> = {
+    dry_run: 'ApplyStoppedByDryRun',
+    cancelled: 'ApplyStoppedOnRequest',
+    shutdown: 'ApplyStoppedForShutdown',
+  };
+
   /**
-   * The outcome of an apply, and the moves it could not make. Nothing made
-   * while some moves failed or were never tried is a failure, some made is a
-   * partial result, and only everything made is a success.
+   * The outcome of an apply: what it says beside its counts first, then the
+   * moves it could not make. A move the Arr is still making, a proposal
+   * replaced or a run stopped leaves it unfinished. Nothing made while it is
+   * unfinished is a failure, some made is a partial result, and only
+   * everything made is a success.
    */
   function reportApply(
     message: string,
-    made: number,
+    report: Pick<ApplyReport, 'applied' | 'moving' | 'superseded' | 'stopped' | 'errors'>,
     unfinished: boolean,
-    errors: ApplyReport['errors'],
   ) {
-    const failed = errors.map((failure) => `${failure.media_title}: ${failure.message}`);
-    if (unfinished && made === 0) outcome.fail(message, failed);
-    else if (unfinished) outcome.warn(message, failed);
-    else outcome.succeed(message);
+    const said = [
+      ...(report.stopped ? [t(STOPPED[report.stopped])] : []),
+      ...(report.moving > 0 ? [t('ApplyStillMoving', { count: report.moving })] : []),
+      ...(report.superseded > 0 ? [t('ApplyReplaced', { count: report.superseded })] : []),
+      ...report.errors.map((failure) => `${failure.media_title}: ${failure.message}`),
+    ];
+    const made = report.applied + report.moving;
+    if (!unfinished && said.length === 0) outcome.succeed(message);
+    else if (made === 0) outcome.fail(message, said);
+    else outcome.warn(message, said);
+  }
+
+  /** Ask the apply being followed to stop before its next move. */
+  async function cancelApply() {
+    if (!applying) return;
+    try {
+      await api.cancelJob(applying);
+    } catch (err) {
+      outcome.fail(err);
+    }
   }
 
   /** A destination is one folder on one instance, and neither alone is unique. */
@@ -174,14 +200,14 @@
     busy = 'apply';
     try {
       const batch = await answering(
-        (answered) => api.applyAllDecisions(simulationId, moveFiles, answered),
+        (answered) => api.applyAllDecisions(simulationId, moveFiles, answered, followingApply),
         'ApplyLabel',
       );
       if (!batch) return;
-      // A run cut short by a failing slice is unfinished too: the slices after
-      // it were never tried.
+      // A run cut short by a refused slice is unfinished too: the slices after
+      // it were never tried. One stopped says why on its own.
       reportApply(
-        batch.stopped_early
+        batch.stopped_early && !batch.stopped
           ? t('BatchApplyStopped', {
               applied: batch.applied,
               candidates: batch.candidates,
@@ -193,15 +219,15 @@
               candidates: batch.candidates,
               batches: batch.batches_run,
             }),
-        batch.applied,
+        batch,
         batch.stopped_early || batch.failed > 0,
-        batch.errors,
       );
       await run({ refresh: true });
     } catch (err) {
       outcome.fail(err);
     } finally {
       busy = null;
+      applying = null;
     }
   }
 
@@ -212,7 +238,7 @@
     busy = 'apply';
     try {
       const done = await answering(
-        (answered) => api.applyDecisions(ids, moveFiles, answered),
+        (answered) => api.applyDecisions(ids, moveFiles, answered, followingApply),
         'ApplyLabel',
         t(moveFiles ? 'ConfirmApplyItemsWithFiles' : 'ConfirmApplyItems', { count: ids.length }),
       );
@@ -223,15 +249,15 @@
           requested: done.requested,
           skipped: done.skipped,
         }),
-        done.applied,
+        done,
         done.failed > 0,
-        done.errors,
       );
       await run({ refresh: true });
     } catch (err) {
       outcome.fail(err);
     } finally {
       busy = null;
+      applying = null;
     }
   }
 
@@ -412,6 +438,11 @@
           >
             <Layers size={16} />
             {t('ApplyAll', { count: result.moves_required })}
+          </button>
+        {/if}
+        {#if busy === 'apply' && applying}
+          <button class="btn btn-ghost" onclick={() => void cancelApply()}>
+            {t('StopTask')}
           </button>
         {/if}
       </div>
