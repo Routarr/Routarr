@@ -65,26 +65,37 @@ pub struct Attribution {
     /// `None` when nobody asked ([`Attribution::unattended`]) or when the mode
     /// names nobody (`Identity::actor`).
     pub subject: Option<String>,
+    /// The application key that asked, when one did: its name can be given
+    /// again once it is revoked, and what it wrote stays its own.
+    pub key: Option<String>,
 }
 
 impl Attribution {
     /// Somebody asked, through the interface or with the master key.
     pub fn manual(subject: Option<&str>) -> Self {
-        Self { trigger: TRIGGER_MANUAL.to_string(), subject: subject.map(str::to_string) }
+        Self {
+            trigger: TRIGGER_MANUAL.to_string(),
+            subject: subject.map(str::to_string),
+            key: None,
+        }
     }
 
     /// Nobody asked: the scheduler, or an Arr's webhook.
     pub fn unattended(trigger: &str) -> Self {
-        Self { trigger: trigger.to_string(), subject: None }
+        Self { trigger: trigger.to_string(), subject: None, key: None }
     }
 
-    /// An application asked, with a key that names it.
-    pub fn application(name: &str) -> Self {
-        Self { trigger: TRIGGER_API.to_string(), subject: Some(name.to_string()) }
+    /// An application asked, with the key `key` that names it.
+    pub fn application(name: &str, key: &str) -> Self {
+        Self {
+            trigger: TRIGGER_API.to_string(),
+            subject: Some(name.to_string()),
+            key: Some(key.to_string()),
+        }
     }
 
     /// The automation, after a sync `by` set off.
     pub fn automatic(by: &Attribution) -> Self {
-        Self { trigger: TRIGGER_AUTO.to_string(), subject: by.subject.clone() }
+        Self { trigger: TRIGGER_AUTO.to_string(), subject: by.subject.clone(), key: by.key.clone() }
     }
 }

@@ -41,8 +41,10 @@ pub async fn create(
     reject_on_error(&issues)?;
 
     let id = Uuid::new_v4().to_string();
+    // Read before the write lock is taken, never under it.
+    let localizer = state.localizer().await;
     let mut tx = target_held(&state, &req).await?;
-    insert_rule(&mut tx, &id, &req).await?;
+    insert_rule(&mut tx, &id, &req, &localizer).await?;
     tx.commit().await?;
     fetch_rule(&state, &id).await.map(Json)
 }
@@ -108,9 +110,10 @@ pub async fn duplicate(
 ) -> AppResult<Json<Rule>> {
     let source = fetch_rule(&state, &id).await?;
     let new_id = Uuid::new_v4().to_string();
+    let localizer = state.localizer().await;
 
     let copy = CreateRuleRequest {
-        name: copy_name(&state.localizer().await, &source.name),
+        name: copy_name(&localizer, &source.name),
         // A duplicate that fires immediately would double-classify the library.
         enabled: false,
         priority: None,
@@ -119,7 +122,7 @@ pub async fn duplicate(
     reject_on_error(&check(&state, &copy).await?)?;
 
     let mut tx = target_held(&state, &copy).await?;
-    insert_rule(&mut tx, &new_id, &copy).await?;
+    insert_rule(&mut tx, &new_id, &copy, &localizer).await?;
     tx.commit().await?;
     fetch_rule(&state, &new_id).await.map(Json)
 }
@@ -566,7 +569,7 @@ pub async fn import(
             skipped.push(format!("'{}': {refused}", rule.name));
             continue;
         }
-        insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
+        insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule, &localizer).await?;
         imported += 1;
     }
 
@@ -728,11 +731,22 @@ fn reject_on_error(issues: &[ValidationIssue]) -> AppResult<()> {
     ))
 }
 
+/// Most rules an installation holds. Every pass reads every rule for every
+/// title, and a key that may configure would otherwise add them without end.
+pub const MAX_RULES: i64 = 1000;
+
 pub(crate) async fn insert_rule(
     connection: &mut sqlx::SqliteConnection,
     id: &str,
     req: &CreateRuleRequest,
+    localizer: &crate::localization::Localizer,
 ) -> AppResult<()> {
+    let held: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rules").fetch_one(&mut *connection).await?;
+    if held >= MAX_RULES {
+        let refusal = localizer.translate("ErrorTooManyRules", &[("max", &MAX_RULES.to_string())]);
+        return Err(AppError::BadRequest(refusal));
+    }
     // A rule given no priority goes after every other: one at a fixed default
     // would tie with others, and the name would pick the winner.
     sqlx::query(

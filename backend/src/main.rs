@@ -91,6 +91,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
         auto_apply_held: Arc::default(),
         notifications: Arc::default(),
+        key_rates: Arc::default(),
+        route_misses: Arc::default(),
         config: Arc::new(config),
     };
 

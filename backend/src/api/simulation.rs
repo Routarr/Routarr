@@ -100,6 +100,7 @@ async fn simulate(
         SimulationOptions {
             trigger: by.trigger,
             subject: by.subject,
+            subject_key: by.key,
             instance_ids: req.instance_ids.unwrap_or_default(),
             media_ids: None,
             media_type: req.media_type,
@@ -135,6 +136,14 @@ async fn simulate(
                 if req.persist {
                     summary["decisions"] = serde_json::json!([]);
                     summary["returned"] = serde_json::json!(0);
+                }
+                // Any key reads the task, and its row names who asked, as the
+                // reader may see it (`api::jobs`). Kept on each decision, the
+                // name would reach every key whoever asked.
+                if let Some(decisions) = summary["decisions"].as_array_mut() {
+                    for decision in decisions {
+                        decision["subject"] = serde_json::Value::Null;
+                    }
                 }
                 job.report(&summary);
             }

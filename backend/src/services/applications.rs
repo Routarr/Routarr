@@ -23,6 +23,42 @@ pub const TOKEN_PREFIX: &str = "rtr_";
 /// and pin the application makes, and shown in their tables.
 pub const NAME_MAX: usize = 64;
 
+/// How many requests a key may make in a second, past a burst of
+/// [`BURST`]: a dashboard polling and a request bot placing titles stay far
+/// below, and a loop does not run the owner's Arrs and sources hot.
+pub const PER_SECOND: u32 = 10;
+pub const BURST: u32 = 50;
+
+/// What each key has left of its burst, refilled at [`PER_SECOND`].
+#[derive(Default)]
+pub struct Rates(std::sync::Mutex<std::collections::HashMap<String, (f64, tokio::time::Instant)>>);
+
+impl Rates {
+    /// Every key's allowance whole again, for a test that walks every route
+    /// with one key and is not about its rate.
+    #[cfg(test)]
+    pub fn refill(&self) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+    }
+
+    /// Take one request from `key`'s allowance, or say how long until one is
+    /// there.
+    pub fn take(&self, key: &str) -> Result<(), std::time::Duration> {
+        let now = tokio::time::Instant::now();
+        let mut rates = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (left, at) = rates.entry(key.to_string()).or_insert((f64::from(BURST), now));
+        let refilled = now.duration_since(*at).as_secs_f64() * f64::from(PER_SECOND);
+        *left = (*left + refilled).min(f64::from(BURST));
+        *at = now;
+        if *left >= 1.0 {
+            *left -= 1.0;
+            Ok(())
+        } else {
+            Err(std::time::Duration::from_secs_f64((1.0 - *left) / f64::from(PER_SECOND)))
+        }
+    }
+}
+
 /// A scope an application key may hold. Each is granted on its own: holding
 /// `Write` grants nothing of `Operate`, and every key reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -178,6 +214,14 @@ pub async fn create(
             .localizer()
             .await
             .translate("ErrorApplicationNameTooLong", &[("max", &NAME_MAX.to_string())]);
+        return Err(AppError::BadRequest(refusal));
+    }
+    // The names a person or the master key writes on what they ask for: a key
+    // carrying one would read, on History, as them.
+    let reserved = [crate::services::accounts::DEFAULT_USERNAME, "apikey", "anonymous"];
+    if reserved.iter().any(|taken| taken.eq_ignore_ascii_case(&name)) {
+        let refusal =
+            state.localizer().await.translate("ErrorApplicationNameReserved", &[("name", &name)]);
         return Err(AppError::BadRequest(refusal));
     }
     if let Some(unknown) =

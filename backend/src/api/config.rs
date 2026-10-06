@@ -622,7 +622,7 @@ pub async fn import(
         report.skipped.push("rules: none could be restored, so the rules in place are kept".into());
     }
     for rule in &restored {
-        super::rules::insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule).await?;
+        super::rules::insert_rule(&mut tx, &Uuid::new_v4().to_string(), rule, &localizer).await?;
         report.rules += 1;
     }
 

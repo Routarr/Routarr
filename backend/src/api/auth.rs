@@ -93,7 +93,7 @@ impl Identity {
     /// What a write this caller asked for is recorded as.
     pub fn attribution(&self) -> Attribution {
         match &self.application {
-            Some(grant) => Attribution::application(&grant.name),
+            Some(grant) => Attribution::application(&grant.name, &grant.id),
             None => Attribution::manual(self.actor()),
         }
     }
@@ -129,10 +129,12 @@ impl Identity {
     /// Who asked, as this caller may read it. An application reads its own
     /// name and no one else's: `subject` holds a person's user name in `forms`
     /// and often an e-mail address in `oidc`, and a key handed to another
-    /// application must not learn who runs Routarr.
-    pub fn shown_subject(&self, subject: Option<String>) -> Option<String> {
+    /// application must not learn who runs Routarr. Its own is what its key
+    /// wrote (`key`), never what carries its name: a revoked key's records
+    /// are not the next one's, under the same name or a person's.
+    pub fn shown_subject(&self, subject: Option<String>, key: Option<&str>) -> Option<String> {
         match &self.application {
-            Some(grant) => subject.filter(|name| *name == grant.name),
+            Some(grant) => subject.filter(|_| key == Some(grant.id.as_str())),
             None => subject,
         }
     }
@@ -173,6 +175,14 @@ pub async fn authenticate(
             Ok(None) => return unknown_application_key(),
             Err(e) => return e.into_response(),
         };
+        if let Err(wait) = state.key_rates.take(&grant.id) {
+            let message = state.localizer().await.translate(
+                "ErrorApplicationTooFast",
+                &[("rate", &applications::PER_SECOND.to_string())],
+            );
+            return AppError::TooManyRequests { message, retry_after: wait.as_secs() + 1 }
+                .into_response();
+        }
         if let Err(refusal) = super::applications::admit(&grant, &request) {
             return refusal.into_response();
         }
@@ -590,12 +600,7 @@ pub async fn login(
             .localizer()
             .await
             .translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
-        return (
-            StatusCode::TOO_MANY_REQUESTS,
-            [(axum::http::header::RETRY_AFTER, seconds.to_string())],
-            axum::Json(serde_json::json!({ "error": "too_many_attempts", "message": message })),
-        )
-            .into_response();
+        return AppError::TooManyRequests { message, retry_after: seconds }.into_response();
     }
 
     // Every refusal leaves one line naming where it came from, the line a

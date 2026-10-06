@@ -32,6 +32,8 @@ pub struct Job {
     /// Who asked: an application's name, or the person a sign-in mode names.
     /// An application key reads its own name and null for anyone else.
     pub subject: Option<String>,
+    #[serde(skip)]
+    pub subject_key: Option<String>,
     pub instance_id: Option<String>,
     /// What the task did, in the interface language.
     // Rendered from `detail_key` when the row has one.
@@ -62,7 +64,7 @@ pub struct Job {
 
 macro_rules! job_fields {
     () => {
-        "id, kind, status, trigger, subject, instance_id, detail, detail_key, detail_params,
+        "id, kind, status, trigger, subject, subject_key, instance_id, detail, detail_key, detail_params,
          progress_current, progress_total, error_message, started_at, finished_at"
     };
 }
@@ -87,7 +89,8 @@ impl Job {
     }
 
     fn seen_by(self, identity: &Identity) -> Self {
-        Self { subject: identity.shown_subject(self.subject), ..self }
+        let subject = identity.shown_subject(self.subject, self.subject_key.as_deref());
+        Self { subject, ..self }
     }
 }
 

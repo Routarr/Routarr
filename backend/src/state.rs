@@ -84,6 +84,10 @@ pub struct AppState {
     pub auto_apply_held: Arc<std::sync::Mutex<Option<(usize, usize)>>>,
     /// The notifications waiting to be sent, in order (`services::notify`).
     pub notifications: Arc<crate::services::notify::Queue>,
+    /// What each application key has left of its rate.
+    pub key_rates: Arc<crate::services::applications::Rates>,
+    /// The titles an Arr did not know when a placement asked, for a while.
+    pub route_misses: Arc<crate::services::placement::Misses>,
 }
 
 /// The settings table as it stood when it was read, by [`AppState::settings`].
@@ -491,6 +495,8 @@ impl AppState {
             post_sync: Arc::new(tokio::sync::Mutex::new(None)),
             auto_apply_held: Arc::default(),
             notifications: Arc::default(),
+            key_rates: Arc::default(),
+            route_misses: Arc::default(),
             config: Arc::new(config),
             pool,
         }

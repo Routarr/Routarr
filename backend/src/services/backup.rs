@@ -113,15 +113,39 @@ pub fn is_valid_backup_name(name: &str) -> bool {
         && !name.contains("..")
 }
 
+/// What an archive an application key took is named with. Its archives are
+/// kept under a count of their own, so taking backups in a loop removes only
+/// its own, never the owner's or the schedule's.
+const APPLICATION_SUFFIX: &str = "-app";
+
+/// How long after the newest archive an application key may take another.
+const APPLICATION_GAP: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
 /// Take a backup now.
 pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile> {
+    let by_application = by.key.is_some();
+    if by_application
+        && let Some(left) = list(state)
+            .first()
+            .and_then(taken_at)
+            .and_then(|taken| APPLICATION_GAP.checked_sub(taken.elapsed()))
+            .filter(|left| !left.is_zero())
+    {
+        let seconds = left.as_secs() + 1;
+        let message = state
+            .localizer()
+            .await
+            .translate("ErrorBackupTooSoon", &[("seconds", &seconds.to_string())]);
+        return Err(AppError::TooManyRequests { message, retry_after: seconds });
+    }
     let Some(_lock) = state.jobs.try_lock("backup") else {
         return Err(AppError::Conflict("A backup is already running".into()));
     };
 
     let job =
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
-    let outcome = write_archive(&state.config, &state.pool).await;
+    let suffix = if by_application { APPLICATION_SUFFIX } else { "" };
+    let outcome = write_archive(&state.config, &state.pool, suffix).await;
 
     match &outcome {
         Ok(file) => job.succeed(Detail::new("JobDetailBackedUp").with("file", &file.name)).await,
@@ -146,19 +170,20 @@ pub async fn before_migrating(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
 ) -> AppResult<BackupFile> {
-    write_archive(config, pool).await
+    write_archive(config, pool, "").await
 }
 
 async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
+    suffix: &str,
 ) -> AppResult<BackupFile> {
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", dir.display())))?;
 
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S").to_string();
-    let name = format!("routarr-backup-{stamp}.zip");
+    let name = format!("routarr-backup-{stamp}{suffix}.zip");
     let path = dir.join(&name);
     // Named to the second: a name already taken is refused before a copy of
     // the whole database is written for nothing. Checked again at the end,
@@ -340,13 +365,24 @@ fn partial_path(archive: &Path) -> PathBuf {
     archive.with_file_name(format!(".{name}.partial"))
 }
 
-/// When the newest archive on disk was taken, as an instant of this process.
+/// When the newest archive the owner or the schedule took was taken, as an
+/// instant of this process: what the schedule counts its interval from. An
+/// application key's archives are left out, or one taken every few minutes
+/// would hold the schedule off for good.
 ///
 /// Read from the name, which `write_archive` stamps, rather than from the
 /// file's modification time, which a copy or a restore of the folder resets.
 pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
-    let newest = list(state).into_iter().next()?;
-    let stamp = newest.name.strip_prefix("routarr-backup-")?.strip_suffix(".zip")?;
+    list(state).iter().find(|file| !taken_by_a_key(file)).and_then(taken_at)
+}
+
+fn taken_by_a_key(file: &BackupFile) -> bool {
+    file.name.ends_with(&format!("{APPLICATION_SUFFIX}.zip"))
+}
+
+fn taken_at(file: &BackupFile) -> Option<tokio::time::Instant> {
+    let stamp = file.name.strip_prefix("routarr-backup-")?.strip_suffix(".zip")?;
+    let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
     let taken = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc();
     let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
     tokio::time::Instant::now().checked_sub(age)
@@ -387,20 +423,19 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
     files
 }
 
-/// Delete everything past the retention count, oldest first.
+/// Delete everything past the retention count, oldest first: the archives
+/// application keys took counted apart from the others.
 pub async fn prune(state: &AppState) -> AppResult<usize> {
     // Read as stored, a value above the ceiling included: lowering a retention
     // count removes archives, so only the operator's own save does (see
     // `settings::Kind::Retention`).
     let keep: usize = state.bounding_setting("backup_retention_count", 7usize).await?.max(1);
-    let files = list(state);
-    if files.len() <= keep {
-        return Ok(0);
-    }
+    let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
+        list(state).into_iter().partition(taken_by_a_key);
 
     let dir = backup_dir(state);
     let mut removed = 0;
-    for file in files.into_iter().skip(keep) {
+    for file in [taken_by_keys, others].into_iter().flat_map(|files| files.into_iter().skip(keep)) {
         if std::fs::remove_file(dir.join(&file.name)).is_ok() {
             removed += 1;
         }

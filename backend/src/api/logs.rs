@@ -30,6 +30,8 @@ pub struct LogEntry {
     /// name. An application key reads its own name here and `null` for anyone
     /// else's.
     pub subject: Option<String>,
+    #[serde(skip)]
+    pub subject_key: Option<String>,
     pub executed_at: String,
 }
 
@@ -46,7 +48,7 @@ pub struct LogQuery {
 }
 
 const COLUMNS: &str = "id, decision_id, action, details, success, error_message,
-     instance_id, media_id, media_title, actor, subject, executed_at";
+     instance_id, media_id, media_title, actor, subject, subject_key, executed_at";
 
 pub async fn list(
     State(state): State<AppState>,
@@ -124,7 +126,10 @@ pub async fn export(
 fn shown(identity: &Identity, entries: Vec<LogEntry>) -> Vec<LogEntry> {
     entries
         .into_iter()
-        .map(|entry| LogEntry { subject: identity.shown_subject(entry.subject), ..entry })
+        .map(|entry| LogEntry {
+            subject: identity.shown_subject(entry.subject, entry.subject_key.as_deref()),
+            ..entry
+        })
         .collect()
 }
 

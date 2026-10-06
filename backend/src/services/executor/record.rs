@@ -259,8 +259,8 @@ pub(super) async fn log_execution(
 ) {
     let written = sqlx::query(
         "INSERT INTO execution_logs (id, decision_id, action, details, success, error_message,
-         instance_id, media_id, media_title, actor, subject)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         instance_id, media_id, media_title, actor, subject, subject_key)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(Uuid::new_v4().to_string())
     .bind(&mv.decision_id)
@@ -273,6 +273,7 @@ pub(super) async fn log_execution(
     .bind(&mv.media_title)
     .bind(&by.trigger)
     .bind(&by.subject)
+    .bind(&by.key)
     .execute(pool)
     .await;
     if let Err(e) = written {

@@ -64,6 +64,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   may not answer comes back marked for a person. Its token is shown once and stored as a SHA-256
   hash, and a revoked or unknown one is refused even in `none` and `external`,
   where a request with no key at all is let through.
+- **An application key is bounded in what it can make Routarr spend.** It asks
+  at most ten times a second past a burst of fifty, and is answered `429` with
+  `Retry-After` beyond. A title no Arr knew is not asked about again for ten
+  minutes, since each lookup reaches the Arr's own metadata service. A
+  backup it takes is named apart, kept under a count of its own and taken ten
+  minutes after the last at the earliest, so a loop removes none of the owner's
+  archives and does not hold the schedule off. A pin's reason holds 500
+  characters and an installation 1000 rules, whoever writes them.
+- **What an application wrote is its own by its key, not its name.** Each task,
+  proposal, move and pin records the key that asked beside its name, and a key
+  reads its own name there and nobody else's: a key made under the name of a
+  revoked one reads the revoked one's records as anybody's. A key cannot carry
+  the names History shows for the account or the master key.
 - **A notification can be signed.** With a signing secret, generated in the
   settings and shown once, every delivery carries Standard Webhooks headers:
   an HMAC-SHA256 of its id, its timestamp and its body, so a receiver can
