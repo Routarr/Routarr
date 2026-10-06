@@ -38,6 +38,8 @@ struct FakeState {
     throttle: Arc<Mutex<Option<u64>>>,
     /// The status every item request answers, as TMDb does while it is down.
     down: Option<u16>,
+    /// Item requests wait until this turns true.
+    open: tokio::sync::watch::Receiver<bool>,
 }
 
 /// A film TMDb says is in Cantonese, which it writes `cn`.
@@ -48,6 +50,7 @@ pub const NO_LANGUAGE: i64 = 1102;
 pub struct FakeTmdb {
     pub base_url: String,
     recorded: Arc<Mutex<Recorded>>,
+    opener: tokio::sync::watch::Sender<bool>,
     /// Serving until it is dropped.
     _server: super::Served,
 }
@@ -73,6 +76,17 @@ impl FakeTmdb {
         Self::build(vec![], vec![], vec![], None, Some(status)).await
     }
 
+    /// A fake that answers no item request until [`FakeTmdb::release`].
+    pub async fn holding() -> Self {
+        let fake = Self::start().await;
+        fake.opener.send_replace(false);
+        fake
+    }
+
+    pub fn release(&self) {
+        self.opener.send_replace(true);
+    }
+
     /// A fake that fails on `erroring` with a 500 and answers every other id.
     pub async fn erroring(erroring: Vec<i64>) -> Self {
         Self::build(vec![], erroring, vec![], None, None).await
@@ -86,6 +100,7 @@ impl FakeTmdb {
         down: Option<u16>,
     ) -> Self {
         let recorded = Arc::new(Mutex::new(Recorded::default()));
+        let (opener, open) = tokio::sync::watch::channel(true);
         let state = FakeState {
             recorded: Arc::clone(&recorded),
             failing: Arc::new(failing),
@@ -93,6 +108,7 @@ impl FakeTmdb {
             slow: Arc::new(slow),
             throttle: Arc::new(Mutex::new(throttle)),
             down,
+            open,
         };
 
         let app = Router::new()
@@ -103,7 +119,7 @@ impl FakeTmdb {
 
         let server = super::serve(app).await;
 
-        Self { base_url: server.address.clone(), recorded, _server: server }
+        Self { base_url: server.address.clone(), recorded, opener, _server: server }
     }
 
     pub fn recorded(&self) -> std::sync::MutexGuard<'_, Recorded> {
@@ -254,5 +270,7 @@ async fn record(
     if state.slow.contains(&id) {
         tokio::time::sleep(Duration::from_millis(120)).await;
     }
+    let mut open = state.open.clone();
+    let _ = open.wait_for(|open| *open).await;
     None
 }
