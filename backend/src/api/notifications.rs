@@ -20,12 +20,25 @@ pub struct SigningSecret {
     pub secret: String,
 }
 
-pub async fn rotate_signing(State(state): State<AppState>) -> AppResult<Json<SigningSecret>> {
-    Ok(Json(SigningSecret { secret: notify::rotate_signing_secret(&state).await? }))
+pub async fn rotate_signing(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+) -> AppResult<Json<SigningSecret>> {
+    let secret = notify::rotate_signing_secret(&state).await?;
+    let detail = "A new notification signing secret was made".to_string();
+    crate::api::auth::audited(&state, &identity, client, "signing_secret", detail);
+    Ok(Json(SigningSecret { secret }))
 }
 
-pub async fn remove_signing(State(state): State<AppState>) -> AppResult<StatusCode> {
+pub async fn remove_signing(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+) -> AppResult<StatusCode> {
     notify::remove_signing_secrets(&state).await?;
+    let detail = "The notification signing secrets were removed".to_string();
+    crate::api::auth::audited(&state, &identity, client, "signing_secret", detail);
     Ok(StatusCode::NO_CONTENT)
 }
 

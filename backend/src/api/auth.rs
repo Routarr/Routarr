@@ -26,9 +26,9 @@ use crate::AppState;
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
 use crate::jobs::Attribution;
-use crate::services::accounts;
 use crate::services::applications::{self, Grant, TOKEN_PREFIX};
 use crate::services::executor::Confirmed;
+use crate::services::{accounts, audit};
 
 /// The cookie the `forms` mode sets. Named for the application, since a browser
 /// pointed at several homelab services holds all of their cookies at once.
@@ -152,6 +152,52 @@ impl Identity {
     }
 }
 
+/// A change to a credential or a setting, or a sign-in, as the security log
+/// keeps it: who asked and from where.
+pub(crate) fn audited(
+    state: &AppState,
+    identity: &Identity,
+    client: Option<IpAddr>,
+    kind: &'static str,
+    detail: String,
+) {
+    state.audit.record(audit::Event {
+        kind,
+        outcome: audit::Outcome::Allowed,
+        subject: Some(&identity.subject),
+        client,
+        detail,
+        summed: false,
+    });
+}
+
+/// A refusal anyone can send as fast as they like, summed per address.
+fn refused(
+    state: &AppState,
+    kind: &'static str,
+    subject: Option<&str>,
+    client: Option<IpAddr>,
+    detail: String,
+) {
+    state.audit.record(audit::Event {
+        kind,
+        outcome: audit::Outcome::Refused,
+        subject,
+        client,
+        detail,
+        summed: true,
+    });
+}
+
+/// Where a request came from, as the sign-in throttle reads it.
+fn client_of(state: &AppState, request: &Request<Body>) -> Option<IpAddr> {
+    let peer = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        .map(|axum::extract::ConnectInfo(address)| address.ip());
+    client_address(peer, request.headers(), &state.config.trusted_proxies)
+}
+
 /// Resolve an identity for the request, or refuse it.
 ///
 /// The one place a mode is consulted. A handler that needs to know who called
@@ -161,6 +207,7 @@ pub async fn authenticate(
     mut request: Request<Body>,
     next: Next,
 ) -> Response {
+    let client = client_of(&state, &request);
     // An application key, in every mode: held to its scopes, and refused
     // outright when it names no live key. Letting a revoked key fall through to
     // a mode that asks nothing would hand it more than it ever had. The master
@@ -172,7 +219,16 @@ pub async fn authenticate(
     {
         let grant = match applications::resolve(&state.pool, &token).await {
             Ok(Some(grant)) => grant,
-            Ok(None) => return unknown_application_key(),
+            Ok(None) => {
+                // The id names the row and is no secret: the token's secret
+                // follows it.
+                let id = token.strip_prefix(TOKEN_PREFIX).and_then(|rest| rest.split_once('_'));
+                let id = id.map_or("", |(id, _)| id);
+                let detail =
+                    format!("An application key that does not exist or was revoked was sent: {id}");
+                refused(&state, "application_key", None, client, detail);
+                return unknown_application_key();
+            }
             Err(e) => return e.into_response(),
         };
         if let Err(wait) = state.key_rates.take(&grant.id) {
@@ -184,6 +240,8 @@ pub async fn authenticate(
                 .into_response();
         }
         if let Err(refusal) = super::applications::admit(&grant, &request) {
+            let detail = format!("{} (key {}): {}", grant.name, grant.id, refusal.public_message());
+            refused(&state, "scope", Some(&grant.name), client, detail);
             return refusal.into_response();
         }
         request.extensions_mut().insert(Identity::application(grant, state.config.auth_mode));
@@ -200,6 +258,7 @@ pub async fn authenticate(
         mode @ (AuthMode::None | AuthMode::External) => {
             let keyless = api_key_identity(&state, request.headers()).is_none();
             if keyless && !same_origin(&request, &state.config.cors_origins) {
+                refused(&state, "origin", None, client, refused_origin(&request));
                 return foreign_origin();
             }
             // A page of another site can make its own name resolve to this
@@ -209,6 +268,9 @@ pub async fn authenticate(
                 && mode == AuthMode::None
                 && let Some(host) = foreign_host(&state, &request)
             {
+                let detail =
+                    format!("A request was sent to {host}, a name this Routarr does not answer to");
+                refused(&state, "origin", None, client, detail);
                 return forbidden(&format!(
                     "This Routarr runs with ROUTARR_AUTH=none and answers only to an address, \
                      localhost or a name listed in ROUTARR_ALLOWED_HOSTS. Add {host} to \
@@ -229,6 +291,7 @@ pub async fn authenticate(
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
                 Some(_) if !same_origin(&request, &state.config.cors_origins) => {
+                    refused(&state, "origin", None, client, refused_origin(&request));
                     return foreign_origin();
                 }
                 Some((identity, renewed)) => {
@@ -260,15 +323,33 @@ pub async fn authenticate(
             }
             response
         }
-        None => (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "unauthorized",
-                "message": "Missing or invalid API key. Send it as X-Api-Key or Authorization: Bearer <key>."
-            })),
-        )
-            .into_response(),
+        None => {
+            // A request with no key at all is a browser before its sign-in,
+            // not an attempt worth a line.
+            if extract_key(request.headers()).is_some() {
+                let detail = "A request was sent with a key that opens nothing".to_string();
+                refused(&state, "api_key", None, client, detail);
+            }
+            (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({
+                    "error": "unauthorized",
+                    "message": "Missing or invalid API key. Send it as X-Api-Key or Authorization: Bearer <key>."
+                })),
+            )
+                .into_response()
+        }
     }
+}
+
+/// What the security log says of a write another site's page sent.
+fn refused_origin(request: &Request<Body>) -> String {
+    let origin = request
+        .headers()
+        .get(axum::http::header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("-");
+    format!("A write was refused for coming from {origin}, another site")
 }
 
 /// The refusal of a token shaped like an application key that names no live one.
@@ -479,14 +560,21 @@ pub async fn mode(State(state): State<AppState>) -> super::Json<serde_json::Valu
 /// is the property a credential should not have.
 pub async fn rotate_api_key(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
 ) -> AppResult<super::Json<serde_json::Value>> {
     refuse_if_pinned(&state)?;
     let key = state.rotate_api_key()?;
+    audited(&state, &identity, client, "api_key", "The API key was replaced".into());
     Ok(super::Json(serde_json::json!({ "api_key": key })))
 }
 
 /// Withdraw the key, leaving the session as the only way in.
-pub async fn delete_api_key(State(state): State<AppState>) -> AppResult<StatusCode> {
+pub async fn delete_api_key(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
+) -> AppResult<StatusCode> {
     refuse_if_pinned(&state)?;
     // In `apikey` mode it is the only credential there is, and the middleware
     // refuses every request once it is gone, including the one that would put
@@ -499,6 +587,7 @@ pub async fn delete_api_key(State(state): State<AppState>) -> AppResult<StatusCo
         ));
     }
     state.clear_api_key()?;
+    audited(&state, &identity, client, "api_key", "The API key was withdrawn".into());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -596,6 +685,8 @@ pub async fn login(
     // against nothing, the right password included.
     if let Some(left) = state.sign_in.held_back(client) {
         let seconds = left.as_secs() + 1;
+        let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
+        refused(&state, "sign_in", None, client, format!("A sign-in was held back for {address}"));
         let message = state
             .localizer()
             .await
@@ -607,10 +698,16 @@ pub async fn login(
     // fail2ban filter reads, and never what was typed: a password typed into
     // the name field is a password.
     let refuse = || {
-        match client {
-            Some(address) => tracing::warn!("A sign-in was refused for {address}"),
-            None => tracing::warn!("A sign-in was refused for an unknown address"),
-        }
+        let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
+        state.audit.record(audit::Event {
+            kind: "sign_in",
+            outcome: audit::Outcome::Refused,
+            subject: None,
+            client,
+            detail: format!("A sign-in was refused for {address}"),
+            // Every one counts toward the wait and toward a fail2ban jail.
+            summed: false,
+        });
         state.sign_in.failed(client);
         unauthorized()
     };
@@ -659,22 +756,36 @@ pub async fn login(
     match accounts::open_session(&state.pool, credentials.username.trim(), AuthMode::Forms.as_str())
         .await
     {
-        Ok(id) => (
-            StatusCode::OK,
-            [(
-                axum::http::header::SET_COOKIE,
-                session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
-            )],
-            axum::Json(serde_json::json!({ "username": credentials.username.trim() })),
-        )
-            .into_response(),
+        Ok(id) => {
+            let name = credentials.username.trim();
+            let person = Identity::person(name.to_string(), AuthMode::Forms);
+            audited(&state, &person, client, "sign_in", format!("{name} signed in"));
+            (
+                StatusCode::OK,
+                [(
+                    axum::http::header::SET_COOKIE,
+                    session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
+                )],
+                axum::Json(serde_json::json!({ "username": credentials.username.trim() })),
+            )
+                .into_response()
+        }
         Err(e) => e.into_response(),
     }
 }
 
 /// End the session this request carries, and clear the cookie either way.
-pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
+pub async fn logout(
+    State(state): State<AppState>,
+    Client(client): Client,
+    headers: HeaderMap,
+) -> Response {
     if let Some(id) = cookie(&headers, SESSION_COOKIE) {
+        let mode = state.config.auth_mode.as_str();
+        if let Ok(Some(session)) = accounts::live_session(&state.pool, &id, mode).await {
+            let person = Identity::person(session.subject, state.config.auth_mode);
+            audited(&state, &person, client, "sign_out", "A session was ended".into());
+        }
         let _ = accounts::close_session(&state.pool, &id).await;
     }
     (
@@ -762,6 +873,7 @@ pub struct Callback {
 /// application with a marker the shell can show.
 pub async fn oidc_callback(
     State(state): State<AppState>,
+    Client(client): Client,
     headers: HeaderMap,
     super::Query(callback): super::Query<Callback>,
 ) -> Response {
@@ -809,7 +921,14 @@ pub async fn oidc_callback(
     let subject = match crate::services::oidc::finish(&state, &code, attempt).await {
         Ok(subject) => subject,
         Err(e) => {
-            tracing::warn!("An OpenID Connect sign-in failed: {e}");
+            state.audit.record(audit::Event {
+                kind: "sign_in",
+                outcome: audit::Outcome::Refused,
+                subject: None,
+                client,
+                detail: format!("An OpenID Connect sign-in failed: {e}"),
+                summed: false,
+            });
             return failed();
         }
     };
@@ -817,17 +936,22 @@ pub async fn oidc_callback(
     match accounts::open_session(&state.pool, &subject, AuthMode::Oidc.as_str()).await {
         // Appended: an array of headers inserts each one, so the second cookie
         // would replace the session the browser is being handed.
-        Ok(id) => (
-            axum::response::AppendHeaders([
-                (
-                    axum::http::header::SET_COOKIE,
-                    session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
-                ),
-                (axum::http::header::SET_COOKIE, cleared.unwrap_or_default()),
-            ]),
-            axum::response::Redirect::to(&home),
-        )
-            .into_response(),
+        Ok(id) => {
+            let person = Identity::person(subject.clone(), AuthMode::Oidc);
+            let detail = format!("{subject} signed in through the OpenID Connect provider");
+            audited(&state, &person, client, "sign_in", detail);
+            (
+                axum::response::AppendHeaders([
+                    (
+                        axum::http::header::SET_COOKIE,
+                        session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
+                    ),
+                    (axum::http::header::SET_COOKIE, cleared.unwrap_or_default()),
+                ]),
+                axum::response::Redirect::to(&home),
+            )
+                .into_response()
+        }
         Err(e) => {
             tracing::error!("An OpenID Connect sign-in could not open its session: {e}");
             failed()
@@ -848,6 +972,8 @@ pub struct PasswordChange {
 /// exactly the case a password change must not be free in.
 pub async fn change_password(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    Client(client): Client,
     headers: HeaderMap,
     super::Json(change): super::Json<PasswordChange>,
 ) -> Response {
@@ -864,6 +990,14 @@ pub async fn change_password(
     let current_matches: bool =
         state.sign_in.verify(&change.current, &hash, None).await.unwrap_or_default();
     if !current_matches {
+        state.audit.record(audit::Event {
+            kind: "password",
+            outcome: audit::Outcome::Refused,
+            subject: Some(&identity.subject),
+            client,
+            detail: "A password change was refused: the current password was wrong".into(),
+            summed: false,
+        });
         return unauthorized();
     }
     if change.new_password.chars().count() < MIN_PASSWORD_LENGTH {
@@ -881,12 +1015,15 @@ pub async fn change_password(
     match accounts::set_password(&state.pool, &password_path, &change.new_password).await {
         // Every session it had opened is gone, including this one: the point of
         // changing a password is that what the old one reached is now closed.
-        Ok(()) => (
-            StatusCode::OK,
-            [(axum::http::header::SET_COOKIE, session_cookie(&state, &headers, "", 0))],
-            axum::Json(serde_json::json!({ "ok": true })),
-        )
-            .into_response(),
+        Ok(()) => {
+            audited(&state, &identity, client, "password", "The password was changed".into());
+            (
+                StatusCode::OK,
+                [(axum::http::header::SET_COOKIE, session_cookie(&state, &headers, "", 0))],
+                axum::Json(serde_json::json!({ "ok": true })),
+            )
+                .into_response()
+        }
         Err(e) => e.into_response(),
     }
 }

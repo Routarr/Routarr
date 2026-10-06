@@ -995,4 +995,3 @@ async fn an_operating_key_cannot_push_the_owners_backups_out() {
         "the schedule counts the key's"
     );
 }
-

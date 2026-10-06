@@ -238,6 +238,50 @@ that no response carries a decrypted secret.
 about 3 000 generated JSON trees at the one route an unauthenticated party can
 reach, on the invariant that no input produces a panic or a 500.
 
+## The security log, and fail2ban
+
+Every decision about who may do what, and every change to a credential or a
+setting, leaves one line at the target `routarr::audit`: a sign-in made,
+refused or held back, a session ended, a key sent that opens nothing, an
+application key made, revoked, unknown or past its scopes, a write from
+another site, the API key replaced, the password changed, an archive
+downloaded or staged for a restore, a configuration imported, settings saved,
+the signing secret replaced. A line names the event, its outcome, who asked
+and the client's address, never a key, a token, a password or a code:
+
+```text
+2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused for 203.0.113.9 event="sign_in" outcome="refused" subject="-" client=203.0.113.9
+```
+
+A refused key, an unknown application key and a write from another site,
+which anyone can send as fast as they like, are written once a minute per
+address with how many came since (`repeated=`). Every refused sign-in is
+written, since Routarr slows them itself.
+
+To ban an address at the firewall, point fail2ban at the container's log. With
+Docker's default `json-file` driver and the text log format:
+
+```ini
+# /etc/fail2ban/filter.d/routarr.conf
+[Definition]
+failregex = routarr::audit: .* outcome="refused" .* client=<HOST>
+
+# /etc/fail2ban/jail.d/routarr.local
+[routarr]
+enabled  = true
+filter   = routarr
+logpath  = /var/lib/docker/containers/*/*-json.log
+maxretry = 10
+findtime = 10m
+bantime  = 1h
+# A port Docker publishes is filtered in the DOCKER-USER chain.
+action   = iptables-multiport[name=routarr, port="9876", protocol=tcp, chain=DOCKER-USER]
+```
+
+Behind a reverse proxy, run the jail where the proxy runs, and list the proxy
+in `ROUTARR_TRUSTED_PROXIES` so the address logged is the client's and not the
+proxy's.
+
 ## Known limits, deliberately
 
 Not vulnerabilities to report, but decisions, with reasons.

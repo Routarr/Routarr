@@ -4,6 +4,7 @@ mod api;
 mod applications;
 mod arr_clients;
 mod arr_signals;
+mod audit;
 mod auto_apply;
 mod automation;
 mod backup;

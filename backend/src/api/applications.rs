@@ -126,15 +126,31 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Applicati
 pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Json(new): Json<NewApplication>,
 ) -> AppResult<Json<Minted>> {
-    Ok(Json(applications::create(&state, new, identity.actor()).await?))
+    let minted = applications::create(&state, new, identity.actor()).await?;
+    let made = &minted.application;
+    let scopes: Vec<&str> = made.scopes.iter().map(|scope| scope.as_str()).collect();
+    let detail = format!(
+        "The application key {} ({}) was made, with the scopes [{}], may move files: {}",
+        made.name,
+        made.id,
+        scopes.join(", "),
+        made.may_move_files
+    );
+    crate::api::auth::audited(&state, &identity, client, "application_key", detail);
+    Ok(Json(minted))
 }
 
 pub async fn revoke(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
     applications::revoke(&state.pool, &id).await?;
+    let detail = format!("The application key {id} was revoked");
+    crate::api::auth::audited(&state, &identity, client, "application_key", detail);
     Ok(StatusCode::NO_CONTENT)
 }

@@ -45,6 +45,8 @@ pub struct UpdateSettingsRequest {
 
 pub async fn update(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Json(req): Json<UpdateSettingsRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
     let localizer = state.localizer().await;
@@ -95,6 +97,11 @@ pub async fn update(
         tracing::warn!("Could not prune backups after the retention changed: {e}");
     }
 
+    // The names alone: a value may be a key or an address.
+    let mut names: Vec<&str> = req.settings.keys().map(String::as_str).collect();
+    names.sort_unstable();
+    let detail = format!("Settings were saved: {}", names.join(", "));
+    crate::api::auth::audited(&state, &identity, client, "settings", detail);
     Ok(Json(serde_json::json!({ "updated": req.settings.len() })))
 }
 

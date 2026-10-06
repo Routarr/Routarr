@@ -91,6 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
         auto_apply_held: Arc::default(),
         notifications: Arc::default(),
+        audit: Arc::default(),
         key_rates: Arc::default(),
         route_misses: Arc::default(),
         config: Arc::new(config),
@@ -769,7 +770,10 @@ fn init_tracing(config: &Config) {
     if config.log_format.eq_ignore_ascii_case("json") {
         registry.with(tracing_subscriber::fmt::layer().json()).init();
     } else {
-        registry.with(tracing_subscriber::fmt::layer()).init();
+        // Colours only on a terminal: in `docker logs` and in a file the
+        // escape codes stand between a fail2ban filter and the address.
+        let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours)).init();
     }
 }
 

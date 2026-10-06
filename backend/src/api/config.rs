@@ -229,8 +229,16 @@ pub struct ImportReport {
 
 pub async fn import(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Json(req): Json<ImportRequest>,
 ) -> AppResult<Json<ImportReport>> {
+    let bundled = format!(
+        "{} setting(s), {} instance(s), {} rule(s)",
+        req.bundle.settings.len(),
+        req.bundle.instances.len(),
+        req.bundle.rules.len()
+    );
     let bundle = req.bundle;
     if bundle.version != BUNDLE_VERSION {
         return Err(AppError::BadRequest(format!(
@@ -627,6 +635,8 @@ pub async fn import(
     }
 
     tx.commit().await?;
+    let detail = format!("A configuration bundle was imported: {bundled}");
+    crate::api::auth::audited(&state, &identity, client, "configuration", detail);
     Ok(Json(report))
 }
 
