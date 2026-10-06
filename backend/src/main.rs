@@ -43,6 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match std::env::args().nth(1).as_deref() {
         Some("healthcheck") => return healthcheck(&config).await,
         Some("reset-account") => return reset_account(&config).await,
+        Some("restore") => return restore(&config, std::env::args().nth(2)).await,
         _ => {}
     }
     // Before anything binds a port: a value the server cannot honour should
@@ -163,6 +164,30 @@ async fn healthcheck(config: &Config) -> Result<(), Box<dyn std::error::Error>> 
     } else {
         Err(format!("{} answered without the ping's status", config.ping_url()).into())
     }
+}
+
+/// `routarr restore <archive>`: stage a backup for the next start with the
+/// server stopped, which is the way back when a start refuses the database.
+async fn restore(
+    config: &Config,
+    archive: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(archive) = archive else {
+        return Err(
+            "usage: routarr restore <archive>, a name from the backup folder or a path".into()
+        );
+    };
+    let manifest = services::backup::stage_offline(config, &archive).await?;
+    println!(
+        "{archive}, taken by Routarr v{} at schema {}, is restored at the next start.",
+        manifest.version, manifest.schema
+    );
+    if !manifest.includes_master_key {
+        println!(
+            "It carries no master key: the credentials in it open only with the key in place."
+        );
+    }
+    Ok(())
 }
 
 /// What a start reads from disk, in the one order that works: a staged

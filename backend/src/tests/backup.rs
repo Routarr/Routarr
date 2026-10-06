@@ -1179,3 +1179,174 @@ async fn set_enabled(app: &TestApp) {
         app.store_setting(key, value).await;
     }
 }
+
+/// The record a newer release leaves after migrating the database further
+/// than this build knows.
+const AHEAD: &str =
+    "INSERT INTO _opened_by (version, schema) VALUES ('99.0.0', '099_from_a_later_release')";
+
+/// One connection to a database file outside the pool, left in the journal
+/// mode it has.
+async fn open_file(path: &std::path::Path) -> sqlx::SqliteConnection {
+    use sqlx::ConnectOptions;
+    crate::db::with_paths(sqlx::sqlite::SqliteConnectOptions::new().filename(path))
+        .connect()
+        .await
+        .unwrap()
+}
+
+/// An archive a newer release migrated further than this build knows is
+/// refused when it is staged, as the start that would apply it refuses it,
+/// rather than staged and then refused at every start.
+#[tokio::test]
+async fn an_archive_a_newer_release_migrated_is_refused_when_staged() {
+    let (app, dir) = app_with_files("ahead").await;
+    app.execute(&[AHEAD]).await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+
+    let refused = backup::stage_restore(&app.state, &file.name).await;
+
+    let message = refused.expect_err("the archive was staged").to_string();
+    assert!(message.contains("v99.0.0"), "{message}");
+    assert!(!dir.join("routarr.db.restore-pending").exists(), "a refused restore left files");
+}
+
+/// A pending restore whose database a newer release migrated, as one staged
+/// by that release before going back, is set aside at the start rather than
+/// applied and then refused at every start.
+#[tokio::test]
+async fn a_pending_restore_a_newer_release_migrated_is_discarded() {
+    let (app, dir) = app_with_files("ahead-pending").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    let pending = dir.join("routarr.db.restore-pending");
+    let mut connection = open_file(&pending).await;
+    sqlx::query(AHEAD).execute(&mut connection).await.unwrap();
+    sqlx::Connection::close(connection).await.unwrap();
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    assert!(!backup::apply_pending_restore(&config).await.unwrap(), "the restore was applied");
+    assert!(!pending.exists());
+}
+
+/// With the server stopped, `routarr restore` stages an archive, named or
+/// given by its path, and the next start applies it.
+#[tokio::test]
+async fn a_restore_can_be_staged_without_the_server() {
+    let (app, dir) = app_with_files("offline").await;
+    app.seed_library().await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    app.execute(&["DELETE FROM media"]).await;
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+
+    let path = dir.join("backups").join(&file.name);
+    for archive in [file.name.clone(), path.to_string_lossy().into_owned()] {
+        let manifest = backup::stage_offline(&config, &archive).await.unwrap();
+        assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
+    }
+    let (_, pool, _) = crate::open_storage(&config).await.unwrap();
+
+    let titles: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
+    assert_eq!(titles, 1, "the archive was not restored");
+}
+
+/// A start refused for a database a newer release migrated names the way
+/// back: the newest archive this build can open, and the command restoring it
+/// with the server stopped.
+#[tokio::test]
+async fn a_refused_start_names_the_archive_to_restore() {
+    let (app, _dir) = app_with_files("refused-start").await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    app.execute(&[AHEAD]).await;
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    let refused = crate::db::init_pool(&config).await;
+
+    let message = refused.expect_err("the database was opened").to_string();
+    assert!(message.contains(&format!("routarr restore {}", file.name)), "{message}");
+}
+
+/// A start that migrates a database takes a backup of it first, at the schema
+/// it had: the archives kept afterwards are of the new schema, which the
+/// release before cannot open. A first start has nothing to keep.
+#[tokio::test]
+async fn a_start_that_migrates_takes_a_backup_first() {
+    let backups = |dir: &TempDir| -> Vec<String> {
+        std::fs::read_dir(dir.join("backups"))
+            .map(|entries| {
+                entries
+                    .filter_map(Result::ok)
+                    .map(|e| e.file_name().to_string_lossy().into_owned())
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let first = TempDir::new("first-start");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(first.join("routarr.db"));
+    crate::db::init_pool(&config).await.unwrap().close().await;
+    assert_eq!(backups(&first), Vec::<String>::new(), "a first start took a backup");
+
+    let upgraded = TempDir::new("upgrade-start");
+    config.set_db_path(upgraded.join("routarr.db"));
+    let options = crate::db::with_paths(
+        sqlx::sqlite::SqliteConnectOptions::new().filename(&config.db_path).create_if_missing(true),
+    );
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    crate::db::run_migrations_through(&pool, "023_constraints_the_code_keeps").await.unwrap();
+    pool.close().await;
+
+    crate::db::init_pool(&config).await.unwrap().close().await;
+
+    let taken = backups(&upgraded);
+    assert_eq!(taken.len(), 1, "{taken:?}");
+    let manifest = backup::read_manifest(&upgraded.join("backups").join(&taken[0])).unwrap();
+    assert_eq!(manifest.schema, "023_constraints_the_code_keeps");
+}
+
+/// An archive from before the signing secrets were stored keeps today's: their
+/// table is made in the staged database, as its migration makes it, or every
+/// notification would go out unsigned after the restore.
+#[tokio::test]
+async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
+    let (app, dir) = app_with_files("secrets-table").await;
+    app.execute(&["INSERT INTO webhook_secrets (secret, created_at)
+                   VALUES ('enc:today', '2026-10-01 00:00:00')"])
+        .await;
+    let old = dir.join("old.db");
+    let options = crate::db::with_paths(
+        sqlx::sqlite::SqliteConnectOptions::new().filename(&old).create_if_missing(true),
+    );
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+    crate::db::run_migrations_through(&pool, "010_job_result").await.unwrap();
+    pool.close().await;
+    let name = "routarr-backup-20200101-000000.zip";
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    {
+        let archive = std::fs::File::create(dir.join("backups").join(name)).unwrap();
+        let mut zip = zip::ZipWriter::new(archive);
+        let options: zip::write::FileOptions<'_, ()> = zip::write::FileOptions::default();
+        zip.start_file("manifest.json", options).unwrap();
+        let manifest = serde_json::json!({
+            "version": "0.1.2", "schema": "010_job_result",
+            "created_at": "2020-01-01 00:00:00", "includes_master_key": false
+        });
+        std::io::Write::write_all(&mut zip, manifest.to_string().as_bytes()).unwrap();
+        zip.start_file("routarr.db", options).unwrap();
+        std::io::Write::write_all(&mut zip, &std::fs::read(&old).unwrap()).unwrap();
+        zip.finish().unwrap();
+    }
+
+    backup::stage_restore(&app.state, name).await.unwrap();
+
+    let mut staged = open_file(&dir.join("routarr.db.restore-pending")).await;
+    let secrets: Vec<String> = sqlx::query_scalar("SELECT secret FROM webhook_secrets")
+        .fetch_all(&mut staged)
+        .await
+        .expect("the staged database has no signing secrets table");
+    assert_eq!(secrets, ["enc:today"]);
+}

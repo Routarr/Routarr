@@ -37,6 +37,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "023_constraints_the_code_keeps",
         include_str!("../migrations/023_constraints_the_code_keeps.sql"),
     ),
+    ("024_opened_by_schema", include_str!("../migrations/024_opened_by_schema.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -94,6 +95,30 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
         info!("Database connected at {}", config.db_path.display());
     }
 
+    // Refused with the way back: the restore that needs no server, of the
+    // newest archive this build can open.
+    if let Some(newer) = opened_ahead(&mut *pool.acquire().await?).await? {
+        let archive = crate::services::backup::newest_openable(config)
+            .unwrap_or_else(|| "<archive>".to_string());
+        return Err(crate::error::AppError::Config(format!(
+            "{}. Start that release again, or restore a backup this one can open, with the \
+             server stopped: routarr restore {archive}",
+            ahead_of_this_build(&newer)
+        )));
+    }
+    if on_disk && migrates_a_schema(&pool).await? {
+        match crate::services::backup::before_migrating(config, &pool).await {
+            Ok(file) => info!(
+                "Backup taken before migrating to v{}: {}",
+                env!("CARGO_PKG_VERSION"),
+                file.name
+            ),
+            // Not a reason to stay on the old schema: the archives taken
+            // before this start are still there.
+            Err(e) => tracing::error!("No backup could be taken before migrating: {e}"),
+        }
+    }
+
     run_migrations(&pool).await?;
 
     // After the migrations, not before: in WAL mode the sidecars only exist
@@ -120,6 +145,22 @@ pub fn is_newer_schema(name: &str) -> bool {
     !MIGRATIONS.iter().any(|(known, _)| *known == name)
 }
 
+/// Whether running the migrations would change a schema some release already
+/// built: the database holds migrations, and this build lists one it lacks.
+async fn migrates_a_schema(pool: &SqlitePool) -> Result<bool, sqlx::Error> {
+    let migrated: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_migrations')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !migrated {
+        return Ok(false);
+    }
+    let applied: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM _migrations").fetch_all(pool).await?;
+    Ok(!applied.is_empty() && MIGRATIONS.iter().any(|(name, _)| !applied.iter().any(|a| a == name)))
+}
+
 /// Fold the write-ahead log back into the database file, then close the pool.
 ///
 /// In WAL mode a commit lands in `routarr.db-wal`, and SQLite only checkpoints
@@ -144,39 +185,74 @@ pub async fn run_migrations(pool: &SqlitePool) -> crate::error::AppResult<()> {
     Ok(record_this_release(pool).await?)
 }
 
-/// Every release records itself as having opened the database, and one that
-/// finds a newer release recorded stops: run on, it would read and write a
-/// schema it does not know. Migration names cannot tell, since builds from
-/// before the first release used names no release lists, and a database
-/// without the record, opened only by releases before it, passes.
+/// Refuse a database a newer release migrated further than this build knows:
+/// run on, this one would read and write a schema it does not know.
 async fn refuse_a_newer_schema(pool: &SqlitePool) -> crate::error::AppResult<()> {
-    let recorded: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_opened_by')",
-    )
-    .fetch_one(pool)
-    .await?;
-    if !recorded {
-        return Ok(());
-    }
-    let versions: Vec<String> =
-        sqlx::query_scalar("SELECT version FROM _opened_by").fetch_all(pool).await?;
-    let this = release(env!("CARGO_PKG_VERSION"));
-    match versions.iter().filter(|v| release(v) > this).max_by_key(|v| release(v)) {
+    match opened_ahead(&mut *pool.acquire().await?).await? {
         None => Ok(()),
-        Some(newer) => Err(crate::error::AppError::Config(format!(
-            "the database was opened by Routarr v{newer}, newer than this v{}. Start that \
-             release again, or restore a backup this one took",
-            env!("CARGO_PKG_VERSION")
-        ))),
+        Some(newer) => Err(crate::error::AppError::Config(ahead_of_this_build(&newer))),
     }
 }
 
-/// Record this release as one that opened the database.
+/// Why a database `newer` migrated is refused.
+fn ahead_of_this_build(newer: &str) -> String {
+    format!(
+        "the database was opened by Routarr v{newer}, which migrated it further than this \
+         v{} knows",
+        env!("CARGO_PKG_VERSION")
+    )
+}
+
+/// The newer release that migrated this database further than this build
+/// knows, if one did. Every release records itself and the last migration it
+/// had applied, and one newer than this build that recorded a migration this
+/// build does not list, or recorded none, is ahead of it. Migration names
+/// alone cannot tell: a database a newer release never opened passes whatever
+/// it holds.
+pub async fn opened_ahead(
+    connection: &mut sqlx::SqliteConnection,
+) -> Result<Option<String>, sqlx::Error> {
+    let recorded: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_opened_by')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if !recorded {
+        return Ok(None);
+    }
+    let with_schema: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('_opened_by') WHERE name = 'schema')",
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    let sql = if with_schema {
+        "SELECT version, schema FROM _opened_by"
+    } else {
+        "SELECT version, NULL FROM _opened_by"
+    };
+    let openers: Vec<(String, Option<String>)> =
+        sqlx::query_as(sql).fetch_all(&mut *connection).await?;
+    let this = release(env!("CARGO_PKG_VERSION"));
+    Ok(openers
+        .into_iter()
+        .filter(|(version, schema)| {
+            release(version) > this && schema.as_deref().is_none_or(is_newer_schema)
+        })
+        .max_by_key(|(version, _)| release(version))
+        .map(|(version, _)| version))
+}
+
+/// Record this release, and the last migration it applied, as having opened
+/// the database.
 async fn record_this_release(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    sqlx::query("INSERT OR IGNORE INTO _opened_by (version) VALUES (?)")
-        .bind(env!("CARGO_PKG_VERSION"))
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "INSERT INTO _opened_by (version, schema) VALUES (?, ?)
+         ON CONFLICT(version) DO UPDATE SET schema = excluded.schema",
+    )
+    .bind(env!("CARGO_PKG_VERSION"))
+    .bind(MIGRATIONS.last().map(|(name, _)| *name))
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -322,30 +398,52 @@ pub async fn test_pool() -> SqlitePool {
 mod tests {
     use super::*;
 
-    /// A database a newer release migrated is refused, naming the migration
-    /// this build does not know, rather than read and written as if its
-    /// schema were this build's.
+    /// A newer release that migrated no further than this build leaves a
+    /// database this build reads as its own: going back a patch release is
+    /// no reason to stop.
     #[tokio::test]
-    async fn a_database_a_newer_release_opened_is_refused() {
+    async fn a_newer_release_with_the_same_schema_is_not_refused() {
         let pool = test_pool().await;
-        // Names no release lists, as builds before the first one wrote: no
-        // reason to refuse.
-        sqlx::query("INSERT INTO _migrations (name) VALUES ('019_from_before_the_first_release')")
-            .execute(&pool)
-            .await
-            .unwrap();
-        run_migrations(&pool).await.expect("an older database was refused");
-        sqlx::query("INSERT INTO _opened_by (version) VALUES ('99.0.0')")
+        let last = MIGRATIONS.last().unwrap().0;
+        sqlx::query("INSERT INTO _opened_by (version, schema) VALUES ('99.0.0', ?)")
+            .bind(last)
             .execute(&pool)
             .await
             .unwrap();
 
-        let refused = run_migrations(&pool).await;
+        run_migrations(&pool).await.expect("a database of this schema was refused");
+    }
 
-        let Err(crate::error::AppError::Config(message)) = refused else {
-            panic!("a newer schema was opened: {refused:?}");
-        };
-        assert!(message.contains("v99.0.0"), "{message}");
+    /// A database a newer release migrated further is refused, naming that
+    /// release, rather than read and written as if its schema were this
+    /// build's. So is one a newer release opened without saying how far it
+    /// had migrated. A name no release lists, with no newer opener, is no
+    /// reason to refuse.
+    #[tokio::test]
+    async fn a_newer_release_that_migrated_further_is_refused() {
+        let pool = test_pool().await;
+        sqlx::query("INSERT INTO _migrations (name) VALUES ('900_listed_by_no_release')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.expect("an unknown migration alone was refused");
+
+        for (version, schema) in [("99.0.0", Some("099_from_a_later_release")), ("98.0.0", None)] {
+            let pool = test_pool().await;
+            sqlx::query("INSERT INTO _opened_by (version, schema) VALUES (?, ?)")
+                .bind(version)
+                .bind(schema)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            let refused = run_migrations(&pool).await;
+
+            let Err(crate::error::AppError::Config(message)) = refused else {
+                panic!("a database v{version} migrated further was opened: {refused:?}");
+            };
+            assert!(message.contains(&format!("v{version}")), "{message}");
+        }
         assert!(release("0.1.10") > release("0.1.9"));
     }
 

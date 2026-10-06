@@ -121,7 +121,7 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
 
     let job =
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
-    let outcome = write_archive(state).await;
+    let outcome = write_archive(&state.config, &state.pool).await;
 
     match &outcome {
         Ok(file) => job.succeed(Detail::new("JobDetailBackedUp").with("file", &file.name)).await,
@@ -139,8 +139,21 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     outcome
 }
 
-async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
-    let dir = backup_dir(state);
+/// Take a backup of a database the server has not opened yet, before a start
+/// migrates it: the archives kept afterwards would all be of the new schema,
+/// which the release before cannot open.
+pub async fn before_migrating(
+    config: &crate::config::Config,
+    pool: &sqlx::SqlitePool,
+) -> AppResult<BackupFile> {
+    write_archive(config, pool).await
+}
+
+async fn write_archive(
+    config: &crate::config::Config,
+    pool: &sqlx::SqlitePool,
+) -> AppResult<BackupFile> {
+    let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
         .map_err(|e| AppError::Internal(format!("cannot create {}: {e}", dir.display())))?;
 
@@ -166,11 +179,11 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
     // happens to the future awaiting it, so a cancelled caller does not
     // remove it under the task that reads it.
     let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
-    vacuum_into(state, &snapshot).await?;
+    vacuum_into(pool, &snapshot).await?;
 
     let schema: String =
         sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
-            .fetch_optional(&state.pool)
+            .fetch_optional(pool)
             .await?
             .unwrap_or_else(|| "unknown".to_string());
 
@@ -178,8 +191,8 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
     // is a stale file, not what anything is sealed with: carried and announced,
     // it would make a restore elsewhere open a database nothing can read,
     // without the warning a missing key gets.
-    let master_key = Some(state.config.secret_key_path())
-        .filter(|path| state.config.secret_key.is_none() && path.exists());
+    let master_key =
+        Some(config.secret_key_path()).filter(|path| config.secret_key.is_none() && path.exists());
     let manifest = BackupManifest {
         version: env!("CARGO_PKG_VERSION").to_string(),
         schema,
@@ -189,9 +202,9 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
 
     // Off the runtime, and the whole of it: deflating a library-sized database
     // holds a worker for as long as it takes. Everything the closure needs is
-    // taken by value first, so nothing borrows `state` across the boundary.
+    // taken by value first, so nothing is borrowed across the boundary.
     let (archive, snapshot_path) = (path.clone(), snapshot.clone());
-    let keys = [master_key, Some(state.config.api_key_path())];
+    let keys = [master_key, Some(config.api_key_path())];
     let manifest_for_zip = manifest.clone();
     let result = tokio::task::spawn_blocking(move || {
         let _snapshot = snapshot_scaffold;
@@ -209,7 +222,7 @@ async fn write_archive(state: &AppState) -> AppResult<BackupFile> {
 }
 
 /// `VACUUM INTO` against the live pool.
-async fn vacuum_into(state: &AppState, target: &Path) -> AppResult<()> {
+async fn vacuum_into(pool: &sqlx::SqlitePool, target: &Path) -> AppResult<()> {
     // Left over from an interrupted run, it would make VACUUM INTO fail: the
     // statement refuses to overwrite an existing file.
     std::fs::remove_file(target).ok();
@@ -221,7 +234,7 @@ async fn vacuum_into(state: &AppState, target: &Path) -> AppResult<()> {
     // quote is doubled. A caller passing a name from elsewhere would break the
     // first without breaking the build.
     let quoted = target.to_string_lossy().replace('\'', "''");
-    sqlx::query(AssertSqlSafe(format!("VACUUM INTO '{quoted}'"))).execute(&state.pool).await?;
+    sqlx::query(AssertSqlSafe(format!("VACUUM INTO '{quoted}'"))).execute(pool).await?;
 
     // `VACUUM INTO` reports success against an in-memory database and writes
     // nothing. One stat call turns that into a message that says so.
@@ -341,8 +354,11 @@ pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
 
 /// Every archive on disk, newest first.
 pub fn list(state: &AppState) -> Vec<BackupFile> {
-    let dir = backup_dir(state);
-    let Ok(entries) = std::fs::read_dir(&dir) else {
+    list_in(&backup_dir(state))
+}
+
+fn list_in(dir: &Path) -> Vec<BackupFile> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return Vec::new();
     };
 
@@ -448,14 +464,22 @@ pub async fn stage_restore(state: &AppState, name: &str) -> AppResult<BackupMani
     let name = name.to_string();
     tokio::spawn(async move {
         let _lock = lock;
-        stage(&state, &name).await
+        let archive = backup_dir(&state).join(&name);
+        stage(&state.config, Some(&state.pool), &archive, &name).await
     })
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))?
 }
 
-async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
-    let archive = backup_dir(state).join(name);
+/// Stage `archive`, carrying into it what `live`, the database it replaces,
+/// has withdrawn since.
+async fn stage(
+    config: &crate::config::Config,
+    live: Option<&sqlx::SqlitePool>,
+    archive: &Path,
+    name: &str,
+) -> AppResult<BackupManifest> {
+    let archive = archive.to_path_buf();
     let manifest = read_manifest(&archive)?;
 
     // A bundle from a newer schema would leave the database ahead of the binary
@@ -471,9 +495,9 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
     // Off the runtime for the same reason the archive is written there: the
     // database entry is copied out whole, and its size follows the library.
     let targets = [
-        (DB_ENTRY, state.config.db_path.clone()),
-        (MASTER_KEY_ENTRY, state.config.secret_key_path()),
-        (API_KEY_ENTRY, state.config.api_key_path()),
+        (DB_ENTRY, config.db_path.clone()),
+        (MASTER_KEY_ENTRY, config.secret_key_path()),
+        (API_KEY_ENTRY, config.api_key_path()),
     ];
     let paths = targets.clone().map(|(_, target)| target);
 
@@ -486,13 +510,16 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
 
     // A zero-byte or truncated file opens as a database, and would be moved
     // over the live one.
-    if let Err(reason) = check_database(&staging_path(&state.config.db_path)).await {
+    let staged_database = staging_path(&config.db_path);
+    if let Err(reason) = check_database(&staged_database).await {
         return Err(AppError::BadRequest(format!(
             "the archive's database cannot be restored: {reason}"
         )));
     }
-    keep_withdrawn_credentials(state, &staging_path(&state.config.db_path)).await?;
-    opened_by_the_next_start(state, &staging_path(&state.config.db_path)).await?;
+    if let Some(live) = live {
+        keep_withdrawn_credentials(live, &staged_database).await?;
+    }
+    opened_by_the_next_start(config, &staged_database).await?;
 
     // A new restore replaces an earlier one entirely, and only once it is
     // known to be one: a file the new archive does not carry would otherwise
@@ -509,7 +536,7 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
         }
         // The API key in use stays: whoever restores holds it, and one rotated
         // because it leaked must not come back with the archive.
-        if *target == state.config.api_key_path() && target.exists() {
+        if *target == config.api_key_path() && target.exists() {
             std::fs::remove_file(&staging).ok();
             continue;
         }
@@ -523,6 +550,50 @@ async fn stage(state: &AppState, name: &str) -> AppResult<BackupManifest> {
 
     info!("Backup {name} staged. It is applied on the next start");
     Ok(manifest)
+}
+
+/// Stage an archive with the server stopped, as `routarr restore` does: the
+/// way back when a start refuses the database, since restoring otherwise needs
+/// the server running. `archive` is a name from the backup folder, or a path.
+pub async fn stage_offline(
+    config: &crate::config::Config,
+    archive: &str,
+) -> AppResult<BackupManifest> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    let in_folder = backups_in(&config.data_dir).join(archive);
+    let path = if is_valid_backup_name(archive) && in_folder.exists() {
+        in_folder
+    } else {
+        archive.into()
+    };
+    if !path.is_file() {
+        return Err(AppError::NotFound(format!("{} is not an archive", path.display())));
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+
+    // What the database in place has withdrawn since is carried over, as an
+    // online restore does. Opened as it is, never migrated: it may be the very
+    // database a start refuses.
+    let live = if config.db_path.is_file() {
+        let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
+        Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?)
+    } else {
+        None
+    };
+    let staged = stage(config, live.as_ref(), &path, &name).await;
+    if let Some(live) = live {
+        live.close().await;
+    }
+    staged
+}
+
+/// The newest archive in the backup folder this build can restore, by name.
+pub fn newest_openable(config: &crate::config::Config) -> Option<String> {
+    let dir = backups_in(&config.data_dir);
+    list_in(&dir).into_iter().map(|file| file.name).find(|name| {
+        read_manifest(&dir.join(name)).is_ok_and(|m| !crate::db::is_newer_schema(&m.schema))
+    })
 }
 
 /// Copy the three known entries beside their targets, under the staging suffix.
@@ -684,20 +755,18 @@ fn is_leftover(name: &str) -> bool {
 /// database never held, as on a new host, comes back as the backup has it,
 /// and so do the backup's account and secrets when the live database holds
 /// none.
-async fn keep_withdrawn_credentials(state: &AppState, staged: &Path) -> AppResult<()> {
+async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
     let revoked: Vec<(String, String)> =
         sqlx::query_as("SELECT id, revoked_at FROM api_keys WHERE revoked_at IS NOT NULL")
-            .fetch_all(&state.pool)
+            .fetch_all(live)
             .await?;
     let secrets: Vec<(String, String)> =
-        sqlx::query_as("SELECT secret, created_at FROM webhook_secrets")
-            .fetch_all(&state.pool)
-            .await?;
+        sqlx::query_as("SELECT secret, created_at FROM webhook_secrets").fetch_all(live).await?;
     let accounts: Vec<(String, String, String, String, String)> =
         sqlx::query_as("SELECT id, username, password_hash, created_at, updated_at FROM users")
-            .fetch_all(&state.pool)
+            .fetch_all(live)
             .await?;
 
     // A rollback journal, not a write-ahead log: the staged file is renamed
@@ -748,7 +817,15 @@ async fn keep_withdrawn_credentials(state: &AppState, staged: &Path) -> AppResul
             }
         }
         sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
-        if !secrets.is_empty() && holds("webhook_secrets").fetch_one(&mut *tx).await? {
+        // An archive from before the signing secrets were stored gets their
+        // table, as the migration that creates it would, or today's secrets
+        // would be dropped and every notification go out unsigned.
+        if !secrets.is_empty() {
+            if !holds("webhook_secrets").fetch_one(&mut *tx).await? {
+                sqlx::raw_sql(include_str!("../../migrations/011_webhook_secrets.sql"))
+                    .execute(&mut *tx)
+                    .await?;
+            }
             sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
             for (secret, created_at) in &secrets {
                 sqlx::query("INSERT INTO webhook_secrets (secret, created_at) VALUES (?, ?)")
@@ -775,10 +852,9 @@ async fn keep_withdrawn_credentials(state: &AppState, staged: &Path) -> AppResul
 /// with the key file the archive brings back, or the one in place when it
 /// brings none, and that file has to be the one its credentials were sealed
 /// with.
-async fn opened_by_the_next_start(state: &AppState, staged: &Path) -> AppResult<()> {
+async fn opened_by_the_next_start(config: &crate::config::Config, staged: &Path) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
-    let config = &state.config;
     let brought_back = staging_path(&config.secret_key_path());
     let key_file = if brought_back.exists() { brought_back } else { config.secret_key_path() };
     // Read here rather than by `SecretBox::load`, which writes a new key where
@@ -855,6 +931,12 @@ async fn check_database(path: &Path) -> Result<(), String> {
             sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
                 .fetch_optional(&mut connection)
                 .await?;
+        if let Some(newer) = crate::db::opened_ahead(&mut connection).await? {
+            return Ok(Err(format!(
+                "it was opened by Routarr v{newer}, which migrated it further than this \
+                 version knows"
+            )));
+        }
         Ok(match schema {
             None => Err("it holds no Routarr schema".into()),
             Some(schema) if crate::db::is_newer_schema(&schema) => Err(format!(
