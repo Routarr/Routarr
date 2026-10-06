@@ -318,7 +318,7 @@ pub async fn sync_all(
         };
         let failed = reports.iter().filter(|report| report.error.is_some()).count();
         if failed < reports.len() {
-            crate::jobs::scheduler::follow_sync(&state, &by.trigger).await;
+            crate::jobs::scheduler::follow_sync(&state, &by).await;
         }
         job.report(&reports);
         let detail = Detail::new("JobDetailSyncedAll")
@@ -344,7 +344,7 @@ pub async fn sync_now(
     let work = async move {
         match sync::sync_instance(&task_state, &id, &by).await {
             Ok(report) => {
-                crate::jobs::scheduler::follow_sync(&task_state, &by.trigger).await;
+                crate::jobs::scheduler::follow_sync(&task_state, &by).await;
                 Ok(report)
             }
             Err(error) => Err(explained(&task_state, &id, error).await),

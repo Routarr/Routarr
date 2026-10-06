@@ -23,8 +23,8 @@ pub struct LogEntry {
     pub instance_id: Option<String>,
     pub media_id: Option<String>,
     pub media_title: Option<String>,
-    /// What set the write off: `manual`, `schedule`, `webhook`, or `api` for an
-    /// application key.
+    /// What set the write off: `manual`, `schedule`, `webhook`, `api` for an
+    /// application key, or `auto` for a move the automation applied.
     pub actor: Option<String>,
     /// Who asked, when the mode vouched for a name, or the application key's
     /// name. An application key reads its own name here and `null` for anyone

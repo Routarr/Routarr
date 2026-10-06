@@ -51,7 +51,8 @@ pub struct Warning {
     /// `source_key_unlisted`, `source_unreachable`, `instance_unreachable`,
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
     /// `scheduler_panicked`, `setting_above_maximum`,
-    /// `instance_without_mapping` or `certification_country_outside_regions`.
+    /// `instance_without_mapping`, `certification_country_outside_regions` or
+    /// `auto_apply_held`.
     /// The list may grow.
     pub code: &'static str,
     pub message: String,
@@ -425,6 +426,17 @@ async fn offline_warnings(
 
     warnings.extend(metadata_warnings(state, localizer, settings));
     warnings.extend(last_probe_warnings(state, localizer).await?);
+
+    let held = *state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some((candidates, cap)) = held {
+        warnings.push(Warning::new(
+            "auto_apply_held",
+            localizer.translate(
+                "WarnAutoApplyHeld",
+                &[("count", &candidates.to_string()), ("limit", &cap.to_string())],
+            ),
+        ));
+    }
 
     // The same predicate the library column and the diagnostics count splice:
     // three spellings of one question is how a badge ends up contradicting the

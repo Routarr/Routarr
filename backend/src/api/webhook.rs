@@ -393,7 +393,7 @@ async fn run(
     let auto_applied = match auto_apply::apply_simulation(
         state,
         &result.simulation_id,
-        crate::jobs::TRIGGER_WEBHOOK,
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
     )
     .await
     {

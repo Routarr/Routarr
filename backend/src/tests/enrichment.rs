@@ -77,7 +77,9 @@ async fn tmdb_s_two_codes_outside_iso_are_read_as_a_rule_is_written() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", CANTONESE), (2, "movie", NO_LANGUAGE)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let languages: Vec<(i64, Option<String>)> = sqlx::query_as(
         "SELECT CAST(external_id AS INTEGER), original_language FROM metadata_cache
@@ -105,7 +107,9 @@ async fn the_tmdb_credential_travels_the_way_its_kind_is_read() {
         })
         .await;
 
-        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
         let sent = tmdb.recorded().credentials.clone();
         assert_eq!(sent, vec![expected], "for {credential}");
@@ -125,7 +129,9 @@ async fn a_retry_after_from_the_source_holds_back_the_next_request() {
     })
     .await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let arrivals = tmdb.recorded().arrivals.clone();
     assert_eq!(arrivals.len(), 2, "the pass should ask once per item");
@@ -154,7 +160,9 @@ async fn enriches_movies_and_series_from_one_call_each() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     assert_eq!((report.considered, report.enriched, report.failed), (2, 2, 0));
 
     let rows = cached(&app).await;
@@ -176,7 +184,9 @@ async fn results_are_filed_against_the_media_they_belong_to() {
     let tmdb = FakeTmdb::with(vec![], vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let rows = cached(&app).await;
     let movie = rows.iter().find(|r| r.0 == 100).expect("movie row");
@@ -194,7 +204,9 @@ async fn certifications_and_countries_are_extracted() {
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
     app.store_setting("certification_regions", "FR, US").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let rows = cached(&app).await;
 
     let movie = rows.iter().find(|r| r.0 == 100).unwrap();
@@ -212,7 +224,9 @@ async fn the_same_title_in_two_instances_is_fetched_once() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "movie", 100)]).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.considered, 1, "targets are deduplicated");
     assert_eq!(tmdb.recorded().paths.len(), 1);
@@ -223,7 +237,9 @@ async fn one_failing_item_does_not_abort_the_pass() {
     let tmdb = FakeTmdb::erroring(vec![100]).await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!((report.enriched, report.failed), (1, 1));
     let rows = cached(&app).await;
@@ -242,7 +258,9 @@ async fn one_answer_that_cannot_be_stored_does_not_abort_the_pass() {
                    BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END"])
         .await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.expect("the pass ended");
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .expect("the pass ended");
 
     assert_eq!((report.enriched, report.failed), (1, 1));
     let rows = cached(&app).await;
@@ -255,8 +273,12 @@ async fn fresh_entries_are_not_re_fetched() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-    let second = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    let second = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(second.considered, 0, "a fresh cache entry is left alone");
     assert_eq!(tmdb.recorded().paths.len(), 1);
@@ -267,13 +289,17 @@ async fn expired_entries_are_re_fetched() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     sqlx::query("UPDATE metadata_cache SET expires_at = datetime('now', '-1 day')")
         .execute(&app.state.pool)
         .await
         .unwrap();
 
-    let second = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let second = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     assert_eq!(second.enriched, 1);
     assert_eq!(tmdb.recorded().paths.len(), 2);
 }
@@ -290,7 +316,9 @@ async fn media_without_an_external_id_is_skipped() {
     .await
     .unwrap();
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     assert_eq!(report.considered, 0);
     assert!(tmdb.recorded().paths.is_empty());
 }
@@ -307,11 +335,16 @@ async fn enrichment_is_a_no_op_without_an_api_key() {
     }));
     keyless.store_setting("metadata_providers", "arr,tmdb").await;
 
-    let report = enrichment::enrich_all_media(&keyless.state, "manual").await.unwrap();
+    let report =
+        enrichment::enrich_all_media(&keyless.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
     assert_eq!(report.considered, 0, "{report:?}");
     assert!(tmdb.recorded().paths.is_empty(), "a keyless source was asked");
 
-    enrichment::enrich_all_media(&keyed.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&keyed.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     assert!(!tmdb.recorded().paths.is_empty(), "the control: the keyed source was asked");
 }
 
@@ -322,7 +355,7 @@ async fn a_concurrent_pass_is_refused() {
     let _held = app.state.jobs.try_lock("enrich").expect("first lock");
 
     assert!(matches!(
-        enrichment::enrich_all_media(&app.state, "manual").await,
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None)).await,
         Err(crate::error::AppError::Conflict(_))
     ));
 }
@@ -332,7 +365,9 @@ async fn the_pass_is_recorded_as_a_job() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let (kind, status): (String, String) =
         sqlx::query_as("SELECT kind, status FROM jobs ORDER BY started_at DESC LIMIT 1")
@@ -380,7 +415,9 @@ async fn enriched_metadata_reaches_the_rule_engine() {
     .unwrap();
     assert_eq!(before.no_category_match, 1, "no metadata yet, nothing can match");
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let after = crate::services::routing::run_simulation(
         &app.state.pool,
@@ -402,7 +439,9 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
     items.push((11, "movie", 500));
     let app = library(&tmdb, &items).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.skipped, 0, "{report:?}");
     let asked = tmdb.recorded().paths.clone();
@@ -423,7 +462,9 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     let items: Vec<(i64, &str, i64)> = (1..=20).map(|id| (id, "movie", id)).collect();
     let app = library(&tmdb, &items).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let asked = tmdb.recorded().paths.len();
     assert!(asked <= 12, "{asked} requests for 20 titles to a source that was down");
@@ -442,7 +483,9 @@ async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
             app.save_setting("metadata_cache_ttl_days", value).await.assert_ok();
         }
 
-        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
         let expires: String = sqlx::query_scalar("SELECT expires_at FROM metadata_cache")
             .fetch_one(&app.state.pool)
@@ -461,8 +504,12 @@ async fn a_title_tmdb_does_not_have_is_not_asked_again_next_pass() {
     let tmdb = FakeTmdb::with(vec![7], vec![]).await;
     let app = library(&tmdb, &[(1, "movie", 7)]).await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let asked = tmdb.recorded().paths.clone();
     assert_eq!(asked.len(), 1, "{asked:?}");

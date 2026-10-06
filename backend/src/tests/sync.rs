@@ -673,7 +673,7 @@ async fn the_sync_route_reports_what_it_fetched() {
 
 /// "Simulate after each sync": a sync somebody asked for is followed as a
 /// scheduled one is, so with background sync off the library is still
-/// enriched and simulated, under the trigger of the one who asked.
+/// enriched and simulated, by the automation.
 #[tokio::test]
 async fn a_sync_somebody_asked_for_is_followed_by_a_simulation() {
     for route in ["/api/v1/instances/inst-1/sync", "/api/v1/instances/sync"] {
@@ -686,9 +686,44 @@ async fn a_sync_somebody_asked_for_is_followed_by_a_simulation() {
         let followed = app.state.post_sync.lock().await.take();
         followed.expect("nothing followed the sync").await.unwrap();
 
-        let simulated = app.count("SELECT COUNT(*) FROM decisions WHERE actor = 'manual'").await;
+        let simulated = app.count("SELECT COUNT(*) FROM decisions WHERE actor = 'auto'").await;
         assert!(simulated > 0, "{route} was not followed by a simulation");
     }
+}
+
+/// What the automation does after a sync is its own, not the work of who set
+/// the sync off, and the simulation it runs is a task the Tasks screen lists,
+/// with its outcome: it replaces every pending proposal.
+#[tokio::test]
+async fn the_work_after_a_sync_is_a_task_of_the_automation() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+
+    let by = crate::jobs::Attribution::manual(Some("alice"));
+    crate::jobs::scheduler::follow_sync(&app.state, &by).await;
+    let followed = app.state.post_sync.lock().await.take();
+    followed.expect("nothing followed the sync").await.unwrap();
+
+    let task: (String, Option<String>, String) =
+        sqlx::query_as("SELECT trigger, subject, status FROM jobs WHERE kind = 'simulate'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(task, ("auto".into(), Some("alice".into()), "success".into()));
+    let actors: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT DISTINCT actor, subject FROM decisions")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(actors, [("auto".to_string(), Some("alice".to_string()))]);
+
+    app.execute(&["ALTER TABLE rules RENAME TO rules_gone"]).await;
+    crate::jobs::scheduler::follow_sync(&app.state, &by).await;
+    let followed = app.state.post_sync.lock().await.take();
+    followed.expect("nothing followed the sync").await.unwrap();
+    let failed =
+        app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'simulate' AND status = 'failed'");
+    assert_eq!(failed.await, 1, "a failed simulation after a sync left no task");
 }
 
 #[tokio::test]

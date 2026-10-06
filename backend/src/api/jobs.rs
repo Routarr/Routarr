@@ -26,7 +26,8 @@ pub struct Job {
     /// `running`, `success`, `failed`, or `cancelled` for an apply or a
     /// revert somebody stopped.
     pub status: String,
-    /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
+    /// What set the task off: `manual`, `schedule`, `webhook`, `api`, or `auto`
+    /// for what the automation runs after a sync.
     pub trigger: String,
     /// Who asked: an application's name, or the person a sign-in mode names.
     /// An application key reads its own name and null for anyone else.

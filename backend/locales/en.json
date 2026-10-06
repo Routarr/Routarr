@@ -970,5 +970,7 @@
   "StatusCancelled": "Stopped",
   "StatusRequested": "Requested",
   "StopTask": "Stop",
-  "TaskStopRequested": "Stop requested: the task ends before its next move."
+  "TaskStopRequested": "Stop requested: the task ends before its next move.",
+  "TriggerAuto": "Automatic",
+  "WarnAutoApplyHeld": "Automatic application is holding back {count} moves, more than the batch limit of {limit} allows in one unattended run. Apply them from the Simulation screen, or raise the batch limit."
 }

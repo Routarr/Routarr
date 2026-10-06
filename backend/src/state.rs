@@ -79,6 +79,9 @@ pub struct AppState {
     /// whoever synced: one at a time, and waited for at shutdown
     /// (`jobs::scheduler::follow_sync`).
     pub post_sync: Arc<tokio::sync::Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// The moves the last unattended pass held back for being more than one
+    /// run may make, and that bound: `(candidates, cap)`.
+    pub auto_apply_held: Arc<std::sync::Mutex<Option<(usize, usize)>>>,
     /// The notifications waiting to be sent, in order (`services::notify`).
     pub notifications: Arc<crate::services::notify::Queue>,
 }
@@ -464,6 +467,7 @@ impl AppState {
             sign_in: Arc::new(Default::default()),
             oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
             post_sync: Arc::new(tokio::sync::Mutex::new(None)),
+            auto_apply_held: Arc::default(),
             notifications: Arc::default(),
             config: Arc::new(config),
             pool,

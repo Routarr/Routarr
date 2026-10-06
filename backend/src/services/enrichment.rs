@@ -33,7 +33,7 @@ pub struct EnrichmentReport {
 
 /// Enrich every media item whose metadata is missing or expired, source by
 /// source, in the user's priority order.
-pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<EnrichmentReport> {
+pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
     // Built on `metadata_providers`, the sources able to answer today: a source
     // with no key would fail every request of the pass. Evaluation reads the
     // whole `metadata_order` instead, so what a source answered before its key
@@ -48,10 +48,8 @@ pub async fn enrich_all_media(state: &AppState, trigger: &str) -> AppResult<Enri
         return Err(AppError::Conflict("An enrichment pass is already running".into()));
     };
 
-    // No person starts a pass: the scheduler does, or a test.
-    let by = Attribution::unattended(trigger);
     let job =
-        state.jobs.start(JobKind::Enrich, &by, None, Detail::new("JobDetailEnriching")).await?;
+        state.jobs.start(JobKind::Enrich, by, None, Detail::new("JobDetailEnriching")).await?;
 
     let mut report = EnrichmentReport::default();
     let mut outcome = Ok(());

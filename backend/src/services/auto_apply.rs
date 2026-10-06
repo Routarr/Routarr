@@ -25,8 +25,8 @@ use crate::state::AppState;
 /// What an unattended pass decided to do.
 #[derive(Debug)]
 pub enum AutoApplyOutcome {
-    /// A guardrail said no. Carries the reason for the log line.
-    Held(&'static str),
+    /// A guardrail said no.
+    Held(Hold),
     /// Nothing in this run qualified.
     NothingToApply,
     /// More candidates than one unattended run may touch, so none were touched.
@@ -47,9 +47,10 @@ pub enum AutoApplyOutcome {
 pub async fn apply_simulation(
     state: &AppState,
     simulation_id: &str,
-    trigger: &str,
+    by: &Attribution,
 ) -> AppResult<AutoApplyOutcome> {
-    let outcome = decide(state, simulation_id, trigger).await?;
+    let outcome = decide(state, simulation_id, by).await?;
+    let trigger = by.trigger.as_str();
 
     // Logged here rather than at each call site, so "I turned auto-apply on and
     // nothing happened" always has an answer in the log.
@@ -86,29 +87,62 @@ pub async fn apply_simulation(
             "Auto-apply held back: too many moves for one unattended run. Apply them from the \
              Simulation screen"
         ),
-        AutoApplyOutcome::Held(reason) => debug!(trigger, reason, "Auto-apply held back"),
+        AutoApplyOutcome::Held(Hold::TurnNotReached) => warn!(
+            trigger,
+            "Auto-apply held back: another apply kept running past the wait, the moves stay pending"
+        ),
+        AutoApplyOutcome::Held(hold) => debug!(trigger, ?hold, "Auto-apply held back"),
         AutoApplyOutcome::NothingToApply => {
             debug!(trigger, "Auto-apply had nothing to do")
         }
     }
+    held_back(state, &outcome);
 
     Ok(outcome)
+}
+
+/// Why an unattended pass wrote nothing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Hold {
+    Disabled,
+    DryRun,
+    /// An apply kept running past the wait, and the moves stay pending.
+    TurnNotReached,
+}
+
+/// Keep the last pass's verdict on the moves it held back for being too many,
+/// which `/status` warns of, and say so once when it starts holding them.
+/// Another verdict on the library clears it, a guardrail's leaves it.
+fn held_back(state: &AppState, outcome: &AutoApplyOutcome) {
+    let mut held = state.auto_apply_held.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    match outcome {
+        AutoApplyOutcome::OverCap { candidates, cap } => {
+            if held.replace((*candidates, *cap)).is_none() {
+                notify::send_later(
+                    state,
+                    notify::Event::AutoApplyHeld { candidates: *candidates, cap: *cap },
+                );
+            }
+        }
+        AutoApplyOutcome::Applied(_) | AutoApplyOutcome::NothingToApply => *held = None,
+        AutoApplyOutcome::Held(_) => {}
+    }
 }
 
 async fn decide(
     state: &AppState,
     simulation_id: &str,
-    trigger: &str,
+    by: &Attribution,
 ) -> AppResult<AutoApplyOutcome> {
     // Opt-in. A fresh install never writes on its own.
     if !state.bool_setting("auto_apply_enabled", false).await {
-        return Ok(AutoApplyOutcome::Held("auto-apply is disabled"));
+        return Ok(AutoApplyOutcome::Held(Hold::Disabled));
     }
 
     // Checked here as well as in the executor: this one is the master switch,
     // and it should be impossible to reach the writer with it on.
     if state.bool_setting("global_dry_run", true).await {
-        return Ok(AutoApplyOutcome::Held("global dry-run is active"));
+        return Ok(AutoApplyOutcome::Held(Hold::DryRun));
     }
 
     let candidates = eligible_decisions(state, simulation_id).await?;
@@ -129,7 +163,7 @@ async fn decide(
     // be stale by the time the apply runs, and the move would leave the file
     // the Arr imported meanwhile behind.
     let Some(turn) = executor::unattended_turn(state).await else {
-        return Ok(AutoApplyOutcome::Held("an apply kept running past the wait"));
+        return Ok(AutoApplyOutcome::Held(Hold::TurnNotReached));
     };
     let without_files = still_without_files(state, candidates).await;
     if without_files.is_empty() {
@@ -137,7 +171,7 @@ async fn decide(
     }
 
     Ok(AutoApplyOutcome::Applied(
-        executor::apply_unattended(state, &without_files, &Attribution::unattended(trigger), turn)
+        executor::apply_unattended(state, &without_files, &Attribution::automatic(by), turn)
             .await?,
     ))
 }

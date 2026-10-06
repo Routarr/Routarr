@@ -30,6 +30,10 @@ pub const TRIGGER_SCHEDULE: &str = "schedule";
 pub const TRIGGER_WEBHOOK: &str = "webhook";
 /// An application key asked, and its name is the subject.
 pub const TRIGGER_API: &str = "api";
+/// What the automation does once a sync has run: the enrichment, the
+/// simulation and the moves applied without asking. The subject is who set
+/// the sync off, when somebody did.
+pub const TRIGGER_AUTO: &str = "auto";
 
 /// The longest interval an instance may be synced on, in minutes: a day.
 ///
@@ -78,5 +82,10 @@ impl Attribution {
     /// An application asked, with a key that names it.
     pub fn application(name: &str) -> Self {
         Self { trigger: TRIGGER_API.to_string(), subject: Some(name.to_string()) }
+    }
+
+    /// The automation, after a sync `by` set off.
+    pub fn automatic(by: &Attribution) -> Self {
+        Self { trigger: TRIGGER_AUTO.to_string(), subject: by.subject.clone() }
     }
 }

@@ -87,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sign_in: Arc::new(Default::default()),
         oidc_provider: Arc::new(tokio::sync::RwLock::new(None)),
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
+        auto_apply_held: Arc::default(),
         notifications: Arc::default(),
         config: Arc::new(config),
     };

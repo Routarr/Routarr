@@ -16,7 +16,13 @@ async fn a_fresh_install_never_applies_on_its_own() {
     app.store_setting("global_dry_run", "false").await;
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::Held(_)));
     assert!(arr.recorded().writes.is_empty(), "nothing may reach the Arr");
@@ -30,7 +36,13 @@ async fn global_dry_run_outranks_auto_apply() {
     // global_dry_run is left at its default of true.
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::Held(_)));
     assert!(arr.recorded().writes.is_empty(), "the master switch must win");
@@ -44,7 +56,13 @@ async fn a_media_that_already_has_files_is_left_to_a_human() {
     app.store_setting("global_dry_run", "false").await;
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await
+    .unwrap();
 
     // The move is still proposed. It is just not applied unattended, because
     // applying it would strand the file or start a real disk move.
@@ -67,7 +85,13 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
     app.store_setting("global_dry_run", "false").await;
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await
+    .unwrap();
 
     let AutoApplyOutcome::Applied(report) = outcome else {
         panic!("expected the move to be applied, got {outcome:?}");
@@ -97,7 +121,13 @@ async fn a_film_that_got_its_file_since_the_sync_is_not_moved_unattended() {
     app.store_setting("global_dry_run", "false").await;
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply), "got {outcome:?}");
     assert!(arr.recorded().writes.is_empty(), "the film was moved without its file");
@@ -120,7 +150,13 @@ async fn a_film_that_cannot_be_read_again_is_not_moved_unattended() {
     let simulation = app.simulate().await;
     app.execute(&["UPDATE instances SET base_url = 'http://127.0.0.1:1'"]).await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply), "got {outcome:?}");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 1);
@@ -147,7 +183,13 @@ async fn an_unattended_pass_leaves_a_sleeping_destination_alone() {
         .await
         .unwrap();
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     assert!(
         matches!(outcome, AutoApplyOutcome::NothingToApply),
@@ -167,19 +209,23 @@ async fn an_auto_applied_move_is_auditable_and_revertible() {
     app.store_setting("global_dry_run", "false").await;
     let simulation = app.simulate().await;
 
-    auto_apply::apply_simulation(&app.state, &simulation, crate::jobs::TRIGGER_WEBHOOK)
-        .await
-        .unwrap();
+    auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
+    )
+    .await
+    .unwrap();
 
-    // The job records who set it off, so the Tasks screen can tell an
-    // unattended write apart from one the user asked for.
+    // The job records that the automation wrote it, so the Tasks screen and
+    // the move log tell it apart from a write somebody asked for.
     let trigger: String = sqlx::query_scalar(
         "SELECT trigger FROM jobs WHERE kind = 'apply' ORDER BY started_at DESC",
     )
     .fetch_one(&app.state.pool)
     .await
     .unwrap();
-    assert_eq!(trigger, "webhook");
+    assert_eq!(trigger, "auto");
 
     // The decision carries the origin folder, which is what revert needs.
     let (decision_id, status, from): (String, String, Option<String>) = sqlx::query_as(
@@ -221,7 +267,12 @@ async fn an_unattended_apply_waits_for_the_apply_already_running() {
 
     let state = app.state.clone();
     let waiting = tokio::spawn(async move {
-        auto_apply::apply_simulation(&state, &simulation, crate::jobs::TRIGGER_WEBHOOK).await
+        auto_apply::apply_simulation(
+            &state,
+            &simulation,
+            &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
+        )
+        .await
     });
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     drop(running);
@@ -258,7 +309,13 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     app.store_setting("batch_limit", "2").await;
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     // Half a reorganisation is worse than none: it is all or nothing.
     assert!(
@@ -270,7 +327,13 @@ async fn a_sweep_larger_than_the_batch_limit_applies_nothing_at_all() {
     // At the cap exactly, the run goes ahead. The fake holds Totoro alone, so
     // the two others are left to a person when they are read again.
     app.store_setting("batch_limit", "3").await;
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
     assert!(
         matches!(&outcome, AutoApplyOutcome::Applied(report) if report.applied == 1),
         "got {outcome:?}"
@@ -291,7 +354,13 @@ async fn a_proposal_from_an_earlier_run_is_out_of_scope() {
     // Asking for the earlier run must apply nothing: its decision has been
     // superseded by the later one, and an unattended pass only ever writes what
     // its own run just proposed.
-    let outcome = auto_apply::apply_simulation(&app.state, &earlier, "schedule").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &earlier,
+        &crate::jobs::Attribution::unattended("schedule"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply), "got {outcome:?}");
     assert!(arr.recorded().writes.is_empty());
@@ -311,7 +380,13 @@ async fn a_media_pointing_at_an_unmapped_category_is_not_applied() {
         .unwrap();
     let simulation = app.simulate().await;
 
-    let outcome = auto_apply::apply_simulation(&app.state, &simulation, "webhook").await.unwrap();
+    let outcome = auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await
+    .unwrap();
 
     assert!(matches!(outcome, AutoApplyOutcome::NothingToApply), "got {outcome:?}");
     assert!(arr.recorded().writes.is_empty());
