@@ -160,10 +160,14 @@ pub(super) async fn record_success(
     log_execution(pool, by, direction.action(), &moved_between(mv), true, None, mv).await;
 }
 
-/// The two rows a successful move changes, written together.
+/// The two rows a successful move changes, written together, and on the disk
+/// before this returns.
 ///
 /// `moved_at` is what stops a synchronisation that read the Arr *before* this
 /// move from putting the old path back (`upsert_media` in `services/sync.rs`).
+/// Under the pool's `synchronous = NORMAL`, a power cut can roll back the last
+/// commits, and the record of a move the Arr has made, and with it its revert,
+/// would be lost: this one commit waits for the disk.
 pub(super) async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,
@@ -171,7 +175,24 @@ pub(super) async fn record_outcome(
     now: &str,
     direction: MoveDirection,
 ) -> AppResult<()> {
-    let mut tx = crate::db::write_transaction(pool).await?;
+    let mut connection = pool.acquire().await?;
+    sqlx::query("PRAGMA synchronous = FULL").execute(&mut *connection).await?;
+    let written = write_outcome(&mut connection, mv, new_path, now, direction).await;
+    let restored = sqlx::query("PRAGMA synchronous = NORMAL").execute(&mut *connection).await;
+    written?;
+    restored?;
+    Ok(())
+}
+
+async fn write_outcome(
+    connection: &mut sqlx::SqliteConnection,
+    mv: &PendingMove,
+    new_path: &str,
+    now: &str,
+    direction: MoveDirection,
+) -> AppResult<()> {
+    use sqlx::Connection;
+    let mut tx = connection.begin_with("BEGIN IMMEDIATE").await?;
     let decision = match direction {
         MoveDirection::Forward => sqlx::query(
             "UPDATE decisions SET status = 'applied', error_message = NULL, applied_at = ?

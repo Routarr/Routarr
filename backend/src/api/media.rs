@@ -630,6 +630,22 @@ async fn column_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<F
         .collect())
 }
 
+/// The folders the titles sit in, one entry per folder however its Arr wrote
+/// it: `D:\Media\Movies\` and `d:/media/movies` are one, as the `path`
+/// collation compares them.
+async fn folder_facets(pool: &sqlx::SqlitePool) -> AppResult<Vec<Facet>> {
+    Ok(sqlx::query_as::<_, (String, i64)>(
+        "SELECT MIN(current_root_folder) AS value, COUNT(*) AS n FROM media
+          WHERE current_root_folder IS NOT NULL AND current_root_folder != ''
+          GROUP BY current_root_folder COLLATE path ORDER BY n DESC, value",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(|(value, count)| Facet { value, label: None, count, group: None })
+    .collect())
+}
+
 /// The same, for a column holding a JSON array.
 async fn json_facets(pool: &sqlx::SqlitePool, column: &str) -> AppResult<Vec<Facet>> {
     let sql = format!(
@@ -936,7 +952,7 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
         origin_countries: metadata_facets(pool, &sources, None, "origin_countries", true).await?,
         certifications: certification_facets(pool, &sources, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,
-        root_folders: column_facets(pool, "current_root_folder").await?,
+        root_folders: folder_facets(pool).await?,
         statuses: name_statuses(column_facets(pool, "status").await?, &localizer),
     }))
 }

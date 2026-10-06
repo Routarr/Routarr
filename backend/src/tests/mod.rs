@@ -303,14 +303,23 @@ impl TestApp {
     }
 
     /// Point an instance at a running fake Arr, so sync and webhook paths can be
-    /// exercised end to end.
+    /// exercised end to end. The first of a kind is `Fake radarr` or `Fake
+    /// sonarr`, and each after it carries its id, names being unique.
     pub async fn seed_instance_at(&self, id: &str, kind: &str, base_url: &str) {
+        let first = format!("Fake {kind}");
+        let taken: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM instances WHERE name = ?)")
+                .bind(&first)
+                .fetch_one(&self.state.pool)
+                .await
+                .unwrap();
+        let name = if taken { format!("{first} {id}") } else { first };
         sqlx::query(
             "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
              VALUES (?, ?, ?, ?, ?, 1, 'tok')",
         )
         .bind(id)
-        .bind(format!("Fake {kind}"))
+        .bind(name)
         .bind(kind)
         .bind(base_url)
         .bind(self.state.secrets.seal("arr-key").unwrap())

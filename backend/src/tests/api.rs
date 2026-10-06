@@ -75,6 +75,32 @@ async fn instance_api_keys_are_encrypted_at_rest_and_never_returned() {
     assert_eq!(app.state.secrets.open(&stored).unwrap(), "plaintext-arr-key");
 }
 
+/// Instances are told apart by name where ids mean nothing, in a bundle a
+/// rule's scope travels in: two names that differ only by case or spaces are
+/// one, and a second is refused, created or renamed into.
+#[tokio::test]
+async fn an_instance_name_already_taken_is_refused() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let named = |name: &str| {
+        serde_json::json!({
+            "name": name, "instance_type": "radarr",
+            "base_url": "http://radarr:7878", "api_key": "k",
+        })
+    };
+
+    let taken = app.post("/api/v1/instances", named(" radarr ")).await;
+    taken.assert_status(StatusCode::CONFLICT);
+    assert!(taken.message().contains("radarr"), "{}", taken.message());
+
+    let other = app.post("/api/v1/instances", named("Radarr 4K")).await.assert_ok().clone();
+    let id = other["id"].as_str().unwrap();
+    app.put(&format!("/api/v1/instances/{id}"), named("RADARR"))
+        .await
+        .assert_status(StatusCode::CONFLICT);
+    app.put(&format!("/api/v1/instances/{id}"), named("Radarr UHD")).await.assert_ok();
+}
+
 #[tokio::test]
 async fn an_instance_gets_a_webhook_url() {
     let app = TestApp::new().await;

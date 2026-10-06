@@ -54,11 +54,23 @@ fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceR
     }
 }
 
+/// Another instance holds the name, case and spaces aside: a bundle names an
+/// instance by it, and two would be one there.
+fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Localizer) -> AppError {
+    match &e {
+        sqlx::Error::Database(db) if db.is_unique_violation() => {
+            AppError::Conflict(localizer.translate("ErrorInstanceNameTaken", &[("name", name)]))
+        }
+        _ => e.into(),
+    }
+}
+
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
-    let base_url = validate(&req, &state.localizer().await)?;
+    let localizer = state.localizer().await;
+    let base_url = validate(&req, &localizer)?;
 
     let id = Uuid::new_v4().to_string();
     let webhook_token = Uuid::new_v4().to_string();
@@ -78,7 +90,8 @@ pub async fn create(
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
     .bind(&webhook_token)
     .execute(&state.pool)
-    .await?;
+    .await
+    .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
 
     Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
 }
@@ -124,7 +137,8 @@ pub async fn update(
     .bind(req.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
     .bind(&id)
     .execute(&mut *tx)
-    .await?;
+    .await
+    .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
     // A pending proposal names the ids of the Arr the instance pointed at, and
     // another Arr gives those ids to other titles. The next sync tells which
     // titles are still the same (`sync::reassigned`), and the next simulation

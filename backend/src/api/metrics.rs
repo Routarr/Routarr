@@ -49,8 +49,8 @@ fn label(value: &str) -> String {
 
 /// The labels naming an Arr instance. Not `instance`: Prometheus sets that on
 /// every series to the target it scraped, and renames a label of that name
-/// `exported_instance`. Keyed by id, since two instances may share a name and
-/// one series per name would add them together.
+/// `exported_instance`. Keyed by id as well, which a rename leaves alone, so a
+/// renamed instance keeps its series.
 fn arr_instance(id: &str, name: &str) -> String {
     format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
 }

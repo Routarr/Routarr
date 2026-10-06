@@ -94,6 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     services::maintenance::converge(&state).await?;
+    api::categories::converge_names(&state).await?;
 
     // The single account, generated on first start like the API key. Only in
     // the mode that reads it: creating one for an installation that

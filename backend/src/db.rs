@@ -42,6 +42,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "025_added_dates_stored_shape",
         include_str!("../migrations/025_added_dates_stored_shape.sql"),
     ),
+    ("026_unique_instance_names", include_str!("../migrations/026_unique_instance_names.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -74,7 +75,9 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         // NORMAL is the documented companion of WAL: durable across app crashes,
         // and an order of magnitude faster than FULL for the write bursts a
-        // simulation produces.
+        // simulation produces. A power cut can roll back the last commits, so
+        // the record of a move the Arr made is written under FULL
+        // (`executor::record::record_outcome`).
         .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
         .foreign_keys(true)
         // Without this, concurrent writers surface as "database is locked"

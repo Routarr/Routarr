@@ -54,14 +54,7 @@ pub async fn create(
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateOverrideRequest>,
 ) -> AppResult<Json<OverrideEntry>> {
-    let media_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
-        .bind(&req.media_id)
-        .fetch_one(&state.pool)
-        .await?;
-    if !media_exists {
-        return Err(AppError::NotFound(format!("Media {} not found", req.media_id)));
-    }
-
+    crate::race::checked("overrides::create", &req.media_id).await;
     let pinned = pin(
         &state,
         std::slice::from_ref(&req.media_id),
@@ -161,6 +154,15 @@ async fn pin(
 
     let mut changed = Vec::new();
     for media_id in media_ids {
+        // Under the lock the pin is written with: a title removed by a sync
+        // since it was named has nothing left to pin.
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
+            .bind(media_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !exists {
+            return Err(AppError::NotFound(format!("Media {media_id} not found")));
+        }
         let held: Option<String> =
             sqlx::query_scalar("SELECT target_category FROM overrides WHERE media_id = ?")
                 .bind(media_id)

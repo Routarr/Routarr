@@ -150,15 +150,14 @@ async fn the_enabled_switch_and_each_job_outcome_are_series() {
 
 /// Prometheus sets `instance` on every scraped series to the target it
 /// scraped, so a label of that name is renamed `exported_instance` on the way
-/// in. Two instances may also share a name, and one series per name would
-/// merge them.
+/// in. Each instance is its own series, by its id.
 #[tokio::test]
-async fn two_instances_of_one_name_are_two_series() {
+async fn each_instance_is_a_series_of_its_own() {
     let app = TestApp::new().await;
     app.seed_library().await;
     sqlx::query(
         "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled, webhook_token)
-         VALUES ('inst-2', 'Radarr', 'radarr', 'http://radarr-4k:7878', 'secret', 1, 'tok2')",
+         VALUES ('inst-2', 'Radarr 4K', 'radarr', 'http://radarr-4k:7878', 'secret', 1, 'tok2')",
     )
     .execute(&app.state.pool)
     .await
