@@ -155,16 +155,11 @@ pub async fn place(
     Ok(placement)
 }
 
-/// `None` for a series named by its TMDb id, which Sonarr's lookup does not
-/// take: only a copy the library holds answers for it.
 async fn looked_up(
     state: &AppState,
     instance: &Instance,
     id: &ExternalId,
 ) -> AppResult<Option<ArrMedia>> {
-    if instance.instance_type == "sonarr" && matches!(id, ExternalId::Tmdb(_)) {
-        return Ok(None);
-    }
     state.adapter(instance)?.lookup(id).await
 }
 
@@ -237,10 +232,14 @@ async fn unheld(
 async fn answered_now(state: &AppState, media: &Media) -> routing::Fresh {
     let mut fresh = routing::Fresh::default();
     let providers = state.metadata_order().await;
-    let Ok(identifiers) = metadata::load_identifiers_of(&state.pool, media).await else {
+    let Ok(identifiers) =
+        metadata::load_identifiers_of(&state.pool, std::slice::from_ref(media)).await
+    else {
         return fresh;
     };
-    let Ok(cached) = metadata::load_cache_of(&state.pool, media, &providers, &identifiers).await
+    let Ok(cached) =
+        metadata::load_cache_of(&state.pool, std::slice::from_ref(media), &providers, &identifiers)
+            .await
     else {
         return fresh;
     };

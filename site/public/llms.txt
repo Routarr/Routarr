@@ -53,11 +53,13 @@ and Jikan need no key. TMDb, OMDb and TheTVDB are optional.
 
 Routarr also provides:
 
-- Any number of Radarr and Sonarr instances, each with its own sync interval, folders and
-  mappings, on Linux or Windows: a path on a drive letter or a network share is compared as
-  Windows compares it, whatever its case or separator.
-- A secret webhook URL per instance. A title added in Radarr or Sonarr is synced, enriched and
-  evaluated at once rather than at the next poll, and can be routed before it downloads.
+- Any number of Radarr (4.2 or later) and Sonarr (4 or later) instances, each with its own sync
+  interval, folders and mappings, on Linux or Windows: a path on a drive letter or a network
+  share is compared as Windows compares it, whatever its case or separator. Sonarr 3 works too,
+  a new series routed at the next sync.
+- A secret webhook token per instance, sent in a header by Radarr 5.16 and Sonarr 4.0.11 or in
+  the URL by older releases. A title added in Radarr or Sonarr is synced, enriched and evaluated
+  at once rather than at the next poll, and can be routed before it downloads.
 - Authentication on by default: an API key, a single account, or OpenID Connect.
 - Prometheus metrics at /api/v1/metrics, behind the same API key.
 - Notifications written the way Discord, ntfy, Gotify or Apprise reads them, or as JSON for any

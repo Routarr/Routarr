@@ -83,7 +83,9 @@ async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "omdb").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(asked(&sources, "omdb"), ["tt0096283"]);
     let (genres, _, certification, countries) = cached(&app, "omdb").await.expect("cached");
@@ -121,7 +123,9 @@ async fn a_spent_omdb_quota_stops_the_pass_and_caches_nothing() {
     }
     sources.spend_omdb_quota();
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let asked = sources.recorded().paths.iter().filter(|path| *path == "/omdb").count();
     assert!(asked < 31, "every title was asked: {asked}");
@@ -137,7 +141,9 @@ async fn omdb_language_names_become_the_code_a_rule_matches() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "omdb").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let language: Option<String> =
         sqlx::query_scalar("SELECT original_language FROM metadata_cache WHERE source = 'omdb'")
@@ -158,9 +164,13 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
     // which the client is rebuilt. The token lives on the state, not the
     // client, so exactly one login is spent on all three, and TheTVDB counts
     // them.
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let _ = app.get("/api/v1/health").await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let recorded = sources.recorded();
     let logins = recorded.paths.iter().filter(|path| *path == "/tvdb/login").count();
@@ -181,7 +191,9 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "tvdb").await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     sources.expire_tvdb_token();
     // A second title to read, or the next pass has nothing to say.
@@ -193,7 +205,9 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let logins = sources.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
     assert_eq!(logins, 2, "the expired token was not renewed");
@@ -210,7 +224,9 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
     let sources = FakeSources::start().await;
     let app = library(&sources, "tvdb").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let row: (Option<String>, String, Option<String>) = sqlx::query_as(
         "SELECT original_language, origin_countries, certification FROM metadata_cache
@@ -235,7 +251,9 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "anilist").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let resolved: (String, Option<String>) = sqlx::query_as(
         "SELECT local_key, external_id FROM source_identifiers WHERE source = 'anilist'",
@@ -270,7 +288,9 @@ async fn a_film_is_searched_among_films_and_a_series_among_the_rest() {
                VALUES ('m-2', 'inst-1', 20, 'series', 'Cowboy Bebop', 1998, 76885)"])
             .await;
 
-        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
         let resolved: Vec<(String, Option<String>)> = sqlx::query_as(
             "SELECT local_key, external_id FROM source_identifiers WHERE source = ?
@@ -302,8 +322,12 @@ async fn a_second_pass_does_not_search_again() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "anilist").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let searches = sources.recorded().searches.iter().filter(|(id, _)| *id == "anilist").count();
     assert_eq!(searches, 1, "a resolution is permanent, not per-run");
@@ -314,7 +338,9 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     let sources = FakeSources::with_mismatched_year().await;
     let app = library(&sources, "anilist").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     // Same title, sixteen years apart: not the same work. Better no metadata
     // than another film's genres.
@@ -328,7 +354,9 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
 
     // And the "found nothing" is written down, so the next pass does not search
     // the whole library again for ever.
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let searches = sources.recorded().searches.iter().filter(|(id, _)| *id == "anilist").count();
     assert_eq!(searches, 1);
 }
@@ -348,7 +376,9 @@ async fn a_pass_that_identifies_nothing_still_ends_its_progress() {
     .await
     .unwrap();
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let progress: (String, i64, i64) = sqlx::query_as(
         "SELECT status, progress_current, progress_total FROM jobs WHERE kind = 'enrich'",
@@ -367,7 +397,9 @@ async fn a_jikan_film_is_resolved_by_its_aired_year() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "jikan").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let resolved: Option<String> =
         sqlx::query_scalar("SELECT external_id FROM source_identifiers WHERE source = 'jikan'")
@@ -430,13 +462,17 @@ async fn an_upgrade_searches_jikan_again_for_the_films_it_misread() {
 async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
     let sources = FakeSources::with_mismatched_year().await;
     let app = library(&sources, "anilist").await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     sqlx::query("UPDATE source_identifiers SET resolved_at = datetime('now', '-31 days')")
         .execute(&app.state.pool)
         .await
         .unwrap();
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let searches = sources.recorded().searches.iter().filter(|(id, _)| *id == "anilist").count();
     assert_eq!(searches, 2, "an old miss was never asked again");
@@ -450,7 +486,9 @@ async fn an_anilist_error_is_not_remembered_as_nothing_found() {
     let sources = FakeSources::with_graphql_errors().await;
     let app = library(&sources, "anilist").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let remembered: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM source_identifiers WHERE source = 'anilist'")
@@ -465,7 +503,9 @@ async fn jikan_themes_and_demographics_become_keywords() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "jikan").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
@@ -484,7 +524,9 @@ async fn every_source_contributes_what_only_it_has() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "arr,anilist,jikan,omdb,tvdb").await;
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let media = super::TestApp::get(&app, "/api/v1/media/m-1").await;
     let media = media.assert_ok();
@@ -511,7 +553,9 @@ async fn every_source_contributes_what_only_it_has() {
 async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
     let sources = FakeSources::start().await;
     let app = library(&sources, "arr,omdb").await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     for (order, arr_says, read, from) in [
         ("arr,omdb", "en", "ja", "omdb"),
@@ -693,8 +737,12 @@ async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
         ])
         .await;
 
-        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
-        enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
 
         assert_eq!(asked(&sources, source).len(), 1, "{source}: {:?}", asked(&sources, source));
     }
@@ -709,14 +757,18 @@ async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
     let revoked = FakeSources::start().await;
     revoked.revoke_tvdb_key();
     let app = library_of(&revoked, "tvdb", 20).await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let logins = revoked.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
     assert!(logins <= 8, "{logins} refused logins for 21 titles");
 
     let tokenless = FakeSources::start().await;
     tokenless.answer_logins_without_a_token();
     let app = library_of(&tokenless, "tvdb", 3).await;
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
     let recorded = tokenless.recorded();
     assert!(recorded.paths.contains(&"/tvdb/login".to_string()), "the control: no login");
     let reads: Vec<&String> = recorded.paths.iter().filter(|p| p.ends_with("/extended")).collect();
@@ -735,7 +787,9 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
     let app = TestApp::around(app.state.clone().with_config(config));
     sources.throttle_next_search(1);
 
-    enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     let arrivals = sources.recorded().searched_at.clone();
     assert!(arrivals.len() >= 2, "{} searches", arrivals.len());
@@ -755,7 +809,10 @@ async fn a_source_that_is_down_is_abandoned_rather_than_asked_once_per_item() {
         let sources = FakeSources::failing(504).await;
         let app = library_of(&sources, source, 20).await;
 
-        let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+        let report =
+            enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+                .await
+                .unwrap();
 
         // Nothing was enriched, which is expected, but the point is *how* it
         // failed: the requests that went out are a handful, not one per item.
@@ -775,7 +832,9 @@ async fn a_working_source_is_never_cut_off_by_the_breaker() {
     let sources = FakeSources::start().await;
     let app = library_of(&sources, "jikan", 20).await;
 
-    let report = enrichment::enrich_all_media(&app.state, "manual").await.unwrap();
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
 
     assert_eq!(report.skipped, 0, "a healthy source was cut off: {report:?}");
     assert!(report.enriched > 0);

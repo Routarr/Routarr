@@ -112,7 +112,8 @@ async fn sync_instance_inner(
     // operator mutes, which is worse than having none.
     let was_failing = instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with("error"));
 
-    let outcome = do_sync(state, instance).await;
+    let list_folders = lists_folders(state, instance, by).await.unwrap_or(true);
+    let outcome = do_sync(state, instance, list_folders).await;
     if outcome.is_ok()
         && let Err(e) = crate::services::executor::settle_requested(state, instance, by).await
     {
@@ -164,7 +165,39 @@ async fn sync_instance_inner(
     outcome
 }
 
-async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport> {
+/// How long a scheduled sync goes without listing the root folders.
+const FOLDERS_LISTED_EVERY: chrono::Duration = chrono::Duration::hours(24);
+
+/// Whether this sync lists the Arr's root folders, which makes the Arr walk
+/// every folder inside each: when somebody asked for it, and otherwise once a
+/// day. In between the free space of the mounts is read instead.
+async fn lists_folders(state: &AppState, instance: &Instance, by: &Attribution) -> AppResult<bool> {
+    if matches!(by.trigger.as_str(), crate::jobs::TRIGGER_MANUAL | crate::jobs::TRIGGER_API) {
+        return Ok(true);
+    }
+    let listed: Option<String> =
+        sqlx::query_scalar("SELECT root_folders_read_at FROM instances WHERE id = ?")
+            .bind(&instance.id)
+            .fetch_one(&state.pool)
+            .await?;
+    let due = chrono::Utc::now() - FOLDERS_LISTED_EVERY;
+    Ok(listed
+        .and_then(|at| crate::services::routing::parse_timestamp(&at))
+        .is_none_or(|at| at < due))
+}
+
+/// The root folders as a sync read them: listed whole, or only the free space
+/// of the mounts they sit on.
+enum Folders {
+    Listed(Vec<crate::integrations::adapter::ArrRootFolder>),
+    Mounts(Vec<crate::integrations::adapter::ArrDiskSpace>),
+}
+
+async fn do_sync(
+    state: &AppState,
+    instance: &Instance,
+    list_folders: bool,
+) -> AppResult<SyncReport> {
     let adapter = state.adapter(instance)?;
 
     // Before the first request, not after: everything below describes the Arr as
@@ -173,7 +206,30 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // against `moved_at` and declines to put an old path back.
     let read_at = crate::services::routing::format_timestamp(chrono::Utc::now());
 
-    let root_folders = adapter.get_root_folders().await?;
+    // The release, which the warnings hold against the oldest supported, kept
+    // as it was when the Arr does not say.
+    let version = match adapter.test_connection().await {
+        Ok(status) => Some(status.version),
+        Err(e) => {
+            tracing::warn!(instance = %instance.name, "Could not read the Arr's version: {e}");
+            None
+        }
+    };
+    let folders = if list_folders {
+        Folders::Listed(adapter.get_root_folders().await?)
+    } else {
+        match adapter.get_disk_space().await {
+            Ok(mounts) => Folders::Mounts(mounts),
+            Err(e) => {
+                tracing::warn!(instance = %instance.name, "Could not read the free space: {e}");
+                Folders::Mounts(Vec::new())
+            }
+        }
+    };
+    let root_folders = match &folders {
+        Folders::Listed(listed) => listed.as_slice(),
+        Folders::Mounts(_) => &[],
+    };
     let media = adapter.get_media().await?;
 
     // Tags are one signal among many: an Arr too old to expose the endpoint, or
@@ -212,8 +268,9 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
 
     // One transaction for the whole instance: a partial sync would make the
-    // orphan cleanup delete rows that were simply not written yet.
-    let mut tx = state.pool.begin().await?;
+    // orphan cleanup delete rows that were simply not written yet. It may read
+    // first, so it takes the write lock as it opens.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
 
     if let Some(country) = &certification_country {
         sqlx::query("UPDATE instances SET certification_country = ? WHERE id = ?")
@@ -221,6 +278,23 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
             .bind(&instance.id)
             .execute(&mut *tx)
             .await?;
+    }
+    if let Some(version) = &version {
+        sqlx::query("UPDATE instances SET arr_version = ? WHERE id = ?")
+            .bind(version)
+            .bind(&instance.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    match &folders {
+        Folders::Listed(_) => {
+            sqlx::query("UPDATE instances SET root_folders_read_at = ? WHERE id = ?")
+                .bind(&sync_token)
+                .bind(&instance.id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        Folders::Mounts(mounts) => free_space_of_mounts(&mut tx, &instance.id, mounts).await?,
     }
 
     // A category is set on a path, and follows the path: through a renumbering,
@@ -239,7 +313,7 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // `origin`: a second table would put a `UNION` in `routing::load_context`
     // and in every executor join. So every statement here that drops what the
     // Arr stopped reporting stays scoped to `origin = 'arr'`.
-    for rf in &root_folders {
+    for rf in root_folders {
         // A row holding this id for another path is a folder the Arr no longer
         // reports under it. Kept, it would take this path's place, or break the
         // unique id when a declared path is promoted below.
@@ -351,42 +425,46 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     // drift. Deleting media cascades to its overrides, so an Arr that answers
     // with an empty list (misconfiguration, restore in progress) must never be
     // taken as "the user deleted everything".
-    let (removed, stale_folders) = if media.is_empty() || root_folders.is_empty() {
-        tracing::warn!(
-            instance = %instance.name,
-            "Arr returned an empty media or root-folder list, skipping orphan cleanup"
-        );
-        (0, 0)
-    } else {
-        // Only what was last seen before this pass began reading: the webhook
-        // writes a title the Arr added since under its own timestamp, and that
-        // title is absent from what was read here without being gone.
-        let gone: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?
+    let (removed, stale_folders) =
+        if media.is_empty() || matches!(&folders, Folders::Listed(listed) if listed.is_empty()) {
+            tracing::warn!(
+                instance = %instance.name,
+                "Arr returned an empty media or root-folder list, skipping orphan cleanup"
+            );
+            (0, 0)
+        } else {
+            // Only what was last seen before this pass began reading: the webhook
+            // writes a title the Arr added since under its own timestamp, and that
+            // title is absent from what was read here without being gone.
+            let gone: Vec<String> = sqlx::query_scalar(
+                "SELECT id FROM media WHERE instance_id = ? AND last_synced_at IS NOT ?
                AND (last_synced_at IS NULL OR last_synced_at < ?)",
-        )
-        .bind(&instance.id)
-        .bind(&sync_token)
-        .bind(&read_at)
-        .fetch_all(&mut *tx)
-        .await?;
-        let removed = retire_media(&mut tx, &gone).await?;
+            )
+            .bind(&instance.id)
+            .bind(&sync_token)
+            .bind(&read_at)
+            .fetch_all(&mut *tx)
+            .await?;
+            let removed = retire_media(&mut tx, &gone).await?;
 
-        // Only what the Arr owns. A declared destination is the operator's, and
-        // the first pass after it was typed would otherwise delete it, and the
-        // category mapped onto it with it.
-        let stale_folders = sqlx::query(
-            "DELETE FROM root_folders
-             WHERE instance_id = ? AND last_synced_at IS NOT ? AND origin = 'arr'",
-        )
-        .bind(&instance.id)
-        .bind(&sync_token)
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
+            // Only what the Arr owns. A declared destination is the operator's, and
+            // the first pass after it was typed would otherwise delete it, and the
+            // category mapped onto it with it.
+            let stale_folders = match &folders {
+                Folders::Listed(_) => sqlx::query(
+                    "DELETE FROM root_folders
+                 WHERE instance_id = ? AND last_synced_at IS NOT ? AND origin = 'arr'",
+                )
+                .bind(&instance.id)
+                .bind(&sync_token)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected(),
+                Folders::Mounts(_) => 0,
+            };
 
-        (removed, stale_folders)
-    };
+            (removed, stale_folders)
+        };
 
     tx.commit().await?;
 
@@ -397,10 +475,17 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
         );
     }
 
+    let root_folders: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM root_folders WHERE instance_id = ? AND origin = 'arr'",
+    )
+    .bind(&instance.id)
+    .fetch_one(&state.pool)
+    .await?;
+
     Ok(SyncReport {
         instance_id: instance.id.clone(),
         instance_name: instance.name.clone(),
-        root_folders: root_folders.len(),
+        root_folders: usize::try_from(root_folders).unwrap_or_default(),
         media: media.len(),
         removed,
         error: None,
@@ -432,7 +517,7 @@ pub async fn sync_single_media(
         }
     };
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     let reassigned = reassigned(&mut tx, &instance.id, std::slice::from_ref(&item)).await?;
     retire_media(&mut tx, &reassigned).await?;
     upsert_media(&mut *tx, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
@@ -446,6 +531,68 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
     format!("m-{instance_id}-{arr_id}")
 }
 
+/// The rows whose Arr id now names another title than the one they describe.
+///
+/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
+/// again, and the row's exception and proposals were about the title the id
+/// used to name. Told apart by type and by the one external id the Arr holds
+/// unique: Radarr refuses two films of one TMDb id, and Sonarr two series of
+/// one TheTVDB id. Any other id changes when a metadata source corrects it,
+/// and the row takes the correction.
+async fn reassigned(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+    items: &[crate::integrations::adapter::ArrMedia],
+) -> AppResult<Vec<String>> {
+    type Known = (i64, String, Option<i64>, Option<i64>);
+    // The ids asked about when they fit one statement, as the webhook's one
+    // title does, and the instance read once for a full sync.
+    let rows = if items.len() > crate::services::routing::BIND_CHUNK {
+        sqlx::query_as::<_, Known>(
+            "SELECT arr_id, media_type, tmdb_id, tvdb_id FROM media WHERE instance_id = ?",
+        )
+        .bind(instance_id)
+        .fetch_all(&mut **tx)
+        .await?
+    } else if items.is_empty() {
+        Vec::new()
+    } else {
+        let sql = known_by_arr_id(items.len());
+        let mut query = sqlx::query_as::<_, Known>(AssertSqlSafe(sql.as_str())).bind(instance_id);
+        for item in items {
+            query = query.bind(item.arr_id);
+        }
+        query.fetch_all(&mut **tx).await?
+    };
+    let known: std::collections::HashMap<i64, Known> =
+        rows.into_iter().map(|row| (row.0, row)).collect();
+    let differs =
+        |held: &Option<i64>, now: &Option<i64>| matches!((held, now), (Some(a), Some(b)) if a != b);
+    Ok(items
+        .iter()
+        .filter(|item| {
+            known.get(&item.arr_id).is_some_and(|(_, kind, tmdb, tvdb)| {
+                kind != item.media_type
+                    || match item.media_type {
+                        crate::integrations::adapter::MOVIE => differs(tmdb, &item.tmdb_id),
+                        _ => differs(tvdb, &item.tvdb_id),
+                    }
+            })
+        })
+        .map(|item| media_row_id(instance_id, item.arr_id))
+        .collect())
+}
+
+/// The rows of `count` Arr ids of one instance, read through their unique
+/// index: the webhook checks one title on a library of any size.
+fn known_by_arr_id(count: usize) -> String {
+    format!(
+        "SELECT arr_id, media_type, tmdb_id, tvdb_id FROM media
+          WHERE instance_id = ? AND arr_id IN ({})",
+        crate::db::placeholders(count)
+    )
+}
+
 /// Remove media rows and retire what pointed at them.
 ///
 /// Overrides go with the row (`ON DELETE CASCADE`). Decisions do not reference
@@ -454,42 +601,6 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
 /// `media`. Superseded here, which is the state the list already hides. The
 /// one writer for both paths that lose a row: the full sync and a delete
 /// event.
-/// The rows whose Arr id now names another title than the one they describe.
-///
-/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
-/// again, and the row's exception and proposals were about the title the id
-/// used to name. Told apart by type and by an external id both sides know.
-async fn reassigned(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    instance_id: &str,
-    items: &[crate::integrations::adapter::ArrMedia],
-) -> AppResult<Vec<String>> {
-    type Known = (i64, String, Option<i64>, Option<i64>, Option<String>);
-    let known: std::collections::HashMap<i64, Known> = sqlx::query_as::<_, Known>(
-        "SELECT arr_id, media_type, tmdb_id, tvdb_id, imdb_id FROM media WHERE instance_id = ?",
-    )
-    .bind(instance_id)
-    .fetch_all(&mut **tx)
-    .await?
-    .into_iter()
-    .map(|row| (row.0, row))
-    .collect();
-    let differs =
-        |held: &Option<i64>, now: &Option<i64>| matches!((held, now), (Some(a), Some(b)) if a != b);
-    Ok(items
-        .iter()
-        .filter(|item| {
-            known.get(&item.arr_id).is_some_and(|(_, kind, tmdb, tvdb, imdb)| {
-                kind != item.media_type
-                    || differs(tmdb, &item.tmdb_id)
-                    || differs(tvdb, &item.tvdb_id)
-                    || matches!((imdb, &item.imdb_id), (Some(a), Some(b)) if a.trim() != b.trim())
-            })
-        })
-        .map(|item| media_row_id(instance_id, item.arr_id))
-        .collect())
-}
-
 pub async fn retire_media(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ids: &[String],
@@ -660,6 +771,64 @@ async fn stored_tag_labels(
 /// Run by the sync and again the moment one is declared: waiting for the next
 /// pass would show a new destination with no figures for as long as the
 /// instance's sync interval.
+/// Read whether the Arr's root folders answer, and their free space, for the
+/// folders already known: what an apply asks about a folder stored as asleep.
+/// Adding and removing folders is a full sync's.
+pub async fn refresh_root_folders(state: &AppState, instance_id: &str) -> AppResult<()> {
+    let instance = state.instance(instance_id).await?;
+    let listed = state.adapter(&instance)?.get_root_folders().await?;
+    let now = crate::services::routing::format_timestamp(chrono::Utc::now());
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    for folder in &listed {
+        sqlx::query(
+            "UPDATE root_folders
+                SET accessible = ?, free_space = ?,
+                    last_accessible_at = CASE WHEN ? THEN ? ELSE last_accessible_at END
+              WHERE instance_id = ? AND arr_id = ? AND origin = 'arr'",
+        )
+        .bind(folder.accessible)
+        .bind(folder.free_space)
+        .bind(folder.accessible)
+        .bind(&now)
+        .bind(instance_id)
+        .bind(folder.arr_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    inherit_declared(&mut tx, instance_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// The free space of each folder the Arr reported, taken from the deepest
+/// mount it sits on. A folder on no mount the Arr lists keeps its figure.
+async fn free_space_of_mounts(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+    mounts: &[crate::integrations::adapter::ArrDiskSpace],
+) -> AppResult<()> {
+    let folders: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, path FROM root_folders WHERE instance_id = ? AND origin = 'arr'",
+    )
+    .bind(instance_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for (id, path) in folders {
+        let mount = mounts
+            .iter()
+            .filter(|mount| crate::paths::within(&path, &mount.path))
+            .max_by_key(|mount| crate::paths::key(&mount.path).len());
+        if let Some(free) = mount.and_then(|mount| mount.free_space) {
+            sqlx::query("UPDATE root_folders SET free_space = ? WHERE id = ?")
+                .bind(free)
+                .bind(&id)
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn inherit_declared(
     connection: &mut sqlx::SqliteConnection,
     instance_id: &str,
@@ -701,4 +870,24 @@ pub(crate) async fn inherit_declared(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// One title's check reads its own row through the unique index, not the
+    /// instance's whole library.
+    #[tokio::test]
+    async fn one_title_is_checked_through_the_index() {
+        let pool = crate::db::test_pool().await;
+        let sql = format!("EXPLAIN QUERY PLAN {}", super::known_by_arr_id(1));
+        let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind("inst-1")
+            .bind(10)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let steps: Vec<&str> = plan.iter().map(|step| step.3.as_str()).collect();
+        let by_arr_id = |step: &&str| step.starts_with("SEARCH media") && step.contains("arr_id=?");
+        assert!(steps.iter().any(by_arr_id), "{steps:?}");
+    }
 }

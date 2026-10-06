@@ -39,7 +39,8 @@ pub struct Decision {
     /// Set when the move was rolled back through `POST /decisions/revert`.
     #[serde(default)]
     pub reverted_at: Option<String>,
-    /// What set the decision off: `manual`, `schedule`, `webhook` or `api`.
+    /// What set the decision off: `manual`, `schedule`, `webhook`, `api`, or
+    /// `auto` for the simulation the automation runs after a sync.
     // Every writer sets it. The column is nullable, and a guess at a missing
     // one would read as a fact.
     #[serde(default)]

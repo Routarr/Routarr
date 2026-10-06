@@ -164,7 +164,7 @@ pub async fn list(
          FROM media m
          JOIN instances i ON m.instance_id = i.id
          WHERE 1=1{filters}
-         ORDER BY m.title ASC LIMIT ? OFFSET ?"
+         ORDER BY m.title ASC, m.id ASC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM media m WHERE 1=1{filters}");
 

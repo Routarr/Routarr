@@ -84,6 +84,9 @@ async fn radarr_maps_movies_onto_the_shared_shape() {
 
     let media = adapter.get_media().await.unwrap();
     assert_eq!(media.len(), 1);
+    // Radarr looks up and hashes every cover of the library unless told not to.
+    let asked = arr.recorded().listing_queries[0].get("excludeLocalCovers").cloned();
+    assert_eq!(asked.as_deref(), Some("true"));
     assert_eq!(media[0].media_type, "movie");
     assert_eq!(media[0].tmdb_id, Some(8392));
     assert!(media[0].has_files);
@@ -262,17 +265,18 @@ async fn a_series_payload_that_is_not_an_object_is_reported_rather_than_patched(
     }
 }
 
-/// A series Sonarr knows and does not hold is found by its TheTVDB id and by
-/// its IMDb id, each held to the id asked, and comes back as the lookup
-/// describes it: no Arr id, no folder, the type and monitoring it would be
-/// added with by default.
+/// A series Sonarr knows and does not hold is found by any of its ids, each
+/// held to the id asked, and comes back as the lookup describes it: no Arr
+/// id, no folder, the type and monitoring it would be added with by default.
 #[tokio::test]
-async fn sonarr_finds_a_series_it_does_not_hold_by_either_id() {
+async fn sonarr_finds_a_series_it_does_not_hold_by_any_id() {
     use crate::models::ExternalId;
     let arr = FakeArr::start().await;
     let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
 
-    for id in [ExternalId::Tvdb(81178), ExternalId::Imdb("tt0807832".into())] {
+    for id in
+        [ExternalId::Tvdb(81178), ExternalId::Imdb("tt0807832".into()), ExternalId::Tmdb(26209)]
+    {
         let found = adapter.lookup(&id).await.unwrap().unwrap_or_else(|| panic!("{id:?} missed"));
         assert_eq!(
             (found.arr_id, found.title.as_str(), found.tvdb_id, found.imdb_id.as_deref()),
@@ -284,4 +288,19 @@ async fn sonarr_finds_a_series_it_does_not_hold_by_either_id() {
     }
     let unknown = adapter.lookup(&ExternalId::Tvdb(1)).await.unwrap();
     assert!(unknown.is_none(), "an id nobody knows was found");
+}
+
+/// Sonarr's lookup names a series the library holds by its id, with counts of
+/// zero and no root folder: the series is read whole, as the library has it.
+#[tokio::test]
+async fn a_series_sonarr_holds_is_read_whole_after_its_lookup() {
+    let arr = FakeArr::start().await;
+    let adapter = ArrAdapter::Sonarr(SonarrClient::new(client(), &arr.base_url, "k"));
+
+    let found = adapter.lookup(&crate::models::ExternalId::Tmdb(30991)).await.unwrap().unwrap();
+
+    assert_eq!(found.arr_id, 20);
+    assert!(found.has_files, "the lookup's empty counts were taken");
+    assert_eq!(found.root_folder_path.as_deref(), Some("/tv/standard"));
+    assert_eq!(found.size_on_disk, Some(214_748_364_800));
 }

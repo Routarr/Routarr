@@ -904,6 +904,31 @@ async fn a_selection_whose_proposals_all_go_elsewhere_now_is_refused() {
     assert!(arr.recorded().writes.is_empty());
 }
 
+/// An apply revalidates its titles against their own context, and so waits
+/// for no library pass: a webhook's automatic move of one film would queue
+/// behind two previews of a large library otherwise.
+#[tokio::test]
+async fn an_apply_of_one_title_does_not_wait_for_the_library_passes() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    let _passes = (routing::library_pass().await, routing::library_pass().await);
+
+    let applied = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        executor::apply_decisions(
+            &app.state,
+            std::slice::from_ref(&decision_id),
+            false,
+            &executor::Confirmed::all(),
+            &Attribution::manual(None),
+        ),
+    )
+    .await
+    .expect("the apply waited for the library passes");
+
+    assert_eq!(applied.unwrap().applied, 1);
+}
+
 /// An id sent twice names one decision: one move, counted once, and asked
 /// about once by the guards.
 #[tokio::test]
@@ -1156,6 +1181,7 @@ async fn a_revert_onto_a_folder_that_is_not_answering_asks_first() {
     let arr = FakeArr::start().await;
     let (app, decision_id) = applied(&arr).await;
     origin_folder(&app, false, 1 << 40).await;
+    arr.put_to_sleep("/movies/standard");
     let writes = arr.recorded().writes.len();
     let ids = std::slice::from_ref(&decision_id);
     let by = Attribution::manual(None);
@@ -1756,6 +1782,33 @@ async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     let allowed = apply(&app, &["unreachable"]).await;
     assert_eq!(allowed.status, 200, "confirming did not get past the guard: {}", allowed.json);
     assert_eq!(allowed.json["failed"], 1, "the move never reached the Arr: {}", allowed.json);
+}
+
+/// A folder stored as asleep may have woken since its instance last listed
+/// its folders, which a scheduled sync does once a day: the Arr is asked
+/// again before the person is, and a folder answering now is not asked about.
+#[tokio::test]
+async fn a_destination_that_woke_up_is_not_asked_about() {
+    let arr = FakeArr::start().await;
+    let (app, decision_id) = one_move_ready(&arr).await;
+    // `anime` mapped to `/movies/kids`, which the fake reports answering,
+    // stored as not answering when it was last listed.
+    app.execute(&[
+        "UPDATE root_folders SET path = '/movies/kids', arr_id = 3, accessible = 0
+          WHERE id = 'rf-2'",
+        "UPDATE decisions SET target_root_folder = '/movies/kids'",
+    ])
+    .await;
+
+    let applied = app
+        .post(
+            "/api/v1/decisions/apply",
+            serde_json::json!({ "decision_ids": [decision_id], "move_files": false }),
+        )
+        .await;
+
+    assert_eq!(applied.status, 200, "a folder answering again was asked about: {}", applied.json);
+    assert_eq!(app.count("SELECT accessible FROM root_folders WHERE id = 'rf-2'").await, 1);
 }
 
 /// Every guardrail against every other: with all three asking about one move,

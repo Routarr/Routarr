@@ -1,19 +1,25 @@
 //! Near-real-time routing via Radarr/Sonarr webhooks.
 //!
-//! Handling new additions has to be possible through polling or
-//! through a webhook. Radarr and Sonarr cannot send custom headers, so the
-//! endpoint authenticates with a per-instance token embedded in the URL, which
-//! can be rotated from the Instances screen.
+//! A delivery authenticates with a per-instance token, rotated from the
+//! Instances screen. Radarr 5.16 and Sonarr 4.0.11 send it in a header, as a
+//! Basic password or in `X-Routarr-Token`, and an older Arr in the URL, where
+//! every proxy between the two and the Arr's own log keep it.
 
 use super::Json;
 use axum::extract::State;
+use axum::http::{HeaderMap, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 
 use super::Path;
 use serde::Deserialize;
+use std::collections::HashSet;
+use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use tracing::{info, warn};
 
 use crate::error::{AppError, AppResult};
+use crate::jobs::registry::WaitingPlace;
+use crate::models::Instance;
 use crate::services::auto_apply::{self, AutoApplyOutcome};
 use crate::services::{enrichment, routing, sync};
 use crate::state::AppState;
@@ -33,11 +39,12 @@ pub struct ArrWebhookMedia {
     pub title: Option<String>,
 }
 
-/// How long a delivery waits for the one before it.
-///
-/// Comfortably under the timeout an Arr gives a notification, so a delivery is
-/// answered rather than left to time out at the other end, and long enough
-/// that a season import, which arrives sequentially anyway, never reaches it.
+/// The header an Arr that sends custom headers carries the token in.
+pub const TOKEN_HEADER: &str = "X-Routarr-Token";
+
+/// How long a delivery waits for the one before it, on its own task. A
+/// season import arrives one file at a time, each answered before the next is
+/// sent, so it never reaches it.
 pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 
 /// How many deliveries may wait behind the one in progress, per instance.
@@ -46,28 +53,86 @@ pub const DELIVERY_WAIT: Duration = Duration::from_secs(20);
 /// waiter is already unusual, and four leaves room for a proxy that retries.
 /// The wait is what bounds this route's cost to an unauthenticated caller, and
 /// a queue of waiters with no bound of its own hands that cost straight back:
-/// each one a connection and a task for as long as the wait lasts. Past the
-/// bound a delivery is acknowledged without work.
+/// each one a task for as long as the wait lasts. Past the bound a delivery is
+/// acknowledged without work.
 pub const MAX_WAITING_DELIVERIES: usize = 4;
 
-/// The events that report an item is gone rather than changed.
-const DELETE_EVENTS: [&str; 2] = ["MovieDelete", "SeriesDelete"];
+/// The events that can change where a title belongs, lower-cased: both Arrs
+/// mark their event names as due to change case. `episodefiledelete` is
+/// Sonarr's counterpart of `moviefiledelete`: removing the last episode file
+/// flips `has_files`, and a rule reading it routes the series elsewhere.
+const ACTED_ON: [&str; 8] = [
+    "download",
+    "movieadded",
+    "seriesadd",
+    "rename",
+    "moviefiledelete",
+    "episodefiledelete",
+    "moviedelete",
+    "seriesdelete",
+];
 
-/// Handle one webhook delivery.
+/// The events that report an item is gone rather than changed.
+const DELETE_EVENTS: [&str; 2] = ["moviedelete", "seriesdelete"];
+
+/// The events ignored so far, each logged the first time it arrives.
+static IGNORED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+/// A delivery carrying its token in the URL, for an Arr that sends no header.
 pub async fn receive(
     State(state): State<AppState>,
     Path((instance_id, token)): Path<(String, String)>,
     Json(payload): Json<ArrWebhook>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Response> {
+    deliver(state, &instance_id, Some(token), payload).await
+}
+
+/// A delivery carrying its token in a header.
+pub async fn receive_with_header(
+    State(state): State<AppState>,
+    Path(instance_id): Path<String>,
+    headers: HeaderMap,
+    Json(payload): Json<ArrWebhook>,
+) -> AppResult<Response> {
+    deliver(state, &instance_id, header_token(&headers), payload).await
+}
+
+/// The token of `X-Routarr-Token`, or the password of Basic credentials.
+fn header_token(headers: &HeaderMap) -> Option<String> {
+    use base64::Engine as _;
+    if let Some(token) = headers.get(TOKEN_HEADER).and_then(|value| value.to_str().ok()) {
+        return Some(token.trim().to_string());
+    }
+    let credentials = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
+    let (scheme, encoded) = credentials.trim().split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("basic") {
+        return None;
+    }
+    let decoded = base64::engine::general_purpose::STANDARD.decode(encoded.trim()).ok()?;
+    let (_, password) = String::from_utf8(decoded)
+        .ok()?
+        .split_once(':')
+        .map(|(u, p)| (u.to_string(), p.to_string()))?;
+    Some(password)
+}
+
+/// Handle one webhook delivery.
+async fn deliver(
+    state: AppState,
+    instance_id: &str,
+    token: Option<String>,
+    payload: ArrWebhook,
+) -> AppResult<Response> {
     // One answer whether the id or the token is wrong: the route is reachable
     // without a key, and "instance not found" would confirm which ids exist.
     let instance = state
-        .instance(&instance_id)
+        .instance(instance_id)
         .await
         .map_err(|_| AppError::NotFound("Unknown webhook".into()))?;
 
     let expected = instance.webhook_token.as_deref().unwrap_or_default();
-    if expected.is_empty() || !super::auth::constant_time_eq(&token, expected) {
+    let given = token.unwrap_or_default();
+    if expected.is_empty() || !super::auth::constant_time_eq(&given, expected) {
         warn!(instance = %instance.name, "Rejected a webhook with an invalid token");
         return Err(AppError::NotFound("Unknown webhook".into()));
     }
@@ -79,38 +144,41 @@ pub async fn receive(
     // refusal would only put an error in its log that nobody there can act on.
     if !instance.enabled {
         info!(instance = %instance.name, "Ignored a webhook for a disabled instance");
-        return Ok(Json(serde_json::json!({ "ok": true, "ignored": "instance is disabled" })));
+        return answered(serde_json::json!({ "ok": true, "ignored": "instance is disabled" }));
     }
 
     let event = payload.event_type.clone().unwrap_or_else(|| "Unknown".into());
+    let kind = event.to_ascii_lowercase();
 
     // `Test` is what the Arr sends when the user clicks "Test" in its UI.
-    if event.eq_ignore_ascii_case("Test") {
-        return Ok(Json(serde_json::json!({ "ok": true, "message": "Webhook reachable" })));
+    if kind == "test" {
+        return answered(serde_json::json!({ "ok": true, "message": "Webhook reachable" }));
     }
 
-    // Only events that can change where a media item belongs are worth acting on.
-    if !matches!(
-        event.as_str(),
-        "Download"
-            | "MovieAdded"
-            | "SeriesAdd"
-            | "Rename"
-            | "MovieFileDelete"
-            // Sonarr's counterpart of MovieFileDelete: removing the last
-            // episode file flips `has_files`, and a rule reading it then
-            // routes the series somewhere else.
-            | "EpisodeFileDelete"
-    ) && !DELETE_EVENTS.contains(&event.as_str())
-    {
-        return Ok(Json(serde_json::json!({ "ok": true, "ignored": event })));
+    if !ACTED_ON.contains(&kind.as_str()) {
+        let first = IGNORED.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(kind);
+        if first {
+            info!(instance = %instance.name, event = %event, "Ignoring this webhook event");
+        }
+        return answered(serde_json::json!({ "ok": true, "ignored": event }));
     }
 
-    let media = payload.movie.or(payload.series);
+    // A Radarr address pasted into Sonarr sends series ids, which name other
+    // titles here.
+    let (media, other) = match instance.instance_type.as_str() {
+        "radarr" => (payload.movie, payload.series),
+        _ => (payload.series, payload.movie),
+    };
+    if media.is_none() && other.is_some() {
+        warn!(instance = %instance.name, event = %event, "A webhook for another kind of Arr was ignored");
+        return answered(serde_json::json!({
+            "ok": true, "ignored": "the payload is for another kind of Arr",
+        }));
+    }
     let Some(arr_id) = media.as_ref().and_then(|m| m.id) else {
-        return Ok(Json(
+        return answered(
             serde_json::json!({ "ok": true, "ignored": "payload without a media id" }),
-        ));
+        );
     };
 
     info!(
@@ -120,12 +188,93 @@ pub async fn receive(
         "Webhook received"
     );
 
+    // A place in the queue first, whether or not the lock turns out to be
+    // free: the place is what bounds the queue, and it goes back the moment
+    // the lock is held or the wait given up. A delivery for a title already
+    // waiting adds nothing: the one waiting reads the title when its turn
+    // comes.
+    let Some(item) = state.jobs.try_wait(&format!("webhook:{}:{arr_id}", instance.id), 1) else {
+        return answered(serde_json::json!({
+            "ok": true, "ignored": "a delivery for that item is already waiting",
+        }));
+    };
+    let Some(place) =
+        state.jobs.try_wait(&format!("webhook:{}", instance.id), MAX_WAITING_DELIVERIES)
+    else {
+        warn!(
+            instance = %instance.name,
+            "A delivery found {MAX_WAITING_DELIVERIES} already waiting and was dropped"
+        );
+        return answered(serde_json::json!({
+            "ok": true, "ignored": "too many deliveries are waiting for the instance",
+        }));
+    };
+
+    // On a task of its own, so an Arr that gives up on the delivery leaves the
+    // work to its end, and answered with its outcome when it ends in time.
+    // Past that the Arr is told it was accepted, before its own timeout: an
+    // automatic move can wait minutes for an apply already running.
+    let name = instance.name.clone();
+    let work = state.jobs.spawn_tracked(process(
+        state.clone(),
+        instance,
+        event.clone(),
+        kind,
+        arr_id,
+        [item, place],
+    ));
+    match tokio::time::timeout(state.config.webhook_answer_wait, work).await {
+        Ok(Ok(Ok(body))) => answered(body),
+        Ok(Ok(Err(e))) => Err(e),
+        Ok(Err(e)) => {
+            Err(AppError::Internal(format!("the delivery ended before it reported: {e}")))
+        }
+        Err(_) => {
+            info!(instance = %name, event = %event, "A delivery goes on after its answer");
+            Ok((
+                StatusCode::ACCEPTED,
+                axum::Json(serde_json::json!({ "ok": true, "accepted": true, "event": event })),
+            )
+                .into_response())
+        }
+    }
+}
+
+fn answered(body: serde_json::Value) -> AppResult<Response> {
+    Ok(axum::Json(body).into_response())
+}
+
+/// The work of one delivery: the title synced, enriched, evaluated and, when
+/// allowed, moved. The places in the queue go back once the instance is
+/// held, or the wait given up.
+async fn process(
+    state: AppState,
+    instance: Instance,
+    event: String,
+    kind: String,
+    arr_id: i64,
+    places: [WaitingPlace; 2],
+) -> AppResult<serde_json::Value> {
+    let outcome = run(&state, &instance, &event, &kind, arr_id, places).await;
+    if let Err(e) = &outcome {
+        warn!(instance = %instance.name, event = %event, "A webhook delivery failed: {e}");
+    }
+    outcome
+}
+
+async fn run(
+    state: &AppState,
+    instance: &Instance,
+    event: &str,
+    kind: &str,
+    arr_id: i64,
+    places: [WaitingPlace; 2],
+) -> AppResult<serde_json::Value> {
     // One delivery at a time per instance. This route is the only one an
     // unauthenticated party reaches, and each accepted call costs a request to
     // the Arr, a metadata fetch, a simulation and, with automatic application
-    // armed, a write. The token travels in the URL, so it is in the proxy's
-    // log and in Radarr's own, and once it is read, nothing else bounds what
-    // it can start.
+    // armed, a write. A token read from a URL in a log starts as much, and
+    // nothing else bounds it.
     //
     // Waited for, not skipped. An Arr does not retry a webhook it considers
     // delivered, and the run this guards is scoped to *one* media item, so a
@@ -137,19 +286,6 @@ pub async fn receive(
     let key = format!("webhook:{}", instance.id);
     let deadline = tokio::time::Instant::now() + DELIVERY_WAIT;
 
-    // A place in the queue first, whether or not the lock turns out to be
-    // free: the place is what bounds the queue, and it goes back the moment
-    // the lock is held or the wait given up. Then the lock, in arrival order:
-    // a newcomer never passes a delivery already waiting.
-    let Some(place) = state.jobs.try_wait(&key, MAX_WAITING_DELIVERIES) else {
-        warn!(
-            instance = %instance.name,
-            "A delivery found {MAX_WAITING_DELIVERIES} already waiting and was dropped"
-        );
-        return Ok(Json(serde_json::json!({
-            "ok": true, "ignored": "too many deliveries are waiting for the instance",
-        })));
-    };
     // Past the budget it is dropped after all, and acknowledged rather than
     // refused: an Arr retries neither, and a refusal only fills its log.
     let Some(_delivery) = state.jobs.lock_within(&key, DELIVERY_WAIT).await else {
@@ -158,13 +294,13 @@ pub async fn receive(
             "A delivery waited {}s for the one before it and was dropped",
             DELIVERY_WAIT.as_secs()
         );
-        return Ok(Json(
+        return Ok(
             serde_json::json!({ "ok": true, "ignored": "another delivery held the instance" }),
-        ));
+        );
     };
-    drop(place);
+    drop(places);
 
-    let media_id = sync::sync_single_media(&state, &instance, arr_id).await?;
+    let media_id = sync::sync_single_media(state, instance, arr_id).await?;
 
     // Read from the row the sync just wrote rather than from the payload: a
     // delivery may omit `tmdbId`, as older Sonarr does, and enrichment would
@@ -180,7 +316,7 @@ pub async fn receive(
         // Metadata must exist before the rules run, otherwise the first decision
         // for a brand-new item always falls back to the default category.
         if let Some((Some(tmdb_id), media_type)) = identity
-            && let Err(e) = enrichment::enrich_one(&state, tmdb_id, &media_type).await
+            && let Err(e) = enrichment::enrich_one(state, tmdb_id, &media_type).await
         {
             warn!("Webhook enrichment failed for TMDb {tmdb_id}: {e}");
         }
@@ -198,7 +334,7 @@ pub async fn receive(
     // full sync (which reads the whole list and refuses to act on an empty
     // one) is the safer judge of what is gone.
     let Some(only) = media_id.clone() else {
-        let retired = if DELETE_EVENTS.contains(&event.as_str()) {
+        let retired = if DELETE_EVENTS.contains(&kind) {
             // After any synchronisation in flight. One that read the Arr
             // before the deletion writes the row back, stamped current, and
             // keeps it until the next full pass. Retired once it has
@@ -214,12 +350,12 @@ pub async fn receive(
                     instance = %instance.name,
                     "A delete waited for a synchronisation past the budget and was dropped"
                 );
-                return Ok(Json(serde_json::json!({
+                return Ok(serde_json::json!({
                     "ok": true, "event": event, "media_id": serde_json::Value::Null,
                     "retired": 0, "ignored": "a synchronisation held the instance",
-                })));
+                }));
             };
-            let mut tx = state.pool.begin().await?;
+            let mut tx = crate::db::write_transaction(&state.pool).await?;
             let retired =
                 sync::retire_media(&mut tx, &[sync::media_row_id(&instance.id, arr_id)]).await?;
             tx.commit().await?;
@@ -228,10 +364,10 @@ pub async fn receive(
             0
         };
         info!(instance = %instance.name, event = %event, retired, "The Arr no longer has that item");
-        return Ok(Json(serde_json::json!({
+        return Ok(serde_json::json!({
             "ok": true, "event": event, "media_id": serde_json::Value::Null,
             "retired": retired, "ignored": "the Arr no longer has that item",
-        })));
+        }));
     };
 
     // Re-evaluate just this item. Radarr sends a `Download` event per imported
@@ -255,9 +391,9 @@ pub async fn receive(
     // and nothing has downloaded yet, so the root folder can be corrected while
     // the folder is still empty. auto_apply decides whether it is allowed to.
     let auto_applied = match auto_apply::apply_simulation(
-        &state,
+        state,
         &result.simulation_id,
-        crate::jobs::TRIGGER_WEBHOOK,
+        &crate::jobs::Attribution::unattended(crate::jobs::TRIGGER_WEBHOOK),
     )
     .await
     {
@@ -272,11 +408,11 @@ pub async fn receive(
         }
     };
 
-    Ok(Json(serde_json::json!({
+    Ok(serde_json::json!({
         "ok": true,
         "event": event,
         "media_id": media_id,
         "moves_required": result.moves_required,
         "auto_applied": auto_applied,
-    })))
+    }))
 }

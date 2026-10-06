@@ -102,7 +102,7 @@ pub async fn list(
     let list_sql = format!(
         "SELECT {DECISION_COLUMNS}, CASE WHEN {} THEN 1 ELSE 0 END AS revertible
          FROM decisions d WHERE 1=1{filters}
-         ORDER BY decided_at DESC, media_title ASC LIMIT ? OFFSET ?",
+         ORDER BY decided_at DESC, media_title ASC, id ASC LIMIT ? OFFSET ?",
         executor::REVERTIBLE
     );
     let count_sql = format!("SELECT COUNT(*) FROM decisions WHERE 1=1{filters}");

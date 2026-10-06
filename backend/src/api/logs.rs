@@ -23,8 +23,8 @@ pub struct LogEntry {
     pub instance_id: Option<String>,
     pub media_id: Option<String>,
     pub media_title: Option<String>,
-    /// What set the write off: `manual`, `schedule`, `webhook`, or `api` for an
-    /// application key.
+    /// What set the write off: `manual`, `schedule`, `webhook`, `api` for an
+    /// application key, or `auto` for a move the automation applied.
     pub actor: Option<String>,
     /// Who asked, when the mode vouched for a name, or the application key's
     /// name. An application key reads its own name here and `null` for anyone
@@ -58,7 +58,7 @@ pub async fn list(
 
     let list_sql = format!(
         "SELECT {COLUMNS} FROM execution_logs WHERE 1=1{filters}
-         ORDER BY executed_at DESC LIMIT ? OFFSET ?"
+         ORDER BY executed_at DESC, id DESC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM execution_logs WHERE 1=1{filters}");
 
@@ -84,7 +84,7 @@ pub async fn export(
     let (filters, binds) = build_filters(&query);
 
     let sql = format!(
-        "SELECT {COLUMNS} FROM execution_logs WHERE 1=1{filters} ORDER BY executed_at DESC LIMIT 50000"
+        "SELECT {COLUMNS} FROM execution_logs WHERE 1=1{filters} ORDER BY executed_at DESC, id DESC LIMIT 50000"
     );
     let mut list_query = sqlx::query_as::<_, LogEntry>(AssertSqlSafe(sql.as_str()));
     for bind in &binds {

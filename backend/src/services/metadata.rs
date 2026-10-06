@@ -570,20 +570,36 @@ pub async fn load_identifiers(pool: &SqlitePool) -> AppResult<Identifiers> {
 }
 
 /// The resolutions made for one item, which is all one media page reads.
-pub async fn load_identifiers_of(pool: &SqlitePool, media: &Media) -> AppResult<Identifiers> {
-    let rows: Vec<(String, String, String, Option<String>)> = sqlx::query_as(
-        "SELECT source, media_type, local_key, external_id FROM source_identifiers
-          WHERE media_type = ? AND local_key = ?",
-    )
-    .bind(&media.media_type)
-    .bind(local_key(media))
-    .fetch_all(pool)
-    .await?;
-
-    Ok(rows
-        .into_iter()
-        .map(|(source, kind, key, external)| ((source, kind, key), external))
-        .collect())
+pub async fn load_identifiers_of(pool: &SqlitePool, media: &[Media]) -> AppResult<Identifiers> {
+    let mut keys: HashMap<&str, Vec<String>> = HashMap::new();
+    for item in media {
+        keys.entry(item.media_type.as_str()).or_default().push(local_key(item));
+    }
+    let mut identifiers = Identifiers::new();
+    for (kind, keys) in keys {
+        for chunk in keys.chunks(crate::services::routing::BIND_CHUNK) {
+            let sql = format!(
+                "SELECT source, media_type, local_key, external_id FROM source_identifiers
+                  WHERE media_type = ? AND local_key IN ({})",
+                crate::db::placeholders(chunk.len())
+            );
+            let mut query = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+                AssertSqlSafe(sql.as_str()),
+            )
+            .bind(kind);
+            for key in chunk {
+                query = query.bind(key);
+            }
+            identifiers.extend(
+                query
+                    .fetch_all(pool)
+                    .await?
+                    .into_iter()
+                    .map(|(source, kind, key, external)| ((source, kind, key), external)),
+            );
+        }
+    }
+    Ok(identifiers)
 }
 
 /// How long a search that found nothing holds before the source is asked again.
@@ -769,34 +785,53 @@ pub async fn load_cache(
         .collect())
 }
 
-/// The cached answers for one item, keyed as [`load_cache`] keys the library's.
+/// The cached answers for the items named, keyed as [`load_cache`] keys the
+/// library's.
 ///
 /// Every column of each row, `CACHE_COLUMNS`: the one-item readers show the
 /// status, the synopsis and the poster beside what the rules read. One lookup
-/// per source that holds an identifier for the item.
+/// per source and media type that holds an identifier for an item, its ids
+/// bound in chunks.
 pub async fn load_cache_of(
     pool: &SqlitePool,
-    media: &Media,
+    media: &[Media],
     providers: &[&'static ProviderInfo],
     identifiers: &Identifiers,
 ) -> AppResult<HashMap<(String, String, String), ProviderMetadata>> {
+    #[derive(sqlx::FromRow)]
+    struct KeyedRow {
+        external_id: String,
+        #[sqlx(flatten)]
+        answer: CacheRow,
+    }
+
     let mut cache = HashMap::new();
     for provider in providers.iter().filter(|provider| provider.id != ARR) {
-        let Some(external_id) = external_id(provider, media, identifiers) else {
-            continue;
-        };
-        let row: Option<CacheRow> = sqlx::query_as(AssertSqlSafe(format!(
-            "SELECT {CACHE_COLUMNS} FROM metadata_cache
-              WHERE source = ? AND external_id = ? AND media_type = ?"
-        )))
-        .bind(provider.id)
-        .bind(&external_id)
-        .bind(&media.media_type)
-        .fetch_optional(pool)
-        .await?;
-        if let Some(row) = row {
-            let key = (provider.id.to_string(), external_id, media.media_type.clone());
-            cache.insert(key, row.into_answer());
+        let mut ids: HashMap<&str, HashSet<String>> = HashMap::new();
+        for item in media {
+            if let Some(external_id) = external_id(provider, item, identifiers) {
+                ids.entry(item.media_type.as_str()).or_default().insert(external_id);
+            }
+        }
+        for (kind, ids) in ids {
+            let ids: Vec<String> = ids.into_iter().collect();
+            for chunk in ids.chunks(crate::services::routing::BIND_CHUNK) {
+                let sql = format!(
+                    "SELECT external_id, {CACHE_COLUMNS} FROM metadata_cache
+                      WHERE source = ? AND media_type = ? AND external_id IN ({})",
+                    crate::db::placeholders(chunk.len())
+                );
+                let mut query = sqlx::query_as::<_, KeyedRow>(AssertSqlSafe(sql.as_str()))
+                    .bind(provider.id)
+                    .bind(kind);
+                for id in chunk {
+                    query = query.bind(id);
+                }
+                for row in query.fetch_all(pool).await? {
+                    let key = (provider.id.to_string(), row.external_id, kind.to_string());
+                    cache.insert(key, row.answer.into_answer());
+                }
+            }
         }
     }
     Ok(cache)

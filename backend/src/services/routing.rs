@@ -155,7 +155,7 @@ pub async fn load_library(
         )
         .await?;
         if let [item] = media.as_slice() {
-            let ctx = load_context(pool, Scope::Item(item)).await?;
+            let ctx = load_context(pool, Scope::Items(std::slice::from_ref(item))).await?;
             return Ok(LoadedLibrary { _pass: None, loaded_in: started.elapsed(), ctx, media });
         }
     }
@@ -511,7 +511,7 @@ pub async fn route_one_with(
     now: chrono::DateTime<Utc>,
     fresh: Fresh,
 ) -> AppResult<ItemRoute> {
-    let mut ctx = load_context(pool, Scope::Item(media)).await?;
+    let mut ctx = load_context(pool, Scope::Items(std::slice::from_ref(media))).await?;
     for (key, answer) in fresh.metadata {
         ctx.metadata.entry(key).or_insert(answer);
     }
@@ -524,57 +524,33 @@ pub async fn route_one_with(
 }
 
 /// Where the rules and mappings as they stand now send the items an apply is
-/// about to move, the routing context held from one slice of the apply to the
-/// next.
+/// about to move. `None` for an item they send nowhere, its category having no
+/// folder on its instance, and no entry for an id with no media row.
 ///
-/// A slice reloads it only when something it reads changed since: the rules,
-/// the pins, the folders and their mappings, the instances, the metadata and
-/// the two settings it reads, which `routing_generation` counts. Loading it
-/// reads the whole metadata cache, once per slice of a large library
-/// otherwise, and a change between two slices still reaches the next one.
-#[derive(Default)]
-pub struct Revalidation {
-    loaded: Option<(i64, RoutingContext)>,
-}
-
-impl Revalidation {
-    /// `None` for an item they send nowhere, its category having no folder on
-    /// its instance, and no entry for an id with no media row. This is what an
-    /// apply checks a proposal against: a proposal records what the rules said
-    /// when the simulation ran, and nothing retires it when a rule, a mapping
-    /// or the metadata changes afterwards.
-    ///
-    /// Holds a library-pass permit, since a reload reads the whole metadata
-    /// cache, which is what that bound exists for.
-    pub async fn targets(
-        &mut self,
-        pool: &SqlitePool,
-        media_ids: &[String],
-    ) -> AppResult<HashMap<String, Option<String>>> {
-        let mut targets = HashMap::with_capacity(media_ids.len());
-        if media_ids.is_empty() {
-            return Ok(targets);
-        }
-
-        let _pass = library_pass().await;
-        // Read before the load: a change landing in between leaves the context
-        // newer than its number, and the next slice loads it once more.
-        let generation: i64 =
-            sqlx::query_scalar("SELECT value FROM routing_generation").fetch_one(pool).await?;
-        let ctx = match self.loaded.take() {
-            Some((held, ctx)) if held == generation => ctx,
-            _ => load_context(pool, Scope::Library).await?,
-        };
-        let ctx = &self.loaded.insert((generation, ctx)).1;
-        let now = Utc::now();
-        for chunk in media_ids.chunks(BIND_CHUNK) {
-            for media in load_media(pool, &[], Some(chunk), None).await? {
-                let Route { target, .. } = route(ctx, &media, &ctx.rules, now);
-                targets.insert(media.id, target);
-            }
-        }
-        Ok(targets)
+/// What an apply checks a proposal against: a proposal records what the rules
+/// said when the simulation ran, and nothing retires it when a rule, a mapping
+/// or the metadata changes afterwards. The context is the items' own, so a
+/// slice costs what its items cost and waits for no library pass.
+pub async fn revalidated_targets(
+    pool: &SqlitePool,
+    media_ids: &[String],
+) -> AppResult<HashMap<String, Option<String>>> {
+    let mut media = Vec::with_capacity(media_ids.len());
+    for chunk in media_ids.chunks(BIND_CHUNK) {
+        media.extend(load_media(pool, &[], Some(chunk), None).await?);
     }
+    if media.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let ctx = load_context(pool, Scope::Items(&media)).await?;
+    let now = Utc::now();
+    Ok(media
+        .into_iter()
+        .map(|item| {
+            let Route { target, .. } = route(&ctx, &item, &ctx.rules, now);
+            (item.id, target)
+        })
+        .collect())
 }
 
 #[derive(Default)]
@@ -656,38 +632,49 @@ pub fn parse_timestamp(raw: &str) -> Option<chrono::DateTime<Utc>> {
 /// Which items a context is loaded for.
 #[derive(Clone, Copy)]
 enum Scope<'a> {
-    /// Every item: a simulation, a rule report, an apply's revalidation.
+    /// Every item: a simulation, a rule report.
     Library,
-    /// One item, for the explanation panel, which does not load the whole
-    /// metadata cache to explain one title.
-    Item(&'a Media),
+    /// The items named: the explanation panel, the webhook's one title and
+    /// an apply's slice, none of which loads the whole metadata cache.
+    Items(&'a [Media]),
 }
 
 /// Load rules, overrides, mappings and metadata in a fixed number of queries.
 ///
-/// Every table read here counts its changes in `routing_generation`, through
-/// the triggers of `migrations/014_routing_generation.sql`: a table read here
-/// without its triggers changes nothing a [`Revalidation`] sees, and an apply
-/// in slices keeps routing on what it held before.
-///
-/// One statement per table whatever the scope, an item's narrowed by its id
-/// and its instance: the panel and the simulation read the mappings alike.
+/// One statement per table whatever the scope, the items' ids bound in chunks:
+/// the panel, an apply and the simulation read the mappings alike. A single
+/// item's narrowed to its instance.
 async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingContext> {
     let rules = load_rules(pool).await?;
-    let (media_id, instance_id) = match scope {
-        Scope::Library => (None, None),
-        Scope::Item(media) => (Some(media.id.as_str()), Some(media.instance_id.as_str())),
+    let instance_id = match scope {
+        Scope::Items([media]) => Some(media.instance_id.as_str()),
+        _ => None,
     };
 
-    let overrides: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
-        "SELECT media_id, target_category FROM overrides WHERE ? IS NULL OR media_id = ?",
-    )
-    .bind(media_id)
-    .bind(media_id)
-    .fetch_all(pool)
-    .await?
-    .into_iter()
-    .collect();
+    let overrides: HashMap<String, String> = match scope {
+        Scope::Library => {
+            sqlx::query_as::<_, (String, String)>("SELECT media_id, target_category FROM overrides")
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .collect()
+        }
+        Scope::Items(media) => {
+            let mut overrides = HashMap::new();
+            for chunk in media.chunks(BIND_CHUNK) {
+                let sql = format!(
+                    "SELECT media_id, target_category FROM overrides WHERE media_id IN ({})",
+                    crate::db::placeholders(chunk.len())
+                );
+                let mut query = sqlx::query_as::<_, (String, String)>(AssertSqlSafe(sql.as_str()));
+                for item in chunk {
+                    query = query.bind(&item.id);
+                }
+                overrides.extend(query.fetch_all(pool).await?);
+            }
+            overrides
+        }
+    };
 
     let root_folders: HashMap<(String, String), String> =
         sqlx::query_as::<_, (String, String, String)>(
@@ -757,7 +744,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         Scope::Library => {
             (metadata::load_identifiers(pool).await?, metadata::load_cache(pool).await?)
         }
-        Scope::Item(media) => {
+        Scope::Items(media) => {
             let identifiers = metadata::load_identifiers_of(pool, media).await?;
             let cache = metadata::load_cache_of(pool, media, &providers, &identifiers).await?;
             (identifiers, cache)

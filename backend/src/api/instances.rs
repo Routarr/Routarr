@@ -43,9 +43,13 @@ pub async fn get_one(
 fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceResponse {
     let response = InstanceResponse::from_instance(instance, &state.config.base_path);
     match identity.application {
-        Some(_) => {
-            InstanceResponse { webhook_url: None, api_key_masked: String::new(), ..response }
-        }
+        Some(_) => InstanceResponse {
+            webhook_url: None,
+            webhook_path: None,
+            webhook_token: None,
+            api_key_masked: String::new(),
+            ..response
+        },
         None => response,
     }
 }
@@ -106,7 +110,7 @@ pub async fn update(
     };
 
     let instance_type = req.instance_type.to_lowercase();
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     sqlx::query(
         "UPDATE instances SET name = ?, instance_type = ?, base_url = ?, api_key = ?,
          enabled = ?, sync_interval_minutes = ?, updated_at = datetime('now')
@@ -151,7 +155,7 @@ pub async fn remove(
         ));
     };
     // One transaction: the proposals go with the instance or not at all.
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
     let result =
         sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&mut *tx).await?;
@@ -207,6 +211,8 @@ pub struct TestConnectionResponse {
     pub app_name: Option<String>,
     pub root_folders: usize,
     pub inaccessible_root_folders: usize,
+    /// What this release of the Arr lacks, below the oldest Routarr supports.
+    pub warning: Option<String>,
 }
 
 pub async fn test(
@@ -279,9 +285,11 @@ async fn check(
     }
     let root_folders = adapter.get_root_folders().await.map_err(explain)?;
 
+    let warning = crate::api::health::below_version(localizer, kind, None, &status.version);
     Ok(TestConnectionResponse {
         success: true,
         version: status.version,
+        warning,
         app_name: status.app_name,
         root_folders: root_folders.len(),
         inaccessible_root_folders: root_folders.iter().filter(|rf| !rf.accessible).count(),
@@ -318,7 +326,7 @@ pub async fn sync_all(
         };
         let failed = reports.iter().filter(|report| report.error.is_some()).count();
         if failed < reports.len() {
-            crate::jobs::scheduler::follow_sync(&state, &by.trigger).await;
+            crate::jobs::scheduler::follow_sync(&state, &by).await;
         }
         job.report(&reports);
         let detail = Detail::new("JobDetailSyncedAll")
@@ -344,7 +352,7 @@ pub async fn sync_now(
     let work = async move {
         match sync::sync_instance(&task_state, &id, &by).await {
             Ok(report) => {
-                crate::jobs::scheduler::follow_sync(&task_state, &by.trigger).await;
+                crate::jobs::scheduler::follow_sync(&task_state, &by).await;
                 Ok(report)
             }
             Err(error) => Err(explained(&task_state, &id, error).await),

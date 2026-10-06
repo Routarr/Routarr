@@ -38,7 +38,7 @@ paths:
 Each of these questions has one function. Call it, never spell the question again:
 
 - where an item goes: `routing::route`, shared by the simulation, the executor's revalidation
-  (`routing::Revalidation`), the explanation and `GET /route` (`routing::route_one_with`,
+  (`routing::revalidated_targets`), the explanation and `GET /route` (`routing::route_one_with`,
   which takes a title the library does not hold as a media row it never writes)
 - whether an item has matchable metadata: `api::media::metadata_predicate`
 - every warning: `offline_warnings` in `backend/src/api/health.rs`, returned by both `/status`
@@ -77,9 +77,10 @@ Each of these questions has one function. Call it, never spell the question agai
   that name and fails until both are there. A column named otherwise escapes both.
 - A check and the write it guards share one `db::write_transaction` (`BEGIN IMMEDIATE`): under a
   plain `BEGIN` another writer slips in between, as a category removed while a rule naming it
-  is saved. Read the localizer before opening it, since a pool of one connection (the tests')
-  cannot serve that read meanwhile. `race::checked` marks the point a test holds a writer at
-  (`backend/src/tests/races.rs`).
+  is saved, and a transaction reading before it writes fails at once with "database is locked"
+  behind another writer, whatever the busy timeout. Read the localizer before opening it, since
+  a pool of one connection (the tests') cannot serve that read meanwhile. `race::checked` marks
+  the point a test holds a writer at (`backend/src/tests/races.rs`).
 - Declared and synced folders share `root_folders`, told apart by `origin`: a second table
   would put a `UNION` in `routing::load_context` and in every executor join.
 - A `root_folders` row with `origin = 'declared'` belongs to the operator. A cleanup of folders

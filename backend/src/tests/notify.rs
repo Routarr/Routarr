@@ -436,8 +436,12 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
     let simulation = an_unattended_move(&app, &arr).await;
 
-    let outcome =
-        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook").await;
+    let outcome = crate::services::auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await;
 
     assert!(
         matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 1),
@@ -451,6 +455,55 @@ async fn an_unattended_apply_the_arr_refuses_is_notified() {
     assert!(text.contains("Failures: 1") && text.contains("Totoro"), "{text}");
 }
 
+/// More moves than one unattended run may make leaves every one of them to a
+/// person, which nobody sees unless told: said once as the holding starts,
+/// warned of on `/status` while it lasts, and cleared by a pass under the cap.
+#[tokio::test]
+async fn a_sweep_held_over_the_cap_is_announced_once_and_warned_of() {
+    let receiver = Receiver::start().await;
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = TestApp::new().await;
+    app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
+    app.seed_one_film_to_move(&arr, false).await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, current_path,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira', 8392, '/movies/standard/Akira',
+                 '/movies/standard', 1, 0)",
+    ])
+    .await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    app.store_setting("batch_limit", "1").await;
+    let simulation = app.simulate().await;
+    let by = crate::jobs::Attribution::unattended("schedule");
+    let warned = |body: &serde_json::Value| {
+        body["warnings"].as_array().unwrap().iter().any(|w| w["code"] == "auto_apply_held")
+    };
+
+    for _ in 0..2 {
+        let outcome =
+            crate::services::auto_apply::apply_simulation(&app.state, &simulation, &by).await;
+        assert!(matches!(outcome, Ok(AutoApplyOutcome::OverCap { .. })), "{outcome:?}");
+    }
+    let held = app.get("/api/v1/status").await;
+    assert!(warned(held.assert_ok()), "{}", held.json);
+
+    app.store_setting("batch_limit", "2").await;
+    crate::services::auto_apply::apply_simulation(&app.state, &simulation, &by).await.unwrap();
+    let cleared = app.get("/api/v1/status").await;
+    assert!(!warned(cleared.assert_ok()), "{}", cleared.json);
+    let messages = receiver.arrived(1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let held: Vec<_> = receiver
+        .messages()
+        .into_iter()
+        .filter(|message| message["event"] == "auto_apply_held")
+        .collect();
+    assert_eq!(held.len(), 1, "{messages:?}");
+    assert_eq!(held[0]["data"], serde_json::json!({ "candidates": 2, "cap": 1 }));
+}
+
 /// An unattended apply that moved everything raises no alarm. The instance
 /// found unreachable after it is the barrier: its message, sent later, is the
 /// first and only one to arrive.
@@ -462,8 +515,12 @@ async fn an_unattended_apply_that_moved_everything_raises_no_alarm() {
     app.save_setting("notification_webhook_url", &receiver.url).await.assert_ok();
     let simulation = an_unattended_move(&app, &arr).await;
 
-    let outcome =
-        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook").await;
+    let outcome = crate::services::auto_apply::apply_simulation(
+        &app.state,
+        &simulation,
+        &crate::jobs::Attribution::unattended("webhook"),
+    )
+    .await;
     assert!(
         matches!(&outcome, Ok(AutoApplyOutcome::Applied(report)) if report.failed == 0),
         "{outcome:?}"
@@ -488,7 +545,11 @@ async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
 
     let applied = tokio::time::timeout(
         std::time::Duration::from_secs(5),
-        crate::services::auto_apply::apply_simulation(&app.state, &simulation, "webhook"),
+        crate::services::auto_apply::apply_simulation(
+            &app.state,
+            &simulation,
+            &crate::jobs::Attribution::unattended("webhook"),
+        ),
     )
     .await;
 

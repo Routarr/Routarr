@@ -1379,7 +1379,7 @@
             "type": "string"
           },
           "actor": {
-            "description": "What set the decision off: `manual`, `schedule`, `webhook` or `api`.",
+            "description": "What set the decision off: `manual`, `schedule`, `webhook`, `api`, or\n`auto` for the simulation the automation runs after a sync.",
             "type": [
               "string",
               "null"
@@ -1889,8 +1889,22 @@
           "updated_at": {
             "type": "string"
           },
+          "webhook_path": {
+            "description": "The same without the token, which goes in `X-Routarr-Token`: Radarr\n5.16 and Sonarr 4.0.11 send custom headers. `null` for an application\nkey.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "webhook_token": {
+            "description": "The token for `X-Routarr-Token`. `null` for an application key.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "webhook_url": {
-            "description": "Relative URL to register in Radarr/Sonarr's webhook connection. `null`\nfor an application key: its token lets anyone post events as the Arr.",
+            "description": "Relative URL to register in Radarr/Sonarr's webhook connection, the\ntoken in it, for an Arr that sends no custom header. `null` for an\napplication key: its token lets anyone post events as the Arr.",
             "type": [
               "string",
               "null"
@@ -1971,7 +1985,7 @@
             ]
           },
           "trigger": {
-            "description": "What set the task off: `manual`, `schedule`, `webhook` or `api`.",
+            "description": "What set the task off: `manual`, `schedule`, `webhook`, `api`, or `auto`\nfor what the automation runs after a sync.",
             "type": "string"
           }
         },
@@ -2066,7 +2080,7 @@
             "type": "string"
           },
           "actor": {
-            "description": "What set the write off: `manual`, `schedule`, `webhook`, or `api` for an\napplication key.",
+            "description": "What set the write off: `manual`, `schedule`, `webhook`, `api` for an\napplication key, or `auto` for a move the automation applied.",
             "type": [
               "string",
               "null"
@@ -2783,7 +2797,7 @@
         "description": "An exception, with the title it pins."
       },
       "Page_Decision": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -2794,7 +2808,7 @@
                   "type": "string"
                 },
                 "actor": {
-                  "description": "What set the decision off: `manual`, `schedule`, `webhook` or `api`.",
+                  "description": "What set the decision off: `manual`, `schedule`, `webhook`, `api`, or\n`auto` for the simulation the automation runs after a sync.",
                   "type": [
                     "string",
                     "null"
@@ -2946,7 +2960,7 @@
         "type": "object"
       },
       "Page_Job": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -3009,7 +3023,7 @@
                   ]
                 },
                 "trigger": {
-                  "description": "What set the task off: `manual`, `schedule`, `webhook` or `api`.",
+                  "description": "What set the task off: `manual`, `schedule`, `webhook`, `api`, or `auto`\nfor what the automation runs after a sync.",
                   "type": "string"
                 }
               },
@@ -3037,7 +3051,7 @@
         "type": "object"
       },
       "Page_LogEntry": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -3046,7 +3060,7 @@
                   "type": "string"
                 },
                 "actor": {
-                  "description": "What set the write off: `manual`, `schedule`, `webhook`, or `api` for an\napplication key.",
+                  "description": "What set the write off: `manual`, `schedule`, `webhook`, `api` for an\napplication key, or `auto` for a move the automation applied.",
                   "type": [
                     "string",
                     "null"
@@ -3126,7 +3140,7 @@
         "type": "object"
       },
       "Page_MediaListItem": {
-        "description": "Standard pagination envelope shared by every list endpoint.",
+        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
@@ -4470,7 +4484,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping` or `certification_country_outside_regions`.\nThe list may grow.",
+            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`auto_apply_held` or `arr_below_version`.\nThe list may grow.",
             "type": "string"
           },
           "guide_step": {

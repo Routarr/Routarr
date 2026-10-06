@@ -14,6 +14,10 @@ pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 /// the next sync.
 const MOVE_WAIT: Duration = Duration::from_secs(60);
 
+/// How long a webhook delivery is answered within, under the timeout an Arr
+/// gives a notification.
+const WEBHOOK_ANSWER_WAIT: Duration = Duration::from_secs(20);
+
 /// The directory a database file lives in.
 ///
 /// One place for every caller: `Path::new(":memory:").parent()` is `Some("")`,
@@ -223,6 +227,9 @@ pub struct Config {
     /// How long an apply follows the Arr's moves of files before it records
     /// the ones still running as requested, for the next sync to settle.
     pub move_wait: Duration,
+    /// How long a webhook delivery is answered within: past it the Arr is told
+    /// the delivery was accepted, and the work goes on.
+    pub webhook_answer_wait: Duration,
     /// Master key sealing the stored secrets (the Arr and metadata source keys).
     /// Generated beside the database if absent.
     pub secret_key: Option<String>,
@@ -376,6 +383,7 @@ impl Config {
             )?),
             library_timeout: crate::http::LIBRARY_TIMEOUT,
             move_wait: MOVE_WAIT,
+            webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
             // Bounds how many requests are *open* per source, and `rate_limit`
@@ -557,6 +565,7 @@ impl Config {
             http_timeout: Duration::from_millis(300),
             library_timeout: Duration::from_millis(900),
             move_wait: Duration::from_secs(2),
+            webhook_answer_wait: Duration::from_secs(5),
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
             previous_secret_key: None,
             metadata_concurrency: 2,

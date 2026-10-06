@@ -171,7 +171,7 @@ async fn reap(state: &AppState, chain: JoinHandle<()>) {
 /// one is still running: it reads the library when it starts, so what this
 /// sync wrote is picked up by the next one. Two never run at once, since each
 /// drains the same backlog at the same paced sources.
-pub async fn follow_sync(state: &AppState, trigger: &str) {
+pub async fn follow_sync(state: &AppState, by: &Attribution) {
     let mut slot = state.post_sync.lock().await;
     match slot.as_ref() {
         Some(running) if !running.is_finished() => {
@@ -181,17 +181,17 @@ pub async fn follow_sync(state: &AppState, trigger: &str) {
             if let Some(finished) = slot.take() {
                 reap(state, finished).await;
             }
-            *slot = Some(spawn_post_sync(state.clone(), trigger.to_string()));
+            *slot = Some(spawn_post_sync(state.clone(), Attribution::automatic(by)));
         }
     }
 }
 
 /// What follows a sync: enrich what is new, simulate, and apply what the
 /// unattended guardrails allow. On a task of its own, for the reason `tick`
-/// gives, under the trigger of the sync it follows.
-fn spawn_post_sync(state: AppState, trigger: String) -> JoinHandle<()> {
+/// gives, attributed to the automation and to whoever set the sync off.
+fn spawn_post_sync(state: AppState, by: Attribution) -> JoinHandle<()> {
     tokio::spawn(async move {
-        if let Err(e) = enrichment::enrich_all_media(&state, &trigger).await {
+        if let Err(e) = enrichment::enrich_all_media(&state, &by).await {
             error!("Enrichment after a sync failed: {e}");
         }
 
@@ -206,36 +206,67 @@ fn spawn_post_sync(state: AppState, trigger: String) -> JoinHandle<()> {
         if state.bool_setting("auto_simulate_enabled", true).await
             && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
         {
-            let options = routing::SimulationOptions {
-                trigger: trigger.clone(),
-                persist: true,
-                language: state.language().await,
-                ..Default::default()
-            };
-            match routing::run_simulation(&state.pool, options).await {
-                Ok(result) => {
-                    crate::services::notify::send_later(
-                        &state,
-                        crate::services::notify::Event::SimulationCompleted {
-                            simulation_id: result.simulation_id.clone(),
-                            total: result.total_media,
-                            moves: result.moves_required,
-                        },
-                    );
-                    // Catches what the webhook missed: an instance without a
-                    // webhook configured, or an item added while Routarr was
-                    // down. Same guardrails: only file-free media, capped, and
-                    // nothing at all if the sweep is too large.
-                    if let Err(e) =
-                        auto_apply::apply_simulation(&state, &result.simulation_id, &trigger).await
-                    {
-                        error!("Auto-apply after a sync failed: {e}");
-                    }
-                }
-                Err(e) => error!("Simulation after a sync failed: {e}"),
+            let Some(result) = simulate_after_sync(&state, &by).await else { return };
+            // Catches what the webhook missed: an instance without a webhook
+            // configured, or an item added while Routarr was down. Same
+            // guardrails: only file-free media, capped, and nothing at all if
+            // the sweep is too large.
+            if let Err(e) = auto_apply::apply_simulation(&state, &result.simulation_id, &by).await {
+                error!("Auto-apply after a sync failed: {e}");
             }
         }
     })
+}
+
+/// The simulation that follows a sync, as a task the Tasks screen lists with
+/// its outcome, its proposals left to `/decisions`.
+async fn simulate_after_sync(
+    state: &AppState,
+    by: &Attribution,
+) -> Option<crate::models::SimulationResult> {
+    let started = state.jobs.start(JobKind::Simulate, by, None, Detail::new("JobDetailSimulating"));
+    let mut job = match started.await {
+        Ok(job) => job,
+        Err(e) => {
+            error!("The simulation after a sync could not start: {e}");
+            return None;
+        }
+    };
+    let options = routing::SimulationOptions {
+        trigger: by.trigger.clone(),
+        subject: by.subject.clone(),
+        persist: true,
+        language: state.language().await,
+        progress: Some(job.progress_reporter()),
+        ..Default::default()
+    };
+    match routing::run_simulation(&state.pool, options).await {
+        Ok(result) => {
+            crate::services::notify::send_later(
+                state,
+                crate::services::notify::Event::SimulationCompleted {
+                    simulation_id: result.simulation_id.clone(),
+                    total: result.total_media,
+                    moves: result.moves_required,
+                },
+            );
+            if let Ok(mut summary) = serde_json::to_value(&result) {
+                summary["decisions"] = serde_json::json!([]);
+                summary["returned"] = serde_json::json!(0);
+                job.report(&summary);
+            }
+            let detail = Detail::new("JobDetailSimulated")
+                .with("total", result.total_media)
+                .with("moves", result.moves_required);
+            job.succeed(detail).await;
+            Some(result)
+        }
+        Err(e) => {
+            error!("Simulation after a sync failed: {e}");
+            job.fail(&e).await;
+            None
+        }
+    }
 }
 
 /// Sleep, unless asked to stop first. `true` means stop.
@@ -305,7 +336,7 @@ pub(crate) async fn tick(
         // paced source (hours, on a large anime library), and while the tick
         // waits for it no other instance syncs on time, no backup runs and no
         // purge does.
-        follow_sync(state, TRIGGER_SCHEDULE).await;
+        follow_sync(state, &Attribution::unattended(TRIGGER_SCHEDULE)).await;
     }
 
     // A backup is worth taking on its own cadence: it protects against losing

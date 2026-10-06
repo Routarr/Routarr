@@ -435,6 +435,121 @@ async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
     assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
 }
 
+/// Listing its root folders makes the Arr walk every folder inside each, so a
+/// scheduled sync lists them once a day, and reads the free space of the
+/// mounts in between. A sync somebody asked for lists them whatever the hour.
+#[tokio::test]
+async fn a_scheduled_sync_lists_the_root_folders_once_a_day() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let (scheduled, manual) =
+        (crate::jobs::Attribution::unattended("schedule"), crate::jobs::Attribution::manual(None));
+    let listings = || arr.recorded().reads.iter().filter(|p| *p == "/api/v3/rootfolder").count();
+
+    for _ in 0..2 {
+        sync::sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    }
+    assert_eq!(listings(), 1, "a scheduled sync listed the folders again within the day");
+    let free: Vec<Option<i64>> =
+        sqlx::query_scalar("SELECT free_space FROM root_folders ORDER BY path")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(free, [Some(777); 3], "the free space was not read from the mount");
+
+    sync::sync_instance(&app.state, "inst-1", &manual).await.unwrap();
+    assert_eq!(listings(), 2, "a sync somebody asked for did not list the folders");
+    app.execute(&["UPDATE instances SET root_folders_read_at = '2020-01-01 00:00:00'"]).await;
+    sync::sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert_eq!(listings(), 3, "a day on, the folders were not listed");
+}
+
+/// A corrected secondary id is a metadata fix, not an Arr id given to another
+/// title: only the id the Arr holds unique tells that, the TMDb id of a film
+/// and the TheTVDB id of a series. The exception and the proposal stay.
+#[tokio::test]
+async fn a_title_whose_secondary_id_was_corrected_keeps_its_exception() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-2", "sonarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, imdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Totoro', 8392, 'tt0000001',
+                 '/movies/standard', 1, 1)",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tvdb_id, tmdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-2-20', 'inst-2', 20, 'series', 'Cowboy Bebop', 76885, 1,
+                 '/tv/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+         VALUES ('o-1', 'm-inst-1-10', 'kids'), ('o-2', 'm-inst-2-20', 'kids')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status)
+         VALUES ('d-1', 'm-inst-1-10', 'Totoro', 'movie', 'inst-1', '/movies/standard',
+                 '/movies/kids', 'kids', 'move', 'pending')",
+    ])
+    .await;
+
+    for instance in ["inst-1", "inst-2"] {
+        sync::sync_instance(&app.state, instance, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 2, "an exception was dropped");
+    assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 0);
+    let imdb: String = sqlx::query_scalar("SELECT imdb_id FROM media WHERE id = 'm-inst-1-10'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(imdb, "tt0096283", "the correction was not taken");
+    assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-2-20'").await, 30991);
+}
+
+/// A transaction that reads before it writes fails at once with "database is
+/// locked" behind another writer under a plain BEGIN, whatever the busy
+/// timeout. The webhook's sync of one title, and a full sync whose rating
+/// country is unknown, which both read first, wait their turn instead.
+#[tokio::test]
+async fn a_sync_waits_for_another_writer_rather_than_failing() {
+    let dir = super::TempDir::new("busy-sync");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    let app =
+        TestApp::around(crate::state::AppState::for_tests_on(pool.clone()).with_config(config));
+    let arr = FakeArr::start().await;
+    arr.rate_for("");
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let instance = app.state.instance("inst-1").await.unwrap();
+
+    for full in [false, true] {
+        let mut writer = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *writer).await.unwrap();
+        sqlx::query("UPDATE settings SET value = value WHERE key = 'batch_limit'")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let releasing = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
+        });
+
+        let synced = if full {
+            let by = crate::jobs::Attribution::manual(None);
+            sync::sync_instance(&app.state, "inst-1", &by).await.map(|_| ())
+        } else {
+            sync::sync_single_media(&app.state, &instance, 10).await.map(|_| ())
+        };
+
+        releasing.await.unwrap();
+        assert!(synced.is_ok(), "full sync {full}: {synced:?}");
+    }
+}
+
 /// A sync writes and cleans only its own instance: another instance holding
 /// the same Arr ids, a folder, an exception and a proposal keeps all of them,
 /// while a title the synced Arr stopped reporting goes.
@@ -588,7 +703,7 @@ async fn the_sync_route_reports_what_it_fetched() {
 
 /// "Simulate after each sync": a sync somebody asked for is followed as a
 /// scheduled one is, so with background sync off the library is still
-/// enriched and simulated, under the trigger of the one who asked.
+/// enriched and simulated, by the automation.
 #[tokio::test]
 async fn a_sync_somebody_asked_for_is_followed_by_a_simulation() {
     for route in ["/api/v1/instances/inst-1/sync", "/api/v1/instances/sync"] {
@@ -601,9 +716,44 @@ async fn a_sync_somebody_asked_for_is_followed_by_a_simulation() {
         let followed = app.state.post_sync.lock().await.take();
         followed.expect("nothing followed the sync").await.unwrap();
 
-        let simulated = app.count("SELECT COUNT(*) FROM decisions WHERE actor = 'manual'").await;
+        let simulated = app.count("SELECT COUNT(*) FROM decisions WHERE actor = 'auto'").await;
         assert!(simulated > 0, "{route} was not followed by a simulation");
     }
+}
+
+/// What the automation does after a sync is its own, not the work of who set
+/// the sync off, and the simulation it runs is a task the Tasks screen lists,
+/// with its outcome: it replaces every pending proposal.
+#[tokio::test]
+async fn the_work_after_a_sync_is_a_task_of_the_automation() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+
+    let by = crate::jobs::Attribution::manual(Some("alice"));
+    crate::jobs::scheduler::follow_sync(&app.state, &by).await;
+    let followed = app.state.post_sync.lock().await.take();
+    followed.expect("nothing followed the sync").await.unwrap();
+
+    let task: (String, Option<String>, String) =
+        sqlx::query_as("SELECT trigger, subject, status FROM jobs WHERE kind = 'simulate'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(task, ("auto".into(), Some("alice".into()), "success".into()));
+    let actors: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT DISTINCT actor, subject FROM decisions")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(actors, [("auto".to_string(), Some("alice".to_string()))]);
+
+    app.execute(&["ALTER TABLE rules RENAME TO rules_gone"]).await;
+    crate::jobs::scheduler::follow_sync(&app.state, &by).await;
+    let followed = app.state.post_sync.lock().await.take();
+    followed.expect("nothing followed the sync").await.unwrap();
+    let failed =
+        app.count("SELECT COUNT(*) FROM jobs WHERE kind = 'simulate' AND status = 'failed'");
+    assert_eq!(failed.await, 1, "a failed simulation after a sync left no task");
 }
 
 #[tokio::test]

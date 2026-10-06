@@ -256,13 +256,13 @@ async fn the_scheduler_applies_when_both_switches_allow_it() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(job, ("schedule".into(), None));
+    assert_eq!(job, ("auto".into(), None));
     let logged: Vec<(Option<String>, Option<String>)> =
         sqlx::query_as("SELECT actor, subject FROM execution_logs")
             .fetch_all(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(logged, [(Some("schedule".into()), None)]);
+    assert_eq!(logged, [(Some("auto".into()), None)]);
 }
 
 /// The scheduler is the path that can write without anyone asking, so the
@@ -468,7 +468,8 @@ async fn a_sync_ending_while_its_chain_runs_starts_no_second_one() {
 
     // Bounded: waiting on the running chain never ends.
     let followed = std::time::Duration::from_secs(5);
-    let started = tokio::time::timeout(followed, scheduler::follow_sync(&app.state, "schedule"));
+    let by = crate::jobs::Attribution::unattended("schedule");
+    let started = tokio::time::timeout(followed, scheduler::follow_sync(&app.state, &by));
     assert!(started.await.is_ok(), "the sync waited for the running chain");
 
     let kept = app.state.post_sync.lock().await.take().expect("the running chain was dropped");
@@ -490,7 +491,7 @@ async fn a_chain_that_panicked_is_recorded_when_the_next_one_starts() {
     let id = blew_up.id();
     *app.state.post_sync.lock().await = Some(blew_up);
 
-    scheduler::follow_sync(&app.state, "schedule").await;
+    scheduler::follow_sync(&app.state, &crate::jobs::Attribution::unattended("schedule")).await;
 
     let detail: Option<String> = sqlx::query_scalar(
         "SELECT detail FROM jobs WHERE kind = 'scheduler' AND status = 'failed'",

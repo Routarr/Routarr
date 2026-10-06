@@ -1989,6 +1989,133 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     assert!(!reads.iter().any(|p| p == "/api/v3/movie"), "the library was listed: {reads:?}");
 }
 
+/// Radarr 5.16 and Sonarr 4.0.11 send the token in a header, which keeps it
+/// out of the URL every proxy logs, and both Arrs mark their event names as
+/// due to change case: each way of sending the token, and any casing of the
+/// event, is acted on.
+#[tokio::test]
+async fn every_way_of_sending_the_token_and_any_casing_of_the_event_is_acted_on() {
+    use base64::Engine as _;
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let basic = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("radarr:tok"));
+
+    for (path, header, event) in [
+        ("/api/v1/webhook/inst-1/tok", None, "Download"),
+        ("/api/v1/webhook/inst-1", Some(("x-routarr-token", "tok".to_string())), "download"),
+        ("/api/v1/webhook/inst-1", Some(("authorization", basic.clone())), "movieAdded"),
+    ] {
+        let mut request =
+            axum::http::Request::post(path).header("content-type", "application/json");
+        if let Some((name, value)) = &header {
+            request = request.header(*name, value);
+        }
+        let body = serde_json::json!({ "eventType": event, "movie": { "id": 10 } });
+        let response =
+            app.send(request.body(axum::body::Body::from(body.to_string())).unwrap()).await;
+
+        assert_eq!(
+            response.assert_ok()["media_id"],
+            "m-inst-1-10",
+            "{path} {event}: {}",
+            response.json
+        );
+    }
+}
+
+/// A Radarr address pasted into Sonarr sends series ids, which here name other
+/// titles: the delivery is acknowledged and nothing is read.
+#[tokio::test]
+async fn a_series_event_sent_to_a_radarr_instance_reads_nothing() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+
+    let response = app
+        .post(
+            "/api/v1/webhook/inst-1/tok",
+            serde_json::json!({ "eventType": "SeriesAdd", "series": { "id": 10 } }),
+        )
+        .await;
+
+    assert_eq!(response.assert_ok()["ignored"], "the payload is for another kind of Arr");
+    assert!(arr.recorded().reads.is_empty(), "{:?}", arr.recorded().reads);
+}
+
+/// A delivery for a title whose earlier delivery is still waiting adds no
+/// work: the one waiting reads the title when its turn comes, as a season
+/// imported one file at a time would otherwise queue a sync per episode.
+#[tokio::test]
+async fn a_delivery_for_a_title_already_waiting_is_folded_into_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let app = app.with_webhook_answer_wait(std::time::Duration::from_millis(100));
+    let held = app.state.jobs.try_lock("webhook:inst-1").expect("the key is free");
+    let delivery = serde_json::json!({ "eventType": "Download", "movie": { "id": 10 } });
+
+    let first = app.post("/api/v1/webhook/inst-1/tok", delivery.clone()).await;
+    let second = app.post("/api/v1/webhook/inst-1/tok", delivery).await;
+    drop(held);
+    super::webhook_settled(&app, "inst-1").await;
+
+    assert_eq!(first.status, 202, "{}", first.json);
+    assert_eq!(second.assert_ok()["ignored"], "a delivery for that item is already waiting");
+    let reads = arr.recorded().reads.iter().filter(|p| *p == "/api/v3/movie/10").count();
+    assert_eq!(reads, 1, "the title was synced once per delivery");
+}
+
+/// Rows tied on what a list sorts by (tasks started in one second, a run's
+/// decisions written at once, two films of one title) page in one total
+/// order, ties broken by id, whatever order they were written in: a row on
+/// two pages, or on none, is otherwise up to the query plan.
+#[tokio::test]
+async fn every_paged_list_breaks_its_ties_by_id() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut seeds = Vec::new();
+    for n in [2, 3, 1] {
+        seeds.push(format!(
+            "INSERT INTO jobs (id, kind, status, trigger, started_at)
+             VALUES ('j-{n}', 'sync', 'success', 'manual', '2026-10-06 10:00:00')"
+        ));
+        seeds.push(format!(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
+             VALUES ('m-tie-{n}', 'inst-1', {}, 'movie', 'Twin', 1, 1)",
+            900 + n
+        ));
+        seeds.push(format!(
+            "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                    target_category, action, status, decided_at)
+             VALUES ('d-{n}', 'm-tie-{n}', 'Twin', 'movie', 'inst-1', 'anime', 'move', 'pending',
+                     '2026-10-06 10:00:00')"
+        ));
+        seeds.push(format!(
+            "INSERT INTO execution_logs (id, action, success, executed_at)
+             VALUES ('l-{n}', 'move', 1, '2026-10-06 10:00:00')"
+        ));
+    }
+    for seed in &seeds {
+        sqlx::query(sqlx::AssertSqlSafe(seed.as_str())).execute(&app.state.pool).await.unwrap();
+    }
+
+    for (list, filter, expected) in [
+        ("/api/v1/jobs", "", ["j-3", "j-2", "j-1"]),
+        ("/api/v1/decisions", "&search=Twin", ["d-1", "d-2", "d-3"]),
+        ("/api/v1/logs", "", ["l-3", "l-2", "l-1"]),
+        ("/api/v1/media", "&search=Twin", ["m-tie-1", "m-tie-2", "m-tie-3"]),
+    ] {
+        let mut paged = Vec::new();
+        for page in 1..=3 {
+            let answer = app.get(&format!("{list}?per_page=1&page={page}{filter}")).await;
+            paged
+                .push(answer.assert_ok()["data"][0]["id"].as_str().unwrap_or_default().to_string());
+        }
+        assert_eq!(paged, expected, "{list}");
+    }
+}
+
 #[tokio::test]
 async fn irrelevant_webhook_events_are_ignored() {
     let app = TestApp::new().await;

@@ -136,6 +136,34 @@ pub(super) async fn guard_reachable(
     let Some(Weighed { rows, to, .. }) = scope.weighed() else {
         return Ok(());
     };
+
+    // A folder stored as not answering may have woken since a scheduled sync
+    // last listed it, once a day: its instance is asked again before the
+    // question is.
+    let sleeping = format!(
+        "SELECT DISTINCT tgt.instance_id
+         FROM decisions d
+         JOIN root_folders tgt
+              ON tgt.instance_id = d.instance_id
+             AND tgt.path = {to} COLLATE path
+         WHERE {rows}
+           AND tgt.accessible = 0"
+    );
+    let mut query = sqlx::query_scalar::<_, String>(AssertSqlSafe(sleeping.as_str()));
+    match scope {
+        CapacityScope::Decisions(ids) | CapacityScope::Reverting(ids) => {
+            for id in ids {
+                query = query.bind(id);
+            }
+        }
+        CapacityScope::Simulation(id) => query = query.bind(id),
+    }
+    for instance_id in query.fetch_all(&state.pool).await? {
+        if let Err(e) = crate::services::sync::refresh_root_folders(state, &instance_id).await {
+            tracing::debug!(instance = %instance_id, "The root folders could not be read again: {e}");
+        }
+    }
+
     let sql = format!(
         "SELECT DISTINCT tgt.path, tgt.last_accessible_at
          FROM decisions d

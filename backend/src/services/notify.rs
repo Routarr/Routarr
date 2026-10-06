@@ -44,6 +44,9 @@ pub enum Event {
     InstanceRecovered { instance: String },
     /// An unattended apply wrote to an Arr and the Arr refused.
     AutoApplyFailed { failed: usize, applied: usize, first_error: String },
+    /// An unattended pass found more moves than one run may make, and made
+    /// none. Sent on the transition only.
+    AutoApplyHeld { candidates: usize, cap: usize },
     /// A sync failed, every time it does. Asked for by `notify_sync_failed`.
     SyncFailed { instance_id: String, instance: String, error: String },
     /// A simulation stored its proposals. Asked for by
@@ -62,6 +65,7 @@ impl Event {
             | Event::AutoApplyFailed { .. }
             | Event::SyncFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
+            Event::AutoApplyHeld { .. } => "warning",
             _ => "info",
         }
     }
@@ -73,6 +77,7 @@ impl Event {
             Event::InstanceUnreachable { .. } => "instance_unreachable",
             Event::InstanceRecovered { .. } => "instance_recovered",
             Event::AutoApplyFailed { .. } => "auto_apply_failed",
+            Event::AutoApplyHeld { .. } => "auto_apply_held",
             Event::SyncFailed { .. } => "sync_failed",
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
@@ -89,6 +94,7 @@ impl Event {
             | Event::AutoApplyFailed { .. }
             | Event::SyncFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
+            Event::AutoApplyHeld { .. } => "warning",
             Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
             Event::SimulationCompleted { .. } | Event::Test => "info",
         }
@@ -120,6 +126,11 @@ impl Event {
                 "Routarr failed to apply routing decisions automatically. Failures: {failed} \
                  ({applied} succeeded). First error: {first_error}"
             ),
+            Event::AutoApplyHeld { candidates, cap } => format!(
+                "Routarr held back {candidates} automatic moves, more than the {cap} one \
+                 unattended run may make. Apply them from the Simulation screen, or raise the \
+                 batch limit."
+            ),
             Event::SyncFailed { instance, error, .. } => {
                 format!("Routarr could not sync '{instance}': {error}")
             }
@@ -145,6 +156,7 @@ impl Event {
             Event::InstanceUnreachable { .. } => "Instance unreachable",
             Event::InstanceRecovered { .. } => "Instance reachable again",
             Event::AutoApplyFailed { .. } => "Automatic apply failed",
+            Event::AutoApplyHeld { .. } => "Automatic apply held back",
             Event::SyncFailed { .. } => "Sync failed",
             Event::SimulationCompleted { .. } => "Simulation finished",
             Event::MovesCompleted { reverted: false, .. } => "Apply finished",
@@ -161,6 +173,9 @@ impl Event {
             }
             Event::AutoApplyFailed { failed, applied, .. } => {
                 serde_json::json!({ "failed": failed, "applied": applied })
+            }
+            Event::AutoApplyHeld { candidates, cap } => {
+                serde_json::json!({ "candidates": candidates, "cap": cap })
             }
             Event::SyncFailed { instance_id, instance, .. } => {
                 serde_json::json!({ "instance_id": instance_id, "instance": instance })
@@ -716,6 +731,7 @@ mod receivers {
             Event::InstanceUnreachable { instance: "Radarr".into(), error: "refused".into() },
             Event::InstanceRecovered { instance: "Radarr".into() },
             Event::AutoApplyFailed { failed: 1, applied: 0, first_error: "Totoro: no".into() },
+            Event::AutoApplyHeld { candidates: 60, cap: 50 },
             Event::SyncFailed {
                 instance_id: "inst-1".into(),
                 instance: "Radarr".into(),
@@ -747,6 +763,7 @@ mod receivers {
             ("instance_unreachable", "error", json!({ "instance": "Radarr" })),
             ("instance_recovered", "info", json!({ "instance": "Radarr" })),
             ("auto_apply_failed", "error", json!({ "failed": 1, "applied": 0 })),
+            ("auto_apply_held", "warning", json!({ "candidates": 60, "cap": 50 })),
             ("sync_failed", "error", json!({ "instance_id": "inst-1", "instance": "Radarr" })),
             (
                 "simulation_completed",
@@ -780,8 +797,10 @@ mod receivers {
     /// recovery and a clean run green.
     #[test]
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
-        let outcomes =
-            ["failure", "success", "failure", "failure", "info", "warning", "success", "info"];
+        let outcomes = [
+            "failure", "success", "failure", "warning", "failure", "info", "warning", "success",
+            "info",
+        ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
         for (event, outcome) in events.iter().zip(outcomes) {
@@ -896,7 +915,7 @@ mod receivers {
         assert_eq!(header(&sent, "Priority").as_deref(), Some("4"));
         assert_eq!(header(&sent, "Tags").as_deref(), Some("rotating_light"));
 
-        let finished = payload(&every_event()[6], AT, Format::Ntfy);
+        let finished = payload(&every_event()[7], AT, Format::Ntfy);
         assert_eq!(header(&finished, "Priority").as_deref(), Some("2"));
         assert_eq!(header(&finished, "Tags").as_deref(), Some("white_check_mark"));
     }
@@ -925,7 +944,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 8, 2, 5, 2, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 8, 2, 5, 2, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

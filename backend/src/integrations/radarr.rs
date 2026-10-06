@@ -39,12 +39,15 @@ pub struct RadarrMovie {
     pub root_folder_path: Option<String>,
     #[serde(default)]
     pub monitored: bool,
+    /// Read after `statistics`, which Radarr fills it from and keeps it for.
     #[serde(rename = "hasFile")]
     has_file: Option<bool>,
     pub status: Option<String>,
     pub added: Option<String>,
+    /// Read after `statistics`, as `hasFile` is.
     #[serde(rename = "sizeOnDisk")]
-    pub size_on_disk: Option<i64>,
+    size_on_disk: Option<i64>,
+    statistics: Option<MovieStatistics>,
     /// Tag ids the user attached in Radarr.
     #[serde(default)]
     pub tags: Vec<i64>,
@@ -58,12 +61,26 @@ pub struct RadarrMovie {
     pub certification: Option<String>,
 }
 
+/// What Radarr counts of a movie on disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct MovieStatistics {
+    #[serde(rename = "movieFileCount")]
+    movie_file_count: Option<i64>,
+    #[serde(rename = "sizeOnDisk")]
+    size_on_disk: Option<i64>,
+}
+
 impl RadarrMovie {
-    /// A payload silent on `hasFile` is read as a movie with a file: auto-apply
-    /// moves a movie without its file, and only an explicit `false` makes that
-    /// safe.
+    /// A payload silent on its files is read as a movie with a file:
+    /// auto-apply moves a movie without its file, and only an explicit count
+    /// of none makes that safe.
     pub fn has_files(&self) -> bool {
-        self.has_file.unwrap_or(true)
+        let counted = self.statistics.as_ref().and_then(|s| s.movie_file_count).map(|n| n > 0);
+        counted.or(self.has_file).unwrap_or(true)
+    }
+
+    pub fn size_on_disk(&self) -> Option<i64> {
+        self.statistics.as_ref().and_then(|s| s.size_on_disk).or(self.size_on_disk)
     }
 }
 
@@ -88,6 +105,14 @@ pub struct ArrRootFolderDto {
     #[serde(rename = "freeSpace", default, deserialize_with = "super::lenient_bytes")]
     pub free_space: Option<i64>,
     pub accessible: Option<bool>,
+}
+
+/// A mount as either Arr reports it on `/api/v3/diskspace`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArrDiskSpaceDto {
+    pub path: String,
+    #[serde(rename = "freeSpace", default, deserialize_with = "super::lenient_bytes")]
+    pub free_space: Option<i64>,
 }
 
 /// What either Arr answers on `/api/v3/system/status`.
@@ -124,7 +149,10 @@ impl RadarrClient {
 
     pub async fn get_movies(&self) -> AppResult<Vec<RadarrMovie>> {
         debug!("Fetching movies from {}", crate::http::masked(&self.base_url));
-        send_json(SERVICE, self.get("/api/v3/movie").timeout(self.library_timeout)).await
+        // Without the parameter Radarr looks up and hashes every cover of the
+        // library for an answer Routarr reads no image of.
+        let request = self.get("/api/v3/movie").query(&[("excludeLocalCovers", "true")]);
+        send_json(SERVICE, request.timeout(self.library_timeout)).await
     }
 
     /// One movie by id. A 404 surfaces as `ExternalApi { status: 404 }`.
@@ -197,6 +225,10 @@ impl RadarrClient {
 
     pub async fn get_root_folders(&self) -> AppResult<Vec<ArrRootFolderDto>> {
         send_json(SERVICE, self.get("/api/v3/rootfolder")).await
+    }
+
+    pub async fn get_disk_space(&self) -> AppResult<Vec<ArrDiskSpaceDto>> {
+        send_json(SERVICE, self.get("/api/v3/diskspace")).await
     }
 
     /// Whether Radarr can see this directory (`integrations::directory_exists`).

@@ -109,13 +109,18 @@ async fn an_application_reads_the_instances_without_their_webhook_or_key() {
     let token = mint(&app, Some(MASTER), json!({ "name": "homepage" })).await;
 
     let owner = send(&app, "GET", "/api/v1/instances", Some(MASTER), None).await;
-    assert!(owner.assert_ok()[0]["webhook_url"].is_string(), "{:?}", owner.json);
+    let listed = &owner.assert_ok()[0];
+    for field in ["webhook_url", "webhook_path", "webhook_token"] {
+        assert!(listed[field].is_string(), "{field}: {listed}");
+    }
     for path in ["/api/v1/instances", "/api/v1/instances/inst-1"] {
         let read = send(&app, "GET", path, Some(&token), None).await;
         let instance = if read.json.is_array() { &read.json[0] } else { &read.json };
         read.assert_ok();
         assert_eq!(instance["id"], "inst-1", "{:?}", read.json);
-        assert!(instance["webhook_url"].is_null(), "{path}: {:?}", read.json);
+        for field in ["webhook_url", "webhook_path", "webhook_token"] {
+            assert!(instance[field].is_null(), "{path} {field}: {:?}", read.json);
+        }
         assert_eq!(instance["api_key_masked"], "", "{path}: {:?}", read.json);
     }
 }

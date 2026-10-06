@@ -26,7 +26,8 @@ pub struct Job {
     /// `running`, `success`, `failed`, or `cancelled` for an apply or a
     /// revert somebody stopped.
     pub status: String,
-    /// What set the task off: `manual`, `schedule`, `webhook` or `api`.
+    /// What set the task off: `manual`, `schedule`, `webhook`, `api`, or `auto`
+    /// for what the automation runs after a sync.
     pub trigger: String,
     /// Who asked: an application's name, or the person a sign-in mode names.
     /// An application key reads its own name and null for anyone else.
@@ -164,7 +165,7 @@ pub async fn list(
     }
 
     let list_sql = format!(
-        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC LIMIT ? OFFSET ?"
+        "SELECT {JOB_COLUMNS} FROM jobs WHERE 1=1{filters} ORDER BY started_at DESC, id DESC LIMIT ? OFFSET ?"
     );
     let count_sql = format!("SELECT COUNT(*) FROM jobs WHERE 1=1{filters}");
 

@@ -68,6 +68,13 @@ pub struct ArrRootFolder {
     pub accessible: bool,
 }
 
+/// A mount and its free space, as either Arr reports it.
+#[derive(Debug, Clone)]
+pub struct ArrDiskSpace {
+    pub path: String,
+    pub free_space: Option<i64>,
+}
+
 /// Connectivity probe result.
 #[derive(Debug, Clone)]
 pub struct ArrStatus {
@@ -135,6 +142,19 @@ impl ArrAdapter {
                 free_space: rf.free_space,
                 accessible: rf.accessible.unwrap_or(true),
             })
+            .collect())
+    }
+
+    /// The free space of each mount the Arr sees, read without listing the
+    /// folders inside the root folders as `get_root_folders` makes the Arr do.
+    pub async fn get_disk_space(&self) -> AppResult<Vec<ArrDiskSpace>> {
+        let mounts = match self {
+            Self::Radarr(c) => c.get_disk_space().await?,
+            Self::Sonarr(c) => c.get_disk_space().await?,
+        };
+        Ok(mounts
+            .into_iter()
+            .map(|mount| ArrDiskSpace { path: mount.path, free_space: mount.free_space })
             .collect())
     }
 
@@ -213,6 +233,36 @@ impl ArrAdapter {
     }
 }
 
+/// The oldest release of each Arr Routarr supports in full, and what is lost
+/// below it: Radarr sends `MovieAdded` from 4.2, and Sonarr sends `SeriesAdd`
+/// and describes a series' language from 4.
+pub fn below_minimum(kind: &str, version: &str) -> Option<&'static str> {
+    let minimum: &[u64] = match kind {
+        "radarr" => &[4, 2],
+        "sonarr" => &[4],
+        _ => return None,
+    };
+    let parts: Vec<u64> = version.split('.').map_while(|part| part.trim().parse().ok()).collect();
+    if parts.is_empty() {
+        return None;
+    }
+    (parts.as_slice() < minimum).then_some(if kind == "radarr" { "4.2" } else { "4" })
+}
+
+#[cfg(test)]
+mod versions {
+    #[test]
+    fn a_release_below_the_minimum_is_named_and_one_at_or_above_it_is_not() {
+        use super::below_minimum;
+        assert_eq!(below_minimum("radarr", "4.1.0.6175"), Some("4.2"));
+        assert_eq!(below_minimum("radarr", "4.2.0.6370"), None);
+        assert_eq!(below_minimum("radarr", "6.0.4.10291"), None);
+        assert_eq!(below_minimum("sonarr", "3.0.10.1567"), Some("4"));
+        assert_eq!(below_minimum("sonarr", "4.0.0.738"), None);
+        assert_eq!(below_minimum("sonarr", "not a version"), None);
+    }
+}
+
 /// Radarr and Sonarr write a year they do not know as 0, which as a year
 /// would satisfy every `year_range` with a maximum.
 fn known_year(year: Option<i64>) -> Option<i64> {
@@ -220,7 +270,7 @@ fn known_year(year: Option<i64>) -> Option<i64> {
 }
 
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
-    let has_files = m.has_files();
+    let (has_files, size_on_disk) = (m.has_files(), m.size_on_disk());
     ArrMedia {
         arr_id: m.id,
         media_type: MOVIE,
@@ -237,7 +287,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         status: m.status,
         added: m.added,
         series_type: None,
-        size_on_disk: m.size_on_disk,
+        size_on_disk,
         season_count: None,
         tag_ids: m.tags,
         genres: m.genres,
@@ -301,6 +351,10 @@ mod tests {
         assert!(!movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": false })));
         assert!(movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": true })));
         assert!(movie_has_files(json!({ "id": 10, "title": "Totoro" })));
+        // Radarr counts the files in `statistics`, and fills `hasFile` from it.
+        let counted = |count: i64| json!({ "id": 10, "title": "Totoro", "statistics": { "movieFileCount": count } });
+        assert!(!movie_has_files(counted(0)));
+        assert!(movie_has_files(counted(1)));
 
         let with_statistics = |statistics: serde_json::Value| {
             series_has_files(json!({ "id": 20, "title": "Cowboy Bebop", "statistics": statistics }))

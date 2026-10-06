@@ -49,6 +49,8 @@ pub struct Recorded {
     pub query_strings: Vec<String>,
     /// Paths of every read, so a test can tell one item from the whole library.
     pub reads: Vec<String>,
+    /// The query of every listing of the films.
+    pub listing_queries: Vec<HashMap<String, String>>,
 }
 
 /// The films this Radarr holds beside Totoro, and those it treats apart.
@@ -133,8 +135,12 @@ struct FakeState {
     moving: Arc<Mutex<Moving>>,
     /// How long an update is answered after it was made.
     answers_late: Arc<Mutex<std::time::Duration>>,
+    /// The version and the application `/system/status` reports.
+    status: Arc<Mutex<(String, String)>>,
     /// Root folders reported beside the usual three.
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
+    /// Root folders reported as not answering, as a NAS asleep.
+    asleep: Arc<Mutex<Vec<String>>>,
     /// The country Radarr's metadata settings rate films for, as its
     /// `/config/metadata` answers it.
     certification_country: Arc<Mutex<String>>,
@@ -158,7 +164,9 @@ pub struct FakeArr {
     series_edits: Arc<Mutex<HashMap<i64, serde_json::Map<String, serde_json::Value>>>>,
     moving: Arc<Mutex<Moving>>,
     answers_late: Arc<Mutex<std::time::Duration>>,
+    status: Arc<Mutex<(String, String)>>,
     more_root_folders: Arc<Mutex<Vec<serde_json::Value>>>,
+    asleep: Arc<Mutex<Vec<String>>>,
     certification_country: Arc<Mutex<String>>,
     /// Serving until the fake is dropped.
     _server: super::Served,
@@ -249,6 +257,11 @@ impl FakeArr {
         *self.answers_late.lock().expect("lock") = late;
     }
 
+    /// From now on `/system/status` reports `version` of `app`.
+    pub fn report_version(&self, version: &str, app: &str) {
+        *self.status.lock().expect("lock") = (version.to_string(), app.to_string());
+    }
+
     /// From now on each move queued runs for `lasts` before it ends.
     pub fn moving_for(&self, lasts: std::time::Duration) {
         self.moving.lock().expect("lock").lasts = lasts;
@@ -268,6 +281,11 @@ impl FakeArr {
     /// From now on the root folder listing reports `folder` as well.
     pub fn report_root_folder(&self, folder: serde_json::Value) {
         self.more_root_folders.lock().expect("lock").push(folder);
+    }
+
+    /// From now on the root folder at `path` is reported as not answering.
+    pub fn put_to_sleep(&self, path: &str) {
+        self.asleep.lock().expect("lock").push(path.to_string());
     }
 
     /// From now on series `id` is held, and an update of it refused.
@@ -343,8 +361,10 @@ impl FakeArr {
         let series_edits = Arc::new(Mutex::new(HashMap::new()));
         let moving = Arc::new(Mutex::new(Moving::default()));
         let answers_late = Arc::new(Mutex::new(std::time::Duration::ZERO));
+        let status = Arc::new(Mutex::new(("5.2.6.8376".to_string(), "Radarr".to_string())));
         let more_root_folders: Arc<Mutex<Vec<serde_json::Value>>> =
             Arc::new(Mutex::new(Vec::new()));
+        let asleep: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let certification_country = Arc::new(Mutex::new("us".to_string()));
         let state = FakeState {
             recorded: Arc::clone(&recorded),
@@ -364,7 +384,9 @@ impl FakeArr {
             series_edits: Arc::clone(&series_edits),
             moving: Arc::clone(&moving),
             answers_late: Arc::clone(&answers_late),
+            status: Arc::clone(&status),
             more_root_folders: Arc::clone(&more_root_folders),
+            asleep: Arc::clone(&asleep),
             certification_country: Arc::clone(&certification_country),
             windows,
         };
@@ -372,6 +394,7 @@ impl FakeArr {
         let app = Router::new()
             .route("/api/v3/system/status", get(system_status))
             .route("/api/v3/rootfolder", get(root_folders))
+            .route("/api/v3/diskspace", get(disk_space))
             .route("/api/v3/config/metadata", get(metadata_config))
             .route("/api/v3/filesystem", get(filesystem))
             .route("/api/v3/tag", get(tags))
@@ -402,7 +425,9 @@ impl FakeArr {
             series_edits,
             moving,
             answers_late,
+            status,
             more_root_folders,
+            asleep,
             certification_country,
             _server: server,
         }
@@ -447,7 +472,8 @@ async fn system_status(
     headers: HeaderMap,
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
-    Json(serde_json::json!({ "version": "5.2.6.8376", "appName": "Radarr" }))
+    let (version, app) = state.status.lock().expect("lock").clone();
+    Json(serde_json::json!({ "version": version, "appName": app }))
 }
 
 async fn root_folders(
@@ -455,6 +481,7 @@ async fn root_folders(
     headers: HeaderMap,
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
+    record_read(&state, "/api/v3/rootfolder");
     if state.no_root_folders.load(Ordering::SeqCst) {
         return Json(serde_json::json!([]));
     }
@@ -469,7 +496,26 @@ async fn root_folders(
     ]);
     let listed = folders.as_array_mut().expect("a list");
     listed.extend(state.more_root_folders.lock().expect("lock").iter().cloned());
+    let asleep = state.asleep.lock().expect("lock").clone();
+    for folder in listed.iter_mut() {
+        if asleep
+            .iter()
+            .any(|path| folder["path"].as_str() == Some(shown_folder(&state, path).as_str()))
+        {
+            folder["accessible"] = serde_json::json!(false);
+        }
+    }
     Json(folders)
+}
+
+/// The mounts the Arr sees and their free space: one disk holding `/movies`.
+async fn disk_space(State(state): State<FakeState>, headers: HeaderMap) -> Json<serde_json::Value> {
+    record_key(&state, &headers);
+    record_read(&state, "/api/v3/diskspace");
+    Json(serde_json::json!([
+        { "path": "/", "freeSpace": 100, "totalSpace": 1000 },
+        { "path": shown(&state, "/movies"), "freeSpace": 777, "totalSpace": 1000 },
+    ]))
 }
 
 /// The Arr's own view of its filesystem, which is the only one that counts:
@@ -582,6 +628,7 @@ async fn movies(
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/movie");
+    state.recorded.lock().expect("lock").listing_queries.push(query.clone());
     settle_moves(&state);
     hold_and_count(&state).await;
     if state.no_titles.load(Ordering::SeqCst) {
@@ -756,8 +803,8 @@ fn spirited_away() -> serde_json::Value {
     })
 }
 
-/// Series by a term, as Sonarr's lookup answers: Cowboy Bebop by its TheTVDB
-/// id, which the library holds, and nothing for any other term.
+/// Series by a term, as Sonarr's lookup answers: Cowboy Bebop, which the
+/// library holds, Mushishi, which it does not, and nothing for any other term.
 async fn series_lookup(
     State(state): State<FakeState>,
     headers: HeaderMap,
@@ -767,8 +814,10 @@ async fn series_lookup(
     let term = query.get("term").cloned().unwrap_or_default();
     record_read(&state, &format!("/api/v3/series/lookup/{term}"));
     match term.as_str() {
-        "tvdb:76885" => Json(serde_json::json!([bebop(&state, 20)])),
-        "tvdb:81178" | "imdb:tt0807832" => Json(serde_json::json!([mushishi()])),
+        "tvdb:76885" | "tmdb:30991" => {
+            Json(serde_json::json!([as_series_looked_up(bebop(&state, 20))]))
+        }
+        "tvdb:81178" | "imdb:tt0807832" | "tmdb:26209" => Json(serde_json::json!([mushishi()])),
         _ => Json(serde_json::json!([])),
     }
 }
@@ -947,6 +996,14 @@ fn bebop(state: &FakeState, id: i64) -> serde_json::Value {
         "certification": "TV-14"
     });
     laid_over(&state.series_edits, id, &mut series);
+    series
+}
+
+/// A held series as Sonarr's lookup answers it: its id, with statistics of
+/// zero and no root folder, which only `/series/{id}` reads in full.
+fn as_series_looked_up(mut series: serde_json::Value) -> serde_json::Value {
+    series["statistics"] = serde_json::json!({ "episodeFileCount": 0, "sizeOnDisk": 0 });
+    series.as_object_mut().expect("an object").remove("rootFolderPath");
     series
 }
 

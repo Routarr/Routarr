@@ -55,6 +55,8 @@ const STRINGS = {
   WebhookUrlCopied: 'Webhook URL copied',
   WebhookUrlCopyFailed: 'The browser blocked the clipboard. Webhook URL: {url}',
   WebhookUrl: 'Webhook URL',
+  WebhookToken: 'Token',
+  WebhookUrlWithToken: 'Webhook URL for an older Arr',
   Delete: 'Delete',
   Saving: 'Saving…',
   ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
@@ -362,14 +364,32 @@ describe('Instances', () => {
    * On a plain http origin every Copy fails, and a URL shown only by the
    * failure is read by provoking an error.
    */
-  it('shows the webhook URL in the editor, with no copy to go through', async () => {
-    show([instance({ webhook_url: '/api/v1/webhooks/i1/tok' })]);
+  /**
+   * Both setups are in the editor, with no copy to go through: the address and
+   * the token for an Arr that sends headers, which keeps the token out of the
+   * logged URL, and the address carrying the token for one that does not.
+   */
+  it('shows both webhook setups in the editor, with no copy to go through', async () => {
+    show([
+      instance({
+        webhook_url: '/api/v1/webhook/i1/tok',
+        webhook_path: '/api/v1/webhook/i1',
+        webhook_token: 'tok',
+      }),
+    ]);
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
 
-    const field = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
-    expect(field.value).toBe(`${window.location.origin}/api/v1/webhooks/i1/tok`);
-    expect(field.readOnly).toBe(true);
+    const origin = window.location.origin;
+    const path = (await screen.findByLabelText('Webhook URL')) as HTMLInputElement;
+    const token = screen.getByLabelText('Token') as HTMLInputElement;
+    const older = screen.getByLabelText('Webhook URL for an older Arr') as HTMLInputElement;
+    expect([path.value, token.value, older.value]).toEqual([
+      `${origin}/api/v1/webhook/i1`,
+      'tok',
+      `${origin}/api/v1/webhook/i1/tok`,
+    ]);
+    expect([path, token, older].every((field) => field.readOnly)).toBe(true);
   });
 
   async function copyWebhookUrl() {
@@ -552,6 +572,7 @@ describe('Instances', () => {
     app_name: 'Radarr',
     root_folders: 2,
     inaccessible_root_folders: 0,
+    warning: null,
   };
   const CONNECTED = 'Radarr: connected (v5.2.6), root folders: 2';
 
@@ -698,6 +719,21 @@ describe('Instances', () => {
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
 
     await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
+  });
+
+  /** An Arr below the oldest supported release connects, and what it lacks is said there. */
+  it('says beside a working connection what an older Arr lacks', async () => {
+    const older = 'Sonarr 3.0.10 is older than 4: a series it adds is routed at the next sync.';
+    vi.spyOn(api, 'probeInstance').mockResolvedValue({ ...PROBED, warning: older });
+    show([]);
+    const dialog = await openAdd();
+    const region = within(dialog).getByRole('status');
+    await typeAddressAndKey('http://sonarr:8989', 'secret');
+
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Test connection' }));
+
+    await waitFor(() => expect(region).toHaveTextContent(CONNECTED));
+    expect(region).toHaveTextContent(older);
   });
 
   /** Read where the values were typed, and about those values only. */
@@ -919,6 +955,7 @@ it('tests the connection of the instance whose row was used', async () => {
     app_name: 'Sonarr',
     root_folders: 2,
     inaccessible_root_folders: 0,
+    warning: null,
   });
 
   await fireEvent.click(await screen.findByRole('button', { name: /Actions – Sonarr/ }));

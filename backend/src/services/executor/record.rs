@@ -171,7 +171,7 @@ pub(super) async fn record_outcome(
     now: &str,
     direction: MoveDirection,
 ) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write_transaction(pool).await?;
     let decision = match direction {
         MoveDirection::Forward => sqlx::query(
             "UPDATE decisions SET status = 'applied', error_message = NULL, applied_at = ?
@@ -223,8 +223,8 @@ pub(super) async fn record_failure(
 
 /// One line of the audit trail for a move or a revert.
 ///
-/// Mind the column names: `actor` holds the trigger (`manual`, `schedule`,
-/// `webhook`), and `subject` the person the authentication mode named, which
+/// Mind the column names: `actor` holds the trigger (`manual`, `api`, `auto`
+/// and so on), and `subject` the person the authentication mode named, which
 /// `Identity::actor()` supplies. `NULL` in `subject` means nobody asked, or the
 /// mode names nobody.
 pub(super) async fn log_execution(

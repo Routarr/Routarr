@@ -134,6 +134,8 @@ export function instance(over: Partial<Instance> = {}): Instance {
     last_sync_attempt_at: null,
     last_sync_status: null,
     webhook_url: null,
+    webhook_path: null,
+    webhook_token: null,
     created_at: '2026-08-27 10:00:00',
     updated_at: '2026-08-27 10:00:00',
     ...over,
