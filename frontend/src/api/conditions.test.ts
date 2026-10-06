@@ -9,10 +9,14 @@ import {
   parseStringList,
   parseYearBound,
   canonicalKey,
+  certificationKey,
   addValue,
   removeValue,
+  withoutRepeats,
   conditionAppliesTo,
   localFacets,
+  nextPriority,
+  statusKey,
 } from './conditions';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
@@ -46,12 +50,50 @@ describe('defaultConditionValue', () => {
  * the picker refuses, or a pair the editor accepts and the server refuses.
  */
 const FOLDING: [string, string][] = JSON.parse(
-  readFileSync(join(process.cwd(), '../backend/src/services/normalise_value_cases.json'), 'utf8'),
+  readFileSync(
+    join(process.cwd(), '../backend/src/services/rule_engine/normalise_value_cases.json'),
+    'utf8',
+  ),
 ) as [string, string][];
 
 describe('canonicalKey', () => {
   it.each(FOLDING)('folds %j as the rule engine does', (raw, folded) => {
     expect(canonicalKey(raw)).toBe(folded);
+  });
+});
+
+/** The rating codes, keyed as the rule engine keys them. */
+const RATINGS: [string, string][] = JSON.parse(
+  readFileSync(
+    join(process.cwd(), '../backend/src/services/rule_engine/certification_key_cases.json'),
+    'utf8',
+  ),
+) as [string, string][];
+
+describe('certificationKey', () => {
+  it.each(RATINGS)('keys %j as the rule engine does', (raw, key) => {
+    expect(certificationKey(raw)).toBe(key);
+  });
+
+  it('keeps R+ apart from R in a rating condition, and only there', () => {
+    expect(withoutRepeats({ type: 'certification_in', value: ['R', 'R+'] }).value).toEqual([
+      'R',
+      'R+',
+    ]);
+    expect(addValue(['R'], 'R+', certificationKey)).toEqual(['R', 'R+']);
+    expect(addValue(['PG-13'], 'pg 13', certificationKey)).toEqual(['PG-13']);
+    expect(withoutRepeats({ type: 'genre_contains', value: ['Sci-Fi', 'sci fi'] }).value).toEqual([
+      'Sci-Fi',
+    ]);
+  });
+});
+
+describe('statusKey', () => {
+  it('reads a status as one word, as the rule engine does', () => {
+    expect(statusKey('In Cinemas')).toBe(statusKey('inCinemas'));
+    expect(withoutRepeats({ type: 'status_is', value: ['inCinemas', 'In Cinemas'] }).value).toEqual(
+      ['inCinemas'],
+    );
   });
 });
 
@@ -191,5 +233,12 @@ describe('localFacets', () => {
     expect(named.original_languages[0]?.label).toBe('japonais (ja)');
     expect(named.origin_countries[0]?.label).toBe('Japon (JP)');
     expect(named.genres).toBe(facets.genres);
+  });
+});
+
+describe('nextPriority', () => {
+  it('places a new rule after every other, as the server does', () => {
+    expect(nextPriority([30, 10])).toBe(40);
+    expect(nextPriority([])).toBe(10);
   });
 });

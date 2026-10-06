@@ -6,6 +6,7 @@ use axum::extract::State;
 use super::Path;
 use serde::Serialize;
 use sqlx::AssertSqlSafe;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use chrono::Datelike;
@@ -56,7 +57,7 @@ pub async fn update(
 
     let mut tx = target_held(&state, &req).await?;
     let result = sqlx::query(
-        "UPDATE rules SET name = ?, description = ?, priority = ?, enabled = ?,
+        "UPDATE rules SET name = ?, description = ?, priority = COALESCE(?, priority), enabled = ?,
          media_type = ?, conditions = ?, exclusions = ?, match_mode = ?,
          target_category = ?, instance_ids = ?, updated_at = datetime('now')
          WHERE id = ?",
@@ -99,7 +100,8 @@ pub async fn remove(
     Ok(Json(Deleted { deleted: true }))
 }
 
-/// Copy a rule, disabled, so it can be edited before being switched on.
+/// Copy a rule, disabled and last, so it can be edited before being switched
+/// on. The copy is checked as any rule written is.
 pub async fn duplicate(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -108,14 +110,27 @@ pub async fn duplicate(
     let new_id = Uuid::new_v4().to_string();
 
     let copy = CreateRuleRequest {
-        name: format!("{} (copy)", source.name),
+        name: copy_name(&state.localizer().await, &source.name),
         // A duplicate that fires immediately would double-classify the library.
         enabled: false,
+        priority: None,
         ..to_request(source)
     };
+    reject_on_error(&check(&state, &copy).await?)?;
 
-    insert_rule(&mut *state.pool.acquire().await?, &new_id, &copy).await?;
+    let mut tx = target_held(&state, &copy).await?;
+    insert_rule(&mut tx, &new_id, &copy).await?;
+    tx.commit().await?;
     fetch_rule(&state, &new_id).await.map(Json)
+}
+
+/// A copy's name in the reader's words, its source's name cut short enough
+/// for the whole to stay a name a rule may carry.
+fn copy_name(localizer: &crate::localization::Localizer, name: &str) -> String {
+    let suffix = localizer.translate("RuleCopyName", &[("name", "")]).chars().count();
+    let kept: String =
+        name.chars().take(rule_engine::MAX_NAME_LENGTH.saturating_sub(suffix)).collect();
+    localizer.translate("RuleCopyName", &[("name", kept.trim_end())])
 }
 
 pub async fn reorder(
@@ -124,9 +139,11 @@ pub async fn reorder(
 ) -> AppResult<Json<Reordered>> {
     // The list has to name every rule: reordering a subset writes priorities in
     // the 10, 20, 30 band beside rules whose priorities were never touched, and
-    // the result is an order nobody chose.
+    // the result is an order nobody chose. Read under the write lock, with the
+    // writes: a rule created or deleted in between would make the list wrong.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     let mut known: Vec<String> =
-        sqlx::query_scalar("SELECT id FROM rules").fetch_all(&state.pool).await?;
+        sqlx::query_scalar("SELECT id FROM rules").fetch_all(&mut *tx).await?;
     known.sort();
     // Compared *before* deduplication as well: folded first, `[a, a, b]` would
     // read as `[a, b]`, and the loop below would write `a` twice (ending at 20,
@@ -139,12 +156,12 @@ pub async fn reorder(
         return Err(AppError::BadRequest("rule_ids must list every rule exactly once".to_string()));
     }
 
+    crate::race::checked("rules::reorder", "").await;
     // One transaction: a partial reorder would leave two rules sharing a
     // priority, making the winner depend on row order.
-    let mut tx = state.pool.begin().await?;
     for (index, rule_id) in req.rule_ids.iter().enumerate() {
         sqlx::query("UPDATE rules SET priority = ?, updated_at = datetime('now') WHERE id = ?")
-            .bind((index as i64 + 1) * 10)
+            .bind((index as i64 + 1) * PRIORITY_STEP)
             .bind(rule_id)
             .execute(&mut *tx)
             .await?;
@@ -185,6 +202,9 @@ pub struct RuleImportReport {
     pub replaced: bool,
     /// Each rule left out, with why.
     pub skipped: Vec<String>,
+    /// Each rule imported otherwise than the bundle has it, with how: limited
+    /// to fewer instances, or switched off until its scope is checked.
+    pub adjusted: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
@@ -208,12 +228,36 @@ fn default_sample() -> usize {
 pub struct PreviewResponse {
     pub issues: Vec<ValidationIssue>,
     /// What the library looks like with the candidate rule applied.
-    pub after: serde_json::Value,
+    pub after: PreviewSummary,
     /// What it looks like today.
-    pub before: serde_json::Value,
+    pub before: PreviewSummary,
     /// Media whose target category changes because of this rule.
     pub changed: Vec<PreviewChange>,
     pub changed_total: usize,
+}
+
+/// What one rule set decides over the library, counted.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PreviewSummary {
+    pub total_media: usize,
+    pub moves_required: usize,
+    pub already_correct: usize,
+    pub no_category_match: usize,
+    pub skipped_unmapped: usize,
+    pub excluded_by_rule: usize,
+}
+
+impl PreviewSummary {
+    fn of(total_media: usize, counted: &routing::Counters) -> Self {
+        Self {
+            total_media,
+            moves_required: counted.moves_required,
+            already_correct: counted.already_correct,
+            no_category_match: counted.no_category_match,
+            skipped_unmapped: counted.skipped_unmapped,
+            excluded_by_rule: counted.excluded_by_rule,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -236,105 +280,168 @@ pub async fn preview(
     Json(req): Json<PreviewRequest>,
 ) -> AppResult<Json<PreviewResponse>> {
     let issues = check(&state, &req.rule).await?;
+    let _queued = super::simulation::wait_in_line(&state).await?;
 
     let baseline_rules = load_rules(&state.pool).await?;
+    // Placed where saving it would place it: an edited rule where it stands,
+    // a new one after every other.
+    let priority = req.rule.priority.unwrap_or_else(|| {
+        let edited = baseline_rules.iter().find(|r| Some(&r.id) == req.rule_id.as_ref());
+        edited.map_or_else(
+            || baseline_rules.iter().map(|r| r.priority).max().unwrap_or(0) + PRIORITY_STEP,
+            |rule| rule.priority,
+        )
+    });
     let candidate =
-        to_rule(req.rule_id.clone().unwrap_or_else(|| "preview".to_string()), &req.rule);
+        to_rule(req.rule_id.clone().unwrap_or_else(|| "preview".to_string()), &req.rule, priority);
 
     let mut candidate_rules: Vec<Rule> =
         baseline_rules.iter().filter(|r| Some(&r.id) != req.rule_id.as_ref()).cloned().collect();
     candidate_rules.push(candidate);
 
-    let base_options = SimulationOptions {
+    let scope = SimulationOptions {
         instance_ids: req.instance_ids.clone().unwrap_or_default(),
-        persist: false,
-        persist_unchanged: true,
-        language: state.language().await,
         ..Default::default()
     };
-
     // One load for both rule sets: everything the two evaluations read is the
     // same library, and the second costs no query.
-    let library = routing::load_library(&state.pool, &base_options).await?;
-    let before = routing::simulate_loaded(
-        &state.pool,
+    let library = routing::load_library(&state.pool, &scope).await?;
+    let compared = routing::compare(
         &library,
-        SimulationOptions { rules_override: Some(baseline_rules), ..base_options.clone() },
-    )
-    .await?;
-    let after = routing::simulate_loaded(
-        &state.pool,
-        &library,
-        SimulationOptions { rules_override: Some(candidate_rules), ..base_options },
+        baseline_rules,
+        candidate_rules,
+        req.sample_size.clamp(1, 500),
+        &state.language().await,
     )
     .await?;
 
-    let before_by_media: std::collections::HashMap<&str, &Decision> =
-        before.decisions.iter().map(|d| (d.media_id.as_str(), d)).collect();
-
-    let mut changed = Vec::new();
-    for decision in &after.decisions {
-        let Some(previous) = before_by_media.get(decision.media_id.as_str()) else {
-            continue;
-        };
-        if previous.target_category == decision.target_category {
-            continue;
-        }
-        changed.push(PreviewChange {
-            media_id: decision.media_id.clone(),
-            media_title: decision.media_title.clone(),
-            media_type: decision.media_type.clone(),
-            instance_name: decision.instance_name.clone(),
-            from_category: previous.target_category.clone(),
-            to_category: decision.target_category.clone(),
-            current_root_folder: decision.current_root_folder.clone(),
-            target_root_folder: decision.target_root_folder.clone(),
-            reasons: decision.reasons.clone(),
+    let changed = compared
+        .changed
+        .into_iter()
+        .map(|(from_category, decision)| PreviewChange {
+            media_id: decision.media_id,
+            media_title: decision.media_title,
+            media_type: decision.media_type,
+            instance_name: decision.instance_name,
+            from_category,
+            to_category: decision.target_category,
+            current_root_folder: decision.current_root_folder,
+            target_root_folder: decision.target_root_folder,
+            reasons: decision.reasons,
             confidence: decision.confidence,
-        });
-    }
-
-    let changed_total = changed.len();
-    changed.truncate(req.sample_size.clamp(1, 500));
+        })
+        .collect();
 
     Ok(Json(PreviewResponse {
         issues,
-        before: summarize(&before),
-        after: summarize(&after),
+        before: PreviewSummary::of(compared.total_media, &compared.before),
+        after: PreviewSummary::of(compared.total_media, &compared.after),
         changed,
-        changed_total,
+        changed_total: compared.changed_total,
     }))
 }
 
-fn summarize(result: &SimulationResult) -> serde_json::Value {
-    serde_json::json!({
-        "total_media": result.total_media,
-        "moves_required": result.moves_required,
-        "already_correct": result.already_correct,
-        "no_category_match": result.no_category_match,
-        "skipped_unmapped": result.skipped_unmapped,
-        "excluded_by_rule": result.excluded_by_rule,
-    })
-}
+/// The gap a reorder leaves between two rules, and a new rule after the last.
+const PRIORITY_STEP: i64 = 10;
+
+/// The bundle format this build writes. It reads 1 as well.
+const BUNDLE_VERSION: u32 = 2;
 
 /// Export every rule as a portable bundle.
 pub async fn export(State(state): State<AppState>) -> AppResult<Json<RuleBundle>> {
-    let rules = load_rules(&state.pool).await?;
-    let mut categories: Vec<String> = rules.iter().map(|r| r.target_category.clone()).collect();
+    let rules = bundled_rules(&state.pool).await?;
+    let mut categories: Vec<String> =
+        rules.iter().map(|r| r.rule.target_category.clone()).collect();
     categories.sort();
     categories.dedup();
 
     Ok(Json(RuleBundle {
-        version: 1,
-        exported_at: Some(routing::format_timestamp(chrono::Utc::now())),
-        // Instance ids are host-specific: a bundle imported elsewhere would
-        // silently scope its rules to instances that do not exist there.
-        rules: rules
-            .into_iter()
-            .map(|r| CreateRuleRequest { instance_ids: None, ..to_request(r) })
-            .collect(),
+        version: BUNDLE_VERSION,
+        exported_at: Some(exported_now()),
+        rules,
         categories,
     }))
+}
+
+/// When a bundle is written, as another installation reads it: in RFC 3339,
+/// its zone stated.
+pub(crate) fn exported_now() -> String {
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// Every rule as a bundle carries it, its scope by instance name.
+pub(crate) async fn bundled_rules(pool: &sqlx::SqlitePool) -> AppResult<Vec<BundledRule>> {
+    let names: HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT id, name FROM instances")
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .collect();
+    Ok(load_rules(pool)
+        .await?
+        .into_iter()
+        .map(|rule| {
+            let instance_names = rule
+                .instance_ids
+                .as_ref()
+                .map(|ids| ids.iter().filter_map(|id| names.get(id).cloned()).collect());
+            let rule = CreateRuleRequest { instance_ids: None, ..to_request(rule) };
+            BundledRule { rule, instance_names }
+        })
+        .collect())
+}
+
+/// A bundled rule as this installation would store it, or why it cannot be.
+pub(crate) enum Scoped {
+    /// To store, with what was changed on the way, if anything.
+    Kept(CreateRuleRequest, Option<String>),
+    Refused(String),
+}
+
+/// Give a bundled rule its scope on this installation, from `ids`, each
+/// instance's id by its name. A rule limited to instances none of which is
+/// here is refused: unscoped, it would route every instance. A format that
+/// does not carry the names leaves a rule with no ids switched off until
+/// someone checks its scope.
+pub(crate) fn scope_here(
+    bundled: &BundledRule,
+    names_carried: bool,
+    ids: &HashMap<String, String>,
+    localizer: &crate::localization::Localizer,
+) -> Scoped {
+    let rule = &bundled.rule;
+    let listed = |names: &[&String]| {
+        let names: Vec<&str> = names.iter().map(|name| name.as_str()).collect();
+        names.join(&localizer.translate("ListSeparator", &[]))
+    };
+    match &bundled.instance_names {
+        Some(names) => {
+            let (found, missing): (Vec<&String>, Vec<&String>) =
+                names.iter().partition(|name| ids.contains_key(*name));
+            if found.is_empty() {
+                return Scoped::Refused(localizer.translate(
+                    "RuleImportInstancesMissing",
+                    &[("name", &rule.name), ("instances", &listed(&missing))],
+                ));
+            }
+            let narrowed = (!missing.is_empty()).then(|| {
+                localizer.translate(
+                    "RuleImportInstancesNarrowed",
+                    &[("name", &rule.name), ("instances", &listed(&missing))],
+                )
+            });
+            let scope = found.into_iter().map(|name| ids[name].clone()).collect();
+            Scoped::Kept(CreateRuleRequest { instance_ids: Some(scope), ..rule.clone() }, narrowed)
+        }
+        None if !names_carried
+            && rule.enabled
+            && rule.instance_ids.as_ref().is_none_or(Vec::is_empty) =>
+        {
+            let note = localizer.translate("RuleImportScopeUnknown", &[("name", &rule.name)]);
+            Scoped::Kept(CreateRuleRequest { enabled: false, ..rule.clone() }, Some(note))
+        }
+        None => Scoped::Kept(rule.clone(), None),
+    }
 }
 
 /// Import a bundle, optionally replacing the current rule set.
@@ -342,10 +449,11 @@ pub async fn import(
     State(state): State<AppState>,
     Json(req): Json<ImportRulesRequest>,
 ) -> AppResult<Json<RuleImportReport>> {
-    if req.bundle.version != 1 {
+    let version = req.bundle.version;
+    if !(1..=BUNDLE_VERSION).contains(&version) {
         return Err(AppError::BadRequest(format!(
-            "Unsupported bundle version {}. This Routarr understands version 1",
-            req.bundle.version
+            "Unsupported bundle version {version}. This Routarr understands versions 1 to \
+             {BUNDLE_VERSION}"
         )));
     }
     if req.bundle.rules.is_empty() {
@@ -353,6 +461,8 @@ pub async fn import(
     }
 
     let mut skipped = Vec::new();
+    let mut adjusted = Vec::new();
+    let localizer = state.localizer().await;
 
     // Through the gate `POST /categories` applies: a name that skips it lands
     // in the table out of `rename`'s reach. A refused name is reported here,
@@ -364,11 +474,10 @@ pub async fn import(
             .bundle
             .rules
             .iter()
-            .map(|r| r.target_category.trim())
+            .map(|r| r.rule.target_category.trim())
             .chain(req.bundle.categories.iter().map(|c| c.trim()))
             .filter(|c| !c.is_empty())
             .collect();
-        let localizer = state.localizer().await;
         for raw in referenced {
             match super::categories::normalise(raw, &localizer) {
                 Ok(name) => {
@@ -385,6 +494,12 @@ pub async fn import(
     // Read before the transaction opens: a pool of one connection, which is
     // what the tests run on, cannot serve a query while a transaction holds it.
     let mut env = environment(&state).await?;
+    let ids: HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>("SELECT name, id FROM instances")
+            .fetch_all(&state.pool)
+            .await?
+            .into_iter()
+            .collect();
 
     // Judged against the table as it will be once this commits, not as it was
     // read: a rule targeting a category the bundle brings is otherwise refused
@@ -398,13 +513,21 @@ pub async fn import(
     // survives would delete every rule and add none, and the next pass would
     // route the whole library to the fallback category.
     let mut importable = Vec::new();
-    for rule in &req.bundle.rules {
-        let errors: Vec<String> = judge(&env, rule)
+    for bundled in &req.bundle.rules {
+        let (rule, note) = match scope_here(bundled, version >= 2, &ids, &localizer) {
+            Scoped::Kept(rule, note) => (rule, note),
+            Scoped::Refused(why) => {
+                skipped.push(why);
+                continue;
+            }
+        };
+        let errors: Vec<String> = judge(&env, &rule)
             .into_iter()
             .filter(ValidationIssue::is_error)
             .map(|issue| issue.message)
             .collect();
         if errors.is_empty() {
+            adjusted.extend(note);
             importable.push(rule);
         } else {
             skipped.push(format!("'{}': {}", rule.name, errors.join(" · ")));
@@ -417,7 +540,6 @@ pub async fn import(
         )));
     }
 
-    let localizer = state.localizer().await;
     let mut tx = crate::db::write_transaction(&state.pool).await?;
 
     for name in &created {
@@ -450,7 +572,7 @@ pub async fn import(
 
     tx.commit().await?;
 
-    Ok(Json(RuleImportReport { imported, replaced: req.replace, skipped }))
+    Ok(Json(RuleImportReport { imported, replaced: req.replace, skipped, adjusted }))
 }
 
 /// Everything a rule is judged against, read once.
@@ -460,7 +582,8 @@ pub async fn import(
 /// be a query per item on a path that already has all of them.
 pub(crate) struct Environment {
     pub(crate) known: Vec<String>,
-    mapped: Vec<String>,
+    /// Each category mapped onto a folder, with the instance and its kind.
+    mapped: Vec<(String, String, String)>,
     covered_fields: Vec<MetadataField>,
     localizer: crate::localization::Localizer,
     current_year: i64,
@@ -471,9 +594,10 @@ pub(crate) struct Environment {
 pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
     Ok(Environment {
         known: sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
-        mapped: sqlx::query_scalar(
-            "SELECT DISTINCT category FROM root_folders
-             WHERE category IS NOT NULL AND category != ''",
+        mapped: sqlx::query_as(
+            "SELECT DISTINCT rf.instance_id, i.instance_type, rf.category
+               FROM root_folders rf JOIN instances i ON i.id = rf.instance_id
+              WHERE rf.category IS NOT NULL AND rf.category != ''",
         )
         .fetch_all(&state.pool)
         .await?,
@@ -490,10 +614,30 @@ pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
 /// Run the shared validator against one loaded environment.
 pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<ValidationIssue> {
     let target_category = req.target_category.trim().to_lowercase();
+    // Mapped where the rule can move a title: on an instance in its scope, of
+    // the kind that holds its media type.
+    let media_type = req.media_type.to_lowercase();
+    let in_scope = |instance: &str| {
+        req.instance_ids
+            .as_ref()
+            .is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == instance))
+    };
+    let serves = |kind: &str| match media_type.as_str() {
+        "movie" => kind == "radarr",
+        "series" => kind == "sonarr",
+        _ => true,
+    };
+    let mapped: Vec<String> = env
+        .mapped
+        .iter()
+        .filter(|(instance, kind, _)| in_scope(instance) && serves(kind))
+        .map(|(_, _, category)| category.clone())
+        .collect();
 
     rule_engine::validate_rule(
         rule_engine::RuleDraft {
             name: &req.name,
+            description: req.description.as_deref(),
             media_type: &req.media_type,
             match_mode: req.match_mode,
             conditions: &req.conditions,
@@ -502,7 +646,7 @@ pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<Validatio
         },
         rule_engine::ValidationEnv {
             known_categories: &env.known,
-            mapped_categories: &env.mapped,
+            mapped_categories: &mapped,
             covered_fields: &env.covered_fields,
             current_year: env.current_year,
         },
@@ -515,7 +659,7 @@ pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<Validatio
     // An id the interface sent, never one somebody typed, so in English.
     .chain(req.instance_ids.iter().flatten().filter(|id| !env.instances.contains(id)).map(|id| {
         ValidationIssue {
-            severity: "error".into(),
+            severity: Severity::Error,
             field: "instance_ids".into(),
             key: "UnknownInstance".into(),
             params: std::collections::BTreeMap::new(),
@@ -589,15 +733,19 @@ pub(crate) async fn insert_rule(
     id: &str,
     req: &CreateRuleRequest,
 ) -> AppResult<()> {
+    // A rule given no priority goes after every other: one at a fixed default
+    // would tie with others, and the name would pick the winner.
     sqlx::query(
         "INSERT INTO rules (id, name, description, priority, enabled, media_type, conditions,
          exclusions, match_mode, target_category, instance_ids)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+         VALUES (?, ?, ?, COALESCE(?, (SELECT COALESCE(MAX(priority), 0) + ? FROM rules)),
+                 ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(req.name.trim())
     .bind(&req.description)
     .bind(req.priority)
+    .bind(PRIORITY_STEP)
     .bind(req.enabled)
     .bind(req.media_type.to_lowercase())
     .bind(serde_json::to_string(&req.conditions)?)
@@ -629,15 +777,18 @@ fn encode_instance_ids(ids: &Option<Vec<String>>) -> AppResult<Option<String>> {
     }
 }
 
-fn to_rule(id: String, req: &CreateRuleRequest) -> Rule {
+/// The rule a draft would be. A media type that names none makes a rule that
+/// matches nothing, which is what the validator's refusal of it means.
+fn to_rule(id: String, req: &CreateRuleRequest, priority: i64) -> Rule {
+    let media_type = req.media_type.parse::<RuleMediaType>();
     Rule {
         id,
         name: req.name.clone(),
         description: req.description.clone(),
-        priority: req.priority,
+        priority,
         enabled: req.enabled,
-        media_type: req.media_type.to_lowercase(),
-        conditions: req.conditions.clone(),
+        media_type: *media_type.as_ref().unwrap_or(&RuleMediaType::Both),
+        conditions: if media_type.is_ok() { req.conditions.clone() } else { Vec::new() },
         exclusions: req.exclusions.clone(),
         match_mode: req.match_mode,
         target_category: req.target_category.trim().to_lowercase(),
@@ -651,9 +802,9 @@ pub(crate) fn to_request(rule: Rule) -> CreateRuleRequest {
     CreateRuleRequest {
         name: rule.name,
         description: rule.description,
-        priority: rule.priority,
+        priority: Some(rule.priority),
         enabled: rule.enabled,
-        media_type: rule.media_type,
+        media_type: rule.media_type.to_string(),
         conditions: rule.conditions,
         exclusions: rule.exclusions,
         match_mode: rule.match_mode,
@@ -668,5 +819,6 @@ pub(crate) fn to_request(rule: Rule) -> CreateRuleRequest {
 pub async fn health(
     State(state): State<AppState>,
 ) -> AppResult<Json<crate::services::rule_health::RuleHealthReport>> {
+    let _queued = super::simulation::wait_in_line(&state).await?;
     Ok(Json(crate::services::rule_health::report(&state.pool).await?))
 }

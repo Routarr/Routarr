@@ -5,6 +5,7 @@
     maxYear,
     parseNumberList,
     rejectedNumbers,
+    keyOfKind,
     parseStringList,
     parseYearBound,
   } from '../api/conditions';
@@ -186,6 +187,7 @@
       loading={suggestionsLoading}
       error={suggestionsError}
       {describedBy}
+      keyOf={keyOfKind(spec.type)}
       onChange={(values) => onChange(values, false)}
     />
   {:else}

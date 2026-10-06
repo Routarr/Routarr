@@ -36,13 +36,15 @@ pub struct MediaListItem {
     pub has_files: bool,
     pub status: Option<String>,
     pub last_synced_at: Option<String>,
-    /// Category proposed by the most recent, still-current decision.
+    /// The category the last stored run sends the title to, whether it moves
+    /// or already sits there. Null until a run has evaluated it.
     pub computed_category: Option<String>,
     pub override_category: Option<String>,
     pub has_metadata: bool,
 }
 
-/// "Something a rule could read is known about this item", in SQL.
+/// "Something a rule could read is known about this item", in SQL: what
+/// `MediaMetadata::merge` answers for the engine, and the two must agree.
 ///
 /// Built from the source list rather than hard-coded: with every source off the
 /// answer is `0`, not "whatever happens to be left in the cache". The library
@@ -50,39 +52,59 @@ pub struct MediaListItem {
 /// must agree: a badge saying "metadata missing" over a count saying otherwise
 /// is how a diagnostic stops being read.
 ///
-/// Three things it has to get right. Only the *enabled* sources count, exactly
-/// as `routing::load_context` reads them, or a source switched off yesterday
-/// still speaks for an item. All three identifier namespaces count, or a series
-/// enriched by TheTVDB and carrying no `tmdb_id` reads as undescribed for ever.
-/// And a cached row is not a cached *answer*: a synopsis is readable by no
-/// condition, so the five fields `MetadataField` names are what is looked for.
+/// Only the *enabled* sources count, exactly as `routing::load_context` reads
+/// them. Each is joined on its own identifier, as `facet_rows` joins them: a
+/// TMDb id and a TheTVDB id share no namespace, and a source found by search
+/// is reached through what `source_identifiers` resolved the title's key to.
+/// A title known to no id is keyed by its folded title, which SQL cannot
+/// spell, so its search answers are left out, as in the facets. And a cached
+/// row is not a cached *answer*: a synopsis is readable by no condition, so
+/// the five fields `MetadataField` names are what is looked for.
 ///
 /// The source ids are `&'static str` from the catalogue, never anything a
 /// caller sent, which is what makes splicing them safe.
 pub(crate) fn metadata_predicate(
     providers: &[&'static crate::services::metadata::ProviderInfo],
 ) -> String {
-    let mut clauses: Vec<String> = Vec::new();
-    if let Some(arr) = providers.iter().find(|p| p.id == metadata::ARR) {
-        clauses.push(holds_any("m", arr.fields));
-    }
-    let fetched: Vec<&'static str> =
-        providers.iter().map(|p| p.id).filter(|id| *id != metadata::ARR).collect();
-    if !fetched.is_empty() {
-        let sources = fetched.iter().map(|id| format!("'{id}'")).collect::<Vec<_>>().join(", ");
-        clauses.push(format!(
-            "EXISTS (SELECT 1 FROM metadata_cache c
-                      WHERE c.source IN ({sources})
-                        AND c.media_type = m.media_type
-                        AND (c.external_id = CAST(m.tmdb_id AS TEXT)
-                             OR c.external_id = CAST(m.tvdb_id AS TEXT)
-                             OR c.external_id = m.imdb_id)
-                        AND {})",
-            holds_any("c", &MetadataField::ALL)
-        ));
-    }
+    let answers = holds_any("c", &MetadataField::ALL);
+    let clauses: Vec<String> = providers
+        .iter()
+        .map(|provider| {
+            let source = provider.id;
+            match provider.addressing {
+                metadata::Addressing::Local => holds_any("m", provider.fields),
+                metadata::Addressing::Column(column) => {
+                    let held = match column {
+                        "imdb_id" => "m.imdb_id",
+                        "tmdb_id" => "CAST(m.tmdb_id AS TEXT)",
+                        _ => "CAST(m.tvdb_id AS TEXT)",
+                    };
+                    format!(
+                        "EXISTS (SELECT 1 FROM metadata_cache c
+                                  WHERE c.source = '{source}' AND c.external_id = {held}
+                                    AND c.media_type = m.media_type AND {answers})"
+                    )
+                }
+                metadata::Addressing::Search => format!(
+                    "EXISTS (SELECT 1 FROM source_identifiers si
+                               JOIN metadata_cache c ON c.source = si.source
+                                AND c.external_id = si.external_id
+                                AND c.media_type = si.media_type
+                              WHERE si.source = '{source}' AND si.media_type = m.media_type
+                                AND si.local_key = {LOCAL_KEY} AND {answers})"
+                ),
+            }
+        })
+        .collect();
     if clauses.is_empty() { "0".to_string() } else { clauses.join(" OR ") }
 }
+
+/// A title's key among the searched sources' resolutions, in SQL:
+/// `metadata::local_key_of`, but for a title known to no id.
+const LOCAL_KEY: &str = "CASE WHEN m.tmdb_id IS NOT NULL THEN 'tmdb:' || m.tmdb_id
+                              WHEN m.tvdb_id IS NOT NULL THEN 'tvdb:' || m.tvdb_id
+                              WHEN COALESCE(TRIM(m.imdb_id), '') != ''
+                                   THEN 'imdb:' || TRIM(m.imdb_id) END";
 
 /// "This row holds a value for one of these fields", in SQL. A column holds a
 /// JSON list or a plain value, and the merge counts neither when it is blank,
@@ -126,21 +148,17 @@ pub async fn list(
         filters.push_str(" AND m.title LIKE ? ESCAPE '\\'");
         binds.push(format!("%{}%", crate::db::escape_like(v)));
     }
-    // Both read the latest standing decision, the one `computed_category`
-    // below shows: an older one an apply left standing is history.
+    // Both read what the last run decided, the outcome `computed_category`
+    // below shows: the decisions hold only what a run proposed.
     if let Some(v) = &query.category {
-        filters.push_str(
-            " AND (SELECT d.target_category FROM decisions d
-                    WHERE d.media_id = m.id AND d.superseded = 0
-                    ORDER BY d.decided_at DESC LIMIT 1) = ?",
-        );
+        filters
+            .push_str(" AND m.id IN (SELECT r.media_id FROM media_routing r WHERE r.category = ?)");
         binds.push(v.clone());
     }
     if query.unmatched.unwrap_or(false) {
         filters.push_str(
-            " AND COALESCE((SELECT d.matched_rule_id IS NOT NULL FROM decisions d
-                             WHERE d.media_id = m.id AND d.superseded = 0
-                             ORDER BY d.decided_at DESC LIMIT 1), 0) = 0",
+            " AND NOT EXISTS (SELECT 1 FROM media_routing r
+                               WHERE r.media_id = m.id AND r.matched_rule_id IS NOT NULL)",
         );
     }
 
@@ -156,9 +174,8 @@ pub async fn list(
         "SELECT m.id, m.instance_id, i.name AS instance_name, m.arr_id, m.media_type, m.title,
                 m.year, m.tmdb_id, m.tvdb_id, m.imdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
                 m.last_synced_at,
-                (SELECT d.target_category FROM decisions d
-                  WHERE d.media_id = m.id AND d.superseded = 0
-                  ORDER BY d.decided_at DESC LIMIT 1) AS computed_category,
+                (SELECT r.category FROM media_routing r WHERE r.media_id = m.id)
+                  AS computed_category,
                 (SELECT o.target_category FROM overrides o WHERE o.media_id = m.id) AS override_category,
                 ({has_metadata}) AS has_metadata
          FROM media m
@@ -294,7 +311,7 @@ pub async fn place(
 /// One title, what its sources say about it, and the exception pinning it.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MediaDetail {
-    pub media: Media,
+    pub media: MediaView,
     pub instance_name: Option<String>,
     /// Null until a source has answered for the title.
     pub metadata: Option<crate::models::MediaMetadata>,
@@ -331,7 +348,7 @@ pub async fn get_one(
             .await?;
 
     Ok(Json(MediaDetail {
-        media,
+        media: media.into(),
         instance_name,
         metadata,
         exception: override_entry
@@ -341,16 +358,33 @@ pub async fn get_one(
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Explanation {
-    pub media: Media,
+    pub media: MediaView,
     pub metadata: Option<MediaMetadata>,
     pub override_category: Option<String>,
     pub target_category: String,
     pub target_root_folder: Option<String>,
-    pub action: String,
+    #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
+    pub action: DecisionAction,
     pub confidence: f32,
     pub winning_rule: Option<String>,
     /// Per-condition outcome for every rule that was considered.
     pub rule_traces: Vec<RuleTrace>,
+    /// False when the title's instance is switched off: no run reads it, and
+    /// the move shown is only what the rules would do.
+    pub instance_enabled: bool,
+}
+
+/// How the engine read one rule for the title.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceOutcome {
+    /// It decided where the title goes.
+    Winner,
+    /// Its conditions held and one of its exclusions set it aside.
+    Excluded,
+    /// Its conditions held and a rule tried before it won.
+    MatchedLowerPriority,
+    NotMatched,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -361,7 +395,11 @@ pub struct RuleTrace {
     pub category: String,
     pub matched: bool,
     pub excluded_by: Option<String>,
-    pub outcome: String,
+    #[schema(
+        value_type = String,
+        extensions(("x-extensible-enum" = json!(["winner", "excluded", "matched_lower_priority", "not_matched"])))
+    )]
+    pub outcome: TraceOutcome,
     /// Every condition, with its wording already resolved for this language.
     pub conditions: Vec<rule_engine::ConditionOutcome>,
 }
@@ -378,6 +416,10 @@ pub async fn explain(
 ) -> AppResult<Json<Explanation>> {
     let media = load_media(&state, &id).await?;
     let localizer: Localizer = state.localizer().await;
+    let instance_enabled: bool = sqlx::query_scalar("SELECT enabled FROM instances WHERE id = ?")
+        .bind(&media.instance_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     let now = Utc::now();
     let routing::ItemRoute { rules, override_category, route } =
@@ -398,22 +440,21 @@ pub async fn explain(
         let conditions: Vec<rule_engine::ConditionOutcome> =
             outcomes.into_iter().map(|outcome| localizer.localize_outcome(outcome)).collect();
 
-        // The engine's own veto, not a second reading of the exclusions.
-        let excluded_by = evaluation
-            .excluded
-            .iter()
-            .find(|set_aside| set_aside.rule_id == rule.id)
-            .and_then(|set_aside| set_aside.excluded_by.clone())
+        // The engine's own veto, read for a title an exception pins too: the
+        // engine then reads no rule, and the trace is what each would do.
+        let excluded_by = matched
+            .then(|| rule_engine::veto(rule, ctx))
+            .flatten()
             .map(|veto| localizer.localize_outcome(veto).expected);
 
         let outcome = if Some(&rule.id) == winner_id.as_ref() {
-            "winner"
+            TraceOutcome::Winner
         } else if excluded_by.is_some() {
-            "excluded"
+            TraceOutcome::Excluded
         } else if matched {
-            "matched_lower_priority"
+            TraceOutcome::MatchedLowerPriority
         } else {
-            "not_matched"
+            TraceOutcome::NotMatched
         };
 
         rule_traces.push(RuleTrace {
@@ -423,18 +464,18 @@ pub async fn explain(
             category: rule.target_category.clone(),
             matched,
             excluded_by,
-            outcome: outcome.to_string(),
+            outcome,
             conditions,
         });
     }
 
     Ok(Json(Explanation {
-        media,
+        media: media.into(),
         metadata,
         override_category,
         target_category: category,
         target_root_folder: target,
-        action: action.to_string(),
+        action,
         confidence: evaluation.winner.as_ref().map(|w| w.confidence).unwrap_or(0.0),
         winning_rule: evaluation.winner.as_ref().map(|w| {
             if w.rule_id == rule_engine::OVERRIDE_RULE_ID {
@@ -444,6 +485,7 @@ pub async fn explain(
             }
         }),
         rule_traces,
+        instance_enabled,
     }))
 }
 
@@ -506,6 +548,8 @@ pub struct LibraryFacets {
     pub tags: Vec<Facet>,
     pub series_types: Vec<Facet>,
     pub root_folders: Vec<Facet>,
+    /// The statuses the Arrs give the titles, as they write them.
+    pub statuses: Vec<Facet>,
 }
 
 /// A fixed table as the picker consumes it: the value a rule stores, labelled
@@ -541,6 +585,31 @@ fn capitalise(word: &str) -> String {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
     }
+}
+
+/// The statuses Radarr and Sonarr give a title, as they write them, and the
+/// key naming each in words.
+const ARR_STATUSES: &[(&str, &str)] = &[
+    ("tba", "ArrStatusTba"),
+    ("announced", "ArrStatusAnnounced"),
+    ("inCinemas", "ArrStatusInCinemas"),
+    ("released", "ArrStatusReleased"),
+    ("continuing", "ArrStatusContinuing"),
+    ("upcoming", "ArrStatusUpcoming"),
+    ("ended", "ArrStatusEnded"),
+    ("deleted", "ArrStatusDeleted"),
+];
+
+/// Name each status the library holds in the reader's words, where it is one
+/// the Arrs are known to write.
+fn name_statuses(held: Vec<Facet>, localizer: &Localizer) -> Vec<Facet> {
+    held.into_iter()
+        .map(|facet| {
+            let key = ARR_STATUSES.iter().find(|(status, _)| *status == facet.value);
+            let label = key.map(|(_, key)| localizer.translate(key, &[]));
+            Facet { label, ..facet }
+        })
+        .collect()
 }
 
 /// Count the distinct values of one column, commonest first.
@@ -868,5 +937,6 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
         certifications: certification_facets(pool, &sources, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,
         root_folders: column_facets(pool, "current_root_folder").await?,
+        statuses: name_statuses(column_facets(pool, "status").await?, &localizer),
     }))
 }

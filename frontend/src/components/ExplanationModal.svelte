@@ -107,6 +107,9 @@
       <span class="dir-aware">→</span>
       <span class="mono">{data.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
+    {#if !data.instance_enabled}
+      <p class="text-warning text-md mt-2">{t('ExplainInstanceOff')}</p>
+    {/if}
   </div>
 
   {#if data.metadata}

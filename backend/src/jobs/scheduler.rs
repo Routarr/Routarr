@@ -197,12 +197,11 @@ fn spawn_post_sync(state: AppState, by: Attribution) -> JoinHandle<()> {
 
         // Keep the pending decision list current so the dashboard is meaningful
         // without the user having to press "Simulate" first.
-        // Serialised against the one a user can start from the interface. Two
-        // full passes racing both supersede the other's pending decisions and
-        // the later commit wins, so the survivor may have been computed from
-        // rules that changed in between. The webhook's single-item run takes no
-        // such lock and must not: `store_decisions` supersedes only the media it
-        // evaluated, so a season import is never blocked by a sweep.
+        // Serialised against the one a user can start from the interface: two
+        // full passes at once evaluate the library twice for one result. The
+        // webhook's single-item run takes no such lock and must not:
+        // `routing::store_run` touches only the media it evaluated, so a season
+        // import is never blocked by a sweep.
         if state.bool_setting("auto_simulate_enabled", true).await
             && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
         {
@@ -236,6 +235,9 @@ async fn simulate_after_sync(
         trigger: by.trigger.clone(),
         subject: by.subject.clone(),
         persist: true,
+        // Its counts are all it reads: the proposals are stored, and worded
+        // once for that.
+        max_returned: Some(0),
         language: state.language().await,
         progress: Some(job.progress_reporter()),
         ..Default::default()
@@ -250,9 +252,7 @@ async fn simulate_after_sync(
                     moves: result.moves_required,
                 },
             );
-            if let Ok(mut summary) = serde_json::to_value(&result) {
-                summary["decisions"] = serde_json::json!([]);
-                summary["returned"] = serde_json::json!(0);
+            if let Ok(summary) = serde_json::to_value(&result) {
                 job.report(&summary);
             }
             let detail = Detail::new("JobDetailSimulated")

@@ -65,6 +65,7 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
     tags: [],
     series_types: [],
     root_folders: [],
+    statuses: [],
   });
   renderWithI18n(RuleEditor, {
     props: {
@@ -408,6 +409,7 @@ describe('the facets the parent already holds', () => {
         tags: [],
         series_types: [],
         root_folders: [],
+        statuses: [],
       },
     });
     await screen.findByLabelText('Rule name');

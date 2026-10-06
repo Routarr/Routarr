@@ -376,3 +376,48 @@ async fn asynchronous_previews_queue_only_so_far() {
     assert_eq!(started, 4, "a refused preview left a task behind");
     drop(held);
 }
+
+/// A rule health report and a rule preview read the whole library as a
+/// preview does, and wait in its queue: a read-scope key sending them without
+/// end would otherwise hold every apply behind them.
+#[tokio::test]
+async fn rule_reports_and_previews_wait_in_the_previews_queue() {
+    let app = std::sync::Arc::new(TestApp::new().await);
+    app.seed_library().await;
+    let held = (
+        crate::services::routing::library_pass().await,
+        crate::services::routing::library_pass().await,
+    );
+
+    let waiting: Vec<_> = (0..4)
+        .map(|_| {
+            let app = std::sync::Arc::clone(&app);
+            tokio::spawn(async move { app.get("/api/v1/rules/health").await.status })
+        })
+        .collect();
+    // Until the four hold their places, or long enough for them to have.
+    let queued = async {
+        while app.state.jobs.try_wait("preview", 4).map(drop).is_some() {
+            tokio::task::yield_now().await;
+        }
+    };
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), queued).await;
+
+    async fn refused(
+        request: impl std::future::Future<Output = super::TestResponse>,
+    ) -> StatusCode {
+        let answered = tokio::time::timeout(std::time::Duration::from_secs(5), request).await;
+        answered.expect("it waited for a library pass").status
+    }
+    assert_eq!(refused(app.get("/api/v1/rules/health")).await, StatusCode::CONFLICT);
+    let preview = json!({ "rule": { "name": "Anime", "media_type": "both",
+                                     "target_category": "anime",
+                                     "conditions": [{ "type": "has_files", "value": true }] } });
+    let previewed = refused(app.post("/api/v1/rules/preview", preview)).await;
+    assert_eq!(previewed, StatusCode::CONFLICT);
+
+    drop(held);
+    for request in waiting {
+        assert_eq!(request.await.unwrap(), StatusCode::OK);
+    }
+}

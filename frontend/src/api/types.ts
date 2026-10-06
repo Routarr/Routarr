@@ -447,6 +447,10 @@ export interface ExplainedMedia {
   original_language: string | null;
   certification: string | null;
   last_synced_at: string | null;
+  /** The Arr's tag labels: `tags` holds the same as a JSON string. */
+  tag_list: string[];
+  /** The genres the Arr reports: `genres` holds the same as a JSON string. */
+  genre_list: string[];
 }
 
 export interface Explanation {
@@ -459,6 +463,8 @@ export interface Explanation {
   confidence: number;
   winning_rule: string | null;
   rule_traces: RuleTrace[];
+  /** False when no run reads the title's instance, which is switched off. */
+  instance_enabled: boolean;
 }
 
 export interface OverrideEntry {
@@ -688,6 +694,8 @@ export interface ConfigImportReport {
   skipped: string[];
   /** The instances restored disabled, by name, each waiting for its API key. */
   needs_key: string[];
+  /** Each rule restored otherwise than the bundle has it, with how. */
+  adjusted: string[];
 }
 
 /** A pinned expectation: these inputs must keep producing this category. */
@@ -802,6 +810,8 @@ export interface LibraryFacets {
   tags: Facet[];
   series_types: Facet[];
   root_folders: Facet[];
+  /** The statuses the Arrs give the titles, as they write them. */
+  statuses: Facet[];
 }
 
 /**

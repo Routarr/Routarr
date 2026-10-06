@@ -397,17 +397,18 @@ impl AppState {
     /// against `""`, never fire, and leave deletable the category routing
     /// actually lands in.
     ///
-    /// One spelling, one fallback. The default lives in `DEFAULT_CATEGORY`.
-    pub async fn default_category<'e, E>(executor: E) -> String
+    /// One spelling, one fallback. The default lives in `DEFAULT_CATEGORY`,
+    /// and stands only for a missing row: a read that failed would send every
+    /// title no rule matched to the shipped default.
+    pub async fn default_category<'e, E>(executor: E) -> crate::error::AppResult<String>
     where
         E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
     {
-        sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = 'default_category'")
-            .fetch_optional(executor)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_else(|| DEFAULT_CATEGORY.to_string())
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT value FROM settings WHERE key = 'default_category'")
+                .fetch_optional(executor)
+                .await?;
+        Ok(stored.unwrap_or_else(|| DEFAULT_CATEGORY.to_string()))
     }
 
     /// Read a boolean setting: `true` in any case, or `1`, is on.

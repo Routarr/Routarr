@@ -277,6 +277,28 @@ async fn enrich_asks_a_source_for_what_the_rules_read_and_stores_nothing() {
     assert_eq!(count(&app, "metadata_cache").await, 0, "an enriched placement stored an answer");
 }
 
+/// A title two instances know is one title to a source: `enrich` asks each
+/// source once, at its pace and on its quota, however many instances answer.
+#[tokio::test]
+async fn enrich_asks_each_source_once_however_many_instances_know_the_title() {
+    let arr = FakeArr::start().await;
+    let tmdb = FakeTmdb::start().await;
+    let app = TestApp::new().await;
+    let mut config = crate::config::Config::for_tests();
+    config.tmdb_api_key = Some("tmdb-key".into());
+    config.tmdb_base_url = format!("{}/3", tmdb.base_url);
+    let app = TestApp::around(app.state.clone().with_config(config));
+    crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
+    radarr_library(&app, &arr).await;
+    app.seed_instance_at("inst-2", "radarr", &arr.base_url).await;
+
+    let placed = app.get("/api/v1/route?type=movie&tmdb=129&enrich=true").await;
+
+    assert_eq!(placed.assert_ok()["answers"].as_array().unwrap().len(), 2, "{}", placed.json);
+    let asked = tmdb.recorded().paths.iter().filter(|path| path.starts_with("/movie/129")).count();
+    assert_eq!(asked, 1, "{:?}", tmdb.recorded().paths);
+}
+
 /// The Radarr library, AniList as its one source, and a rule sending what
 /// AniList calls Japanese to `kids` before the anime rule.
 async fn library_on_anilist(arr: &FakeArr, sources: &FakeSources) -> TestApp {

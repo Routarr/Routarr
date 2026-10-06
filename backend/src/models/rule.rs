@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::MetadataField;
 
-/// Rule media type scope.
+/// Which titles a rule reads: films, series, or both.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleMediaType {
@@ -136,7 +136,8 @@ pub enum Condition {
     #[serde(rename = "series_type_is")]
     SeriesTypeIs(Vec<String>),
 
-    /// On-disk size, in gigabytes, strictly above this value.
+    /// On-disk size, in GB of 1024³ bytes as the interface counts them,
+    /// strictly above this value.
     #[serde(rename = "size_on_disk_over_gb")]
     SizeOnDiskOverGb(i64),
 
@@ -152,11 +153,13 @@ pub enum Condition {
     #[serde(rename = "status_is")]
     StatusIs(Vec<String>),
 
-    /// Current root folder path matches exactly.
+    /// The current root folder is this folder, whatever its trailing
+    /// separator and, on Windows, its case.
     #[serde(rename = "current_root_folder")]
     CurrentRootFolder(String),
 
-    /// Current root folder path starts with this prefix.
+    /// The current root folder is this folder or one inside it: `/data` holds
+    /// `/data/movies`, and `/data/mov` holds neither.
     #[serde(rename = "current_root_folder_starts_with")]
     CurrentRootFolderStartsWith(String),
 
@@ -164,7 +167,8 @@ pub enum Condition {
     #[serde(rename = "has_files")]
     HasFiles(bool),
 
-    /// Title contains one of these substrings (case-insensitive).
+    /// The title contains one of these, compared as every value is: case,
+    /// accents and punctuation aside.
     #[serde(rename = "title_contains")]
     TitleContains(Vec<String>),
 
@@ -180,8 +184,10 @@ pub enum Condition {
     #[serde(rename = "imdb_id_in")]
     ImdbIdIn(Vec<String>),
 
-    /// Media added to the Arr instance within the last N days, so a rule can
-    /// target new additions without touching the existing library.
+    /// Media added to the Arr instance within the last N days, N times 24
+    /// hours, so a rule can target new additions without touching the
+    /// existing library. An Arr clock less than a day ahead reads as just
+    /// added. At least 1.
     #[serde(rename = "added_within_days")]
     AddedWithinDays(i64),
 
@@ -254,10 +260,10 @@ impl Condition {
             Condition::TagIn(v) | Condition::TagInAll(v) | Condition::SeriesTypeIs(v) => {
                 v.iter().all(|s| s.trim().is_empty())
             }
-            // A threshold of zero is meaningless rather than empty: every media
-            // with any size at all is "over 0 GB".
-            Condition::SizeOnDiskOverGb(v) | Condition::SeasonCountOver(v) => *v <= 0,
-            Condition::HasFiles(_)
+            // A count always holds a value, too low a one being another fault.
+            Condition::SizeOnDiskOverGb(_)
+            | Condition::SeasonCountOver(_)
+            | Condition::HasFiles(_)
             | Condition::Monitored(_)
             | Condition::HasMetadata(_)
             | Condition::AddedWithinDays(_) => false,
@@ -317,9 +323,11 @@ pub struct Rule {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    /// Lower is tried first. Equal priorities go by name, then by id.
     pub priority: i64,
     pub enabled: bool,
-    pub media_type: String,
+    #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["movie", "series", "both"]))))]
+    pub media_type: RuleMediaType,
     pub conditions: Vec<Condition>,
     /// Conditions that disqualify the rule even when `conditions` match.
     #[serde(default)]
@@ -335,7 +343,11 @@ pub struct Rule {
 impl Rule {
     /// Whether this rule may apply to the given media type.
     pub fn covers_media_type(&self, media_type: &str) -> bool {
-        self.media_type == "both" || self.media_type == media_type
+        match self.media_type {
+            RuleMediaType::Both => true,
+            RuleMediaType::Movie => media_type == "movie",
+            RuleMediaType::Series => media_type == "series",
+        }
     }
 
     /// Whether this rule is scoped to the given instance.
@@ -354,8 +366,11 @@ pub struct CreateRuleRequest {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default = "default_priority")]
-    pub priority: i64,
+    /// Lower is tried first. Equal priorities go by name, then by id. Left
+    /// out, a new rule goes after every other, and an edited one keeps its
+    /// place.
+    #[serde(default)]
+    pub priority: Option<i64>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub media_type: String,
@@ -379,13 +394,30 @@ pub struct ReorderRulesRequest {
 /// Portable rule bundle, produced by `GET /rules/export`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RuleBundle {
+    /// The format, which this build writes as 2. A version 1 bundle names no
+    /// instance a rule is limited to, and its rules without instance ids are
+    /// imported switched off.
     pub version: u32,
+    /// When it was written, in RFC 3339.
     #[serde(default)]
     pub exported_at: Option<String>,
-    pub rules: Vec<CreateRuleRequest>,
+    pub rules: Vec<BundledRule>,
     /// Categories referenced by the rules, so an import can recreate them.
     #[serde(default)]
     pub categories: Vec<String>,
+}
+
+/// A rule as a bundle carries it, its instance scope by name: an id means
+/// nothing on another installation, and a scope dropped would let the rule
+/// route every instance.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BundledRule {
+    #[serde(flatten)]
+    pub rule: CreateRuleRequest,
+    /// The instances the rule is limited to, by name. Absent for every
+    /// instance. A rule naming none this installation has is not imported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_names: Option<Vec<String>>,
 }
 
 /// Request body for `POST /rules/import`.
@@ -400,14 +432,24 @@ pub struct ImportRulesRequest {
     pub create_missing_categories: bool,
 }
 
+/// How much a problem with a rule weighs.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// Blocks the write.
+    Error,
+    /// Advisory.
+    Warning,
+}
+
 /// A problem with a rule: a stable `key` and its values, and the `message`
 /// in the interface language, which is not part of the contract.
 // The validator carries the key rather than prose, so it stays free of
 // wording: `message` is filled in at the API boundary.
 #[derive(Debug, Clone, Serialize, PartialEq, utoipa::ToSchema)]
 pub struct ValidationIssue {
-    /// `error` blocks the write, `warning` is advisory.
-    pub severity: String,
+    #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["error", "warning"]))))]
+    pub severity: Severity,
     pub field: String,
     pub key: String,
     pub params: std::collections::BTreeMap<String, String>,
@@ -416,9 +458,9 @@ pub struct ValidationIssue {
 }
 
 impl ValidationIssue {
-    fn new(severity: &str, field: &str, key: &str, params: &[(&str, String)]) -> Self {
+    fn new(severity: Severity, field: &str, key: &str, params: &[(&str, String)]) -> Self {
         Self {
-            severity: severity.into(),
+            severity,
             field: field.into(),
             key: key.into(),
             params: params.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
@@ -427,21 +469,18 @@ impl ValidationIssue {
     }
 
     pub fn error(field: &str, key: &str, params: &[(&str, String)]) -> Self {
-        Self::new("error", field, key, params)
+        Self::new(Severity::Error, field, key, params)
     }
 
     pub fn warning(field: &str, key: &str, params: &[(&str, String)]) -> Self {
-        Self::new("warning", field, key, params)
+        Self::new(Severity::Warning, field, key, params)
     }
 
     pub fn is_error(&self) -> bool {
-        self.severity == "error"
+        self.severity == Severity::Error
     }
 }
 
-fn default_priority() -> i64 {
-    100
-}
 fn default_true() -> bool {
     true
 }

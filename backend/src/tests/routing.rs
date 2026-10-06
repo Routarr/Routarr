@@ -22,7 +22,7 @@ async fn a_matching_rule_produces_a_move() {
 
     assert_eq!(result.total_media, 1);
     assert_eq!(result.moves_required, 1);
-    assert_eq!(result.decisions[0].action, "move");
+    assert_eq!(result.decisions[0].action.as_str(), "move");
     assert_eq!(result.decisions[0].target_root_folder.as_deref(), Some("/movies/anime"));
     assert_eq!(result.decisions[0].matched_rule_name.as_deref(), Some("Anime"));
     assert!(result.decisions[0].confidence > 0.5);
@@ -88,7 +88,7 @@ async fn a_category_without_a_root_folder_is_skipped_not_moved() {
 
     assert_eq!(result.skipped_unmapped, 1);
     assert_eq!(result.moves_required, 0);
-    assert_eq!(result.decisions[0].action, "skip");
+    assert_eq!(result.decisions[0].action.as_str(), "skip");
     assert!(result.decisions[0].target_root_folder.is_none());
 }
 
@@ -152,7 +152,8 @@ async fn a_root_folder_that_is_asleep_still_routes() {
 
     let result = simulate(&app, persisting()).await;
     assert_eq!(
-        result.decisions[0].action, "move",
+        result.decisions[0].action.as_str(),
+        "move",
         "a sleeping destination unmapped its category: {:?}",
         result.decisions[0]
     );
@@ -574,11 +575,10 @@ async fn an_unreadable_instance_list_scopes_the_rule_to_nothing() {
     assert_eq!(simulate(&app, persisting()).await.moves_required, 0, "the rule widened");
 }
 
-/// Two library-wide passes both supersede the other's pending decisions, and
-/// the later commit wins, so the survivor may have been computed from a rule
-/// set that changed in between. The webhook's single-item run must *not* queue
-/// behind a sweep: `store_decisions` supersedes only what it evaluated, and a
-/// season import arrives as one delivery per episode.
+/// Two library-wide passes at once evaluate the library twice for one result.
+/// The webhook's single-item run must *not* queue behind a sweep:
+/// `routing::store_run` touches only what it evaluated, and a season import
+/// arrives as one delivery per episode.
 #[tokio::test]
 async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
     let arr = crate::tests::fake_arr::FakeArr::start().await;
@@ -751,4 +751,73 @@ async fn two_destinations_on_one_volume_are_forecast_together() {
     let fits: Vec<(String, bool)> =
         plan.capacity.iter().map(|c| (c.path.clone(), c.fits)).collect();
     assert_eq!(fits, [("/movies/anime".into(), false), ("/movies/kids".into(), false)]);
+}
+
+/// Until the first run after an upgrade, the library shows each title what it
+/// showed before: its latest standing decision.
+#[tokio::test]
+async fn an_upgrade_shows_each_title_its_latest_standing_decision() {
+    let pool = crate::tests::database_through("019_instance_reads").await;
+    for statement in [
+        crate::tests::AN_INSTANCE,
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title)
+         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro'),
+                ('m-2', 'inst-1', 11, 'movie', 'Heat')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                target_category, matched_rule_id, action, status, decided_at,
+                                superseded)
+         VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'r-1', 'move', 'applied',
+                 '2026-09-01 10:00:00', 0),
+                ('d-2', 'm-1', 'Totoro', 'movie', 'inst-1', 'kids', 'r-2', 'move', 'pending',
+                 '2026-09-02 10:00:00', 0),
+                ('d-3', 'm-2', 'Heat', 'movie', 'inst-1', 'anime', 'r-1', 'move', 'pending',
+                 '2026-09-02 10:00:00', 1)",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let kept: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT media_id, category, matched_rule_id FROM media_routing")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, [("m-1".to_string(), "kids".to_string(), Some("r-2".to_string()))]);
+}
+
+/// "Added within the last 0 days" meant the last 24 hours, and 0 is refused
+/// now: an upgrade turns it into 1, which means the same, wherever it stands.
+#[tokio::test]
+async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
+    let pool = crate::tests::database_through("020_media_routing").await;
+    sqlx::query(
+        r#"INSERT INTO rules (id, name, priority, media_type, conditions, exclusions,
+                              target_category)
+           VALUES ('r-1', 'New', 10, 'both',
+                   '[{"type":"genre_contains","value":["Drama"]},{"type":"added_within_days","value":0}]',
+                   '[{"type":"added_within_days","value":0}]', 'standard'),
+                  ('r-2', 'Recent', 20, 'both', '[{"type":"added_within_days","value":30}]',
+                   '[]', 'standard')"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let rules = crate::services::routing::load_rules(&pool).await.unwrap();
+    let days = |id: &str| -> Vec<crate::models::Condition> {
+        let rule = rules.iter().find(|rule| rule.id == id).unwrap();
+        rule.conditions.iter().chain(&rule.exclusions).cloned().collect()
+    };
+    assert_eq!(
+        days("r-1"),
+        [
+            crate::models::Condition::GenreContains(vec!["Drama".into()]),
+            crate::models::Condition::AddedWithinDays(1),
+            crate::models::Condition::AddedWithinDays(1),
+        ]
+    );
+    assert_eq!(days("r-2"), [crate::models::Condition::AddedWithinDays(30)]);
 }

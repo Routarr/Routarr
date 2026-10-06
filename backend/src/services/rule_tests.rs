@@ -76,7 +76,7 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
 pub async fn run_all(pool: &SqlitePool) -> AppResult<RuleTestRun> {
     let cases = list(pool).await?;
     let rules = routing::load_rules(pool).await?;
-    let default_category = crate::state::AppState::default_category(pool).await;
+    let default_category = crate::state::AppState::default_category(pool).await?;
 
     let results: Vec<RuleTestResult> =
         cases.iter().map(|case| run_one(case, &rules, &default_category)).collect();
@@ -164,6 +164,12 @@ pub struct NewRuleTest {
 pub fn validate(new: &NewRuleTest, localizer: &crate::localization::Localizer) -> AppResult<()> {
     if new.name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("RuleTestNameRequired", &[])));
+    }
+    let max = crate::services::rule_engine::MAX_NAME_LENGTH;
+    if new.name.chars().count() > max {
+        return Err(AppError::BadRequest(
+            localizer.translate("RuleTestNameTooLong", &[("max", &max.to_string())]),
+        ));
     }
     if new.media_id.trim().is_empty() {
         return Err(AppError::BadRequest("a test needs a media item to snapshot".into()));

@@ -1,4 +1,4 @@
-//! Two writers meeting over one category.
+//! Two writers meeting over one row.
 //!
 //! A category is a name other rows hold, with no foreign key: a rule, a
 //! folder mapping, a pin, a rule test and the default setting. Each writer
@@ -7,8 +7,12 @@
 //! ([`crate::race::checked`]), sends the second, gives it the moment it needs
 //! to finish if nothing stops it, then lets the first write. Whatever wins,
 //! no row may name a category that does not exist.
+//!
+//! A run stores what it decided about a library it read earlier, and a sync
+//! or another run may change a title in between.
 
 use super::{TestApp, TestResponse};
+use crate::services::routing::{SimulationOptions, run_simulation};
 use serde_json::json;
 use std::collections::HashMap;
 use std::future::Future;
@@ -244,4 +248,100 @@ async fn a_rule_written_while_its_category_is_renamed_follows_the_rename() {
     )
     .await;
     assert_eq!(dangling(&app).await, 0);
+}
+
+/// A library-wide run of the anime rule over Totoro, which it moves, held
+/// before it stores, and the app it runs on. `trigger` names the run, and
+/// its gate, apart from those of the tests running beside it.
+async fn held_sweep(
+    trigger: &'static str,
+) -> (Arc<TestApp>, Arc<Gate>, tokio::task::JoinHandle<()>) {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    let app = Arc::new(app);
+    let gate = arm("routing::store", trigger);
+    let sweep = {
+        let app = Arc::clone(&app);
+        tokio::spawn(async move {
+            run_simulation(
+                &app.state.pool,
+                SimulationOptions { trigger: trigger.into(), persist: true, ..Default::default() },
+            )
+            .await
+            .expect("the sweep");
+        })
+    };
+    gate.reached().await;
+    (app, gate, sweep)
+}
+
+/// Totoro's standing proposals.
+async fn proposals_for_totoro(app: &TestApp) -> i64 {
+    app.count(
+        "SELECT COUNT(*) FROM decisions
+          WHERE media_id = 'm-1' AND status = 'pending' AND superseded = 0",
+    )
+    .await
+}
+
+/// A title the Arr deleted after the run read the library gains no proposal:
+/// nothing would retire it, and the dashboard would count it.
+#[tokio::test]
+async fn a_run_proposes_nothing_for_a_title_deleted_after_it_read_the_library() {
+    let (app, gate, sweep) = held_sweep("sweep-before-a-delete").await;
+    app.execute(&["DELETE FROM media WHERE id = 'm-1'"]).await;
+    gate.release();
+    sweep.await.unwrap();
+
+    assert_eq!(proposals_for_totoro(&app).await, 0);
+}
+
+/// A run that read the library later decided Totoro first, and its answer
+/// stands: the earlier run's move rests on a rule switched off since.
+#[tokio::test]
+async fn a_run_leaves_alone_a_title_a_later_run_decided() {
+    let (app, gate, sweep) = held_sweep("sweep-before-a-later-run").await;
+    app.execute(&["UPDATE rules SET enabled = 0"]).await;
+    run_simulation(
+        &app.state.pool,
+        SimulationOptions {
+            media_ids: Some(vec!["m-1".into()]),
+            persist: true,
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    gate.release();
+    sweep.await.unwrap();
+
+    assert_eq!(proposals_for_totoro(&app).await, 0, "the earlier run's move was stored");
+    let category: String =
+        sqlx::query_scalar("SELECT category FROM media_routing WHERE media_id = 'm-1'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(category, "standard");
+}
+
+/// A reorder checks it was given every rule under the write lock it writes
+/// with: a rule created meanwhile waits for the new order, rather than land
+/// between the list the reorder checked and the priorities it writes.
+#[tokio::test]
+async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() {
+    let app = with_category("reordered").await;
+    let first = app.post("/api/v1/rules", rule_to("reordered")).await.assert_ok()["id"].clone();
+    let gate = arm("rules::reorder", "");
+    let reorder =
+        tokio::spawn(posting(&app, "/api/v1/rules/reorder", json!({ "rule_ids": [first] })));
+    gate.reached().await;
+
+    let mut creating = tokio::spawn(posting(&app, "/api/v1/rules", rule_to("reordered")));
+    let early = tokio::time::timeout(Duration::from_millis(300), &mut creating).await;
+    gate.release();
+
+    assert!(early.is_err(), "a rule was written between the reorder's check and its write");
+    reorder.await.unwrap().assert_ok();
+    creating.await.unwrap().assert_ok();
 }

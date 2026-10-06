@@ -110,6 +110,7 @@ describe('Media explorer', () => {
       confidence: 0.9,
       winning_rule: 'Japanese',
       rule_traces: [],
+      instance_enabled: true,
     });
     show([media({ id: 'm7', title: 'Akira' })]);
 
@@ -210,6 +211,7 @@ describe('Media explorer', () => {
       confidence: 1,
       winning_rule: null,
       rule_traces: [],
+      instance_enabled: true,
     });
     vi.spyOn(api, 'explainMedia')
       .mockReturnValueOnce(new Promise((resolve) => (first = resolve)))
@@ -239,6 +241,7 @@ describe('Media explorer', () => {
         confidence: 0.9,
         winning_rule: 'Japanese',
         rule_traces: [],
+        instance_enabled: true,
       });
     const why = await screen.findByRole('button', { name: 'Why? – Perfect Blue' });
     await fireEvent.click(why);

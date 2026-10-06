@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::services::routing;
 use crate::state::AppState;
 
 /// The version this build writes and is able to read.
@@ -44,18 +43,7 @@ pub struct ConfigBundle {
     #[serde(default)]
     pub overrides: Vec<Override>,
     #[serde(default)]
-    pub rules: Vec<BundledRule>,
-}
-
-/// A rule as a bundle carries it, its instance scope by name: an id means
-/// nothing on another installation, and a scope dropped would let the rule
-/// route every instance.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct BundledRule {
-    #[serde(flatten)]
-    pub rule: crate::models::CreateRuleRequest,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub instance_names: Option<Vec<String>>,
+    pub rules: Vec<crate::models::BundledRule>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -196,31 +184,11 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
     })
     .collect();
 
-    let names: std::collections::HashMap<String, String> =
-        sqlx::query_as::<_, (String, String)>("SELECT id, name FROM instances")
-            .fetch_all(pool)
-            .await?
-            .into_iter()
-            .collect();
-    let rules: Vec<BundledRule> = routing::load_rules(pool)
-        .await?
-        .into_iter()
-        .map(|rule| {
-            let instance_names = rule
-                .instance_ids
-                .as_ref()
-                .map(|ids| ids.iter().filter_map(|id| names.get(id).cloned()).collect());
-            let rule = crate::models::CreateRuleRequest {
-                instance_ids: None,
-                ..super::rules::to_request(rule)
-            };
-            BundledRule { rule, instance_names }
-        })
-        .collect();
+    let rules = super::rules::bundled_rules(pool).await?;
 
     Ok(Json(ConfigBundle {
         version: BUNDLE_VERSION,
-        exported_at: Some(routing::format_timestamp(chrono::Utc::now())),
+        exported_at: Some(super::rules::exported_now()),
         settings,
         categories,
         instances,
@@ -255,6 +223,8 @@ pub struct ImportReport {
     /// so each needs one entered before it can be enabled. Restored, so not in
     /// `skipped`, which the interface reads as what failed.
     pub needs_key: Vec<String>,
+    /// Each rule restored otherwise than the bundle has it, with how.
+    pub adjusted: Vec<String>,
 }
 
 pub async fn import(
@@ -634,24 +604,14 @@ pub async fn import(
             ));
             continue;
         }
-        let scope = match &bundled.instance_names {
-            None => None,
-            Some(names) => {
-                let found: Vec<String> =
-                    names.iter().filter_map(|name| ids.get(name).cloned()).collect();
-                if found.is_empty() {
-                    report.skipped.push(format!(
-                        "rule '{}': scoped to instances this installation does not have ({})",
-                        bundled.rule.name,
-                        names.join(", ")
-                    ));
-                    continue;
-                }
-                Some(found)
+        // A configuration bundle has always carried the scope by name.
+        match super::rules::scope_here(bundled, true, &ids, &localizer) {
+            super::rules::Scoped::Kept(rule, note) => {
+                report.adjusted.extend(note);
+                restored.push(rule);
             }
-        };
-        restored
-            .push(crate::models::CreateRuleRequest { instance_ids: scope, ..bundled.rule.clone() });
+            super::rules::Scoped::Refused(why) => report.skipped.push(why),
+        }
     }
     // A replace in which no rule survives would delete every rule and add
     // none, and the next pass would route the library to the fallback

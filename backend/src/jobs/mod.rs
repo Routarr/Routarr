@@ -45,11 +45,10 @@ pub const MAX_SYNC_INTERVAL_MINUTES: i64 = 24 * 60;
 
 /// The lock key a library-wide simulation holds.
 ///
-/// Two full passes racing both supersede the other's pending decisions, and the
-/// later commit wins, so the surviving proposals may have been computed from a
-/// rule set that changed in between. Only *full* passes take it: the webhook
-/// evaluates one item and `store_decisions` supersedes only what it evaluated,
-/// so a season import must never queue behind a sweep. How many passes *load*
+/// Two full passes at once evaluate the whole library twice, and only the one
+/// that read it last is kept. Only *full* passes take it: the webhook evaluates
+/// one item and `routing::store_run` touches only what it evaluated, so a
+/// season import must never queue behind a sweep. How many passes *load*
 /// at once is another question, answered by `routing::library_pass`.
 pub const FULL_SIMULATION: &str = "simulate";
 

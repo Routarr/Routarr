@@ -58,7 +58,7 @@ pub async fn create(
         _ => {
             let rules = routing::load_rules(&state.pool).await?;
             let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
-            let default_category = AppState::default_category(&state.pool).await;
+            let default_category = AppState::default_category(&state.pool).await?;
             rule_tests::decided_by_rules(ctx, &rules, &default_category).0
         }
     };

@@ -163,14 +163,18 @@ test.describe('rule bundles', () => {
     const file = await download;
 
     // The bundle is what a user versions in git, so it has to be readable and
-    // free of ids that mean nothing elsewhere.
+    // free of ids that mean nothing elsewhere: a scope travels by name.
     const bundle = JSON.parse(
       await (await import('node:fs/promises')).readFile(await file.path(), 'utf-8'),
-    ) as { version: number; rules: { name: string; instance_ids: unknown }[] };
-    expect(bundle.version).toBe(1);
+    ) as {
+      version: number;
+      rules: { name: string; instance_ids: unknown; instance_names?: unknown }[];
+    };
+    expect(bundle.version).toBe(2);
     const roundTrip = bundle.rules.find((r) => r.name === 'Round trip');
     expect(roundTrip).toBeDefined();
     expect(roundTrip?.instance_ids ?? null).toBeNull();
+    expect(roundTrip?.instance_names ?? null).toBeNull();
 
     // Wiped through the API, restored through the interface beside a rule
     // written since: Append keeps it, and Replace would delete it.

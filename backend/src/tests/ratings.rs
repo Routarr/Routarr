@@ -66,6 +66,15 @@ async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     assert_eq!(app.decided_category().await, "anime", "the Arr is listed first");
 }
 
+/// A blank rating claims nothing, as the merge of the sources treats it: the
+/// Arr's empty one, first in the order and in the region, leaves TMDb's.
+#[tokio::test]
+async fn a_blank_rating_does_not_erase_a_real_one() {
+    let app = rated(Some(""), "US", Some("PG"), "US", "US").await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG"] })).await;
+    assert_eq!(app.decided_category().await, "anime");
+}
+
 #[tokio::test]
 async fn a_sync_reads_the_country_a_radarr_rates_for_and_a_sonarr_rates_for_the_us() {
     let arr = FakeArr::start().await;

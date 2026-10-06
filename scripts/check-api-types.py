@@ -65,7 +65,7 @@ PAIRS: dict[str, str] = {
     "TestConnectionResponse": "TestConnectionResponse",
     "Minted": "MintedApplication",
     "ErrorResponse": "ErrorBody",
-    "Media": "ExplainedMedia",
+    "MediaView": "ExplainedMedia",
     "SigningStatus": "WebhookSigningStatus",
     "ImportReport": "ConfigImportReport",
     "ProviderDescription": "MetadataProvider",
@@ -83,6 +83,7 @@ PAIRS: dict[str, str] = {
     "MaintenanceReport": "MaintenanceReport",
     "MediaMetadata": "MediaMetadata",
     "PreviewChange": "PreviewChange",
+    "PreviewSummary": "SimulationSummary",
     "Rule": "Rule",
     "ConditionCatalog": "ConditionCatalog",
     "ConditionSpec": "ConditionSpec",
@@ -105,7 +106,6 @@ UNPAIRED: dict[str, str] = {
     "RuleDraft": "a request body",
     "AuthMode": "built with json! in api::auth::mode",
     "Condition": "a tagged enum on the Rust side, which this check does not read",
-    "SimulationSummary": "the counters SimulationResult extends, compared there",
 }
 
 

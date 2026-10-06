@@ -40,6 +40,8 @@ Each of these questions has one function. Call it, never spell the question agai
 - where an item goes: `routing::route`, shared by the simulation, the executor's revalidation
   (`routing::revalidated_targets`), the explanation and `GET /route` (`routing::route_one_with`,
   which takes a title the library does not hold as a media row it never writes)
+- where the last run sent a title, moved or not: its `media_routing` row, which
+  `routing::store_run` writes. The decisions hold only what a run proposed.
 - whether an item has matchable metadata: `api::media::metadata_predicate`
 - every warning: `offline_warnings` in `backend/src/api/health.rs`, returned by both `/status`
   and `/health`. `/status` is polled and never probes. A finding only a probe can make reaches
@@ -107,7 +109,9 @@ Each of these questions has one function. Call it, never spell the question agai
   (`genre_contains_all`, `keyword_contains_all`, `origin_country_all`, `tag_in_all`) require
   every value, and nothing reads an AND out of a separator. Compare through `contains_any` and
   `contains_all`, which fold case, accents and punctuation (`normalise_value`) and invent no
-  synonym.
+  synonym. A coded value keeps what folding drops: a rating through `certification_key`
+  (`R+` is not `R`), a status through `status_key`. The validator's `key_of` and the editor's
+  `keyOfKind` (`frontend/src/api/conditions.ts`) name the key of each kind.
 
 ## Sources and outbound HTTP
 

@@ -30,32 +30,23 @@ export function defaultConditionValue(spec: ConditionSpec): unknown {
   }
 }
 
-/**
- * The Latin letters with a mark `fold_diacritic` reduces in the rule engine,
- * and no others: a general strip of marks would also join `ガ` with `カ` and
- * `ō` with `o`, which the engine keeps apart.
- */
-const FOLDED: Record<string, string> = Object.fromEntries(
-  (
-    [
-      ['àáâãäå', 'a'],
-      ['ç', 'c'],
-      ['èéêë', 'e'],
-      ['ìíîï', 'i'],
-      ['ñ', 'n'],
-      ['òóôõöø', 'o'],
-      ['ùúûü', 'u'],
-      ['ýÿ', 'y'],
-    ] as const
-  ).flatMap(([marked, letter]) => [...marked].map((c) => [c, letter])),
-);
+/** The accents a decomposed Latin letter carries: `is_latin_accent` in the rule engine. */
+const LATIN_ACCENT = /[\u0300-\u036f]/u;
 
-/** What Rust's `char::is_alphanumeric` accepts. */
-const ALPHANUMERIC = /[\p{Alphabetic}\p{N}]/u;
+/** The Latin letters as decomposition leaves them: `is_latin_letter`. */
+const LATIN_LETTER = /[A-Za-z\u00c0-\u024f\u1e00-\u1eff]/u;
+
+/** The letters whose mark does not decompose: `fold_stroke`. */
+const STROKED: Record<string, string> = { ø: 'o', ł: 'l', đ: 'd', ħ: 'h', ı: 'i' };
+
+/** What Rust's `char::is_alphanumeric` accepts, and a mark, which stays in its word. */
+const WORD = /[\p{Alphabetic}\p{N}\p{M}]/u;
 
 /**
  * The form two spellings of one value share: `normalise_value` in the rule
- * engine, character for character, both held to one table of cases.
+ * engine, character for character, both held to one table of cases. A Latin
+ * letter loses its accents, and other scripts keep theirs: `ō` is `o`, and `ガ`
+ * stays apart from `カ`.
  *
  * Only used to tell values apart in the interface: to keep a chip from being
  * added twice under `Science-Fiction` and `Science Fiction`, and to filter the
@@ -63,31 +54,65 @@ const ALPHANUMERIC = /[\p{Alphabetic}\p{N}]/u;
  * always the value as the library spells it.
  */
 export function canonicalKey(value: string): string {
+  let latin = false;
+  let unaccented = '';
+  for (const c of value.normalize('NFKD')) {
+    if (LATIN_ACCENT.test(c)) {
+      if (!latin) unaccented += c;
+      continue;
+    }
+    latin = LATIN_LETTER.test(c);
+    unaccented += c;
+  }
   let out = '';
   let gap = false;
-  for (const c of value) {
-    if (!ALPHANUMERIC.test(c)) {
+  for (const c of unaccented.normalize('NFC')) {
+    if (!WORD.test(c)) {
       gap = true;
       continue;
     }
     if (gap && out) out += ' ';
     gap = false;
-    for (const lower of c.toLowerCase()) out += FOLDED[lower] ?? lower;
+    for (const lower of c.toLowerCase()) out += STROKED[lower] ?? lower;
   }
   return out;
 }
 
+/**
+ * The form two spellings of one rating code share: `certification_key` in the
+ * rule engine. Case and the separator aside, every character counts, so `R+`
+ * stays apart from `R`.
+ */
+export function certificationKey(value: string): string {
+  return value
+    .trim()
+    .replace(/[-_]/g, ' ')
+    .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+/** An Arr's status as one word, folded: `status_key` in the rule engine. */
+export function statusKey(value: string): string {
+  return canonicalKey(value).replaceAll(' ', '');
+}
+
+/** How the values of a condition of this kind are told apart. */
+export function keyOfKind(kind: string): (value: string) => string {
+  if (kind === 'certification_in') return certificationKey;
+  if (kind === 'status_is') return statusKey;
+  return canonicalKey;
+}
+
 /** Append unless an equivalent spelling is already there. */
-export function addValue(values: string[], value: string): string[] {
-  const key = canonicalKey(value);
-  if (!key || values.some((existing) => canonicalKey(existing) === key)) return values;
+export function addValue(values: string[], value: string, key = canonicalKey): string[] {
+  const added = key(value);
+  if (!canonicalKey(value) || values.some((existing) => key(existing) === added)) return values;
   return [...values, value.trim()];
 }
 
 /** Drop every spelling equivalent to `value`. */
-export function removeValue(values: string[], value: string): string[] {
-  const key = canonicalKey(value);
-  return values.filter((existing) => canonicalKey(existing) !== key);
+export function removeValue(values: string[], value: string, key = canonicalKey): string[] {
+  const removed = key(value);
+  return values.filter((existing) => key(existing) !== removed);
 }
 
 /**
@@ -98,8 +123,9 @@ export function removeValue(values: string[], value: string): string[] {
 export function withoutRepeats(condition: Condition): Condition {
   const { value } = condition;
   if (!Array.isArray(value)) return condition;
+  const key = keyOfKind(condition.type);
   const kept = value.every((item) => typeof item === 'string')
-    ? value.reduce<string[]>((list, item: string) => addValue(list, item), [])
+    ? value.reduce<string[]>((list, item: string) => addValue(list, item, key), [])
     : [...new Set(value)];
   return { ...condition, value: kept };
 }
@@ -141,6 +167,14 @@ export function rejectedNumbers(input: string): string[] {
     .split(',')
     .map((part) => part.trim())
     .filter((part) => part !== '' && !isIdentifier(part));
+}
+
+/**
+ * Where a new rule goes: after every other, as the server places one it is
+ * given no priority for.
+ */
+export function nextPriority(priorities: number[]): number {
+  return Math.max(0, ...priorities) + 10;
 }
 
 /**

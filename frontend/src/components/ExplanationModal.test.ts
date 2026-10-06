@@ -35,6 +35,7 @@ const STRINGS = {
   NoRootFolderMapped: 'no root folder',
   Unknown: 'unknown',
   Dismiss: 'Close',
+  ExplainInstanceOff: 'This instance is switched off.',
   None: '-',
 };
 
@@ -49,6 +50,7 @@ function explanation(over: Partial<Explanation> = {}): Explanation {
     confidence: 0.7,
     winning_rule: 'Japanese animation',
     rule_traces: [],
+    instance_enabled: true,
     ...over,
   };
 }
@@ -84,6 +86,14 @@ describe('ExplanationModal', () => {
     show(explanation({ target_root_folder: null }));
 
     expect(screen.getByText('no root folder')).toBeTruthy();
+  });
+
+  it('says a switched-off instance moves nothing, and only then', () => {
+    show(explanation());
+    expect(screen.queryByText('This instance is switched off.')).toBeNull();
+
+    show(explanation({ instance_enabled: false }));
+    expect(screen.getByText('This instance is switched off.')).toBeTruthy();
   });
 
   it('marks a category a human pinned', () => {

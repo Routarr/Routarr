@@ -7,9 +7,14 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-use crate::models::{
-    Condition, MatchMode, Media, MediaMetadata, MetadataField, Rule, ValidationIssue,
-};
+mod folding;
+mod validation;
+
+pub use folding::{certification_key, normalise_value, status_key};
+use folding::{contains_all, contains_any};
+pub use validation::{MAX_NAME_LENGTH, RuleDraft, ValidationEnv, validate_rule};
+
+use crate::models::{Condition, MatchMode, Media, MediaMetadata, Rule};
 
 /// One condition of a rule, held against a title.
 // Structured rather than pre-rendered prose: the engine stays language-agnostic
@@ -150,13 +155,7 @@ pub fn evaluate_rules(
             continue;
         }
 
-        // Exclusions are evaluated only once the rule would otherwise fire, and
-        // any single one of them vetoes it.
-        let veto = rule
-            .exclusions
-            .iter()
-            .map(|c| evaluate_single_condition(c, ctx))
-            .find(|outcome| outcome.matched);
+        let veto = veto(rule, ctx);
 
         let confidence = confidence_for(&evaluations, rule.match_mode);
         let mut hit = RuleMatch {
@@ -180,6 +179,15 @@ pub fn evaluate_rules(
     let winner = if matches.is_empty() { None } else { Some(matches.remove(0)) };
 
     Evaluation { winner, alternatives: matches, excluded }
+}
+
+/// The exclusion that sets aside `rule`, whose conditions hold. Read only
+/// once the rule would otherwise fire, and any one of them vetoes it.
+pub fn veto(rule: &Rule, ctx: EvalContext<'_>) -> Option<ConditionOutcome> {
+    rule.exclusions
+        .iter()
+        .map(|c| evaluate_single_condition(c, ctx))
+        .find(|outcome| outcome.matched)
 }
 
 /// Confidence heuristic: more agreeing signals means a more trustworthy call.
@@ -350,9 +358,10 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::CertificationIn(values) => {
             let cert = metadata.and_then(|m| m.certification.as_deref()).unwrap_or("");
+            let held = certification_key(cert);
             ConditionOutcome::new(
                 kind,
-                !cert.is_empty() && contains_any(&[cert.to_string()], values),
+                !held.is_empty() && values.iter().any(|value| certification_key(value) == held),
                 "ConditionCertificationIn",
                 &[("values", values.join(", "))],
                 cert.to_string(),
@@ -361,9 +370,10 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::StatusIs(values) => {
             let status = media.status.as_deref().unwrap_or("");
+            let held = status_key(status);
             ConditionOutcome::new(
                 kind,
-                contains_any(&[status.to_string()], values),
+                !held.is_empty() && values.iter().any(|value| status_key(value) == held),
                 "ConditionStatusIs",
                 &[("values", values.join(", "))],
                 status.to_string(),
@@ -526,8 +536,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let added = media.added_at.as_deref().and_then(parse_timestamp);
             ConditionOutcome::new(
                 kind,
-                added
-                    .is_some_and(|added| added <= ctx.now && (ctx.now - added).num_days() <= *days),
+                added.is_some_and(|added| added_within(ctx.now - added, *days)),
                 "ConditionAddedWithinDays",
                 &[("value", days.to_string())],
                 media.added_at.clone().unwrap_or_default(),
@@ -543,87 +552,14 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
     outcome
 }
 
-/// The form two spellings of one value must share to be treated as equal.
-///
-/// Sources disagree on case, accents and punctuation for what is the same
-/// value: `Science-Fiction` against `Science Fiction`, `Comédie` against
-/// `Comedie`. It normalises and never guesses: distinct values stay distinct
-/// and no synonym is invented, so `Sci-Fi` is still not `Science Fiction`.
-pub fn normalise_value(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut gap = false;
-    for c in raw.chars() {
-        if c.is_alphanumeric() {
-            if gap && !out.is_empty() {
-                out.push(' ');
-            }
-            gap = false;
-            out.extend(c.to_lowercase().map(fold_diacritic));
-        } else {
-            gap = true;
-        }
-    }
-    out
-}
+/// How far ahead of Routarr's clock an Arr's may run: a title it dates that
+/// much in the future has just been added.
+const CLOCK_AHEAD: chrono::TimeDelta = chrono::TimeDelta::days(1);
 
-/// The first value a list condition names twice, compared as matching compares
-/// them: `science fiction` repeats `Science-Fiction`. Read through the stored
-/// shape, `{"type": …, "value": […]}`, so a list variant added later is covered
-/// without an arm here.
-fn repeated_value(condition: &Condition) -> Option<String> {
-    let stored = serde_json::to_value(condition).ok()?;
-    let mut seen = std::collections::HashSet::new();
-    stored
-        .get("value")?
-        .as_array()?
-        .iter()
-        .map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_string))
-        .find(|text| {
-            let key = normalise_value(text);
-            !key.is_empty() && !seen.insert(key)
-        })
-}
-
-/// Latin letters that carry a mark, reduced to the letter underneath. Only the
-/// one-to-one cases: `ß` and `œ` expand, and no genre needs them. The rule
-/// editor holds a copy (`FOLDED` in `frontend/src/api/conditions.ts`), and
-/// `normalise_value_cases.json` holds both to the same answers.
-fn fold_diacritic(c: char) -> char {
-    match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' => 'a',
-        'ç' => 'c',
-        'è' | 'é' | 'ê' | 'ë' => 'e',
-        'ì' | 'í' | 'î' | 'ï' => 'i',
-        'ñ' => 'n',
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' => 'o',
-        'ù' | 'ú' | 'û' | 'ü' => 'u',
-        'ý' | 'ÿ' => 'y',
-        _ => c,
-    }
-}
-
-/// True when any needle equals any straw, compared through [`normalise_value`].
-///
-/// The `any` quantifier: the values of a condition are alternatives.
-fn contains_any(haystack: &[String], needles: &[String]) -> bool {
-    if needles.is_empty() {
-        return false;
-    }
-    let straw: Vec<String> = haystack.iter().map(|h| normalise_value(h)).collect();
-    needles.iter().map(|n| normalise_value(n)).filter(|n| !n.is_empty()).any(|n| straw.contains(&n))
-}
-
-/// True when every needle is among the straw.
-///
-/// The `all` quantifier, and the reason a rule needs no second condition to
-/// require two genres at once. An empty list matches nothing rather than
-/// everything: a condition with no operand is a condition nobody finished
-/// writing, and `Condition::is_empty` refuses it before it can be stored.
-fn contains_all(haystack: &[String], needles: &[String]) -> bool {
-    let straw: Vec<String> = haystack.iter().map(|h| normalise_value(h)).collect();
-    let wanted: Vec<String> =
-        needles.iter().map(|n| normalise_value(n)).filter(|n| !n.is_empty()).collect();
-    !wanted.is_empty() && wanted.iter().all(|n| straw.contains(n))
+/// Whether a title `age` old was added within the last `days` days of 24
+/// hours. A count past what a duration holds reaches every past date.
+fn added_within(age: chrono::TimeDelta, days: i64) -> bool {
+    age >= -CLOCK_AHEAD && chrono::TimeDelta::try_days(days).is_none_or(|window| age <= window)
 }
 
 /// Whether a language is among `values`. A missing language is absent, never
@@ -652,249 +588,10 @@ fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
     None
 }
 
-/// The rule being validated, independent of whether it exists yet.
-#[derive(Debug, Clone, Copy)]
-pub struct RuleDraft<'a> {
-    pub name: &'a str,
-    pub media_type: &'a str,
-    pub match_mode: MatchMode,
-    pub conditions: &'a [Condition],
-    pub exclusions: &'a [Condition],
-    pub target_category: &'a str,
-}
-
-/// The surrounding configuration a rule is validated against.
-#[derive(Debug, Clone, Copy)]
-pub struct ValidationEnv<'a> {
-    /// Every category that exists.
-    pub known_categories: &'a [String],
-    /// Categories that at least one root folder is mapped to.
-    pub mapped_categories: &'a [String],
-    /// Metadata fields at least one enabled source can answer.
-    ///
-    /// Naming the fields rather than a provider is what keeps the warning
-    /// truthful once there are several sources: with Radarr alone, a genre rule
-    /// is perfectly fine and only a keyword rule is unanswerable.
-    pub covered_fields: &'a [MetadataField],
-    /// The year the caller considers current.
-    ///
-    /// Injected rather than read here, for the reason `EvalContext` carries its
-    /// own `now`: a validator that reads the clock cannot be tested against a
-    /// year that is not today's.
-    pub current_year: i64,
-}
-
-/// The first surviving film, and the only defensible floor for a year: any
-/// later date would be a preference, any earlier one describes nothing.
-pub const MIN_YEAR: i64 = 1888;
-
-/// How far ahead of the current year a rule may reach.
-///
-/// Radarr indexes announcements long before release, so a rule about a film
-/// still to come is legitimate. The ceiling exists to catch `2999` and `20255`,
-/// which are typing mistakes rather than intentions.
-pub const MAX_YEARS_AHEAD: i64 = 5;
-
-/// Longest name a rule may carry. A name is a table cell and a badge, and a
-/// paragraph in either breaks the layout of every screen that lists rules.
-pub const MAX_NAME_LENGTH: usize = 200;
-
-/// Validate a rule before it is stored or enabled.
-///
-/// Errors block the write. Warnings are surfaced in the UI but do not.
-pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<ValidationIssue> {
-    let RuleDraft { name, media_type, match_mode, conditions, exclusions, target_category } = draft;
-    let ValidationEnv { known_categories, mapped_categories, covered_fields, current_year } = env;
-
-    let mut issues = Vec::new();
-
-    if name.trim().is_empty() {
-        issues.push(ValidationIssue::error("name", "ValidationNameEmpty", &[]));
-    } else if name.chars().count() > MAX_NAME_LENGTH {
-        issues.push(ValidationIssue::error(
-            "name",
-            "ValidationNameTooLong",
-            &[("max", MAX_NAME_LENGTH.to_string())],
-        ));
-    }
-    if media_type.parse::<crate::models::RuleMediaType>().is_err() {
-        issues.push(ValidationIssue::error("media_type", "ValidationMediaType", &[]));
-    }
-    if conditions.is_empty() {
-        issues.push(ValidationIssue::error("conditions", "ValidationNoConditions", &[]));
-    }
-    if target_category.trim().is_empty() {
-        issues.push(ValidationIssue::error("target_category", "ValidationCategoryEmpty", &[]));
-    } else if !known_categories.iter().any(|c| c == target_category) {
-        issues.push(ValidationIssue::error(
-            "target_category",
-            "CategoryNotFound",
-            &[("name", target_category.to_string())],
-        ));
-    } else if !mapped_categories.iter().any(|c| c == target_category) {
-        issues.push(ValidationIssue::warning(
-            "target_category",
-            "ValidationCategoryUnmapped",
-            &[("name", target_category.to_string())],
-        ));
-    }
-
-    // Each issue about one condition carries its section, its place in that
-    // section and its kind: the reader finds it by where the editor shows it,
-    // and the handler turns the three into a caption the reader knows.
-    let placed =
-        conditions.iter().enumerate().map(|(idx, condition)| ("conditions", idx, condition)).chain(
-            exclusions.iter().enumerate().map(|(idx, condition)| ("exclusions", idx, condition)),
-        );
-    for (section, idx, condition) in placed {
-        let at = |extra: &[(&'static str, String)]| {
-            let mut params = vec![
-                ("section", section.to_string()),
-                ("index", (idx + 1).to_string()),
-                ("kind", condition.kind().to_string()),
-            ];
-            params.extend_from_slice(extra);
-            params
-        };
-        // An error, not a warning: a condition with no operand never matches,
-        // so the rule would be stored dead and read on screen exactly like a
-        // rule that correctly matches nothing.
-        if condition.is_empty() {
-            issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
-        }
-        if let Some(value) = repeated_value(condition) {
-            issues.push(ValidationIssue::error(
-                section,
-                "ValidationValueRepeated",
-                &at(&[("value", value)]),
-            ));
-        }
-        if let Condition::YearRange { min: Some(min), max: Some(max) } = condition
-            && min > max
-        {
-            issues.push(ValidationIssue::error(
-                section,
-                "ValidationYearRangeInverted",
-                &at(&[("min", min.to_string()), ("max", max.to_string())]),
-            ));
-        }
-        // A year outside these bounds is a typing mistake, and stored it makes a
-        // rule that matches nothing while reading on screen exactly like one
-        // that correctly matches nothing.
-        if let Condition::YearRange { min, max } = condition {
-            let ceiling = current_year + MAX_YEARS_AHEAD;
-            for year in [min, max].into_iter().flatten() {
-                if *year < MIN_YEAR || *year > ceiling {
-                    issues.push(ValidationIssue::error(
-                        section,
-                        "ValidationYearImplausible",
-                        &at(&[
-                            ("year", year.to_string()),
-                            ("min", MIN_YEAR.to_string()),
-                            ("max", ceiling.to_string()),
-                        ]),
-                    ));
-                }
-            }
-        }
-        // `added <= now` makes the elapsed day count non-negative, so a negative
-        // threshold can never match. Zero can: it means the last day.
-        if let Condition::AddedWithinDays(days) = condition
-            && *days < 0
-        {
-            issues.push(ValidationIssue::error(
-                section,
-                "ValidationDaysNegative",
-                &at(&[("value", days.to_string())]),
-            ));
-        }
-        if let Some(field) = condition.metadata_field()
-            && !covered_fields.contains(&field)
-        {
-            issues.push(ValidationIssue::warning(section, "ValidationConditionNoSource", &at(&[])));
-        }
-    }
-
-    // A condition and its own negation in `all` mode can never both hold.
-    if match_mode == MatchMode::All {
-        for (i, a) in conditions.iter().enumerate() {
-            for b in conditions.iter().skip(i + 1) {
-                if contradicts(a, b) {
-                    issues.push(ValidationIssue::error(
-                        "conditions",
-                        "ValidationContradiction",
-                        &[("first", a.kind().to_string()), ("second", b.kind().to_string())],
-                    ));
-                }
-            }
-        }
-    }
-
-    for exclusion in exclusions {
-        if conditions.contains(exclusion) {
-            issues.push(ValidationIssue::error(
-                "exclusions",
-                "ValidationExclusionConflict",
-                &[("kind", exclusion.kind().to_string())],
-            ));
-        }
-    }
-
-    issues
-}
-
-/// Detect the pairs of conditions that are mutually exclusive by construction.
-fn contradicts(a: &Condition, b: &Condition) -> bool {
-    use Condition::*;
-    match (a, b) {
-        (HasFiles(x), HasFiles(y))
-        | (Monitored(x), Monitored(y))
-        | (HasMetadata(x), HasMetadata(y)) => x != y,
-        // Requiring a value (any of them or all of them) and forbidding the
-        // same value can never both hold.
-        (GenreContains(x), GenreNotContains(y))
-        | (GenreNotContains(y), GenreContains(x))
-        | (GenreContainsAll(x), GenreNotContains(y))
-        | (GenreNotContains(y), GenreContainsAll(x)) => overlaps(x, y),
-        (KeywordContains(x), KeywordNotContains(y))
-        | (KeywordNotContains(y), KeywordContains(x))
-        | (KeywordContainsAll(x), KeywordNotContains(y))
-        | (KeywordNotContains(y), KeywordContainsAll(x)) => overlaps(x, y),
-        (OriginalLanguage(x), OriginalLanguageNot(y))
-        | (OriginalLanguageNot(y), OriginalLanguage(x)) => {
-            !x.is_empty() && x.iter().all(|v| y.iter().any(|w| w.eq_ignore_ascii_case(v)))
-        }
-        (YearRange { min: amin, max: amax }, YearRange { min: bmin, max: bmax }) => {
-            // A missing bound is infinite, which `Option`'s own ordering gets
-            // backwards for the upper end (it treats `None` as the smallest).
-            let lo = tightest(*amin, *bmin, i64::max);
-            let hi = tightest(*amax, *bmax, i64::min);
-            matches!((lo, hi), (Some(l), Some(h)) if l > h)
-        }
-        (CurrentRootFolder(x), CurrentRootFolder(y)) => !crate::paths::same(x, y),
-        _ => false,
-    }
-}
-
-/// Combine two optional bounds, where `None` means "unbounded".
-fn tightest(a: Option<i64>, b: Option<i64>, pick: fn(i64, i64) -> i64) -> Option<i64> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(pick(a, b)),
-        (Some(v), None) | (None, Some(v)) => Some(v),
-        (None, None) => None,
-    }
-}
-
-/// Compared as the engine compares, so two spellings it treats as one value are
-/// a contradiction here too.
-fn overlaps(a: &[String], b: &[String]) -> bool {
-    a.iter().any(|x| b.iter().any(|y| normalise_value(x) == normalise_value(y)))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule};
+    use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule, RuleMediaType};
     use chrono::TimeZone;
 
     fn now() -> DateTime<Utc> {
@@ -956,7 +653,7 @@ mod tests {
             description: None,
             priority,
             enabled: true,
-            media_type: "both".into(),
+            media_type: RuleMediaType::Both,
             conditions,
             exclusions: vec![],
             match_mode: MatchMode::All,
@@ -1066,11 +763,11 @@ mod tests {
     #[test]
     fn media_type_scope_is_respected() {
         let mut series_only = anime_rule();
-        series_only.media_type = "series".into();
+        series_only.media_type = RuleMediaType::Series;
         assert!(evaluate(&[series_only.clone()], None).winner.is_none());
 
         let mut movies_only = anime_rule();
-        movies_only.media_type = "movie".into();
+        movies_only.media_type = RuleMediaType::Movie;
         assert_eq!(evaluate(&[movies_only], None).winner.unwrap().category, "anime");
 
         let mut series = media();
@@ -1197,11 +894,14 @@ mod tests {
         assert!(holds(Condition::TagIn(one_missing), &tagged));
     }
 
-    /// The Arr's own status, whatever its case, against any of the values.
+    /// The Arr's own status, whatever its case and however its words are
+    /// split, against any of the values: Radarr writes `inCinemas`.
     #[test]
     fn a_status_matches_any_of_the_values_it_names() {
         assert!(holds(Condition::StatusIs(vec!["announced".into(), "Released".into()]), &media()));
         assert!(!holds(Condition::StatusIs(vec!["announced".into()]), &media()));
+        let showing = Media { status: Some("inCinemas".into()), ..media() };
+        assert!(holds(Condition::StatusIs(vec!["In Cinemas".into()]), &showing));
         let unknown = Media { status: None, ..media() };
         assert!(!holds(Condition::StatusIs(vec!["released".into()]), &unknown));
     }
@@ -1317,19 +1017,6 @@ mod tests {
             None,
         );
         assert!(evaluation.winner.is_none());
-    }
-
-    /// The rule editor folds with its own copy (`canonicalKey` in
-    /// `frontend/src/api/conditions.ts`) to refuse a value given twice, and
-    /// reads this same table: a pair one side joins and the other keeps apart
-    /// is a value the editor drops or a rule the engine refuses.
-    #[test]
-    fn the_folding_the_rule_editor_shares_is_the_one_matching_uses() {
-        let cases: Vec<(String, String)> =
-            serde_json::from_str(include_str!("normalise_value_cases.json")).unwrap();
-        for (raw, folded) in cases {
-            assert_eq!(normalise_value(&raw), folded, "{raw:?}");
-        }
     }
 
     #[test]
@@ -1552,6 +1239,28 @@ mod tests {
         assert!(!matches_without_metadata(Condition::CertificationIn(vec!["".into()])));
     }
 
+    /// MyAnimeList's `R+` is its own rating, not the MPA's `R`, as the
+    /// library's facets already list them.
+    #[test]
+    fn a_myanimelist_r_plus_is_not_an_r() {
+        let rated = |code: &str| {
+            let media = media();
+            let metadata = MediaMetadata { certification: Some(code.into()), ..metadata() };
+            move |values: &[&str]| {
+                let values = values.iter().map(|v| v.to_string()).collect();
+                evaluate_single_condition(
+                    &Condition::CertificationIn(values),
+                    EvalContext { media: &media, metadata: Some(&metadata), now: now() },
+                )
+                .matched
+            }
+        };
+        assert!(!rated("R")(&["R+"]));
+        assert!(rated("R")(&["R"]));
+        assert!(rated("R+")(&["r+"]));
+        assert!(rated("PG-13")(&["pg 13"]), "a separator is still one");
+    }
+
     #[test]
     fn root_folder_comparison_ignores_trailing_slashes() {
         assert!(matches(Condition::CurrentRootFolder("/movies/standard/".into())));
@@ -1656,20 +1365,22 @@ mod tests {
         assert!(!matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1])));
     }
 
+    /// N days are N times 24 hours before the injected clock, and an Arr
+    /// whose clock runs ahead of Routarr's by less than a day dates a title it
+    /// has just added a little in the future, which still reads as just added.
     #[test]
-    fn added_within_days_uses_the_injected_clock() {
-        assert!(matches(Condition::AddedWithinDays(7)));
-        // Added 26 hours before the clock: one whole day, not zero.
-        assert!(matches(Condition::AddedWithinDays(1)));
-        assert!(!matches(Condition::AddedWithinDays(0)));
-
-        let mut old = media();
-        old.added_at = Some("2020-01-01 00:00:00".into());
-        let outcome = evaluate_single_condition(
-            &Condition::AddedWithinDays(7),
-            EvalContext { media: &old, metadata: None, now: now() },
-        );
-        assert!(!outcome.matched);
+    fn added_within_days_counts_whole_days_back_from_the_clock() {
+        use chrono::TimeDelta;
+        let added = |before: TimeDelta| {
+            let stamp = (now() - before).format("%Y-%m-%d %H:%M:%S").to_string();
+            matches_on(|m| m.added_at = Some(stamp), Condition::AddedWithinDays(7))
+        };
+        assert!(!added(TimeDelta::days(7) + TimeDelta::hours(23)));
+        assert!(added(TimeDelta::days(6) + TimeDelta::hours(23)));
+        assert!(added(TimeDelta::days(7)));
+        assert!(added(-TimeDelta::minutes(2)), "a clock two minutes ahead");
+        assert!(!added(-TimeDelta::days(2)));
+        assert!(!added(TimeDelta::days(2000)));
     }
 
     #[test]
@@ -1815,361 +1526,6 @@ mod tests {
         let strict = evaluate(&[anime_rule()], None).winner.unwrap().confidence;
         let loose = evaluate(&[any], None).winner.unwrap().confidence;
         assert!(loose < strict);
-    }
-
-    // ---------------------------------------------------------- validation
-
-    fn draft<'a>(
-        media_type: &'a str,
-        mode: MatchMode,
-        conditions: &'a [Condition],
-        exclusions: &'a [Condition],
-        target: &'a str,
-    ) -> RuleDraft<'a> {
-        RuleDraft {
-            name: "Anime",
-            media_type,
-            match_mode: mode,
-            conditions,
-            exclusions,
-            target_category: target,
-        }
-    }
-
-    /// Every field covered, i.e. the shipped default with a TMDb key set.
-    const ALL_FIELDS: &[MetadataField] = &[
-        MetadataField::Genres,
-        MetadataField::Keywords,
-        MetadataField::OriginalLanguage,
-        MetadataField::OriginCountries,
-        MetadataField::Certification,
-    ];
-
-    fn env<'a>(
-        known: &'a [String],
-        mapped: &'a [String],
-        covered: &'a [MetadataField],
-    ) -> ValidationEnv<'a> {
-        ValidationEnv {
-            known_categories: known,
-            mapped_categories: mapped,
-            covered_fields: covered,
-            // Pinned, like `now()` above: a bound relative to the real clock
-            // would make these tests pass or fail depending on the year.
-            current_year: 2026,
-        }
-    }
-
-    fn validate(conditions: Vec<Condition>, exclusions: Vec<Condition>) -> Vec<ValidationIssue> {
-        let known = ["anime".to_string(), "standard".to_string()];
-        let mapped = ["anime".to_string()];
-        validate_rule(
-            draft("both", MatchMode::All, &conditions, &exclusions, "anime"),
-            env(&known, &mapped, ALL_FIELDS),
-        )
-    }
-
-    #[test]
-    fn a_sound_rule_has_no_issues() {
-        assert!(
-            validate(vec![Condition::GenreContains(vec!["Animation".into()])], vec![]).is_empty()
-        );
-    }
-
-    #[test]
-    fn an_unknown_category_is_an_error() {
-        let known = ["standard".to_string()];
-        let issues = validate_rule(
-            draft("both", MatchMode::All, &[Condition::HasFiles(true)], &[], "does-not-exist"),
-            env(&known, &known, ALL_FIELDS),
-        );
-        assert!(issues.iter().any(|i| i.is_error() && i.field == "target_category"));
-    }
-
-    #[test]
-    fn an_unmapped_category_is_only_a_warning() {
-        let known = ["anime".to_string()];
-        let issues = validate_rule(
-            draft("both", MatchMode::All, &[Condition::HasFiles(true)], &[], "anime"),
-            env(&known, &[], ALL_FIELDS),
-        );
-        assert!(issues.iter().any(|i| !i.is_error() && i.key == "ValidationCategoryUnmapped"));
-    }
-
-    /// Each field of a draft is refused when it cannot make a rule: an empty
-    /// name, a media type that is none, no condition at all, no category.
-    #[test]
-    fn a_draft_missing_what_a_rule_needs_is_refused_field_by_field() {
-        let known = ["anime".to_string()];
-        let genre = [Condition::GenreContains(vec!["Animation".into()])];
-        let refused = |name, media_type, conditions: &[Condition], target| {
-            let draft = RuleDraft {
-                name,
-                media_type,
-                match_mode: MatchMode::All,
-                conditions,
-                exclusions: &[],
-                target_category: target,
-            };
-            let issues = validate_rule(draft, env(&known, &known, ALL_FIELDS));
-            issues.into_iter().filter(|i| i.is_error()).map(|i| i.key).collect::<Vec<_>>()
-        };
-
-        assert_eq!(refused("  ", "both", &genre, "anime"), ["ValidationNameEmpty"]);
-        assert_eq!(refused("Anime", "films", &genre, "anime"), ["ValidationMediaType"]);
-        assert_eq!(refused("Anime", "both", &[], "anime"), ["ValidationNoConditions"]);
-        assert_eq!(refused("Anime", "both", &genre, " "), ["ValidationCategoryEmpty"]);
-        assert!(refused("Anime", "both", &genre, "anime").is_empty(), "the control was refused");
-    }
-
-    /// Every pair that can never hold together, each beside a pair that can.
-    #[test]
-    fn each_kind_of_contradiction_is_caught_and_only_it() {
-        use Condition::*;
-        let list = |values: &[&str]| values.iter().map(|v| v.to_string()).collect::<Vec<_>>();
-        let cases = [
-            (Monitored(true), Monitored(false), Monitored(true)),
-            (HasMetadata(true), HasMetadata(false), HasMetadata(true)),
-            (
-                KeywordContains(list(&["mecha"])),
-                KeywordNotContains(list(&["Mecha"])),
-                KeywordNotContains(list(&["isekai"])),
-            ),
-            (
-                KeywordContainsAll(list(&["mecha", "space"])),
-                KeywordNotContains(list(&["space"])),
-                KeywordNotContains(list(&["isekai"])),
-            ),
-            (
-                OriginalLanguage(list(&["ja"])),
-                OriginalLanguageNot(list(&["JA", "ko"])),
-                OriginalLanguageNot(list(&["ko"])),
-            ),
-            (
-                CurrentRootFolder("/movies/anime".into()),
-                CurrentRootFolder("/movies/standard".into()),
-                CurrentRootFolder("/movies/anime/".into()),
-            ),
-        ];
-        for (first, contradicting, compatible) in cases {
-            assert!(contradicts(&first, &contradicting), "{first:?} beside {contradicting:?}");
-            assert!(contradicts(&contradicting, &first), "{contradicting:?} beside {first:?}");
-            assert!(!contradicts(&first, &compatible), "{first:?} beside {compatible:?}");
-        }
-    }
-
-    #[test]
-    fn contradictory_conditions_are_rejected() {
-        let issues = validate(vec![Condition::HasFiles(true), Condition::HasFiles(false)], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationContradiction"));
-    }
-
-    #[test]
-    fn overlapping_positive_and_negative_genres_contradict() {
-        let issues = validate(
-            vec![
-                Condition::GenreContains(vec!["Animation".into()]),
-                Condition::GenreNotContains(vec!["animation".into()]),
-            ],
-            vec![],
-        );
-        assert!(issues.iter().any(|i| i.is_error()));
-    }
-
-    /// The `all` quantifier forbids nothing the `any` one does not, so pairing
-    /// it with a negation of the same value is the same impossibility.
-    #[test]
-    fn requiring_all_of_a_genre_that_is_also_forbidden_contradicts() {
-        let issues = validate(
-            vec![
-                Condition::GenreContainsAll(vec!["Animation".into(), "Family".into()]),
-                Condition::GenreNotContains(vec!["family".into()]),
-            ],
-            vec![],
-        );
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationContradiction"));
-    }
-
-    /// Two spellings the engine folds into one value are one value here too:
-    /// a rule the validator lets through must be one the engine can satisfy.
-    #[test]
-    fn spellings_the_engine_folds_contradict_too() {
-        let issues = validate(
-            vec![
-                Condition::GenreContains(vec!["Science-Fiction".into()]),
-                Condition::GenreNotContains(vec!["Science Fiction".into()]),
-            ],
-            vec![],
-        );
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationContradiction"));
-    }
-
-    #[test]
-    fn impossible_year_ranges_contradict() {
-        let issues = validate(
-            vec![
-                Condition::YearRange { min: Some(2000), max: None },
-                Condition::YearRange { min: None, max: Some(1990) },
-            ],
-            vec![],
-        );
-        assert!(issues.iter().any(|i| i.is_error()));
-    }
-
-    #[test]
-    fn a_condition_that_is_also_an_exclusion_is_rejected() {
-        let condition = Condition::GenreContains(vec!["Animation".into()]);
-        let issues = validate(vec![condition.clone()], vec![condition]);
-        assert!(issues.iter().any(|i| i.is_error() && i.field == "exclusions"));
-    }
-
-    /// An error, not a warning: stored, the rule would never match and would
-    /// read on screen exactly like one that correctly matches nothing.
-    #[test]
-    fn an_empty_condition_value_is_an_error() {
-        let issues = validate(vec![Condition::GenreContains(vec![])], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationConditionEmpty"));
-
-        let blank = validate(vec![Condition::TagIn(vec!["   ".into()])], vec![]);
-        assert!(blank.iter().any(|i| i.is_error() && i.key == "ValidationConditionEmpty"));
-    }
-
-    /// The values of a condition are alternatives compared once folded, so a
-    /// repeat adds nothing, and a client drawing each value under its own key
-    /// cannot draw it twice.
-    #[test]
-    fn a_value_listed_twice_in_one_condition_is_an_error() {
-        let folded = validate(
-            vec![Condition::GenreContains(vec![
-                "Science-Fiction".into(),
-                "science fiction".into(),
-            ])],
-            vec![],
-        );
-        assert!(
-            folded.iter().any(|i| i.is_error() && i.key == "ValidationValueRepeated"),
-            "{folded:?}"
-        );
-
-        let ids = validate(vec![], vec![Condition::TmdbIdIn(vec![603, 603])]);
-        assert!(ids.iter().any(|i| i.is_error() && i.key == "ValidationValueRepeated"), "{ids:?}");
-
-        let distinct =
-            validate(vec![Condition::GenreContains(vec!["Drama".into(), "Comedy".into()])], vec![]);
-        assert!(!distinct.iter().any(|i| i.key == "ValidationValueRepeated"), "{distinct:?}");
-    }
-
-    #[test]
-    fn an_inverted_year_range_is_an_error() {
-        let issues =
-            validate(vec![Condition::YearRange { min: Some(2020), max: Some(2000) }], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationYearRangeInverted"));
-
-        let fine =
-            validate(vec![Condition::YearRange { min: Some(2000), max: Some(2000) }], vec![]);
-        assert!(!fine.iter().any(|i| i.key == "ValidationYearRangeInverted"));
-    }
-
-    /// A year such as 12 or 200000, stored, makes a rule that matches nothing
-    /// while reading on screen exactly like one that correctly matches nothing.
-    #[test]
-    fn an_implausible_year_is_an_error_and_the_first_film_year_is_not() {
-        let first = validate(vec![Condition::YearRange { min: Some(MIN_YEAR), max: None }], vec![]);
-        assert!(!first.iter().any(|i| i.key == "ValidationYearImplausible"), "{first:?}");
-
-        for range in [
-            Condition::YearRange { min: Some(12), max: None },
-            Condition::YearRange { min: None, max: Some(200_000) },
-            // 2026 is the pinned current year, so the ceiling is 2031.
-            Condition::YearRange { min: Some(2032), max: None },
-        ] {
-            let issues = validate(vec![range.clone()], vec![]);
-            assert!(
-                issues.iter().any(|i| i.is_error() && i.key == "ValidationYearImplausible"),
-                "{range:?} was accepted"
-            );
-        }
-    }
-
-    /// Radarr indexes announcements long before release, so a rule about a film
-    /// still to come is a rule somebody means.
-    #[test]
-    fn a_year_a_few_ahead_is_accepted() {
-        let issues = validate(vec![Condition::YearRange { min: Some(2029), max: None }], vec![]);
-        assert!(!issues.iter().any(|i| i.key == "ValidationYearImplausible"), "{issues:?}");
-    }
-
-    /// `added <= now` makes the day count non-negative, so a negative threshold
-    /// never matches, while zero means the last day and is a real answer.
-    #[test]
-    fn a_negative_day_count_is_an_error_and_zero_is_not() {
-        let issues = validate(vec![Condition::AddedWithinDays(-5)], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationDaysNegative"));
-
-        let today = validate(vec![Condition::AddedWithinDays(0)], vec![]);
-        assert!(today.is_empty(), "{today:?}");
-    }
-
-    #[test]
-    fn a_name_longer_than_the_limit_is_an_error_and_one_at_the_limit_is_not() {
-        let known = ["anime".to_string()];
-        let conditions = [Condition::GenreContains(vec!["Animation".into()])];
-        let name = "a".repeat(MAX_NAME_LENGTH + 1);
-        let mut long = draft("both", MatchMode::All, &conditions, &[], "anime");
-        long.name = &name;
-        let issues = validate_rule(long, env(&known, &known, &[MetadataField::Genres]));
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationNameTooLong"));
-
-        let name = "a".repeat(MAX_NAME_LENGTH);
-        let mut at_limit = draft("both", MatchMode::All, &conditions, &[], "anime");
-        at_limit.name = &name;
-        let issues = validate_rule(at_limit, env(&known, &known, &[MetadataField::Genres]));
-        assert!(!issues.iter().any(|i| i.key == "ValidationNameTooLong"), "{issues:?}");
-    }
-
-    #[test]
-    fn a_condition_no_enabled_source_can_answer_is_flagged() {
-        let known = ["anime".to_string()];
-        let conditions = [Condition::KeywordContains(vec!["anime".into()])];
-        let issues = validate_rule(
-            draft("both", MatchMode::All, &conditions, &[], "anime"),
-            env(&known, &known, &[MetadataField::Genres]),
-        );
-        assert!(issues.iter().any(|i| i.key == "ValidationConditionNoSource"));
-    }
-
-    /// A warning phrased as "no TMDb key" would be wrong: the Arr is a source
-    /// too, and it answers genres without any key at all.
-    #[test]
-    fn a_condition_a_keyless_source_can_answer_is_not_flagged() {
-        let known = ["anime".to_string()];
-        let conditions = [Condition::GenreContains(vec!["Animation".into()])];
-        let issues = validate_rule(
-            draft("both", MatchMode::All, &conditions, &[], "anime"),
-            env(&known, &known, &[MetadataField::Genres]),
-        );
-        assert!(!issues.iter().any(|i| i.key == "ValidationConditionNoSource"));
-    }
-
-    #[test]
-    fn an_invalid_media_type_is_an_error() {
-        let known = ["anime".to_string()];
-        let issues = validate_rule(
-            draft("audiobook", MatchMode::All, &[Condition::HasFiles(true)], &[], "anime"),
-            env(&known, &known, ALL_FIELDS),
-        );
-        assert!(issues.iter().any(|i| i.is_error() && i.field == "media_type"));
-    }
-
-    #[test]
-    fn any_mode_does_not_flag_contradictions() {
-        let known = ["anime".to_string()];
-        let conditions = [Condition::HasFiles(true), Condition::HasFiles(false)];
-        let issues = validate_rule(
-            draft("both", MatchMode::Any, &conditions, &[], "anime"),
-            env(&known, &known, ALL_FIELDS),
-        );
-        assert!(!issues.iter().any(|i| i.key == "ValidationContradiction"));
     }
 
     // ---------------------------------------------------------- serde

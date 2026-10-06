@@ -81,6 +81,8 @@ sys.exit(1 if changed or removed else 0)
 PY
 # oasdiff grades a removed optional field as information, since a client may
 # not read it. The contract promises no documented field disappears, so
-# `oasdiff-levels.txt` raises that one to an error.
+# `oasdiff-levels.txt` raises that one to an error. A type whose fields another
+# one adds to (`#[serde(flatten)]`) is published as `allOf`, and compared
+# branch by branch, every field of it reads as removed.
 oasdiff breaking "$base" "$ROOT/$CONTRACT" \
-  --severity-levels "$ROOT/scripts/oasdiff-levels.txt" --fail-on ERR
+  --severity-levels "$ROOT/scripts/oasdiff-levels.txt" --fail-on ERR --flatten-allof

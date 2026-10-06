@@ -486,7 +486,7 @@ export const api = {
     }),
 
   importRules: (bundle: RuleBundle, replace: boolean) =>
-    request<{ imported: number; skipped: string[] }>('/rules/import', {
+    request<{ imported: number; skipped: string[]; adjusted: string[] }>('/rules/import', {
       method: 'POST',
       body: body({ bundle, replace }),
     }),
@@ -600,6 +600,7 @@ export const api = {
 export interface RuleBundle {
   version: number;
   exported_at?: string | null;
-  rules: RuleDraft[];
+  /** Each rule with the instances it is limited to, by name. */
+  rules: (RuleDraft & { instance_names?: string[] | null })[];
   categories: string[];
 }

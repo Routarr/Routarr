@@ -277,7 +277,6 @@ async fn a_condition_that_can_never_match_is_refused() {
     for conditions in [
         serde_json::json!([{ "type": "genre_contains", "value": ["  "] }]),
         serde_json::json!([{ "type": "tag_in", "value": ["   "] }]),
-        serde_json::json!([{ "type": "size_on_disk_over_gb", "value": 0 }]),
         serde_json::json!([{ "type": "year_range", "value": { "min": 2020, "max": 2000 } }]),
     ] {
         let mut body = anime_rule_body();
@@ -693,6 +692,45 @@ async fn reorder_rewrites_priorities_in_order() {
     }
 }
 
+/// The rules are listed in the order the engine tries them: by priority,
+/// then by name, then by id, whatever order they were stored in.
+#[tokio::test]
+async fn rules_are_listed_in_the_order_the_engine_tries_them() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO rules (id, name, priority, media_type, conditions, target_category)
+                   VALUES ('r-1', 'zzz', 100, 'both', '[]', 'anime'),
+                          ('r-2', 'aaa', 100, 'both', '[]', 'anime'),
+                          ('r-3', 'early', 5, 'both', '[]', 'anime')",
+    ])
+    .await;
+
+    let rules = app.get("/api/v1/rules").await.assert_ok().clone();
+    let names: Vec<&str> =
+        rules.as_array().unwrap().iter().map(|rule| rule["name"].as_str().unwrap()).collect();
+
+    assert_eq!(names, ["early", "aaa", "zzz"]);
+}
+
+/// A rule created without a priority goes after every other, where it takes
+/// no title from a rule already there, and a rule edited without one keeps
+/// its place.
+#[tokio::test]
+async fn a_rule_given_no_priority_goes_last_and_keeps_its_place() {
+    let app = library_with_kids().await;
+    app.post("/api/v1/rules", full_rule_body()).await.assert_ok();
+
+    let created = app.post("/api/v1/rules", anime_rule_body()).await.assert_ok().clone();
+    assert_eq!(created["priority"], 40, "{created}");
+
+    let mut renamed = anime_rule_body();
+    renamed["name"] = serde_json::json!("Anime, renamed");
+    let id = created["id"].as_str().unwrap();
+    let edited = app.put(&format!("/api/v1/rules/{id}"), renamed).await.assert_ok().clone();
+    assert_eq!(edited["priority"], 40, "{edited}");
+}
+
 /// Every field a rule carries, none of them at its default.
 fn full_rule_body() -> serde_json::Value {
     serde_json::json!({
@@ -750,9 +788,13 @@ async fn a_duplicate_and_an_export_keep_every_field_of_a_rule() {
         .unwrap()
         .to_string();
 
+    // Switched off, and last, where it takes no title from a rule in place.
     let copy = app.post(&format!("/api/v1/rules/{id}/duplicate"), serde_json::json!({})).await;
-    let copy_changes =
-        [("name", serde_json::json!("Ghibli films (copy)")), ("enabled", serde_json::json!(false))];
+    let copy_changes = [
+        ("name", serde_json::json!("Ghibli films (copy)")),
+        ("enabled", serde_json::json!(false)),
+        ("priority", serde_json::json!(40)),
+    ];
     assert_kept(copy.assert_ok(), &copy_changes, "the duplicate");
 
     let bundle = app.get("/api/v1/rules/export").await.assert_ok().clone();
@@ -765,9 +807,7 @@ async fn a_duplicate_and_an_export_keep_every_field_of_a_rule() {
         .iter()
         .find(|rule| rule["name"] == "Ghibli films")
         .expect("the rule came back");
-    // Instance ids name this installation's instances, and a bundle travels.
-    let host_specific = [("instance_ids", serde_json::Value::Null)];
-    assert_kept(imported, &host_specific, "the export and import");
+    assert_kept(imported, &[], "the export and import");
 }
 
 #[tokio::test]
@@ -777,7 +817,7 @@ async fn rules_round_trip_through_export_and_import() {
     app.post("/api/v1/rules", anime_rule_body()).await.assert_ok();
 
     let bundle = app.get("/api/v1/rules/export").await.assert_ok().clone();
-    assert_eq!(bundle["version"], 1);
+    assert_eq!(bundle["version"], 2);
     assert_eq!(bundle["rules"].as_array().unwrap().len(), 1);
 
     let imported = app
@@ -787,6 +827,129 @@ async fn rules_round_trip_through_export_and_import() {
 
     let rules = app.get("/api/v1/rules").await.assert_ok().clone();
     assert_eq!(rules.as_array().unwrap().len(), 1, "replace must not duplicate");
+}
+
+/// A category counts as mapped for a rule when an instance the rule can route
+/// maps it: one in its scope, and of the kind that holds its media type.
+/// Mapped only elsewhere, every title it matches would be skipped.
+#[tokio::test]
+async fn a_category_mapped_only_where_the_rule_cannot_route_is_flagged() {
+    let app = library_with_kids().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'secret', 1)",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+         VALUES ('rf-kids', 'inst-2', 3, '/tv/kids', 1, 'kids')",
+    ])
+    .await;
+    let unmapped = |media_type: &str, instances: Option<&[&str]>| {
+        let mut rule = anime_rule_body();
+        rule["target_category"] = serde_json::json!("kids");
+        rule["media_type"] = serde_json::json!(media_type);
+        rule["instance_ids"] = serde_json::json!(instances);
+        let app = &app;
+        async move {
+            let verdict = app.post("/api/v1/rules/validate", rule).await.assert_ok().clone();
+            verdict["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| issue["key"] == "ValidationCategoryUnmapped")
+        }
+    };
+
+    assert!(unmapped("movie", None).await, "a film rule into a Sonarr's category");
+    assert!(unmapped("both", Some(&["inst-1"])).await, "a rule kept to the Radarr");
+    assert!(!unmapped("series", None).await);
+    assert!(!unmapped("both", None).await);
+}
+
+/// A rule travels with the instances it is limited to, by name, and never
+/// widens on the way: one naming only instances this installation lacks is
+/// left out, one naming some is limited to those, and a version 1 rule, whose
+/// file names none, arrives switched off for somebody to check.
+#[tokio::test]
+async fn an_imported_rule_keeps_its_scope_or_never_widens() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let rule = |name: &str, instances: Option<&[&str]>| {
+        let mut rule = anime_rule_body();
+        rule["name"] = serde_json::json!(name);
+        if let Some(instances) = instances {
+            rule["instance_names"] = serde_json::json!(instances);
+        }
+        rule
+    };
+    let import = |version: u32, rules: Vec<serde_json::Value>| {
+        let app = &app;
+        async move {
+            let bundle = serde_json::json!({ "version": version, "rules": rules });
+            let body = serde_json::json!({ "bundle": bundle });
+            app.post("/api/v1/rules/import", body).await.assert_ok().clone()
+        }
+    };
+
+    let report = import(
+        2,
+        vec![
+            rule("Here", Some(&["Radarr"])),
+            rule("Elsewhere", Some(&["Radarr 4K"])),
+            rule("Partly", Some(&["Radarr", "Radarr 4K"])),
+            rule("Everywhere", None),
+        ],
+    )
+    .await;
+    assert_eq!(report["imported"], 3, "{report}");
+    assert_eq!(report["skipped"].as_array().unwrap().len(), 1, "{report}");
+    assert!(report["skipped"][0].as_str().unwrap().contains("Radarr 4K"), "{report}");
+    assert_eq!(report["adjusted"].as_array().unwrap().len(), 1, "{report}");
+
+    let report = import(1, vec![rule("From an older file", None)]).await;
+    assert_eq!(
+        (report["imported"].clone(), report["adjusted"].as_array().unwrap().len()),
+        (serde_json::json!(1), 1)
+    );
+
+    let rules = app.get("/api/v1/rules").await.assert_ok().clone();
+    let stored: std::collections::BTreeMap<&str, (serde_json::Value, bool)> = rules
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| (r["name"].as_str().unwrap(), (r["instance_ids"].clone(), r["enabled"] == true)))
+        .collect();
+    let scoped = serde_json::json!(["inst-1"]);
+    assert_eq!(
+        stored,
+        [
+            ("Everywhere", (serde_json::Value::Null, true)),
+            ("From an older file", (serde_json::Value::Null, false)),
+            ("Here", (scoped.clone(), true)),
+            ("Partly", (scoped, true)),
+        ]
+        .into_iter()
+        .collect()
+    );
+}
+
+/// A copy is named in the reader's language and stays a name a rule may
+/// carry, however long its source's.
+#[tokio::test]
+async fn a_copy_is_named_in_the_readers_words_within_the_limit() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut long = anime_rule_body();
+    let limit = crate::services::rule_engine::MAX_NAME_LENGTH;
+    long["name"] = serde_json::json!("a".repeat(limit));
+    let id = app.post("/api/v1/rules", long).await.assert_ok()["id"].as_str().unwrap().to_string();
+    app.put("/api/v1/settings", serde_json::json!({ "settings": { "ui_language": "fr" } }))
+        .await
+        .assert_ok();
+
+    let copy = app.post(&format!("/api/v1/rules/{id}/duplicate"), serde_json::json!({})).await;
+
+    let name = copy.assert_ok()["name"].as_str().unwrap().to_string();
+    assert_eq!(name.chars().count(), limit, "{name}");
+    assert!(name.ends_with(" (copie)"), "{name}");
 }
 
 /// A replace whose every rule is refused would delete the rules in place and
@@ -1078,29 +1241,51 @@ async fn each_decision_filter_narrows_the_list() {
     }
 }
 
-/// The library's category and "unmatched" filters read the latest standing
-/// decision, the one the list shows beside each title, not an older one an
-/// apply left standing.
+/// The library shows what the last run decided for each title, a title it
+/// left where it is included: Totoro already sits in the folder its rule
+/// sends it to, and only the title no rule matched is unclassified. A later
+/// run that matches nothing for Totoro wins over the earlier one.
 #[tokio::test]
-async fn the_library_filters_read_the_latest_decision() {
+async fn a_title_already_where_its_rule_sends_it_is_classified() {
     let app = TestApp::new().await;
     app.seed_library().await;
-    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                          target_category, matched_rule_id, action, status,
-                                          decided_at)
-                   VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'r-1', 'move',
-                           'applied', '2026-09-01 10:00:00'),
-                          ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', NULL, 'none',
-                           'pending', '2026-09-02 10:00:00')"])
-        .await;
-    let total = |query: &'static str| {
+    app.seed_anime_rule().await;
+    app.execute(&[
+        "UPDATE media SET current_root_folder = '/movies/anime',
+                          current_path = '/movies/anime/My Neighbor Totoro (1988)'
+          WHERE id = 'm-1'",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', '/movies/standard', 1, 1)",
+    ])
+    .await;
+    let listed = |query: &'static str| {
         let app = &app;
-        async move { app.get(query).await.assert_ok()["pagination"]["total"].clone() }
+        async move {
+            let page = app.get(query).await.assert_ok().clone();
+            let ids: Vec<String> = page["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().to_string())
+                .collect();
+            (ids, page)
+        }
     };
 
-    assert_eq!(total("/api/v1/media?category=anime").await, 0, "an older decision matched");
-    assert_eq!(total("/api/v1/media?category=standard").await, 1);
-    assert_eq!(total("/api/v1/media?unmatched=true").await, 1, "the latest matched nothing");
+    app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
+
+    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2"]);
+    assert_eq!(listed("/api/v1/media?category=anime").await.0, ["m-1"]);
+    let (_, all) = listed("/api/v1/media").await;
+    let totoro = all["data"].as_array().unwrap().iter().find(|item| item["id"] == "m-1").unwrap();
+    assert_eq!(totoro["computed_category"], "anime");
+
+    app.execute(&["UPDATE rules SET enabled = 0"]).await;
+    app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
+
+    assert_eq!(listed("/api/v1/media?category=anime").await.0, Vec::<String>::new());
+    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2", "m-1"]);
 }
 
 /// The category list counts, beside each category, the rules sending titles
@@ -1341,6 +1526,22 @@ async fn an_override_carries_no_lock() {
     assert!(listed[0].get("locked").is_none(), "{listed}");
     let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
     assert!(detail["override"].get("locked").is_none(), "{detail}");
+}
+
+/// A title's tags and genres read as lists, beside the JSON strings the
+/// first release sent and still sends.
+#[tokio::test]
+async fn a_titles_tags_and_genres_read_as_lists() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["UPDATE media SET tags = '[\"4K\",\"Kids\"]', genres = '[\"Animation\"]'"]).await;
+
+    let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
+
+    let media = &detail["media"];
+    assert_eq!(media["tag_list"], serde_json::json!(["4K", "Kids"]), "{media}");
+    assert_eq!(media["genre_list"], serde_json::json!(["Animation"]), "{media}");
+    assert_eq!(media["tags"], r#"["4K","Kids"]"#, "{media}");
 }
 
 /// An upgrade drops the column and keeps every override.
@@ -1733,7 +1934,8 @@ async fn explain_reads_a_rule_it_cannot_read_as_the_engine_does() {
 }
 
 /// A rule its exclusion vetoes reads `excluded`, naming the exclusion, as the
-/// engine that set it aside reads it.
+/// engine that set it aside reads it, and still does under an exception that
+/// pins the title elsewhere.
 #[tokio::test]
 async fn explain_names_the_exclusion_that_set_a_rule_aside() {
     let app = TestApp::new().await;
@@ -1743,12 +1945,37 @@ async fn explain_names_the_exclusion_that_set_a_rule_aside() {
                    '[{\"type\":\"genre_contains\",\"value\":[\"Animation\"]}]'"])
         .await;
 
-    let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    for pinned in [false, true] {
+        if pinned {
+            app.execute(&["INSERT INTO overrides (id, media_id, target_category)
+                           VALUES ('o-1', 'm-1', 'standard')"])
+                .await;
+        }
+        let explanation = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
 
-    assert_eq!(explanation["target_category"], "standard");
-    let trace = &explanation["rule_traces"][0];
-    assert_eq!(trace["outcome"], "excluded", "{trace}");
-    assert!(trace["excluded_by"].as_str().unwrap_or_default().contains("Animation"), "{trace}");
+        assert_eq!(explanation["target_category"], "standard");
+        let trace = &explanation["rule_traces"][0];
+        assert_eq!(trace["outcome"], "excluded", "pinned: {pinned}, {trace}");
+        let veto = trace["excluded_by"].as_str().unwrap_or_default();
+        assert!(veto.contains("Animation"), "pinned: {pinned}, {trace}");
+    }
+}
+
+/// No run reads a switched-off instance, so the move its title's explanation
+/// shows is only what the rules would do, and the explanation says so.
+#[tokio::test]
+async fn explain_says_when_no_run_reads_the_titles_instance() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+    let enabled = |explanation: serde_json::Value| explanation["instance_enabled"].clone();
+
+    let on = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    assert_eq!(enabled(on), true);
+    app.execute(&["UPDATE instances SET enabled = 0"]).await;
+    let off = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    assert_eq!(off["action"], "move");
+    assert_eq!(enabled(off), false);
 }
 
 #[tokio::test]
