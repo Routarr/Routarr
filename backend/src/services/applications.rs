@@ -99,11 +99,21 @@ pub struct NewApplication {
 }
 
 /// A key just made, with the token shown this once.
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 pub struct Minted {
     #[serde(flatten)]
     pub application: Application,
     pub token: String,
+}
+
+/// The token is the key itself, so a debug line shows the application only.
+impl std::fmt::Debug for Minted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Minted")
+            .field("application", &self.application)
+            .field("token", &"<redacted>")
+            .finish()
+    }
 }
 
 #[derive(sqlx::FromRow)]

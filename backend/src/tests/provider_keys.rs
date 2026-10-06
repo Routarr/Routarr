@@ -25,7 +25,7 @@ async fn a_saved_key_is_sealed_in_the_table_and_never_read_back() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "stored in the clear: {stored}");
+    assert!(stored.starts_with("enc:v2:"), "stored in the clear: {stored}");
     assert!(!stored.contains("super-secret"), "the plaintext survived in the row");
 
     let body = settings(&app).await;
@@ -156,7 +156,7 @@ async fn the_resealing_pass_covers_the_metadata_keys_too() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "left in the clear: {stored}");
+    assert!(stored.starts_with("enc:v2:"), "left in the clear: {stored}");
     assert_eq!(app.state.provider_key("omdb").await.as_deref(), Some("bare"));
 }
 
@@ -176,6 +176,7 @@ async fn a_settings_secret_no_key_can_open_is_left_exactly_as_it_was() {
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
+        None,
     )
     .unwrap()
     .seal("tmdb-only-copy")

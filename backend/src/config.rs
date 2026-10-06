@@ -214,7 +214,7 @@ fn validate_origin(origin: &str) -> AppResult<()> {
 const MIN_PINNED_KEY_LENGTH: usize = 32;
 
 /// Application configuration loaded from environment variables.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub host: String,
     pub port: u16,
@@ -287,6 +287,9 @@ pub struct Config {
     pub secret_key: Option<String>,
     /// Superseded master key, kept readable for one rotation.
     pub previous_secret_key: Option<String>,
+    /// Lets a start make a new master key although the database holds values
+    /// sealed with the one it had, which then have to be entered again.
+    pub allow_new_master_key: bool,
     /// Max concurrent outbound requests per metadata source during enrichment.
     ///
     /// A ceiling, not a target: `services::rate_limit` additionally paces each
@@ -309,6 +312,96 @@ pub struct Config {
     /// Normalised to either an empty string or `/something` with no trailing
     /// slash, so callers can always concatenate without guessing.
     pub base_path: String,
+}
+
+/// Every field but the secrets, which read as set or not. Destructured whole,
+/// so a field added later is written here too, or the build fails.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            host,
+            port,
+            db_path,
+            data_dir,
+            log_level,
+            log_format,
+            startup_notes,
+            frontend_dir,
+            tmdb_api_key,
+            api_key,
+            auth_mode,
+            oidc_issuer,
+            oidc_client_id,
+            oidc_client_secret,
+            oidc_redirect_url,
+            oidc_allowed_subjects,
+            oidc_allowed_groups,
+            oidc_groups_claim,
+            oidc_allow_anyone,
+            cors_origins,
+            allowed_hosts,
+            trusted_proxies,
+            http_timeout,
+            library_timeout,
+            move_wait,
+            webhook_answer_wait,
+            secret_key,
+            previous_secret_key,
+            allow_new_master_key,
+            metadata_concurrency,
+            tmdb_base_url,
+            omdb_api_key,
+            omdb_base_url,
+            tvdb_api_key,
+            tvdb_pin,
+            tvdb_base_url,
+            anilist_base_url,
+            jikan_base_url,
+            base_path,
+        } = self;
+        let hidden = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
+        f.debug_struct("Config")
+            .field("host", host)
+            .field("port", port)
+            .field("db_path", db_path)
+            .field("data_dir", data_dir)
+            .field("log_level", log_level)
+            .field("log_format", log_format)
+            .field("startup_notes", startup_notes)
+            .field("frontend_dir", frontend_dir)
+            .field("tmdb_api_key", &hidden(tmdb_api_key))
+            .field("api_key", &hidden(api_key))
+            .field("auth_mode", auth_mode)
+            .field("oidc_issuer", oidc_issuer)
+            .field("oidc_client_id", oidc_client_id)
+            .field("oidc_client_secret", &hidden(oidc_client_secret))
+            .field("oidc_redirect_url", oidc_redirect_url)
+            .field("oidc_allowed_subjects", oidc_allowed_subjects)
+            .field("oidc_allowed_groups", oidc_allowed_groups)
+            .field("oidc_groups_claim", oidc_groups_claim)
+            .field("oidc_allow_anyone", oidc_allow_anyone)
+            .field("cors_origins", cors_origins)
+            .field("allowed_hosts", allowed_hosts)
+            .field("trusted_proxies", trusted_proxies)
+            .field("http_timeout", http_timeout)
+            .field("library_timeout", library_timeout)
+            .field("move_wait", move_wait)
+            .field("webhook_answer_wait", webhook_answer_wait)
+            .field("secret_key", &hidden(secret_key))
+            .field("previous_secret_key", &hidden(previous_secret_key))
+            .field("allow_new_master_key", allow_new_master_key)
+            .field("metadata_concurrency", metadata_concurrency)
+            .field("tmdb_base_url", tmdb_base_url)
+            .field("omdb_api_key", &hidden(omdb_api_key))
+            .field("omdb_base_url", omdb_base_url)
+            .field("tvdb_api_key", &hidden(tvdb_api_key))
+            .field("tvdb_pin", &hidden(tvdb_pin))
+            .field("tvdb_base_url", tvdb_base_url)
+            .field("anilist_base_url", anilist_base_url)
+            .field("jikan_base_url", jikan_base_url)
+            .field("base_path", base_path)
+            .finish()
+    }
 }
 
 /// Turn whatever the user wrote into either `""` or `/segment[/segment…]`.
@@ -441,6 +534,7 @@ impl Config {
             webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
+            allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             // Bounds how many requests are *open* per source, and `rate_limit`
             // bounds how many are made.
             metadata_concurrency: env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?.clamp(1, 16),
@@ -645,8 +739,9 @@ impl Config {
             library_timeout: Duration::from_millis(900),
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
-            secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
+            secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE=".into()),
             previous_secret_key: None,
+            allow_new_master_key: false,
             metadata_concurrency: 2,
             // Port 1 on the loopback, where nothing listens: a test that lists
             // a keyless source, or sets a key, and then probes or enriches is
@@ -942,6 +1037,38 @@ mod tests {
         let err =
             parse_setting("ROUTARR_HTTP_TIMEOUT_SECS", Some("abc".into()), 20u64).unwrap_err();
         assert!(err.to_string().contains("ROUTARR_HTTP_TIMEOUT_SECS"), "{err}");
+    }
+
+    /// One `{config:?}` written while diagnosing would otherwise print the
+    /// master key, the OIDC secret and the API key into the log.
+    #[test]
+    fn the_configuration_prints_no_secret() {
+        let mut config = Config::for_tests();
+        let secrets = [
+            "tmdb-secret-1",
+            "api-secret-2",
+            "oidc-secret-3",
+            "master-secret-4",
+            "previous-secret-5",
+            "omdb-secret-6",
+            "tvdb-secret-7",
+            "tvdb-pin-8",
+        ];
+        config.tmdb_api_key = Some(secrets[0].into());
+        config.api_key = Some(secrets[1].into());
+        config.oidc_client_secret = Some(secrets[2].into());
+        config.secret_key = Some(secrets[3].into());
+        config.previous_secret_key = Some(secrets[4].into());
+        config.omdb_api_key = Some(secrets[5].into());
+        config.tvdb_api_key = Some(secrets[6].into());
+        config.tvdb_pin = Some(secrets[7].into());
+
+        let printed = format!("{config:?} {config:#?}");
+        for secret in secrets {
+            assert!(!printed.contains(secret), "{secret} is printed");
+        }
+        assert!(printed.contains("api_key: Some(\"<redacted>\")"), "{printed}");
+        assert!(printed.contains("tmdb_base_url"), "the other fields are printed: {printed}");
     }
 
     /// The pinned key opens everything in every mode, so one short enough to

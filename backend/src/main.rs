@@ -221,8 +221,9 @@ pub(crate) async fn open_storage(
         let path = config.api_key_path();
         let (key, generated) = crypto::load_or_generate_api_key(&path)?;
         if generated {
+            // The path and never the key, which a log shipper would keep.
             // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
-            info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
+            info!("Generated an API key at {}. Read it from that file", path.display());
         }
         Some(key)
     } else {
@@ -230,12 +231,62 @@ pub(crate) async fn open_storage(
     };
 
     let pool = db::init_pool(config).await?;
+    refuse_a_lost_master_key(config, &pool).await?;
+    let salt = crypto::installation_salt(&pool).await?;
     let secrets = crypto::SecretBox::load(
         config.secret_key.as_deref(),
         config.previous_secret_key.as_deref(),
         &config.secret_key_path(),
+        Some(salt.as_bytes()),
     )?;
     Ok((api_key, pool, secrets))
+}
+
+/// Refuse a start that would make a new master key while the database holds
+/// values sealed with the one it had: `routarr.db` copied alone to a new
+/// volume, a key file deleted, or emptied by a power cut. A new key opens none
+/// of them, and the start would go on with every instance and source failing.
+async fn refuse_a_lost_master_key(
+    config: &config::Config,
+    pool: &sqlx::SqlitePool,
+) -> error::AppResult<()> {
+    let path = config.secret_key_path();
+    if config.secret_key.is_some() {
+        return Ok(());
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(key) if !key.trim().is_empty() => return Ok(()),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            // Refused by `SecretBox::load`, which names the file.
+            return Ok(());
+        }
+        Ok(_) | Err(_) => {}
+    }
+    let sealed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM instances WHERE api_key LIKE 'enc:v%')
+             OR EXISTS(SELECT 1 FROM settings WHERE value LIKE 'enc:v%')
+             OR EXISTS(SELECT 1 FROM webhook_secrets WHERE secret LIKE 'enc:v%')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !sealed {
+        return Ok(());
+    }
+    if config.allow_new_master_key {
+        warn!(
+            "A new master key is made at {}: every Arr key, source key, notification address and \
+             signing secret stored before it has to be entered again",
+            path.display()
+        );
+        return Ok(());
+    }
+    Err(error::AppError::Config(format!(
+        "{} is missing or empty, and the database holds credentials sealed with the key it held. \
+         Put the file back from a backup, or set ROUTARR_SECRET_KEY to the key they were sealed \
+         with. To start with a new key and enter every credential again, set \
+         ROUTARR_ALLOW_NEW_MASTER_KEY=true",
+        path.display()
+    )))
 }
 
 /// `routarr reset-account`, for an operator locked out of the `forms` account:

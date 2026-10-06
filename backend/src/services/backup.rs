@@ -544,7 +544,7 @@ async fn stage(
             discard_pending(&paths);
             return Err(AppError::Internal(format!("cannot stage {}: {e}", target.display())));
         }
-        sync_parent(target);
+        crate::crypto::sync_parent(target);
     }
     staged.keep();
 
@@ -696,18 +696,6 @@ fn pending_path(target: &Path) -> PathBuf {
 fn discard_pending(targets: &[PathBuf]) {
     for target in targets {
         std::fs::remove_file(pending_path(target)).ok();
-    }
-}
-
-/// Make a rename durable before the next one.
-///
-/// The database is renamed last so that a set interrupted before it is
-/// rejected whole, and that order survives a power cut only once each rename
-/// has reached the disk. Best effort: a filesystem that cannot open a
-/// directory to sync it still renames.
-fn sync_parent(path: &Path) {
-    if let Some(dir) = path.parent() {
-        std::fs::File::open(dir).and_then(|dir| dir.sync_all()).ok();
     }
 }
 
@@ -866,16 +854,24 @@ async fn opened_by_the_next_start(config: &crate::config::Config, staged: &Path)
     let Some(key) = config.secret_key.clone().or(from_file) else {
         return Ok(());
     };
-    let next_start = crate::crypto::SecretBox::load(
-        Some(&key),
-        config.previous_secret_key.as_deref(),
-        &key_file,
-    )?;
     let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
         .filename(staged)
         .read_only(true)
         .connect()
         .await?;
+    // An archive from before the salt holds none, and its passphrase seals
+    // are `enc:v1:`, which need none.
+    let salt: Option<String> = sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1")
+        .fetch_optional(&mut connection)
+        .await
+        .ok()
+        .flatten();
+    let next_start = crate::crypto::SecretBox::load(
+        Some(&key),
+        config.previous_secret_key.as_deref(),
+        &key_file,
+        salt.as_deref().map(str::as_bytes),
+    )?;
     let sealed: Option<String> =
         sqlx::query_scalar("SELECT api_key FROM instances WHERE api_key LIKE 'enc:%' LIMIT 1")
             .fetch_optional(&mut connection)
@@ -1014,7 +1010,7 @@ pub async fn apply_pending_restore(config: &crate::config::Config) -> AppResult<
 
         std::fs::rename(&staged, &target)
             .map_err(|e| AppError::Config(format!("cannot restore {}: {e}", target.display())))?;
-        sync_parent(&target);
+        crate::crypto::sync_parent(&target);
         crate::crypto::restrict_permissions(&target);
         info!("Restored {}", target.display());
     }

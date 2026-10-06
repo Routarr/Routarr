@@ -1,9 +1,13 @@
-//! Encryption of secrets at rest (the Arr and metadata source API keys).
+//! Encryption of secrets at rest: the Arr and metadata source keys, the
+//! notification address and the signing secrets.
 //!
-//! Values are stored as `enc:v1:<base64(nonce || ciphertext)>`. Anything that
-//! does not carry that prefix is treated as legacy plaintext and returned as-is,
-//! so upgrading an existing database never loses access to the instances, and
-//! `maintenance::reseal_secrets` seals them at the next start.
+//! A value is stored as `enc:v2:<base64(nonce || ciphertext)>`, sealed with
+//! the master key. A passphrase given as the master key is stretched with
+//! Argon2id and the installation's salt, which the database holds and every
+//! backup carries. `enc:v1:` is the same seal under a passphrase stretched
+//! with SHA-256, still opened. A value without either prefix is plaintext,
+//! returned as it is. `maintenance::reseal_secrets` seals both again as
+//! `enc:v2:` at the next start.
 
 use aes_gcm::aead::{Aead, AeadCore, KeyInit};
 use aes_gcm::{Aes256Gcm, Key, Nonce};
@@ -35,7 +39,9 @@ fn random_bytes(buffer: &mut [u8]) -> AppResult<()> {
 /// the question.
 type GcmNonce = Nonce<<Aes256Gcm as AeadCore>::NonceSize>;
 
-const PREFIX: &str = "enc:v1:";
+const PREFIX: &str = "enc:v2:";
+/// A seal under a passphrase stretched with SHA-256 rather than Argon2id.
+const PREFIX_V1: &str = "enc:v1:";
 const NONCE_LEN: usize = 12;
 
 /// Holds the master key used to seal and open secrets.
@@ -47,6 +53,13 @@ const NONCE_LEN: usize = 12;
 pub struct SecretBox {
     cipher: Aes256Gcm,
     previous: Option<Aes256Gcm>,
+    /// What else opens an `enc:v1:` value: the current and the previous
+    /// passphrase stretched with SHA-256. A key given whole is the same key
+    /// under both, and opens it as `cipher`.
+    v1: Vec<Aes256Gcm>,
+    /// What a new seal is written as: `enc:v1:` only for a passphrase with no
+    /// salt to stretch it with.
+    prefix: &'static str,
 }
 
 impl std::fmt::Debug for SecretBox {
@@ -63,60 +76,46 @@ impl SecretBox {
     ///
     /// `previous` is a superseded key kept readable during a rotation. Values
     /// are opened with either key but always re-sealed with the current one.
+    ///
+    /// `salt` is the installation's ([`installation_salt`]), which a
+    /// passphrase is stretched with. Without one a passphrase is stretched as
+    /// `enc:v1:` was, for a database that holds no salt yet.
     pub fn load(
         configured: Option<&str>,
         previous: Option<&str>,
         key_path: &Path,
+        salt: Option<&[u8]>,
     ) -> AppResult<Self> {
-        let raw = match configured {
-            Some(k) => derive_key(k),
-            None => {
-                // Only a missing file makes a new key. One that cannot be read,
-                // or holds bytes that are not text, is somebody's key: written
-                // over, it would take every credential sealed under it.
-                let stored = match std::fs::read_to_string(key_path) {
-                    Ok(stored) => Some(stored.trim().to_string()),
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
-                    Err(e) => {
-                        return Err(AppError::Config(format!(
-                            "cannot read the master key at {}: {e}. Fix the file or move it \
-                             aside, since a new key would leave every stored credential \
-                             unreadable",
-                            key_path.display()
-                        )));
-                    }
-                };
-                match stored.filter(|s| !s.is_empty()) {
-                    Some(k) => derive_key(&k),
-                    None => {
-                        let mut bytes = [0u8; 32];
-                        random_bytes(&mut bytes)?;
-                        let encoded = B64.encode(bytes);
-                        write_private(key_path, encoded.as_bytes()).map_err(|e| {
-                            AppError::Config(format!(
-                                "cannot write master key to {}: {e}",
-                                key_path.display()
-                            ))
-                        })?;
-                        info!(
-                            "Generated a new master key at {}. Back it up alongside the database",
-                            key_path.display()
-                        );
-                        bytes
-                    }
-                }
-            }
+        let current = match configured {
+            Some(k) => k.trim().to_string(),
+            None => key_from_file(key_path)?,
         };
+        let cipher = |input: &str| -> AppResult<Aes256Gcm> {
+            Ok(Aes256Gcm::new(&Key::<Aes256Gcm>::from(derive_key(input, salt)?)))
+        };
+        let v1 = match salt {
+            Some(_) => [Some(current.as_str()), previous]
+                .into_iter()
+                .flatten()
+                .filter(|input| whole_key(input).is_none())
+                .map(|input| Aes256Gcm::new(&Key::<Aes256Gcm>::from(stretched_v1(input))))
+                .collect(),
+            None => Vec::new(),
+        };
+        let prefix =
+            if salt.is_some() || whole_key(&current).is_some() { PREFIX } else { PREFIX_V1 };
 
-        let key = Key::<Aes256Gcm>::from(raw);
-        let previous = previous.map(|p| Aes256Gcm::new(&Key::<Aes256Gcm>::from(derive_key(p))));
-
-        Ok(Self { cipher: Aes256Gcm::new(&key), previous })
+        Ok(Self {
+            cipher: cipher(&current)?,
+            previous: previous.map(cipher).transpose()?,
+            v1,
+            prefix,
+        })
     }
 
     /// Encrypt a secret for storage. Already-encrypted values pass through.
     pub fn seal(&self, plaintext: &str) -> AppResult<String> {
-        if plaintext.starts_with(PREFIX) {
+        if Self::is_sealed(plaintext) {
             return Ok(plaintext.to_string());
         }
         let mut nonce_bytes = [0u8; NONCE_LEN];
@@ -132,13 +131,15 @@ impl SecretBox {
         payload.extend_from_slice(&nonce_bytes);
         payload.extend_from_slice(&ciphertext);
 
-        Ok(format!("{PREFIX}{}", B64.encode(payload)))
+        Ok(format!("{}{}", self.prefix, B64.encode(payload)))
     }
 
-    /// Decrypt a stored secret. Legacy plaintext values are returned unchanged.
+    /// Decrypt a stored secret. A plaintext value is returned as it is.
     pub fn open(&self, stored: &str) -> AppResult<String> {
-        let Some(encoded) = stored.strip_prefix(PREFIX) else {
-            return Ok(stored.to_string());
+        let (encoded, v1) = match (stored.strip_prefix(PREFIX), stored.strip_prefix(PREFIX_V1)) {
+            (Some(encoded), _) => (encoded, &[][..]),
+            (None, Some(encoded)) => (encoded, &self.v1[..]),
+            (None, None) => return Ok(stored.to_string()),
         };
 
         let payload = B64
@@ -155,17 +156,13 @@ impl SecretBox {
         let nonce = <&GcmNonce>::try_from(nonce_bytes)
             .map_err(|_| AppError::Internal("stored secret has a malformed nonce".into()))?;
 
-        let plaintext = self
-            .cipher
-            .decrypt(nonce, ciphertext)
-            .or_else(|_| {
-                // Mid-rotation: the value is still sealed with the superseded key.
-                self.previous
-                    .as_ref()
-                    .ok_or(())
-                    .and_then(|previous| previous.decrypt(nonce, ciphertext).map_err(|_| ()))
-            })
-            .map_err(|_| {
+        // Mid-rotation a value is still sealed with the superseded key.
+        let plaintext = std::iter::once(&self.cipher)
+            .chain(&self.previous)
+            .chain(v1)
+            .find_map(|key| key.decrypt(nonce, ciphertext).ok())
+            .ok_or(())
+            .map_err(|()| {
                 AppError::Config(
                     "cannot decrypt a stored secret: ROUTARR_SECRET_KEY (or routarr.key) does not match this database. Set ROUTARR_PREVIOUS_SECRET_KEY to the old value to migrate.".into(),
                 )
@@ -175,11 +172,16 @@ impl SecretBox {
             .map_err(|_| AppError::Internal("decrypted secret is not valid UTF-8".into()))
     }
 
-    /// True when the value should be rewritten under the current key.
-    ///
-    /// Covers both legacy plaintext and values still sealed with a superseded key.
+    /// True when the value should be rewritten under the current key:
+    /// plaintext, a passphrase's `enc:v1:` seal once a salt stretches it, and a
+    /// value still sealed with a superseded key.
     pub fn needs_reseal(&self, stored: &str) -> bool {
-        let Some(encoded) = stored.strip_prefix(PREFIX) else {
+        if stored.starts_with(PREFIX_V1) && self.prefix == PREFIX {
+            return true;
+        }
+        let Some(encoded) =
+            stored.strip_prefix(self.prefix).or_else(|| stored.strip_prefix(PREFIX_V1))
+        else {
             return true;
         };
         let Ok(payload) = B64.decode(encoded) else {
@@ -197,8 +199,55 @@ impl SecretBox {
 
     /// True when the value is stored encrypted.
     pub fn is_sealed(stored: &str) -> bool {
-        stored.starts_with(PREFIX)
+        stored.starts_with(PREFIX) || stored.starts_with(PREFIX_V1)
     }
+}
+
+/// The master key the file beside the database holds, or a new one written
+/// there when there is no file, or an empty one.
+///
+/// A file that cannot be read, or holds bytes that are not text, is somebody's
+/// key: written over, it would take every credential sealed under it. An empty
+/// file is what a power cut leaves of a key written moments before, and a start
+/// only gets here with one once `main` has made sure no value in the database
+/// was sealed with the key it held.
+fn key_from_file(key_path: &Path) -> AppResult<String> {
+    match std::fs::read_to_string(key_path) {
+        Ok(stored) if !stored.trim().is_empty() => return Ok(stored.trim().to_string()),
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(AppError::Config(format!(
+                "cannot read the master key at {}: {e}. Fix the file or move it aside, since a \
+                 new key would leave every stored credential unreadable",
+                key_path.display()
+            )));
+        }
+    }
+    let mut bytes = [0u8; 32];
+    random_bytes(&mut bytes)?;
+    let encoded = B64.encode(bytes);
+    write_private(key_path, encoded.as_bytes()).map_err(|e| {
+        AppError::Config(format!("cannot write master key to {}: {e}", key_path.display()))
+    })?;
+    info!(
+        "Generated a new master key at {}. Back it up alongside the database",
+        key_path.display()
+    );
+    Ok(encoded)
+}
+
+/// The salt a passphrase given as the master key is stretched with, one per
+/// installation, made by a migration and kept in the database.
+pub async fn installation_salt(pool: &sqlx::SqlitePool) -> AppResult<String> {
+    if let Some(salt) =
+        sqlx::query_scalar("SELECT salt FROM secret_salt LIMIT 1").fetch_optional(pool).await?
+    {
+        return Ok(salt);
+    }
+    let salt = generate_secret()?[..32].to_string();
+    sqlx::query("INSERT INTO secret_salt (salt) VALUES (?)").bind(&salt).execute(pool).await?;
+    Ok(salt)
 }
 
 /// 32 bytes of OS randomness, hex-encoded.
@@ -266,21 +315,43 @@ pub fn write_api_key(path: &Path, key: &str) -> AppResult<()> {
     })
 }
 
-/// Write a file that holds a secret, private from the moment it exists.
+/// Write a file that holds a secret, private from the moment it exists, and
+/// whole or not at all.
 ///
 /// `std::fs::write` then `chmod` opens it under the umask first (0644 under
 /// the usual 022), and the chmod that follows only warns when the filesystem
 /// refuses it, which a bind mount from SMB or NFS does. Created with the mode
 /// instead, there is no window and nothing to warn about. Where modes are not
 /// honoured the file is exactly as private as it can be there.
+///
+/// Written beside, flushed to the disk, then renamed over the old one: written
+/// in place, a power cut between the truncation and the write leaves an empty
+/// key, and the previous one gone.
 pub fn write_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let mut file = create_private(path, false)?;
-    file.write_all(contents)?;
-    file.flush()
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let beside = path.with_file_name(format!("{name}.tmp"));
+    let mut file = create_private(&beside, false)?;
+    let written = file.write_all(contents).and_then(|()| file.sync_all());
+    drop(file);
+    if let Err(e) = written.and_then(|()| std::fs::rename(&beside, path)) {
+        std::fs::remove_file(&beside).ok();
+        return Err(e);
+    }
+    sync_parent(path);
+    Ok(())
+}
+
+/// Make a rename durable: it reaches the disk with the directory that holds
+/// it. Best effort, since a filesystem that cannot open a directory to sync it
+/// still renames.
+pub fn sync_parent(path: &Path) {
+    if let Some(dir) = path.parent() {
+        std::fs::File::open(dir).and_then(|dir| dir.sync_all()).ok();
+    }
 }
 
 /// Open a file for writing with mode 0600, created if absent, and refused if
@@ -316,22 +387,33 @@ pub fn remove_api_key(path: &Path) -> AppResult<()> {
     }
 }
 
-/// Accept either a base64-encoded 32-byte key or an arbitrary passphrase.
-///
-/// A passphrase is stretched with SHA-256 over a fixed domain-separation label.
-/// This is deliberately not a memory-hard KDF: the key never leaves the host and
-/// the threat model is "someone copied routarr.db", not offline cracking of a
-/// user password. Supply a base64 32-byte key for full strength.
-fn derive_key(input: &str) -> [u8; 32] {
-    let trimmed = input.trim();
-    if let Ok(decoded) = B64.decode(trimmed)
-        && decoded.len() == 32
-    {
-        let mut out = [0u8; 32];
-        out.copy_from_slice(&decoded);
-        return out;
+/// A base64-encoded 32-byte key is used as it is, and anything else is a
+/// passphrase: stretched with Argon2id and the installation's salt, since a
+/// copy of the database or of a backup lets anyone test phrases offline, and
+/// the tag of any sealed value confirms a right guess. Without a salt, as an
+/// `enc:v1:` value was sealed.
+fn derive_key(input: &str, salt: Option<&[u8]>) -> AppResult<[u8; 32]> {
+    if let Some(whole) = whole_key(input) {
+        return Ok(whole);
     }
+    let Some(salt) = salt else {
+        return Ok(stretched_v1(input));
+    };
+    let mut out = [0u8; 32];
+    argon2::Argon2::default().hash_password_into(input.trim().as_bytes(), salt, &mut out).map_err(
+        |e| AppError::Config(format!("the master key passphrase cannot be stretched: {e}")),
+    )?;
+    Ok(out)
+}
 
+/// The key `input` is when it is written whole, as base64 of 32 bytes.
+fn whole_key(input: &str) -> Option<[u8; 32]> {
+    B64.decode(input.trim()).ok()?.try_into().ok()
+}
+
+/// A passphrase as `enc:v1:` stretched it: SHA-256, repeated, unsalted.
+fn stretched_v1(input: &str) -> [u8; 32] {
+    let trimmed = input.trim();
     let mut hasher = Sha256::new();
     hasher.update(b"routarr:secret-key:v1");
     hasher.update(trimmed.as_bytes());
@@ -436,6 +518,20 @@ mod tests {
         assert!(create_private(&path, true).is_err(), "an existing file must not be reopened");
     }
 
+    /// A key is written beside its file and renamed over it: a write that
+    /// fails leaves the previous key whole, and nothing behind.
+    #[test]
+    fn a_failed_key_write_leaves_the_previous_key_whole() {
+        let dir = crate::tests::TempDir::new("key-durable");
+        let path = dir.join("routarr.key");
+        write_private(&path, b"the key of before").unwrap();
+        assert!(!dir.join("routarr.key.tmp").exists(), "the file written beside was left");
+
+        std::fs::create_dir(dir.join("routarr.key.tmp")).unwrap();
+        assert!(write_private(&path, b"the key of after").is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"the key of before");
+    }
+
     /// The key file is as readable as the database, and no more.
     #[cfg(unix)]
     #[test]
@@ -460,18 +556,19 @@ mod tests {
         let dir = crate::tests::TempDir::new("master-key");
         let path = dir.join("routarr.key");
 
-        let sealed = SecretBox::load(None, None, &path).unwrap().seal("the-arr-key").unwrap();
+        let sealed = SecretBox::load(None, None, &path, None).unwrap().seal("the-arr-key").unwrap();
         assert!(path.exists(), "the first start writes the key it generated");
 
-        let restarted = SecretBox::load(None, None, &path).unwrap();
+        let restarted = SecretBox::load(None, None, &path, None).unwrap();
         assert_eq!(restarted.open(&sealed).unwrap(), "the-arr-key");
     }
 
     fn boxed() -> SecretBox {
         SecretBox::load(
-            Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh"),
+            Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE="),
             None,
             Path::new("/nonexistent"),
+            None,
         )
         .unwrap()
     }
@@ -480,7 +577,7 @@ mod tests {
     fn roundtrip() {
         let sb = boxed();
         let sealed = sb.seal("super-secret-api-key").unwrap();
-        assert!(sealed.starts_with(PREFIX));
+        assert!(SecretBox::is_sealed(&sealed), "{sealed}");
         assert_eq!(sb.open(&sealed).unwrap(), "super-secret-api-key");
     }
 
@@ -505,13 +602,15 @@ mod tests {
 
     #[test]
     fn a_previous_key_still_opens_its_values() {
-        let old = SecretBox::load(Some("old-passphrase"), None, Path::new("/nonexistent")).unwrap();
+        let old =
+            SecretBox::load(Some("old-passphrase"), None, Path::new("/nonexistent"), None).unwrap();
         let sealed = old.seal("arr-key").unwrap();
 
         let rotated = SecretBox::load(
             Some("new-passphrase"),
             Some("old-passphrase"),
             Path::new("/nonexistent"),
+            None,
         )
         .unwrap();
 
@@ -536,6 +635,7 @@ mod tests {
             Some("a-completely-different-passphrase"),
             None,
             Path::new("/nonexistent"),
+            None,
         )
         .unwrap();
         assert!(other.open(&sealed).is_err());

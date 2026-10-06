@@ -415,9 +415,10 @@ mod tests {
     fn an_attempt_opens_only_while_live_for_its_state_and_sealed_as_one() {
         use crate::crypto::SecretBox;
         let secrets = SecretBox::load(
-            Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh"),
+            Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE="),
             None,
             std::path::Path::new("/nonexistent"),
+            None,
         )
         .unwrap();
         let now = chrono::Utc::now().timestamp();

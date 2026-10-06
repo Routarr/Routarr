@@ -71,7 +71,7 @@ async fn instance_api_keys_are_encrypted_at_rest_and_never_returned() {
         .fetch_one(&app.state.pool)
         .await
         .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "stored value must be ciphertext: {stored}");
+    assert!(stored.starts_with("enc:v2:"), "stored value must be ciphertext: {stored}");
     assert_eq!(app.state.secrets.open(&stored).unwrap(), "plaintext-arr-key");
 }
 
@@ -2223,7 +2223,7 @@ async fn rotating_the_webhook_token_does_not_expose_the_arr_key() {
     let body = rotated.assert_ok().to_string();
 
     assert!(!body.contains("arr-key"), "the Arr key leaked: {body}");
-    assert!(!body.contains("enc:v1:"), "ciphertext leaked: {body}");
+    assert!(!body.contains("enc:v"), "ciphertext leaked: {body}");
     assert!(body.contains("api_key_masked"), "the masked field is part of the contract: {body}");
 }
 

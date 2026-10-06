@@ -19,7 +19,7 @@ async fn configured() -> TestApp {
     app.store_setting("batch_limit", "25").await;
 
     // A sealed setting, so `no_api_key_leaves_the_installation` has something
-    // to prove. Without one, the assertion on `enc:v1:` would pass over a bundle
+    // to prove. Without one, the assertion on `enc:v` would pass over a bundle
     // that could not contain it, a test reporting a property it never
     // exercised.
     app.store_setting("tmdb_api_key", &app.state.secrets.seal("tmdb-key-not-a-secret").unwrap())
@@ -78,7 +78,7 @@ async fn no_api_key_leaves_the_installation() {
 
     // The fixture stores 'secret' as the instance key.
     assert!(!serialised.contains("secret"), "an API key must never appear in a bundle");
-    assert!(!serialised.contains("enc:v1:"), "nor its ciphertext, which nothing else can open");
+    assert!(!serialised.contains("enc:v"), "nor its ciphertext, which nothing else can open");
     assert_eq!(bundle["instances"].as_array().unwrap()[0]["has_api_key"], false);
 }
 

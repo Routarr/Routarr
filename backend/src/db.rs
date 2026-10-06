@@ -47,6 +47,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "027_stateless_sign_in_attempts",
         include_str!("../migrations/027_stateless_sign_in_attempts.sql"),
     ),
+    ("028_secret_salt", include_str!("../migrations/028_secret_salt.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.

@@ -500,6 +500,7 @@ async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
+        None,
     )
     .unwrap()
     .seal("arr-key")

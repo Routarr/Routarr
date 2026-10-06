@@ -40,8 +40,8 @@ ships in the next release. Write a report against that version, or against
 Stated so a report can skip what is covered, and so a gap is easier to see.
 
 - **Authentication is on by default.** With no `ROUTARR_API_KEY`, one is
-  generated at first start into `routarr.api_key` (0600, beside the database)
-  and logged once. Two modes ask for no credential, and each has to be asked
+  generated at first start into `routarr.api_key` (0600, beside the database),
+  whose path the log names. Two modes ask for no credential, and each has to be asked
   for: `ROUTARR_AUTH=none` runs open, and `ROUTARR_AUTH=external` leaves the
   sign-in to a reverse proxy, so its port must reach that proxy alone.
 - **The API key can be replaced or withdrawn without a restart.**
@@ -70,13 +70,11 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   refuse a message nobody signed or one replayed later. The secret is sealed
   like an Arr's key and left out of a configuration export, and the one it
   replaces signs beside it for a day.
-- **The generated key and the generated password are printed once**, at the
-  moment they are created, beside the path of the file holding them. That is a
-  deliberate trade: without it a first run needs shell access into the
-  container, which on a NAS appliance is a real obstacle. The line survives in
-  `docker compose logs` for as long as the logs do, so an installation that
-  ships its logs off the host should regenerate the key from Settings once, and
-  change the password, after the first start.
+- **The generated key and the generated password stay out of the log.** The
+  log names the file holding each, which only the container's user reads, and
+  `docker exec routarr cat /data/routarr.api_key` prints the key: a line in
+  `docker compose logs` lives as long as the logs do, and a log shipper keeps
+  every line it is sent.
 - **`/auth/login` bounds what it can be made to spend, and locks nobody out.**
   It is public and argon2id is deliberately expensive, in time and in memory
   (about 19 MiB per check), so the cost that makes a password hard to guess also
@@ -161,7 +159,18 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   caller, which costs exactly what a real import costs: rotate the token from
   the Instances screen if one is suspected.
 - **Arr API keys are sealed with AES-256-GCM** and never returned. The interface
-  shows `•••• (encrypted)`. Only a plaintext key left by an older version gets a
+  shows `•••• (encrypted)`. A passphrase given as `ROUTARR_SECRET_KEY` is
+  stretched with Argon2id and a salt the installation keeps in its database, so
+  a copy of the database or of a backup costs an Argon2id computation per
+  phrase guessed, and one phrase is another key on another installation.
+- **A start never replaces a master key it has lost.** With the database
+  holding sealed values and `routarr.key` missing or empty, as when
+  `routarr.db` is copied alone to a new volume, the start stops and names the
+  file: a new key would open none of them, and every instance and source would
+  fail behind a start that looked clean. `ROUTARR_ALLOW_NEW_MASTER_KEY=true`
+  makes a new key anyway, and the credentials are entered again. The key files
+  are written beside, flushed and renamed into place, so a power cut leaves the
+  previous key or the new one, never an empty file. Only a plaintext key left by an older version gets a
   partial mask, and that is a prompt to re-save. A configuration bundle carries
   none of them, sealed or not: ciphertext is meaningless under another
   installation's master key, so the destination would store a blob it can never

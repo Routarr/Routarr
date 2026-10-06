@@ -32,6 +32,7 @@ pub(crate) async fn app_with_files(label: &str) -> (TestApp, TempDir) {
         config.secret_key.as_deref(),
         None,
         &config.secret_key_path(),
+        None,
     )
     .unwrap();
 
@@ -378,7 +379,8 @@ async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
     app.state.pool.close().await;
     assert!(backup::apply_pending_restore(&config).await.unwrap());
 
-    let secrets = crate::crypto::SecretBox::load(None, None, &config.secret_key_path()).unwrap();
+    let secrets =
+        crate::crypto::SecretBox::load(None, None, &config.secret_key_path(), None).unwrap();
     assert_eq!(
         secrets.open(&sealed).unwrap(),
         "the-radarr-key",

@@ -359,8 +359,9 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
         .execute(pool)
         .await?;
 
+    // The path and never the password, which a log shipper would keep.
     info!(
-        "Created the '{DEFAULT_USERNAME}' account at {}. Sign in with: {password}",
+        "Created the '{DEFAULT_USERNAME}' account. Its password is in {}",
         password_path.display()
     );
     Ok(())

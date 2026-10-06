@@ -474,10 +474,13 @@ impl AppState {
         let config = Config::for_tests();
         Self {
             http: crate::http::build_client(&config).expect("test http client"),
+            // Salted as a start salts it, so what tests seal is what an
+            // installation stores.
             secrets: SecretBox::load(
                 config.secret_key.as_deref(),
                 None,
                 std::path::Path::new("/nonexistent"),
+                Some(b"routarr-test-salt"),
             )
             .unwrap(),
             tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),

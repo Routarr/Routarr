@@ -689,7 +689,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .unwrap();
-        assert!(stored.starts_with("enc:v1:"));
+        assert!(stored.starts_with("enc:v2:"));
         assert_eq!(state.secrets.open(&stored).unwrap(), "plaintext-key");
 
         // Idempotent: a second pass has nothing left to do.
@@ -704,6 +704,7 @@ mod tests {
             Some("some-other-key"),
             None,
             std::path::Path::new("/nonexistent"),
+            None,
         )
         .unwrap()
         .seal("secret")
