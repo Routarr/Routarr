@@ -101,12 +101,15 @@ compose_db=$(sed -n 's/^ *- ROUTARR_DB_PATH=//p' "$ROOT/docker-compose.yml")
   fail "\`$read_key\` does not read the key docker-compose.yml's ROUTARR_DB_PATH=$compose_db puts beside the database"
 ok "the first-run command names the container and the data path of docker-compose.yml"
 
-# A named volume, fresh, with the hardening the README's compose file sets.
+# A named volume, fresh, with the hardening the README's compose file sets,
+# the root filesystem read-only included.
 docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
   -p "127.0.0.1:$PORT:9876" \
   -v "$VOLUME:/data" \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
+  --read-only \
+  --tmpfs /tmp:size=64m,noexec,nosuid \
   "$IMAGE" >/dev/null
 
 wait_for 30 "answer on /api/v1/ping" pings
@@ -132,8 +135,10 @@ key=$($read_key) || fail "\`$read_key\` failed"
 [[ "$key" =~ ^[0-9a-f]{64}$ ]] || fail "\`$read_key\` printed something other than a key"
 ok "\`$read_key\` prints the generated key"
 
-grep -qF "$key" <<<"$(logs)" || fail "the generated key is not in the log"
-ok "the generated key is in the log"
+if grep -qF "$key" <<<"$(logs)"; then
+  fail "the generated key is in the log, which a log shipper keeps"
+fi
+ok "the generated key stays out of the log"
 
 expect_status 200 "accepts that key on /api/v1/status" -H "X-Api-Key: $key" "$BASE/api/v1/status"
 
@@ -168,6 +173,16 @@ reset=$(docker exec "$NAME" /app/routarr reset-account) || fail "reset-account f
 grep -qF 'The account is reset' <<<"$reset" || fail "reset-account printed no new password"
 docker exec "$NAME" test -s /data/routarr.password || fail "reset-account wrote no password file"
 ok "\`/app/routarr reset-account\` gives the account a new password"
+
+# A backup and a restore staged for the next start, on a read-only root: what
+# either writes lands in /data, and the restart below applies the restore.
+backup=$(curl -fsS --max-time 30 -X POST -H "X-Api-Key: $key" "$BASE/api/v1/backups") ||
+  fail "a backup failed on a read-only root"
+archive=$(sed -n 's/.*"name":"\([^"]*\)".*/\1/p' <<<"$backup")
+[ -n "$archive" ] || fail "the backup answered no archive name: $backup"
+expect_status 200 "stages a restore on a read-only root" \
+  -X POST -H "X-Api-Key: $key" "$BASE/api/v1/backups/$archive/restore"
+ok "takes a backup and stages a restore with the root filesystem read-only"
 
 # Docker's first probe runs one interval (30s) after start.
 wait_for 60 "healthy status from the HEALTHCHECK" healthy

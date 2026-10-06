@@ -67,6 +67,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid
 ```
 
 ```bash
