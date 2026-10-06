@@ -43,6 +43,12 @@ const MIGRATIONS: &[(&str, &str)] = &[
         include_str!("../migrations/025_added_dates_stored_shape.sql"),
     ),
     ("026_unique_instance_names", include_str!("../migrations/026_unique_instance_names.sql")),
+    (
+        "027_stateless_sign_in_attempts",
+        include_str!("../migrations/027_stateless_sign_in_attempts.sql"),
+    ),
+    ("028_secret_salt", include_str!("../migrations/028_secret_salt.sql")),
+    ("029_subject_keys", include_str!("../migrations/029_subject_keys.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -829,7 +835,7 @@ mod tests {
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("main.rs");
         let after_serving = MAIN
-            .split_once(".with_graceful_shutdown(shutdown_signal())")
+            .split_once("listener::serve(socket, app, shutdown_signal()")
             .expect("main serves until a shutdown signal")
             .1;
         let shutdown =

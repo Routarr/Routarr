@@ -46,11 +46,15 @@ pub async fn create(
 /// and that escalation is stated rather than left implicit.
 pub async fn download(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
 ) -> AppResult<Response> {
     if !backup::is_valid_backup_name(&name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
+    let detail = format!("The archive {name}, which holds the master key, was downloaded");
+    crate::api::auth::audited(&state, &identity, client, "backup", detail);
 
     // Streamed: an archive is the whole database, and reading it into memory
     // first doubles the process's footprint for the length of the download.
@@ -92,8 +96,12 @@ pub struct RestoreResponse {
 
 pub async fn restore(
     State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
 ) -> AppResult<Json<RestoreResponse>> {
     let manifest = backup::stage_restore(&state, &name).await?;
+    let detail = format!("The archive {name} was staged, to be restored at the next start");
+    crate::api::auth::audited(&state, &identity, client, "restore", detail);
     Ok(Json(RestoreResponse { manifest, restart_required: true }))
 }

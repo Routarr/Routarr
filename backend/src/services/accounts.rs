@@ -51,8 +51,55 @@ pub(crate) const MAX_IN_FLIGHT: usize = 10;
 /// counts against the queue alone.
 const PER_CLIENT: usize = 3;
 
+/// How many failed sign-ins one address may make within [`FAILURE_WINDOW`]
+/// before the next waits: guessing is slowed from there, and a person who
+/// mistyped a few times is not.
+const FAILURES_ALLOWED: u32 = 5;
+
+/// How long failures are remembered without a new one.
+const FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// The first wait, doubled at every failure after it up to [`LONGEST_WAIT`].
+const FIRST_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const LONGEST_WAIT: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// How many addresses the failures are remembered for. Past it the one that
+/// failed longest ago is forgotten first, so a flood from many addresses
+/// costs a bounded table.
+const ADDRESSES_REMEMBERED: usize = 4096;
+
 /// The endpoint is already checking as many passwords as it will.
 pub struct Busy;
+
+/// The address one client answers for: an IPv4 address as it is, an IPv6 one
+/// by its /64, the block one subscriber is given. Keyed by the full IPv6
+/// address, one subscriber would be as many clients as it likes.
+pub fn bucket(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => {
+            let [a, b, c, d, ..] = v6.segments();
+            IpAddr::V6(std::net::Ipv6Addr::new(a, b, c, d, 0, 0, 0, 0))
+        }
+        v4 => v4,
+    }
+}
+
+/// What one address has failed lately.
+struct Failures {
+    count: u32,
+    last: tokio::time::Instant,
+    /// The wait the last failure set, which the next one doubles.
+    wait: std::time::Duration,
+    until: Option<tokio::time::Instant>,
+}
+
+impl Failures {
+    /// Since when nothing has happened: the last failure, or the end of the
+    /// wait it set.
+    fn quiet_since(&self) -> tokio::time::Instant {
+        self.until.map_or(self.last, |until| until.max(self.last))
+    }
+}
 
 /// Bounds what `/auth/login` can be made to spend.
 ///
@@ -62,12 +109,13 @@ pub struct Busy;
 /// bits) but the machine: unbounded, N simultaneous requests take N cores and
 /// N × 19 MiB, and on a two-core NAS the whole application stops answering.
 ///
-/// **Concurrency, not a count.** A lockout after N failures bounds the
-/// sustained rate and not the burst, because the failures are recorded after
-/// the hashes they were meant to prevent: simultaneous attempts all hash
-/// before any of them closes the door. And it buys that with a way to deny
-/// sign-in to the one account there is. A permit bounds the resource itself
-/// and can refuse service to nobody: whoever waits, waits for one hash.
+/// **Concurrency for the burst, a wait per address for the rate.** Failures
+/// are recorded after the hashes they were meant to prevent, so simultaneous
+/// attempts all hash before any of them closes a door: a permit bounds the
+/// resource itself, and whoever waits, waits for one hash. The sustained rate
+/// is bounded per address, never per account: a lockout of the one account
+/// there is would hand anyone a way to deny it, while an address that keeps
+/// failing waits and the owner signing in from another does not.
 ///
 /// The hash runs on `spawn_blocking`. Left on the runtime it holds a worker for
 /// the length of a hash, so on a small machine two sign-ins stall every other
@@ -78,6 +126,7 @@ pub struct SignInThrottle {
     permits: Arc<tokio::sync::Semaphore>,
     in_flight: Arc<AtomicUsize>,
     by_client: Arc<Mutex<HashMap<IpAddr, usize>>>,
+    failures: Mutex<HashMap<IpAddr, Failures>>,
 }
 
 impl Default for SignInThrottle {
@@ -86,6 +135,7 @@ impl Default for SignInThrottle {
             permits: Arc::new(tokio::sync::Semaphore::new(CONCURRENT_CHECKS)),
             in_flight: Arc::new(AtomicUsize::new(0)),
             by_client: Arc::default(),
+            failures: Mutex::default(),
         }
     }
 }
@@ -109,6 +159,54 @@ impl SignInThrottle {
         self.by_client.lock().unwrap_or_else(PoisonError::into_inner).len()
     }
 
+    /// How long `client` still has to wait after its failures, if it has to.
+    /// Asked before anything is hashed, so a guess sent while waiting costs
+    /// nothing and is checked against nothing, the right password included.
+    pub fn held_back(&self, client: Option<IpAddr>) -> Option<std::time::Duration> {
+        let address = bucket(client?);
+        let failures = self.failures.lock().unwrap_or_else(PoisonError::into_inner);
+        let until = failures.get(&address)?.until?;
+        until.checked_duration_since(tokio::time::Instant::now()).filter(|left| !left.is_zero())
+    }
+
+    /// A refused sign-in from `client`. From the [`FAILURES_ALLOWED`]th
+    /// within the window, each sets a wait twice the last one. The failures
+    /// are forgotten once the window has passed with none, counted from the
+    /// end of the wait: counted from the failure, a wait as long as the window
+    /// would end with them forgotten, and the doubling would start over.
+    pub fn failed(&self, client: Option<IpAddr>) {
+        let Some(client) = client else { return };
+        let now = tokio::time::Instant::now();
+        let mut failures = self.failures.lock().unwrap_or_else(PoisonError::into_inner);
+        failures.retain(|_, seen| now.duration_since(seen.quiet_since()) < FAILURE_WINDOW);
+        if failures.len() >= ADDRESSES_REMEMBERED
+            && let Some(oldest) =
+                failures.iter().min_by_key(|(_, seen)| seen.quiet_since()).map(|(a, _)| *a)
+        {
+            failures.remove(&oldest);
+        }
+        let seen = failures.entry(bucket(client)).or_insert(Failures {
+            count: 0,
+            last: now,
+            wait: std::time::Duration::ZERO,
+            until: None,
+        });
+        seen.count += 1;
+        seen.last = now;
+        if seen.count >= FAILURES_ALLOWED {
+            seen.wait =
+                if seen.wait.is_zero() { FIRST_WAIT } else { (seen.wait * 2).min(LONGEST_WAIT) };
+            seen.until = Some(now + seen.wait);
+        }
+    }
+
+    /// A sign-in from `client` went through: its failures are forgotten.
+    pub fn succeeded(&self, client: Option<IpAddr>) {
+        if let Some(client) = client {
+            self.failures.lock().unwrap_or_else(PoisonError::into_inner).remove(&bucket(client));
+        }
+    }
+
     /// Check a password, waiting for a permit and hashing off the runtime.
     ///
     /// `Err(Busy)` means the queue is full, which the caller answers with a
@@ -120,7 +218,7 @@ impl SignInThrottle {
         client: Option<IpAddr>,
     ) -> Result<bool, Busy> {
         let share = match client {
-            Some(ip) => Some(ClientShare::take(&self.by_client, ip).ok_or(Busy)?),
+            Some(ip) => Some(ClientShare::take(&self.by_client, bucket(ip)).ok_or(Busy)?),
             None => None,
         };
         // Counted before the wait, so the refusal happens without holding a
@@ -261,8 +359,9 @@ pub async fn ensure_account(pool: &SqlitePool, password_path: &std::path::Path) 
         .execute(pool)
         .await?;
 
+    // The path and never the password, which a log shipper would keep.
     info!(
-        "Created the '{DEFAULT_USERNAME}' account at {}. Sign in with: {password}",
+        "Created the '{DEFAULT_USERNAME}' account. Its password is in {}",
         password_path.display()
     );
     Ok(())
@@ -546,6 +645,67 @@ mod tests {
             "the count leaked a slot"
         );
         assert_eq!(throttle.clients_holding(), 0, "an address kept a slot it no longer uses");
+    }
+
+    /// One subscriber is given a /64, and every address in it is the same
+    /// client: three checks from it fill its share, and a fourth from another
+    /// address of the block waits while one from another block goes in.
+    #[tokio::test]
+    async fn addresses_of_one_ipv6_slash_64_hold_one_share() {
+        let throttle = SignInThrottle::default();
+        let hash = hash_password("correct horse battery").unwrap();
+        let at = |ip: &str| ip.parse().ok();
+
+        let block = futures::future::join_all(
+            ["2001:db8::1", "2001:db8::2", "2001:db8::3", "2001:db8::4"]
+                .map(|ip| throttle.verify("wrong", &hash, at(ip))),
+        );
+        let (block, other) = tokio::join!(
+            block,
+            throttle.verify("correct horse battery", &hash, at("2001:db8:1::1"))
+        );
+
+        assert_eq!(block.iter().filter(|r| matches!(r, Err(Busy))).count(), 1);
+        assert!(matches!(other, Ok(true)), "another block was refused");
+    }
+
+    /// Five failures within the window set a wait of thirty seconds, each
+    /// failure after it doubles the wait up to fifteen minutes, and a success
+    /// forgets them all. A failure is counted per /64 like the queue's share.
+    #[tokio::test(start_paused = true)]
+    async fn the_wait_doubles_after_five_failures_and_a_success_forgets_it() {
+        let throttle = SignInThrottle::default();
+        let client = "2001:db8::7".parse().ok();
+        let neighbour = "2001:db8::8".parse().ok();
+        let seconds = |left: Option<std::time::Duration>| left.map(|d| d.as_secs());
+
+        for _ in 0..4 {
+            throttle.failed(client);
+        }
+        assert_eq!(throttle.held_back(client), None, "held back before the fifth failure");
+        throttle.failed(neighbour);
+        assert_eq!(seconds(throttle.held_back(client)), Some(30));
+
+        let mut expected = 30;
+        for _ in 0..8 {
+            tokio::time::advance(std::time::Duration::from_secs(expected)).await;
+            assert_eq!(throttle.held_back(client), None, "still held back after {expected}s");
+            throttle.failed(client);
+            expected = (expected * 2).min(15 * 60);
+            assert_eq!(seconds(throttle.held_back(client)), Some(expected));
+        }
+        assert_eq!(expected, 15 * 60);
+
+        throttle.succeeded(neighbour);
+        assert_eq!(throttle.held_back(client), None, "a success left the wait in place");
+        for _ in 0..4 {
+            throttle.failed(client);
+        }
+        assert_eq!(throttle.held_back(client), None, "a success left the failures counted");
+
+        tokio::time::advance(FAILURE_WINDOW).await;
+        throttle.failed(client);
+        assert_eq!(throttle.held_back(client), None, "a quiet window left the failures counted");
     }
 
     #[test]

@@ -56,11 +56,15 @@ services:
     # dependency from quietly using one. `no-new-privileges` closes the other
     # half: no setuid binary in the image can raise what this line lowered.
     #
-    # Not `read_only: true`. SQLite writes its `-wal` and `-shm` beside the
-    # database, backups land in /data/backups, and the master key is generated
-    # there on first start. A read-only root filesystem would need /data and
-    # /tmp carved out again, and buys nothing this does not already.
+    #
+    # The root filesystem is read-only: code running inside the process can
+    # neither drop a program somewhere and run it nor change one in place.
+    # Everything Routarr writes is under /data, and /tmp, where SQLite may
+    # spill a large sort, is a small tmpfs nothing can be run from.
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,noexec,nosuid

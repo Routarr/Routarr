@@ -147,7 +147,7 @@ async fn a_saved_webhook_url_is_sealed_and_never_read_back() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "stored in the clear: {stored}");
+    assert!(stored.starts_with("enc:v2:"), "stored in the clear: {stored}");
 
     let body = app.get("/api/v1/settings").await.assert_ok().clone();
     assert!(body.get("notification_webhook_url").is_none(), "the address came back out");
@@ -171,7 +171,7 @@ async fn a_webhook_url_stored_in_the_clear_is_sealed_at_startup() {
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored.starts_with("enc:v1:"), "left in the clear: {stored}");
+    assert!(stored.starts_with("enc:v2:"), "left in the clear: {stored}");
 
     let event = crate::services::notify::Event::InstanceRecovered { instance: "Radarr".into() };
     crate::services::notify::send(&app.state, event).await;
@@ -188,6 +188,7 @@ async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
+        None,
     )
     .unwrap()
     .seal("whsec_the-only-copy")
@@ -207,7 +208,7 @@ async fn the_signing_secrets_are_sealed_at_startup_and_an_unreadable_one_is_kept
             .fetch_all(&app.state.pool)
             .await
             .unwrap();
-    assert!(stored[0].starts_with("enc:v1:"), "left in the clear: {}", stored[0]);
+    assert!(stored[0].starts_with("enc:v2:"), "left in the clear: {}", stored[0]);
     assert_eq!(app.state.secrets.open(&stored[0]).unwrap(), "whsec_left-in-the-clear");
     assert_eq!(stored[1], foreign, "the only copy of a signing secret was overwritten");
 }
@@ -709,6 +710,7 @@ async fn a_secret_that_cannot_be_opened_sends_nothing_and_says_so() {
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
+        None,
     )
     .unwrap()
     .seal("whsec_QUJDREVGR0hJSktMTU5PUFFSU1RVVldY")

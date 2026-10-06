@@ -354,6 +354,8 @@ async fn a_warning_names_the_step_it_restates() {
     ] {
         assert!(fresh.contains(&expected), "{expected:?} is not in {fresh:?}");
     }
+    // The setting that closes an open API, which a key does not.
+    assert!(en.translate("WarnApiUnauthenticated", &[]).contains("ROUTARR_AUTH"));
 
     app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
     app.post("/api/v1/categories", json!({ "name": "kids" })).await.assert_ok();

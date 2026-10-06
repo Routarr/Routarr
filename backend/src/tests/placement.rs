@@ -500,6 +500,7 @@ async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
         Some("a-master-key-this-installation-never-had"),
         None,
         std::path::Path::new("/nonexistent"),
+        None,
     )
     .unwrap()
     .seal("arr-key")
@@ -534,4 +535,24 @@ async fn an_internal_failure_is_told_to_a_caller_in_one_generic_sentence() {
     assert!(!status.to_lowercase().contains("decrypt"), "the probe told {status}");
     let warnings = app.get("/api/v1/status").await.assert_ok()["warnings"].to_string();
     assert!(!warnings.to_lowercase().contains("decrypt"), "/status told {warnings}");
+}
+
+/// A key looping on ids no library holds would send each to the Arr, which
+/// sends it to its own metadata service, on the owner's quota. A title the Arr
+/// did not know is believed unknown for ten minutes.
+#[tokio::test]
+async fn a_title_no_arr_knows_is_asked_about_once_within_ten_minutes() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    radarr_library(&app, &arr).await;
+    let asked = || arr.recorded().reads.iter().filter(|p| p.contains("lookup")).count();
+
+    for _ in 0..3 {
+        let missing = app.get("/api/v1/route?type=movie&tmdb=999999").await;
+        assert_eq!(missing.status, StatusCode::NOT_FOUND);
+    }
+    assert_eq!(asked(), 1, "the Arr was asked again about a title it does not know");
+
+    app.get("/api/v1/route?type=movie&tmdb=999998").await;
+    assert_eq!(asked(), 2, "another title went unasked");
 }

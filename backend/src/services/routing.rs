@@ -37,6 +37,8 @@ pub struct SimulationOptions {
     /// `None` for the scheduler and the webhook, which nobody signed in to run,
     /// and for the modes that name nobody. See `Identity::actor`.
     pub subject: Option<String>,
+    /// The application key that asked, when one did (`Attribution::key`).
+    pub subject_key: Option<String>,
     pub instance_ids: Vec<String>,
     /// Evaluate only these media rows. Used by the webhook path, where
     /// re-evaluating the whole library on every import event would mean one full
@@ -66,6 +68,7 @@ impl Default for SimulationOptions {
         Self {
             trigger: crate::jobs::TRIGGER_MANUAL.to_string(),
             subject: None,
+            subject_key: None,
             instance_ids: Vec::new(),
             media_ids: None,
             media_type: None,
@@ -229,6 +232,7 @@ pub async fn simulate_loaded(
         localizer: Localizer::new(&options.language),
         trigger: options.trigger.clone(),
         subject: options.subject.clone(),
+        subject_key: options.subject_key.clone(),
         simulation_id: simulation_id.clone(),
         unchanged,
     };
@@ -329,6 +333,7 @@ struct Wording {
     localizer: Localizer,
     trigger: String,
     subject: Option<String>,
+    subject_key: Option<String>,
     simulation_id: String,
     /// How many titles left where they are get a decision.
     unchanged: usize,
@@ -516,6 +521,7 @@ fn decide(
     Decision {
         actor: Some(wording.trigger.clone()),
         subject: wording.subject.clone(),
+        subject_key: wording.subject_key.clone(),
         revertible: false,
         id: Uuid::new_v4().to_string(),
         media_id: media.id.clone(),
@@ -732,6 +738,7 @@ pub async fn compare(
         localizer: Localizer::new(language),
         trigger: String::new(),
         subject: None,
+        subject_key: None,
         simulation_id: String::new(),
         unchanged: 0,
     };
@@ -1392,8 +1399,8 @@ async fn store_run(
             "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id, instance_name,
              current_root_folder, target_root_folder, target_category, matched_rule_id, matched_rule_name,
              is_override, reasons, alternatives, action, status, decided_at, confidence,
-             simulation_id, actor, subject)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+             simulation_id, actor, subject, subject_key)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&decision.id)
         .bind(&decision.media_id)
@@ -1416,6 +1423,7 @@ async fn store_run(
         .bind(&decision.simulation_id)
         .bind(&decision.actor)
         .bind(&decision.subject)
+        .bind(&decision.subject_key)
         .execute(&mut *tx)
         .await?;
     }

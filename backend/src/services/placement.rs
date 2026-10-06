@@ -170,12 +170,50 @@ pub async fn place(
     Ok(placement)
 }
 
+/// How long an Arr not knowing a title is believed without asking it again.
+const MISS_KEPT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// How many titles nobody knows are remembered, the oldest forgotten first.
+const MISSES_KEPT: usize = 4096;
+
+/// The titles each instance's Arr did not know when a placement asked. A key
+/// looping on ids no library holds would otherwise send each one to the Arr,
+/// which sends it to its own metadata service, on the owner's quota.
+#[derive(Default)]
+pub struct Misses(std::sync::Mutex<HashMap<(String, String), tokio::time::Instant>>);
+
+impl Misses {
+    fn knows(&self, key: &(String, String)) -> bool {
+        let misses = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        misses.get(key).is_some_and(|at| at.elapsed() < MISS_KEPT)
+    }
+
+    fn remember(&self, key: (String, String)) {
+        let mut misses = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        misses.retain(|_, at| at.elapsed() < MISS_KEPT);
+        if misses.len() >= MISSES_KEPT
+            && let Some(oldest) = misses.iter().min_by_key(|(_, at)| **at).map(|(k, _)| k.clone())
+        {
+            misses.remove(&oldest);
+        }
+        misses.insert(key, tokio::time::Instant::now());
+    }
+}
+
 async fn looked_up(
     state: &AppState,
     instance: &Instance,
     id: &ExternalId,
 ) -> AppResult<Option<ArrMedia>> {
-    state.adapter(instance)?.lookup(id).await
+    let key = (instance.id.clone(), format!("{}:{}", id.column(), id.value()));
+    if state.route_misses.knows(&key) {
+        return Ok(None);
+    }
+    let found = state.adapter(instance)?.lookup(id).await?;
+    if found.is_none() {
+        state.route_misses.remember(key);
+    }
+    Ok(found)
 }
 
 /// The title as the Arr describes it, as a media row that is never written.

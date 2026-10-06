@@ -1624,7 +1624,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `external_api_error`, or an\ninternal kind.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`,\n`external_api_error`, or an internal kind.",
             "type": "string"
           },
           "includes": {
@@ -4647,7 +4647,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`auto_apply_held` or `arr_below_version`.\nThe list may grow.",
+            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.\nThe list may grow.",
             "type": "string"
           },
           "guide_step": {
@@ -4681,7 +4681,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -5355,7 +5355,7 @@
         "operationId": "health",
         "parameters": [
           {
-            "description": "`false` answers from what the last probe recorded. Defaults to true.",
+            "description": "`false` answers from what the last probe recorded. Defaults to true,\nexcept for a request another site set off.",
             "in": "query",
             "name": "probe",
             "required": false,

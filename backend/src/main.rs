@@ -22,6 +22,7 @@ mod error;
 mod http;
 mod integrations;
 mod jobs;
+mod listener;
 mod localization;
 mod models;
 mod paths;
@@ -90,6 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
         auto_apply_held: Arc::default(),
         notifications: Arc::default(),
+        audit: Arc::default(),
+        key_rates: Arc::default(),
+        route_misses: Arc::default(),
         config: Arc::new(config),
     };
 
@@ -118,13 +122,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let jobs = state.jobs.clone();
     let app = build_router(state);
 
-    let listener = tokio::net::TcpListener::bind(&bind_addr).await?;
+    let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Routarr web server listening on http://{bind_addr}");
 
-    // The peer's address is what a refused sign-in is logged and throttled by.
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    listener::serve(socket, app, shutdown_signal(), listener::HEADER_READ_TIMEOUT).await;
 
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
@@ -223,8 +224,9 @@ pub(crate) async fn open_storage(
         let path = config.api_key_path();
         let (key, generated) = crypto::load_or_generate_api_key(&path)?;
         if generated {
+            // The path and never the key, which a log shipper would keep.
             // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
-            info!("Generated an API key at {}. Use it as X-Api-Key: {key}", path.display());
+            info!("Generated an API key at {}. Read it from that file", path.display());
         }
         Some(key)
     } else {
@@ -232,12 +234,62 @@ pub(crate) async fn open_storage(
     };
 
     let pool = db::init_pool(config).await?;
+    refuse_a_lost_master_key(config, &pool).await?;
+    let salt = crypto::installation_salt(&pool).await?;
     let secrets = crypto::SecretBox::load(
         config.secret_key.as_deref(),
         config.previous_secret_key.as_deref(),
         &config.secret_key_path(),
+        Some(salt.as_bytes()),
     )?;
     Ok((api_key, pool, secrets))
+}
+
+/// Refuse a start that would make a new master key while the database holds
+/// values sealed with the one it had: `routarr.db` copied alone to a new
+/// volume, a key file deleted, or emptied by a power cut. A new key opens none
+/// of them, and the start would go on with every instance and source failing.
+async fn refuse_a_lost_master_key(
+    config: &config::Config,
+    pool: &sqlx::SqlitePool,
+) -> error::AppResult<()> {
+    let path = config.secret_key_path();
+    if config.secret_key.is_some() {
+        return Ok(());
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(key) if !key.trim().is_empty() => return Ok(()),
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            // Refused by `SecretBox::load`, which names the file.
+            return Ok(());
+        }
+        Ok(_) | Err(_) => {}
+    }
+    let sealed: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM instances WHERE api_key LIKE 'enc:v%')
+             OR EXISTS(SELECT 1 FROM settings WHERE value LIKE 'enc:v%')
+             OR EXISTS(SELECT 1 FROM webhook_secrets WHERE secret LIKE 'enc:v%')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !sealed {
+        return Ok(());
+    }
+    if config.allow_new_master_key {
+        warn!(
+            "A new master key is made at {}: every Arr key, source key, notification address and \
+             signing secret stored before it has to be entered again",
+            path.display()
+        );
+        return Ok(());
+    }
+    Err(error::AppError::Config(format!(
+        "{} is missing or empty, and the database holds credentials sealed with the key it held. \
+         Put the file back from a backup, or set ROUTARR_SECRET_KEY to the key they were sealed \
+         with. To start with a new key and enter every credential again, set \
+         ROUTARR_ALLOW_NEW_MASTER_KEY=true",
+        path.display()
+    )))
 }
 
 /// `routarr reset-account`, for an operator locked out of the `forms` account:
@@ -453,6 +505,11 @@ fn build_router(state: AppState) -> Router {
         .layer(middleware::from_fn(security_headers))
 }
 
+/// How long a request body may take to arrive, whole. A body sent a byte at a
+/// time would otherwise hold its connection open as long as the sender likes.
+/// The largest body taken is 2 MiB, seconds on the slowest link.
+pub(crate) const BODY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The layers every API request passes through, around `routes`.
 ///
 /// One function for the router and for the tests that make a handler panic: a
@@ -478,8 +535,21 @@ where
         // It hides nothing: `log_panics` logs the panic in the request span,
         // and the caller learns something too.
         .layer(CatchPanicLayer::custom(panic_response))
+        .layer(tower_http::timeout::RequestBodyDeadlineLayer::new(BODY_DEADLINE))
+        .layer(middleware::map_response(not_stored))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// An API answer may carry a key, a webhook token or an archive holding the
+/// master key, and a shared browser profile or a proxy cache must keep none of
+/// them. A handler that states its own caching keeps it.
+async fn not_stored(mut response: Response) -> Response {
+    response
+        .headers_mut()
+        .entry(axum::http::header::CACHE_CONTROL)
+        .or_insert(axum::http::HeaderValue::from_static("no-store"));
+    response
 }
 
 /// The span every line logged while serving a request sits in, and the one a
@@ -700,7 +770,10 @@ fn init_tracing(config: &Config) {
     if config.log_format.eq_ignore_ascii_case("json") {
         registry.with(tracing_subscriber::fmt::layer().json()).init();
     } else {
-        registry.with(tracing_subscriber::fmt::layer()).init();
+        // Colours only on a terminal: in `docker logs` and in a file the
+        // escape codes stand between a fail2ban filter and the address.
+        let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
+        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours)).init();
     }
 }
 
@@ -711,6 +784,13 @@ fn warn_on_insecure_defaults(state: &AppState) {
             "ROUTARR_AUTH=external: Routarr asks for no credential and trusts the reverse \
              proxy in front of it. Anything that reaches this port bypasses that proxy, so \
              bind it to the proxy's network and nowhere else."
+        );
+    }
+    if state.config.auth_mode == AuthMode::Oidc && state.config.oidc_allow_anyone {
+        warn!(
+            "ROUTARR_OIDC_ALLOW_ANYONE=true: every account the OpenID Connect provider \
+             authenticates signs in with full access. Name the people or the groups who may in \
+             ROUTARR_OIDC_ALLOWED_SUBJECTS or ROUTARR_OIDC_ALLOWED_GROUPS instead."
         );
     }
     if state.config.auth_mode == AuthMode::None {

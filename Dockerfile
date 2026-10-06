@@ -69,8 +69,9 @@ LABEL org.opencontainers.image.title="Routarr" \
       org.opencontainers.image.source="https://github.com/Routarr/Routarr" \
       org.opencontainers.image.url="https://github.com/Routarr/Routarr"
 
-# Run unprivileged: a bug in the routing engine should not be able to touch
-# anything outside the data volume. Matches the Servarr convention of uid 1000.
+# Run unprivileged, as the Servarr convention's uid 1000: with the read-only
+# root the compose file sets, the data volume and a small /tmp are all the
+# process can write.
 RUN addgroup -g 1000 routarr && adduser -D -u 1000 -G routarr routarr
 
 WORKDIR /app

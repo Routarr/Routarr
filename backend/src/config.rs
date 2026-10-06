@@ -46,12 +46,11 @@ pub enum AuthMode {
     /// client cannot hold a cookie, and a header is immune to the cross-site
     /// request forgery a cookie invites.
     Forms,
-    /// An OpenID Connect provider authenticates, and Routarr trusts its answer.
+    /// An OpenID Connect provider authenticates, and Routarr lets in the
+    /// subjects and the groups the operator names.
     ///
-    /// One level of access: whoever the provider lets through gets in, and
-    /// Routarr does not decide again. There is no group claim to read and no
-    /// user table to keep: what it records is the subject, as the actor on
-    /// every decision and write.
+    /// One level of access, and no user table to keep: what it records is the
+    /// subject, as the actor on every decision and write.
     Oidc,
     /// A reverse proxy authenticates, and Routarr asks for nothing.
     ///
@@ -127,6 +126,46 @@ pub fn reaches_over_tls(url: &str) -> bool {
     }
 }
 
+/// An entry of `ROUTARR_TRUSTED_PROXIES`: one address, or a range written
+/// `address/prefix`, which a proxy recreated on a Docker network stays inside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Network {
+    base: std::net::IpAddr,
+    prefix: u8,
+}
+
+impl Network {
+    pub fn parse(entry: &str) -> Option<Self> {
+        let (address, prefix) = match entry.split_once('/') {
+            Some((address, prefix)) => (address, Some(prefix.parse::<u8>().ok()?)),
+            None => (entry, None),
+        };
+        let base = address.parse::<std::net::IpAddr>().ok()?.to_canonical();
+        let width = if base.is_ipv4() { 32 } else { 128 };
+        let prefix = prefix.unwrap_or(width);
+        (prefix <= width).then_some(Self { base, prefix })
+    }
+
+    pub fn contains(&self, ip: std::net::IpAddr) -> bool {
+        use std::net::IpAddr::{V4, V6};
+        let mask = |width: u32| match u32::from(self.prefix) {
+            0 => 0,
+            prefix => u128::MAX << (width - prefix),
+        };
+        match (self.base, ip.to_canonical()) {
+            (V4(base), V4(ip)) => {
+                let mask = mask(32) as u32;
+                u32::from(base) & mask == u32::from(ip) & mask
+            }
+            (V6(base), V6(ip)) => {
+                let mask = mask(128);
+                u128::from(base) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
 ///
 /// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
@@ -170,8 +209,12 @@ fn validate_origin(origin: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// The shortest key `ROUTARR_API_KEY` may pin. A generated key is 64
+/// characters, so the floor costs no operator anything.
+const MIN_PINNED_KEY_LENGTH: usize = 32;
+
 /// Application configuration loaded from environment variables.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Config {
     pub host: String,
     pub port: u16,
@@ -209,6 +252,15 @@ pub struct Config {
     /// Where the provider sends the browser back. Absolute, because the
     /// provider compares it against what it was registered with.
     pub oidc_redirect_url: Option<String>,
+    /// The `sub` of each person let in. A provider left at its defaults lets
+    /// every account of its directory use every client, so Routarr decides.
+    pub oidc_allowed_subjects: Vec<String>,
+    /// The groups whose members are let in, read from `oidc_groups_claim`.
+    pub oidc_allowed_groups: Vec<String>,
+    pub oidc_groups_claim: String,
+    /// Lets in every account the provider authenticates, which the operator
+    /// has to say in so many words.
+    pub oidc_allow_anyone: bool,
     /// Explicit CORS allow-list. Empty means "same-origin only" (no CORS layer).
     pub cors_origins: Vec<String>,
     /// The host names Routarr answers to under `ROUTARR_AUTH=none`, beside an
@@ -216,7 +268,7 @@ pub struct Config {
     pub allowed_hosts: Vec<String>,
     /// The proxies whose `X-Forwarded-For` names the client, for the sign-in
     /// queue's share per client. Any other peer is the client itself.
-    pub trusted_proxies: Vec<std::net::IpAddr>,
+    pub trusted_proxies: Vec<Network>,
     /// Timeout applied to every outbound call: the Arrs, the metadata sources,
     /// the identity provider and the notification webhook.
     pub http_timeout: Duration,
@@ -235,6 +287,9 @@ pub struct Config {
     pub secret_key: Option<String>,
     /// Superseded master key, kept readable for one rotation.
     pub previous_secret_key: Option<String>,
+    /// Lets a start make a new master key although the database holds values
+    /// sealed with the one it had, which then have to be entered again.
+    pub allow_new_master_key: bool,
     /// Max concurrent outbound requests per metadata source during enrichment.
     ///
     /// A ceiling, not a target: `services::rate_limit` additionally paces each
@@ -257,6 +312,96 @@ pub struct Config {
     /// Normalised to either an empty string or `/something` with no trailing
     /// slash, so callers can always concatenate without guessing.
     pub base_path: String,
+}
+
+/// Every field but the secrets, which read as set or not. Destructured whole,
+/// so a field added later is written here too, or the build fails.
+impl std::fmt::Debug for Config {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            host,
+            port,
+            db_path,
+            data_dir,
+            log_level,
+            log_format,
+            startup_notes,
+            frontend_dir,
+            tmdb_api_key,
+            api_key,
+            auth_mode,
+            oidc_issuer,
+            oidc_client_id,
+            oidc_client_secret,
+            oidc_redirect_url,
+            oidc_allowed_subjects,
+            oidc_allowed_groups,
+            oidc_groups_claim,
+            oidc_allow_anyone,
+            cors_origins,
+            allowed_hosts,
+            trusted_proxies,
+            http_timeout,
+            library_timeout,
+            move_wait,
+            webhook_answer_wait,
+            secret_key,
+            previous_secret_key,
+            allow_new_master_key,
+            metadata_concurrency,
+            tmdb_base_url,
+            omdb_api_key,
+            omdb_base_url,
+            tvdb_api_key,
+            tvdb_pin,
+            tvdb_base_url,
+            anilist_base_url,
+            jikan_base_url,
+            base_path,
+        } = self;
+        let hidden = |value: &Option<String>| value.as_ref().map(|_| "<redacted>");
+        f.debug_struct("Config")
+            .field("host", host)
+            .field("port", port)
+            .field("db_path", db_path)
+            .field("data_dir", data_dir)
+            .field("log_level", log_level)
+            .field("log_format", log_format)
+            .field("startup_notes", startup_notes)
+            .field("frontend_dir", frontend_dir)
+            .field("tmdb_api_key", &hidden(tmdb_api_key))
+            .field("api_key", &hidden(api_key))
+            .field("auth_mode", auth_mode)
+            .field("oidc_issuer", oidc_issuer)
+            .field("oidc_client_id", oidc_client_id)
+            .field("oidc_client_secret", &hidden(oidc_client_secret))
+            .field("oidc_redirect_url", oidc_redirect_url)
+            .field("oidc_allowed_subjects", oidc_allowed_subjects)
+            .field("oidc_allowed_groups", oidc_allowed_groups)
+            .field("oidc_groups_claim", oidc_groups_claim)
+            .field("oidc_allow_anyone", oidc_allow_anyone)
+            .field("cors_origins", cors_origins)
+            .field("allowed_hosts", allowed_hosts)
+            .field("trusted_proxies", trusted_proxies)
+            .field("http_timeout", http_timeout)
+            .field("library_timeout", library_timeout)
+            .field("move_wait", move_wait)
+            .field("webhook_answer_wait", webhook_answer_wait)
+            .field("secret_key", &hidden(secret_key))
+            .field("previous_secret_key", &hidden(previous_secret_key))
+            .field("allow_new_master_key", allow_new_master_key)
+            .field("metadata_concurrency", metadata_concurrency)
+            .field("tmdb_base_url", tmdb_base_url)
+            .field("omdb_api_key", &hidden(omdb_api_key))
+            .field("omdb_base_url", omdb_base_url)
+            .field("tvdb_api_key", &hidden(tvdb_api_key))
+            .field("tvdb_pin", &hidden(tvdb_pin))
+            .field("tvdb_base_url", tvdb_base_url)
+            .field("anilist_base_url", anilist_base_url)
+            .field("jikan_base_url", jikan_base_url)
+            .field("base_path", base_path)
+            .finish()
+    }
 }
 
 /// Turn whatever the user wrote into either `""` or `/segment[/segment…]`.
@@ -343,6 +488,10 @@ impl Config {
             oidc_client_id: non_empty("ROUTARR_OIDC_CLIENT_ID"),
             oidc_client_secret: non_empty("ROUTARR_OIDC_CLIENT_SECRET"),
             oidc_redirect_url: non_empty("ROUTARR_OIDC_REDIRECT_URL"),
+            oidc_allowed_subjects: list("ROUTARR_OIDC_ALLOWED_SUBJECTS"),
+            oidc_allowed_groups: list("ROUTARR_OIDC_ALLOWED_GROUPS"),
+            oidc_groups_claim: env_or("ROUTARR_OIDC_GROUPS_CLAIM", "groups"),
+            oidc_allow_anyone: env_parse("ROUTARR_OIDC_ALLOW_ANYONE", false)?,
             cors_origins: non_empty("ROUTARR_CORS_ORIGINS")
                 .map(|v| {
                     v.split(',')
@@ -357,13 +506,12 @@ impl Config {
                         .map(str::trim)
                         .filter(|entry| !entry.is_empty())
                         .map(|entry| {
-                            entry.parse::<std::net::IpAddr>().map(|ip| ip.to_canonical()).map_err(
-                                |_| {
-                                    AppError::Config(format!(
-                                        "'{entry}' in ROUTARR_TRUSTED_PROXIES is not an IP address"
-                                    ))
-                                },
-                            )
+                            Network::parse(entry).ok_or_else(|| {
+                                AppError::Config(format!(
+                                    "'{entry}' in ROUTARR_TRUSTED_PROXIES is neither an IP address \
+                                     nor a range such as 172.18.0.0/16"
+                                ))
+                            })
                         })
                         .collect::<AppResult<Vec<_>>>()
                 })
@@ -386,6 +534,7 @@ impl Config {
             webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
             previous_secret_key: non_empty("ROUTARR_PREVIOUS_SECRET_KEY"),
+            allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             // Bounds how many requests are *open* per source, and `rate_limit`
             // bounds how many are made.
             metadata_concurrency: env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?.clamp(1, 16),
@@ -469,6 +618,17 @@ impl Config {
         for origin in &self.cors_origins {
             validate_origin(origin)?;
         }
+        if let Some(key) = &self.api_key
+            && key.chars().count() < MIN_PINNED_KEY_LENGTH
+        {
+            const VARIABLE: &str = "ROUTARR_API_KEY";
+            return Err(AppError::Config(format!(
+                "{VARIABLE} is {} characters long, short enough to be guessed, and it opens \
+                 everything. Use at least {MIN_PINNED_KEY_LENGTH}, such as the output of \
+                 `openssl rand -hex 32`, or unset it to use the generated key",
+                key.chars().count()
+            )));
+        }
         if matches!(self.auth_mode, AuthMode::Oidc) {
             self.validate_oidc()?;
         }
@@ -506,6 +666,20 @@ impl Config {
         required(&self.oidc_client_id, CLIENT_ID)?;
         required(&self.oidc_client_secret, CLIENT_SECRET)?;
         let redirect = required(&self.oidc_redirect_url, REDIRECT)?;
+        if self.oidc_allowed_subjects.is_empty()
+            && self.oidc_allowed_groups.is_empty()
+            && !self.oidc_allow_anyone
+        {
+            const SUBJECTS: &str = "ROUTARR_OIDC_ALLOWED_SUBJECTS";
+            const GROUPS: &str = "ROUTARR_OIDC_ALLOWED_GROUPS";
+            const ANYONE: &str = "ROUTARR_OIDC_ALLOW_ANYONE";
+            return Err(AppError::Config(format!(
+                "With ROUTARR_AUTH=oidc and nobody named, every account the provider \
+                 authenticates would get full access. Set {SUBJECTS} to the sub of each person, \
+                 or {GROUPS} to the groups whose members may sign in, or {ANYONE}=true to let \
+                 every account of the provider in"
+            )));
+        }
         for (name, url) in [(ISSUER, issuer), (REDIRECT, redirect)] {
             if !reaches_over_tls(&url) {
                 return Err(AppError::Config(format!(
@@ -554,6 +728,10 @@ impl Config {
             oidc_client_id: None,
             oidc_client_secret: None,
             oidc_redirect_url: None,
+            oidc_allowed_subjects: vec![],
+            oidc_allowed_groups: vec![],
+            oidc_groups_claim: "groups".into(),
+            oidc_allow_anyone: false,
             cors_origins: vec![],
             allowed_hosts: vec![],
             trusted_proxies: vec![],
@@ -561,8 +739,9 @@ impl Config {
             library_timeout: Duration::from_millis(900),
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
-            secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdHMh".into()),
+            secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE=".into()),
             previous_secret_key: None,
+            allow_new_master_key: false,
             metadata_concurrency: 2,
             // Port 1 on the loopback, where nothing listens: a test that lists
             // a keyless source, or sets a key, and then probes or enriches is
@@ -607,6 +786,15 @@ fn path_or(raw: Option<String>, default: impl FnOnce() -> PathBuf) -> PathBuf {
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
         .unwrap_or_else(default)
+}
+
+/// A comma separated variable, each entry trimmed, the empty ones dropped.
+fn list(key: &str) -> Vec<String> {
+    non_empty(key)
+        .map(|value| {
+            value.split(',').map(str::trim).filter(|v| !v.is_empty()).map(String::from).collect()
+        })
+        .unwrap_or_default()
 }
 
 fn non_empty(key: &str) -> Option<String> {
@@ -851,6 +1039,69 @@ mod tests {
         assert!(err.to_string().contains("ROUTARR_HTTP_TIMEOUT_SECS"), "{err}");
     }
 
+    /// One `{config:?}` written while diagnosing would otherwise print the
+    /// master key, the OIDC secret and the API key into the log.
+    #[test]
+    fn the_configuration_prints_no_secret() {
+        let mut config = Config::for_tests();
+        let secrets = [
+            "tmdb-secret-1",
+            "api-secret-2",
+            "oidc-secret-3",
+            "master-secret-4",
+            "previous-secret-5",
+            "omdb-secret-6",
+            "tvdb-secret-7",
+            "tvdb-pin-8",
+        ];
+        config.tmdb_api_key = Some(secrets[0].into());
+        config.api_key = Some(secrets[1].into());
+        config.oidc_client_secret = Some(secrets[2].into());
+        config.secret_key = Some(secrets[3].into());
+        config.previous_secret_key = Some(secrets[4].into());
+        config.omdb_api_key = Some(secrets[5].into());
+        config.tvdb_api_key = Some(secrets[6].into());
+        config.tvdb_pin = Some(secrets[7].into());
+
+        let printed = format!("{config:?} {config:#?}");
+        for secret in secrets {
+            assert!(!printed.contains(secret), "{secret} is printed");
+        }
+        assert!(printed.contains("api_key: Some(\"<redacted>\")"), "{printed}");
+        assert!(printed.contains("tmdb_base_url"), "the other fields are printed: {printed}");
+    }
+
+    /// The pinned key opens everything in every mode, so one short enough to
+    /// guess is refused by name rather than served.
+    #[test]
+    fn a_pinned_api_key_too_short_to_hold_is_refused_by_name() {
+        let mut config = Config::for_tests();
+        config.api_key = Some("routarr".into());
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_API_KEY") && err.contains("32"), "{err}");
+
+        config.api_key = Some("a".repeat(MIN_PINNED_KEY_LENGTH));
+        assert!(config.validate().is_ok());
+    }
+
+    /// An address, or a range a proxy recreated on its network stays inside.
+    #[test]
+    fn a_trusted_proxy_is_an_address_or_a_range() {
+        let range = Network::parse("172.18.0.0/16").unwrap();
+        assert!(range.contains("172.18.4.7".parse().unwrap()));
+        assert!(!range.contains("172.19.0.1".parse().unwrap()));
+        assert!(range.contains("::ffff:172.18.0.3".parse().unwrap()));
+        let one = Network::parse("172.18.0.2").unwrap();
+        assert!(one.contains("172.18.0.2".parse().unwrap()));
+        assert!(!one.contains("172.18.0.3".parse().unwrap()));
+        let v6 = Network::parse("fd00:1::/64").unwrap();
+        assert!(v6.contains("fd00:1::9".parse().unwrap()));
+        assert!(!v6.contains("fd00:2::9".parse().unwrap()));
+        for refused in ["172.18.0.0/33", "fd00::/129", "proxy", "172.18.0.0/", ""] {
+            assert!(Network::parse(refused).is_none(), "{refused}");
+        }
+    }
+
     #[test]
     fn a_zero_timeout_is_refused_at_startup() {
         let mut config = Config::for_tests();
@@ -866,7 +1117,32 @@ mod tests {
         config.oidc_client_id = Some("routarr".into());
         config.oidc_client_secret = Some("shhh".into());
         config.oidc_redirect_url = Some("https://routarr.example/api/v1/auth/oidc/callback".into());
+        config.oidc_allowed_subjects = vec!["u-42".into()];
         config
+    }
+
+    /// A provider left at its defaults lets every account of its directory use
+    /// every client. Naming nobody, the mode would let all of them in with full
+    /// access, so it refuses to start unless the operator says who, or says
+    /// in so many words that anyone may.
+    #[test]
+    fn oidc_mode_without_an_allow_list_refuses_to_start_unless_told_to() {
+        let mut config = oidc_config();
+        config.oidc_allowed_subjects.clear();
+        let err = config.validate().unwrap_err().to_string();
+        for name in [
+            "ROUTARR_OIDC_ALLOWED_SUBJECTS",
+            "ROUTARR_OIDC_ALLOWED_GROUPS",
+            "ROUTARR_OIDC_ALLOW_ANYONE",
+        ] {
+            assert!(err.contains(name), "{name} missing from: {err}");
+        }
+
+        config.oidc_allowed_groups = vec!["media".into()];
+        assert!(config.validate().is_ok());
+        config.oidc_allowed_groups.clear();
+        config.oidc_allow_anyone = true;
+        assert!(config.validate().is_ok());
     }
 
     /// Each of the four is needed before anyone can sign in, and a start that

@@ -12,8 +12,18 @@ use crate::error::{AppError, AppResult};
 use crate::models::*;
 use crate::state::AppState;
 
-type OverrideRow =
-    (String, String, String, Option<String>, String, Option<String>, String, String, String);
+type OverrideRow = (
+    String,
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    String,
+    String,
+    String,
+    Option<String>,
+);
 
 pub async fn list(
     State(state): State<AppState>,
@@ -21,7 +31,7 @@ pub async fn list(
 ) -> AppResult<Json<Vec<OverrideWithMedia>>> {
     let rows: Vec<OverrideRow> = sqlx::query_as(
         "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
-         m.title, m.media_type, i.name
+         m.title, m.media_type, i.name, o.subject_key
          FROM overrides o
          JOIN media m ON o.media_id = m.id
          JOIN instances i ON m.instance_id = i.id
@@ -39,7 +49,7 @@ pub async fn list(
                     target_category: r.2,
                     reason: r.3,
                     created_at: r.4,
-                    subject: identity.shown_subject(r.5),
+                    subject: identity.shown_subject(r.5, r.9.as_deref()),
                 },
                 media_title: r.6,
                 media_type: r.7,
@@ -60,7 +70,7 @@ pub async fn create(
         std::slice::from_ref(&req.media_id),
         &req.target_category,
         req.reason.as_deref(),
-        identity.actor(),
+        &identity,
     )
     .await?;
     pinned
@@ -87,7 +97,7 @@ pub async fn pin_external(
 ) -> AppResult<Json<Vec<OverrideEntry>>> {
     let copies = copies_of(&state, &title).await?;
     let pinned =
-        pin(&state, &copies, &req.target_category, req.reason.as_deref(), identity.actor()).await?;
+        pin(&state, &copies, &req.target_category, req.reason.as_deref(), &identity).await?;
     Ok(Json(pinned))
 }
 
@@ -137,17 +147,27 @@ async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<Str
 /// Pin each title to `category`, replacing the pin it has, and withdraw the
 /// pending proposals of each whose category changed, which the pin now
 /// decides. A pin repeating a title's category keeps what it produced.
+/// Longest reason a pin keeps. It is a line on the exceptions screen, and
+/// the body limit alone would let one hold two megabytes.
+const REASON_MAX: usize = 500;
+
 async fn pin(
     state: &AppState,
     media_ids: &[String],
     category: &str,
     reason: Option<&str>,
-    subject: Option<&str>,
+    asker: &crate::api::auth::Identity,
 ) -> AppResult<Vec<OverrideEntry>> {
+    let by = asker.attribution();
     let category = category.trim().to_lowercase();
     // Checked under the write lock the pins are written with: a category
     // removed between a check and the write would leave pins naming nothing.
     let localizer = state.localizer().await;
+    if reason.is_some_and(|reason| reason.chars().count() > REASON_MAX) {
+        let refusal =
+            localizer.translate("ErrorReasonTooLong", &[("max", &REASON_MAX.to_string())]);
+        return Err(AppError::BadRequest(refusal));
+    }
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     super::categories::ensure_exists(&mut tx, &category, &localizer).await?;
     crate::race::checked("overrides::pin", &category).await;
@@ -172,18 +192,20 @@ async fn pin(
             changed.push(media_id.as_str());
         }
         sqlx::query(
-            "INSERT INTO overrides (id, media_id, target_category, reason, subject)
-             VALUES (?, ?, ?, ?, ?)
+            "INSERT INTO overrides (id, media_id, target_category, reason, subject, subject_key)
+             VALUES (?, ?, ?, ?, ?, ?)
              ON CONFLICT(media_id) DO UPDATE SET
                 target_category = excluded.target_category,
                 reason = excluded.reason,
-                subject = excluded.subject",
+                subject = excluded.subject,
+                subject_key = excluded.subject_key",
         )
         .bind(Uuid::new_v4().to_string())
         .bind(media_id)
         .bind(&category)
         .bind(reason)
-        .bind(subject)
+        .bind(&by.subject)
+        .bind(&by.key)
         .execute(&mut *tx)
         .await?;
     }

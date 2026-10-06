@@ -259,14 +259,15 @@ impl JobRegistry {
         let trigger = by.trigger.as_str();
 
         sqlx::query(
-            "INSERT INTO jobs (id, kind, status, trigger, subject, instance_id, detail, detail_key,
-                               detail_params)
-             VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO jobs (id, kind, status, trigger, subject, subject_key, instance_id, detail,
+                               detail_key, detail_params)
+             VALUES (?, ?, 'running', ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(kind.as_str())
         .bind(trigger)
         .bind(&by.subject)
+        .bind(&by.key)
         .bind(instance_id)
         .bind(&english)
         .bind(detail.key)

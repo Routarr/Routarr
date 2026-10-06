@@ -37,6 +37,8 @@ struct FakeState {
     named_issuer: Arc<Mutex<Option<String>>>,
     /// Whether the provider advertises `client_secret_post` alone.
     post_only: Arc<std::sync::atomic::AtomicBool>,
+    /// The codes already exchanged, which a provider spends at the first.
+    spent: Arc<Mutex<Vec<String>>>,
 }
 
 /// One token request: its form, and the client id and secret of its HTTP
@@ -88,6 +90,7 @@ impl FakeOidc {
             authorization_at: Arc::clone(&authorization_at),
             named_issuer: Arc::clone(&named_issuer),
             post_only: Arc::clone(&post_only),
+            spent: Arc::default(),
         };
 
         let app = Router::new()
@@ -212,9 +215,22 @@ async fn token(
         }
     };
 
+    // Single-use, as RFC 6749 §4.1.2 has every provider spend a code.
+    let code = form.get("code").cloned().unwrap_or_default();
+    {
+        let mut spent = state.spent.lock().expect("spent");
+        if spent.contains(&code) {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "invalid_grant" })),
+            ));
+        }
+        spent.push(code);
+    }
+
     // The nonce travels in the authorization request, which a browser would
     // have carried and which never reaches this endpoint. A test reads it from
-    // the flow row it just created and states it through `will_claim`.
+    // the authorization URL and states it through `will_claim`.
     let mut claims = serde_json::json!({
         "iss": state.issuer,
         "sub": "user-42",

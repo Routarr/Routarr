@@ -878,3 +878,45 @@ async fn an_upgrade_tells_apart_instances_sharing_a_name() {
     assert_eq!(names[0], "Radarr", "the earliest lost its name: {names:?}");
     assert_eq!(names[4], "Sonarr");
 }
+
+/// What a key wrote before keys were recorded beside names goes to the key
+/// whose name it carries, when no other key ever had that name. A name given
+/// twice cannot say which key wrote a row, and the row names no key.
+#[tokio::test]
+async fn an_upgrade_gives_each_key_what_it_alone_could_have_written() {
+    let pool = crate::tests::database_through("028_secret_salt").await;
+    sqlx::query(
+        "INSERT INTO api_keys (id, name, secret_hash, scopes, may_confirm, revoked_at)
+         VALUES ('k-dash', 'dashboard', 'h1', '[]', '[]', NULL),
+                ('k-old', 'homepage', 'h2', '[]', '[]', '2026-01-01 00:00:00'),
+                ('k-new', 'homepage', 'h3', '[]', '[]', NULL)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO jobs (id, kind, status, trigger, subject)
+         VALUES ('j-dash', 'sync', 'success', 'api', 'dashboard'),
+                ('j-home', 'sync', 'success', 'api', 'homepage'),
+                ('j-person', 'sync', 'success', 'manual', 'dashboard')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let keys: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT id, subject_key FROM jobs ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        keys,
+        [
+            ("j-dash".to_string(), Some("k-dash".to_string())),
+            ("j-home".to_string(), None),
+            ("j-person".to_string(), None),
+        ]
+    );
+}

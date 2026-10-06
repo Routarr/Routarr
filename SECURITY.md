@@ -40,8 +40,8 @@ ships in the next release. Write a report against that version, or against
 Stated so a report can skip what is covered, and so a gap is easier to see.
 
 - **Authentication is on by default.** With no `ROUTARR_API_KEY`, one is
-  generated at first start into `routarr.api_key` (0600, beside the database)
-  and logged once. Two modes ask for no credential, and each has to be asked
+  generated at first start into `routarr.api_key` (0600, beside the database),
+  whose path the log names. Two modes ask for no credential, and each has to be asked
   for: `ROUTARR_AUTH=none` runs open, and `ROUTARR_AUTH=external` leaves the
   sign-in to a reverse proxy, so its port must reach that proxy alone.
 - **The API key can be replaced or withdrawn without a restart.**
@@ -64,19 +64,30 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   may not answer comes back marked for a person. Its token is shown once and stored as a SHA-256
   hash, and a revoked or unknown one is refused even in `none` and `external`,
   where a request with no key at all is let through.
+- **An application key is bounded in what it can make Routarr spend.** It asks
+  at most ten times a second past a burst of fifty, and is answered `429` with
+  `Retry-After` beyond. A title no Arr knew is not asked about again for ten
+  minutes, since each lookup reaches the Arr's own metadata service. A
+  backup it takes is named apart, kept under a count of its own and taken ten
+  minutes after the last at the earliest, so a loop removes none of the owner's
+  archives and does not hold the schedule off. A pin's reason holds 500
+  characters and an installation 1000 rules, whoever writes them.
+- **What an application wrote is its own by its key, not its name.** Each task,
+  proposal, move and pin records the key that asked beside its name, and a key
+  reads its own name there and nobody else's: a key made under the name of a
+  revoked one reads the revoked one's records as anybody's. A key cannot carry
+  the names History shows for the account or the master key.
 - **A notification can be signed.** With a signing secret, generated in the
   settings and shown once, every delivery carries Standard Webhooks headers:
   an HMAC-SHA256 of its id, its timestamp and its body, so a receiver can
   refuse a message nobody signed or one replayed later. The secret is sealed
   like an Arr's key and left out of a configuration export, and the one it
   replaces signs beside it for a day.
-- **The generated key and the generated password are printed once**, at the
-  moment they are created, beside the path of the file holding them. That is a
-  deliberate trade: without it a first run needs shell access into the
-  container, which on a NAS appliance is a real obstacle. The line survives in
-  `docker compose logs` for as long as the logs do, so an installation that
-  ships its logs off the host should regenerate the key from Settings once, and
-  change the password, after the first start.
+- **The generated key and the generated password stay out of the log.** The
+  log names the file holding each, which only the container's user reads, and
+  `docker exec routarr cat /data/routarr.api_key` prints the key: a line in
+  `docker compose logs` lives as long as the logs do, and a log shipper keeps
+  every line it is sent.
 - **`/auth/login` bounds what it can be made to spend, and locks nobody out.**
   It is public and argon2id is deliberately expensive, in time and in memory
   (about 19 MiB per check), so the cost that makes a password hard to guess also
@@ -92,12 +103,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   flood of abandoned connections would start one argon2 each up to the size of
   the blocking pool.
 
-  There is no lockout after N failures. A lockout bounds the sustained rate and
-  **not the burst**: the failures it counts are recorded after the hashes they
-  were meant to prevent, so a burst of simultaneous attempts all hash before the
-  door shuts. It also hands anybody who reaches the port a way to deny sign-in
-  to the only account there is. A permit bounds the resource itself and refuses
-  service to no one.
+  The sustained rate is bounded per address, never per account. After five
+  failed sign-ins within fifteen minutes, an address waits thirty seconds
+  before its next attempt, and every failure after that doubles the wait, up to
+  fifteen minutes. An attempt sent while waiting answers `429` with
+  `Retry-After` and is checked against nothing, the right password included. A
+  success forgets the failures, and so do fifteen quiet minutes past the last
+  wait. An IPv6 client counts by its /64, the block one subscriber is given, for
+  this and for its share of the queue. A lockout of the account itself would
+  hand anybody who reaches the port a way to deny sign-in to the only account
+  there is: the owner signing in from another address does not wait. Behind a
+  reverse proxy, list it in `ROUTARR_TRUSTED_PROXIES`, an address or a range
+  such as `172.18.0.0/16`, or every client shares the proxy's address and its
+  wait.
 - **The `forms` mode stores its single password with argon2id** and opens
   opaque server-side sessions, never signed tokens: revoking one is a delete,
   which a self-validating token cannot offer. A session is stored by the
@@ -116,13 +134,25 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   Routarr answers to an address, `localhost` and the names
   `ROUTARR_ALLOWED_HOSTS` lists. In `external` mode the proxy decides which names
   reach it, so the port is bound to the proxy alone.
+- **The `oidc` mode lets in the people the operator names, and nobody else.**
+  A provider left at its defaults lets every account of its directory use
+  every client, and a family member's account for another service would sign
+  in with full access. Routarr compares the token's `sub`, which the provider
+  never changes, with `ROUTARR_OIDC_ALLOWED_SUBJECTS`, and its groups with
+  `ROUTARR_OIDC_ALLOWED_GROUPS`. Naming neither stops the start, unless
+  `ROUTARR_OIDC_ALLOW_ANYONE=true` says that every account of the provider may
+  sign in, which Diagnostics then states. A session records the person's name
+  beside their `sub`, since many providers let a person change the name.
 - **The `oidc` mode runs the authorization code flow with PKCE**, checks the
-  issuer, the audience, the expiry and the nonce it generated, and takes each
-  sign-in attempt out of the table as it is used, so an authorisation code
-  cannot be presented twice. The ID token's signature is deliberately not
-  verified: it arrives in the body of a request this server made to the token
-  endpoint over TLS with its client secret, which OpenID Connect Core §3.1.3.7
-  accepts in place of the signature for exactly this flow.
+  issuer, the audience, the expiry and the nonce it generated. An attempt
+  travels in a cookie sealed with the master key, so the public route that
+  starts one writes nothing on the server and a flood of them evicts nobody's
+  sign-in. The provider spends a code at its first exchange and the callback
+  clears the attempt's cookie, so a code cannot be presented twice. The ID
+  token's signature is deliberately not verified: it arrives in the body of a
+  request this server made to the token endpoint over TLS with its client
+  secret, which OpenID Connect Core §3.1.3.7 accepts in place of the signature
+  for exactly this flow.
 - **The API key and the webhook token are compared in constant time**
   (`subtle::ConstantTimeEq`), on both accepted header forms. A webhook token
   that does not match answers 404 rather than 401, so it does not confirm
@@ -142,7 +172,18 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   caller, which costs exactly what a real import costs: rotate the token from
   the Instances screen if one is suspected.
 - **Arr API keys are sealed with AES-256-GCM** and never returned. The interface
-  shows `•••• (encrypted)`. Only a plaintext key left by an older version gets a
+  shows `•••• (encrypted)`. A passphrase given as `ROUTARR_SECRET_KEY` is
+  stretched with Argon2id and a salt the installation keeps in its database, so
+  a copy of the database or of a backup costs an Argon2id computation per
+  phrase guessed, and one phrase is another key on another installation.
+- **A start never replaces a master key it has lost.** With the database
+  holding sealed values and `routarr.key` missing or empty, as when
+  `routarr.db` is copied alone to a new volume, the start stops and names the
+  file: a new key would open none of them, and every instance and source would
+  fail behind a start that looked clean. `ROUTARR_ALLOW_NEW_MASTER_KEY=true`
+  makes a new key anyway, and the credentials are entered again. The key files
+  are written beside, flushed and renamed into place, so a power cut leaves the
+  previous key or the new one, never an empty file. Only a plaintext key left by an older version gets a
   partial mask, and that is a prompt to re-save. A configuration bundle carries
   none of them, sealed or not: ciphertext is meaningless under another
   installation's master key, so the destination would store a blob it can never
@@ -196,6 +237,50 @@ that no response carries a decrypted secret.
 [`backend/src/tests/webhook_fuzz.rs`](backend/src/tests/webhook_fuzz.rs) throws
 about 3 000 generated JSON trees at the one route an unauthenticated party can
 reach, on the invariant that no input produces a panic or a 500.
+
+## The security log, and fail2ban
+
+Every decision about who may do what, and every change to a credential or a
+setting, leaves one line at the target `routarr::audit`: a sign-in made,
+refused or held back, a session ended, a key sent that opens nothing, an
+application key made, revoked, unknown or past its scopes, a write from
+another site, the API key replaced, the password changed, an archive
+downloaded or staged for a restore, a configuration imported, settings saved,
+the signing secret replaced. A line names the event, its outcome, who asked
+and the client's address, never a key, a token, a password or a code:
+
+```text
+2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused for 203.0.113.9 event="sign_in" outcome="refused" subject="-" client=203.0.113.9
+```
+
+A refused key, an unknown application key and a write from another site,
+which anyone can send as fast as they like, are written once a minute per
+address with how many came since (`repeated=`). Every refused sign-in is
+written, since Routarr slows them itself.
+
+To ban an address at the firewall, point fail2ban at the container's log. With
+Docker's default `json-file` driver and the text log format:
+
+```ini
+# /etc/fail2ban/filter.d/routarr.conf
+[Definition]
+failregex = routarr::audit: .* outcome="refused" .* client=<HOST>
+
+# /etc/fail2ban/jail.d/routarr.local
+[routarr]
+enabled  = true
+filter   = routarr
+logpath  = /var/lib/docker/containers/*/*-json.log
+maxretry = 10
+findtime = 10m
+bantime  = 1h
+# A port Docker publishes is filtered in the DOCKER-USER chain.
+action   = iptables-multiport[name=routarr, port="9876", protocol=tcp, chain=DOCKER-USER]
+```
+
+Behind a reverse proxy, run the jail where the proxy runs, and list the proxy
+in `ROUTARR_TRUSTED_PROXIES` so the address logged is the client's and not the
+proxy's.
 
 ## Known limits, deliberately
 

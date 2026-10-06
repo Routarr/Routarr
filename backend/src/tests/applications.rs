@@ -16,6 +16,11 @@ use crate::state::AppState;
 
 const MASTER: &str = "master-key-for-the-owner";
 
+/// The id a token names, the one its key writes beside its name.
+fn key_id(token: &str) -> String {
+    token.strip_prefix("rtr_").and_then(|rest| rest.split_once('_')).unwrap().0.to_string()
+}
+
 /// Make a key as the owner and return its token.
 async fn mint(app: &TestApp, owner_key: Option<&str>, body: Value) -> String {
     let response = send(app, "POST", "/api/v1/applications", owner_key, Some(body)).await;
@@ -56,6 +61,7 @@ async fn walk(app: &TestApp, token: &str, holds: &[Scope]) {
         let method_name: axum::http::Method = method.parse().unwrap();
         let granted = scope_for(&method_name, &route_template(&path))
             .is_some_and(|scope| scope == Scope::Read || holds.contains(&scope));
+        app.state.key_rates.refill();
         let status = send(app, method, &path, Some(token), Some(json!({}))).await.status;
         if granted {
             reached += 1;
@@ -173,6 +179,7 @@ async fn a_read_key_changes_nothing_whatever_the_table_says() {
     assert!(writes.len() > 10, "only {} write route(s) parsed out of main.rs", writes.len());
     let named = BEYOND_READ.iter().map(|(method, path)| (*method, path.to_string()));
     for (method, path) in writes.into_iter().chain(named) {
+        app.state.key_rates.refill();
         let status = send(&app, method, &path, Some(&token), Some(json!({}))).await.status;
         assert_eq!(status, StatusCode::FORBIDDEN, "{method} {path} answered a read key {status}");
     }
@@ -612,13 +619,19 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     app.seed_library().await;
     app.simulate().await;
     let person = "alice@example.com";
-    for (id, trigger, subject) in [("j-person", "manual", person), ("j-app", "api", "dashboard")] {
+    let token = mint(&app, None, json!({ "name": "dashboard" })).await;
+    let key = key_id(&token);
+    for (id, trigger, subject, by) in
+        [("j-person", "manual", person, None), ("j-app", "api", "dashboard", Some(&key))]
+    {
         sqlx::query(
-            "INSERT INTO jobs (id, kind, status, trigger, subject) VALUES (?, 'sync', 'success', ?, ?)",
+            "INSERT INTO jobs (id, kind, status, trigger, subject, subject_key)
+             VALUES (?, 'sync', 'success', ?, ?, ?)",
         )
         .bind(id)
         .bind(trigger)
         .bind(subject)
+        .bind(by)
         .execute(&app.state.pool)
         .await
         .unwrap();
@@ -641,7 +654,6 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    let token = mint(&app, None, json!({ "name": "dashboard" })).await;
 
     let jobs = send(&app, "GET", "/api/v1/jobs", Some(&token), None).await;
     let jobs = jobs.assert_ok()["data"].as_array().unwrap().clone();
@@ -785,4 +797,201 @@ async fn no_key_can_mint_another() {
     let refused = send(&app, "POST", "/api/v1/applications", Some(&token), body).await;
     assert_eq!(refused.status, StatusCode::FORBIDDEN);
     assert!(refused.message().contains("owner"), "{}", refused.message());
+}
+
+/// HEAD answers the headers GET would, so it asks what GET does: a read key
+/// may ask it, and a route the owner keeps stays the owner's.
+#[tokio::test]
+async fn a_read_key_may_ask_head() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token = mint(&app, Some(MASTER), json!({ "name": "monitor" })).await;
+    assert_eq!(
+        send(&app, "HEAD", "/api/v1/media", Some(&token), None).await.status,
+        StatusCode::OK
+    );
+    assert_eq!(
+        send(&app, "HEAD", "/api/v1/settings", Some(&token), None).await.status,
+        StatusCode::FORBIDDEN
+    );
+}
+
+/// The fallback category is a setting, which no key reaches. A key that may
+/// configure the categories creates one, and cannot make it the fallback.
+#[tokio::test]
+async fn a_configure_key_cannot_change_the_fallback_category() {
+    let app = TestApp::with_api_key(MASTER).await;
+    let token =
+        mint(&app, Some(MASTER), json!({ "name": "editor", "scopes": ["configure"] })).await;
+    let before = AppState::default_category(&app.state.pool).await.unwrap();
+
+    let refused = send(
+        &app,
+        "POST",
+        "/api/v1/categories",
+        Some(&token),
+        Some(json!({ "name": "hijack", "is_default": true })),
+    )
+    .await;
+    assert_eq!(refused.status, StatusCode::FORBIDDEN, "{}", refused.json);
+    assert_eq!(AppState::default_category(&app.state.pool).await.unwrap(), before);
+    assert!(app.count("SELECT COUNT(*) FROM categories WHERE name = 'hijack'").await == 0);
+
+    send(&app, "POST", "/api/v1/categories", Some(&token), Some(json!({ "name": "concerts" })))
+        .await
+        .assert_ok();
+}
+
+/// A name is given again once its key is revoked. The new key is another
+/// application, and what the revoked one wrote is not its own: a pin made by
+/// the first reads, to the second, as anybody else's.
+#[tokio::test]
+async fn a_new_key_under_a_revoked_name_does_not_read_the_old_ones_records_as_its_own() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let first = mint(&app, None, json!({ "name": "homepage", "scopes": ["write"] })).await;
+    let pin = json!({ "media_id": "m-1", "target_category": "anime" });
+    send(&app, "POST", "/api/v1/overrides", Some(&first), Some(pin)).await.assert_ok();
+    let own = send(&app, "GET", "/api/v1/overrides", Some(&first), None).await;
+    assert_eq!(own.assert_ok()[0]["subject"], "homepage", "a key lost sight of its own pin");
+
+    let revoked = format!("/api/v1/applications/{}", key_id(&first));
+    send(&app, "DELETE", &revoked, None, None).await.assert_status(StatusCode::NO_CONTENT);
+    let second = mint(&app, None, json!({ "name": "homepage" })).await;
+
+    let read = send(&app, "GET", "/api/v1/overrides", Some(&second), None).await;
+    assert_eq!(read.assert_ok()[0]["subject"], Value::Null, "the new key read the old one's pin");
+}
+
+/// The account, the master key and the open modes write these names on what
+/// they ask for. A key carrying one would read, on History, as them.
+#[tokio::test]
+async fn a_key_cannot_be_named_like_the_account() {
+    let app = TestApp::new().await;
+    for name in ["admin", "APIKEY", " anonymous "] {
+        let refused =
+            send(&app, "POST", "/api/v1/applications", None, Some(json!({ "name": name }))).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{name}: {}", refused.json);
+    }
+}
+
+/// A preview's task keeps the proposals it returned, and any key reads the
+/// task. The row names who asked as each reader may see it, and the proposals
+/// in its report name nobody.
+#[tokio::test]
+async fn a_preview_result_names_no_other_subject() {
+    let app = TestApp::with_api_key(MASTER).await;
+    app.seed_library().await;
+    let preview = json!({ "persist": false });
+    send(&app, "POST", "/api/v1/simulate", Some(MASTER), Some(preview)).await.assert_ok();
+    let token = mint(&app, Some(MASTER), json!({ "name": "monitor" })).await;
+
+    let tasks =
+        send(&app, "GET", "/api/v1/jobs?kind=preview&include=result", Some(&token), None).await;
+    let task = tasks.assert_ok()["data"][0].clone();
+    let decisions = task["result"]["decisions"].as_array().expect("the preview's proposals");
+    assert!(!decisions.is_empty(), "{task}");
+    assert!(decisions.iter().all(|d| d["subject"].is_null()), "{decisions:?}");
+}
+
+/// An application asks at most ten times a second past a burst of fifty: a
+/// dashboard and a request bot stay far below, and a loop does not run the
+/// owner's Arrs and sources hot. Past it, the key waits, and another key does
+/// not.
+#[tokio::test]
+async fn a_key_past_its_rate_answers_429_with_retry_after() {
+    let app = TestApp::new().await;
+    let token = mint(&app, None, json!({ "name": "loop" })).await;
+    let other = mint(&app, None, json!({ "name": "dashboard" })).await;
+    for _ in 0..crate::services::applications::BURST {
+        assert!(app.state.key_rates.take(&key_id(&token)).is_ok());
+    }
+
+    let held = Request::get("/api/v1/status").header("x-api-key", &token);
+    let held = app.send_raw(held.body(Body::empty()).unwrap()).await;
+    assert_eq!(held.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(held.headers()[axum::http::header::RETRY_AFTER], "1");
+    send(&app, "GET", "/api/v1/status", Some(&other), None).await.assert_ok();
+}
+
+/// A key's burst comes back at its rate, never past it.
+#[tokio::test(start_paused = true)]
+async fn a_keys_burst_comes_back_at_its_rate() {
+    use crate::services::applications::{BURST, PER_SECOND, Rates};
+    let rates = Rates::default();
+    for _ in 0..BURST {
+        assert!(rates.take("k").is_ok());
+    }
+    assert!(rates.take("k").is_err());
+    tokio::time::advance(std::time::Duration::from_millis(1000 / u64::from(PER_SECOND))).await;
+    assert!(rates.take("k").is_ok(), "nothing came back after a tenth of a second");
+    assert!(rates.take("k").is_err());
+    tokio::time::advance(std::time::Duration::from_secs(3600)).await;
+    for _ in 0..BURST {
+        assert!(rates.take("k").is_ok());
+    }
+    assert!(rates.take("k").is_err(), "an hour of quiet gave more than the burst");
+}
+
+/// A pin's reason is a line on a screen, and a rule list is read whole by
+/// every pass: each has a size past which it is refused, whoever asks.
+#[tokio::test]
+async fn a_reason_or_a_rule_past_its_limit_is_refused() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let pin =
+        |reason: String| json!({ "media_id": "m-1", "target_category": "anime", "reason": reason });
+    let long = send(&app, "POST", "/api/v1/overrides", None, Some(pin("r".repeat(501)))).await;
+    assert_eq!(long.status, StatusCode::BAD_REQUEST, "{}", long.json);
+    send(&app, "POST", "/api/v1/overrides", None, Some(pin("r".repeat(500)))).await.assert_ok();
+
+    app.execute(&["WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1000)
+         INSERT INTO rules (id, name, priority, enabled, media_type, conditions, exclusions,
+                            match_mode, target_category)
+         SELECT 'r-' || i, 'Rule ' || i, i, 0, 'movie', '[]', '[]', 'all', 'anime' FROM n"])
+        .await;
+    let rule = json!({
+        "name": "One more", "target_category": "anime", "media_type": "movie",
+        "conditions": [{ "type": "genre_contains", "value": ["Animation"] }]
+    });
+    app.execute(&["DELETE FROM rules WHERE id = 'r-1000'"]).await;
+    send(&app, "POST", "/api/v1/rules", None, Some(rule.clone())).await.assert_ok();
+    let refused = send(&app, "POST", "/api/v1/rules", None, Some(rule)).await;
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.json);
+    assert!(refused.json["message"].as_str().unwrap().contains("1000"), "{}", refused.json);
+    assert_eq!(app.count("SELECT COUNT(*) FROM rules").await, 1000);
+}
+
+/// A key that may operate takes a backup, and a backup prunes the oldest
+/// archives past the retention count. Its archives are counted apart and
+/// taken ten minutes apart at most, so taking them in a loop removes none of
+/// the owner's, and does not hold off the schedule.
+#[tokio::test]
+async fn an_operating_key_cannot_push_the_owners_backups_out() {
+    let (app, _dir) = super::backup::app_with_files("key-backups").await;
+    let backups = crate::services::backup::backup_dir(&app.state);
+    std::fs::create_dir_all(&backups).unwrap();
+    let owners: Vec<String> =
+        (1..=7).map(|day| format!("routarr-backup-202601{day:02}-030000.zip")).collect();
+    let keys: Vec<String> =
+        (1..=7).map(|day| format!("routarr-backup-202602{day:02}-030000-app.zip")).collect();
+    for name in owners.iter().chain(&keys) {
+        std::fs::write(backups.join(name), b"an archive").unwrap();
+    }
+    let token = mint(&app, None, json!({ "name": "nightly", "scopes": ["operate"] })).await;
+
+    send(&app, "POST", "/api/v1/backups", Some(&token), None).await.assert_ok();
+    for _ in 0..2 {
+        let again = send(&app, "POST", "/api/v1/backups", Some(&token), None).await;
+        assert_eq!(again.status, StatusCode::TOO_MANY_REQUESTS, "{}", again.json);
+    }
+
+    for name in &owners {
+        assert!(backups.join(name).exists(), "{name}, the owner's, was pruned");
+    }
+    assert!(!backups.join(&keys[0]).exists(), "the key's oldest stayed past the count");
+    let schedule = crate::services::backup::newest_taken(&app.state).expect("the owner's newest");
+    assert!(
+        schedule.elapsed() > std::time::Duration::from_secs(3600),
+        "the schedule counts the key's"
+    );
 }

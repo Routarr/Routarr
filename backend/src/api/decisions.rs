@@ -45,13 +45,14 @@ struct DecisionRow {
     reverted_at: Option<String>,
     actor: Option<String>,
     subject: Option<String>,
+    subject_key: Option<String>,
     revertible: bool,
 }
 
 const DECISION_COLUMNS: &str = "id, media_id, media_title, media_type, instance_id, instance_name,
      current_root_folder, target_root_folder, target_category, matched_rule_id, matched_rule_name,
      is_override, reasons, alternatives, action, status, error_message, decided_at, applied_at,
-     confidence, superseded, simulation_id, reverted_at, actor, subject";
+     confidence, superseded, simulation_id, reverted_at, actor, subject, subject_key";
 
 pub async fn list(
     State(state): State<AppState>,
@@ -122,7 +123,10 @@ pub async fn list(
     let decisions = rows
         .into_iter()
         .map(decision_from_row)
-        .map(|decision| Decision { subject: identity.shown_subject(decision.subject), ..decision })
+        .map(|decision| Decision {
+            subject: identity.shown_subject(decision.subject, decision.subject_key.as_deref()),
+            ..decision
+        })
         .collect();
     Ok(Json(Page::new(decisions, page, per_page, total)))
 }
@@ -242,6 +246,7 @@ fn decision_from_row(r: DecisionRow) -> Decision {
     Decision {
         actor: r.actor,
         subject: r.subject,
+        subject_key: r.subject_key,
         revertible: r.revertible,
         id: r.id,
         media_id: r.media_id,

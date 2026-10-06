@@ -58,6 +58,11 @@ pub enum AppError {
     #[error("Forbidden: {0}")]
     Forbidden(String),
 
+    /// The caller asks faster than it may, and may ask again in
+    /// `retry_after` seconds.
+    #[error("Too many requests: {message}")]
+    TooManyRequests { message: String, retry_after: u64 },
+
     /// An outbound call failed: an Arr, a metadata source, the identity
     /// provider or the notification webhook.
     ///
@@ -124,7 +129,8 @@ impl AppError {
             | AppError::UpstreamDown(message)
             | AppError::Forbidden(message)
             | AppError::ConfirmationRequired { message, .. }
-            | AppError::ConfirmationWithheld { message, .. } => message.clone(),
+            | AppError::ConfirmationWithheld { message, .. }
+            | AppError::TooManyRequests { message, .. } => message.clone(),
             internal if internal.is_internal() => {
                 "An internal error occurred. See the server log for details.".to_string()
             }
@@ -150,8 +156,8 @@ fn describe_external(service: &str, status: u16, message: &str) -> String {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
-    /// `conflict`, `confirmation_required`, `external_api_error`, or an
-    /// internal kind.
+    /// `conflict`, `confirmation_required`, `too_many_requests`,
+    /// `external_api_error`, or an internal kind.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
@@ -183,6 +189,9 @@ impl IntoResponse for AppError {
                 (StatusCode::CONFLICT, "confirmation_required")
             }
             AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
+            AppError::TooManyRequests { .. } => {
+                (StatusCode::TOO_MANY_REQUESTS, "too_many_requests")
+            }
             AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
                 (StatusCode::BAD_GATEWAY, "external_api_error")
             }
@@ -204,10 +213,18 @@ impl IntoResponse for AppError {
             }
             _ => (None, None, None),
         };
+        let retry_after = match &self {
+            AppError::TooManyRequests { retry_after, .. } => Some(*retry_after),
+            _ => None,
+        };
         let body =
             ErrorResponse { error: error_type.to_string(), message, confirm, answerable, includes };
 
-        (status, axum::Json(body)).into_response()
+        let mut response = (status, axum::Json(body)).into_response();
+        if let Some(seconds) = retry_after {
+            response.headers_mut().insert(axum::http::header::RETRY_AFTER, seconds.into());
+        }
+        response
     }
 }
 

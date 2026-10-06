@@ -1,5 +1,6 @@
 pub mod accounts;
 pub mod applications;
+pub mod audit;
 pub mod auto_apply;
 pub mod backup;
 pub mod connection;

@@ -97,7 +97,7 @@ ARR_PID=$!
 # generates one at first start. Running the suite open would leave the shipped
 # configuration (every request carrying a key from the browser's storage) the
 # one path nothing exercises end to end.
-API_KEY="e2e-key-not-a-secret"
+API_KEY="e2e-key-not-a-secret-but-long-enough"
 BROWSER_KEY=""
 case "$AUTH" in
   apikey)
@@ -127,6 +127,8 @@ case "$AUTH" in
       ROUTARR_OIDC_CLIENT_ID="$OIDC_CLIENT"
       ROUTARR_OIDC_CLIENT_SECRET="$OIDC_SECRET"
       ROUTARR_OIDC_REDIRECT_URL="http://127.0.0.1:$PORT${ROUTARR_E2E_BASE:-}/api/v1/auth/oidc/callback"
+      # The `sub` the stand-in signs in (`SUBJECT` in fake_oidc.py).
+      ROUTARR_OIDC_ALLOWED_SUBJECTS=e2e-operator
     )
     ;;
   *)

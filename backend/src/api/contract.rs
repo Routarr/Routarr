@@ -88,6 +88,8 @@ cover. With a signing secret every shape is signed as Standard Webhooks specifie
 retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of \
 `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A \
 delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\n\
+An application key asks at most ten times a second past a burst of fifty, and takes a backup \
+at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\n\
 Nothing documented under `/api/v1` is removed or renamed, and no field changes type. New \
 operations, new fields and new values of the open lists (`action`, `status`, `error`, \
 `confirm`, the kinds of a condition) may appear in any release."

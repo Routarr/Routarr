@@ -99,6 +99,9 @@ pub struct Decision {
     /// anyone else.
     #[serde(default)]
     pub subject: Option<String>,
+    /// The application key that asked, which is what makes `subject` its own.
+    #[serde(skip)]
+    pub subject_key: Option<String>,
     /// Whether a revert may undo this move now: only the latest standing move
     /// of a title is, while the title is still where it put it and the folder
     /// it came from is still one of its instance's root folders.
