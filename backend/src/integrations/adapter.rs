@@ -7,6 +7,7 @@
 use reqwest::Client;
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::arr_moves::MoveCommand;
 use crate::integrations::radarr::RadarrClient;
 use crate::integrations::sonarr::SonarrClient;
 use crate::models::Instance;
@@ -187,84 +188,28 @@ impl ArrAdapter {
         Ok(tags.into_iter().map(|t| ArrTag { arr_id: t.id, label: t.label }).collect())
     }
 
-    /// Move a batch of items to a root folder.
-    ///
-    /// Radarr takes the whole batch in one call. Sonarr takes one request per
-    /// series (see `SonarrClient::update_series_path`), so a refusal is reported
-    /// for its series and the rest of the batch still moves.
-    ///
-    /// Each success carries the path the Arr reports the item now has, when it
-    /// reports one: Radarr names a folder moved with its files from its naming
-    /// format. Sonarr is sent the full path, so it has nothing to add.
-    pub async fn move_to_root_folder(
+    /// Point one title at another root folder, keeping its folder name, and
+    /// answer the path it now has. With `move_files` the Arr answers once it
+    /// has queued the move, and carries the files in a command of its own
+    /// ([`ArrAdapter::move_commands`]).
+    pub async fn move_item(
         &self,
-        arr_ids: &[i64],
+        arr_id: i64,
         root_folder_path: &str,
         move_files: bool,
-    ) -> Vec<(i64, AppResult<Option<String>>)> {
+    ) -> AppResult<String> {
         match self {
-            Self::Radarr(c) => {
-                let edited =
-                    c.update_movies_root_folder(arr_ids, root_folder_path, move_files).await;
-                match edited {
-                    // Radarr looks a batch up whole and fails it on one film it
-                    // no longer holds: each is asked alone, so the others move
-                    // and that one fails by itself.
-                    Err(e) if arr_ids.len() > 1 && lacks_a_film(&e) => {
-                        let mut results = Vec::with_capacity(arr_ids.len());
-                        for id in arr_ids {
-                            let alone = c
-                                .update_movies_root_folder(&[*id], root_folder_path, move_files)
-                                .await;
-                            results.extend(paired(&[*id], alone));
-                        }
-                        results
-                    }
-                    edited => paired(arr_ids, edited),
-                }
-            }
-            Self::Sonarr(c) => {
-                let mut results = Vec::with_capacity(arr_ids.len());
-                for id in arr_ids {
-                    let moved = c.update_series_path(*id, root_folder_path, move_files).await;
-                    results.push((*id, moved.map(|()| None)));
-                }
-                results
-            }
+            Self::Radarr(c) => c.update_movie_path(arr_id, root_folder_path, move_files).await,
+            Self::Sonarr(c) => c.update_series_path(arr_id, root_folder_path, move_files).await,
         }
     }
 
-    /// Ask the Arr to rescan the moved items.
-    pub async fn refresh(&self, arr_ids: &[i64]) -> AppResult<()> {
+    /// The move commands the Arr lists, one entry per title they carry.
+    pub async fn move_commands(&self) -> AppResult<Vec<MoveCommand>> {
         match self {
-            Self::Radarr(c) => c.refresh_movies(arr_ids).await,
-            // One command per series: each is tried, whatever the one before
-            // it answered, and the first refusal is what is reported.
-            Self::Sonarr(c) => {
-                let mut first_failure = None;
-                for id in arr_ids {
-                    if let Err(e) = c.refresh_series(*id).await {
-                        first_failure.get_or_insert(e);
-                    }
-                }
-                first_failure.map_or(Ok(()), Err)
-            }
+            Self::Radarr(c) => c.move_commands().await,
+            Self::Sonarr(c) => c.move_commands().await,
         }
-    }
-}
-
-/// `AppError` is not `Clone`, since it wraps `sqlx` and `serde_json` errors.
-/// This rebuilds the variants the Arr clients can actually produce, so a bulk
-/// failure can be reported per item.
-fn clone_error(e: &AppError) -> AppError {
-    match e {
-        AppError::ExternalApi { service, status, message, retry_after } => AppError::ExternalApi {
-            service: service.clone(),
-            status: *status,
-            message: message.clone(),
-            retry_after: *retry_after,
-        },
-        other => AppError::Internal(other.to_string()),
     }
 }
 
@@ -272,61 +217,6 @@ fn clone_error(e: &AppError) -> AppError {
 /// would satisfy every `year_range` with a maximum.
 fn known_year(year: Option<i64>) -> Option<i64> {
     year.filter(|year| *year > 0)
-}
-
-/// Each film of a Radarr edit with its outcome. A film an answer naming others
-/// leaves out was not moved. An answer naming none, empty or unreadable, says
-/// nothing about any one film, and leaves every film's new path to the caller.
-fn paired(
-    arr_ids: &[i64],
-    edited: AppResult<Option<std::collections::HashMap<i64, String>>>,
-) -> Vec<(i64, AppResult<Option<String>>)> {
-    match edited {
-        Ok(Some(mut paths)) if !paths.is_empty() => arr_ids
-            .iter()
-            .map(|id| {
-                let moved = paths.remove(id).map(Some).ok_or_else(|| AppError::ExternalApi {
-                    service: "Radarr".into(),
-                    status: 0,
-                    message: "Radarr's answer does not list this film as moved".into(),
-                    retry_after: None,
-                });
-                (*id, moved)
-            })
-            .collect(),
-        Ok(_) => arr_ids.iter().map(|id| (*id, Ok(None))).collect(),
-        Err(e) => arr_ids.iter().map(|id| (*id, Err(clone_error(&e)))).collect(),
-    }
-}
-
-#[cfg(test)]
-mod pairing {
-    use super::*;
-
-    /// An answer naming films settles each, one it leaves out failing, and an
-    /// empty or unreadable one settles none: each film is taken as moved.
-    #[test]
-    fn each_film_is_settled_by_an_answer_that_names_films_and_only_then() {
-        let named = std::collections::HashMap::from([(1, "/movies/anime/One".to_string())]);
-        let outcomes = paired(&[1, 2], Ok(Some(named)));
-        assert_eq!(outcomes[0].1.as_ref().unwrap().as_deref(), Some("/movies/anime/One"));
-        assert!(outcomes[1].1.is_err(), "a film left out was taken as moved");
-
-        for silent in [Some(std::collections::HashMap::new()), None] {
-            let outcomes = paired(&[1, 2], Ok(silent));
-            assert!(outcomes.iter().all(|(_, moved)| matches!(moved, Ok(None))));
-        }
-    }
-}
-
-/// Whether Radarr refused a batch for holding fewer of its films than it
-/// names, in the words its lookup of every id at once fails with.
-fn lacks_a_film(error: &AppError) -> bool {
-    matches!(
-        error,
-        AppError::ExternalApi { status: 500, message, .. }
-            if message.contains("Expected query to return")
-    )
 }
 
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {

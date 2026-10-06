@@ -209,6 +209,11 @@
             "minimum": 0,
             "type": "integer"
           },
+          "moving": {
+            "description": "Moves of files the Arr was still making when the apply stopped\nwaiting. Their decisions are `requested`, and the next sync confirms or\nfails each.",
+            "minimum": 0,
+            "type": "integer"
+          },
           "requested": {
             "minimum": 0,
             "type": "integer"
@@ -223,6 +228,7 @@
           "applied",
           "failed",
           "skipped",
+          "moving",
           "errors"
         ],
         "type": "object"
@@ -305,7 +311,7 @@
             "type": "integer"
           },
           "stopped_early": {
-            "description": "True when a slice failed, or could not be read once others had moved\ntitles, and the remaining ones were abandoned.",
+            "description": "True when the Arr refused a slice whole, or one could not be read once\nothers had moved titles, and the remaining ones were abandoned.",
             "type": "boolean"
           }
         },

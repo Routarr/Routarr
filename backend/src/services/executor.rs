@@ -2,19 +2,20 @@
 //!
 //! Guardrails, in order: global dry-run, batch limit, the destinations'
 //! reachability and free space, explicit confirmation past a threshold, and
-//! per-decision revalidation right before the call. Moves are grouped so a
-//! batch of 200 films landing in the same folder is one Radarr call rather
-//! than 200.
+//! per-decision revalidation right before the call. Each title is its own
+//! call, which keeps its folder name and settles it on its own answer.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::HashMap;
+use std::time::Duration;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::adapter::{ArrAdapter, ArrMedia};
+use crate::integrations::arr_moves::{CommandState, MoveCommand};
 use crate::jobs::registry::JobLock;
 use crate::jobs::{Attribution, Detail, JobKind, detached};
-use crate::models::Instance;
 use crate::services::notify;
 use crate::services::routing::{self, format_timestamp};
 use crate::state::AppState;
@@ -26,6 +27,10 @@ pub struct ApplyReport {
     pub applied: usize,
     pub failed: usize,
     pub skipped: usize,
+    /// Moves of files the Arr was still making when the apply stopped
+    /// waiting. Their decisions are `requested`, and the next sync confirms or
+    /// fails each.
+    pub moving: usize,
     pub errors: Vec<ApplyError>,
 }
 
@@ -37,7 +42,7 @@ pub struct ApplyError {
 }
 
 /// Columns shared by the apply and revert loaders.
-type MoveRow = (String, String, String, String, Option<String>, String, i64, Option<String>);
+type MoveRow = (String, String, String, String, Option<String>, String, i64);
 
 /// One pending move, resolved from a decision row.
 #[derive(Debug, Clone)]
@@ -49,15 +54,11 @@ struct PendingMove {
     arr_id: i64,
     from: Option<String>,
     to: String,
-    /// Full on-disk path as Routarr last saw it, used to rebuild it after a move.
-    current_path: Option<String>,
 }
 
 impl From<MoveRow> for PendingMove {
-    fn from(
-        (decision_id, media_id, media_title, instance_id, from, to, arr_id, current_path): MoveRow,
-    ) -> Self {
-        Self { decision_id, media_id, media_title, instance_id, arr_id, from, to, current_path }
+    fn from((decision_id, media_id, media_title, instance_id, from, to, arr_id): MoveRow) -> Self {
+        Self { decision_id, media_id, media_title, instance_id, arr_id, from, to }
     }
 }
 
@@ -180,8 +181,8 @@ pub struct BatchApplyReport {
     /// Slices actually attempted, fewer than planned when one of them failed.
     pub batches_run: usize,
     pub batches_planned: usize,
-    /// True when a slice failed, or could not be read once others had moved
-    /// titles, and the remaining ones were abandoned.
+    /// True when the Arr refused a slice whole, or one could not be read once
+    /// others had moved titles, and the remaining ones were abandoned.
     pub stopped_early: bool,
     pub errors: Vec<ApplyError>,
 }
@@ -193,9 +194,10 @@ pub struct BatchApplyReport {
 /// `batch_limit` is the slice size, and the guardrail that replaces it is a
 /// confirmation always required, whatever `confirmation_threshold` says.
 ///
-/// A slice that fails ends the run: an Arr that rejected fifty moves will
-/// likely reject the next fifty, and the untried decisions stay `pending` for
-/// the next simulation to repropose.
+/// A slice the Arr refuses whole ends the run: an Arr that rejected fifty
+/// moves will likely reject the next fifty, and the untried decisions stay
+/// `pending` for the next simulation to repropose. A slice in which some moved
+/// is not that, and the run goes on.
 pub async fn apply_simulation_in_batches(
     state: &AppState,
     simulation_id: &str,
@@ -292,7 +294,7 @@ pub async fn apply_simulation_in_batches(
                     report.applied += slice.applied;
                     report.failed += slice.failed;
                     report.errors.extend(slice.errors);
-                    if slice.failed > 0 {
+                    if slice.applied == 0 && slice.failed > 0 {
                         report.stopped_early = true;
                         break;
                     }
@@ -554,7 +556,8 @@ impl MoveDirection {
     }
 }
 
-/// Group by (instance, target folder) and issue one bulk call per group.
+/// Send each move to its Arr, title by title, instance by instance in the
+/// order the moves were given.
 async fn execute_moves(
     state: &AppState,
     moves: Vec<PendingMove>,
@@ -563,33 +566,15 @@ async fn execute_moves(
     by: &Attribution,
 ) -> AppResult<ApplyReport> {
     let mut report = ApplyReport::default();
-    if moves.is_empty() {
-        return Ok(report);
-    }
+    let mut following = Vec::new();
 
-    let refresh_after_move = state.bool_setting("refresh_after_move", true).await;
-
-    let mut groups: HashMap<(String, String), Vec<PendingMove>> = HashMap::new();
-    for mv in moves {
-        groups.entry((mv.instance_id.clone(), mv.to.clone())).or_default().push(mv);
-    }
-
-    // Cache instances so a 300-decision batch does not re-read the same row.
-    let mut instances: HashMap<String, Instance> = HashMap::new();
-
-    for ((instance_id, target), batch) in groups {
-        let instance = match instances.get(&instance_id) {
-            Some(i) => i.clone(),
-            None => match state.instance(&instance_id).await {
-                Ok(i) => {
-                    instances.insert(instance_id.clone(), i.clone());
-                    i
-                }
-                Err(e) => {
-                    fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
-                    continue;
-                }
-            },
+    for batch in by_instance(moves) {
+        let instance = match state.instance(&batch[0].instance_id).await {
+            Ok(instance) => instance,
+            Err(e) => {
+                fail_batch(state, &batch, &mut report, &e.to_string(), direction, by).await;
+                continue;
+            }
         };
         // "Enabled (synced and routed)": a proposal left from before the
         // switch was turned off must not reach an instance that is neither.
@@ -610,54 +595,202 @@ async fn execute_moves(
             }
         };
 
-        let arr_ids: Vec<i64> = batch.iter().map(|m| m.arr_id).collect();
-        let results = adapter.move_to_root_folder(&arr_ids, &target, move_files).await;
-        let mut moved: HashMap<i64, Option<String>> = HashMap::new();
-        let mut errors: HashMap<i64, String> = HashMap::new();
-        for (id, result) in results {
-            match result {
-                Ok(path) => {
-                    moved.insert(id, path);
-                }
-                Err(e) => {
-                    errors.insert(id, e.to_string());
-                }
-            }
-        }
-
-        let mut succeeded_ids = Vec::new();
-
+        let mut sent = Vec::new();
         for mv in &batch {
-            if let Some(answered) = moved.remove(&mv.arr_id) {
-                succeeded_ids.push(mv.arr_id);
-                record_success(state, mv, &target, answered.as_deref(), direction, by).await;
-                report.applied += 1;
-            } else {
-                let message = errors
-                    .get(&mv.arr_id)
-                    .cloned()
-                    .unwrap_or_else(|| "unknown failure".to_string());
-                record_failure(state, mv, &message, direction, by).await;
-                report.failed += 1;
-                report.errors.push(ApplyError {
-                    decision_id: mv.decision_id.clone(),
-                    media_title: mv.media_title.clone(),
-                    message,
-                });
+            let outcome = match record_requested(&state.pool, mv, direction).await {
+                Ok(()) => send(&adapter, mv, move_files).await.map_err(|e| e.to_string()),
+                // Unrecorded, a move the Arr made is lost to a stop or a crash.
+                Err(e) => Err(e.to_string()),
+            };
+            match outcome {
+                Ok(path) if move_files => {
+                    record_sent(state, mv, &path, direction, by).await;
+                    sent.push(Sent { mv: mv.clone(), path });
+                }
+                Ok(path) => {
+                    record_success(state, mv, &path, direction, by).await;
+                    report.applied += 1;
+                }
+                Err(message) => fail(state, mv, &message, &mut report, direction, by).await,
             }
         }
-
-        // Best effort: a failed rescan does not invalidate a successful move.
-        if refresh_after_move
-            && !succeeded_ids.is_empty()
-            && let Err(e) = adapter.refresh(&succeeded_ids).await
-        {
-            error!("Refresh command failed on '{}': {e}", instance.name);
+        if !sent.is_empty() {
+            following.push(Following { adapter, arr: instance.name.clone(), sent });
         }
     }
 
-    info!("{} move(s) applied, {} failed", report.applied, report.failed);
+    follow(state, following, direction, by, &mut report).await;
+
+    info!(
+        "{} move(s) applied, {} failed, {} still moving",
+        report.applied, report.failed, report.moving
+    );
     Ok(report)
+}
+
+/// Ask the Arr for one move. A write whose answer never came may have been
+/// made all the same, so the title is read back before it counts as failed.
+async fn send(adapter: &ArrAdapter, mv: &PendingMove, move_files: bool) -> AppResult<String> {
+    match adapter.move_item(mv.arr_id, &mv.to, move_files).await {
+        Err(e @ AppError::ExternalApi { status: 0, .. }) => {
+            match adapter.get_media_one(mv.arr_id).await {
+                Ok(Some(held)) => {
+                    held.path.filter(|path| crate::paths::within(path, &mv.to)).ok_or(e)
+                }
+                _ => Err(e),
+            }
+        }
+        sent => sent,
+    }
+}
+
+/// A move with files the Arr took, carried in a command of its own.
+struct Sent {
+    mv: PendingMove,
+    path: String,
+}
+
+/// The moves with files one instance took, followed together.
+struct Following {
+    adapter: ArrAdapter,
+    /// The instance's name, for a reason that names it.
+    arr: String,
+    sent: Vec<Sent>,
+}
+
+/// Follow the moves of files the Arrs took until each command ends, then read
+/// each title back: in its target the move is applied, anywhere else the Arr
+/// undid it. One still running at the deadline stays `requested`.
+async fn follow(
+    state: &AppState,
+    mut following: Vec<Following>,
+    direction: MoveDirection,
+    by: &Attribution,
+    report: &mut ApplyReport,
+) {
+    if following.is_empty() {
+        return;
+    }
+    let wait = state.config.move_wait;
+    let deadline = tokio::time::Instant::now() + wait;
+    let pause = (wait / 20).clamp(Duration::from_millis(50), Duration::from_secs(2));
+    let localizer = state.localizer().await;
+    loop {
+        for instance in &mut following {
+            if instance.sent.is_empty() {
+                continue;
+            }
+            let commands = match instance.adapter.move_commands().await {
+                Ok(commands) => commands,
+                Err(e) => {
+                    warn!(arr = %instance.arr, "The Arr's commands could not be read: {e}");
+                    continue;
+                }
+            };
+            let mut running = Vec::new();
+            for sent in std::mem::take(&mut instance.sent) {
+                let command = latest_move(&commands, sent.mv.arr_id, Some(&sent.path));
+                let held = match command.map(|c| &c.state) {
+                    Some(CommandState::Running) => {
+                        running.push(sent);
+                        continue;
+                    }
+                    Some(CommandState::Ended(_)) => None,
+                    _ => match instance.adapter.get_media_one(sent.mv.arr_id).await {
+                        Ok(held) => Some(held),
+                        // Read again at the next round, or by the next sync.
+                        Err(_) => {
+                            running.push(sent);
+                            continue;
+                        }
+                    },
+                };
+                let target = &sent.mv.to;
+                match undone(&localizer, &instance.arr, command, held.as_ref(), target, UNDONE) {
+                    None => {
+                        record_confirmed(&state.pool, &sent.mv, direction).await;
+                        report.applied += 1;
+                    }
+                    Some(reason) => {
+                        record_failure(state, &sent.mv, &reason, direction, by).await;
+                        if let Some(Some(held)) = &held {
+                            record_held(&state.pool, &sent.mv, held).await;
+                        }
+                        count_failure(report, &sent.mv, reason);
+                    }
+                }
+            }
+            instance.sent = running;
+        }
+        let left: usize = following.iter().map(|instance| instance.sent.len()).sum();
+        if left == 0 {
+            return;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            report.moving += left;
+            return;
+        }
+        tokio::time::sleep(pause).await;
+    }
+}
+
+/// The latest command moving title `item`, to `path` when it names one: a
+/// title moved and moved back within minutes has both commands listed.
+fn latest_move<'a>(
+    commands: &'a [MoveCommand],
+    item: i64,
+    path: Option<&str>,
+) -> Option<&'a MoveCommand> {
+    commands
+        .iter()
+        .filter(|command| command.item == item)
+        .filter(|command| match (&command.destination, path) {
+            (Some(destination), Some(path)) => crate::paths::same(destination, path),
+            _ => true,
+        })
+        .max_by_key(|command| command.id)
+}
+
+/// Why a move the Arr took did not happen, `None` when it did: its command
+/// failed, or the title is elsewhere than `target`, which `elsewhere` words,
+/// or gone. `held` is the title as the Arr holds it now, `Some(None)` once it
+/// holds it no more.
+fn undone(
+    localizer: &crate::localization::Localizer,
+    arr: &str,
+    command: Option<&MoveCommand>,
+    held: Option<&Option<ArrMedia>>,
+    target: &str,
+    elsewhere: &str,
+) -> Option<String> {
+    if let Some(MoveCommand { state: CommandState::Ended(status), message, .. }) = command {
+        return Some(localizer.translate(
+            "ErrorMoveCommandEnded",
+            &[("arr", arr), ("status", status), ("message", message.as_deref().unwrap_or("-"))],
+        ));
+    }
+    match held {
+        Some(None) => Some(localizer.translate("ErrorMoveTitleGone", &[("arr", arr)])),
+        Some(Some(media)) => {
+            let path = media.path.as_deref().unwrap_or_default();
+            (!crate::paths::within(path, target))
+                .then(|| localizer.translate(elsewhere, &[("arr", arr), ("path", path)]))
+        }
+        None => None,
+    }
+}
+
+/// The moves of each instance, instances and moves in the order given, so the
+/// Arrs are called and the errors reported in one order from run to run.
+fn by_instance(moves: Vec<PendingMove>) -> Vec<Vec<PendingMove>> {
+    let mut batches: Vec<Vec<PendingMove>> = Vec::new();
+    for mv in moves {
+        match batches.iter_mut().find(|batch| batch[0].instance_id == mv.instance_id) {
+            Some(batch) => batch.push(mv),
+            None => batches.push(vec![mv]),
+        }
+    }
+    batches
 }
 
 async fn fail_batch(
@@ -669,14 +802,116 @@ async fn fail_batch(
     by: &Attribution,
 ) {
     for mv in batch {
-        record_failure(state, mv, message, direction, by).await;
-        report.failed += 1;
-        report.errors.push(ApplyError {
-            decision_id: mv.decision_id.clone(),
-            media_title: mv.media_title.clone(),
-            message: message.to_string(),
-        });
+        fail(state, mv, message, report, direction, by).await;
     }
+}
+
+async fn fail(
+    state: &AppState,
+    mv: &PendingMove,
+    message: &str,
+    report: &mut ApplyReport,
+    direction: MoveDirection,
+    by: &Attribution,
+) {
+    record_failure(state, mv, message, direction, by).await;
+    count_failure(report, mv, message.to_string());
+}
+
+fn count_failure(report: &mut ApplyReport, mv: &PendingMove, message: String) {
+    report.failed += 1;
+    report.errors.push(ApplyError {
+        decision_id: mv.decision_id.clone(),
+        media_title: mv.media_title.clone(),
+        message,
+    });
+}
+
+/// The move about to be sent, recorded first: a stop or a crash between the
+/// Arr's answer and the record then leaves a decision the next sync settles
+/// from what the Arr holds, rather than a move nobody recorded.
+async fn record_requested(
+    pool: &SqlitePool,
+    mv: &PendingMove,
+    direction: MoveDirection,
+) -> AppResult<()> {
+    let now = format_timestamp(chrono::Utc::now());
+    let requested = match direction {
+        MoveDirection::Forward => sqlx::query(
+            "UPDATE decisions SET status = 'requested', error_message = NULL, applied_at = ?
+             WHERE id = ?",
+        ),
+        MoveDirection::Revert => {
+            sqlx::query("UPDATE decisions SET status = 'requested', reverted_at = ? WHERE id = ?")
+        }
+    };
+    requested.bind(now).bind(&mv.decision_id).execute(pool).await?;
+    Ok(())
+}
+
+/// A move with files the Arr took. It holds the new path already and moves
+/// the files in a command of its own, so the title's row follows the Arr while
+/// the decision stays `requested` until the command is seen to end.
+async fn record_sent(
+    state: &AppState,
+    mv: &PendingMove,
+    path: &str,
+    direction: MoveDirection,
+    by: &Attribution,
+) {
+    let now = format_timestamp(chrono::Utc::now());
+    let moved = sqlx::query(
+        "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
+    )
+    .bind(&mv.to)
+    .bind(path)
+    .bind(&now)
+    .bind(&mv.media_id)
+    .execute(&state.pool)
+    .await;
+    if let Err(e) = moved {
+        error!(decision = %mv.decision_id, "The Arr took the move but recording it failed: {e}");
+    }
+    log_execution(&state.pool, by, direction.action(), &moved_between(mv), true, None, mv).await;
+}
+
+/// A requested move the Arr was seen to finish.
+async fn record_confirmed(pool: &SqlitePool, mv: &PendingMove, direction: MoveDirection) {
+    let status = match direction {
+        MoveDirection::Forward => "applied",
+        MoveDirection::Revert => "skipped",
+    };
+    let confirmed =
+        sqlx::query("UPDATE decisions SET status = ? WHERE id = ? AND status = 'requested'")
+            .bind(status)
+            .bind(&mv.decision_id)
+            .execute(pool)
+            .await;
+    if let Err(e) = confirmed {
+        error!(decision = %mv.decision_id, "Recording a finished move failed: {e}");
+    }
+}
+
+/// The title's row as the Arr holds it after undoing a move.
+async fn record_held(pool: &SqlitePool, mv: &PendingMove, held: &ArrMedia) {
+    let now = format_timestamp(chrono::Utc::now());
+    let written = sqlx::query(
+        "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
+    )
+    .bind(&held.root_folder_path)
+    .bind(&held.path)
+    .bind(now)
+    .bind(&mv.media_id)
+    .execute(pool)
+    .await;
+    if let Err(e) = written {
+        error!(decision = %mv.decision_id, "Recording where the Arr holds the title failed: {e}");
+    }
+}
+
+/// What the log says a move did.
+fn moved_between(mv: &PendingMove) -> String {
+    format!("{} → {}", mv.from.as_deref().unwrap_or("(unknown)"), mv.to)
 }
 
 /// Mark the decision applied *and* update the local media row.
@@ -686,39 +921,20 @@ async fn fail_batch(
 async fn record_success(
     state: &AppState,
     mv: &PendingMove,
-    target: &str,
-    answered: Option<&str>,
+    new_path: &str,
     direction: MoveDirection,
     by: &Attribution,
 ) {
     let now = format_timestamp(chrono::Utc::now());
     let pool = &state.pool;
 
-    // The path the Arr answered with, or, when it named none, the old folder
-    // name under the new root, so the row reflects reality until the next
-    // sync. Composed in Rust rather than SQL: the substring arithmetic in
-    // SQLite produces `/movies/animeTitle` when the stored root folder
-    // carries a trailing slash.
-    let new_path = answered
-        .map(str::to_string)
-        .or_else(|| mv.current_path.as_deref().map(|path| relocate(path, target)));
-
     // The decision and the media row in one transaction: an `applied` decision
     // beside a stale path reproposes a move that already happened.
-    if let Err(e) = record_outcome(pool, mv, target, new_path.as_deref(), &now, direction).await {
+    if let Err(e) = record_outcome(pool, mv, new_path, &now, direction).await {
         error!(decision = %mv.decision_id, "The move succeeded but recording it failed: {e}");
     }
 
-    log_execution(
-        pool,
-        by,
-        direction.action(),
-        &format!("{} → {}", mv.from.as_deref().unwrap_or("(unknown)"), target),
-        true,
-        None,
-        mv,
-    )
-    .await;
+    log_execution(pool, by, direction.action(), &moved_between(mv), true, None, mv).await;
 }
 
 /// The two rows a successful move changes, written together.
@@ -728,8 +944,7 @@ async fn record_success(
 async fn record_outcome(
     pool: &SqlitePool,
     mv: &PendingMove,
-    target: &str,
-    new_path: Option<&str>,
+    new_path: &str,
     now: &str,
     direction: MoveDirection,
 ) -> AppResult<()> {
@@ -747,7 +962,7 @@ async fn record_outcome(
     sqlx::query(
         "UPDATE media SET current_root_folder = ?, current_path = ?, moved_at = ? WHERE id = ?",
     )
-    .bind(target)
+    .bind(&mv.to)
     .bind(new_path)
     .bind(now)
     .bind(&mv.media_id)
@@ -764,20 +979,114 @@ async fn record_failure(
     direction: MoveDirection,
     by: &Attribution,
 ) {
-    // A revert that fails leaves the move it tried to undo in place: the
-    // decision stays applied, so the next Revert still finds it.
-    if direction == MoveDirection::Forward
-        && let Err(e) =
-            sqlx::query("UPDATE decisions SET status = 'failed', error_message = ? WHERE id = ?")
-                .bind(message)
-                .bind(&mv.decision_id)
-                .execute(&state.pool)
-                .await
-    {
+    let recorded = match direction {
+        MoveDirection::Forward => sqlx::query(
+            "UPDATE decisions SET status = 'failed', error_message = ?, applied_at = NULL
+             WHERE id = ?",
+        )
+        .bind(message),
+        // A revert that fails leaves the move it tried to undo in place: the
+        // decision is applied again, so the next Revert still finds it.
+        MoveDirection::Revert => {
+            sqlx::query("UPDATE decisions SET status = 'applied', reverted_at = NULL WHERE id = ?")
+        }
+    };
+    if let Err(e) = recorded.bind(&mv.decision_id).execute(&state.pool).await {
         error!(decision = %mv.decision_id, "Recording a failed move failed too: {e}");
     }
 
     log_execution(&state.pool, by, direction.action(), "failed", false, Some(message), mv).await;
+}
+
+/// How a move the Arr took and then undid is worded: its files could not
+/// follow. A sync finding a requested move undone cannot tell whether it was
+/// ever made, and says so.
+const UNDONE: &str = "ErrorMoveUndone";
+const NOT_MADE: &str = "ErrorMoveNotMade";
+
+/// A move an apply left `requested`, as a sync settles it.
+#[derive(sqlx::FromRow)]
+struct RequestedRow {
+    decision_id: String,
+    media_id: String,
+    media_title: String,
+    current_root_folder: Option<String>,
+    target_root_folder: Option<String>,
+    reverting: bool,
+    /// `None` once the sync has removed the title the Arr no longer holds.
+    arr_id: Option<i64>,
+}
+
+/// Settle the moves an apply left `requested` on `instance` once a sync has
+/// run: a title the Arr holds in its target with no move running is applied,
+/// one elsewhere or gone failed. Each title is read from the Arr rather than
+/// from its row, which keeps a move made within the second of the sync's read.
+pub async fn settle_requested(
+    state: &AppState,
+    instance: &crate::models::Instance,
+    by: &Attribution,
+) -> AppResult<()> {
+    let rows: Vec<RequestedRow> = sqlx::query_as(
+        "SELECT d.id AS decision_id, d.media_id, d.media_title, d.current_root_folder,
+                d.target_root_folder, d.reverted_at IS NOT NULL AS reverting, m.arr_id
+           FROM decisions d
+           LEFT JOIN media m ON m.id = d.media_id
+          WHERE d.instance_id = ? AND d.status = 'requested'",
+    )
+    .bind(&instance.id)
+    .fetch_all(&state.pool)
+    .await?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    // An apply running follows the moves it requested itself.
+    let Some(_turn) = state.jobs.try_lock("apply") else {
+        return Ok(());
+    };
+    let adapter = state.adapter(instance)?;
+    let commands = adapter.move_commands().await?;
+    let localizer = state.localizer().await;
+
+    for row in rows {
+        let (direction, from, to) = if row.reverting {
+            (MoveDirection::Revert, row.target_root_folder, row.current_root_folder)
+        } else {
+            (MoveDirection::Forward, row.current_root_folder, row.target_root_folder)
+        };
+        let Some(to) = to else { continue };
+        let mv = PendingMove {
+            decision_id: row.decision_id,
+            media_id: row.media_id,
+            media_title: row.media_title,
+            instance_id: instance.id.clone(),
+            arr_id: row.arr_id.unwrap_or_default(),
+            from,
+            to,
+        };
+        let command = row.arr_id.and_then(|item| latest_move(&commands, item, None));
+        let held = match (row.arr_id, command.map(|c| &c.state)) {
+            (_, Some(CommandState::Running)) => continue,
+            (_, Some(CommandState::Ended(_))) => None,
+            (None, _) => Some(None),
+            (Some(item), _) => match adapter.get_media_one(item).await {
+                Ok(held) => Some(held),
+                Err(e) => {
+                    warn!(instance = %instance.name, "A requested move could not be read: {e}");
+                    continue;
+                }
+            },
+        };
+        match undone(&localizer, &instance.name, command, held.as_ref(), &mv.to, NOT_MADE) {
+            None => record_confirmed(&state.pool, &mv, direction).await,
+            Some(reason) => {
+                record_failure(state, &mv, &reason, direction, by).await;
+                if let Some(Some(held)) = &held {
+                    record_held(&state.pool, &mv, held).await;
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// What the webhook is told when an apply or a revert finishes.
@@ -1125,7 +1434,7 @@ async fn load_pending_moves(
 
     let sql = format!(
         "SELECT d.id, d.media_id, d.media_title, d.instance_id, d.current_root_folder,
-                d.target_root_folder, m.arr_id, m.current_path
+                d.target_root_folder, m.arr_id
          FROM decisions d
          JOIN media m ON m.id = d.media_id
          WHERE d.id IN ({placeholders})
@@ -1169,7 +1478,7 @@ async fn load_pending_moves(
         }
     }
 
-    Ok(current.into_iter().map(PendingMove::from).collect())
+    Ok(in_given_order(current, ids))
 }
 
 async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {
@@ -1188,7 +1497,7 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
 
     let sql = format!(
         "SELECT d.id, d.media_id, d.media_title, d.instance_id, d.target_root_folder,
-                d.current_root_folder, m.arr_id, m.current_path
+                d.current_root_folder, m.arr_id
          FROM decisions d
          JOIN media m ON m.id = d.media_id
          WHERE d.id IN ({placeholders})
@@ -1199,21 +1508,17 @@ async fn load_revertible_moves(pool: &SqlitePool, ids: &[String]) -> AppResult<V
         query = query.bind(id);
     }
 
-    Ok(query.fetch_all(pool).await?.into_iter().map(PendingMove::from).collect())
+    Ok(in_given_order(query.fetch_all(pool).await?, ids))
 }
 
-/// Re-root a media path under a new root folder, keeping its own folder name.
-///
-/// The folder name is whatever the Arr already uses, and only the prefix changes.
-fn relocate(current_path: &str, new_root: &str) -> String {
-    let trimmed = current_path.trim_end_matches(['/', '\\']);
-    let separator = if trimmed.contains('\\') && !trimmed.contains('/') { '\\' } else { '/' };
-
-    // A path with no separator at all is itself the folder name.
-    let name = trimmed.rsplit(separator).next().unwrap_or_default();
-    let root = new_root.trim_end_matches(['/', '\\']);
-
-    if name.is_empty() { root.to_string() } else { format!("{root}{separator}{name}") }
+/// The moves in the order their decisions were asked for: an `IN` list
+/// answers in the order of the index it reads.
+fn in_given_order(rows: Vec<MoveRow>, ids: &[String]) -> Vec<PendingMove> {
+    let position: HashMap<&str, usize> =
+        ids.iter().enumerate().map(|(index, id)| (id.as_str(), index)).collect();
+    let mut moves: Vec<PendingMove> = rows.into_iter().map(PendingMove::from).collect();
+    moves.sort_by_key(|mv| position.get(mv.decision_id.as_str()).copied());
+    moves
 }
 
 /// One line of the audit trail for a move or a revert.
@@ -1316,44 +1621,5 @@ mod tests {
         for name in names {
             assert!(listed.contains(name), "{name} is a guardrail nobody can answer");
         }
-    }
-
-    use super::*;
-
-    #[test]
-    fn relocates_under_the_new_root() {
-        assert_eq!(
-            relocate("/movies/standard/Totoro (1988)", "/movies/anime"),
-            "/movies/anime/Totoro (1988)"
-        );
-    }
-
-    #[test]
-    fn tolerates_trailing_slashes_on_either_side() {
-        // A trailing slash must not glue the root to the name, as in
-        // "/movies/animeTotoro (1988)".
-        assert_eq!(
-            relocate("/movies/standard/Totoro (1988)/", "/movies/anime/"),
-            "/movies/anime/Totoro (1988)"
-        );
-    }
-
-    #[test]
-    fn keeps_only_the_leaf_folder_name() {
-        assert_eq!(
-            relocate("/mnt/pool/movies/standard/Akira (1988)", "/tank/anime"),
-            "/tank/anime/Akira (1988)"
-        );
-    }
-
-    #[test]
-    fn handles_windows_paths() {
-        assert_eq!(relocate("D:\\media\\movies\\Akira", "E:\\anime"), "E:\\anime\\Akira");
-    }
-
-    #[test]
-    fn degrades_to_the_root_when_there_is_no_folder_name() {
-        assert_eq!(relocate("Akira", "/tank/anime"), "/tank/anime/Akira");
-        assert_eq!(relocate("/", "/tank/anime"), "/tank/anime");
     }
 }

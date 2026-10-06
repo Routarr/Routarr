@@ -2,10 +2,10 @@
 
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use tracing::debug;
 
-use super::{send_json, send_ok};
+use super::arr_moves::{Api, MoveCommand};
+use super::send_json;
 use crate::error::{AppError, AppResult};
 use crate::models::ExternalId;
 
@@ -162,14 +162,16 @@ impl RadarrClient {
             Err(e) => return Err(e),
         };
         // The lookup builds the film afresh from TMDb, with no id, folder or
-        // tags even when the library holds it: the library is asked for that.
+        // tags even when the library holds it: the library is asked for that,
+        // and its answer held to the id asked, since a proxy or a fork that
+        // ignores the filter answers the whole library.
         let Some(tmdb) = found.tmdb_id else {
             return Ok(Some(found));
         };
         let held: Vec<RadarrMovie> =
             send_json(SERVICE, self.get("/api/v3/movie").query(&[("tmdbId", tmdb.to_string())]))
                 .await?;
-        Ok(Some(held.into_iter().next().unwrap_or(found)))
+        Ok(Some(held.into_iter().find(|movie| movie.tmdb_id == Some(tmdb)).unwrap_or(found)))
     }
 
     /// Get the tag catalogue: a media row only carries numeric ids.
@@ -202,80 +204,28 @@ impl RadarrClient {
         super::directory_exists(SERVICE, self.get("/api/v3/filesystem"), path).await
     }
 
-    /// Bulk update movies: change root folder and optionally move files.
-    ///
-    /// Radarr's editor endpoint takes a list, so a batch of decisions targeting
-    /// the same folder costs one call instead of one call per movie.
-    ///
-    /// Answers the path Radarr gave each movie, by id. With its files moved, a
-    /// movie's folder is named from Radarr's naming format, which the caller
-    /// cannot compose. An answer that lists no path leaves that movie out: the
-    /// edit went through, and only the caller's own composition is left.
-    pub async fn update_movies_root_folder(
+    /// Point one film at `root`, keeping its folder name (`Api::repoint`),
+    /// and answer the path it now has.
+    pub async fn update_movie_path(
         &self,
-        movie_ids: &[i64],
-        root_folder_path: &str,
+        movie_id: i64,
+        root: &str,
         move_files: bool,
-    ) -> AppResult<Option<HashMap<i64, String>>> {
-        if movie_ids.is_empty() {
-            return Ok(Some(HashMap::new()));
-        }
-
-        #[derive(Serialize)]
-        struct MovieEditorRequest<'a> {
-            #[serde(rename = "movieIds")]
-            movie_ids: &'a [i64],
-            #[serde(rename = "rootFolderPath")]
-            root_folder_path: &'a str,
-            #[serde(rename = "moveFiles")]
-            move_files: bool,
-        }
-
-        debug!("Moving {} movie(s) to {}", movie_ids.len(), root_folder_path);
-
-        #[derive(Deserialize)]
-        struct Edited {
-            id: i64,
-            path: Option<String>,
-        }
-
-        let response = super::check_status(
-            SERVICE,
-            self.client
-                .put(format!("{}/api/v3/movie/editor", self.base_url))
-                .header("X-Api-Key", &self.api_key)
-                .json(&MovieEditorRequest { movie_ids, root_folder_path, move_files }),
-        )
-        .await?;
-        // `None` for an answer that lists nothing: the films are taken as
-        // moved, their new path composed by the caller.
-        let Ok(edited) = super::json_within::<Vec<Edited>>(SERVICE, response).await else {
-            debug!("Radarr's movie editor answered without the movies it edited");
-            return Ok(None);
-        };
-        Ok(Some(edited.into_iter().filter_map(|movie| Some((movie.id, movie.path?))).collect()))
+    ) -> AppResult<String> {
+        self.api().repoint("movie", movie_id, root, move_files).await
     }
 
-    /// Trigger a rescan/refresh so Radarr picks up the new location.
-    pub async fn refresh_movies(&self, movie_ids: &[i64]) -> AppResult<()> {
-        if movie_ids.is_empty() {
-            return Ok(());
-        }
+    /// The move commands Radarr lists (`Api::move_commands`).
+    pub async fn move_commands(&self) -> AppResult<Vec<MoveCommand>> {
+        self.api().move_commands().await
+    }
 
-        #[derive(Serialize)]
-        struct CommandRequest<'a> {
-            name: &'a str,
-            #[serde(rename = "movieIds")]
-            movie_ids: &'a [i64],
+    fn api(&self) -> Api<'_> {
+        Api {
+            service: SERVICE,
+            client: &self.client,
+            base_url: &self.base_url,
+            api_key: &self.api_key,
         }
-
-        send_ok(
-            SERVICE,
-            self.client
-                .post(format!("{}/api/v3/command", self.base_url))
-                .header("X-Api-Key", &self.api_key)
-                .json(&CommandRequest { name: "RefreshMovie", movie_ids }),
-        )
-        .await
     }
 }

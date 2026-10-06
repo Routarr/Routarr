@@ -226,16 +226,12 @@ async fn each_film_of_a_batch_takes_the_path_the_arr_answered_for_it() {
     );
 }
 
-/// Progress is written as each slice ends, so the operations queue shows a
-/// run moving rather than one that jumps to its end. Each edit is held, so the
-/// count between two slices stands long enough to be read.
-/// Radarr looks a batch's films up together and fails the whole edit on one
-/// it no longer holds. The others still move, and that one fails alone.
+/// A film Radarr no longer holds fails alone, and the others still move.
 #[tokio::test]
 async fn a_film_radarr_no_longer_holds_fails_alone() {
     let arr = FakeArr::start().await;
-    arr.forget_movie(101);
     let app = TestApp::films_to_move(&arr, 3).await;
+    arr.forget_movie(101);
     let simulation = app.simulate().await;
 
     let report = apply(&app, &simulation).await;
@@ -247,25 +243,6 @@ async fn a_film_radarr_no_longer_holds_fails_alone() {
             .await
             .unwrap();
     assert_eq!(failed, ["m-1"]);
-}
-
-/// A film Radarr's answer leaves out was not moved, whatever the answer says
-/// about the others, and is not recorded as moved.
-#[tokio::test]
-async fn a_film_the_answer_leaves_out_is_not_recorded_as_moved() {
-    let arr = FakeArr::start().await;
-    arr.leave_out_of_the_answer(101);
-    let app = TestApp::films_to_move(&arr, 2).await;
-    let simulation = app.simulate().await;
-
-    let report = apply(&app, &simulation).await;
-
-    assert_eq!((report.applied, report.failed), (1, 1), "{report:?}");
-    let path: String = sqlx::query_scalar("SELECT current_path FROM media WHERE id = 'm-1'")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(path, "/movies/standard/Film 101", "the film left out was recorded as moved");
 }
 
 /// Apply a whole simulation, every guardrail confirmed.
@@ -281,6 +258,9 @@ async fn apply(app: &TestApp, simulation: &str) -> crate::services::executor::Ba
     .unwrap()
 }
 
+/// Progress is written as each slice ends, so the operations queue shows a
+/// run moving rather than one that jumps to its end. Each edit is held, so the
+/// count between two slices stands long enough to be read.
 #[tokio::test]
 async fn progress_is_recorded_as_each_slice_ends() {
     use std::time::Duration;
@@ -318,13 +298,16 @@ async fn progress_is_recorded_as_each_slice_ends() {
     assert!(current < total, "{current} of {total} while running");
 }
 
-/// A run stops at the first refused slice however much moved before it, and
-/// what moved counts: the job succeeded, and its counts say what failed.
+/// A run stops at the first slice the Arr refuses whole however much moved
+/// before it, and what moved counts: the job succeeded, and its counts say
+/// what failed.
 #[tokio::test]
 async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     let arr = FakeArr::start().await;
-    // Film 005, in the second slice of five.
-    arr.refuse_movie(105);
+    // Films 005 to 009, the second slice of five.
+    for id in 105..110 {
+        arr.refuse_movie(id);
+    }
     let app = TestApp::films_to_move(&arr, 12).await;
     set_batch_limit(&app, 5).await;
     let simulation = app.simulate().await;
@@ -343,6 +326,22 @@ async fn a_slice_refused_after_one_that_moved_ends_the_run() {
     assert_eq!((report.batches_run, report.applied, report.failed), (2, 5, 5), "{report:?}");
     assert_eq!(app.count("SELECT COUNT(*) FROM decisions WHERE status = 'pending'").await, 2);
     assert_eq!(app.last_job_status("apply").await, "success");
+}
+
+/// One film the Arr refuses, deleted there since the last sync say, fails
+/// alone, and the slices after it still run.
+#[tokio::test]
+async fn one_refused_film_does_not_end_the_run() {
+    let arr = FakeArr::start().await;
+    arr.refuse_movie(105);
+    let app = TestApp::films_to_move(&arr, 12).await;
+    set_batch_limit(&app, 5).await;
+    let simulation = app.simulate().await;
+
+    let report = apply(&app, &simulation).await;
+
+    assert!(!report.stopped_early, "{report:?}");
+    assert_eq!((report.batches_run, report.applied, report.failed), (3, 11, 1), "{report:?}");
 }
 
 #[tokio::test]

@@ -26,6 +26,8 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("013_opened_by", include_str!("../migrations/013_opened_by.sql")),
     ("014_routing_generation", include_str!("../migrations/014_routing_generation.sql")),
     ("015_certification_scale", include_str!("../migrations/015_certification_scale.sql")),
+    ("016_requested_moves", include_str!("../migrations/016_requested_moves.sql")),
+    ("017_drop_refresh_after_move", include_str!("../migrations/017_drop_refresh_after_move.sql")),
 ];
 
 /// Initialize the SQLite connection pool and run migrations.
@@ -196,23 +198,47 @@ async fn apply_migrations(
 
         info!("Running migration: {}", name);
 
-        // One transaction per migration: a failure half-way leaves the schema
-        // untouched instead of half-applied and unrecorded.
-        let mut tx = pool.begin().await?;
-        for statement in split_statements(sql) {
-            sqlx::query(AssertSqlSafe(statement.as_str())).execute(&mut *tx).await?;
-        }
-        sqlx::query("INSERT INTO _migrations (name) VALUES (?)")
-            .bind(name)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
+        // A table rebuilt through a copy drops the original, and with foreign
+        // keys on that deletes or refuses every row pointing at it. SQLite
+        // takes the switch only outside a transaction, so it is turned off on
+        // the connection that migrates, and `foreign_key_check` stands in for
+        // it before the commit.
+        let mut connection = pool.acquire().await?;
+        sqlx::query("PRAGMA foreign_keys = OFF").execute(&mut *connection).await?;
+        let applied = apply_migration(&mut connection, name, sql).await;
+        let restored = sqlx::query("PRAGMA foreign_keys = ON").execute(&mut *connection).await;
+        applied?;
+        restored?;
 
         info!("Migration {} applied successfully", name);
     }
 
     info!("All migrations up to date");
     Ok(())
+}
+
+/// One migration and its record, in one transaction: a failure half-way
+/// leaves the schema untouched instead of half-applied and unrecorded.
+async fn apply_migration(
+    connection: &mut sqlx::SqliteConnection,
+    name: &str,
+    sql: &str,
+) -> Result<(), sqlx::Error> {
+    use sqlx::Connection;
+    let mut tx = connection.begin_with("BEGIN IMMEDIATE").await?;
+    for statement in split_statements(sql) {
+        sqlx::query(AssertSqlSafe(statement.as_str())).execute(&mut *tx).await?;
+    }
+    let orphans: Vec<(String,)> = sqlx::query_as("SELECT \"table\" FROM pragma_foreign_key_check")
+        .fetch_all(&mut *tx)
+        .await?;
+    if let Some((table,)) = orphans.first() {
+        return Err(sqlx::Error::Protocol(format!(
+            "migration {name} leaves rows of {table} pointing at nothing"
+        )));
+    }
+    sqlx::query("INSERT INTO _migrations (name) VALUES (?)").bind(name).execute(&mut *tx).await?;
+    tx.commit().await
 }
 
 /// Split a migration into statements.
@@ -405,6 +431,67 @@ mod tests {
                 "idx_source_identifiers_resolved",
             ]
         );
+    }
+
+    /// A pool holding one instance, one title and one override of it.
+    async fn library_with_an_override() -> SqlitePool {
+        let pool = test_pool().await;
+        for statement in [
+            "INSERT INTO instances (id, name, instance_type, base_url, api_key)
+             VALUES ('i-1', 'Radarr', 'radarr', 'http://127.0.0.1:1', 'k')",
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title)
+             VALUES ('m-1', 'i-1', 10, 'movie', 'Totoro')",
+            "INSERT INTO overrides (id, media_id, target_category) VALUES ('o-1', 'm-1', 'anime')",
+        ] {
+            sqlx::query(statement).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    async fn overrides(pool: &SqlitePool) -> i64 {
+        sqlx::query_scalar("SELECT COUNT(*) FROM overrides").fetch_one(pool).await.unwrap()
+    }
+
+    /// SQLite changes a CHECK or a column type only by rebuilding the table,
+    /// and dropping the original under foreign keys deletes what points at it.
+    #[tokio::test]
+    async fn a_migration_that_rebuilds_a_parent_table_keeps_its_children() {
+        let pool = library_with_an_override().await;
+
+        apply_migrations(
+            &pool,
+            &[(
+                "test_rebuild",
+                "CREATE TABLE media_new (id TEXT PRIMARY KEY, instance_id TEXT NOT NULL,
+                     arr_id INTEGER NOT NULL, media_type TEXT NOT NULL, title TEXT NOT NULL);
+                 INSERT INTO media_new SELECT id, instance_id, arr_id, media_type, title FROM media;
+                 DROP TABLE media;
+                 ALTER TABLE media_new RENAME TO media;",
+            )],
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(overrides(&pool).await, 1, "the rebuild deleted the override");
+        let enforced: i64 =
+            sqlx::query_scalar("PRAGMA foreign_keys").fetch_one(&pool).await.unwrap();
+        assert_eq!(enforced, 1, "foreign keys stayed off after the migration");
+    }
+
+    /// With foreign keys off while it runs, a migration is held to them
+    /// before it commits.
+    #[tokio::test]
+    async fn a_migration_that_leaves_a_row_pointing_at_nothing_is_refused() {
+        let pool = library_with_an_override().await;
+
+        let refused =
+            apply_migrations(&pool, &[("test_orphan", "DELETE FROM media WHERE id = 'm-1';")])
+                .await;
+
+        assert!(refused.is_err(), "the orphaned override was committed");
+        let titles: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
+        assert_eq!((titles, overrides(&pool).await), (1, 1), "the migration was not rolled back");
     }
 
     #[test]

@@ -42,23 +42,10 @@ async fn proposed_move(app: &TestApp) -> String {
     .expect("one proposed move")
 }
 
-/// Where the last move asked the Arr to put a title: Radarr's editor names
-/// the root folder, Sonarr's update the series' own folder. A command the
-/// move sends after it names neither.
+/// The folder the last move asked the Arr to put a title in.
 fn last_destination(arr: &FakeArr) -> String {
     let recorded = arr.recorded();
-    recorded
-        .writes
-        .iter()
-        .rev()
-        .find_map(|write| {
-            write["rootFolderPath"]
-                .as_str()
-                .filter(|_| write.get("movieIds").is_some())
-                .or_else(|| write["path"].as_str())
-        })
-        .expect("a move")
-        .to_string()
+    recorded.writes.last().and_then(|write| write["path"].as_str()).expect("a move").to_string()
 }
 
 #[tokio::test]
@@ -93,7 +80,7 @@ async fn a_move_on_a_windows_radarr_names_its_folder_and_can_be_put_back() {
         )
         .await;
     assert_eq!(applied.assert_ok()["applied"], 1, "{:?}", applied.json);
-    assert_eq!(last_destination(&arr), "D:\\Media\\movies\\kids\\");
+    assert_eq!(last_destination(&arr), "D:\\Media\\movies\\kids\\My Neighbor Totoro (1988)");
 
     let reverted = app
         .post(
@@ -102,10 +89,10 @@ async fn a_move_on_a_windows_radarr_names_its_folder_and_can_be_put_back() {
         )
         .await;
     assert_eq!(reverted.assert_ok()["applied"], 1, "{:?}", reverted.json);
-    assert!(
-        last_destination(&arr).trim_end_matches('\\') == "D:\\Media\\movies\\standard",
-        "put back where it was: {}",
-        last_destination(&arr)
+    assert_eq!(
+        last_destination(&arr),
+        "D:\\Media\\movies\\standard\\My Neighbor Totoro (1988)",
+        "not put back where it was"
     );
 }
 

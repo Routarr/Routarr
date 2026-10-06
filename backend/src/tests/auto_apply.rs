@@ -75,19 +75,14 @@ async fn a_media_with_no_files_yet_is_routed_without_asking() {
     assert_eq!(report.applied, 1);
     assert_eq!(report.failed, 0);
 
-    // It really went over the wire, to the right folder. (The bulk edit is not
-    // the only recorded write: `refresh_after_move` also posts a rescan command.)
+    // It really went over the wire, to the right folder.
     let recorded = arr.recorded();
-    let edit = recorded
-        .writes
-        .iter()
-        .find(|w| w.get("rootFolderPath").is_some())
-        .expect("the bulk editor must have been called");
-    assert_eq!(edit["rootFolderPath"], "/movies/anime");
+    assert_eq!(recorded.writes.len(), 1, "{:?}", recorded.writes);
+    assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
 
     // And never asks the Arr to move files: there are none, and auto-apply is
     // defined as the case where no bytes move.
-    assert_eq!(edit["moveFiles"], false, "auto-apply must not request a disk move");
+    assert_eq!(recorded.query_strings, ["moveFiles=false"], "auto-apply requested a disk move");
 }
 
 /// A film downloaded between the sync and the pass has a file the database
@@ -349,13 +344,8 @@ async fn a_newly_added_film_is_routed_before_its_file_arrives() {
     // recording lock is released before the query below awaits.
     {
         let recorded = arr.recorded();
-        let edit = recorded
-            .writes
-            .iter()
-            .find(|w| w.get("rootFolderPath").is_some())
-            .expect("the bulk editor must have been called");
-        assert_eq!(edit["rootFolderPath"], "/movies/anime");
-        assert_eq!(edit["moveFiles"], false);
+        assert_eq!(recorded.writes[0]["rootFolderPath"], "/movies/anime");
+        assert_eq!(recorded.query_strings, ["moveFiles=false"]);
     }
 
     // Routarr's own view followed, so the next simulation does not repropose it.

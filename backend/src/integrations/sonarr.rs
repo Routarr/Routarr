@@ -4,7 +4,8 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use super::{send_json, send_ok};
+use super::arr_moves::{Api, MoveCommand};
+use super::send_json;
 use crate::error::{AppError, AppResult};
 use crate::models::ExternalId;
 
@@ -162,151 +163,28 @@ impl SonarrClient {
         send_json(SERVICE, self.get("/api/v3/tag")).await
     }
 
-    /// Move one series to a new root folder.
-    ///
-    /// One request per series, although Sonarr's `PUT /api/v3/series/editor`
-    /// takes a list: the executor records each series from its own answer, and
-    /// records its new path as the target plus the folder name it already had
-    /// (`relocate`). The editor answers once for the whole list, and names each
-    /// destination folder from Sonarr's naming format instead of keeping the
-    /// one on disk.
-    ///
-    /// The full series object is read back, patched and re-sent, since anything
-    /// less drops fields the PUT expects. The existing folder name is kept:
-    /// deriving it from `titleSlug` would silently *rename* the on-disk
-    /// directory during what was asked to be a move.
+    /// Point one series at `root`, keeping its folder name (`Api::repoint`),
+    /// and answer the path it now has.
     pub async fn update_series_path(
         &self,
         series_id: i64,
-        new_root_folder_path: &str,
+        root: &str,
         move_files: bool,
-    ) -> AppResult<()> {
-        let mut series: serde_json::Value =
-            send_json(SERVICE, self.get(&format!("/api/v3/series/{series_id}"))).await?;
+    ) -> AppResult<String> {
+        self.api().repoint("series", series_id, root, move_files).await
+    }
 
-        // Assigning a key of a `Value` that is not an object panics, and the two
-        // assignments below do that. A proxy answering 200 with a cached `[]`,
-        // or a base URL pointing at another service on the same host, is enough
-        // to get one, and the apply would abort on a 500 naming nothing instead
-        // of a 502 naming Sonarr.
-        if !series.is_object() {
-            return Err(AppError::ExternalApi {
-                service: SERVICE.to_string(),
-                status: 0,
-                message: format!(
-                    "series {series_id} came back as {}, not an object",
-                    kind_of(&series)
-                ),
-                retry_after: None,
-            });
+    /// The move commands Sonarr lists (`Api::move_commands`).
+    pub async fn move_commands(&self) -> AppResult<Vec<MoveCommand>> {
+        self.api().move_commands().await
+    }
+
+    fn api(&self) -> Api<'_> {
+        Api {
+            service: SERVICE,
+            client: &self.client,
+            base_url: &self.base_url,
+            api_key: &self.api_key,
         }
-
-        let folder_name = current_folder_name(&series).unwrap_or_else(|| slugify_fallback(&series));
-        let new_path = join_path(new_root_folder_path, &folder_name);
-
-        series["rootFolderPath"] = serde_json::Value::String(new_root_folder_path.to_string());
-        series["path"] = serde_json::Value::String(new_path);
-
-        send_ok(
-            SERVICE,
-            self.client
-                .put(format!("{}/api/v3/series/{series_id}?moveFiles={move_files}", self.base_url))
-                .header("X-Api-Key", &self.api_key)
-                .json(&series),
-        )
-        .await
-    }
-
-    /// Trigger a rescan/refresh so Sonarr picks up the new location.
-    pub async fn refresh_series(&self, series_id: i64) -> AppResult<()> {
-        #[derive(Serialize)]
-        struct CommandRequest<'a> {
-            name: &'a str,
-            #[serde(rename = "seriesId")]
-            series_id: i64,
-        }
-
-        send_ok(
-            SERVICE,
-            self.client
-                .post(format!("{}/api/v3/command", self.base_url))
-                .header("X-Api-Key", &self.api_key)
-                .json(&CommandRequest { name: "RefreshSeries", series_id }),
-        )
-        .await
-    }
-}
-
-/// A payload's shape, for a message that says what came back instead.
-fn kind_of(value: &serde_json::Value) -> &'static str {
-    match value {
-        serde_json::Value::Null => "null",
-        serde_json::Value::Bool(_) => "a boolean",
-        serde_json::Value::Number(_) => "a number",
-        serde_json::Value::String(_) => "a string",
-        serde_json::Value::Array(_) => "an array",
-        serde_json::Value::Object(_) => "an object",
-    }
-}
-
-/// The last path segment of the series' current folder, which is the name the
-/// user (or Sonarr's naming config) already chose.
-fn current_folder_name(series: &serde_json::Value) -> Option<String> {
-    let path = series.get("path")?.as_str()?.trim_end_matches(['/', '\\']);
-    let name = path.rsplit(['/', '\\']).next()?;
-    (!name.is_empty()).then(|| name.to_string())
-}
-
-/// Only used when the series has no path yet (never scanned).
-fn slugify_fallback(series: &serde_json::Value) -> String {
-    series
-        .get("titleSlug")
-        .and_then(|v| v.as_str())
-        .or_else(|| series.get("title").and_then(|v| v.as_str()))
-        .unwrap_or("unknown")
-        .to_string()
-}
-
-fn join_path(root: &str, name: &str) -> String {
-    let separator = if root.contains('\\') && !root.contains('/') { '\\' } else { '/' };
-    format!("{}{separator}{name}", root.trim_end_matches(['/', '\\']))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn preserves_the_existing_folder_name() {
-        let series = json!({
-            "path": "/tv/standard/Cowboy Bebop (1998)",
-            "titleSlug": "cowboy-bebop",
-        });
-        assert_eq!(current_folder_name(&series).as_deref(), Some("Cowboy Bebop (1998)"));
-    }
-
-    #[test]
-    fn tolerates_a_trailing_slash() {
-        let series = json!({ "path": "/tv/standard/Dark/" });
-        assert_eq!(current_folder_name(&series).as_deref(), Some("Dark"));
-    }
-
-    #[test]
-    fn falls_back_to_the_slug_when_never_scanned() {
-        let series = json!({ "titleSlug": "cowboy-bebop" });
-        assert_eq!(current_folder_name(&series), None);
-        assert_eq!(slugify_fallback(&series), "cowboy-bebop");
-    }
-
-    #[test]
-    fn builds_unix_paths() {
-        assert_eq!(join_path("/tv/anime/", "Dark"), "/tv/anime/Dark");
-        assert_eq!(join_path("/tv/anime", "Dark"), "/tv/anime/Dark");
-    }
-
-    #[test]
-    fn builds_windows_paths() {
-        assert_eq!(join_path("D:\\tv\\anime", "Dark"), "D:\\tv\\anime\\Dark");
     }
 }
