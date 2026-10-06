@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} بلا قيمة ولن يتطابق أبدًا. اختر قيمة واحدة على الأقل، أو احذفه.",
   "ValidationConditionNoSource": "{condition} يحتاج بيانات وصفية لا يوفّرها أي مصدر مفعّل",
   "ValidationContradiction": "الشرطان «{first}» و«{second}» متناقضان ولا يمكن أن يتطابقا معًا",
-  "ValidationDaysNegative": "{condition}: عدد أيام سالب (‎{value}) لا يمكن أن يتطابق أبدًا",
   "ValidationExclusionConflict": "الشرط «{kind}» مطلوب ومستبعَد في آن واحد، لذا لا يمكن أن تتطابق القاعدة أبدًا",
   "ValidationIssues": "نتائج التحقق",
   "ValidationMediaType": "يجب أن تكون media_type إحدى القيم «movie» أو «series» أو «both»",

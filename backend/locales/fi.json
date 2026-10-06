@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}: ei arvoa, joten se ei voi koskaan täsmätä. Valitse vähintään yksi tai poista se.",
   "ValidationConditionNoSource": "{condition} vaatii metatietoja, joita mikään käytössä oleva lähde ei tarjoa",
   "ValidationContradiction": "Ehdot \"{first}\" ja \"{second}\" ovat ristiriidassa eivätkä voi koskaan täsmätä yhtä aikaa",
-  "ValidationDaysNegative": "{condition}: negatiivinen päivien määrä ({value}) ei voi koskaan täsmätä",
   "ValidationExclusionConflict": "Ehto \"{kind}\" on sekä vaadittu että poissuljettu, joten sääntö ei voi koskaan toteutua",
   "ValidationIssues": "Tarkistuksen tulokset",
   "ValidationMediaType": "media_type on oltava \"movie\", \"series\" tai \"both\"",

@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}에 값이 없어 절대 일치하지 않습니다. 값을 하나 이상 선택하거나 제거하세요.",
   "ValidationConditionNoSource": "{condition}에는 메타데이터가 필요하지만 활성화된 소스 중 어느 것도 제공하지 않습니다",
   "ValidationContradiction": "조건 '{first}'와(과) '{second}'은(는) 서로 모순되어 동시에 일치할 수 없습니다",
-  "ValidationDaysNegative": "{condition}: 음수 일수({value})는 절대 일치할 수 없습니다",
   "ValidationExclusionConflict": "조건 '{kind}'이(가) 필수인 동시에 제외되어 있습니다: 이 규칙은 절대 적용되지 않습니다",
   "ValidationIssues": "검증 결과",
   "ValidationMediaType": "media_type은 'movie', 'series', 'both' 중 하나여야 합니다",

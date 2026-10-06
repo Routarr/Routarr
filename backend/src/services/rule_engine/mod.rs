@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 mod folding;
 mod validation;
 
-pub use folding::normalise_value;
+pub use folding::{certification_key, normalise_value};
 use folding::{contains_all, contains_any};
-pub use validation::{RuleDraft, ValidationEnv, validate_rule};
+pub use validation::{MAX_NAME_LENGTH, RuleDraft, ValidationEnv, validate_rule};
 
 use crate::models::{Condition, MatchMode, Media, MediaMetadata, Rule};
 
@@ -155,13 +155,7 @@ pub fn evaluate_rules(
             continue;
         }
 
-        // Exclusions are evaluated only once the rule would otherwise fire, and
-        // any single one of them vetoes it.
-        let veto = rule
-            .exclusions
-            .iter()
-            .map(|c| evaluate_single_condition(c, ctx))
-            .find(|outcome| outcome.matched);
+        let veto = veto(rule, ctx);
 
         let confidence = confidence_for(&evaluations, rule.match_mode);
         let mut hit = RuleMatch {
@@ -185,6 +179,15 @@ pub fn evaluate_rules(
     let winner = if matches.is_empty() { None } else { Some(matches.remove(0)) };
 
     Evaluation { winner, alternatives: matches, excluded }
+}
+
+/// The exclusion that sets aside `rule`, whose conditions hold. Read only
+/// once the rule would otherwise fire, and any one of them vetoes it.
+pub fn veto(rule: &Rule, ctx: EvalContext<'_>) -> Option<ConditionOutcome> {
+    rule.exclusions
+        .iter()
+        .map(|c| evaluate_single_condition(c, ctx))
+        .find(|outcome| outcome.matched)
 }
 
 /// Confidence heuristic: more agreeing signals means a more trustworthy call.
@@ -355,9 +358,10 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::CertificationIn(values) => {
             let cert = metadata.and_then(|m| m.certification.as_deref()).unwrap_or("");
+            let held = certification_key(cert);
             ConditionOutcome::new(
                 kind,
-                !cert.is_empty() && contains_any(&[cert.to_string()], values),
+                !held.is_empty() && values.iter().any(|value| certification_key(value) == held),
                 "ConditionCertificationIn",
                 &[("values", values.join(", "))],
                 cert.to_string(),
@@ -531,8 +535,7 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
             let added = media.added_at.as_deref().and_then(parse_timestamp);
             ConditionOutcome::new(
                 kind,
-                added
-                    .is_some_and(|added| added <= ctx.now && (ctx.now - added).num_days() <= *days),
+                added.is_some_and(|added| added_within(ctx.now - added, *days)),
                 "ConditionAddedWithinDays",
                 &[("value", days.to_string())],
                 media.added_at.clone().unwrap_or_default(),
@@ -546,6 +549,16 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
     }
 
     outcome
+}
+
+/// How far ahead of Routarr's clock an Arr's may run: a title it dates that
+/// much in the future has just been added.
+const CLOCK_AHEAD: chrono::TimeDelta = chrono::TimeDelta::days(1);
+
+/// Whether a title `age` old was added within the last `days` days of 24
+/// hours. A count past what a duration holds reaches every past date.
+fn added_within(age: chrono::TimeDelta, days: i64) -> bool {
+    age >= -CLOCK_AHEAD && chrono::TimeDelta::try_days(days).is_none_or(|window| age <= window)
 }
 
 /// Whether a language is among `values`. A missing language is absent, never
@@ -1222,6 +1235,28 @@ mod tests {
         assert!(!matches_without_metadata(Condition::CertificationIn(vec!["".into()])));
     }
 
+    /// MyAnimeList's `R+` is its own rating, not the MPA's `R`, as the
+    /// library's facets already list them.
+    #[test]
+    fn a_myanimelist_r_plus_is_not_an_r() {
+        let rated = |code: &str| {
+            let media = media();
+            let metadata = MediaMetadata { certification: Some(code.into()), ..metadata() };
+            move |values: &[&str]| {
+                let values = values.iter().map(|v| v.to_string()).collect();
+                evaluate_single_condition(
+                    &Condition::CertificationIn(values),
+                    EvalContext { media: &media, metadata: Some(&metadata), now: now() },
+                )
+                .matched
+            }
+        };
+        assert!(!rated("R")(&["R+"]));
+        assert!(rated("R")(&["R"]));
+        assert!(rated("R+")(&["r+"]));
+        assert!(rated("PG-13")(&["pg 13"]), "a separator is still one");
+    }
+
     #[test]
     fn root_folder_comparison_ignores_trailing_slashes() {
         assert!(matches(Condition::CurrentRootFolder("/movies/standard/".into())));
@@ -1326,20 +1361,22 @@ mod tests {
         assert!(!matches_on(|m| m.tvdb_id = Some(76885), Condition::TvdbIdIn(vec![1])));
     }
 
+    /// N days are N times 24 hours before the injected clock, and an Arr
+    /// whose clock runs ahead of Routarr's by less than a day dates a title it
+    /// has just added a little in the future, which still reads as just added.
     #[test]
-    fn added_within_days_uses_the_injected_clock() {
-        assert!(matches(Condition::AddedWithinDays(7)));
-        // Added 26 hours before the clock: one whole day, not zero.
-        assert!(matches(Condition::AddedWithinDays(1)));
-        assert!(!matches(Condition::AddedWithinDays(0)));
-
-        let mut old = media();
-        old.added_at = Some("2020-01-01 00:00:00".into());
-        let outcome = evaluate_single_condition(
-            &Condition::AddedWithinDays(7),
-            EvalContext { media: &old, metadata: None, now: now() },
-        );
-        assert!(!outcome.matched);
+    fn added_within_days_counts_whole_days_back_from_the_clock() {
+        use chrono::TimeDelta;
+        let added = |before: TimeDelta| {
+            let stamp = (now() - before).format("%Y-%m-%d %H:%M:%S").to_string();
+            matches_on(|m| m.added_at = Some(stamp), Condition::AddedWithinDays(7))
+        };
+        assert!(!added(TimeDelta::days(7) + TimeDelta::hours(23)));
+        assert!(added(TimeDelta::days(6) + TimeDelta::hours(23)));
+        assert!(added(TimeDelta::days(7)));
+        assert!(added(-TimeDelta::minutes(2)), "a clock two minutes ahead");
+        assert!(!added(-TimeDelta::days(2)));
+        assert!(!added(TimeDelta::days(2000)));
     }
 
     #[test]

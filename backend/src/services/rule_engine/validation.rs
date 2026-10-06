@@ -1,14 +1,15 @@
 //! What makes a rule refused or flagged before it is stored.
 
-use super::normalise_value;
+use super::{certification_key, normalise_value};
 use crate::models::{Condition, MatchMode, MetadataField, ValidationIssue};
 
 /// The first value a list condition names twice, compared as matching compares
-/// them: `science fiction` repeats `Science-Fiction`. Read through the stored
-/// shape, `{"type": …, "value": […]}`, so a list variant added later is covered
-/// without an arm here.
+/// them: `science fiction` repeats `Science-Fiction`, and `R+` does not repeat
+/// `R`. Read through the stored shape, `{"type": …, "value": […]}`, so a list
+/// variant added later is covered without an arm here.
 fn repeated_value(condition: &Condition) -> Option<String> {
     let stored = serde_json::to_value(condition).ok()?;
+    let key = key_of(condition);
     let mut seen = std::collections::HashSet::new();
     stored
         .get("value")?
@@ -16,7 +17,7 @@ fn repeated_value(condition: &Condition) -> Option<String> {
         .iter()
         .map(|value| value.as_str().map_or_else(|| value.to_string(), str::to_string))
         .find(|text| {
-            let key = normalise_value(text);
+            let key = key(text);
             !key.is_empty() && !seen.insert(key)
         })
 }
@@ -166,15 +167,18 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
                 }
             }
         }
-        // `added <= now` makes the elapsed day count non-negative, so a negative
-        // threshold can never match. Zero can: it means the last day.
-        if let Condition::AddedWithinDays(days) = condition
-            && *days < 0
+        // No title was added within the last zero days, and every title with
+        // a file is over zero gigabytes: a count below one is a mistake, and
+        // stored it reads like a rule that correctly matches nothing.
+        if let Condition::AddedWithinDays(count)
+        | Condition::SizeOnDiskOverGb(count)
+        | Condition::SeasonCountOver(count) = condition
+            && *count < 1
         {
             issues.push(ValidationIssue::error(
                 section,
-                "ValidationDaysNegative",
-                &at(&[("value", days.to_string())]),
+                "ValidationValueBelowOne",
+                &at(&[("value", count.to_string())]),
             ));
         }
         if let Some(field) = condition.metadata_field()
@@ -200,7 +204,7 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
     }
 
     for exclusion in exclusions {
-        if conditions.contains(exclusion) {
+        if conditions.iter().any(|condition| folded(condition) == folded(exclusion)) {
             issues.push(ValidationIssue::error(
                 "exclusions",
                 "ValidationExclusionConflict",
@@ -219,14 +223,15 @@ fn contradicts(a: &Condition, b: &Condition) -> bool {
         (HasFiles(x), HasFiles(y))
         | (Monitored(x), Monitored(y))
         | (HasMetadata(x), HasMetadata(y)) => x != y,
-        // Requiring a value (any of them or all of them) and forbidding the
-        // same value can never both hold.
+        // Any of a list, with values forbidden: impossible only when every
+        // value of the list is.
         (GenreContains(x), GenreNotContains(y))
         | (GenreNotContains(y), GenreContains(x))
-        | (GenreContainsAll(x), GenreNotContains(y))
-        | (GenreNotContains(y), GenreContainsAll(x)) => overlaps(x, y),
-        (KeywordContains(x), KeywordNotContains(y))
-        | (KeywordNotContains(y), KeywordContains(x))
+        | (KeywordContains(x), KeywordNotContains(y))
+        | (KeywordNotContains(y), KeywordContains(x)) => forbids_all(y, x),
+        // All of a list, with values forbidden: impossible as soon as one is.
+        (GenreContainsAll(x), GenreNotContains(y))
+        | (GenreNotContains(y), GenreContainsAll(x))
         | (KeywordContainsAll(x), KeywordNotContains(y))
         | (KeywordNotContains(y), KeywordContainsAll(x)) => overlaps(x, y),
         (OriginalLanguage(x), OriginalLanguageNot(y))
@@ -258,6 +263,38 @@ fn tightest(a: Option<i64>, b: Option<i64>, pick: fn(i64, i64) -> i64) -> Option
 /// a contradiction here too.
 fn overlaps(a: &[String], b: &[String]) -> bool {
     a.iter().any(|x| b.iter().any(|y| normalise_value(x) == normalise_value(y)))
+}
+
+/// Whether `forbidden` holds every value of `wanted`, compared as `overlaps`.
+fn forbids_all(forbidden: &[String], wanted: &[String]) -> bool {
+    let forbidden: Vec<String> = forbidden.iter().map(|v| normalise_value(v)).collect();
+    let mut wanted = wanted.iter().map(|v| normalise_value(v)).filter(|v| !v.is_empty()).peekable();
+    wanted.peek().is_some() && wanted.all(|v| forbidden.contains(&v))
+}
+
+/// How the values of a condition of this kind are told apart.
+fn key_of(condition: &Condition) -> fn(&str) -> String {
+    match condition {
+        Condition::CertificationIn(_) => certification_key,
+        _ => normalise_value,
+    }
+}
+
+/// A condition as the engine reads it: its kind, and its values folded, once
+/// each, in no particular order.
+fn folded(condition: &Condition) -> serde_json::Value {
+    let mut stored = serde_json::to_value(condition).unwrap_or_default();
+    if let Some(values) = stored.get_mut("value").and_then(serde_json::Value::as_array_mut) {
+        let key = key_of(condition);
+        let mut kept: Vec<serde_json::Value> = values
+            .iter()
+            .map(|value| value.as_str().map_or_else(|| value.clone(), |text| key(text).into()))
+            .collect();
+        kept.sort_by_key(serde_json::Value::to_string);
+        kept.dedup();
+        *values = kept;
+    }
+    stored
 }
 
 #[cfg(test)]
@@ -382,6 +419,12 @@ mod tests {
                 KeywordNotContains(list(&["Mecha"])),
                 KeywordNotContains(list(&["isekai"])),
             ),
+            // Any of two genres, one of them forbidden: the other still holds.
+            (
+                GenreContains(list(&["Animation", "Drama"])),
+                GenreNotContains(list(&["animation", "drama", "Western"])),
+                GenreNotContains(list(&["Drama"])),
+            ),
             (
                 KeywordContainsAll(list(&["mecha", "space"])),
                 KeywordNotContains(list(&["space"])),
@@ -463,11 +506,22 @@ mod tests {
         assert!(issues.iter().any(|i| i.is_error()));
     }
 
+    /// Compared as the engine compares: an exclusion spelled otherwise than its
+    /// condition vetoes every title the condition lets in all the same.
     #[test]
     fn a_condition_that_is_also_an_exclusion_is_rejected() {
-        let condition = Condition::GenreContains(vec!["Animation".into()]);
-        let issues = validate(vec![condition.clone()], vec![condition]);
-        assert!(issues.iter().any(|i| i.is_error() && i.field == "exclusions"));
+        let condition = Condition::GenreContains(vec!["Animation".into(), "Family".into()]);
+        let respelled = Condition::GenreContains(vec!["family".into(), " ANIMATION".into()]);
+        for exclusion in [condition.clone(), respelled] {
+            let issues = validate(vec![condition.clone()], vec![exclusion]);
+            assert!(
+                issues.iter().any(|i| i.is_error() && i.key == "ValidationExclusionConflict"),
+                "{issues:?}"
+            );
+        }
+        let narrower = Condition::GenreContains(vec!["Family".into()]);
+        let issues = validate(vec![condition], vec![narrower]);
+        assert!(!issues.iter().any(|i| i.key == "ValidationExclusionConflict"), "{issues:?}");
     }
 
     /// An error, not a warning: stored, the rule would never match and would
@@ -504,6 +558,10 @@ mod tests {
         let distinct =
             validate(vec![Condition::GenreContains(vec!["Drama".into(), "Comedy".into()])], vec![]);
         assert!(!distinct.iter().any(|i| i.key == "ValidationValueRepeated"), "{distinct:?}");
+
+        let ratings =
+            validate(vec![Condition::CertificationIn(vec!["R".into(), "R+".into()])], vec![]);
+        assert!(!ratings.iter().any(|i| i.key == "ValidationValueRepeated"), "{ratings:?}");
     }
 
     #[test]
@@ -546,15 +604,29 @@ mod tests {
         assert!(!issues.iter().any(|i| i.key == "ValidationYearImplausible"), "{issues:?}");
     }
 
-    /// `added <= now` makes the day count non-negative, so a negative threshold
-    /// never matches, while zero means the last day and is a real answer.
+    /// A count of days, of gigabytes or of seasons below one is refused for
+    /// what it is: no day is the last zero, and "over 0" holds for nearly
+    /// every title. A count that is not empty is not called empty.
     #[test]
-    fn a_negative_day_count_is_an_error_and_zero_is_not() {
-        let issues = validate(vec![Condition::AddedWithinDays(-5)], vec![]);
-        assert!(issues.iter().any(|i| i.is_error() && i.key == "ValidationDaysNegative"));
-
-        let today = validate(vec![Condition::AddedWithinDays(0)], vec![]);
-        assert!(today.is_empty(), "{today:?}");
+    fn a_count_below_one_is_refused_as_too_low() {
+        for low in [
+            Condition::AddedWithinDays(0),
+            Condition::AddedWithinDays(-5),
+            Condition::SizeOnDiskOverGb(0),
+            Condition::SeasonCountOver(-1),
+        ] {
+            let keys: Vec<String> =
+                validate(vec![low.clone()], vec![]).into_iter().map(|i| i.key).collect();
+            assert_eq!(keys, ["ValidationValueBelowOne"], "{low:?}");
+        }
+        for one in [
+            Condition::AddedWithinDays(1),
+            Condition::SizeOnDiskOverGb(1),
+            Condition::SeasonCountOver(1),
+        ] {
+            let issues = validate(vec![one.clone()], vec![]);
+            assert!(issues.is_empty(), "{one:?}: {issues:?}");
+        }
     }
 
     #[test]

@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}没有值，将永远无法匹配。请至少选择一个值，或将其移除。",
   "ValidationConditionNoSource": "{condition}需要元数据，但已启用的来源都不提供",
   "ValidationContradiction": "条件「{first}」与「{second}」相互矛盾，永远无法同时匹配",
-  "ValidationDaysNegative": "{condition}：负的天数（{value}）永远不会匹配",
   "ValidationExclusionConflict": "条件「{kind}」同时被要求和排除：此规则将永远不会生效",
   "ValidationIssues": "验证结果",
   "ValidationMediaType": "media_type 必须为「movie」「series」或「both」",

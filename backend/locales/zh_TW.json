@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}沒有值，將永遠無法符合。請至少選擇一個值，或將其移除。",
   "ValidationConditionNoSource": "{condition}需要中繼資料，但已啟用的來源都未提供",
   "ValidationContradiction": "條件「{first}」與「{second}」互相矛盾，永遠無法同時符合",
-  "ValidationDaysNegative": "{condition}：負的天數（{value}）永遠不會符合",
   "ValidationExclusionConflict": "條件「{kind}」同時被要求與排除：此規則將永遠不會生效",
   "ValidationIssues": "驗證結果",
   "ValidationMediaType": "media_type 必須為「movie」「series」或「both」",

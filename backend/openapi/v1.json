@@ -367,6 +367,29 @@
         ],
         "type": "object"
       },
+      "BundledRule": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CreateRuleRequest"
+          },
+          {
+            "properties": {
+              "instance_names": {
+                "description": "The instances the rule is limited to, by name. Absent for every\ninstance. A rule naming none this installation has is not imported.",
+                "items": {
+                  "type": "string"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          }
+        ],
+        "description": "A rule as a bundle carries it, its instance scope by name: an id means\nnothing on another installation, and a scope dropped would let the rule\nroute every instance."
+      },
       "CapacityForecast": {
         "description": "One destination folder, and the weight of what this plan sends to it.",
         "properties": {
@@ -1057,7 +1080,7 @@
             "type": "object"
           },
           {
-            "description": "Media added to the Arr instance within the last N days, so a rule can\ntarget new additions without touching the existing library.",
+            "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
             "properties": {
               "type": {
                 "enum": [
@@ -1066,7 +1089,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Media added to the Arr instance within the last N days, so a rule can\ntarget new additions without touching the existing library.",
+                "description": "Media added to the Arr instance within the last N days, N times 24\nhours, so a rule can target new additions without touching the\nexisting library. An Arr clock less than a day ahead reads as just\nadded. At least 1.",
                 "format": "int64",
                 "type": "integer"
               }
@@ -1356,8 +1379,12 @@
             "type": "string"
           },
           "priority": {
+            "description": "Lower is tried first. Equal priorities go by name, then by id. Left\nout, a new rule goes after every other, and an edited one keeps its\nplace.",
             "format": "int64",
-            "type": "integer"
+            "type": [
+              "integer",
+              "null"
+            ]
           },
           "target_category": {
             "type": "string"
@@ -1619,6 +1646,10 @@
             "format": "float",
             "type": "number"
           },
+          "instance_enabled": {
+            "description": "False when the title's instance is switched off: no run reads it, and\nthe move shown is only what the rules would do.",
+            "type": "boolean"
+          },
           "media": {
             "$ref": "#/components/schemas/Media"
           },
@@ -1666,7 +1697,8 @@
           "target_category",
           "action",
           "confidence",
-          "rule_traces"
+          "rule_traces",
+          "instance_enabled"
         ],
         "type": "object"
       },
@@ -3901,6 +3933,7 @@
             "type": "string"
           },
           "priority": {
+            "description": "Lower is tried first. Equal priorities go by name, then by id.",
             "format": "int64",
             "type": "integer"
           },
@@ -3935,6 +3968,7 @@
             "type": "array"
           },
           "exported_at": {
+            "description": "When it was written, in RFC 3339.",
             "type": [
               "string",
               "null"
@@ -3942,11 +3976,12 @@
           },
           "rules": {
             "items": {
-              "$ref": "#/components/schemas/CreateRuleRequest"
+              "$ref": "#/components/schemas/BundledRule"
             },
             "type": "array"
           },
           "version": {
+            "description": "The format, which this build writes as 2. A version 1 bundle names no\ninstance a rule is limited to, and its rules without instance ids are\nimported switched off.",
             "format": "int32",
             "minimum": 0,
             "type": "integer"
@@ -4049,6 +4084,13 @@
       "RuleImportReport": {
         "description": "What an import did.",
         "properties": {
+          "adjusted": {
+            "description": "Each rule imported otherwise than the bundle has it, with how: limited\nto fewer instances, or switched off until its scope is checked.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "imported": {
             "minimum": 0,
             "type": "integer"
@@ -4068,7 +4110,8 @@
         "required": [
           "imported",
           "replaced",
-          "skipped"
+          "skipped",
+          "adjusted"
         ],
         "type": "object"
       },

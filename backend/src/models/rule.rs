@@ -180,8 +180,10 @@ pub enum Condition {
     #[serde(rename = "imdb_id_in")]
     ImdbIdIn(Vec<String>),
 
-    /// Media added to the Arr instance within the last N days, so a rule can
-    /// target new additions without touching the existing library.
+    /// Media added to the Arr instance within the last N days, N times 24
+    /// hours, so a rule can target new additions without touching the
+    /// existing library. An Arr clock less than a day ahead reads as just
+    /// added. At least 1.
     #[serde(rename = "added_within_days")]
     AddedWithinDays(i64),
 
@@ -254,10 +256,10 @@ impl Condition {
             Condition::TagIn(v) | Condition::TagInAll(v) | Condition::SeriesTypeIs(v) => {
                 v.iter().all(|s| s.trim().is_empty())
             }
-            // A threshold of zero is meaningless rather than empty: every media
-            // with any size at all is "over 0 GB".
-            Condition::SizeOnDiskOverGb(v) | Condition::SeasonCountOver(v) => *v <= 0,
-            Condition::HasFiles(_)
+            // A count always holds a value, too low a one being another fault.
+            Condition::SizeOnDiskOverGb(_)
+            | Condition::SeasonCountOver(_)
+            | Condition::HasFiles(_)
             | Condition::Monitored(_)
             | Condition::HasMetadata(_)
             | Condition::AddedWithinDays(_) => false,
@@ -317,6 +319,7 @@ pub struct Rule {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    /// Lower is tried first. Equal priorities go by name, then by id.
     pub priority: i64,
     pub enabled: bool,
     pub media_type: String,
@@ -354,8 +357,11 @@ pub struct CreateRuleRequest {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default = "default_priority")]
-    pub priority: i64,
+    /// Lower is tried first. Equal priorities go by name, then by id. Left
+    /// out, a new rule goes after every other, and an edited one keeps its
+    /// place.
+    #[serde(default)]
+    pub priority: Option<i64>,
     #[serde(default = "default_true")]
     pub enabled: bool,
     pub media_type: String,
@@ -379,13 +385,30 @@ pub struct ReorderRulesRequest {
 /// Portable rule bundle, produced by `GET /rules/export`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RuleBundle {
+    /// The format, which this build writes as 2. A version 1 bundle names no
+    /// instance a rule is limited to, and its rules without instance ids are
+    /// imported switched off.
     pub version: u32,
+    /// When it was written, in RFC 3339.
     #[serde(default)]
     pub exported_at: Option<String>,
-    pub rules: Vec<CreateRuleRequest>,
+    pub rules: Vec<BundledRule>,
     /// Categories referenced by the rules, so an import can recreate them.
     #[serde(default)]
     pub categories: Vec<String>,
+}
+
+/// A rule as a bundle carries it, its instance scope by name: an id means
+/// nothing on another installation, and a scope dropped would let the rule
+/// route every instance.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct BundledRule {
+    #[serde(flatten)]
+    pub rule: CreateRuleRequest,
+    /// The instances the rule is limited to, by name. Absent for every
+    /// instance. A rule naming none this installation has is not imported.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_names: Option<Vec<String>>,
 }
 
 /// Request body for `POST /rules/import`.
@@ -439,9 +462,6 @@ impl ValidationIssue {
     }
 }
 
-fn default_priority() -> i64 {
-    100
-}
 fn default_true() -> bool {
     true
 }

@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} no té valor i no coincidirà mai. Tria'n almenys un, o elimina-la.",
   "ValidationConditionNoSource": "{condition} necessita metadades que cap font activada no proporciona",
   "ValidationContradiction": "Les condicions «{first}» i «{second}» es contradiuen i no poden coincidir mai alhora",
-  "ValidationDaysNegative": "{condition}: un nombre de dies negatiu ({value}) no pot coincidir mai",
   "ValidationExclusionConflict": "La condició «{kind}» és alhora requerida i exclosa: la regla no podrà coincidir mai",
   "ValidationIssues": "Resultats de la validació",
   "ValidationMediaType": "media_type ha de ser «movie», «series» o «both»",

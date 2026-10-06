@@ -452,8 +452,9 @@
       // than one that fails.
       const partial = `${summary} ${t('ConfigImportSkipped', { count: report.skipped.length })}`;
       if (report.skipped.length > 0 && restored === 0) outcome.fail(partial, report.skipped);
-      else if (report.skipped.length > 0) outcome.warn(partial, report.skipped);
-      else if (waiting) outcome.warn(summary);
+      else if (report.skipped.length > 0)
+        outcome.warn(partial, [...report.skipped, ...report.adjusted]);
+      else if (waiting || report.adjusted.length > 0) outcome.warn(summary, report.adjusted);
       else outcome.succeed(summary);
       // An import writes instances, categories, mappings and settings, four of
       // the seven things the warnings are computed from, so the shell's count

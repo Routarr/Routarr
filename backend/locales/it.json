@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} non ha valore e non corrisponderà mai. Scegline almeno uno, o rimuovila.",
   "ValidationConditionNoSource": "{condition} richiede metadati che nessuna fonte attiva fornisce",
   "ValidationContradiction": "Le condizioni «{first}» e «{second}» si contraddicono e non potranno mai corrispondere insieme",
-  "ValidationDaysNegative": "{condition}: un numero di giorni negativo ({value}) non può mai corrispondere",
   "ValidationExclusionConflict": "La condizione «{kind}» è al tempo stesso richiesta ed esclusa: la regola non potrà mai corrispondere",
   "ValidationIssues": "Risultati della convalida",
   "ValidationMediaType": "media_type deve essere «movie», «series» o «both»",

@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} без значення ніколи не збігатиметься. Виберіть хоча б одне значення або приберіть цей пункт.",
   "ValidationConditionNoSource": "{condition}: потрібні метадані, яких не надає жодне ввімкнене джерело",
   "ValidationContradiction": "Умови «{first}» і «{second}» суперечать одна одній і ніколи не зможуть збігтися одночасно",
-  "ValidationDaysNegative": "{condition}: від'ємна кількість днів ({value}) ніколи не збігатиметься",
   "ValidationExclusionConflict": "Умова «{kind}» водночас вимагається і виключається: правило ніколи не спрацює",
   "ValidationIssues": "Результати перевірки",
   "ValidationMediaType": "media_type має бути «movie», «series» або «both»",

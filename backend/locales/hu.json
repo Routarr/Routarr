@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}: nincs értéke, ezért soha nem illeszkedhet. Válasszon legalább egyet, vagy távolítsa el.",
   "ValidationConditionNoSource": "{condition}: olyan metaadat kell hozzá, amit egyetlen engedélyezett forrás sem ad meg",
   "ValidationContradiction": "A(z) \"{first}\" és \"{second}\" feltételek ellentmondanak egymásnak, együtt soha nem teljesülhetnek",
-  "ValidationDaysNegative": "{condition}: negatív napszám ({value}) soha nem egyezhet",
   "ValidationExclusionConflict": "A(z) \"{kind}\" feltétel egyszerre kötelező és kizárt, ezért a szabály soha nem léphet életbe",
   "ValidationIssues": "Ellenőrzés eredménye",
   "ValidationMediaType": "A media_type értéke \"movie\", \"series\" vagy \"both\" lehet",

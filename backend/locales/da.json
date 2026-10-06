@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} har ingen værdi og kan aldrig matche. Vælg mindst én, eller fjern den.",
   "ValidationConditionNoSource": "{condition} kræver metadata, som ingen aktiveret kilde leverer",
   "ValidationContradiction": "Betingelserne \"{first}\" og \"{second}\" modsiger hinanden og kan aldrig matche samtidig",
-  "ValidationDaysNegative": "{condition}: et negativt antal dage ({value}) kan aldrig matche",
   "ValidationExclusionConflict": "Betingelsen \"{kind}\" er både påkrævet og udelukket, så reglen kan aldrig træde i kraft",
   "ValidationIssues": "Valideringsresultater",
   "ValidationMediaType": "media_type skal være \"movie\", \"series\" eller \"both\"",

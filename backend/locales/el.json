@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition}: δεν έχει τιμή και δεν μπορεί να ταιριάξει ποτέ. Επιλέξτε τουλάχιστον μία ή αφαιρέστε την.",
   "ValidationConditionNoSource": "{condition}: χρειάζεται μεταδεδομένα που δεν παρέχει καμία ενεργή πηγή",
   "ValidationContradiction": "Οι συνθήκες «{first}» και «{second}» αλληλοαναιρούνται και δεν μπορούν ποτέ να ταιριάξουν ταυτόχρονα",
-  "ValidationDaysNegative": "{condition}: αρνητικός αριθμός ημερών ({value}) δεν μπορεί ποτέ να ταιριάξει",
   "ValidationExclusionConflict": "Η συνθήκη «{kind}» είναι ταυτόχρονα απαιτούμενη και αποκλειόμενη: ο κανόνας δεν θα ισχύσει ποτέ",
   "ValidationIssues": "Αποτελέσματα επικύρωσης",
   "ValidationMediaType": "Το media_type πρέπει να είναι «movie», «series» ή «both»",

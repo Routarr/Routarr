@@ -324,3 +324,24 @@ async fn a_run_leaves_alone_a_title_a_later_run_decided() {
             .unwrap();
     assert_eq!(category, "standard");
 }
+
+/// A reorder checks it was given every rule under the write lock it writes
+/// with: a rule created meanwhile waits for the new order, rather than land
+/// between the list the reorder checked and the priorities it writes.
+#[tokio::test]
+async fn a_rule_created_while_the_rules_are_reordered_waits_for_the_new_order() {
+    let app = with_category("reordered").await;
+    let first = app.post("/api/v1/rules", rule_to("reordered")).await.assert_ok()["id"].clone();
+    let gate = arm("rules::reorder", "");
+    let reorder =
+        tokio::spawn(posting(&app, "/api/v1/rules/reorder", json!({ "rule_ids": [first] })));
+    gate.reached().await;
+
+    let mut creating = tokio::spawn(posting(&app, "/api/v1/rules", rule_to("reordered")));
+    let early = tokio::time::timeout(Duration::from_millis(300), &mut creating).await;
+    gate.release();
+
+    assert!(early.is_err(), "a rule was written between the reorder's check and its write");
+    reorder.await.unwrap().assert_ok();
+    creating.await.unwrap().assert_ok();
+}

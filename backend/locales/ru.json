@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} без значения никогда не совпадёт. Выберите хотя бы одно значение или удалите его целиком.",
   "ValidationConditionNoSource": "{condition}: нужны метаданные, которых не даёт ни один включённый источник",
   "ValidationContradiction": "Условия «{first}» и «{second}» противоречат друг другу и никогда не смогут совпасть одновременно",
-  "ValidationDaysNegative": "{condition}: отрицательное число дней ({value}) никогда не совпадёт",
   "ValidationExclusionConflict": "Условие «{kind}» одновременно требуется и исключается: правило никогда не сработает",
   "ValidationIssues": "Результаты проверки",
   "ValidationMediaType": "media_type должен быть «movie», «series» или «both»",

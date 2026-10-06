@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} nie ma wartości i nigdy nie zadziała. Wybierz co najmniej jedną wartość albo usuń ten warunek.",
   "ValidationConditionNoSource": "{condition} wymaga metadanych, których nie dostarcza żadne włączone źródło",
   "ValidationContradiction": "Warunki \"{first}\" i \"{second}\" wykluczają się i nigdy nie zadziałają jednocześnie",
-  "ValidationDaysNegative": "{condition}: ujemna liczba dni ({value}) nigdy nie zostanie dopasowana",
   "ValidationExclusionConflict": "Warunek \"{kind}\" jest jednocześnie wymagany i wykluczony, więc reguła nigdy nie zadziała",
   "ValidationIssues": "Wyniki walidacji",
   "ValidationMediaType": "media_type musi mieć wartość \"movie\", \"series\" lub \"both\"",

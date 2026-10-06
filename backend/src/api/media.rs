@@ -347,6 +347,9 @@ pub struct Explanation {
     pub winning_rule: Option<String>,
     /// Per-condition outcome for every rule that was considered.
     pub rule_traces: Vec<RuleTrace>,
+    /// False when the title's instance is switched off: no run reads it, and
+    /// the move shown is only what the rules would do.
+    pub instance_enabled: bool,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -374,6 +377,10 @@ pub async fn explain(
 ) -> AppResult<Json<Explanation>> {
     let media = load_media(&state, &id).await?;
     let localizer: Localizer = state.localizer().await;
+    let instance_enabled: bool = sqlx::query_scalar("SELECT enabled FROM instances WHERE id = ?")
+        .bind(&media.instance_id)
+        .fetch_one(&state.pool)
+        .await?;
 
     let now = Utc::now();
     let routing::ItemRoute { rules, override_category, route } =
@@ -394,12 +401,11 @@ pub async fn explain(
         let conditions: Vec<rule_engine::ConditionOutcome> =
             outcomes.into_iter().map(|outcome| localizer.localize_outcome(outcome)).collect();
 
-        // The engine's own veto, not a second reading of the exclusions.
-        let excluded_by = evaluation
-            .excluded
-            .iter()
-            .find(|set_aside| set_aside.rule_id == rule.id)
-            .and_then(|set_aside| set_aside.excluded_by.clone())
+        // The engine's own veto, read for a title an exception pins too: the
+        // engine then reads no rule, and the trace is what each would do.
+        let excluded_by = matched
+            .then(|| rule_engine::veto(rule, ctx))
+            .flatten()
             .map(|veto| localizer.localize_outcome(veto).expected);
 
         let outcome = if Some(&rule.id) == winner_id.as_ref() {
@@ -440,6 +446,7 @@ pub async fn explain(
             }
         }),
         rule_traces,
+        instance_enabled,
     }))
 }
 

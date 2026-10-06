@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} nemá hodnotu a nikdy sa nezhodne. Vyberte aspoň jednu hodnotu alebo položku odstráňte.",
   "ValidationConditionNoSource": "{condition} vyžaduje metaúdaje, ktoré neposkytuje žiadny povolený zdroj",
   "ValidationContradiction": "Podmienky \"{first}\" a \"{second}\" si odporujú a nikdy nemôžu platiť súčasne",
-  "ValidationDaysNegative": "{condition}: záporný počet dní ({value}) sa nikdy nezhodne",
   "ValidationExclusionConflict": "Podmienka \"{kind}\" je zároveň vyžadovaná aj vylúčená, takže pravidlo nikdy nezafunguje",
   "ValidationIssues": "Výsledky overenia",
   "ValidationMediaType": "media_type musí byť \"movie\", \"series\" alebo \"both\"",

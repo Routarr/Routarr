@@ -533,10 +533,10 @@ describe('Rules', () => {
   });
 
   async function importFile(
-    result: { imported: number; skipped: string[] },
+    result: { imported: number; skipped: string[]; adjusted?: string[] },
     answer: 'append' | 'replace' = 'append',
   ) {
-    const importRules = vi.spyOn(api, 'importRules').mockResolvedValue(result);
+    const importRules = vi.spyOn(api, 'importRules').mockResolvedValue({ adjusted: [], ...result });
     const { container } = show([rule({ id: 'r1', name: 'Anime' })]);
     await screen.findByRole('button', { name: 'Actions – Anime' });
 
@@ -576,6 +576,19 @@ describe('Rules', () => {
     const summary = await screen.findByText('Rules imported: 1, skipped: 1');
     expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
     expect(screen.getByText("'Kids': no target")).toBeTruthy();
+  });
+
+  /**
+   * A rule imported switched off, or limited to fewer instances than its file
+   * names, is in, and still needs somebody to look at it.
+   */
+  it('names each rule imported otherwise than its file has it', async () => {
+    const note = "'Anime': imported switched off";
+    await importFile({ imported: 1, skipped: [], adjusted: [note] });
+
+    const summary = await screen.findByText('Rules imported: 1');
+    expect(summary.closest('.banner')?.classList.contains('banner-warning')).toBe(true);
+    expect(screen.getByText(note)).toBeTruthy();
   });
 
   /** The editor is built from the catalogue, so the guide's link waits for it as the button does. */

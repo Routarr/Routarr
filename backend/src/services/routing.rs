@@ -1000,7 +1000,8 @@ pub(crate) fn resolve_metadata(
 /// picked, OMDb for the United States, a Radarr for the country of its
 /// metadata settings, MyAnimeList in its own), and the regions say whose
 /// system a rule is written for. A rating outside every region still answers
-/// when no source rates the title in one.
+/// when no source rates the title in one. A blank rating claims nothing, as in
+/// the merge, or the Arr's empty one would erase every source's.
 fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[String]) {
     let rank = |part: &ProviderMetadata| {
         part.certification_scale
@@ -1011,7 +1012,9 @@ fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[St
     let kept = parts
         .iter()
         .enumerate()
-        .filter(|(_, (_, part))| part.certification.is_some())
+        .filter(|(_, (_, part))| {
+            part.certification.as_deref().is_some_and(|c| !c.trim().is_empty())
+        })
         .min_by_key(|(order, (_, part))| (rank(part), *order))
         .map(|(order, _)| order);
     for (order, (_, part)) in parts.iter_mut().enumerate() {
@@ -1022,21 +1025,24 @@ fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[St
     }
 }
 
-type RuleRow = (
-    String,
-    String,
-    Option<String>,
-    i64,
-    bool,
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    String,
-    String,
-    String,
-);
+/// A row of `rules`, read by column name: read by position, a column added
+/// between two of the same type would land in the wrong field.
+#[derive(sqlx::FromRow)]
+pub struct RuleRecord {
+    id: String,
+    name: String,
+    description: Option<String>,
+    priority: i64,
+    enabled: bool,
+    media_type: String,
+    conditions: String,
+    target_category: String,
+    instance_ids: Option<String>,
+    created_at: String,
+    updated_at: String,
+    match_mode: String,
+    exclusions: String,
+}
 
 pub const RULE_COLUMNS: &str = "id, name, description, priority, enabled, media_type, conditions,
      target_category, instance_ids, created_at, updated_at, match_mode, exclusions";
@@ -1072,10 +1078,11 @@ pub async fn media_by_external_id(
     .await?)
 }
 
-/// Load every rule, tolerating rows whose JSON payload got corrupted.
+/// Load every rule, in the order the engine tries them (`rule_engine::in_order`),
+/// tolerating rows whose JSON payload got corrupted.
 pub async fn load_rules(pool: &SqlitePool) -> AppResult<Vec<Rule>> {
-    let rows: Vec<RuleRow> = sqlx::query_as(AssertSqlSafe(format!(
-        "SELECT {RULE_COLUMNS} FROM rules ORDER BY priority ASC"
+    let rows: Vec<RuleRecord> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT {RULE_COLUMNS} FROM rules ORDER BY priority, name, id"
     )))
     .fetch_all(pool)
     .await?;
@@ -1083,51 +1090,52 @@ pub async fn load_rules(pool: &SqlitePool) -> AppResult<Vec<Rule>> {
     Ok(rows.into_iter().map(rule_from_row).collect())
 }
 
-pub fn rule_from_row(r: RuleRow) -> Rule {
+pub fn rule_from_row(r: RuleRecord) -> Rule {
     // A part that cannot be read, as after going back to a build that lacks a
     // condition kind, makes the rule match nothing. Read as empty, dropped
     // exclusions or a lost scope would widen it to the titles it was written
     // to leave alone.
     let unreadable = |part: &str, e: serde_json::Error| {
-        tracing::warn!(rule_id = %r.0, rule = %r.1, "The rule matches nothing: its {part} cannot be read: {e}");
+        tracing::warn!(rule_id = %r.id, rule = %r.name, "The rule matches nothing: its {part} cannot be read: {e}");
     };
-    let mut conditions: Vec<Condition> = serde_json::from_str(&r.6).unwrap_or_else(|e| {
+    let mut conditions: Vec<Condition> = serde_json::from_str(&r.conditions).unwrap_or_else(|e| {
         unreadable("conditions", e);
         Vec::new()
     });
-    let exclusions: Vec<Condition> = if r.12.trim().is_empty() {
+    let exclusions: Vec<Condition> = if r.exclusions.trim().is_empty() {
         Vec::new()
     } else {
-        serde_json::from_str(&r.12).unwrap_or_else(|e| {
+        serde_json::from_str(&r.exclusions).unwrap_or_else(|e| {
             unreadable("exclusions", e);
             conditions.clear();
             Vec::new()
         })
     };
-    let instance_ids: Option<Vec<String>> = match r.8.as_deref().filter(|s| !s.trim().is_empty()) {
-        None => None,
-        Some(raw) => serde_json::from_str(raw).unwrap_or_else(|e| {
-            unreadable("instance list", e);
-            conditions.clear();
-            None
-        }),
-    };
-    let match_mode: MatchMode = r.11.parse().unwrap_or_default();
+    let instance_ids: Option<Vec<String>> =
+        match r.instance_ids.as_deref().filter(|s| !s.trim().is_empty()) {
+            None => None,
+            Some(raw) => serde_json::from_str(raw).unwrap_or_else(|e| {
+                unreadable("instance list", e);
+                conditions.clear();
+                None
+            }),
+        };
+    let match_mode: MatchMode = r.match_mode.parse().unwrap_or_default();
 
     Rule {
-        id: r.0,
-        name: r.1,
-        description: r.2,
-        priority: r.3,
-        enabled: r.4,
-        media_type: r.5,
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        priority: r.priority,
+        enabled: r.enabled,
+        media_type: r.media_type,
         conditions,
         exclusions,
         match_mode,
-        target_category: r.7,
+        target_category: r.target_category,
         instance_ids,
-        created_at: r.9,
-        updated_at: r.10,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
     }
 }
 

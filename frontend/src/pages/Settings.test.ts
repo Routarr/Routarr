@@ -769,6 +769,7 @@ describe('importing a configuration', () => {
     rules: 0,
     skipped: [],
     needs_key: [],
+    adjusted: [],
   };
 
   async function importFile(contents: object) {
@@ -941,6 +942,7 @@ describe('importing a configuration', () => {
       rules: 0,
       skipped: ['setting "colour": unknown'],
       needs_key: [],
+      adjusted: [],
     });
     mount({});
     await openSection('Maintenance');

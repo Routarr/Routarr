@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} heeft geen waarde en kan nooit kloppen. Kies er minstens één of verwijder de rij.",
   "ValidationConditionNoSource": "{condition} vereist metadata die geen ingeschakelde bron levert",
   "ValidationContradiction": "De voorwaarden '{first}' en '{second}' spreken elkaar tegen en kunnen nooit samen kloppen",
-  "ValidationDaysNegative": "{condition}: een negatief aantal dagen ({value}) kan nooit overeenkomen",
   "ValidationExclusionConflict": "Voorwaarde '{kind}' is tegelijk vereist en uitgesloten, dus kan de regel nooit werken",
   "ValidationIssues": "Validatieresultaten",
   "ValidationMediaType": "media_type moet 'movie', 'series' of 'both' zijn",

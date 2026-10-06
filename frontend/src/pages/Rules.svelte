@@ -12,7 +12,13 @@
   } from '../lib/icons';
   import { api, type RuleBundle } from '../api/client';
   import { describeCondition, swapped } from '../api/format';
-  import { canonicalKey, facetOf, localFacets, withoutRepeats } from '../api/conditions';
+  import {
+    canonicalKey,
+    facetOf,
+    localFacets,
+    nextPriority,
+    withoutRepeats,
+  } from '../api/conditions';
   import type {
     Category,
     Condition,
@@ -50,10 +56,10 @@
     both: 'Both',
   };
 
-  const emptyDraft = (category: string): RuleDraft => ({
+  const emptyDraft = (category: string, priority: number): RuleDraft => ({
     name: '',
     description: '',
-    priority: 100,
+    priority,
     enabled: true,
     media_type: 'both',
     conditions: [],
@@ -134,7 +140,8 @@
   }
 
   function openCreate() {
-    editing = { draft: emptyDraft(categories[0]?.name ?? 'standard') };
+    const priorities = rules.map((rule) => rule.priority);
+    editing = { draft: emptyDraft(categories[0]?.name ?? 'standard', nextPriority(priorities)) };
   }
 
   // The guide's "Create a rule" lands here. The editor waits for the bundle, as
@@ -221,9 +228,12 @@
       const summary =
         t('ImportResult', { count: result.imported }) +
         (result.skipped.length ? t('ImportSkipped', { count: result.skipped.length }) : '');
-      if (result.skipped.length === 0) outcome.succeed(summary);
-      else if (result.imported === 0) outcome.fail(summary, result.skipped);
-      else outcome.warn(summary, result.skipped);
+      // A rule imported switched off, or limited to fewer instances, is
+      // imported, and still needs somebody to look at it.
+      const details = [...result.skipped, ...result.adjusted];
+      if (details.length === 0) outcome.succeed(summary);
+      else if (result.imported === 0) outcome.fail(summary, details);
+      else outcome.warn(summary, details);
       await reloadAfterWrite();
     } catch (err) {
       outcome.fail(err instanceof SyntaxError ? t('NotValidJson') : err);

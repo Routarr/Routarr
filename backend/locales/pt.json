@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} não tem valor e nunca corresponderá. Escolha pelo menos um, ou remova-a.",
   "ValidationConditionNoSource": "{condition} precisa de metadados que nenhuma fonte ativada fornece",
   "ValidationContradiction": "As condições «{first}» e «{second}» contradizem-se e nunca poderão corresponder em conjunto",
-  "ValidationDaysNegative": "{condition}: um número de dias negativo ({value}) nunca pode corresponder",
   "ValidationExclusionConflict": "A condição «{kind}» é ao mesmo tempo exigida e excluída, pelo que a regra nunca poderá corresponder",
   "ValidationIssues": "Resultados da validação",
   "ValidationMediaType": "media_type tem de ser «movie», «series» ou «both»",

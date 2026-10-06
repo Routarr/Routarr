@@ -837,7 +837,6 @@
   "ValidationConditionEmpty": "{condition} hat keinen Wert und kann nie zutreffen. Wählen Sie mindestens einen aus oder entfernen Sie die Zeile.",
   "ValidationConditionNoSource": "{condition} benötigt Metadaten, die keine aktivierte Quelle liefert",
   "ValidationContradiction": "Die Bedingungen \"{first}\" und \"{second}\" widersprechen sich und können nie gemeinsam zutreffen",
-  "ValidationDaysNegative": "{condition}: Eine negative Anzahl von Tagen ({value}) kann nie zutreffen",
   "ValidationExclusionConflict": "Bedingung \"{kind}\" ist zugleich erforderlich und ausgeschlossen, daher kann die Regel nie greifen",
   "ValidationIssues": "Ergebnisse der Prüfung",
   "ValidationMediaType": "media_type muss \"movie\", \"series\" oder \"both\" sein",

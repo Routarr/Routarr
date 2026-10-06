@@ -751,3 +751,72 @@ async fn two_destinations_on_one_volume_are_forecast_together() {
         plan.capacity.iter().map(|c| (c.path.clone(), c.fits)).collect();
     assert_eq!(fits, [("/movies/anime".into(), false), ("/movies/kids".into(), false)]);
 }
+
+/// Until the first run after an upgrade, the library shows each title what it
+/// showed before: its latest standing decision.
+#[tokio::test]
+async fn an_upgrade_shows_each_title_its_latest_standing_decision() {
+    let pool = crate::tests::database_through("019_instance_reads").await;
+    for statement in [
+        crate::tests::AN_INSTANCE,
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title)
+         VALUES ('m-1', 'inst-1', 10, 'movie', 'Totoro'),
+                ('m-2', 'inst-1', 11, 'movie', 'Heat')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                target_category, matched_rule_id, action, status, decided_at,
+                                superseded)
+         VALUES ('d-1', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'r-1', 'move', 'applied',
+                 '2026-09-01 10:00:00', 0),
+                ('d-2', 'm-1', 'Totoro', 'movie', 'inst-1', 'kids', 'r-2', 'move', 'pending',
+                 '2026-09-02 10:00:00', 0),
+                ('d-3', 'm-2', 'Heat', 'movie', 'inst-1', 'anime', 'r-1', 'move', 'pending',
+                 '2026-09-02 10:00:00', 1)",
+    ] {
+        sqlx::query(statement).execute(&pool).await.unwrap();
+    }
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let kept: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT media_id, category, matched_rule_id FROM media_routing")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(kept, [("m-1".to_string(), "kids".to_string(), Some("r-2".to_string()))]);
+}
+
+/// "Added within the last 0 days" meant the last 24 hours, and 0 is refused
+/// now: an upgrade turns it into 1, which means the same, wherever it stands.
+#[tokio::test]
+async fn an_upgrade_turns_a_day_count_of_zero_into_one() {
+    let pool = crate::tests::database_through("020_media_routing").await;
+    sqlx::query(
+        r#"INSERT INTO rules (id, name, priority, media_type, conditions, exclusions,
+                              target_category)
+           VALUES ('r-1', 'New', 10, 'both',
+                   '[{"type":"genre_contains","value":["Drama"]},{"type":"added_within_days","value":0}]',
+                   '[{"type":"added_within_days","value":0}]', 'standard'),
+                  ('r-2', 'Recent', 20, 'both', '[{"type":"added_within_days","value":30}]',
+                   '[]', 'standard')"#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let rules = crate::services::routing::load_rules(&pool).await.unwrap();
+    let days = |id: &str| -> Vec<crate::models::Condition> {
+        let rule = rules.iter().find(|rule| rule.id == id).unwrap();
+        rule.conditions.iter().chain(&rule.exclusions).cloned().collect()
+    };
+    assert_eq!(
+        days("r-1"),
+        [
+            crate::models::Condition::GenreContains(vec!["Drama".into()]),
+            crate::models::Condition::AddedWithinDays(1),
+            crate::models::Condition::AddedWithinDays(1),
+        ]
+    );
+    assert_eq!(days("r-2"), [crate::models::Condition::AddedWithinDays(30)]);
+}

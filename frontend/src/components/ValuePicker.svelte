@@ -21,6 +21,7 @@
     loading = false,
     error = null,
     describedBy,
+    keyOf = canonicalKey,
     onChange,
   }: {
     label: string;
@@ -34,6 +35,8 @@
     error?: string | null;
     /** The element that qualifies the field, as the fixed "any of" beside it. */
     describedBy?: string;
+    /** What makes two values one, as the engine compares this condition's. */
+    keyOf?: (value: string) => string;
     onChange: (values: string[]) => void;
   } = $props();
 
@@ -49,14 +52,14 @@
   /** The suggestion the arrows reached, or none until an arrow is pressed. */
   let cursor = $state(-1);
 
-  // Compared on the canonical key, so an option already chosen under another
+  // Compared on the condition's key, so an option already chosen under another
   // spelling is not offered a second time.
-  const chosen = $derived(new Set(values.map(canonicalKey)));
+  const chosen = $derived(new Set(values.map(keyOf)));
   // Matched on the label as well as the value: a language is stored as `ja` and
   // searched for as "japanese".
   const matches = $derived(
     options
-      .filter((option) => !chosen.has(canonicalKey(option.value)))
+      .filter((option) => !chosen.has(keyOf(option.value)))
       .filter((option) =>
         `${canonicalKey(option.value)} ${canonicalKey(option.label ?? '')}`.includes(
           canonicalKey(query),
@@ -77,15 +80,15 @@
 
   /** What a stored value is called, so a chip reads "Japanese (ja)" and not `ja`. */
   const shown = (value: string) =>
-    options.find((option) => canonicalKey(option.value) === canonicalKey(value))?.label ?? value;
+    options.find((option) => keyOf(option.value) === keyOf(value))?.label ?? value;
 
   // The typed text is offerable in its own right only when no option already
   // carries it: otherwise picking it would store a spelling the library does
   // not use, which reads as a duplicate in the chip row.
   const custom = $derived(
     query.trim() &&
-      !chosen.has(canonicalKey(query)) &&
-      !options.some((option) => canonicalKey(option.value) === canonicalKey(query))
+      !chosen.has(keyOf(query)) &&
+      !options.some((option) => keyOf(option.value) === keyOf(query))
       ? query.trim()
       : '',
   );
@@ -93,7 +96,7 @@
   const choices = $derived([...matches.map((option) => option.value), ...(custom ? [custom] : [])]);
 
   function add(value: string) {
-    onChange(addValue(values, value));
+    onChange(addValue(values, value, keyOf));
     query = '';
     cursor = -1;
   }
@@ -106,7 +109,7 @@
    * values is one key pressed several times.
    */
   function remove(value: string, index: number) {
-    onChange(removeValue(values, value));
+    onChange(removeValue(values, value, keyOf));
     void handFocus(removeId(index), removeId(index - 1), field);
   }
 
