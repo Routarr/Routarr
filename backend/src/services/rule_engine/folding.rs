@@ -70,6 +70,12 @@ fn fold_stroke(c: char) -> char {
     }
 }
 
+/// An Arr's status as one word, folded: Radarr writes `inCinemas`, and a
+/// person `In Cinemas`.
+pub fn status_key(raw: &str) -> String {
+    normalise_value(raw).replace(' ', "")
+}
+
 /// The form two spellings of one rating code share: case and the separator
 /// aside, every character counts. `R+` is MyAnimeList's rating for mild
 /// nudity, and folded as free text it would be every film rated `R`. The

@@ -233,8 +233,10 @@ pub async fn simulate_loaded(
         .await?;
 
     if options.persist {
-        let stored: Vec<&Decision> =
-            decisions.iter().filter(|d| options.persist_unchanged || d.action != "none").collect();
+        let stored: Vec<&Decision> = decisions
+            .iter()
+            .filter(|d| options.persist_unchanged || d.action != DecisionAction::None)
+            .collect();
         store_run(pool, library, &options.trigger, &simulation_id, now, &verdicts, &stored).await?;
     }
 
@@ -253,10 +255,10 @@ pub async fn simulate_loaded(
 
     if let Some(max) = options.max_returned {
         // Keep the actionable ones when the payload has to be trimmed.
-        decisions.sort_by_key(|d| match d.action.as_str() {
-            "move" => 0,
-            "skip" => 1,
-            _ => 2,
+        decisions.sort_by_key(|d| match d.action {
+            DecisionAction::Move => 0,
+            DecisionAction::Skip => 1,
+            DecisionAction::None => 2,
         });
         decisions.truncate(max);
     }
@@ -377,7 +379,7 @@ fn evaluate_pass(
         counters.excluded_by_rule += route.evaluation.excluded.len();
 
         match (route.action, &route.target) {
-            ("move", Some(target)) => {
+            (DecisionAction::Move, Some(target)) => {
                 counters.moves_required += 1;
 
                 // Weigh the plan as it is built. A move between two folders
@@ -404,7 +406,7 @@ fn evaluate_pass(
                     entry.bytes += size;
                 }
             }
-            ("none", _) => counters.already_correct += 1,
+            (DecisionAction::None, _) => counters.already_correct += 1,
             _ => counters.skipped_unmapped += 1,
         }
 
@@ -413,7 +415,7 @@ fn evaluate_pass(
             matched_rule_id: route.evaluation.winner.as_ref().map(|w| w.rule_id.clone()),
         });
         let Some(wording) = wording else { continue };
-        if route.action == "none" {
+        if route.action == DecisionAction::None {
             if left_alone == wording.unchanged {
                 continue;
             }
@@ -520,8 +522,8 @@ fn decide(
         is_override,
         reasons,
         alternatives,
-        action: action.to_string(),
-        status: "pending".to_string(),
+        action,
+        status: DecisionStatus::Pending,
         confidence,
         superseded: false,
         simulation_id: Some(wording.simulation_id.clone()),
@@ -543,7 +545,7 @@ pub struct Route {
     pub target: Option<String>,
     /// `move`, `none` when the item is already there, or `skip` when the
     /// category has no folder on the item's instance.
-    pub action: &'static str,
+    pub action: DecisionAction,
 }
 
 /// Decide one item: its metadata, the rules, its override and the mappings.
@@ -572,10 +574,14 @@ fn route(ctx: &RoutingContext, media: &Media, rules: &[Rule], now: chrono::DateT
         .map_or_else(|| ctx.default_category.clone(), |winner| winner.category.clone());
     let target = ctx.root_folders.get(&(media.instance_id.clone(), category.clone())).cloned();
     let action = match &target {
-        None => "skip",
+        None => DecisionAction::Skip,
         Some(target) => {
             let current = media.current_root_folder.as_deref().unwrap_or("");
-            if crate::paths::key(current) == crate::paths::key(target) { "none" } else { "move" }
+            if crate::paths::key(current) == crate::paths::key(target) {
+                DecisionAction::None
+            } else {
+                DecisionAction::Move
+            }
         }
     };
     Route { metadata, evaluation, category, target, action }
@@ -606,7 +612,7 @@ pub async fn route_one(
 /// What sources asked about one title said just now, never stored: their
 /// answers, and the id a source found by title resolved it to, without which
 /// the evaluation cannot tell that source's answer belongs to the title.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Fresh {
     pub metadata: HashMap<(String, String, String), ProviderMetadata>,
     pub identifiers: metadata::Identifiers,
@@ -1121,6 +1127,11 @@ pub fn rule_from_row(r: RuleRecord) -> Rule {
             }),
         };
     let match_mode: MatchMode = r.match_mode.parse().unwrap_or_default();
+    let media_type = r.media_type.parse().unwrap_or_else(|e: String| {
+        tracing::warn!(rule_id = %r.id, rule = %r.name, "The rule matches nothing: {e}");
+        conditions.clear();
+        RuleMediaType::Both
+    });
 
     Rule {
         id: r.id,
@@ -1128,7 +1139,7 @@ pub fn rule_from_row(r: RuleRecord) -> Rule {
         description: r.description,
         priority: r.priority,
         enabled: r.enabled,
-        media_type: r.media_type,
+        media_type,
         conditions,
         exclusions,
         match_mode,
@@ -1363,8 +1374,8 @@ async fn store_run(
         .bind(decision.is_override)
         .bind(serde_json::to_string(&decision.reasons)?)
         .bind(serde_json::to_string(&decision.alternatives)?)
-        .bind(&decision.action)
-        .bind(&decision.status)
+        .bind(decision.action)
+        .bind(decision.status)
         .bind(&decision.decided_at)
         .bind(decision.confidence)
         .bind(&decision.simulation_id)

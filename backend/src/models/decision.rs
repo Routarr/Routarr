@@ -1,5 +1,48 @@
 use serde::{Deserialize, Serialize};
 
+/// What a decision does to its title.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(rename_all = "lowercase")]
+pub enum DecisionAction {
+    /// Move it to the folder of its category.
+    Move,
+    /// Leave it, already there.
+    None,
+    /// Leave it: its category has no folder on its instance.
+    Skip,
+}
+
+impl DecisionAction {
+    /// The word the API and the database write.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            DecisionAction::Move => "move",
+            DecisionAction::None => "none",
+            DecisionAction::Skip => "skip",
+        }
+    }
+}
+
+/// Where a decision stands.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type, utoipa::ToSchema,
+)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(rename_all = "lowercase")]
+pub enum DecisionStatus {
+    /// Proposed, waiting to be applied.
+    Pending,
+    /// Asked of the Arr, its move not seen through yet.
+    Requested,
+    Applied,
+    Failed,
+    /// Not applied, or rolled back: a reverted move carries `reverted_at`.
+    Skipped,
+}
+
 /// A routing decision computed by the rule engine.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Decision {
@@ -17,11 +60,16 @@ pub struct Decision {
     pub is_override: bool,
     pub reasons: Vec<String>,
     pub alternatives: Vec<AlternativeDecision>,
-    /// `move`, `none` or `skip`.
-    pub action: String,
-    /// `pending`, `applied`, `failed` or `skipped`. A reverted move is
-    /// `skipped` with `reverted_at` set.
-    pub status: String,
+    // Published as a string and its values, which a client may not read as
+    // all there will ever be: a retype from the first release's string would
+    // break its clients (`scripts/check-api-breaks.sh`).
+    #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
+    pub action: DecisionAction,
+    #[schema(
+        value_type = String,
+        extensions(("x-extensible-enum" = json!(["pending", "requested", "applied", "failed", "skipped"])))
+    )]
+    pub status: DecisionStatus,
     /// 0.0 to 1.0, how many independent signals backed the winning rule.
     #[serde(default)]
     pub confidence: f32,
@@ -104,7 +152,8 @@ pub struct SimulationResult {
     pub overrides_applied: usize,
     /// Matched a category with no root folder mapped on that instance.
     pub skipped_unmapped: usize,
-    /// Rules that matched but were vetoed by one of their exclusions.
+    /// How often a rule matched a title and one of its own exclusions set it
+    /// aside, over every title, rules below the winner included.
     pub excluded_by_rule: usize,
     /// What the plan would put on each destination, and whether it fits.
     ///

@@ -435,3 +435,52 @@ async fn keep_backups(checker: &mut Checker) {
     checker.check("POST", "/backups", 200, &app.post("/api/v1/backups", json!({})).await);
     checker.check("GET", "/backups", 200, &app.get("/api/v1/backups").await);
 }
+
+/// A closed vocabulary is published as a string with its values, and those
+/// are the ones its type writes. A variant added to one of these types goes
+/// in its list here and in the `x-extensible-enum` its field publishes.
+#[test]
+fn each_published_vocabulary_is_the_one_its_type_writes() {
+    use crate::api::media::TraceOutcome;
+    use crate::models::{DecisionAction, DecisionStatus, RuleMediaType, Severity};
+    fn written<T: serde::Serialize>(values: &[T]) -> Value {
+        serde_json::to_value(values).expect("a vocabulary serializes")
+    }
+    let document = described();
+    let actions = written(&[DecisionAction::Move, DecisionAction::None, DecisionAction::Skip]);
+    for (schema, field, values) in [
+        ("Decision", "action", actions.clone()),
+        ("Explanation", "action", actions),
+        (
+            "Decision",
+            "status",
+            written(&[
+                DecisionStatus::Pending,
+                DecisionStatus::Requested,
+                DecisionStatus::Applied,
+                DecisionStatus::Failed,
+                DecisionStatus::Skipped,
+            ]),
+        ),
+        (
+            "Rule",
+            "media_type",
+            written(&[RuleMediaType::Movie, RuleMediaType::Series, RuleMediaType::Both]),
+        ),
+        ("ValidationIssue", "severity", written(&[Severity::Error, Severity::Warning])),
+        (
+            "RuleTrace",
+            "outcome",
+            written(&[
+                TraceOutcome::Winner,
+                TraceOutcome::Excluded,
+                TraceOutcome::MatchedLowerPriority,
+                TraceOutcome::NotMatched,
+            ]),
+        ),
+    ] {
+        let published =
+            &document["components"]["schemas"][schema]["properties"][field]["x-extensible-enum"];
+        assert_eq!(published, &values, "{schema}.{field}");
+    }
+}

@@ -118,6 +118,7 @@ const NO_FACETS = {
   tags: [],
   series_types: [],
   root_folders: [],
+  statuses: [],
 } as unknown as LibraryFacets;
 
 /** The two diagnostics answer unless a test has already said otherwise. */
@@ -421,6 +422,7 @@ describe('Rules', () => {
       tags: [],
       series_types: [],
       root_folders: [],
+      statuses: [],
     } as unknown as LibraryFacets);
     show(
       [
@@ -472,6 +474,7 @@ describe('Rules', () => {
       tags: [],
       series_types: [],
       root_folders: [],
+      statuses: [],
     } as unknown as LibraryFacets);
     show([rule({ conditions: [{ type: 'original_language', value: ['ja'] }] })], served, 'fr');
 
@@ -511,6 +514,7 @@ describe('Rules', () => {
       tags: [],
       series_types: [],
       root_folders: [],
+      statuses: [],
     } as unknown as LibraryFacets);
     show([rule({ conditions: [{ type: 'original_language', value: ['qaa'] }] })], served);
 

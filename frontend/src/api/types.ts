@@ -447,6 +447,10 @@ export interface ExplainedMedia {
   original_language: string | null;
   certification: string | null;
   last_synced_at: string | null;
+  /** The Arr's tag labels: `tags` holds the same as a JSON string. */
+  tag_list: string[];
+  /** The genres the Arr reports: `genres` holds the same as a JSON string. */
+  genre_list: string[];
 }
 
 export interface Explanation {
@@ -806,6 +810,8 @@ export interface LibraryFacets {
   tags: Facet[];
   series_types: Facet[];
   root_folders: Facet[];
+  /** The statuses the Arrs give the titles, as they write them. */
+  statuses: Facet[];
 }
 
 /**

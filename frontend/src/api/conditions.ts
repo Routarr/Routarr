@@ -90,9 +90,16 @@ export function certificationKey(value: string): string {
     .replace(/[A-Z]/g, (letter) => letter.toLowerCase());
 }
 
+/** An Arr's status as one word, folded: `status_key` in the rule engine. */
+export function statusKey(value: string): string {
+  return canonicalKey(value).replaceAll(' ', '');
+}
+
 /** How the values of a condition of this kind are told apart. */
 export function keyOfKind(kind: string): (value: string) => string {
-  return kind === 'certification_in' ? certificationKey : canonicalKey;
+  if (kind === 'certification_in') return certificationKey;
+  if (kind === 'status_is') return statusKey;
+  return canonicalKey;
 }
 
 /** Append unless an equivalent spelling is already there. */

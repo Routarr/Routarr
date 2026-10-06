@@ -22,7 +22,7 @@ async fn a_matching_rule_produces_a_move() {
 
     assert_eq!(result.total_media, 1);
     assert_eq!(result.moves_required, 1);
-    assert_eq!(result.decisions[0].action, "move");
+    assert_eq!(result.decisions[0].action.as_str(), "move");
     assert_eq!(result.decisions[0].target_root_folder.as_deref(), Some("/movies/anime"));
     assert_eq!(result.decisions[0].matched_rule_name.as_deref(), Some("Anime"));
     assert!(result.decisions[0].confidence > 0.5);
@@ -88,7 +88,7 @@ async fn a_category_without_a_root_folder_is_skipped_not_moved() {
 
     assert_eq!(result.skipped_unmapped, 1);
     assert_eq!(result.moves_required, 0);
-    assert_eq!(result.decisions[0].action, "skip");
+    assert_eq!(result.decisions[0].action.as_str(), "skip");
     assert!(result.decisions[0].target_root_folder.is_none());
 }
 
@@ -152,7 +152,8 @@ async fn a_root_folder_that_is_asleep_still_routes() {
 
     let result = simulate(&app, persisting()).await;
     assert_eq!(
-        result.decisions[0].action, "move",
+        result.decisions[0].action.as_str(),
+        "move",
         "a sleeping destination unmapped its category: {:?}",
         result.decisions[0]
     );

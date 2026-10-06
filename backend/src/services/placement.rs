@@ -15,7 +15,7 @@ use crate::error::{AppError, AppResult};
 use crate::integrations::adapter::ArrMedia;
 use std::collections::HashMap;
 
-use crate::models::{ExternalId, Instance, Media, MediaMetadata};
+use crate::models::{DecisionAction, ExternalId, Instance, Media, MediaMetadata};
 use crate::services::metadata::{self, Addressing};
 use crate::services::rate_limit::honour_retry_after;
 use crate::services::routing::{self, ItemRoute};
@@ -120,6 +120,10 @@ pub async fn place(
     let held = routing::media_by_external_id(&state.pool, media_type, id, instance).await?;
 
     let mut placement = Placement::default();
+    // Asked once per title, whichever instances know it: a source's pace and
+    // quota are spent per request.
+    let mut asked: std::collections::HashMap<(String, String), routing::Fresh> =
+        std::collections::HashMap::new();
     for instance in instances {
         let (media, source) = match held.iter().find(|media| media.instance_id == instance.id) {
             Some(media) => (media.clone(), "library"),
@@ -139,8 +143,19 @@ pub async fn place(
                 }
             },
         };
-        let fresh =
-            if enrich { answered_now(state, &media).await } else { routing::Fresh::default() };
+        let fresh = if enrich {
+            let title = (media.media_type.clone(), metadata::local_key(&media));
+            match asked.get(&title) {
+                Some(fresh) => fresh.clone(),
+                None => {
+                    let fresh = answered_now(state, &media).await;
+                    asked.insert(title, fresh.clone());
+                    fresh
+                }
+            }
+        } else {
+            routing::Fresh::default()
+        };
         let decided = routing::route_one_with(&state.pool, &media, Utc::now(), fresh).await?;
         placement.answers.push(answer(state, &instance, &media, source, decided).await?);
     }
@@ -303,9 +318,9 @@ async fn answer(
         None => None,
     };
     let action = match (route.action, media.arr_id) {
-        ("skip", _) => "skip",
+        (DecisionAction::Skip, _) => "skip",
         (_, 0) => "add",
-        (action, _) => action,
+        (action, _) => action.as_str(),
     };
     Ok(PlacementAnswer {
         instance_id: instance.id.clone(),

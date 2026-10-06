@@ -37,12 +37,13 @@ pub struct RuleHealth {
     pub shadowed_by: Option<String>,
     /// It matched nothing at all. That is a different problem from being
     /// shadowed, and usually a condition that is too narrow rather than a
-    /// priority that is too low.
+    /// priority that is too low. Never said of a disabled rule, which no run
+    /// reads.
     pub matched_nothing: bool,
     /// Another rule with the same priority and the same name, so that which
     /// of the two wins is no decision anybody made.
-    // The engine breaks ties on priority, then name, then id, and the id
-    // order is whichever SQLite returns first.
+    // The engine breaks ties on priority, then name, then id, and an id is
+    // random: the order holds, and nobody chose it.
     pub ambiguous_with: Option<String>,
     /// Another rule with the same conditions and the same target. One of the
     /// two decides nothing whatever the priorities are.
@@ -73,10 +74,6 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
             for loser in &outcome.alternatives {
                 *shadowed.entry(loser.clone()).or_default() += 1;
                 *beaten_by.entry((loser.clone(), winner.clone())).or_default() += 1;
-            }
-        } else {
-            for loser in &outcome.alternatives {
-                *shadowed.entry(loser.clone()).or_default() += 1;
             }
         }
         for excluded in &outcome.excluded {
@@ -114,7 +111,10 @@ pub async fn report(pool: &SqlitePool) -> AppResult<RuleHealthReport> {
                             .map(str::to_string)
                     })
                     .flatten(),
-                matched_nothing: won_count == 0 && shadowed_count == 0 && vetoed_count == 0,
+                matched_nothing: rule.enabled
+                    && won_count == 0
+                    && shadowed_count == 0
+                    && vetoed_count == 0,
                 ambiguous_with: rules
                     .iter()
                     .find(|other| {

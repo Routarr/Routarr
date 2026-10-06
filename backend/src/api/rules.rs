@@ -280,6 +280,7 @@ pub async fn preview(
     Json(req): Json<PreviewRequest>,
 ) -> AppResult<Json<PreviewResponse>> {
     let issues = check(&state, &req.rule).await?;
+    let _queued = super::simulation::wait_in_line(&state).await?;
 
     let baseline_rules = load_rules(&state.pool).await?;
     // Placed where saving it would place it: an edited rule where it stands,
@@ -581,7 +582,8 @@ pub async fn import(
 /// be a query per item on a path that already has all of them.
 pub(crate) struct Environment {
     pub(crate) known: Vec<String>,
-    mapped: Vec<String>,
+    /// Each category mapped onto a folder, with the instance and its kind.
+    mapped: Vec<(String, String, String)>,
     covered_fields: Vec<MetadataField>,
     localizer: crate::localization::Localizer,
     current_year: i64,
@@ -592,9 +594,10 @@ pub(crate) struct Environment {
 pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
     Ok(Environment {
         known: sqlx::query_scalar("SELECT name FROM categories").fetch_all(&state.pool).await?,
-        mapped: sqlx::query_scalar(
-            "SELECT DISTINCT category FROM root_folders
-             WHERE category IS NOT NULL AND category != ''",
+        mapped: sqlx::query_as(
+            "SELECT DISTINCT rf.instance_id, i.instance_type, rf.category
+               FROM root_folders rf JOIN instances i ON i.id = rf.instance_id
+              WHERE rf.category IS NOT NULL AND rf.category != ''",
         )
         .fetch_all(&state.pool)
         .await?,
@@ -611,10 +614,30 @@ pub(crate) async fn environment(state: &AppState) -> AppResult<Environment> {
 /// Run the shared validator against one loaded environment.
 pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<ValidationIssue> {
     let target_category = req.target_category.trim().to_lowercase();
+    // Mapped where the rule can move a title: on an instance in its scope, of
+    // the kind that holds its media type.
+    let media_type = req.media_type.to_lowercase();
+    let in_scope = |instance: &str| {
+        req.instance_ids
+            .as_ref()
+            .is_none_or(|ids| ids.is_empty() || ids.iter().any(|id| id == instance))
+    };
+    let serves = |kind: &str| match media_type.as_str() {
+        "movie" => kind == "radarr",
+        "series" => kind == "sonarr",
+        _ => true,
+    };
+    let mapped: Vec<String> = env
+        .mapped
+        .iter()
+        .filter(|(instance, kind, _)| in_scope(instance) && serves(kind))
+        .map(|(_, _, category)| category.clone())
+        .collect();
 
     rule_engine::validate_rule(
         rule_engine::RuleDraft {
             name: &req.name,
+            description: req.description.as_deref(),
             media_type: &req.media_type,
             match_mode: req.match_mode,
             conditions: &req.conditions,
@@ -623,7 +646,7 @@ pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<Validatio
         },
         rule_engine::ValidationEnv {
             known_categories: &env.known,
-            mapped_categories: &env.mapped,
+            mapped_categories: &mapped,
             covered_fields: &env.covered_fields,
             current_year: env.current_year,
         },
@@ -636,7 +659,7 @@ pub(crate) fn judge(env: &Environment, req: &CreateRuleRequest) -> Vec<Validatio
     // An id the interface sent, never one somebody typed, so in English.
     .chain(req.instance_ids.iter().flatten().filter(|id| !env.instances.contains(id)).map(|id| {
         ValidationIssue {
-            severity: "error".into(),
+            severity: Severity::Error,
             field: "instance_ids".into(),
             key: "UnknownInstance".into(),
             params: std::collections::BTreeMap::new(),
@@ -754,15 +777,18 @@ fn encode_instance_ids(ids: &Option<Vec<String>>) -> AppResult<Option<String>> {
     }
 }
 
+/// The rule a draft would be. A media type that names none makes a rule that
+/// matches nothing, which is what the validator's refusal of it means.
 fn to_rule(id: String, req: &CreateRuleRequest, priority: i64) -> Rule {
+    let media_type = req.media_type.parse::<RuleMediaType>();
     Rule {
         id,
         name: req.name.clone(),
         description: req.description.clone(),
         priority,
         enabled: req.enabled,
-        media_type: req.media_type.to_lowercase(),
-        conditions: req.conditions.clone(),
+        media_type: *media_type.as_ref().unwrap_or(&RuleMediaType::Both),
+        conditions: if media_type.is_ok() { req.conditions.clone() } else { Vec::new() },
         exclusions: req.exclusions.clone(),
         match_mode: req.match_mode,
         target_category: req.target_category.trim().to_lowercase(),
@@ -778,7 +804,7 @@ pub(crate) fn to_request(rule: Rule) -> CreateRuleRequest {
         description: rule.description,
         priority: Some(rule.priority),
         enabled: rule.enabled,
-        media_type: rule.media_type,
+        media_type: rule.media_type.to_string(),
         conditions: rule.conditions,
         exclusions: rule.exclusions,
         match_mode: rule.match_mode,
@@ -793,5 +819,6 @@ pub(crate) fn to_request(rule: Rule) -> CreateRuleRequest {
 pub async fn health(
     State(state): State<AppState>,
 ) -> AppResult<Json<crate::services::rule_health::RuleHealthReport>> {
+    let _queued = super::simulation::wait_in_line(&state).await?;
     Ok(Json(crate::services::rule_health::report(&state.pool).await?))
 }

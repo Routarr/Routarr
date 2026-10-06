@@ -185,17 +185,19 @@ async fn a_case_can_be_listed_and_deleted() {
     assert_eq!(app.delete(&format!("/api/v1/rule-tests/{id}")).await.status, 404);
 }
 
+/// A case needs a name a list can show, a rule's at most, and an item.
 #[tokio::test]
 async fn a_case_needs_a_name_and_a_media_item() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    let limit = crate::services::rule_engine::MAX_NAME_LENGTH;
 
-    assert_eq!(
-        app.post("/api/v1/rule-tests", serde_json::json!({ "name": "  ", "media_id": "m-1" }))
-            .await
-            .status,
-        400
-    );
+    for (name, status) in [("  ".to_string(), 400), ("x".repeat(limit + 1), 400)] {
+        let body = serde_json::json!({ "name": name, "media_id": "m-1" });
+        assert_eq!(app.post("/api/v1/rule-tests", body).await.status, status, "{name}");
+    }
+    let body = serde_json::json!({ "name": "x".repeat(limit), "media_id": "m-1" });
+    app.post("/api/v1/rule-tests", body).await.assert_ok();
     assert_eq!(
         app.post("/api/v1/rule-tests", serde_json::json!({ "name": "x", "media_id": "nope" }))
             .await

@@ -838,7 +838,7 @@
             "type": "object"
           },
           {
-            "description": "On-disk size, in gigabytes, strictly above this value.",
+            "description": "On-disk size, in GB of 1024³ bytes as the interface counts them,\nstrictly above this value.",
             "properties": {
               "type": {
                 "enum": [
@@ -847,7 +847,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "On-disk size, in gigabytes, strictly above this value.",
+                "description": "On-disk size, in GB of 1024³ bytes as the interface counts them,\nstrictly above this value.",
                 "format": "int64",
                 "type": "integer"
               }
@@ -926,7 +926,7 @@
             "type": "object"
           },
           {
-            "description": "Current root folder path matches exactly.",
+            "description": "The current root folder is this folder, whatever its trailing\nseparator and, on Windows, its case.",
             "properties": {
               "type": {
                 "enum": [
@@ -935,7 +935,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Current root folder path matches exactly.",
+                "description": "The current root folder is this folder, whatever its trailing\nseparator and, on Windows, its case.",
                 "type": "string"
               }
             },
@@ -946,7 +946,7 @@
             "type": "object"
           },
           {
-            "description": "Current root folder path starts with this prefix.",
+            "description": "The current root folder is this folder or one inside it: `/data` holds\n`/data/movies`, and `/data/mov` holds neither.",
             "properties": {
               "type": {
                 "enum": [
@@ -955,7 +955,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Current root folder path starts with this prefix.",
+                "description": "The current root folder is this folder or one inside it: `/data` holds\n`/data/movies`, and `/data/mov` holds neither.",
                 "type": "string"
               }
             },
@@ -986,7 +986,7 @@
             "type": "object"
           },
           {
-            "description": "Title contains one of these substrings (case-insensitive).",
+            "description": "The title contains one of these, compared as every value is: case,\naccents and punctuation aside.",
             "properties": {
               "type": {
                 "enum": [
@@ -995,7 +995,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "Title contains one of these substrings (case-insensitive).",
+                "description": "The title contains one of these, compared as every value is: case,\naccents and punctuation aside.",
                 "items": {
                   "type": "string"
                 },
@@ -1402,8 +1402,12 @@
         "description": "A routing decision computed by the rule engine.",
         "properties": {
           "action": {
-            "description": "`move`, `none` or `skip`.",
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "move",
+              "none",
+              "skip"
+            ]
           },
           "actor": {
             "description": "What set the decision off: `manual`, `schedule`, `webhook`, `api`, or\n`auto` for the simulation the automation runs after a sync.",
@@ -1505,8 +1509,14 @@
             ]
           },
           "status": {
-            "description": "`pending`, `applied`, `failed` or `skipped`. A reverted move is\n`skipped` with `reverted_at` set.",
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "pending",
+              "requested",
+              "applied",
+              "failed",
+              "skipped"
+            ]
           },
           "subject": {
             "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody. An application key reads its own name and null for\nanyone else.",
@@ -1640,7 +1650,12 @@
       "Explanation": {
         "properties": {
           "action": {
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "move",
+              "none",
+              "skip"
+            ]
           },
           "confidence": {
             "format": "float",
@@ -1651,7 +1666,7 @@
             "type": "boolean"
           },
           "media": {
-            "$ref": "#/components/schemas/Media"
+            "$ref": "#/components/schemas/MediaView"
           },
           "metadata": {
             "oneOf": [
@@ -2072,6 +2087,13 @@
             },
             "type": "array"
           },
+          "statuses": {
+            "description": "The statuses the Arrs give the titles, as they write them.",
+            "items": {
+              "$ref": "#/components/schemas/Facet"
+            },
+            "type": "array"
+          },
           "tags": {
             "items": {
               "$ref": "#/components/schemas/Facet"
@@ -2102,7 +2124,8 @@
           "certifications",
           "tags",
           "series_types",
-          "root_folders"
+          "root_folders",
+          "statuses"
         ],
         "type": "object"
       },
@@ -2410,7 +2433,7 @@
             ]
           },
           "media": {
-            "$ref": "#/components/schemas/Media"
+            "$ref": "#/components/schemas/MediaView"
           },
           "metadata": {
             "oneOf": [
@@ -2619,6 +2642,37 @@
           }
         },
         "type": "object"
+      },
+      "MediaView": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/Media"
+          },
+          {
+            "properties": {
+              "genre_list": {
+                "description": "The genres the Arr reports: `genres` holds the same as a JSON string.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "tag_list": {
+                "description": "The Arr's tag labels: `tags` holds the same as a JSON string.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "tag_list",
+              "genre_list"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A media row as the API shows one, its lists read out of the JSON strings\nthe row keeps them in."
       },
       "MetadataHealth": {
         "properties": {
@@ -2836,8 +2890,12 @@
               "description": "A routing decision computed by the rule engine.",
               "properties": {
                 "action": {
-                  "description": "`move`, `none` or `skip`.",
-                  "type": "string"
+                  "type": "string",
+                  "x-extensible-enum": [
+                    "move",
+                    "none",
+                    "skip"
+                  ]
                 },
                 "actor": {
                   "description": "What set the decision off: `manual`, `schedule`, `webhook`, `api`, or\n`auto` for the simulation the automation runs after a sync.",
@@ -2939,8 +2997,14 @@
                   ]
                 },
                 "status": {
-                  "description": "`pending`, `applied`, `failed` or `skipped`. A reverted move is\n`skipped` with `reverted_at` set.",
-                  "type": "string"
+                  "type": "string",
+                  "x-extensible-enum": [
+                    "pending",
+                    "requested",
+                    "applied",
+                    "failed",
+                    "skipped"
+                  ]
                 },
                 "subject": {
                   "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody. An application key reads its own name and null for\nanyone else.",
@@ -3927,7 +3991,12 @@
             "$ref": "#/components/schemas/MatchMode"
           },
           "media_type": {
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "movie",
+              "series",
+              "both"
+            ]
           },
           "name": {
             "type": "string"
@@ -4014,7 +4083,7 @@
             "type": "boolean"
           },
           "matched_nothing": {
-            "description": "It matched nothing at all. That is a different problem from being\nshadowed, and usually a condition that is too narrow rather than a\npriority that is too low.",
+            "description": "It matched nothing at all. That is a different problem from being\nshadowed, and usually a condition that is too narrow rather than a\npriority that is too low. Never said of a disabled rule, which no run\nreads.",
             "type": "boolean"
           },
           "priority": {
@@ -4249,7 +4318,13 @@
             "type": "boolean"
           },
           "outcome": {
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "winner",
+              "excluded",
+              "matched_lower_priority",
+              "not_matched"
+            ]
           },
           "priority": {
             "format": "int64",
@@ -4356,7 +4431,7 @@
             "type": "integer"
           },
           "excluded_by_rule": {
-            "description": "Rules that matched but were vetoed by one of their exclusions.",
+            "description": "How often a rule matched a title and one of its own exclusions set it\naside, over every title, rules below the winner included.",
             "minimum": 0,
             "type": "integer"
           },
@@ -4529,8 +4604,11 @@
             "type": "object"
           },
           "severity": {
-            "description": "`error` blocks the write, `warning` is advisory.",
-            "type": "string"
+            "type": "string",
+            "x-extensible-enum": [
+              "error",
+              "warning"
+            ]
           }
         },
         "required": [
@@ -5865,7 +5943,7 @@
             }
           },
           {
-            "description": "Filter on the category currently proposed by the engine.",
+            "description": "Only the titles the last run sends to this category.",
             "in": "query",
             "name": "category",
             "required": false,
@@ -5912,7 +5990,7 @@
             }
           },
           {
-            "description": "Only media that no rule matched, for the \"unclassified\" view.",
+            "description": "Only the titles no rule matched at the last run, and those no run has\nread yet, for the \"unclassified\" view.",
             "in": "query",
             "name": "unmatched",
             "required": false,

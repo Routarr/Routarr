@@ -85,24 +85,29 @@ async fn a_rule_that_wins_sometimes_is_not_reported_as_shadowed() {
 
 /// Matching nothing is a different fault from being shadowed (a condition too
 /// narrow rather than a priority too low), and the two want different fixes.
+/// A switched-off rule is read by no run, which says nothing of its
+/// conditions.
 #[tokio::test]
 async fn a_rule_matching_nothing_is_reported_apart_from_a_shadowed_one() {
     let app = TestApp::new().await;
     app.seed_library().await;
     add_rule(&app, "r-none", "Nothing at all", 10, "zzzzz-no-such-title", "anime").await;
+    add_rule(&app, "r-off", "Switched off", 20, "zzzzz-no-such-title", "anime").await;
+    app.execute(&["UPDATE rules SET enabled = 0 WHERE id = 'r-off'"]).await;
 
     let response = app.get("/api/v1/rules/health").await;
     let orphan = rule(response.assert_ok(), "Nothing at all");
     assert_eq!(orphan["matched_nothing"], true);
     assert_eq!(orphan["shadowed"], 0);
     assert!(orphan["shadowed_by"].is_null());
+    assert_eq!(rule(response.assert_ok(), "Switched off")["matched_nothing"], false);
 }
 
 // ----------------------------------------------------------------- collisions
 
-/// Two rules with one name and one priority leave the winner to whichever id
-/// SQLite returns first: the engine breaks ties on priority, then name, then
-/// id, and that last step exists precisely because this happens.
+/// Two rules with one name and one priority leave the winner to their ids,
+/// which are random: the engine breaks ties on priority, then name, then id,
+/// and that last step exists precisely because this happens.
 #[tokio::test]
 async fn two_rules_sharing_a_name_and_a_priority_are_reported() {
     let app = TestApp::new().await;
@@ -370,7 +375,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
     app.seed_library().await;
     sqlx::query(
         "UPDATE media SET genres = '[\"Animation\",\"Family\"]', original_language = 'ja',
-         certification = 'PG'",
+         certification = 'PG', status = 'inCinemas'",
     )
     .execute(&app.state.pool)
     .await
@@ -402,6 +407,9 @@ async fn the_facets_count_what_the_library_actually_carries() {
         "got {certifications:?}"
     );
     assert_eq!(body["without_metadata"], 0);
+    // The Arr's own status, as it writes it, named in words.
+    assert_eq!(body["statuses"][0]["value"], "inCinemas");
+    assert_eq!(body["statuses"][0]["label"], "In cinemas");
 }
 
 /// A language rule is written against an ISO code, and the library holds five

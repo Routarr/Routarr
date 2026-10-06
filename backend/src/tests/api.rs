@@ -829,6 +829,41 @@ async fn rules_round_trip_through_export_and_import() {
     assert_eq!(rules.as_array().unwrap().len(), 1, "replace must not duplicate");
 }
 
+/// A category counts as mapped for a rule when an instance the rule can route
+/// maps it: one in its scope, and of the kind that holds its media type.
+/// Mapped only elsewhere, every title it matches would be skipped.
+#[tokio::test]
+async fn a_category_mapped_only_where_the_rule_cannot_route_is_flagged() {
+    let app = library_with_kids().await;
+    app.execute(&[
+        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+         VALUES ('inst-2', 'Sonarr', 'sonarr', 'http://127.0.0.1:1', 'secret', 1)",
+        "INSERT INTO root_folders (id, instance_id, arr_id, path, accessible, category)
+         VALUES ('rf-kids', 'inst-2', 3, '/tv/kids', 1, 'kids')",
+    ])
+    .await;
+    let unmapped = |media_type: &str, instances: Option<&[&str]>| {
+        let mut rule = anime_rule_body();
+        rule["target_category"] = serde_json::json!("kids");
+        rule["media_type"] = serde_json::json!(media_type);
+        rule["instance_ids"] = serde_json::json!(instances);
+        let app = &app;
+        async move {
+            let verdict = app.post("/api/v1/rules/validate", rule).await.assert_ok().clone();
+            verdict["issues"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|issue| issue["key"] == "ValidationCategoryUnmapped")
+        }
+    };
+
+    assert!(unmapped("movie", None).await, "a film rule into a Sonarr's category");
+    assert!(unmapped("both", Some(&["inst-1"])).await, "a rule kept to the Radarr");
+    assert!(!unmapped("series", None).await);
+    assert!(!unmapped("both", None).await);
+}
+
 /// A rule travels with the instances it is limited to, by name, and never
 /// widens on the way: one naming only instances this installation lacks is
 /// left out, one naming some is limited to those, and a version 1 rule, whose
@@ -1491,6 +1526,22 @@ async fn an_override_carries_no_lock() {
     assert!(listed[0].get("locked").is_none(), "{listed}");
     let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
     assert!(detail["override"].get("locked").is_none(), "{detail}");
+}
+
+/// A title's tags and genres read as lists, beside the JSON strings the
+/// first release sent and still sends.
+#[tokio::test]
+async fn a_titles_tags_and_genres_read_as_lists() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["UPDATE media SET tags = '[\"4K\",\"Kids\"]', genres = '[\"Animation\"]'"]).await;
+
+    let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();
+
+    let media = &detail["media"];
+    assert_eq!(media["tag_list"], serde_json::json!(["4K", "Kids"]), "{media}");
+    assert_eq!(media["genre_list"], serde_json::json!(["Animation"]), "{media}");
+    assert_eq!(media["tags"], r#"["4K","Kids"]"#, "{media}");
 }
 
 /// An upgrade drops the column and keeps every override.

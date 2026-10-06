@@ -165,6 +165,12 @@ pub fn validate(new: &NewRuleTest, localizer: &crate::localization::Localizer) -
     if new.name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("RuleTestNameRequired", &[])));
     }
+    let max = crate::services::rule_engine::MAX_NAME_LENGTH;
+    if new.name.chars().count() > max {
+        return Err(AppError::BadRequest(
+            localizer.translate("RuleTestNameTooLong", &[("max", &max.to_string())]),
+        ));
+    }
     if new.media_id.trim().is_empty() {
         return Err(AppError::BadRequest("a test needs a media item to snapshot".into()));
     }

@@ -29,9 +29,25 @@ pub async fn run(
 }
 
 /// The queue of previews, and how long it may grow: the two that run beside
-/// each other and two waiting their turn.
+/// each other and two waiting their turn. A simulation that stores nothing, a
+/// rule preview and a rule health report wait in it alike.
 const PREVIEW_QUEUE: &str = "preview";
 const MAX_QUEUED_PREVIEWS: usize = 2 * routing::MAX_CONCURRENT_LIBRARY_PASSES;
+
+/// A place among the previews waiting for a library pass, or a refusal when
+/// the queue is full: without a bound, a caller that does not wait queues
+/// them without end, and every apply behind them waits too. The place is kept
+/// until the guard drops, once the pass has run.
+pub(crate) async fn wait_in_line(
+    state: &AppState,
+) -> crate::error::AppResult<crate::jobs::registry::WaitingPlace> {
+    match state.jobs.try_wait(PREVIEW_QUEUE, MAX_QUEUED_PREVIEWS) {
+        Some(place) => Ok(place),
+        None => Err(crate::error::AppError::Conflict(
+            state.localizer().await.translate("ErrorPreviewsWaiting", &[]),
+        )),
+    }
+}
 
 async fn simulate(
     state: AppState,
@@ -73,21 +89,8 @@ async fn simulate(
         None
     };
     // A preview waits for its pass rather than being refused, and with
-    // `Prefer: respond-async` it answers before it holds one: without a bound,
-    // a caller that does not wait queues them without end, and every apply
-    // behind them waits too. The place is kept until the pass has run.
-    let _queued = if req.persist {
-        None
-    } else {
-        match state.jobs.try_wait(PREVIEW_QUEUE, MAX_QUEUED_PREVIEWS) {
-            Some(place) => Some(place),
-            None => {
-                return Err(crate::error::AppError::Conflict(
-                    state.localizer().await.translate("ErrorPreviewsWaiting", &[]),
-                ));
-            }
-        }
-    };
+    // `Prefer: respond-async` it answers before it holds one.
+    let _queued = if req.persist { None } else { Some(wait_in_line(&state).await?) };
 
     let kind = if req.persist { JobKind::Simulate } else { JobKind::Preview };
     let mut job = state.jobs.start(kind, &by, None, Detail::new("JobDetailSimulating")).await?;

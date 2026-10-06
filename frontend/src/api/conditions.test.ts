@@ -16,6 +16,7 @@ import {
   conditionAppliesTo,
   localFacets,
   nextPriority,
+  statusKey,
 } from './conditions';
 
 const spec = (value_type: ConditionSpec['value_type']): ConditionSpec => ({
@@ -84,6 +85,15 @@ describe('certificationKey', () => {
     expect(withoutRepeats({ type: 'genre_contains', value: ['Sci-Fi', 'sci fi'] }).value).toEqual([
       'Sci-Fi',
     ]);
+  });
+});
+
+describe('statusKey', () => {
+  it('reads a status as one word, as the rule engine does', () => {
+    expect(statusKey('In Cinemas')).toBe(statusKey('inCinemas'));
+    expect(withoutRepeats({ type: 'status_is', value: ['inCinemas', 'In Cinemas'] }).value).toEqual(
+      ['inCinemas'],
+    );
   });
 });
 

@@ -208,7 +208,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
             value_type: "string_list",
             field: None,
             media_types: ANY,
-            suggestions: "",
+            suggestions: "statuses",
             quantifier: "",
             counterpart: "",
         },

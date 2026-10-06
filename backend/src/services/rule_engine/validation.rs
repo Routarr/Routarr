@@ -1,6 +1,6 @@
 //! What makes a rule refused or flagged before it is stored.
 
-use super::{certification_key, normalise_value};
+use super::{certification_key, normalise_value, status_key};
 use crate::models::{Condition, MatchMode, MetadataField, ValidationIssue};
 
 /// The first value a list condition names twice, compared as matching compares
@@ -26,6 +26,7 @@ fn repeated_value(condition: &Condition) -> Option<String> {
 #[derive(Debug, Clone, Copy)]
 pub struct RuleDraft<'a> {
     pub name: &'a str,
+    pub description: Option<&'a str>,
     pub media_type: &'a str,
     pub match_mode: MatchMode,
     pub conditions: &'a [Condition],
@@ -38,7 +39,8 @@ pub struct RuleDraft<'a> {
 pub struct ValidationEnv<'a> {
     /// Every category that exists.
     pub known_categories: &'a [String],
-    /// Categories that at least one root folder is mapped to.
+    /// Categories mapped onto a folder of an instance the rule can route: in
+    /// its scope, and of the kind that holds its media type.
     pub mapped_categories: &'a [String],
     /// Metadata fields at least one enabled source can answer.
     ///
@@ -69,14 +71,54 @@ pub const MAX_YEARS_AHEAD: i64 = 5;
 /// paragraph in either breaks the layout of every screen that lists rules.
 pub const MAX_NAME_LENGTH: usize = 200;
 
+/// Longest description a rule may carry: every rule list sends it.
+pub const MAX_DESCRIPTION_LENGTH: usize = 1000;
+
+/// Most conditions one list of a rule holds, its exclusions as many again.
+/// Every pass reads every condition of every rule for every title, and the
+/// check for contradictions reads each pair.
+pub const MAX_CONDITIONS: usize = 50;
+
+/// Most values one condition holds.
+pub const MAX_VALUES: usize = 200;
+
 /// Validate a rule before it is stored or enabled.
 ///
 /// Errors block the write. Warnings are surfaced in the UI but do not.
 pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<ValidationIssue> {
-    let RuleDraft { name, media_type, match_mode, conditions, exclusions, target_category } = draft;
+    let RuleDraft {
+        name,
+        description,
+        media_type,
+        match_mode,
+        conditions,
+        exclusions,
+        target_category,
+    } = draft;
     let ValidationEnv { known_categories, mapped_categories, covered_fields, current_year } = env;
 
     let mut issues = Vec::new();
+
+    // Refused before anything reads them one by one, let alone in pairs.
+    for (section, list) in [("conditions", conditions), ("exclusions", exclusions)] {
+        if list.len() > MAX_CONDITIONS {
+            issues.push(ValidationIssue::error(
+                section,
+                "ValidationTooManyConditions",
+                &[("max", MAX_CONDITIONS.to_string())],
+            ));
+        }
+    }
+    if !issues.is_empty() {
+        return issues;
+    }
+    if description.is_some_and(|text| text.chars().count() > MAX_DESCRIPTION_LENGTH) {
+        issues.push(ValidationIssue::error(
+            "description",
+            "ValidationDescriptionTooLong",
+            &[("max", MAX_DESCRIPTION_LENGTH.to_string())],
+        ));
+    }
 
     if name.trim().is_empty() {
         issues.push(ValidationIssue::error("name", "ValidationNameEmpty", &[]));
@@ -131,6 +173,13 @@ pub fn validate_rule(draft: RuleDraft<'_>, env: ValidationEnv<'_>) -> Vec<Valida
         // rule that correctly matches nothing.
         if condition.is_empty() {
             issues.push(ValidationIssue::error(section, "ValidationConditionEmpty", &at(&[])));
+        }
+        if value_count(condition) > MAX_VALUES {
+            issues.push(ValidationIssue::error(
+                section,
+                "ValidationTooManyValues",
+                &at(&[("max", MAX_VALUES.to_string())]),
+            ));
         }
         if let Some(value) = repeated_value(condition) {
             issues.push(ValidationIssue::error(
@@ -272,10 +321,20 @@ fn forbids_all(forbidden: &[String], wanted: &[String]) -> bool {
     wanted.peek().is_some() && wanted.all(|v| forbidden.contains(&v))
 }
 
+/// How many values a list condition holds, read through the stored shape as
+/// `repeated_value` reads it.
+fn value_count(condition: &Condition) -> usize {
+    serde_json::to_value(condition)
+        .ok()
+        .and_then(|stored| stored.get("value")?.as_array().map(Vec::len))
+        .unwrap_or(0)
+}
+
 /// How the values of a condition of this kind are told apart.
 fn key_of(condition: &Condition) -> fn(&str) -> String {
     match condition {
         Condition::CertificationIn(_) => certification_key,
+        Condition::StatusIs(_) => status_key,
         _ => normalise_value,
     }
 }
@@ -312,6 +371,7 @@ mod tests {
     ) -> RuleDraft<'a> {
         RuleDraft {
             name: "Anime",
+            description: None,
             media_type,
             match_mode: mode,
             conditions,
@@ -389,6 +449,7 @@ mod tests {
         let refused = |name, media_type, conditions: &[Condition], target| {
             let draft = RuleDraft {
                 name,
+                description: None,
                 media_type,
                 match_mode: MatchMode::All,
                 conditions,
@@ -627,6 +688,45 @@ mod tests {
             let issues = validate(vec![one.clone()], vec![]);
             assert!(issues.is_empty(), "{one:?}: {issues:?}");
         }
+    }
+
+    /// What a rule may hold is bounded, at the bound included: every pass
+    /// reads every condition of every rule for every title, and every rule
+    /// list sends every description.
+    #[test]
+    fn a_rule_holds_what_its_limits_allow_and_no_more() {
+        let known = ["anime".to_string()];
+        let values = |count: usize| (0..count).map(|i| format!("Genre {i}")).collect::<Vec<_>>();
+        let genre = |count: usize| Condition::GenreContains(values(count));
+        let keys = |conditions: &[Condition], exclusions: &[Condition], description: &str| {
+            let draft = RuleDraft {
+                description: Some(description),
+                ..draft("both", MatchMode::All, conditions, exclusions, "anime")
+            };
+            validate_rule(draft, env(&known, &known, ALL_FIELDS))
+                .into_iter()
+                .filter(|issue| issue.is_error())
+                .map(|issue| issue.key)
+                .collect::<Vec<_>>()
+        };
+        let many = |count: usize, prefix: &str| {
+            (0..count)
+                .map(|i| Condition::TitleContains(vec![format!("{prefix}{i}")]))
+                .collect::<Vec<_>>()
+        };
+        let most = (many(MAX_CONDITIONS, "t"), many(MAX_CONDITIONS, "x"));
+
+        let full = keys(&most.0, &most.1, &"d".repeat(MAX_DESCRIPTION_LENGTH));
+        assert!(full.is_empty(), "{full:?}");
+        assert!(keys(&[genre(MAX_VALUES)], &[], "").is_empty());
+        assert_eq!(keys(&many(MAX_CONDITIONS + 1, "t"), &[], ""), ["ValidationTooManyConditions"]);
+        assert_eq!(
+            keys(&[genre(1)], &many(MAX_CONDITIONS + 1, "x"), ""),
+            ["ValidationTooManyConditions"]
+        );
+        assert_eq!(keys(&[genre(MAX_VALUES + 1)], &[], ""), ["ValidationTooManyValues"]);
+        let long = "d".repeat(MAX_DESCRIPTION_LENGTH + 1);
+        assert_eq!(keys(&[genre(1)], &[], &long), ["ValidationDescriptionTooLong"]);
     }
 
     #[test]

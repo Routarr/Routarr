@@ -319,6 +319,63 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     );
 }
 
+/// A title AniList describes counts as the engine counts it. AniList is
+/// found by search, and its answer is cached under its own id, which only
+/// what the search resolved the title to leads to.
+#[tokio::test]
+async fn a_title_known_through_anilist_has_metadata_in_the_library() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.execute(&[
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
+    ])
+    .await;
+    let (id, tmdb_id): (String, i64) =
+        sqlx::query_as("SELECT id, tmdb_id FROM media ORDER BY id LIMIT 1")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    sqlx::query(
+        "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+         VALUES ('anilist', 'movie', ?, '21')",
+    )
+    .bind(format!("tmdb:{tmdb_id}"))
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    cache_row(&app, "anilist", "21", r#"["Animation"]"#).await;
+    set_order(&app, "arr,anilist").await;
+
+    let explained = app.get(&format!("/api/v1/media/{id}/explain")).await.assert_ok().clone();
+    assert!(!explained["metadata"].is_null(), "the engine reads no answer: {explained}");
+    assert!(listed_has_metadata(&app).await, "the library disagrees with the engine");
+}
+
+/// An id is an answer in its own namespace only: TheTVDB's series 1399 says
+/// nothing about the series whose TMDb id is 1399.
+#[tokio::test]
+async fn an_id_from_another_namespace_is_not_metadata() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("sonarr", &arr).await;
+    app.execute(&[
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL,
+                                    tmdb_id = 1399, tvdb_id = 81189",
+    ])
+    .await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
+                                     origin_countries, cached_at, expires_at)
+         VALUES ('tvdb', '1399', 'series', '[\"Animation\"]', '[]', '[]', datetime('now'),
+                 datetime('now', '+7 days'))",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
+    set_order(&app, "arr,tvdb").await;
+
+    assert!(!listed_has_metadata(&app).await, "another series' answer counted");
+}
+
 /// The column, the diagnostics count and the warning beside it are one question.
 ///
 /// Three spellings of it is how a badge ends up contradicting the number above

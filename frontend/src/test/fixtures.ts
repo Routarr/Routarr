@@ -212,6 +212,8 @@ export function explainedMedia(over: Partial<ExplainedMedia> = {}): ExplainedMed
     original_language: null,
     certification: null,
     last_synced_at: '2026-08-27 10:00:00',
+    tag_list: [],
+    genre_list: [],
     ...over,
   };
 }

@@ -65,7 +65,7 @@ PAIRS: dict[str, str] = {
     "TestConnectionResponse": "TestConnectionResponse",
     "Minted": "MintedApplication",
     "ErrorResponse": "ErrorBody",
-    "Media": "ExplainedMedia",
+    "MediaView": "ExplainedMedia",
     "SigningStatus": "WebhookSigningStatus",
     "ImportReport": "ConfigImportReport",
     "ProviderDescription": "MetadataProvider",

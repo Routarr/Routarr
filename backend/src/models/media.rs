@@ -65,6 +65,30 @@ impl Media {
     }
 }
 
+/// A media row as the API shows one, its lists read out of the JSON strings
+/// the row keeps them in.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct MediaView {
+    #[serde(flatten)]
+    pub media: Media,
+    /// The Arr's tag labels: `tags` holds the same as a JSON string.
+    pub tag_list: Vec<String>,
+    /// The genres the Arr reports: `genres` holds the same as a JSON string.
+    pub genre_list: Vec<String>,
+}
+
+impl From<Media> for MediaView {
+    fn from(media: Media) -> Self {
+        let tag_list = media
+            .tags
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
+            .unwrap_or_default();
+        let genre_list = media.genre_list();
+        MediaView { media, tag_list, genre_list }
+    }
+}
+
 /// Query parameters for media listing.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
@@ -73,7 +97,7 @@ pub struct MediaQuery {
     pub instance_id: Option<String>,
     /// `movie` or `series`.
     pub media_type: Option<String>,
-    /// Filter on the category currently proposed by the engine.
+    /// Only the titles the last run sends to this category.
     pub category: Option<String>,
     /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
@@ -83,7 +107,8 @@ pub struct MediaQuery {
     pub tvdb_id: Option<i64>,
     /// Only the titles with this IMDb id, as `tt0133093`.
     pub imdb_id: Option<String>,
-    /// Only media that no rule matched, for the "unclassified" view.
+    /// Only the titles no rule matched at the last run, and those no run has
+    /// read yet, for the "unclassified" view.
     pub unmatched: Option<bool>,
     /// From 1. Defaults to 1.
     pub page: Option<u32>,

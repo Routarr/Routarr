@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 mod folding;
 mod validation;
 
-pub use folding::{certification_key, normalise_value};
+pub use folding::{certification_key, normalise_value, status_key};
 use folding::{contains_all, contains_any};
 pub use validation::{MAX_NAME_LENGTH, RuleDraft, ValidationEnv, validate_rule};
 
@@ -370,9 +370,10 @@ pub fn evaluate_single_condition(condition: &Condition, ctx: EvalContext<'_>) ->
 
         Condition::StatusIs(values) => {
             let status = media.status.as_deref().unwrap_or("");
+            let held = status_key(status);
             ConditionOutcome::new(
                 kind,
-                contains_any(&[status.to_string()], values),
+                !held.is_empty() && values.iter().any(|value| status_key(value) == held),
                 "ConditionStatusIs",
                 &[("values", values.join(", "))],
                 status.to_string(),
@@ -590,7 +591,7 @@ fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule};
+    use crate::models::{Condition, MatchMode, Media, ProviderMetadata, Rule, RuleMediaType};
     use chrono::TimeZone;
 
     fn now() -> DateTime<Utc> {
@@ -652,7 +653,7 @@ mod tests {
             description: None,
             priority,
             enabled: true,
-            media_type: "both".into(),
+            media_type: RuleMediaType::Both,
             conditions,
             exclusions: vec![],
             match_mode: MatchMode::All,
@@ -762,11 +763,11 @@ mod tests {
     #[test]
     fn media_type_scope_is_respected() {
         let mut series_only = anime_rule();
-        series_only.media_type = "series".into();
+        series_only.media_type = RuleMediaType::Series;
         assert!(evaluate(&[series_only.clone()], None).winner.is_none());
 
         let mut movies_only = anime_rule();
-        movies_only.media_type = "movie".into();
+        movies_only.media_type = RuleMediaType::Movie;
         assert_eq!(evaluate(&[movies_only], None).winner.unwrap().category, "anime");
 
         let mut series = media();
@@ -893,11 +894,14 @@ mod tests {
         assert!(holds(Condition::TagIn(one_missing), &tagged));
     }
 
-    /// The Arr's own status, whatever its case, against any of the values.
+    /// The Arr's own status, whatever its case and however its words are
+    /// split, against any of the values: Radarr writes `inCinemas`.
     #[test]
     fn a_status_matches_any_of_the_values_it_names() {
         assert!(holds(Condition::StatusIs(vec!["announced".into(), "Released".into()]), &media()));
         assert!(!holds(Condition::StatusIs(vec!["announced".into()]), &media()));
+        let showing = Media { status: Some("inCinemas".into()), ..media() };
+        assert!(holds(Condition::StatusIs(vec!["In Cinemas".into()]), &showing));
         let unknown = Media { status: None, ..media() };
         assert!(!holds(Condition::StatusIs(vec!["released".into()]), &unknown));
     }
