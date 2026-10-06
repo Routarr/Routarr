@@ -574,11 +574,10 @@ async fn an_unreadable_instance_list_scopes_the_rule_to_nothing() {
     assert_eq!(simulate(&app, persisting()).await.moves_required, 0, "the rule widened");
 }
 
-/// Two library-wide passes both supersede the other's pending decisions, and
-/// the later commit wins, so the survivor may have been computed from a rule
-/// set that changed in between. The webhook's single-item run must *not* queue
-/// behind a sweep: `store_decisions` supersedes only what it evaluated, and a
-/// season import arrives as one delivery per episode.
+/// Two library-wide passes at once evaluate the library twice for one result.
+/// The webhook's single-item run must *not* queue behind a sweep:
+/// `routing::store_run` touches only what it evaluated, and a season import
+/// arrives as one delivery per episode.
 #[tokio::test]
 async fn a_full_simulation_refuses_a_second_one_and_never_blocks_the_webhook() {
     let arr = crate::tests::fake_arr::FakeArr::start().await;

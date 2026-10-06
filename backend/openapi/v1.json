@@ -2415,7 +2415,7 @@
             "type": "integer"
           },
           "computed_category": {
-            "description": "Category proposed by the most recent, still-current decision.",
+            "description": "The category the last stored run sends the title to, whether it moves\nor already sits there. Null until a run has evaluated it.",
             "type": [
               "string",
               "null"
@@ -3150,7 +3150,7 @@
                   "type": "integer"
                 },
                 "computed_category": {
-                  "description": "Category proposed by the most recent, still-current decision.",
+                  "description": "The category the last stored run sends the title to, whether it moves\nor already sits there. Null until a run has evaluated it.",
                   "type": [
                     "string",
                     "null"
@@ -3561,9 +3561,11 @@
       "PreviewResponse": {
         "properties": {
           "after": {
+            "$ref": "#/components/schemas/PreviewSummary",
             "description": "What the library looks like with the candidate rule applied."
           },
           "before": {
+            "$ref": "#/components/schemas/PreviewSummary",
             "description": "What it looks like today."
           },
           "changed": {
@@ -3590,6 +3592,44 @@
           "before",
           "changed",
           "changed_total"
+        ],
+        "type": "object"
+      },
+      "PreviewSummary": {
+        "description": "What one rule set decides over the library, counted.",
+        "properties": {
+          "already_correct": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "excluded_by_rule": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "moves_required": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "no_category_match": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "skipped_unmapped": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "total_media": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_media",
+          "moves_required",
+          "already_correct",
+          "no_category_match",
+          "skipped_unmapped",
+          "excluded_by_rule"
         ],
         "type": "object"
       },

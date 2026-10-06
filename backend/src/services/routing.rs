@@ -9,6 +9,8 @@
 use chrono::Utc;
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use tracing::info;
 use uuid::Uuid;
 
@@ -78,6 +80,7 @@ impl Default for SimulationOptions {
 }
 
 /// Everything needed to evaluate a library, loaded once per run.
+#[derive(Default)]
 struct RoutingContext {
     rules: Vec<Rule>,
     overrides: HashMap<String, String>,
@@ -114,21 +117,36 @@ struct RoutingContext {
 /// report evaluates the current one: loaded apart from the evaluating, each
 /// of them costs one load however many rule sets it asks about.
 pub struct LoadedLibrary {
-    /// `None` for one title, which loads its own context and no library.
+    /// `None` for named titles, which load their own context and no library.
     _pass: Option<tokio::sync::SemaphorePermit<'static>>,
     /// What the load took, counted into every evaluation over it: a run's
     /// figure is load plus evaluation, whichever of the two ran it.
     loaded_in: std::time::Duration,
+    /// Where this load stands among every other: see [`load_order`].
+    order: i64,
     ctx: RoutingContext,
     media: Vec<Media>,
+}
+
+/// A number larger than any load took before, so that two runs storing one
+/// title tell which of them read the library last. Taken from the clock, in
+/// microseconds, so the order holds across a restart.
+fn load_order() -> i64 {
+    static LAST: AtomicI64 = AtomicI64::new(0);
+    let now = Utc::now().timestamp_micros();
+    let next = |last: i64| now.max(last + 1);
+    match LAST.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |last| Some(next(last))) {
+        Ok(last) | Err(last) => next(last),
+    }
 }
 
 /// Load the context and the media a pass with these options evaluates.
 pub async fn load_library(
     pool: &SqlitePool,
     options: &SimulationOptions,
-) -> AppResult<LoadedLibrary> {
+) -> AppResult<Arc<LoadedLibrary>> {
     let started = std::time::Instant::now();
+    let order = load_order();
 
     // A filter longer than one statement binds is a request no library can
     // satisfy, and refused as one rather than failed inside the query.
@@ -143,34 +161,30 @@ pub async fn load_library(
         }
     }
 
-    // One title, as the webhook asks after each delivery: its own context
+    // Named titles, as the webhook asks after each delivery: their own context
     // and no permit, or a season imported on a large library loads the whole
-    // cache once per episode, queued behind the previews.
-    if let Some([_]) = options.media_ids.as_deref() {
-        let media = load_media(
-            pool,
-            &options.instance_ids,
-            options.media_ids.as_deref(),
-            options.media_type.as_deref(),
-        )
-        .await?;
-        if let [item] = media.as_slice() {
-            let ctx = load_context(pool, Scope::Items(std::slice::from_ref(item))).await?;
-            return Ok(LoadedLibrary { _pass: None, loaded_in: started.elapsed(), ctx, media });
-        }
+    // cache once per episode, queued behind the previews. A title deleted
+    // meanwhile leaves nothing to load.
+    if let Some(ids) = options.media_ids.as_deref() {
+        let media =
+            load_media(pool, &options.instance_ids, Some(ids), options.media_type.as_deref())
+                .await?;
+        let ctx = if media.is_empty() {
+            RoutingContext::default()
+        } else {
+            load_context(pool, Scope::Items(&media)).await?
+        };
+        let loaded_in = started.elapsed();
+        return Ok(Arc::new(LoadedLibrary { _pass: None, loaded_in, order, ctx, media }));
     }
 
     let pass = library_pass().await;
     let ctx = load_context(pool, Scope::Library).await?;
-    let media = load_media(
-        pool,
-        &options.instance_ids,
-        options.media_ids.as_deref(),
-        options.media_type.as_deref(),
-    )
-    .await?;
+    let media =
+        load_media(pool, &options.instance_ids, None, options.media_type.as_deref()).await?;
 
-    Ok(LoadedLibrary { _pass: Some(pass), loaded_in: started.elapsed(), ctx, media })
+    let loaded_in = started.elapsed();
+    Ok(Arc::new(LoadedLibrary { _pass: Some(pass), loaded_in, order, ctx, media }))
 }
 
 /// Run a full simulation and, when asked, persist the resulting decisions.
@@ -188,20 +202,159 @@ pub async fn run_simulation(
 /// in `library`, so a second evaluation over the same load costs no query.
 pub async fn simulate_loaded(
     pool: &SqlitePool,
-    library: &LoadedLibrary,
-    options: SimulationOptions,
+    library: &Arc<LoadedLibrary>,
+    mut options: SimulationOptions,
 ) -> AppResult<SimulationResult> {
     let started = std::time::Instant::now();
     let simulation_id = Uuid::new_v4().to_string();
     let now = Utc::now();
 
-    let localizer = Localizer::new(&options.language);
-    let ctx = &library.ctx;
-    let media_list = &library.media;
-    let rules: &[Rule] = options.rules_override.as_deref().unwrap_or(&ctx.rules);
+    // Every move and skip is worded, and as many titles left where they are
+    // as the run stores or returns.
+    let unchanged = if options.persist_unchanged {
+        usize::MAX
+    } else {
+        options.max_returned.unwrap_or(usize::MAX)
+    };
+    let wording = Wording {
+        localizer: Localizer::new(&options.language),
+        trigger: options.trigger.clone(),
+        subject: options.subject.clone(),
+        simulation_id: simulation_id.clone(),
+        unchanged,
+    };
+    let rules = options.rules_override.take();
+    let loaded = Arc::clone(library);
+    let Pass { verdicts, mut decisions, counters, capacity } =
+        off_the_workers(options.progress.as_ref(), library.media.len(), move |evaluated| {
+            let rules = rules.as_deref().unwrap_or(&loaded.ctx.rules);
+            evaluate_pass(&loaded, rules, now, Some(&wording), evaluated)
+        })
+        .await?;
 
-    let mut decisions = Vec::with_capacity(media_list.len());
-    let mut summary = Counters::default();
+    if options.persist {
+        let stored: Vec<&Decision> =
+            decisions.iter().filter(|d| options.persist_unchanged || d.action != "none").collect();
+        store_run(pool, library, &options.trigger, &simulation_id, now, &verdicts, &stored).await?;
+    }
+
+    let elapsed_ms = (library.loaded_in + started.elapsed()).as_millis() as u64;
+    info!(
+        simulation_id = %simulation_id,
+        total = verdicts.len(),
+        moves = counters.moves_required,
+        correct = counters.already_correct,
+        unmapped = counters.skipped_unmapped,
+        unmatched = counters.no_category_match,
+        overrides = counters.overrides_applied,
+        elapsed_ms,
+        "Simulation complete"
+    );
+
+    if let Some(max) = options.max_returned {
+        // Keep the actionable ones when the payload has to be trimmed.
+        decisions.sort_by_key(|d| match d.action.as_str() {
+            "move" => 0,
+            "skip" => 1,
+            _ => 2,
+        });
+        decisions.truncate(max);
+    }
+
+    Ok(SimulationResult {
+        capacity,
+        simulation_id,
+        total_media: verdicts.len(),
+        returned: decisions.len(),
+        decisions,
+        moves_required: counters.moves_required,
+        already_correct: counters.already_correct,
+        no_category_match: counters.no_category_match,
+        overrides_applied: counters.overrides_applied,
+        skipped_unmapped: counters.skipped_unmapped,
+        excluded_by_rule: counters.excluded_by_rule,
+        elapsed_ms,
+    })
+}
+
+/// Run a pass on a thread of its own, reporting to `progress` meanwhile.
+///
+/// A pass over a large library is seconds of computing with nothing to wait
+/// on. On an async worker it would hold that worker, and two passes at once
+/// both of a small host's, while the status polling, the webhooks and the
+/// health checks wait.
+async fn off_the_workers<T: Send + 'static>(
+    progress: Option<&crate::jobs::Progress>,
+    total: usize,
+    pass: impl FnOnce(&AtomicUsize) -> T + Send + 'static,
+) -> AppResult<T> {
+    let evaluated = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&evaluated);
+    let mut running = tokio::task::spawn_blocking(move || pass(&counted));
+    let Some(progress) = progress else {
+        return running.await.map_err(pass_failed);
+    };
+    progress.report(0, total).await;
+    loop {
+        tokio::select! {
+            done = &mut running => {
+                let done = done.map_err(pass_failed)?;
+                progress.report(total, total).await;
+                return Ok(done);
+            }
+            _ = tokio::time::sleep(PROGRESS_EVERY) => {
+                progress.report(evaluated.load(Ordering::Relaxed), total).await;
+            }
+        }
+    }
+}
+
+fn pass_failed(e: tokio::task::JoinError) -> crate::error::AppError {
+    crate::error::AppError::Internal(format!("A pass over the library stopped: {e}"))
+}
+
+/// How a pass words the decisions it keeps.
+struct Wording {
+    localizer: Localizer,
+    trigger: String,
+    subject: Option<String>,
+    simulation_id: String,
+    /// How many titles left where they are get a decision.
+    unchanged: usize,
+}
+
+/// What one title's evaluation decided, without the words: kept for every
+/// title a pass reads, where decisions are kept for those worth showing.
+struct Verdict {
+    category: String,
+    /// The rule that sent the title there, `OVERRIDE_RULE_ID` for an exception.
+    matched_rule_id: Option<String>,
+}
+
+/// One rule set over one library.
+struct Pass {
+    /// One per title, in the library's order.
+    verdicts: Vec<Verdict>,
+    decisions: Vec<Decision>,
+    counters: Counters,
+    capacity: Vec<CapacityForecast>,
+}
+
+/// Evaluate every title of `library` under `rules`, and word the decisions
+/// `wording` keeps. Pure computing: no query, no await, so it runs off the
+/// async workers.
+fn evaluate_pass(
+    library: &LoadedLibrary,
+    rules: &[Rule],
+    now: chrono::DateTime<Utc>,
+    wording: Option<&Wording>,
+    evaluated: &AtomicUsize,
+) -> Pass {
+    let ctx = &library.ctx;
+    let mut verdicts = Vec::with_capacity(library.media.len());
+    let mut decisions = Vec::new();
+    let mut counters = Counters::default();
+    let mut left_alone = 0;
 
     /// What one destination receives from this plan.
     #[derive(Default)]
@@ -212,61 +365,20 @@ pub async fn simulate_loaded(
     }
     let mut incoming: HashMap<(String, String), Incoming> = HashMap::new();
 
-    // At most one write a quarter of a second, however large the library: a
-    // write per title would cost more than the evaluation it reports on.
-    let total = media_list.len();
-    let mut reported = std::time::Instant::now();
-    if let Some(progress) = &options.progress {
-        progress.report(0, total).await;
-    }
+    for (index, media) in library.media.iter().enumerate() {
+        evaluated.store(index, Ordering::Relaxed);
+        let route = route(ctx, media, rules, now);
 
-    for (evaluated, media) in media_list.iter().enumerate() {
-        if let Some(progress) = &options.progress
-            && reported.elapsed() >= PROGRESS_EVERY
-        {
-            progress.report(evaluated, total).await;
-            reported = std::time::Instant::now();
+        match &route.evaluation.winner {
+            Some(winner) if winner.rule_id == OVERRIDE_RULE_ID => counters.overrides_applied += 1,
+            Some(_) => {}
+            None => counters.no_category_match += 1,
         }
-        let Route {
-            evaluation, category: target_category, target: target_root_folder, action, ..
-        } = route(ctx, media, rules, now);
+        counters.excluded_by_rule += route.evaluation.excluded.len();
 
-        let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
-        if is_override {
-            summary.overrides_applied += 1;
-        }
-
-        let (matched_rule_id, matched_rule_name, reasons, confidence) =
-            match &evaluation.winner {
-                Some(m) if is_override => (
-                    Some(m.rule_id.clone()),
-                    Some(localizer.translate("ManualOverrideRuleName", &[])),
-                    vec![localizer.translate("ReasonManualOverride", &[])],
-                    m.confidence,
-                ),
-                Some(m) => (
-                    Some(m.rule_id.clone()),
-                    Some(m.rule_name.clone()),
-                    localizer.describe_all(&m.evaluations, m.excluded_by.as_ref()),
-                    m.confidence,
-                ),
-                None => {
-                    summary.no_category_match += 1;
-                    (
-                        None,
-                        None,
-                        vec![localizer.translate(
-                            "ReasonNoRuleMatched",
-                            &[("category", &ctx.default_category)],
-                        )],
-                        0.0,
-                    )
-                }
-            };
-
-        match (action, &target_root_folder) {
+        match (route.action, &route.target) {
             ("move", Some(target)) => {
-                summary.moves_required += 1;
+                counters.moves_required += 1;
 
                 // Weigh the plan as it is built. A move between two folders
                 // that report the *same* free space is a rename on one
@@ -292,82 +404,24 @@ pub async fn simulate_loaded(
                     entry.bytes += size;
                 }
             }
-            ("none", _) => summary.already_correct += 1,
-            _ => summary.skipped_unmapped += 1,
+            ("none", _) => counters.already_correct += 1,
+            _ => counters.skipped_unmapped += 1,
         }
 
-        let mut alternatives: Vec<AlternativeDecision> =
-            evaluation.alternatives.iter().map(|m| to_alternative(m, &localizer)).collect();
-        alternatives.extend(evaluation.excluded.iter().map(|m| to_alternative(m, &localizer)));
-        summary.excluded_by_rule += evaluation.excluded.len();
-
-        decisions.push(Decision {
-            actor: Some(options.trigger.clone()),
-            subject: options.subject.clone(),
-            revertible: false,
-            id: Uuid::new_v4().to_string(),
-            media_id: media.id.clone(),
-            media_title: media.title.clone(),
-            media_type: media.media_type.clone(),
-            instance_id: media.instance_id.clone(),
-            instance_name: ctx.instance_names.get(&media.instance_id).cloned(),
-            current_root_folder: media.current_root_folder.clone(),
-            target_root_folder,
-            target_category,
-            matched_rule_id,
-            matched_rule_name,
-            is_override,
-            reasons,
-            alternatives,
-            action: action.to_string(),
-            status: "pending".to_string(),
-            confidence,
-            superseded: false,
-            simulation_id: Some(simulation_id.clone()),
-            error_message: None,
-            decided_at: format_timestamp(now),
-            applied_at: None,
-            reverted_at: None,
+        verdicts.push(Verdict {
+            category: route.category.clone(),
+            matched_rule_id: route.evaluation.winner.as_ref().map(|w| w.rule_id.clone()),
         });
+        let Some(wording) = wording else { continue };
+        if route.action == "none" {
+            if left_alone == wording.unchanged {
+                continue;
+            }
+            left_alone += 1;
+        }
+        decisions.push(decide(ctx, media, route, wording, now));
     }
-
-    if let Some(progress) = &options.progress {
-        progress.report(total, total).await;
-    }
-
-    if options.persist {
-        let to_store: Vec<&Decision> =
-            decisions.iter().filter(|d| options.persist_unchanged || d.action != "none").collect();
-        // Supersede over every media the run *evaluated*, not only those whose
-        // decision is stored: an item that became "nothing to do" drops out of
-        // the batch, and its previous proposal would otherwise stay pending,
-        // and remain applicable long after the rules stopped justifying it.
-        let evaluated: Vec<&str> = media_list.iter().map(|m| m.id.as_str()).collect();
-        store_decisions(pool, &evaluated, &to_store).await?;
-    }
-
-    info!(
-        simulation_id = %simulation_id,
-        total = media_list.len(),
-        moves = summary.moves_required,
-        correct = summary.already_correct,
-        unmapped = summary.skipped_unmapped,
-        unmatched = summary.no_category_match,
-        overrides = summary.overrides_applied,
-        elapsed_ms = (library.loaded_in + started.elapsed()).as_millis() as u64,
-        "Simulation complete"
-    );
-
-    let total_media = media_list.len();
-    if let Some(max) = options.max_returned {
-        // Keep the actionable ones when the payload has to be trimmed.
-        decisions.sort_by_key(|d| match d.action.as_str() {
-            "move" => 0,
-            "skip" => 1,
-            _ => 2,
-        });
-        decisions.truncate(max);
-    }
+    evaluated.store(library.media.len(), Ordering::Relaxed);
 
     // Sorted so a folder that cannot take what it is being sent comes first:
     // this list exists to be read at a glance before anything is applied.
@@ -405,20 +459,77 @@ pub async fn simulate_loaded(
     capacity
         .sort_by(|a, b| a.fits.cmp(&b.fits).then_with(|| b.incoming_bytes.cmp(&a.incoming_bytes)));
 
-    Ok(SimulationResult {
-        capacity,
-        simulation_id,
-        total_media,
-        returned: decisions.len(),
-        decisions,
-        moves_required: summary.moves_required,
-        already_correct: summary.already_correct,
-        no_category_match: summary.no_category_match,
-        overrides_applied: summary.overrides_applied,
-        skipped_unmapped: summary.skipped_unmapped,
-        excluded_by_rule: summary.excluded_by_rule,
-        elapsed_ms: (library.loaded_in + started.elapsed()).as_millis() as u64,
-    })
+    Pass { verdicts, decisions, counters, capacity }
+}
+
+/// One title's route as the decision a run stores and returns, in words.
+fn decide(
+    ctx: &RoutingContext,
+    media: &Media,
+    route: Route,
+    wording: &Wording,
+    now: chrono::DateTime<Utc>,
+) -> Decision {
+    let localizer = &wording.localizer;
+    let Route { evaluation, category, target, action, .. } = route;
+    let is_override = evaluation.winner.as_ref().is_some_and(|w| w.rule_id == OVERRIDE_RULE_ID);
+    let (matched_rule_id, matched_rule_name, reasons, confidence) = match &evaluation.winner {
+        Some(m) if is_override => (
+            Some(m.rule_id.clone()),
+            Some(localizer.translate("ManualOverrideRuleName", &[])),
+            vec![localizer.translate("ReasonManualOverride", &[])],
+            m.confidence,
+        ),
+        Some(m) => (
+            Some(m.rule_id.clone()),
+            Some(m.rule_name.clone()),
+            localizer.describe_all(&m.evaluations, m.excluded_by.as_ref()),
+            m.confidence,
+        ),
+        None => (
+            None,
+            None,
+            vec![
+                localizer.translate("ReasonNoRuleMatched", &[("category", &ctx.default_category)]),
+            ],
+            0.0,
+        ),
+    };
+    let alternatives: Vec<AlternativeDecision> = evaluation
+        .alternatives
+        .iter()
+        .chain(&evaluation.excluded)
+        .map(|m| to_alternative(m, localizer))
+        .collect();
+
+    Decision {
+        actor: Some(wording.trigger.clone()),
+        subject: wording.subject.clone(),
+        revertible: false,
+        id: Uuid::new_v4().to_string(),
+        media_id: media.id.clone(),
+        media_title: media.title.clone(),
+        media_type: media.media_type.clone(),
+        instance_id: media.instance_id.clone(),
+        instance_name: ctx.instance_names.get(&media.instance_id).cloned(),
+        current_root_folder: media.current_root_folder.clone(),
+        target_root_folder: target,
+        target_category: category,
+        matched_rule_id,
+        matched_rule_name,
+        is_override,
+        reasons,
+        alternatives,
+        action: action.to_string(),
+        status: "pending".to_string(),
+        confidence,
+        superseded: false,
+        simulation_id: Some(wording.simulation_id.clone()),
+        error_message: None,
+        decided_at: format_timestamp(now),
+        applied_at: None,
+        reverted_at: None,
+    }
 }
 
 /// Where one item goes under a rule set, and why.
@@ -553,14 +664,15 @@ pub async fn revalidated_targets(
         .collect())
 }
 
-#[derive(Default)]
-struct Counters {
-    moves_required: usize,
-    already_correct: usize,
-    no_category_match: usize,
-    overrides_applied: usize,
-    skipped_unmapped: usize,
-    excluded_by_rule: usize,
+/// What a pass decided, counted.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Counters {
+    pub moves_required: usize,
+    pub already_correct: usize,
+    pub no_category_match: usize,
+    pub overrides_applied: usize,
+    pub skipped_unmapped: usize,
+    pub excluded_by_rule: usize,
 }
 
 fn to_alternative(m: &RuleMatch, localizer: &Localizer) -> AlternativeDecision {
@@ -574,6 +686,64 @@ fn to_alternative(m: &RuleMatch, localizer: &Localizer) -> AlternativeDecision {
             .map(|veto| localizer.localize_outcome(veto.clone()).expected),
         confidence: m.confidence,
     }
+}
+
+/// Two rule sets over one library, as the rule preview shows them.
+pub struct Comparison {
+    pub total_media: usize,
+    pub before: Counters,
+    pub after: Counters,
+    /// The first titles the second set sends to another category than the
+    /// first, each with the category it leaves, worded as the second decides.
+    pub changed: Vec<(String, Decision)>,
+    pub changed_total: usize,
+}
+
+/// Evaluate `before` and `after` over `library`, and word only the first
+/// `sample` titles whose category differs.
+pub async fn compare(
+    library: &Arc<LoadedLibrary>,
+    before: Vec<Rule>,
+    after: Vec<Rule>,
+    sample: usize,
+    language: &str,
+) -> AppResult<Comparison> {
+    let now = Utc::now();
+    let wording = Wording {
+        localizer: Localizer::new(language),
+        trigger: String::new(),
+        subject: None,
+        simulation_id: String::new(),
+        unchanged: 0,
+    };
+    let loaded = Arc::clone(library);
+    off_the_workers(None, 0, move |evaluated| {
+        let first = evaluate_pass(&loaded, &before, now, None, evaluated);
+        let second = evaluate_pass(&loaded, &after, now, None, evaluated);
+        let differing: Vec<usize> = (0..loaded.media.len())
+            .filter(|&index| first.verdicts[index].category != second.verdicts[index].category)
+            .collect();
+        let changed = differing
+            .iter()
+            .take(sample)
+            .map(|&index| {
+                let media = &loaded.media[index];
+                let route = route(&loaded.ctx, media, &after, now);
+                (
+                    first.verdicts[index].category.clone(),
+                    decide(&loaded.ctx, media, route, &wording, now),
+                )
+            })
+            .collect();
+        Comparison {
+            total_media: loaded.media.len(),
+            before: first.counters,
+            after: second.counters,
+            changed,
+            changed_total: differing.len(),
+        }
+    })
+    .await
 }
 
 /// What the engine decided about one item, in rule ids alone.
@@ -595,23 +765,25 @@ pub struct LibraryOutcome {
 pub async fn evaluate_library(pool: &SqlitePool) -> AppResult<Vec<LibraryOutcome>> {
     let now = Utc::now();
     let library = load_library(pool, &SimulationOptions::default()).await?;
-    let ctx = &library.ctx;
-
-    Ok(library
-        .media
-        .iter()
-        .map(|media| {
-            // Overrides pass through `route`, because a pinned item genuinely
-            // is decided by a human and counting it against a rule would say
-            // the rule lost when it was never consulted.
-            let evaluation = route(ctx, media, &ctx.rules, now).evaluation;
-            LibraryOutcome {
-                winner: evaluation.winner.map(|m| m.rule_id),
-                alternatives: evaluation.alternatives.into_iter().map(|m| m.rule_id).collect(),
-                excluded: evaluation.excluded.into_iter().map(|m| m.rule_id).collect(),
-            }
-        })
-        .collect())
+    off_the_workers(None, 0, move |_| {
+        let ctx = &library.ctx;
+        library
+            .media
+            .iter()
+            .map(|media| {
+                // Overrides pass through `route`, because a pinned item genuinely
+                // is decided by a human and counting it against a rule would say
+                // the rule lost when it was never consulted.
+                let evaluation = route(ctx, media, &ctx.rules, now).evaluation;
+                LibraryOutcome {
+                    winner: evaluation.winner.map(|m| m.rule_id),
+                    alternatives: evaluation.alternatives.into_iter().map(|m| m.rule_id).collect(),
+                    excluded: evaluation.excluded.into_iter().map(|m| m.rule_id).collect(),
+                }
+            })
+            .collect()
+    })
+    .await
 }
 
 pub fn format_timestamp(ts: chrono::DateTime<Utc>) -> String {
@@ -751,7 +923,7 @@ async fn load_context(pool: &SqlitePool, scope: Scope<'_>) -> AppResult<RoutingC
         }
     };
 
-    let default_category = crate::state::AppState::default_category(pool).await;
+    let default_category = crate::state::AppState::default_category(pool).await?;
 
     Ok(RoutingContext {
         rules,
@@ -1095,25 +1267,73 @@ async fn retire_pending(
     Ok(())
 }
 
-/// Persist a run: obsolete the previous proposals, then write the new ones.
+/// Persist a run: what it decided for every title it evaluated, then the
+/// proposals it makes in place of the pending ones.
 ///
-/// `evaluated` is every media the run looked at, and `decisions` the subset
-/// worth storing. The two differ on purpose (see the call site).
-async fn store_decisions(
+/// A title is left alone when its row went after the library was read, or
+/// when a run that read the library later stored it first: the first would
+/// gain a proposal nothing retires, the second would lose its fresher answer
+/// to an older one. `decisions` is the subset of the run worth storing.
+async fn store_run(
     pool: &SqlitePool,
-    evaluated: &[&str],
+    library: &LoadedLibrary,
+    trigger: &str,
+    simulation_id: &str,
+    now: chrono::DateTime<Utc>,
+    verdicts: &[Verdict],
     decisions: &[&Decision],
 ) -> AppResult<()> {
-    if evaluated.is_empty() && decisions.is_empty() {
+    if verdicts.is_empty() {
         return Ok(());
     }
+    // Every title in one statement, the rows bound as one JSON array: a
+    // statement per title, or per chunk of titles, grows with the library.
+    let rows: Vec<serde_json::Value> = library
+        .media
+        .iter()
+        .zip(verdicts)
+        .map(|(media, verdict)| {
+            serde_json::json!([media.id, verdict.category, verdict.matched_rule_id])
+        })
+        .collect();
+    let rows = serde_json::to_string(&rows)?;
 
-    let media_ids: Vec<&str> =
-        evaluated.iter().copied().collect::<HashSet<_>>().into_iter().collect();
-    let mut tx = pool.begin().await?;
+    crate::race::checked("routing::store", trigger).await;
+    let mut tx = crate::db::write_transaction(pool).await?;
+    sqlx::query(
+        "INSERT INTO media_routing (media_id, category, matched_rule_id, load_order,
+                                    simulation_id, evaluated_at)
+         SELECT j.value ->> 0, j.value ->> 1, j.value ->> 2, ?, ?, ?
+           FROM json_each(?) j
+          WHERE EXISTS (SELECT 1 FROM media m WHERE m.id = j.value ->> 0)
+         ON CONFLICT(media_id) DO UPDATE SET
+            category = excluded.category,
+            matched_rule_id = excluded.matched_rule_id,
+            load_order = excluded.load_order,
+            simulation_id = excluded.simulation_id,
+            evaluated_at = excluded.evaluated_at
+          WHERE excluded.load_order > media_routing.load_order",
+    )
+    .bind(library.order)
+    .bind(simulation_id)
+    .bind(format_timestamp(now))
+    .bind(&rows)
+    .execute(&mut *tx)
+    .await?;
+
+    // The titles this run decided, and only those: the proposals it would
+    // write for the others are already wrong.
+    let ours: HashSet<String> =
+        sqlx::query_scalar("SELECT media_id FROM media_routing WHERE load_order = ?")
+            .bind(library.order)
+            .fetch_all(&mut *tx)
+            .await?
+            .into_iter()
+            .collect();
+    let media_ids: Vec<&str> = ours.iter().map(String::as_str).collect();
     supersede_pending(&mut tx, &media_ids).await?;
 
-    for decision in decisions {
+    for decision in decisions.iter().filter(|d| ours.contains(&d.media_id)) {
         sqlx::query(
             "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id, instance_name,
              current_root_folder, target_root_folder, target_category, matched_rule_id, matched_rule_name,

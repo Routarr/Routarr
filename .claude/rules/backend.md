@@ -40,6 +40,8 @@ Each of these questions has one function. Call it, never spell the question agai
 - where an item goes: `routing::route`, shared by the simulation, the executor's revalidation
   (`routing::revalidated_targets`), the explanation and `GET /route` (`routing::route_one_with`,
   which takes a title the library does not hold as a media row it never writes)
+- where the last run sent a title, moved or not: its `media_routing` row, which
+  `routing::store_run` writes. The decisions hold only what a run proposed.
 - whether an item has matchable metadata: `api::media::metadata_predicate`
 - every warning: `offline_warnings` in `backend/src/api/health.rs`, returned by both `/status`
   and `/health`. `/status` is polled and never probes. A finding only a probe can make reaches

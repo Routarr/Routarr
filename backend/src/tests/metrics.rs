@@ -50,23 +50,32 @@ async fn every_family_declares_its_help_and_type() {
     }
 }
 
-/// The decision gauges count where each title stands now, its latest
-/// standing decision, not the applied history an apply leaves standing.
+/// The category gauge counts each title where the last run sends it, a title
+/// already there included, and the status gauge each title's latest standing
+/// decision, not the applied history an apply leaves standing.
 #[tokio::test]
-async fn the_decision_gauges_count_each_titles_latest_decision() {
+async fn the_decision_gauges_count_where_each_title_stands_now() {
     let app = TestApp::new().await;
     app.seed_library().await;
-    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                          target_category, action, status, decided_at)
-                   VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
-                           'applied', '2026-09-01 10:00:00'),
-                          ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', 'move',
-                           'pending', '2026-09-02 10:00:00')"])
-        .await;
+    app.execute(&[
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                target_category, action, status, decided_at)
+         VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move',
+                 'applied', '2026-09-01 10:00:00'),
+                ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', 'move',
+                 'pending', '2026-09-02 10:00:00')",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', '/movies/standard', 1, 1)",
+        "INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
+         VALUES ('m-1', 'standard', 1, '2026-09-02 10:00:00'),
+                ('m-2', 'standard', 1, '2026-09-02 10:00:00')",
+    ])
+    .await;
 
     let body = scrape(&app).await;
 
-    assert!(body.contains("routarr_decisions_by_category{category=\"standard\"} 1"), "{body}");
+    assert!(body.contains("routarr_decisions_by_category{category=\"standard\"} 2"), "{body}");
     assert!(!body.contains("routarr_decisions_by_category{category=\"anime\"}"), "{body}");
     assert!(body.contains("routarr_decisions_by_status{status=\"pending\"} 1"), "{body}");
     assert!(!body.contains("routarr_decisions_by_status{status=\"applied\"}"), "{body}");
@@ -192,10 +201,8 @@ async fn a_category_name_with_a_quote_does_not_break_the_scrape() {
     // would produce a line Prometheus rejects, and it discards the entire
     // response, not just that line, so one bad name blinds every dashboard.
     sqlx::query(
-        r#"INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-            target_category, action, status, decided_at)
-            VALUES ('d-1', 'm-1', 'T', 'movie', 'inst-1', 'we"ird\path', 'move', 'pending',
-                    datetime('now'))"#,
+        r#"INSERT INTO media_routing (media_id, category, load_order, evaluated_at)
+            VALUES ('m-1', 'we"ird\path', 1, datetime('now'))"#,
     )
     .execute(&app.state.pool)
     .await

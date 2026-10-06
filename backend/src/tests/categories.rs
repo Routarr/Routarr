@@ -328,7 +328,7 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
         .await
         .unwrap();
 
-    let fallback = crate::state::AppState::default_category(&app.state.pool).await;
+    let fallback = crate::state::AppState::default_category(&app.state.pool).await.unwrap();
     assert_eq!(fallback, crate::state::DEFAULT_CATEGORY);
 
     // The categories screen marks it as the default, as the engine uses it.
@@ -361,4 +361,23 @@ async fn the_fallback_category_is_the_same_one_everywhere_even_with_no_setting()
         "the fallback category was deletable: {}",
         response.json
     );
+}
+
+/// The shipped default stands for a missing setting, never for one the
+/// database failed to read: a run would send every title no rule matched
+/// there, and a stored one would propose those moves.
+#[tokio::test]
+async fn a_fallback_category_that_cannot_be_read_fails_the_run() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&["UPDATE settings SET value = x'00' WHERE key = 'default_category'"]).await;
+
+    let run = routing::run_simulation(
+        &app.state.pool,
+        SimulationOptions { persist: true, ..Default::default() },
+    )
+    .await;
+
+    assert!(run.is_err(), "the run routed to the shipped default");
+    assert_eq!(app.count("SELECT COUNT(*) FROM decisions").await, 0);
 }

@@ -36,7 +36,8 @@ pub struct MediaListItem {
     pub has_files: bool,
     pub status: Option<String>,
     pub last_synced_at: Option<String>,
-    /// Category proposed by the most recent, still-current decision.
+    /// The category the last stored run sends the title to, whether it moves
+    /// or already sits there. Null until a run has evaluated it.
     pub computed_category: Option<String>,
     pub override_category: Option<String>,
     pub has_metadata: bool,
@@ -126,21 +127,17 @@ pub async fn list(
         filters.push_str(" AND m.title LIKE ? ESCAPE '\\'");
         binds.push(format!("%{}%", crate::db::escape_like(v)));
     }
-    // Both read the latest standing decision, the one `computed_category`
-    // below shows: an older one an apply left standing is history.
+    // Both read what the last run decided, the outcome `computed_category`
+    // below shows: the decisions hold only what a run proposed.
     if let Some(v) = &query.category {
-        filters.push_str(
-            " AND (SELECT d.target_category FROM decisions d
-                    WHERE d.media_id = m.id AND d.superseded = 0
-                    ORDER BY d.decided_at DESC LIMIT 1) = ?",
-        );
+        filters
+            .push_str(" AND m.id IN (SELECT r.media_id FROM media_routing r WHERE r.category = ?)");
         binds.push(v.clone());
     }
     if query.unmatched.unwrap_or(false) {
         filters.push_str(
-            " AND COALESCE((SELECT d.matched_rule_id IS NOT NULL FROM decisions d
-                             WHERE d.media_id = m.id AND d.superseded = 0
-                             ORDER BY d.decided_at DESC LIMIT 1), 0) = 0",
+            " AND NOT EXISTS (SELECT 1 FROM media_routing r
+                               WHERE r.media_id = m.id AND r.matched_rule_id IS NOT NULL)",
         );
     }
 
@@ -156,9 +153,8 @@ pub async fn list(
         "SELECT m.id, m.instance_id, i.name AS instance_name, m.arr_id, m.media_type, m.title,
                 m.year, m.tmdb_id, m.tvdb_id, m.imdb_id, m.current_root_folder, m.monitored, m.has_files, m.status,
                 m.last_synced_at,
-                (SELECT d.target_category FROM decisions d
-                  WHERE d.media_id = m.id AND d.superseded = 0
-                  ORDER BY d.decided_at DESC LIMIT 1) AS computed_category,
+                (SELECT r.category FROM media_routing r WHERE r.media_id = m.id)
+                  AS computed_category,
                 (SELECT o.target_category FROM overrides o WHERE o.media_id = m.id) AS override_category,
                 ({has_metadata}) AS has_metadata
          FROM media m

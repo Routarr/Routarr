@@ -91,19 +91,16 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // Where the engine currently wants each item. Answers "is the library
-    // drifting" without opening the interface.
-    let by_category: Vec<(String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
-        "SELECT d.target_category, COUNT(*)
-           FROM decisions d
-          WHERE {LATEST} AND d.status IN ('pending', 'applied')
-          GROUP BY d.target_category"
-    )))
-    .fetch_all(pool)
-    .await?;
+    // Where the engine currently wants each item, a title already there
+    // included. Answers "is the library drifting" without opening the
+    // interface.
+    let by_category: Vec<(String, i64)> =
+        sqlx::query_as("SELECT category, COUNT(*) FROM media_routing GROUP BY category")
+            .fetch_all(pool)
+            .await?;
     families.push(Family {
         name: "routarr_decisions_by_category",
-        help: "Current decisions per target category.",
+        help: "Titles per category the last run sends them to.",
         samples: by_category
             .into_iter()
             .map(|(category, count)| (format!("category=\"{}\"", label(&category)), count as f64))

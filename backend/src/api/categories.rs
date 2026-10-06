@@ -18,7 +18,7 @@ use crate::state::AppState;
 type CategoryRow = (String, String, Option<String>, bool, i64, String, i64, i64);
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryWithUsage>>> {
-    let fallback = AppState::default_category(&state.pool).await;
+    let fallback = AppState::default_category(&state.pool).await?;
     let rows: Vec<CategoryRow> = sqlx::query_as(
         "SELECT c.id, c.name, c.description, c.name = ?,
                 c.display_order, c.created_at,
@@ -196,7 +196,7 @@ pub async fn rename(
     // Read in the transaction that writes, so the name renamed is the name
     // stored when the references move, whatever another writer did first.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
-    let fallback = AppState::default_category(&mut *tx).await;
+    let fallback = AppState::default_category(&mut *tx).await?;
     let row: Option<CategoryRow> = sqlx::query_as(
         "SELECT id, name, description, name = ?, display_order, created_at, 0, 0
          FROM categories WHERE id = ?",
@@ -228,6 +228,7 @@ pub async fn rename(
         "UPDATE root_folders SET category = ? WHERE category = ?",
         "UPDATE overrides SET target_category = ? WHERE target_category = ?",
         "UPDATE decisions SET target_category = ? WHERE target_category = ?",
+        "UPDATE media_routing SET category = ? WHERE category = ?",
         // Pinned expectations too. A case left pointing at the old name fails
         // for a reason that has nothing to do with the rules, and it is the
         // one place a stale name is *silent*, since the case simply starts
@@ -273,7 +274,7 @@ pub async fn remove(
     };
     // Read from the setting, not from a flag on the row: the guard has to
     // protect the category the engine actually falls back to.
-    if name == AppState::default_category(&mut *tx).await {
+    if name == AppState::default_category(&mut *tx).await? {
         return Err(AppError::BadRequest("Cannot delete the default category".into()));
     }
 

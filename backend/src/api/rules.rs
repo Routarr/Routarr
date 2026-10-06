@@ -208,12 +208,36 @@ fn default_sample() -> usize {
 pub struct PreviewResponse {
     pub issues: Vec<ValidationIssue>,
     /// What the library looks like with the candidate rule applied.
-    pub after: serde_json::Value,
+    pub after: PreviewSummary,
     /// What it looks like today.
-    pub before: serde_json::Value,
+    pub before: PreviewSummary,
     /// Media whose target category changes because of this rule.
     pub changed: Vec<PreviewChange>,
     pub changed_total: usize,
+}
+
+/// What one rule set decides over the library, counted.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct PreviewSummary {
+    pub total_media: usize,
+    pub moves_required: usize,
+    pub already_correct: usize,
+    pub no_category_match: usize,
+    pub skipped_unmapped: usize,
+    pub excluded_by_rule: usize,
+}
+
+impl PreviewSummary {
+    fn of(total_media: usize, counted: &routing::Counters) -> Self {
+        Self {
+            total_media,
+            moves_required: counted.moves_required,
+            already_correct: counted.already_correct,
+            no_category_match: counted.no_category_match,
+            skipped_unmapped: counted.skipped_unmapped,
+            excluded_by_rule: counted.excluded_by_rule,
+        }
+    }
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -245,76 +269,46 @@ pub async fn preview(
         baseline_rules.iter().filter(|r| Some(&r.id) != req.rule_id.as_ref()).cloned().collect();
     candidate_rules.push(candidate);
 
-    let base_options = SimulationOptions {
+    let scope = SimulationOptions {
         instance_ids: req.instance_ids.clone().unwrap_or_default(),
-        persist: false,
-        persist_unchanged: true,
-        language: state.language().await,
         ..Default::default()
     };
-
     // One load for both rule sets: everything the two evaluations read is the
     // same library, and the second costs no query.
-    let library = routing::load_library(&state.pool, &base_options).await?;
-    let before = routing::simulate_loaded(
-        &state.pool,
+    let library = routing::load_library(&state.pool, &scope).await?;
+    let compared = routing::compare(
         &library,
-        SimulationOptions { rules_override: Some(baseline_rules), ..base_options.clone() },
-    )
-    .await?;
-    let after = routing::simulate_loaded(
-        &state.pool,
-        &library,
-        SimulationOptions { rules_override: Some(candidate_rules), ..base_options },
+        baseline_rules,
+        candidate_rules,
+        req.sample_size.clamp(1, 500),
+        &state.language().await,
     )
     .await?;
 
-    let before_by_media: std::collections::HashMap<&str, &Decision> =
-        before.decisions.iter().map(|d| (d.media_id.as_str(), d)).collect();
-
-    let mut changed = Vec::new();
-    for decision in &after.decisions {
-        let Some(previous) = before_by_media.get(decision.media_id.as_str()) else {
-            continue;
-        };
-        if previous.target_category == decision.target_category {
-            continue;
-        }
-        changed.push(PreviewChange {
-            media_id: decision.media_id.clone(),
-            media_title: decision.media_title.clone(),
-            media_type: decision.media_type.clone(),
-            instance_name: decision.instance_name.clone(),
-            from_category: previous.target_category.clone(),
-            to_category: decision.target_category.clone(),
-            current_root_folder: decision.current_root_folder.clone(),
-            target_root_folder: decision.target_root_folder.clone(),
-            reasons: decision.reasons.clone(),
+    let changed = compared
+        .changed
+        .into_iter()
+        .map(|(from_category, decision)| PreviewChange {
+            media_id: decision.media_id,
+            media_title: decision.media_title,
+            media_type: decision.media_type,
+            instance_name: decision.instance_name,
+            from_category,
+            to_category: decision.target_category,
+            current_root_folder: decision.current_root_folder,
+            target_root_folder: decision.target_root_folder,
+            reasons: decision.reasons,
             confidence: decision.confidence,
-        });
-    }
-
-    let changed_total = changed.len();
-    changed.truncate(req.sample_size.clamp(1, 500));
+        })
+        .collect();
 
     Ok(Json(PreviewResponse {
         issues,
-        before: summarize(&before),
-        after: summarize(&after),
+        before: PreviewSummary::of(compared.total_media, &compared.before),
+        after: PreviewSummary::of(compared.total_media, &compared.after),
         changed,
-        changed_total,
+        changed_total: compared.changed_total,
     }))
-}
-
-fn summarize(result: &SimulationResult) -> serde_json::Value {
-    serde_json::json!({
-        "total_media": result.total_media,
-        "moves_required": result.moves_required,
-        "already_correct": result.already_correct,
-        "no_category_match": result.no_category_match,
-        "skipped_unmapped": result.skipped_unmapped,
-        "excluded_by_rule": result.excluded_by_rule,
-    })
 }
 
 /// Export every rule as a portable bundle.

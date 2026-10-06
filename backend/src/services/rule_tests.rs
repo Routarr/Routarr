@@ -76,7 +76,7 @@ pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
 pub async fn run_all(pool: &SqlitePool) -> AppResult<RuleTestRun> {
     let cases = list(pool).await?;
     let rules = routing::load_rules(pool).await?;
-    let default_category = crate::state::AppState::default_category(pool).await;
+    let default_category = crate::state::AppState::default_category(pool).await?;
 
     let results: Vec<RuleTestResult> =
         cases.iter().map(|case| run_one(case, &rules, &default_category)).collect();

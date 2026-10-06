@@ -73,8 +73,8 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
 }
 
 /// A clock for the work one library does: the CPU time of the test's thread,
-/// where the evaluation runs, and of the library's worker thread, where its
-/// statements run.
+/// of the library's worker thread, where its statements run, and of the
+/// threads a pass runs on, when it is told their name.
 ///
 /// Waiting on a library-pass permit, on a lock or on a core another test holds
 /// is not in it, so the reading follows the work rather than how busy the
@@ -82,6 +82,7 @@ async fn library_on(options: SqliteConnectOptions) -> SqlitePool {
 /// stands in.
 struct WorkClock {
     worker: Option<std::path::PathBuf>,
+    passes: Option<String>,
 }
 
 impl WorkClock {
@@ -98,15 +99,36 @@ impl WorkClock {
                 std::fs::read_to_string(task.join("comm")).is_ok_and(|comm| comm.trim() == name)
             })
         });
-        (pool, WorkClock { worker: worker.map(|task| task.join("schedstat")) })
+        (pool, WorkClock { worker: worker.map(|task| task.join("schedstat")), passes: None })
+    }
+
+    /// Count the threads named `name` too, where a runtime built with that
+    /// name runs its passes.
+    fn counting_passes(self, name: String) -> Self {
+        WorkClock { passes: Some(name), ..self }
     }
 
     fn now(&self) -> Duration {
         let on_cpu = |path: &std::path::Path| -> Option<u64> {
             std::fs::read_to_string(path).ok()?.split_whitespace().next()?.parse().ok()
         };
+        let passes = |name: &str| -> u64 {
+            let Ok(tasks) = std::fs::read_dir("/proc/self/task") else { return 0 };
+            tasks
+                .flatten()
+                .map(|task| task.path())
+                .filter(|task| {
+                    std::fs::read_to_string(task.join("comm")).is_ok_and(|comm| comm.trim() == name)
+                })
+                .filter_map(|task| on_cpu(&task.join("schedstat")))
+                .sum()
+        };
         let threads = self.worker.as_deref().and_then(|worker| {
-            Some(on_cpu(worker)? + on_cpu(std::path::Path::new("/proc/thread-self/schedstat"))?)
+            Some(
+                on_cpu(worker)?
+                    + on_cpu(std::path::Path::new("/proc/thread-self/schedstat"))?
+                    + self.passes.as_deref().map_or(0, passes),
+            )
         });
         match threads {
             Some(nanoseconds) => Duration::from_nanos(nanoseconds),
@@ -337,28 +359,97 @@ async fn an_evaluation_over_a_loaded_library_costs_no_query() {
     assert_eq!(running, loading, "a run is one load and nothing more");
 }
 
+/// Titles that are gone, as a webhook for a title just deleted names, are
+/// read and nothing more: no library pass waited for, no context loaded.
+#[tokio::test]
+async fn a_pass_over_titles_that_are_gone_reads_nothing_else() {
+    let pool = library_pool().await;
+    seed(&pool, 200).await;
+
+    let options = SimulationOptions {
+        media_ids: Some(vec!["gone".into()]),
+        persist: true,
+        ..Default::default()
+    };
+    let (result, statements) = statements_of(routing::run_simulation(&pool, options)).await;
+
+    assert_eq!(result.unwrap().total_media, 0);
+    // The one query, and the check the pool makes of its connection before
+    // lending it.
+    assert!(statements <= 2, "a pass over no title read the library: {statements} statements");
+}
+
+/// A pass computes for seconds over a large library with nothing to wait on.
+/// On the runtime's own thread it would hold it, and the status polling, the
+/// webhooks and the health checks would wait for its end.
+#[tokio::test]
+async fn a_pass_over_the_library_leaves_the_runtime_free() {
+    let pool = library_pool().await;
+    seed(&pool, 5000).await;
+    let library = routing::load_library(&pool, &SimulationOptions::default()).await.unwrap();
+    let longest_wait = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let ticking = {
+        let longest_wait = Arc::clone(&longest_wait);
+        tokio::spawn(async move {
+            let mut last = Instant::now();
+            loop {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                let waited = last.elapsed().as_nanos() as u64;
+                longest_wait.fetch_max(waited, Ordering::Relaxed);
+                last = Instant::now();
+            }
+        })
+    };
+    // Ticking before the pass starts, or a pass that never lets it run goes
+    // unseen.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+
+    let started = Instant::now();
+    routing::simulate_loaded(&pool, &library, SimulationOptions::default()).await.unwrap();
+    let pass = started.elapsed();
+    ticking.abort();
+
+    let longest = Duration::from_nanos(longest_wait.load(Ordering::Relaxed));
+    println!("a pass of {pass:?}, the runtime held at most {longest:?}");
+    assert!(longest * 4 < pass, "the pass held the runtime {longest:?} out of {pass:?}");
+}
+
 /// The ceiling on how much more work ten times the library may cost. Linear
 /// work costs about ten times as much, less since a run has fixed costs, and
 /// a rescan of the library per item about a hundred times.
 const TEN_FOLD_CEILING: u32 = 15;
 
 /// The work a stored simulation of `count` items costs, at its least.
-async fn simulation_work(count: usize) -> Duration {
-    let (pool, clock) = WorkClock::with_library().await;
-    seed(&pool, count).await;
-    let options = || SimulationOptions { persist: true, ..Default::default() };
-    let work = clock.least(|| async { routing::run_simulation(&pool, options()).await.unwrap() });
-    let work = work.await;
-    pool.close().await;
-    work
+///
+/// On a runtime of its own, whose threads carry a name the clock finds: the
+/// evaluation runs on one of them, off the test's thread.
+fn simulation_work(count: usize) -> Duration {
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let passes = format!("pass-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .thread_name(&passes)
+        .build()
+        .expect("a runtime");
+    runtime.block_on(async {
+        let (pool, clock) = WorkClock::with_library().await;
+        let clock = clock.counting_passes(passes);
+        seed(&pool, count).await;
+        let options = || SimulationOptions { persist: true, ..Default::default() };
+        let work =
+            clock.least(|| async { routing::run_simulation(&pool, options()).await.unwrap() });
+        let work = work.await;
+        pool.close().await;
+        work
+    })
 }
 
 /// Quadratic work that is not in the queries (a merge that rescans, an O(n²)
 /// lookup), which the statement count above cannot see.
-#[tokio::test]
-async fn a_simulation_grows_linearly_with_the_library() {
-    let small = simulation_work(500).await;
-    let large = simulation_work(5000).await;
+#[test]
+fn a_simulation_grows_linearly_with_the_library() {
+    let small = simulation_work(500);
+    let large = simulation_work(5000);
     println!("500 items simulated in {small:?}, 5000 in {large:?}");
 
     assert!(

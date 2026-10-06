@@ -1078,29 +1078,51 @@ async fn each_decision_filter_narrows_the_list() {
     }
 }
 
-/// The library's category and "unmatched" filters read the latest standing
-/// decision, the one the list shows beside each title, not an older one an
-/// apply left standing.
+/// The library shows what the last run decided for each title, a title it
+/// left where it is included: Totoro already sits in the folder its rule
+/// sends it to, and only the title no rule matched is unclassified. A later
+/// run that matches nothing for Totoro wins over the earlier one.
 #[tokio::test]
-async fn the_library_filters_read_the_latest_decision() {
+async fn a_title_already_where_its_rule_sends_it_is_classified() {
     let app = TestApp::new().await;
     app.seed_library().await;
-    app.execute(&["INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
-                                          target_category, matched_rule_id, action, status,
-                                          decided_at)
-                   VALUES ('d-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'r-1', 'move',
-                           'applied', '2026-09-01 10:00:00'),
-                          ('d-new', 'm-1', 'Totoro', 'movie', 'inst-1', 'standard', NULL, 'none',
-                           'pending', '2026-09-02 10:00:00')"])
-        .await;
-    let total = |query: &'static str| {
+    app.seed_anime_rule().await;
+    app.execute(&[
+        "UPDATE media SET current_root_folder = '/movies/anime',
+                          current_path = '/movies/anime/My Neighbor Totoro (1988)'
+          WHERE id = 'm-1'",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, current_root_folder,
+                            monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', '/movies/standard', 1, 1)",
+    ])
+    .await;
+    let listed = |query: &'static str| {
         let app = &app;
-        async move { app.get(query).await.assert_ok()["pagination"]["total"].clone() }
+        async move {
+            let page = app.get(query).await.assert_ok().clone();
+            let ids: Vec<String> = page["data"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|item| item["id"].as_str().unwrap().to_string())
+                .collect();
+            (ids, page)
+        }
     };
 
-    assert_eq!(total("/api/v1/media?category=anime").await, 0, "an older decision matched");
-    assert_eq!(total("/api/v1/media?category=standard").await, 1);
-    assert_eq!(total("/api/v1/media?unmatched=true").await, 1, "the latest matched nothing");
+    app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
+
+    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2"]);
+    assert_eq!(listed("/api/v1/media?category=anime").await.0, ["m-1"]);
+    let (_, all) = listed("/api/v1/media").await;
+    let totoro = all["data"].as_array().unwrap().iter().find(|item| item["id"] == "m-1").unwrap();
+    assert_eq!(totoro["computed_category"], "anime");
+
+    app.execute(&["UPDATE rules SET enabled = 0"]).await;
+    app.post("/api/v1/simulate", serde_json::json!({"persist": true})).await.assert_ok();
+
+    assert_eq!(listed("/api/v1/media?category=anime").await.0, Vec::<String>::new());
+    assert_eq!(listed("/api/v1/media?unmatched=true").await.0, ["m-2", "m-1"]);
 }
 
 /// The category list counts, beside each category, the rules sending titles
