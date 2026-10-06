@@ -212,8 +212,9 @@ async fn do_sync(state: &AppState, instance: &Instance) -> AppResult<SyncReport>
     let sync_token = crate::services::routing::format_timestamp(chrono::Utc::now());
 
     // One transaction for the whole instance: a partial sync would make the
-    // orphan cleanup delete rows that were simply not written yet.
-    let mut tx = state.pool.begin().await?;
+    // orphan cleanup delete rows that were simply not written yet. It may read
+    // first, so it takes the write lock as it opens.
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
 
     if let Some(country) = &certification_country {
         sqlx::query("UPDATE instances SET certification_country = ? WHERE id = ?")
@@ -432,7 +433,7 @@ pub async fn sync_single_media(
         }
     };
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     let reassigned = reassigned(&mut tx, &instance.id, std::slice::from_ref(&item)).await?;
     retire_media(&mut tx, &reassigned).await?;
     upsert_media(&mut *tx, &instance.id, &item, &tag_labels, &read_at, &read_at).await?;
@@ -446,6 +447,68 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
     format!("m-{instance_id}-{arr_id}")
 }
 
+/// The rows whose Arr id now names another title than the one they describe.
+///
+/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
+/// again, and the row's exception and proposals were about the title the id
+/// used to name. Told apart by type and by the one external id the Arr holds
+/// unique: Radarr refuses two films of one TMDb id, and Sonarr two series of
+/// one TheTVDB id. Any other id changes when a metadata source corrects it,
+/// and the row takes the correction.
+async fn reassigned(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    instance_id: &str,
+    items: &[crate::integrations::adapter::ArrMedia],
+) -> AppResult<Vec<String>> {
+    type Known = (i64, String, Option<i64>, Option<i64>);
+    // The ids asked about when they fit one statement, as the webhook's one
+    // title does, and the instance read once for a full sync.
+    let rows = if items.len() > crate::services::routing::BIND_CHUNK {
+        sqlx::query_as::<_, Known>(
+            "SELECT arr_id, media_type, tmdb_id, tvdb_id FROM media WHERE instance_id = ?",
+        )
+        .bind(instance_id)
+        .fetch_all(&mut **tx)
+        .await?
+    } else if items.is_empty() {
+        Vec::new()
+    } else {
+        let sql = known_by_arr_id(items.len());
+        let mut query = sqlx::query_as::<_, Known>(AssertSqlSafe(sql.as_str())).bind(instance_id);
+        for item in items {
+            query = query.bind(item.arr_id);
+        }
+        query.fetch_all(&mut **tx).await?
+    };
+    let known: std::collections::HashMap<i64, Known> =
+        rows.into_iter().map(|row| (row.0, row)).collect();
+    let differs =
+        |held: &Option<i64>, now: &Option<i64>| matches!((held, now), (Some(a), Some(b)) if a != b);
+    Ok(items
+        .iter()
+        .filter(|item| {
+            known.get(&item.arr_id).is_some_and(|(_, kind, tmdb, tvdb)| {
+                kind != item.media_type
+                    || match item.media_type {
+                        crate::integrations::adapter::MOVIE => differs(tmdb, &item.tmdb_id),
+                        _ => differs(tvdb, &item.tvdb_id),
+                    }
+            })
+        })
+        .map(|item| media_row_id(instance_id, item.arr_id))
+        .collect())
+}
+
+/// The rows of `count` Arr ids of one instance, read through their unique
+/// index: the webhook checks one title on a library of any size.
+fn known_by_arr_id(count: usize) -> String {
+    format!(
+        "SELECT arr_id, media_type, tmdb_id, tvdb_id FROM media
+          WHERE instance_id = ? AND arr_id IN ({})",
+        crate::db::placeholders(count)
+    )
+}
+
 /// Remove media rows and retire what pointed at them.
 ///
 /// Overrides go with the row (`ON DELETE CASCADE`). Decisions do not reference
@@ -454,42 +517,6 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
 /// `media`. Superseded here, which is the state the list already hides. The
 /// one writer for both paths that lose a row: the full sync and a delete
 /// event.
-/// The rows whose Arr id now names another title than the one they describe.
-///
-/// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
-/// again, and the row's exception and proposals were about the title the id
-/// used to name. Told apart by type and by an external id both sides know.
-async fn reassigned(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    instance_id: &str,
-    items: &[crate::integrations::adapter::ArrMedia],
-) -> AppResult<Vec<String>> {
-    type Known = (i64, String, Option<i64>, Option<i64>, Option<String>);
-    let known: std::collections::HashMap<i64, Known> = sqlx::query_as::<_, Known>(
-        "SELECT arr_id, media_type, tmdb_id, tvdb_id, imdb_id FROM media WHERE instance_id = ?",
-    )
-    .bind(instance_id)
-    .fetch_all(&mut **tx)
-    .await?
-    .into_iter()
-    .map(|row| (row.0, row))
-    .collect();
-    let differs =
-        |held: &Option<i64>, now: &Option<i64>| matches!((held, now), (Some(a), Some(b)) if a != b);
-    Ok(items
-        .iter()
-        .filter(|item| {
-            known.get(&item.arr_id).is_some_and(|(_, kind, tmdb, tvdb, imdb)| {
-                kind != item.media_type
-                    || differs(tmdb, &item.tmdb_id)
-                    || differs(tvdb, &item.tvdb_id)
-                    || matches!((imdb, &item.imdb_id), (Some(a), Some(b)) if a.trim() != b.trim())
-            })
-        })
-        .map(|item| media_row_id(instance_id, item.arr_id))
-        .collect())
-}
-
 pub async fn retire_media(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     ids: &[String],
@@ -701,4 +728,24 @@ pub(crate) async fn inherit_declared(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    /// One title's check reads its own row through the unique index, not the
+    /// instance's whole library.
+    #[tokio::test]
+    async fn one_title_is_checked_through_the_index() {
+        let pool = crate::db::test_pool().await;
+        let sql = format!("EXPLAIN QUERY PLAN {}", super::known_by_arr_id(1));
+        let plan: Vec<(i64, i64, i64, String)> = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
+            .bind("inst-1")
+            .bind(10)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        let steps: Vec<&str> = plan.iter().map(|step| step.3.as_str()).collect();
+        let by_arr_id = |step: &&str| step.starts_with("SEARCH media") && step.contains("arr_id=?");
+        assert!(steps.iter().any(by_arr_id), "{steps:?}");
+    }
 }

@@ -232,8 +232,8 @@ async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
-/// The one route authenticated by its path: Radarr cannot send a custom header,
-/// so the per-instance token travels in the URL.
+/// The one route authenticated by its path, for an Arr that sends no custom
+/// header: the per-instance token travels in the URL.
 const WEBHOOK_ROUTE: &str = "/webhook/{instance_id}/{token}";
 
 async fn api_not_found() -> Response {
@@ -396,9 +396,11 @@ fn build_router(state: AppState) -> Router {
         .route("/config/import", post(api::config::import))
         .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));
 
-    // Webhooks authenticate with their own per-instance token in the path, so
-    // they sit outside the API-key middleware: Radarr cannot send custom headers.
-    let webhooks = Router::new().route(WEBHOOK_ROUTE, post(api::webhook::receive));
+    // Webhooks authenticate with their own per-instance token, in a header or
+    // in the path, so they sit outside the API-key middleware.
+    let webhooks = Router::new()
+        .route(WEBHOOK_ROUTE, post(api::webhook::receive))
+        .route("/webhook/{instance_id}", post(api::webhook::receive_with_header));
 
     // A miss under the API prefix is a JSON 404, whatever the method: left to
     // the application's fallback it would answer `index.html` with a 200, and

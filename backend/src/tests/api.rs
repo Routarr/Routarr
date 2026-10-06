@@ -1989,6 +1989,83 @@ async fn a_webhook_syncs_and_re_evaluates_only_the_media_it_names() {
     assert!(!reads.iter().any(|p| p == "/api/v3/movie"), "the library was listed: {reads:?}");
 }
 
+/// Radarr 5.16 and Sonarr 4.0.11 send the token in a header, which keeps it
+/// out of the URL every proxy logs, and both Arrs mark their event names as
+/// due to change case: each way of sending the token, and any casing of the
+/// event, is acted on.
+#[tokio::test]
+async fn every_way_of_sending_the_token_and_any_casing_of_the_event_is_acted_on() {
+    use base64::Engine as _;
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let basic = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode("radarr:tok"));
+
+    for (path, header, event) in [
+        ("/api/v1/webhook/inst-1/tok", None, "Download"),
+        ("/api/v1/webhook/inst-1", Some(("x-routarr-token", "tok".to_string())), "download"),
+        ("/api/v1/webhook/inst-1", Some(("authorization", basic.clone())), "movieAdded"),
+    ] {
+        let mut request =
+            axum::http::Request::post(path).header("content-type", "application/json");
+        if let Some((name, value)) = &header {
+            request = request.header(*name, value);
+        }
+        let body = serde_json::json!({ "eventType": event, "movie": { "id": 10 } });
+        let response =
+            app.send(request.body(axum::body::Body::from(body.to_string())).unwrap()).await;
+
+        assert_eq!(
+            response.assert_ok()["media_id"],
+            "m-inst-1-10",
+            "{path} {event}: {}",
+            response.json
+        );
+    }
+}
+
+/// A Radarr address pasted into Sonarr sends series ids, which here name other
+/// titles: the delivery is acknowledged and nothing is read.
+#[tokio::test]
+async fn a_series_event_sent_to_a_radarr_instance_reads_nothing() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+
+    let response = app
+        .post(
+            "/api/v1/webhook/inst-1/tok",
+            serde_json::json!({ "eventType": "SeriesAdd", "series": { "id": 10 } }),
+        )
+        .await;
+
+    assert_eq!(response.assert_ok()["ignored"], "the payload is for another kind of Arr");
+    assert!(arr.recorded().reads.is_empty(), "{:?}", arr.recorded().reads);
+}
+
+/// A delivery for a title whose earlier delivery is still waiting adds no
+/// work: the one waiting reads the title when its turn comes, as a season
+/// imported one file at a time would otherwise queue a sync per episode.
+#[tokio::test]
+async fn a_delivery_for_a_title_already_waiting_is_folded_into_it() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let app = app.with_webhook_answer_wait(std::time::Duration::from_millis(100));
+    let held = app.state.jobs.try_lock("webhook:inst-1").expect("the key is free");
+    let delivery = serde_json::json!({ "eventType": "Download", "movie": { "id": 10 } });
+
+    let first = app.post("/api/v1/webhook/inst-1/tok", delivery.clone()).await;
+    let second = app.post("/api/v1/webhook/inst-1/tok", delivery).await;
+    drop(held);
+    super::webhook_settled(&app, "inst-1").await;
+
+    assert_eq!(first.status, 202, "{}", first.json);
+    assert_eq!(second.assert_ok()["ignored"], "a delivery for that item is already waiting");
+    let reads = arr.recorded().reads.iter().filter(|p| *p == "/api/v3/movie/10").count();
+    assert_eq!(reads, 1, "the title was synced once per delivery");
+}
+
 #[tokio::test]
 async fn irrelevant_webhook_events_are_ignored() {
     let app = TestApp::new().await;

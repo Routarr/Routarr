@@ -106,7 +106,7 @@ pub async fn update(
     };
 
     let instance_type = req.instance_type.to_lowercase();
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     sqlx::query(
         "UPDATE instances SET name = ?, instance_type = ?, base_url = ?, api_key = ?,
          enabled = ?, sync_interval_minutes = ?, updated_at = datetime('now')
@@ -151,7 +151,7 @@ pub async fn remove(
         ));
     };
     // One transaction: the proposals go with the instance or not at all.
-    let mut tx = state.pool.begin().await?;
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
     crate::services::routing::supersede_instance_decisions(&mut tx, &id).await?;
     let result =
         sqlx::query("DELETE FROM instances WHERE id = ?").bind(&id).execute(&mut *tx).await?;

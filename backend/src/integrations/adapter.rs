@@ -220,7 +220,7 @@ fn known_year(year: Option<i64>) -> Option<i64> {
 }
 
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
-    let has_files = m.has_files();
+    let (has_files, size_on_disk) = (m.has_files(), m.size_on_disk());
     ArrMedia {
         arr_id: m.id,
         media_type: MOVIE,
@@ -237,7 +237,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         status: m.status,
         added: m.added,
         series_type: None,
-        size_on_disk: m.size_on_disk,
+        size_on_disk,
         season_count: None,
         tag_ids: m.tags,
         genres: m.genres,
@@ -301,6 +301,10 @@ mod tests {
         assert!(!movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": false })));
         assert!(movie_has_files(json!({ "id": 10, "title": "Totoro", "hasFile": true })));
         assert!(movie_has_files(json!({ "id": 10, "title": "Totoro" })));
+        // Radarr counts the files in `statistics`, and fills `hasFile` from it.
+        let counted = |count: i64| json!({ "id": 10, "title": "Totoro", "statistics": { "movieFileCount": count } });
+        assert!(!movie_has_files(counted(0)));
+        assert!(movie_has_files(counted(1)));
 
         let with_statistics = |statistics: serde_json::Value| {
             series_has_files(json!({ "id": 20, "title": "Cowboy Bebop", "statistics": statistics }))

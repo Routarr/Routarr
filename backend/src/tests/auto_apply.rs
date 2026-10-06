@@ -317,6 +317,42 @@ async fn a_media_pointing_at_an_unmapped_category_is_not_applied() {
     assert!(arr.recorded().writes.is_empty());
 }
 
+/// An automatic move waits for an apply already running, which can take
+/// minutes, while an Arr gives a delivery far less. The delivery is answered
+/// in time, and the move is made once that apply ends.
+#[tokio::test]
+async fn a_webhook_answers_before_the_apply_it_waits_for() {
+    use std::time::Duration;
+
+    let arr = FakeArr::with_unimported_movie().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_route_to_anime().await;
+    app.store_setting("auto_apply_enabled", "true").await;
+    app.store_setting("global_dry_run", "false").await;
+    let app = app.with_webhook_answer_wait(Duration::from_millis(200));
+    let running = app.state.jobs.try_lock("apply").expect("the apply lock is free");
+
+    let delivery = serde_json::json!({ "eventType": "MovieAdded", "movie": { "id": 10 } });
+    let answered = tokio::time::timeout(
+        Duration::from_secs(3),
+        app.post("/api/v1/webhook/inst-1/tok", delivery),
+    )
+    .await
+    .expect("the delivery waited for the apply before answering");
+
+    assert_eq!(answered.status, 202, "{}", answered.json);
+    assert!(arr.recorded().writes.is_empty(), "moved while another apply ran");
+    drop(running);
+    super::webhook_settled(&app, "inst-1").await;
+    let applied = app
+        .count(
+            "SELECT COUNT(*) FROM decisions WHERE media_id = 'm-inst-1-10' AND status = 'applied'",
+        )
+        .await;
+    assert_eq!(applied, 1, "the move was dropped with the delivery's answer");
+}
+
 /// The scenario the whole feature exists for, driven through the real HTTP
 /// route: Radarr announces a film it has just added, nothing is downloaded yet,
 /// and the root folder is corrected before any file exists to move.

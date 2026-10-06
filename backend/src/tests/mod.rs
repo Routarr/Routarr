@@ -588,6 +588,18 @@ pub async fn one_move_ready(arr: &fake_arr::FakeArr) -> (TestApp, String) {
     (app, decision_id)
 }
 
+/// Once every webhook delivery to `instance` has ended: none waiting, none
+/// holding the instance.
+pub async fn webhook_settled(app: &TestApp, instance: &str) {
+    let key = format!("webhook:{instance}");
+    let settled = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while app.state.jobs.waiting_for(&key) > 0 || app.state.jobs.try_lock(&key).is_none() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    });
+    settled.await.expect("a webhook delivery never ended");
+}
+
 /// A database as the release that shipped migration `last` hands it to an
 /// upgrade. A test seeds it, then runs `db::run_migrations` as a start does.
 pub async fn database_through(last: &str) -> sqlx::SqlitePool {
@@ -658,6 +670,13 @@ impl TestApp {
     pub fn with_move_wait(self, wait: std::time::Duration) -> Self {
         let mut config = (*self.state.config).clone();
         config.move_wait = wait;
+        Self::around(self.state.with_config(config))
+    }
+
+    /// A harness answering a webhook delivery within `wait`.
+    pub fn with_webhook_answer_wait(self, wait: std::time::Duration) -> Self {
+        let mut config = (*self.state.config).clone();
+        config.webhook_answer_wait = wait;
         Self::around(self.state.with_config(config))
     }
 

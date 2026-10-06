@@ -192,7 +192,7 @@ pub(super) async fn load_pending_moves(
 }
 
 pub(super) async fn retire(pool: &SqlitePool, decision_ids: &[&str]) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write_transaction(pool).await?;
     routing::supersede_decisions(&mut tx, decision_ids).await?;
     tx.commit().await?;
     Ok(())

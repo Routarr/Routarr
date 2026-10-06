@@ -435,6 +435,91 @@ async fn an_arr_id_that_now_names_another_title_takes_nothing_of_the_old_one() {
     assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-1-10'").await, 8392);
 }
 
+/// A corrected secondary id is a metadata fix, not an Arr id given to another
+/// title: only the id the Arr holds unique tells that, the TMDb id of a film
+/// and the TheTVDB id of a series. The exception and the proposal stay.
+#[tokio::test]
+async fn a_title_whose_secondary_id_was_corrected_keeps_its_exception() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    app.seed_instance_at("inst-2", "sonarr", &arr.base_url).await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, imdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-1-10', 'inst-1', 10, 'movie', 'Totoro', 8392, 'tt0000001',
+                 '/movies/standard', 1, 1)",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tvdb_id, tmdb_id,
+                            current_root_folder, monitored, has_files)
+         VALUES ('m-inst-2-20', 'inst-2', 20, 'series', 'Cowboy Bebop', 76885, 1,
+                 '/tv/standard', 1, 1)",
+        "INSERT INTO overrides (id, media_id, target_category)
+         VALUES ('o-1', 'm-inst-1-10', 'kids'), ('o-2', 'm-inst-2-20', 'kids')",
+        "INSERT INTO decisions (id, media_id, media_title, media_type, instance_id,
+                                current_root_folder, target_root_folder, target_category,
+                                action, status)
+         VALUES ('d-1', 'm-inst-1-10', 'Totoro', 'movie', 'inst-1', '/movies/standard',
+                 '/movies/kids', 'kids', 'move', 'pending')",
+    ])
+    .await;
+
+    for instance in ["inst-1", "inst-2"] {
+        sync::sync_instance(&app.state, instance, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+    }
+
+    assert_eq!(app.count("SELECT COUNT(*) FROM overrides").await, 2, "an exception was dropped");
+    assert_eq!(app.count("SELECT superseded FROM decisions WHERE id = 'd-1'").await, 0);
+    let imdb: String = sqlx::query_scalar("SELECT imdb_id FROM media WHERE id = 'm-inst-1-10'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    assert_eq!(imdb, "tt0096283", "the correction was not taken");
+    assert_eq!(app.count("SELECT tmdb_id FROM media WHERE id = 'm-inst-2-20'").await, 30991);
+}
+
+/// A transaction that reads before it writes fails at once with "database is
+/// locked" behind another writer under a plain BEGIN, whatever the busy
+/// timeout. The webhook's sync of one title, and a full sync whose rating
+/// country is unknown, which both read first, wait their turn instead.
+#[tokio::test]
+async fn a_sync_waits_for_another_writer_rather_than_failing() {
+    let dir = super::TempDir::new("busy-sync");
+    let mut config = crate::config::Config::for_tests();
+    config.set_db_path(dir.join("routarr.db"));
+    let pool = crate::db::init_pool(&config).await.unwrap();
+    let app =
+        TestApp::around(crate::state::AppState::for_tests_on(pool.clone()).with_config(config));
+    let arr = FakeArr::start().await;
+    arr.rate_for("");
+    app.seed_instance_at("inst-1", "radarr", &arr.base_url).await;
+    let instance = app.state.instance("inst-1").await.unwrap();
+
+    for full in [false, true] {
+        let mut writer = pool.acquire().await.unwrap();
+        sqlx::query("BEGIN IMMEDIATE").execute(&mut *writer).await.unwrap();
+        sqlx::query("UPDATE settings SET value = value WHERE key = 'batch_limit'")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let releasing = tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            sqlx::query("COMMIT").execute(&mut *writer).await.unwrap();
+        });
+
+        let synced = if full {
+            let by = crate::jobs::Attribution::manual(None);
+            sync::sync_instance(&app.state, "inst-1", &by).await.map(|_| ())
+        } else {
+            sync::sync_single_media(&app.state, &instance, 10).await.map(|_| ())
+        };
+
+        releasing.await.unwrap();
+        assert!(synced.is_ok(), "full sync {full}: {synced:?}");
+    }
+}
+
 /// A sync writes and cleans only its own instance: another instance holding
 /// the same Arr ids, a folder, an exception and a proposal keeps all of them,
 /// while a title the synced Arr stopped reporting goes.

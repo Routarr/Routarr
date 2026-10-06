@@ -49,6 +49,8 @@ pub struct Recorded {
     pub query_strings: Vec<String>,
     /// Paths of every read, so a test can tell one item from the whole library.
     pub reads: Vec<String>,
+    /// The query of every listing of the films.
+    pub listing_queries: Vec<HashMap<String, String>>,
 }
 
 /// The films this Radarr holds beside Totoro, and those it treats apart.
@@ -582,6 +584,7 @@ async fn movies(
 ) -> Json<serde_json::Value> {
     record_key(&state, &headers);
     record_read(&state, "/api/v3/movie");
+    state.recorded.lock().expect("lock").listing_queries.push(query.clone());
     settle_moves(&state);
     hold_and_count(&state).await;
     if state.no_titles.load(Ordering::SeqCst) {

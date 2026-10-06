@@ -84,6 +84,9 @@ async fn radarr_maps_movies_onto_the_shared_shape() {
 
     let media = adapter.get_media().await.unwrap();
     assert_eq!(media.len(), 1);
+    // Radarr looks up and hashes every cover of the library unless told not to.
+    let asked = arr.recorded().listing_queries[0].get("excludeLocalCovers").cloned();
+    assert_eq!(asked.as_deref(), Some("true"));
     assert_eq!(media[0].media_type, "movie");
     assert_eq!(media[0].tmdb_id, Some(8392));
     assert!(media[0].has_files);

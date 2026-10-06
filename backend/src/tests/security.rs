@@ -2111,6 +2111,31 @@ async fn a_webhook_token_fails_closed() {
             assert_eq!(response.message(), "Unknown webhook", "{instance}/{token}");
         }
     }
+
+    // The same in a header, with no token or a wrong one, as either header.
+    use base64::Engine as _;
+    let basic = |password: &str| {
+        let encoded =
+            base64::engine::general_purpose::STANDARD.encode(format!("radarr:{password}"));
+        ("authorization", format!("Basic {encoded}"))
+    };
+    let headers = [
+        None,
+        Some(("x-routarr-token", "wrong".to_string())),
+        Some(("x-routarr-token", "to".to_string())),
+        Some(basic("wrong")),
+        Some(basic("")),
+    ];
+    for header in headers {
+        let mut request =
+            Request::post("/api/v1/webhook/inst-1").header("content-type", "application/json");
+        if let Some((name, value)) = &header {
+            request = request.header(*name, value);
+        }
+        let response = app.send(request.body(Body::from(body.to_string())).unwrap()).await;
+        assert_eq!(response.status, StatusCode::NOT_FOUND, "{header:?} should fail closed");
+        assert_eq!(response.message(), "Unknown webhook", "{header:?}");
+    }
 }
 
 // ------------------------------------------------------------- helpers

@@ -171,7 +171,7 @@ pub(super) async fn record_outcome(
     now: &str,
     direction: MoveDirection,
 ) -> AppResult<()> {
-    let mut tx = pool.begin().await?;
+    let mut tx = crate::db::write_transaction(pool).await?;
     let decision = match direction {
         MoveDirection::Forward => sqlx::query(
             "UPDATE decisions SET status = 'applied', error_message = NULL, applied_at = ?
