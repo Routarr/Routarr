@@ -534,22 +534,34 @@ impl axum::extract::FromRequestParts<AppState> for Client {
     }
 }
 
-/// The client behind `peer`. A proxy appends the address it saw to
-/// `X-Forwarded-For`, so the last entry names the client, but only a proxy
-/// the operator listed is taken at its word: anyone else writing the header
+/// The client behind `peer`. Each proxy appends the address it saw to
+/// `X-Forwarded-For`, so the entries are read from the last while the one
+/// that wrote each is a proxy the operator listed: the first address no
+/// listed proxy stands behind is the client. Anyone else writing the header
 /// would choose whose share of the sign-in queue they fill.
-fn client_address(peer: Option<IpAddr>, headers: &HeaderMap, trusted: &[IpAddr]) -> Option<IpAddr> {
-    let peer = peer?;
-    let peer = peer.to_canonical();
-    if !trusted.contains(&peer) {
-        return Some(peer);
+fn client_address(
+    peer: Option<IpAddr>,
+    headers: &HeaderMap,
+    trusted: &[crate::config::Network],
+) -> Option<IpAddr> {
+    let listed = |ip: IpAddr| trusted.iter().any(|network| network.contains(ip));
+    let mut client = peer?.to_canonical();
+    let hops: Vec<&str> = headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .collect();
+    for hop in hops.into_iter().rev() {
+        if !listed(client) {
+            break;
+        }
+        // An entry that is not an address ends the chain at the proxy that
+        // wrote it.
+        let Ok(forwarded) = hop.trim().parse::<IpAddr>() else { break };
+        client = forwarded.to_canonical();
     }
-    let forwarded = headers
-        .get("x-forwarded-for")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.rsplit(',').next())
-        .and_then(|last| last.trim().parse().ok());
-    forwarded.or(Some(peer))
+    Some(client)
 }
 
 /// Exchange a username and a password for a session cookie.
@@ -562,6 +574,22 @@ pub async fn login(
     headers: HeaderMap,
     super::Json(credentials): super::Json<Credentials>,
 ) -> Response {
+    // Before anything is read or hashed: a guess sent while waiting is checked
+    // against nothing, the right password included.
+    if let Some(left) = state.sign_in.held_back(client) {
+        let seconds = left.as_secs() + 1;
+        let message = state
+            .localizer()
+            .await
+            .translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            [(axum::http::header::RETRY_AFTER, seconds.to_string())],
+            axum::Json(serde_json::json!({ "error": "too_many_attempts", "message": message })),
+        )
+            .into_response();
+    }
+
     // Every refusal leaves one line naming where it came from, the line a
     // fail2ban filter reads, and never what was typed: a password typed into
     // the name field is a password.
@@ -570,6 +598,7 @@ pub async fn login(
             Some(address) => tracing::warn!("A sign-in was refused for {address}"),
             None => tracing::warn!("A sign-in was refused for an unknown address"),
         }
+        state.sign_in.failed(client);
         unauthorized()
     };
 
@@ -612,6 +641,7 @@ pub async fn login(
     if !(matched && name_matches) {
         return refuse();
     }
+    state.sign_in.succeeded(client);
 
     match accounts::open_session(&state.pool, credentials.username.trim(), AuthMode::Forms.as_str())
         .await
@@ -912,15 +942,22 @@ mod tests {
     /// Only a proxy the operator names in `ROUTARR_TRUSTED_PROXIES` names the
     /// client it forwards. Any other peer writing the header, a neighbour on
     /// the same network included, would choose a new address on every attempt
-    /// and fill every place of the sign-in queue alone.
+    /// and fill every place of the sign-in queue alone. A range holds a proxy
+    /// recreated with a new address, and behind two listed proxies the client
+    /// is the address the first of them saw.
     #[test]
     fn only_a_trusted_proxy_names_the_client_it_forwards() {
-        let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", HeaderValue::from_static("192.0.2.1, 203.0.113.9"));
+        let network = |entry: &str| crate::config::Network::parse(entry).unwrap();
+        let forwarded = |chain: &'static str| {
+            let mut headers = HeaderMap::new();
+            headers.insert("x-forwarded-for", HeaderValue::from_static(chain));
+            headers
+        };
+        let headers = forwarded("192.0.2.1, 203.0.113.9");
         let proxy: Option<IpAddr> = "172.18.0.2".parse().ok();
         let neighbour: Option<IpAddr> = "192.168.1.40".parse().ok();
         let stranger: Option<IpAddr> = "198.51.100.7".parse().ok();
-        let trusted = [proxy.unwrap()];
+        let trusted = [network("172.18.0.2")];
 
         assert_eq!(client_address(proxy, &headers, &trusted), "203.0.113.9".parse().ok());
         assert_eq!(client_address(neighbour, &headers, &trusted), neighbour);
@@ -928,6 +965,16 @@ mod tests {
         assert_eq!(client_address(proxy, &headers, &[]), proxy);
         assert_eq!(client_address(proxy, &HeaderMap::new(), &trusted), proxy);
         assert_eq!(client_address(None, &headers, &trusted), None);
+
+        let recreated: Option<IpAddr> = "172.18.0.9".parse().ok();
+        let range = [network("172.18.0.0/16")];
+        assert_eq!(client_address(recreated, &headers, &range), "203.0.113.9".parse().ok());
+
+        let two = [network("172.18.0.0/16"), network("10.0.0.0/8")];
+        let chain = forwarded("198.51.100.66, 203.0.113.9, 10.1.2.3");
+        assert_eq!(client_address(recreated, &chain, &two), "203.0.113.9".parse().ok());
+        let ended = forwarded("203.0.113.9, unknown, 10.1.2.3");
+        assert_eq!(client_address(recreated, &ended, &two), "10.1.2.3".parse().ok());
     }
 
     #[test]

@@ -127,6 +127,46 @@ pub fn reaches_over_tls(url: &str) -> bool {
     }
 }
 
+/// An entry of `ROUTARR_TRUSTED_PROXIES`: one address, or a range written
+/// `address/prefix`, which a proxy recreated on a Docker network stays inside.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Network {
+    base: std::net::IpAddr,
+    prefix: u8,
+}
+
+impl Network {
+    pub fn parse(entry: &str) -> Option<Self> {
+        let (address, prefix) = match entry.split_once('/') {
+            Some((address, prefix)) => (address, Some(prefix.parse::<u8>().ok()?)),
+            None => (entry, None),
+        };
+        let base = address.parse::<std::net::IpAddr>().ok()?.to_canonical();
+        let width = if base.is_ipv4() { 32 } else { 128 };
+        let prefix = prefix.unwrap_or(width);
+        (prefix <= width).then_some(Self { base, prefix })
+    }
+
+    pub fn contains(&self, ip: std::net::IpAddr) -> bool {
+        use std::net::IpAddr::{V4, V6};
+        let mask = |width: u32| match u32::from(self.prefix) {
+            0 => 0,
+            prefix => u128::MAX << (width - prefix),
+        };
+        match (self.base, ip.to_canonical()) {
+            (V4(base), V4(ip)) => {
+                let mask = mask(32) as u32;
+                u32::from(base) & mask == u32::from(ip) & mask
+            }
+            (V6(base), V6(ip)) => {
+                let mask = mask(128);
+                u128::from(base) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
 /// One entry of `ROUTARR_CORS_ORIGINS`, as a browser would send it.
 ///
 /// A browser's `Origin` header is `scheme://host[:port]` and nothing else, and
@@ -169,6 +209,10 @@ fn validate_origin(origin: &str) -> AppResult<()> {
     }
     Ok(())
 }
+
+/// The shortest key `ROUTARR_API_KEY` may pin. A generated key is 64
+/// characters, so the floor costs no operator anything.
+const MIN_PINNED_KEY_LENGTH: usize = 32;
 
 /// Application configuration loaded from environment variables.
 #[derive(Debug, Clone)]
@@ -216,7 +260,7 @@ pub struct Config {
     pub allowed_hosts: Vec<String>,
     /// The proxies whose `X-Forwarded-For` names the client, for the sign-in
     /// queue's share per client. Any other peer is the client itself.
-    pub trusted_proxies: Vec<std::net::IpAddr>,
+    pub trusted_proxies: Vec<Network>,
     /// Timeout applied to every outbound call: the Arrs, the metadata sources,
     /// the identity provider and the notification webhook.
     pub http_timeout: Duration,
@@ -357,13 +401,12 @@ impl Config {
                         .map(str::trim)
                         .filter(|entry| !entry.is_empty())
                         .map(|entry| {
-                            entry.parse::<std::net::IpAddr>().map(|ip| ip.to_canonical()).map_err(
-                                |_| {
-                                    AppError::Config(format!(
-                                        "'{entry}' in ROUTARR_TRUSTED_PROXIES is not an IP address"
-                                    ))
-                                },
-                            )
+                            Network::parse(entry).ok_or_else(|| {
+                                AppError::Config(format!(
+                                    "'{entry}' in ROUTARR_TRUSTED_PROXIES is neither an IP address \
+                                     nor a range such as 172.18.0.0/16"
+                                ))
+                            })
                         })
                         .collect::<AppResult<Vec<_>>>()
                 })
@@ -468,6 +511,17 @@ impl Config {
     pub fn validate(&self) -> AppResult<()> {
         for origin in &self.cors_origins {
             validate_origin(origin)?;
+        }
+        if let Some(key) = &self.api_key
+            && key.chars().count() < MIN_PINNED_KEY_LENGTH
+        {
+            const VARIABLE: &str = "ROUTARR_API_KEY";
+            return Err(AppError::Config(format!(
+                "{VARIABLE} is {} characters long, short enough to be guessed, and it opens \
+                 everything. Use at least {MIN_PINNED_KEY_LENGTH}, such as the output of \
+                 `openssl rand -hex 32`, or unset it to use the generated key",
+                key.chars().count()
+            )));
         }
         if matches!(self.auth_mode, AuthMode::Oidc) {
             self.validate_oidc()?;
@@ -849,6 +903,37 @@ mod tests {
         let err =
             parse_setting("ROUTARR_HTTP_TIMEOUT_SECS", Some("abc".into()), 20u64).unwrap_err();
         assert!(err.to_string().contains("ROUTARR_HTTP_TIMEOUT_SECS"), "{err}");
+    }
+
+    /// The pinned key opens everything in every mode, so one short enough to
+    /// guess is refused by name rather than served.
+    #[test]
+    fn a_pinned_api_key_too_short_to_hold_is_refused_by_name() {
+        let mut config = Config::for_tests();
+        config.api_key = Some("routarr".into());
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_API_KEY") && err.contains("32"), "{err}");
+
+        config.api_key = Some("a".repeat(MIN_PINNED_KEY_LENGTH));
+        assert!(config.validate().is_ok());
+    }
+
+    /// An address, or a range a proxy recreated on its network stays inside.
+    #[test]
+    fn a_trusted_proxy_is_an_address_or_a_range() {
+        let range = Network::parse("172.18.0.0/16").unwrap();
+        assert!(range.contains("172.18.4.7".parse().unwrap()));
+        assert!(!range.contains("172.19.0.1".parse().unwrap()));
+        assert!(range.contains("::ffff:172.18.0.3".parse().unwrap()));
+        let one = Network::parse("172.18.0.2").unwrap();
+        assert!(one.contains("172.18.0.2".parse().unwrap()));
+        assert!(!one.contains("172.18.0.3".parse().unwrap()));
+        let v6 = Network::parse("fd00:1::/64").unwrap();
+        assert!(v6.contains("fd00:1::9".parse().unwrap()));
+        assert!(!v6.contains("fd00:2::9".parse().unwrap()));
+        for refused in ["172.18.0.0/33", "fd00::/129", "proxy", "172.18.0.0/", ""] {
+            assert!(Network::parse(refused).is_none(), "{refused}");
+        }
     }
 
     #[test]

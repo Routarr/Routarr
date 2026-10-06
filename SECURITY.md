@@ -92,12 +92,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   flood of abandoned connections would start one argon2 each up to the size of
   the blocking pool.
 
-  There is no lockout after N failures. A lockout bounds the sustained rate and
-  **not the burst**: the failures it counts are recorded after the hashes they
-  were meant to prevent, so a burst of simultaneous attempts all hash before the
-  door shuts. It also hands anybody who reaches the port a way to deny sign-in
-  to the only account there is. A permit bounds the resource itself and refuses
-  service to no one.
+  The sustained rate is bounded per address, never per account. After five
+  failed sign-ins within fifteen minutes, an address waits thirty seconds
+  before its next attempt, and every failure after that doubles the wait, up to
+  fifteen minutes. An attempt sent while waiting answers `429` with
+  `Retry-After` and is checked against nothing, the right password included. A
+  success forgets the failures, and so do fifteen quiet minutes past the last
+  wait. An IPv6 client counts by its /64, the block one subscriber is given, for
+  this and for its share of the queue. A lockout of the account itself would
+  hand anybody who reaches the port a way to deny sign-in to the only account
+  there is: the owner signing in from another address does not wait. Behind a
+  reverse proxy, list it in `ROUTARR_TRUSTED_PROXIES`, an address or a range
+  such as `172.18.0.0/16`, or every client shares the proxy's address and its
+  wait.
 - **The `forms` mode stores its single password with argon2id** and opens
   opaque server-side sessions, never signed tokens: revoking one is a delete,
   which a self-validating token cannot offer. A session is stored by the

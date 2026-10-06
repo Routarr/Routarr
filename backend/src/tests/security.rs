@@ -635,7 +635,7 @@ async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password()
 
     let (app, _dir) = forms_app("refusal-log").await;
     let mut config = (*app.state.config).clone();
-    config.trusted_proxies = vec![[172, 18, 0, 2].into()];
+    config.trusted_proxies = vec![crate::config::Network::parse("172.18.0.2").unwrap()];
     let app = TestApp::around(app.state.clone().with_config(config));
     let tried = "not the password at all";
     let mut request = Request::post("/api/v1/auth/login")
@@ -658,34 +658,55 @@ async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password()
     assert!(!log.contains(tried), "the password tried is in the log:\n{log}");
 }
 
+/// A sign-in sent from `address`, as the listener hands it on.
+fn sign_in_from(address: [u8; 4], password: &str) -> Request<Body> {
+    let body = serde_json::json!({ "username": "admin", "password": password });
+    let mut request = Request::post("/api/v1/auth/login")
+        .header("content-type", "application/json")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from((address, 41000))));
+    request
+}
+
 /// Every sign-in from one address takes a share of the queue and gives it
 /// back, wrong or right. A share kept would lock that address out after a few
 /// sign-ins, and behind a proxy the whole installation with it.
 #[tokio::test]
-async fn an_address_signs_in_after_any_number_of_attempts() {
-    use axum::extract::ConnectInfo;
-
+async fn every_sign_in_gives_its_share_back_wrong_or_right() {
     let (app, _dir) = forms_app("shares").await;
-    let from = |password: &str| {
-        let body = serde_json::json!({ "username": "admin", "password": password });
-        let mut request = Request::post("/api/v1/auth/login")
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string()))
-            .unwrap();
-        request
-            .extensions_mut()
-            .insert(ConnectInfo(std::net::SocketAddr::from(([203, 0, 113, 9], 41000))));
-        request
-    };
-
-    for _ in 0..9 {
-        let refused = app.send(from("not the password at all")).await;
+    for _ in 0..4 {
+        let refused = app.send(sign_in_from([203, 0, 113, 9], "not the password at all")).await;
         assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
     }
-    let signed_in = app.send(from(&generated_password(&app))).await;
+    let signed_in = app.send(sign_in_from([203, 0, 113, 9], &generated_password(&app))).await;
 
     assert_eq!(signed_in.status, StatusCode::OK, "{}", signed_in.json);
     assert_eq!(app.state.sign_in.clients_holding(), 0);
+}
+
+/// One address guessing back to back is slowed after five failures: the next
+/// attempt waits, the right password included, and is checked against
+/// nothing. The owner signing in from another address is not slowed.
+#[tokio::test]
+async fn repeated_failures_from_one_address_are_slowed_and_another_address_is_not() {
+    let (app, _dir) = forms_app("held-back").await;
+    let password = generated_password(&app);
+    for _ in 0..5 {
+        let refused = app.send(sign_in_from([198, 51, 100, 7], "not the password at all")).await;
+        assert_eq!(refused.status, StatusCode::UNAUTHORIZED);
+    }
+
+    let held = app.send_raw(sign_in_from([198, 51, 100, 7], &password)).await;
+    assert_eq!(held.status(), StatusCode::TOO_MANY_REQUESTS);
+    let wait: u64 =
+        held.headers()[axum::http::header::RETRY_AFTER].to_str().unwrap().parse().unwrap();
+    assert!((1..=31).contains(&wait), "Retry-After: {wait}");
+
+    let elsewhere = app.send(sign_in_from([203, 0, 113, 9], &password)).await;
+    assert_eq!(elsewhere.status, StatusCode::OK, "{}", elsewhere.json);
 }
 
 /// A request carrying the session, since `TestApp` sends no cookies.

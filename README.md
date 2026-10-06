@@ -138,9 +138,10 @@ else is set in the interface, under **Settings** and **Metadata sources**.
 Behind a reverse proxy in `forms` or `oidc` mode, forward the public host and scheme
 (`X-Forwarded-Host`, `X-Forwarded-Proto`), and the port in `X-Forwarded-Port` when it is not 80 or
 443: the host is what a write from the browser is checked against, the scheme what marks the
-session cookie `Secure`. A refused sign-in is logged, and sign-ins are checked at most three at a
-time per client address. List the proxy's address in `ROUTARR_TRUSTED_PROXIES` so the client it
-forwards in `X-Forwarded-For` is counted, not the proxy. In `oidc` mode the provider and the
+session cookie `Secure`. A refused sign-in is logged, sign-ins are checked at most three at a
+time per client address, and an address that fails five times waits before its next attempt. List
+the proxy in `ROUTARR_TRUSTED_PROXIES`, by address or by range such as `172.18.0.0/16`, so the client
+it forwards in `X-Forwarded-For` is counted, not the proxy. In `oidc` mode the provider and the
 redirect URL have to be `https://`, except on `localhost`. In `external` mode, publish the port to
 the proxy alone: the proxy is what signs people in. In `forms` mode, a lost password is reset with
 `docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.

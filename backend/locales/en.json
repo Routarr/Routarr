@@ -792,6 +792,7 @@
   "SignInWithProvider": "Sign in with your provider",
   "SignInWithProviderHelp": "Routarr does not hold your password: your identity provider decides who gets in.",
   "SignInWrongCredentials": "The username or the password is wrong.",
+  "ErrorSignInHeldBack": "Too many failed sign-ins came from this address. Seconds to wait before the next one: {seconds}",
   "SignOut": "Sign out",
   "SigningIn": "Signing in…",
   "Simulating": "Simulating…",
