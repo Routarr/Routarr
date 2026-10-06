@@ -332,22 +332,9 @@ pub async fn delete(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> AppResult<Json<super::Deleted>> {
-    let origin: Option<String> = sqlx::query_scalar("SELECT origin FROM root_folders WHERE id = ?")
-        .bind(&id)
-        .fetch_optional(&state.pool)
-        .await?;
-
-    let not_ours = || async {
-        AppError::Conflict(state.localizer().await.translate("ErrorDestinationNotOurs", &[]))
-    };
-    match origin.as_deref() {
-        None => return Err(AppError::NotFound("No such folder".into())),
-        Some("arr") => return Err(not_ours().await),
-        _ => {}
-    }
     crate::race::checked("root_folders::delete", &id).await;
-    // The statement is its own check: a sync may have promoted the folder to
-    // the Arr's own since it was read, and that one, with its category, stays.
+    // The statement is its own check: a sync may promote the folder to the
+    // Arr's own at any moment, and that one, with its category, stays.
     let deleted = sqlx::query("DELETE FROM root_folders WHERE id = ? AND origin = 'declared'")
         .bind(&id)
         .execute(&state.pool)
@@ -360,7 +347,7 @@ pub async fn delete(
                 .fetch_one(&state.pool)
                 .await?;
         return Err(if still_there {
-            not_ours().await
+            AppError::Conflict(state.localizer().await.translate("ErrorDestinationNotOurs", &[]))
         } else {
             AppError::NotFound("No such folder".into())
         });
