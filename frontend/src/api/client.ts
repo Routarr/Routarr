@@ -640,6 +640,12 @@ export const api = {
   createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  /** Set the backup passphrase, an empty one stopping the encryption. */
+  setBackupPassphrase: (passphrase: string, proof: Proof) =>
+    request<unknown>('/backups/passphrase', {
+      method: 'PUT',
+      body: body({ passphrase, ...proof }),
+    }),
   /** `passphrase` opens a sealed archive, once the server asked for it. */
   restoreBackup: (name: string, passphrase?: string) =>
     request<RestoreResult>(`/backups/${encodeURIComponent(name)}/restore`, {

@@ -21,6 +21,7 @@
   } from '../lib/settings';
   import FileButton from '../components/FileButton.svelte';
   import BackupCard from '../components/BackupCard.svelte';
+  import BackupEncryptionCard from '../components/BackupEncryptionCard.svelte';
   import AccountCard from '../components/AccountCard.svelte';
   import SessionsCard from '../components/SessionsCard.svelte';
   import NotificationTest from '../components/NotificationTest.svelte';
@@ -616,6 +617,10 @@
       {/if}
 
       {#if section === 'maintenance'}
+        <BackupEncryptionCard
+          {outcome}
+          configured={bundle.data?.sealed.includes('backup_passphrase') ?? false}
+        />
         <BackupCard {outcome} />
       {/if}
 

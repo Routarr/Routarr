@@ -9,12 +9,14 @@
 //!
 //! ```text
 //! MAGIC (8) | Argon2id memory KiB, passes, lanes (3 x u32 LE) | salt (16)
-//!   | STREAM nonce prefix (7) | check (16) | chunks
+//!   | STREAM nonce prefix (7) | digest (16) | check (16) | chunks
 //! ```
 //!
-//! The passphrase and the salt give, through Argon2id, the AES-256-GCM key and
-//! a key for `check`, an HMAC of the header before it: a passphrase that does
-//! not give the same check is the wrong one, said before anything is opened.
+//! `digest`, a SHA-256 of the header before it, says the header arrived as it
+//! was written. The passphrase and the salt give, through Argon2id, the
+//! AES-256-GCM key and a key for `check`, an HMAC of the header before it: a
+//! header whole whose check another passphrase gives is the wrong passphrase,
+//! said before anything is opened, and a header altered is damage.
 //! The archive follows in chunks of [`CHUNK`] bytes, each sealed with the
 //! STREAM construction (Hoang, Reyhanitabar, Rogaway, Vizár, 2015) and the
 //! whole header as associated data, the last flagged as last: a chunk altered,
@@ -40,6 +42,10 @@ pub type Passphrase = zeroize::Zeroizing<String>;
 /// The setting that holds the passphrase, sealed with the master key.
 pub const SETTING: &str = "backup_passphrase";
 
+/// The shortest passphrase a save accepts, the floor of a sign-in password:
+/// an archive copied away is guessed offline, at the copier's pace.
+pub const MIN_LENGTH: usize = 12;
+
 /// What a sealed archive's name ends with, after `.zip`.
 pub const SUFFIX: &str = ".enc";
 
@@ -52,9 +58,11 @@ const SALT_LEN: usize = 16;
 /// 32-bit counter and the last-chunk flag.
 const PREFIX_LEN: usize = 7;
 
+const DIGEST_LEN: usize = 16;
+
 const CHECK_LEN: usize = 16;
 
-const HEADER_LEN: usize = MAGIC.len() + 12 + SALT_LEN + PREFIX_LEN + CHECK_LEN;
+const HEADER_LEN: usize = MAGIC.len() + 12 + SALT_LEN + PREFIX_LEN + DIGEST_LEN + CHECK_LEN;
 
 /// How much of the archive one chunk seals.
 const CHUNK: usize = 64 * 1024;
@@ -83,10 +91,22 @@ pub fn is_sealed_name(name: &str) -> bool {
 }
 
 /// Whether `path` holds a sealed archive, whatever it is called.
-pub(super) fn is_sealed_file(path: &Path) -> bool {
+pub fn is_sealed_file(path: &Path) -> bool {
     let mut start = [0u8; MAGIC.len()];
     std::fs::File::open(path).and_then(|mut file| file.read_exact(&mut start)).is_ok()
         && &start == MAGIC
+}
+
+/// A passphrase as typed, trimmed and in Unicode's composed form (NFC, as
+/// RFC 8265 asks), the same words whatever keyboard typed them. The text it
+/// came in is wiped.
+pub fn passphrase_of(mut typed: String) -> Passphrase {
+    use unicode_normalization::UnicodeNormalization;
+    use zeroize::Zeroize;
+
+    let normalised = Passphrase::new(typed.trim().nfc().collect());
+    typed.zeroize();
+    normalised
 }
 
 /// The passphrase the settings hold, opened. `None` when none is set, and an
@@ -101,7 +121,7 @@ pub async fn passphrase(state: &AppState) -> AppResult<Option<Passphrase>> {
         .secrets
         .open(sealed)
         .map_err(|e| AppError::Internal(format!("the backup passphrase cannot be opened: {e}")))?;
-    Ok(Some(Passphrase::new(opened)))
+    Ok(Some(passphrase_of(opened)))
 }
 
 /// The passphrase a database holds, for the work done before the server
@@ -135,7 +155,7 @@ pub async fn stored_passphrase(
         &config.secret_key_path(),
         salt.as_deref().map(str::as_bytes),
     )?;
-    Ok(Some(Passphrase::new(secrets.open(&sealed)?)))
+    Ok(Some(passphrase_of(secrets.open(&sealed)?)))
 }
 
 /// The AES-256-GCM key and the check key `passphrase` gives with `salt`.
@@ -164,6 +184,16 @@ fn check(check_key: &[u8], header: &[u8]) -> AppResult<[u8; CHECK_LEN]> {
     let mut check = [0u8; CHECK_LEN];
     check.copy_from_slice(&mac.finalize().into_bytes()[..CHECK_LEN]);
     Ok(check)
+}
+
+/// The digest a header carries of itself: what tells damage from a wrong
+/// passphrase.
+fn digest(header: &[u8]) -> [u8; DIGEST_LEN] {
+    use sha2::Digest;
+
+    let mut digest = [0u8; DIGEST_LEN];
+    digest.copy_from_slice(&sha2::Sha256::digest(header)[..DIGEST_LEN]);
+    digest
 }
 
 /// Read until `buffer` is full or the file ends, and say how much was read.
@@ -196,6 +226,8 @@ pub(super) fn seal(plain: &Path, sealed: &Path, passphrase: &Passphrase) -> AppR
     crate::crypto::random_bytes(&mut prefix)?;
     header.extend_from_slice(&salt);
     header.extend_from_slice(&prefix);
+    let digest = digest(&header);
+    header.extend_from_slice(&digest);
     let keys = keys(passphrase, &salt, SEALING_COST)?;
     let check = check(&keys[32..], &header)?;
     header.extend_from_slice(&check);
@@ -264,8 +296,12 @@ fn unsealer(sealed: &Path, passphrase: &Passphrase) -> AppResult<Option<Unsealer
     let salt = &header[salt_at..salt_at + SALT_LEN];
     let mut prefix = [0u8; PREFIX_LEN];
     prefix.copy_from_slice(&header[salt_at + SALT_LEN..salt_at + SALT_LEN + PREFIX_LEN]);
-    let keys = keys(passphrase, salt, cost)?;
     let checked = HEADER_LEN - CHECK_LEN;
+    let digested = checked - DIGEST_LEN;
+    if digest(&header[..digested]) != header[digested..checked] {
+        return Err(AppError::BadRequest("the archive is damaged: its header was altered".into()));
+    }
+    let keys = keys(passphrase, salt, cost)?;
     let expected = check(&keys[32..], &header[..checked])?;
     if !bool::from(subtle::ConstantTimeEq::ct_eq(&expected[..], &header[checked..])) {
         return Ok(None);
@@ -312,20 +348,22 @@ pub(super) fn opens(sealed: &Path, passphrase: &Passphrase) -> AppResult<bool> {
     Ok(unsealer(sealed, passphrase)?.is_some())
 }
 
-/// A sealed archive opened beside itself, removed with the value returned.
+/// A sealed archive opened in the work directory, removed with the value
+/// returned.
 pub(super) struct Opened {
     pub path: PathBuf,
     _scaffold: Scaffold,
 }
 
 /// Open the sealed `archive` with the first of `passphrases` that opens it,
-/// into a hidden file beside it. `Ok(None)` when none does, or none was given.
+/// into a file of its own in the work directory of `data_dir`. `Ok(None)` when
+/// none does, or none was given.
 pub(super) fn opened_copy(
+    data_dir: &Path,
     archive: &Path,
     passphrases: &[&Passphrase],
 ) -> AppResult<Option<Opened>> {
-    let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let path = archive.with_file_name(format!(".{name}.opened"));
+    let path = super::work_file(data_dir, "opened.zip")?;
     let scaffold = Scaffold(vec![path.clone()]);
     for passphrase in passphrases {
         if open(archive, &path, passphrase)? {
@@ -335,19 +373,61 @@ pub(super) fn opened_copy(
     Ok(None)
 }
 
+/// The manifest of a sealed archive, read from its first chunk alone: the
+/// manifest is the archive's first entry, and opening the whole of it to read
+/// a few hundred bytes would cost a full copy of the database. `None` when
+/// `passphrase` does not open it.
+pub(super) fn manifest(
+    sealed: &Path,
+    passphrase: &Passphrase,
+) -> AppResult<Option<super::BackupManifest>> {
+    let Some(Unsealer { mut file, header, mut decryptor }) = unsealer(sealed, passphrase)? else {
+        return Ok(None);
+    };
+    let damaged =
+        || AppError::BadRequest("the archive is damaged: a part of it does not open".into());
+    let mut first = vec![0u8; CHUNK + TAG_LEN];
+    let length = fill(&mut file, &mut first).map_err(|_| damaged())?;
+    let mut probe = [0u8; 1];
+    let payload = Payload { msg: &first[..length], aad: &header };
+    let opened = if fill(&mut file, &mut probe).map_err(|_| damaged())? == 0 {
+        decryptor.decrypt_last(payload)
+    } else {
+        decryptor.decrypt_next(payload)
+    }
+    .map_err(|_| damaged())?;
+    let mut start = std::io::Cursor::new(opened);
+    let unreadable =
+        |e: &dyn std::fmt::Display| AppError::BadRequest(format!("unreadable manifest: {e}"));
+    let Some(mut entry) =
+        zip::read::read_zipfile_from_stream(&mut start).map_err(|e| unreadable(&e))?
+    else {
+        return Err(AppError::BadRequest("the archive carries no manifest".into()));
+    };
+    if entry.name() != super::MANIFEST_ENTRY {
+        return Err(AppError::BadRequest("the archive does not start with its manifest".into()));
+    }
+    let mut raw = String::new();
+    entry.read_to_string(&mut raw).map_err(|e| unreadable(&e))?;
+    serde_json::from_str(&raw).map(Some).map_err(|e| unreadable(&e))
+}
+
 /// What bringing the archives to a new passphrase did.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Resealed {
     /// Archives sealed, sealed again or opened.
     pub changed: usize,
-    /// Sealed archives neither passphrase opens, left as they are.
+    /// Archives left as they are: sealed with a passphrase neither the old
+    /// nor the new one is, or that could not be converted, each logged.
     pub left: usize,
 }
 
 /// Bring every archive on disk to the passphrase now set: seal those in the
 /// clear, seal again those `old` sealed, and open them all when the
 /// passphrase is removed. An archive neither passphrase opens, sealed with an
-/// older one, is left as it is and counted.
+/// older one, or that fails to convert, is left as it is and counted, and the
+/// pass goes on to the next: one archive must not leave all the others as
+/// they were.
 ///
 /// After any backup already running, under the same lock: an archive taken
 /// meanwhile would be missed, or found half written.
@@ -364,14 +444,19 @@ pub async fn reseal(
     let job =
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailResealing")).await?;
     let dir = backup_dir(state);
+    let data_dir = state.config.data_dir.clone();
     let names: Vec<String> = list(state).into_iter().map(|file| file.name).collect();
     let outcome = tokio::task::spawn_blocking(move || {
         let mut resealed = Resealed::default();
         for name in names {
-            match reseal_one(&dir, &name, old.as_ref(), new.as_ref())? {
-                Some(true) => resealed.changed += 1,
-                Some(false) => {}
-                None => resealed.left += 1,
+            match reseal_one(&data_dir, &dir, &name, old.as_ref(), new.as_ref()) {
+                Ok(Some(true)) => resealed.changed += 1,
+                Ok(Some(false)) => {}
+                Ok(None) => resealed.left += 1,
+                Err(e) => {
+                    warn!("{name} could not be brought to the backup passphrase: {e}");
+                    resealed.left += 1;
+                }
             }
         }
         Ok::<_, AppError>(resealed)
@@ -398,13 +483,14 @@ pub async fn reseal(
 /// Bring one archive to `new`. `Some(true)` when it changed, `Some(false)`
 /// when it already was, `None` when neither passphrase opens it.
 fn reseal_one(
+    data_dir: &Path,
     dir: &Path,
     name: &str,
     old: Option<&Passphrase>,
     new: Option<&Passphrase>,
 ) -> AppResult<Option<bool>> {
     let path = dir.join(name);
-    let sealed = is_sealed_name(name);
+    let sealed = is_sealed_file(&path);
     let plain_name = name.strip_suffix(SUFFIX).unwrap_or(name);
     let target = match new {
         Some(_) => dir.join(format!("{plain_name}{SUFFIX}")),
@@ -433,7 +519,7 @@ fn reseal_one(
                     }
                 }
                 Some(new) => {
-                    let Some(opened) = opened_copy(&path, &[old])? else {
+                    let Some(opened) = opened_copy(data_dir, &path, &[old])? else {
                         return Ok(None);
                     };
                     seal(&opened.path, &partial, new)?;
@@ -452,6 +538,40 @@ fn reseal_one(
         warn!("{} was brought to the passphrase, and the old file stays: {e}", target.display());
     }
     Ok(Some(true))
+}
+
+/// Store `new` as the passphrase, an empty one removing it, and bring the
+/// archives on disk to it on a task of its own.
+pub async fn set(state: &AppState, new: Passphrase, by: Attribution) -> AppResult<()> {
+    let old = passphrase(state).await.ok().flatten();
+    let stored = if new.is_empty() { String::new() } else { state.secrets.seal(&new)? };
+    sqlx::query(
+        "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+    )
+    .bind(SETTING)
+    .bind(&stored)
+    .execute(&state.pool)
+    .await?;
+    reseal_in_background(state, old, (!new.is_empty()).then_some(new), by);
+    Ok(())
+}
+
+/// Seal what a pass interrupted left in the clear, after a start: a
+/// passphrase is set and an archive on disk is not sealed. Archives sealed
+/// with an older passphrase stay as they are, the old one being gone.
+pub async fn resume(state: &AppState) {
+    let current = match passphrase(state).await {
+        Ok(Some(current)) => current,
+        Ok(None) => return,
+        Err(e) => return warn!("Archives in the clear stay so: {e}"),
+    };
+    let dir = backup_dir(state);
+    if list(state).iter().all(|file| is_sealed_file(&dir.join(&file.name))) {
+        return;
+    }
+    let by = Attribution::unattended(crate::jobs::TRIGGER_SCHEDULE);
+    reseal_in_background(state, None, Some(current), by);
 }
 
 /// The pass that brings the archives to a passphrase changed in the settings,
@@ -559,25 +679,98 @@ mod tests {
         }
     }
 
-    /// A header written by hand asking for more than a restore spends, and a
-    /// file that is no sealed archive, are refused before any work.
+    /// A header written by hand asking for more than a restore spends, in
+    /// memory, passes or lanes, and a file that is no sealed archive, are
+    /// refused before any work.
     #[test]
     fn a_header_asking_too_much_or_none_at_all_is_refused() {
         let dir = crate::tests::TempDir::new("seal-header");
         let (plain, sealed) = (dir.join("plain"), dir.join("sealed"));
         std::fs::write(&plain, b"a database").unwrap();
         seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
-        let mut greedy = std::fs::read(&sealed).unwrap();
-        greedy[MAGIC.len()..MAGIC.len() + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        std::fs::write(&sealed, greedy).unwrap();
-        let refused = opens(&sealed, &passphrase("the passphrase"));
-        assert!(
-            matches!(refused, Err(AppError::BadRequest(ref m)) if m.contains("cost")),
-            "{refused:?}"
-        );
+        let whole = std::fs::read(&sealed).unwrap();
+        for (field, label) in [(0, "memory"), (1, "passes"), (2, "lanes")] {
+            let mut greedy = whole.clone();
+            let at = MAGIC.len() + field * 4;
+            greedy[at..at + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+            let path = dir.join(label);
+            std::fs::write(&path, greedy).unwrap();
+            let refused = opens(&path, &passphrase("the passphrase"));
+            assert!(
+                matches!(refused, Err(AppError::BadRequest(ref m)) if m.contains("cost")),
+                "{label}: {refused:?}"
+            );
+        }
 
         assert!(!is_sealed_file(&plain));
         let refused = opens(&plain, &passphrase("the passphrase"));
         assert!(matches!(refused, Err(AppError::BadRequest(_))), "{refused:?}");
+    }
+
+    /// A header altered is damage, said as such: taken for a wrong passphrase,
+    /// it would send the owner hunting for words that were right.
+    #[test]
+    fn a_header_altered_is_damage_not_a_wrong_passphrase() {
+        let dir = crate::tests::TempDir::new("seal-header-altered");
+        let (plain, sealed) = (dir.join("plain"), dir.join("sealed"));
+        std::fs::write(&plain, b"a database").unwrap();
+        seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
+        let mut altered = std::fs::read(&sealed).unwrap();
+        altered[MAGIC.len() + 12] ^= 1;
+        std::fs::write(&sealed, altered).unwrap();
+
+        let refused = opens(&sealed, &passphrase("the passphrase"));
+        assert!(
+            matches!(refused, Err(AppError::BadRequest(ref m)) if m.contains("damaged")),
+            "{refused:?}"
+        );
+    }
+
+    /// An archive damaged past its first chunk is refused once part of it was
+    /// written in the clear, and that part goes with the refusal.
+    #[test]
+    fn an_opening_cut_short_by_damage_leaves_nothing_in_the_clear() {
+        let dir = crate::tests::TempDir::new("seal-cut-short");
+        let (plain, sealed) = (dir.join("plain"), dir.join("sealed"));
+        std::fs::write(&plain, vec![9u8; 3 * CHUNK]).unwrap();
+        seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
+        let mut damaged = std::fs::read(&sealed).unwrap();
+        damaged[HEADER_LEN + 2 * (CHUNK + TAG_LEN) + 10] ^= 1;
+        std::fs::write(&sealed, damaged).unwrap();
+
+        let refused = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]);
+
+        assert!(
+            matches!(refused, Err(AppError::BadRequest(_))),
+            "{:?}",
+            refused.map(|o| o.is_some())
+        );
+        let work: Vec<_> =
+            std::fs::read_dir(dir.join(".backup-work")).unwrap().filter_map(Result::ok).collect();
+        assert!(work.is_empty(), "{} file(s) left in the clear", work.len());
+    }
+
+    /// Two openings of one archive at once write two files: sharing one, the
+    /// second would truncate what the first is reading.
+    #[test]
+    fn two_openings_of_one_archive_write_apart() {
+        let dir = crate::tests::TempDir::new("seal-apart");
+        let (plain, sealed) = (dir.join("plain"), dir.join("sealed"));
+        std::fs::write(&plain, b"a database").unwrap();
+        seal(&plain, &sealed, &passphrase("the passphrase")).unwrap();
+
+        let first = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]).unwrap().unwrap();
+        let second = opened_copy(&dir, &sealed, &[&passphrase("the passphrase")]).unwrap().unwrap();
+
+        assert_ne!(first.path, second.path);
+        assert_eq!(std::fs::read(&first.path).unwrap(), b"a database");
+    }
+
+    /// The same words typed composed or decomposed, with spaces around, are
+    /// one passphrase: otherwise a keyboard would lock an archive away.
+    #[test]
+    fn a_passphrase_is_the_same_words_however_typed() {
+        let decomposed = passphrase_of(" e\u{301}te\u{301} indien ".to_string());
+        assert_eq!(decomposed.as_str(), "\u{e9}t\u{e9} indien");
     }
 }

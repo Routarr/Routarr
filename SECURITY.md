@@ -213,17 +213,24 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   its archives contain none, and restoring one elsewhere leaves every sealed
   credential unreadable. The manifest records it, the restore returns it, and
   the interface warns on it rather than reporting a plain success.
-- **Archives can be sealed with a passphrase.** Set in the settings and
-  sealed with the master key like any credential, it encrypts every archive:
-  a key derived with Argon2id (64 MiB, three passes, a salt of its own), then
-  AES-256-GCM in chunks of 64 KiB under the STREAM construction. A copy of the
-  backup folder opens nothing without it, a chunk altered, moved, dropped or
-  added does not open, and a wrong passphrase is told apart from damage.
-  Changing or removing it converts the archives on disk, and one sealed with
-  an older passphrase is left as it is. A restore asks for it when the
-  installation does not hold it, and `routarr decrypt-backup` writes an
-  archive opened, to read it by hand. A passphrase that cannot be opened takes
-  no archive at all rather than one in the clear.
+- **Archives can be sealed with a passphrase.** Set on its own in the
+  settings, typed twice and with the proof a key asks for, and sealed with
+  the master key like any credential, it encrypts every archive: a key
+  derived with Argon2id (64 MiB, three passes, a salt of its own), then
+  AES-256-GCM in chunks of 64 KiB under the STREAM construction. A chunk
+  altered, moved, dropped or added does not open, and a damaged header is
+  told apart from a wrong passphrase. What a backup, a restore or a
+  conversion holds in the clear is written beside the database, in a
+  directory only the server's user reads, and never in the backup folder.
+  Changing or removing the passphrase converts the archives on disk: the pass
+  goes past an archive it cannot convert, one sealed with an older passphrase
+  is left as it is, and what a stop interrupts is sealed at the next start. A
+  restore keeps today's passphrase, asks for the archive's when the
+  installation does not hold it, and refuses an archive named as encrypted
+  that is not. `routarr decrypt-backup <archive> <zip>` writes one opened,
+  outside the backup folder. A passphrase that cannot be opened takes no
+  archive at all, and is said in the warnings. A copy of the backup folder
+  made before the passphrase was set stays as readable as it was.
 - **A restore brings back no credential withdrawn since the backup.** An
   application key revoked, a signing secret replaced, the master API key
   rotated or the password changed stay as they are today, and every session

@@ -106,6 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     services::maintenance::converge(&state).await?;
     api::categories::converge_names(&state).await?;
+    // What a conversion interrupted by the last stop left in the clear.
+    services::backup::resume_sealing(&state).await;
 
     // The single account, generated on first start like the API key. Only in
     // the mode that reads it: creating one for an installation that
@@ -202,22 +204,21 @@ async fn restore(
     Ok(())
 }
 
-/// `routarr decrypt-backup <archive> [<zip>]`: write an encrypted archive
+/// `routarr decrypt-backup <archive> <zip>`: write an encrypted archive
 /// opened, to read it by hand.
 async fn decrypt_backup(
     config: &Config,
     archive: Option<String>,
     out: Option<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let Some(archive) = archive else {
-        return Err("usage: routarr decrypt-backup <archive> [<zip>], a name from the backup \
-                    folder or a path"
+    let (Some(archive), Some(out)) = (archive, out) else {
+        return Err("usage: routarr decrypt-backup <archive> <zip>, the archive a name from the \
+                    backup folder or a path, the zip a path outside it"
             .into());
     };
-    let written = asking_passphrase(|given| {
-        services::backup::decrypt_offline(config, &archive, out.as_deref(), given)
-    })
-    .await?;
+    let written =
+        asking_passphrase(|given| services::backup::decrypt_offline(config, &archive, &out, given))
+            .await?;
     println!(
         "{} written. It carries the master key in clear: delete it once read.",
         written.display()
@@ -235,7 +236,7 @@ where
     Attempt: FnMut(Option<services::backup::Passphrase>) -> Answer,
     Answer: std::future::Future<Output = error::AppResult<T>>,
 {
-    let mut given = config::archive_passphrase().map(services::backup::Passphrase::new);
+    let mut given = config::archive_passphrase().map(services::backup::passphrase_of);
     loop {
         match attempt(given.clone()).await {
             Err(error::AppError::PassphraseRequired(refusal))
@@ -243,7 +244,7 @@ where
             {
                 println!("{refusal}");
                 let typed = rpassword::prompt_password("Passphrase: ")?;
-                given = Some(services::backup::Passphrase::new(typed.trim().to_string()));
+                given = Some(services::backup::passphrase_of(typed));
             }
             done => return Ok(done?),
         }
@@ -550,6 +551,7 @@ fn build_router(state: AppState) -> Router {
         // in the directory that also holds the master key.
         .route("/backups/{name}", get(api::backup::download).delete(api::backup::remove))
         .route("/backups/{name}/restore", post(api::backup::restore))
+        .route("/backups/passphrase", put(api::backup::set_passphrase))
         .route("/settings", get(api::settings::get_all).put(api::settings::update))
         .route(
             "/notifications/webhook-secret",
