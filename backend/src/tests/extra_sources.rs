@@ -1057,6 +1057,71 @@ async fn a_probe_waits_while_its_source_is_held_back() {
     assert!(started.elapsed() >= std::time::Duration::from_millis(250), "the probe did not wait");
 }
 
+/// A pass counts again from zero at each source and each stage, so the task
+/// names the one its count measures, and a stage starts on no count until it
+/// has one: under one label, or beside the last stage's figures, the count
+/// says nothing true. Only the reading stage, held before its first answer,
+/// has a count to check: a search writes the one it starts on at once.
+#[tokio::test]
+async fn a_pass_names_the_source_and_stage_its_count_measures() {
+    for (order, id, stage, count) in [
+        ("arr,jikan", "jikan", "JobDetailIdentifying", None),
+        ("arr,jikan,omdb", "omdb", "JobDetailFetching", Some((0, 0))),
+    ] {
+        let sources = FakeSources::start().await;
+        let app = TestApp::one_film_on(&sources, order).await;
+        let source = app.state.metadata_sources().await.into_iter().find(|s| s.id() == id);
+        let pace = app.state.paces.of(&source.expect("the source is configured"));
+        pace.penalise(std::time::Duration::from_secs(1)).await;
+
+        let state = app.state.clone();
+        let pass = tokio::spawn(async move {
+            enrichment::enrich_all_media(&state, &crate::jobs::Attribution::manual(None)).await
+        });
+        let name = metadata::info(id).unwrap().display_name;
+        let (named, current, total) = loop {
+            let running: Option<(String, i64, i64)> = sqlx::query_as(
+                "SELECT detail_key, progress_current, progress_total FROM jobs
+                  WHERE status = 'running' AND detail_params = ?",
+            )
+            .bind(serde_json::json!({ "source": name }).to_string())
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+            if let Some(named) = running {
+                break named;
+            }
+            assert!(!pass.is_finished(), "{order}: the pass never named {name}");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        assert_eq!(named, stage, "{order}");
+        if let Some(count) = count {
+            assert_eq!((current, total), count, "{order}: the count of the stage before");
+        }
+        pass.await.unwrap().unwrap();
+    }
+}
+
+/// A finished pass counts the whole pass, not its last stage: TheTVDB, last
+/// here, has nothing to read about a film, and the task would end on no count
+/// at all after OMDb read one.
+#[tokio::test]
+async fn a_finished_pass_counts_the_whole_pass() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb,tvdb").await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let progress: (i64, i64) =
+        sqlx::query_as("SELECT progress_current, progress_total FROM jobs WHERE kind = 'enrich'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(progress, (1, 1));
+}
+
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
 /// into every ISO language and country, and leaves the other sources' answers.
 #[tokio::test]

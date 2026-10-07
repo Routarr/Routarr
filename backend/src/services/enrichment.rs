@@ -25,6 +25,8 @@ use crate::state::AppState;
 /// Outcome of an enrichment pass.
 #[derive(Debug, Default, Clone)]
 pub struct EnrichmentReport {
+    /// Titles a source that has to search for its own identifiers looked for.
+    pub searched: usize,
     pub considered: usize,
     pub enriched: usize,
     pub failed: usize,
@@ -67,6 +69,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
     for source in &sources {
         match run_enrichment(state, source, &job).await {
             Ok(partial) => {
+                report.searched += partial.searched;
                 report.considered += partial.considered;
                 report.enriched += partial.enriched;
                 report.failed += partial.failed;
@@ -84,6 +87,8 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
 
     match &outcome {
         Ok(()) => {
+            let counted = report.searched + report.considered;
+            job.progress(counted, counted).await;
             job.succeed(
                 Detail::new("JobDetailEnriched")
                     .with("enriched", report.enriched)
@@ -107,15 +112,19 @@ async fn run_enrichment(
     // (`metadata::resolved_keys`), so this is a first-pass cost, not a
     // per-run one.
     let limiter = state.paces.of(source);
+    let name = metadata::info(source.id()).map_or(source.id(), |info| info.display_name);
 
+    let mut searched = 0;
     if source.addressing() == Addressing::Search {
-        resolve_identifiers(state, source, job, &limiter).await?;
+        job.stage(Detail::new("JobDetailIdentifying").with("source", name)).await;
+        searched = resolve_identifiers(state, source, job, &limiter).await?;
     }
+    job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
     let targets = pending_targets(&state.pool, source).await?;
     if targets.is_empty() {
         info!("The {} cache is up to date", source.id());
-        return Ok(EnrichmentReport::default());
+        return Ok(EnrichmentReport { searched, ..Default::default() });
     }
 
     info!("{} item(s) need enrichment from {}", targets.len(), source.id());
@@ -181,8 +190,12 @@ async fn run_enrichment(
         })
         .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
-    let mut report =
-        EnrichmentReport { considered: total, deferred: total - granted, ..Default::default() };
+    let mut report = EnrichmentReport {
+        searched,
+        considered: total,
+        deferred: total - granted,
+        ..Default::default()
+    };
     let mut rate_limited = false;
     let mut index = 0;
 
@@ -349,13 +362,14 @@ struct Candidate {
 ///
 /// Both outcomes are written down. Remembering that AniList has nothing for
 /// *The Matrix* is what stops the next passes from searching for it again,
-/// until the miss is old enough to be worth asking about once more.
+/// until the miss is old enough to be worth asking about once more. Answers
+/// how many titles it looked for.
 async fn resolve_identifiers(
     state: &AppState,
     source: &FetchingSource,
     job: &JobHandle,
     limiter: &RateLimiter,
-) -> AppResult<()> {
+) -> AppResult<usize> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
 
     let rows: Vec<Candidate> = sqlx::query_as(
@@ -391,7 +405,7 @@ async fn resolve_identifiers(
     }
 
     if pending.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let total = pending.len();
@@ -467,7 +481,7 @@ async fn resolve_identifiers(
         );
     }
 
-    Ok(())
+    Ok(total)
 }
 
 /// Distinct identifiers, in this source's own namespace, whose cache entry is

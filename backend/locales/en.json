@@ -537,6 +537,8 @@
   "JobDetailBackingUp": "Taking a backup",
   "JobDetailEnriched": "Enriched: {enriched}, failed: {failed}",
   "JobDetailEnriching": "Enriching metadata",
+  "JobDetailFetching": "Reading the metadata from {source}",
+  "JobDetailIdentifying": "Finding each title on {source}",
   "JobDetailInterrupted": "Interrupted by a Routarr restart",
   "JobDetailNoOutcome": "The task ended without reporting an outcome, see the server log",
   "JobDetailPanicked": "The scheduled pass stopped on an internal error: {cause}",

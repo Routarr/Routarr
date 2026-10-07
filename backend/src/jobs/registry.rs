@@ -412,6 +412,23 @@ impl JobHandle {
         self.progress_reporter().report(current, total).await;
     }
 
+    /// Say what the running job does now, its count starting again: a job
+    /// made of stages names the one its progress counts, or the count seems
+    /// to go back to zero for nothing.
+    pub async fn stage(&self, detail: Detail) {
+        let _ = sqlx::query(
+            "UPDATE jobs SET detail = ?, detail_key = ?, detail_params = ?,
+                    progress_current = 0, progress_total = 0
+              WHERE id = ? AND status = 'running'",
+        )
+        .bind(detail.english())
+        .bind(detail.key)
+        .bind(detail.stored_params())
+        .bind(&self.id)
+        .execute(&self.pool)
+        .await;
+    }
+
     pub fn progress_reporter(&self) -> Progress {
         Progress { id: self.id.clone(), pool: self.pool.clone() }
     }
