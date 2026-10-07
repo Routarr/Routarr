@@ -21,8 +21,8 @@ vi.mock('../lib/proof.svelte', () => ({
 
 const STRINGS = {
   BackupEncryption: 'Backup encryption',
-  BackupEncryptionOn: 'Archives are encrypted.',
-  BackupEncryptionOff: 'Archives are not encrypted.',
+  BackupEncryptionOn: 'Encrypted',
+  BackupEncryptionOff: 'Not encrypted',
   NewPassphrase: 'New passphrase',
   RepeatPassphrase: 'Repeat the passphrase',
   PassphrasesDiffer: 'The two passphrases differ.',
@@ -53,7 +53,7 @@ describe('BackupEncryptionCard', () => {
   it('encrypts the archives with a passphrase typed twice alike, with the proof sent', async () => {
     const set = vi.spyOn(api, 'setBackupPassphrase').mockResolvedValue(undefined);
     const outcome = mount(false);
-    expect(screen.getByText('Archives are not encrypted.')).toBeInTheDocument();
+    expect(screen.getByText('Not encrypted')).toBeInTheDocument();
     const encrypt = screen.getByRole('button', { name: 'Encrypt the archives' });
 
     await type('New passphrase', 'eleven char');
@@ -71,7 +71,7 @@ describe('BackupEncryptionCard', () => {
 
     expect(set).toHaveBeenCalledWith(LONG_ENOUGH, { current_key: 'the-key-proven' });
     await waitFor(() => expect(outcome.notice).toBe('Passphrase saved.'));
-    expect(screen.getByText('Archives are encrypted.')).toBeInTheDocument();
+    expect(screen.getByText('Encrypted')).toBeInTheDocument();
     expect(screen.getByLabelText('New passphrase')).toHaveValue('');
     expect(screen.getByRole('button', { name: 'Change the passphrase' })).toBeInTheDocument();
   });
@@ -89,7 +89,7 @@ describe('BackupEncryptionCard', () => {
 
     expect(set).toHaveBeenCalledWith('', { current_key: 'the-key-proven' });
     await waitFor(() => expect(outcome.notice).toBe('Encryption stopped.'));
-    expect(screen.getByText('Archives are not encrypted.')).toBeInTheDocument();
+    expect(screen.getByText('Not encrypted')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Stop encrypting' })).toBeNull();
   });
 
@@ -105,6 +105,6 @@ describe('BackupEncryptionCard', () => {
 
     await waitFor(() => expect(outcome.error).toBe('That is not the current API key.'));
     expect(screen.getByLabelText('New passphrase')).toHaveValue(LONG_ENOUGH);
-    expect(screen.getByText('Archives are not encrypted.')).toBeInTheDocument();
+    expect(screen.getByText('Not encrypted')).toBeInTheDocument();
   });
 });

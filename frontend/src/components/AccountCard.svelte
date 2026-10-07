@@ -65,7 +65,7 @@
   {/if}
 
   <form novalidate onsubmit={submit}>
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label" for="account-current">{t('CurrentPassword')}</label>
       <input
         id="account-current"
@@ -75,7 +75,7 @@
         bind:value={current}
       />
     </div>
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label" for="account-new">{t('NewPassword')}</label>
       <input
         id="account-new"
@@ -90,7 +90,7 @@
         {t('PasswordMinimum', { min: SHORTEST })}
       </p>
     </div>
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label" for="account-repeat">{t('RepeatPassword')}</label>
       <input
         id="account-repeat"
