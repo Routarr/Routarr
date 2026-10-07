@@ -202,6 +202,7 @@
   "footer.a.docs": "Documentation",
   "footer.a.issues": "Issues",
   "footer.a.source": "Source",
+  "footer.data": "Metadata from TMDB, TheTVDB, OMDb, AniList and MyAnimeList. Routarr uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.",
   "footer.nav": "Footer",
   "footer.p": "Routarr, under the GPLv3 licence. Not affiliated with the Servarr project.",
   "head.description": "Routarr routes every film and series to the right root folder in Radarr and Sonarr, from your own rules. Dry-run first, every decision explained.",

@@ -150,6 +150,7 @@ function mount(
         configured: true,
         fields: ['genres'],
         media_types: ['movie', 'series'],
+        website: null,
       },
       {
         id: 'tmdb',
@@ -160,6 +161,7 @@ function mount(
         configured: provider.configured ?? false,
         fields: ['genres', 'keywords'],
         media_types: ['movie', 'series'],
+        website: 'https://www.themoviedb.org',
       },
     ],
     order: provider.order ?? ['arr'],

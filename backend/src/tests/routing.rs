@@ -94,10 +94,10 @@ async fn a_category_without_a_root_folder_is_skipped_not_moved() {
 
 /// The library pass loads what a rule can match on, and nothing else.
 ///
-/// `MetadataField` names five fields. The status, the synopsis and the poster
-/// are matchable by no condition and the pass never opens them. Read whole,
-/// they would make up much of every cache row, held in memory for the duration
-/// of every simulation.
+/// `MetadataField` names five fields. The status and the synopsis are matchable
+/// by no condition and the pass never opens them. Read whole, they would make
+/// up much of every cache row, held in memory for the duration of every
+/// simulation.
 #[tokio::test]
 async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     let app = TestApp::new().await;
@@ -105,10 +105,10 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, poster_path, cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at, expires_at)
          VALUES ('tmdb', '129', 'movie', '[\"Animation\"]', '[]', 'ja', '[\"JP\"]',
                  'PG', 'released', 'A very long synopsis nobody can match on.',
-                 '/poster.jpg', datetime('now'), datetime('now', '+7 days'))",
+                 datetime('now'), datetime('now', '+7 days'))",
     )
     .execute(&app.state.pool)
     .await
@@ -129,7 +129,6 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     // panel gets these from the per-item path instead.
     assert!(answer.overview.is_none(), "the pass carried a synopsis it cannot match on");
     assert!(answer.status.is_none());
-    assert!(answer.poster_path.is_none());
 }
 
 /// A root folder on a NAS that has spun down is reported inaccessible, and

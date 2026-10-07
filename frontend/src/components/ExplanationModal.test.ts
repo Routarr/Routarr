@@ -3,7 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { explainedMedia } from '../test/fixtures';
-import type { Explanation } from '../api/types';
+import type { Explanation, MetadataProvider } from '../api/types';
 import { ApiError, api } from '../api/client';
 import ExplanationModal from './ExplanationModal.svelte';
 
@@ -37,6 +37,9 @@ const STRINGS = {
   Dismiss: 'Close',
   ExplainInstanceOff: 'This instance is switched off.',
   None: '-',
+  MetadataStatusLine: 'Status: {status}, from {source}',
+  SynopsisFrom: 'Synopsis from {source}',
+  ArrStatusReleased: 'Released',
 };
 
 function explanation(over: Partial<Explanation> = {}): Explanation {
@@ -55,8 +58,30 @@ function explanation(over: Partial<Explanation> = {}): Explanation {
   };
 }
 
-const show = (data: Explanation) =>
-  renderWithI18n(ExplanationModal, { props: { data, onClose: vi.fn() }, strings: STRINGS });
+/**
+ * The panel, the source catalogue left unanswered unless a test answers it:
+ * until it does, each source is named by its id.
+ */
+function show(data: Explanation) {
+  if (!vi.isMockFunction(api.getMetadataProviders)) {
+    vi.spyOn(api, 'getMetadataProviders').mockReturnValue(new Promise(() => {}));
+  }
+  return renderWithI18n(ExplanationModal, { props: { data, onClose: vi.fn() }, strings: STRINGS });
+}
+
+function source(id: string, display_name: string, website: string | null): MetadataProvider {
+  return {
+    id,
+    display_name,
+    fetched: website !== null,
+    needs_key: false,
+    key_env: null,
+    configured: true,
+    fields: [],
+    media_types: ['movie', 'series'],
+    website,
+  };
+}
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -127,6 +152,7 @@ describe('ExplanationModal', () => {
           original_language: 'ja',
           origin_countries: ['JP', 'KR'],
           certification: 'R',
+          field_sources: {},
           sources: ['arr', 'tmdb'],
         } as Explanation['metadata'],
       }),
@@ -135,6 +161,53 @@ describe('ExplanationModal', () => {
     expect(screen.getByText('Animation')).toBeTruthy();
     expect(screen.getByText(/Language: ja/)).toHaveTextContent(/Countries: JP ; KR/);
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
+  });
+
+  /**
+   * The status reads in the Arrs' words and the synopsis as written, each
+   * with the source that gave it, named and linked as its terms ask.
+   */
+  it('shows the status and the synopsis, each linked to its source', async () => {
+    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({
+      providers: [
+        source('arr', 'Radarr / Sonarr', null),
+        source('tmdb', 'TMDB', 'https://www.themoviedb.org'),
+        source('anilist', 'AniList', 'https://anilist.co'),
+      ],
+      order: ['arr', 'tmdb', 'anilist'],
+    });
+    show(
+      explanation({
+        metadata: {
+          genres: ['Animation'],
+          keywords: [],
+          original_language: 'ja',
+          origin_countries: [],
+          certification: null,
+          certification_scale: null,
+          status: 'released',
+          overview: 'Two sisters move to the country.',
+          poster_path: null,
+          field_sources: { genres: 'arr', status: 'tmdb', overview: 'anilist' },
+          sources: ['arr', 'tmdb', 'anilist'],
+        },
+      }),
+    );
+
+    const status = await screen.findByText(/^Status: Released, from/);
+    expect(within(status).getByRole('link', { name: 'TMDB' })).toHaveAttribute(
+      'href',
+      'https://www.themoviedb.org',
+    );
+    expect(screen.getByText('Two sisters move to the country.')).toBeTruthy();
+    const synopsis = screen.getByText(/^Synopsis from/);
+    expect(within(synopsis).getByRole('link', { name: 'AniList' })).toHaveAttribute(
+      'href',
+      'https://anilist.co',
+    );
+    const sources = screen.getByText(/^Sources/);
+    expect(sources).toHaveTextContent(/Radarr \/ Sonarr\s*→\s*TMDB\s*→\s*AniList/);
+    expect(within(sources).queryByRole('link', { name: 'Radarr / Sonarr' })).toBeNull();
   });
 
   it('says no rule applies rather than showing an empty list', () => {

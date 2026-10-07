@@ -430,9 +430,12 @@ a {
    its place in the rail: where the label column is gone, the number alone
    still fits 68px. */
 .sidebar-foot {
+  width: 100%;
   margin: 0;
   padding: var(--space-3) var(--space-4);
+  border: 0;
   border-top: 1px solid var(--border-subtle);
+  background: none;
   color: var(--text-muted);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -440,6 +443,36 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.sidebar-foot:hover {
+  color: var(--text-primary);
+}
+
+/* What each metadata source's terms ask for: a sentence, a link to the
+   source, and TMDB's logo, kept smaller than Routarr's own. */
+.credits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.credit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.credit-logo {
+  height: 12px;
+  width: auto;
 }
 
 .main-content {

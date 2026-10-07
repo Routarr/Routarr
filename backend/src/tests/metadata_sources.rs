@@ -211,6 +211,10 @@ async fn the_provider_catalogue_reports_what_each_source_needs() {
     // missing", which nobody can act on.
     assert_eq!(tmdb["key_env"], "TMDB_API_KEY");
     assert_eq!(tmdb["media_types"], serde_json::json!(["movie", "series"]));
+    // Credited and linked wherever its data is shown, as its terms ask.
+    assert_eq!(tmdb["display_name"], "TMDB");
+    assert_eq!(tmdb["website"], "https://www.themoviedb.org");
+    assert!(arr["website"].is_null());
 
     // Radarr carries no TheTVDB id, so TheTVDB answers for series alone.
     let providers = response["providers"].as_array().unwrap();
@@ -243,9 +247,8 @@ async fn cache_row(app: &TestApp, source: &str, external_id: &str, genres: &str)
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, poster_path,
-             cached_at, expires_at)
-         VALUES (?, ?, 'movie', ?, '[]', NULL, '[]', NULL, NULL, NULL, NULL,
+             origin_countries, certification, status, overview, cached_at, expires_at)
+         VALUES (?, ?, 'movie', ?, '[]', NULL, '[]', NULL, NULL, NULL,
                  datetime('now'), datetime('now', '+7 days'))",
     )
     .bind(source)
@@ -309,10 +312,9 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, poster_path,
-             cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at, expires_at)
          VALUES ('tvdb', '4242', 'series', '[\"Animation\"]', '[]', NULL, '[]', NULL,
-                 NULL, NULL, NULL, datetime('now'), datetime('now', '+7 days'))",
+                 NULL, NULL, datetime('now'), datetime('now', '+7 days'))",
     )
     .execute(&app.state.pool)
     .await
@@ -434,10 +436,9 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, poster_path,
-             cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at, expires_at)
          VALUES ('tmdb', ?, 'movie', '[]', '[]', NULL, '[]', NULL, NULL,
-                 'A synopsis, and nothing a rule can read.', NULL,
+                 'A synopsis, and nothing a rule can read.',
                  datetime('now'), datetime('now', '+7 days'))",
     )
     .bind(tmdb_id.to_string())

@@ -2622,12 +2622,15 @@
             ]
           },
           "overview": {
+            "description": "The synopsis of the first source in the order that gives one.",
             "type": [
               "string",
               "null"
             ]
           },
           "poster_path": {
+            "deprecated": true,
+            "description": "Always null: posters are not fetched. Kept until the next major\nversion for the clients that read it.",
             "type": [
               "string",
               "null"
@@ -2641,6 +2644,7 @@
             "type": "array"
           },
           "status": {
+            "description": "Where the title stands, in the words Radarr and Sonarr use: `tba`,\n`announced`, `inCinemas` or `released` for a film, `upcoming`,\n`continuing` or `ended` for a series.",
             "type": [
               "string",
               "null"
@@ -3775,6 +3779,13 @@
           },
           "needs_key": {
             "type": "boolean"
+          },
+          "website": {
+            "description": "The site its data comes from, which the interface credits and links\nto. Null for Radarr and Sonarr.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [

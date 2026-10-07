@@ -253,6 +253,8 @@ export interface MetadataProvider {
   fields: string[];
   /** `movie` and `series`: TheTVDB answers for series alone. */
   media_types: string[];
+  /** The site its data comes from, credited and linked. Null for the Arrs. */
+  website: string | null;
 }
 
 export interface MetadataProviders {
@@ -420,8 +422,10 @@ export interface MediaMetadata {
   certification: string | null;
   /** The system `certification` belongs to: an ISO 3166-1 country code, or `MAL`. */
   certification_scale: string | null;
+  /** In the words Radarr and Sonarr use: `released`, `continuing`, `ended`... */
   status: string | null;
   overview: string | null;
+  /** Always null: posters are not fetched. Deprecated until the next major version. */
   poster_path: string | null;
   /** Field name -> the source that supplied it. */
   field_sources: Record<string, string>;

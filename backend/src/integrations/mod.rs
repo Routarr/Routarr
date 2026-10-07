@@ -7,6 +7,7 @@ pub mod language;
 pub mod omdb;
 pub mod radarr;
 pub mod sonarr;
+pub mod status;
 pub mod tmdb;
 pub mod tvdb;
 

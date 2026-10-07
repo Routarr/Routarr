@@ -26,6 +26,7 @@
     onNavigate,
     counts = { jobs: 0, decisions: 0, failed: 0, warnings: 0 },
     version,
+    onAbout,
   }: {
     open?: boolean;
     /** Out of sight, a closed drawer: nothing in it may take the focus. */
@@ -33,6 +34,8 @@
     onNavigate?: () => void;
     counts?: Counts;
     version?: string;
+    /** Opens what Routarr is: its licence and the credits its sources ask for. */
+    onAbout?: () => void;
   } = $props();
 </script>
 
@@ -99,10 +102,10 @@
        out of the bar, where the two things that say what a click will do
        sit. -->
   {#if version}
-    <p class="sidebar-foot">
+    <button type="button" class="sidebar-foot" title={t('AboutRoutarr')} onclick={onAbout}>
       <!-- The name goes where the labels go: 68px of rail fits the number and
            nothing else. -->
       <span class="foot-name">Routarr</span> v{version}
-    </p>
+    </button>
   {/if}
 </aside>

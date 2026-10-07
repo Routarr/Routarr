@@ -1021,3 +1021,71 @@ async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
     .unwrap();
     assert_eq!(due, ["omdb", "tvdb"]);
 }
+
+/// An upgrade reads each cached status into the words the Arrs use, as a new
+/// answer is read, and drops the posters nothing reads.
+#[tokio::test]
+async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
+    let pool = super::database_through("034_full_vocabularies").await;
+    let statuses = [
+        "Released",
+        "Ended",
+        "FINISHED",
+        "Finished Airing",
+        "RELEASING",
+        "Currently Airing",
+        "Returning Series",
+        "Continuing",
+        "HIATUS",
+        "Planned",
+        "In Production",
+        "Post Production",
+        "Pilot",
+        "NOT_YET_RELEASED",
+        "Not yet aired",
+        "Upcoming",
+        "Rumored",
+        "Canceled",
+        "CANCELLED",
+        "Something else",
+    ];
+    for (index, raw) in statuses.iter().enumerate() {
+        for kind in ["movie", "series"] {
+            sqlx::query(
+                "INSERT INTO metadata_cache (source, external_id, media_type, status, poster_path,
+                                             expires_at)
+                 VALUES ('tmdb', ?, ?, ?, '/p.jpg', '2099-01-01 00:00:00')",
+            )
+            .bind(index.to_string())
+            .bind(kind)
+            .bind(raw)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    crate::db::run_migrations_through(&pool, "035_status_words").await.unwrap();
+
+    for (index, raw) in statuses.iter().enumerate() {
+        for kind in ["movie", "series"] {
+            let stored: Option<String> = sqlx::query_scalar(
+                "SELECT status FROM metadata_cache WHERE external_id = ? AND media_type = ?",
+            )
+            .bind(index.to_string())
+            .bind(kind)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let read = crate::integrations::status::read(raw, kind);
+            assert_eq!(stored.as_deref(), read, "{raw} for a {kind}");
+        }
+    }
+    let posters: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('metadata_cache') WHERE name = 'poster_path'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(posters, 0);
+}

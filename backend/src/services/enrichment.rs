@@ -675,8 +675,8 @@ async fn store_metadata(
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
          original_language, origin_countries, certification, certification_scale,
-         certifications, status, overview, poster_path, cached_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+         certifications, status, overview, cached_at, expires_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
          ON CONFLICT(source, external_id, media_type) DO UPDATE SET
             genres = excluded.genres,
             keywords = excluded.keywords,
@@ -687,7 +687,6 @@ async fn store_metadata(
             certifications = excluded.certifications,
             status = excluded.status,
             overview = excluded.overview,
-            poster_path = excluded.poster_path,
             cached_at = excluded.cached_at,
             expires_at = excluded.expires_at",
     )
@@ -703,7 +702,6 @@ async fn store_metadata(
     .bind(serde_json::to_string(&data.certifications)?)
     .bind(&data.status)
     .bind(&data.overview)
-    .bind(&data.poster_path)
     .bind(&expires_at)
     .execute(pool)
     .await?;

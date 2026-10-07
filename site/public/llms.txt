@@ -49,7 +49,10 @@ exists and is off by default. When enabled, it touches only titles with no files
 
 Metadata sources form an ordered list, and the order decides which source wins when they
 disagree. No metadata key is required: Radarr and Sonarr are a source of their own, and AniList
-and Jikan need no key. TMDB, OMDb and TheTVDB are optional.
+and Jikan need no key. TMDB, OMDb and TheTVDB are optional. Routarr uses TMDB and the TMDB APIs
+but is not endorsed, certified, or otherwise approved by TMDB. Metadata provided by TheTVDB, OMDb
+data licensed under CC BY-NC 4.0, and data from AniList and from MyAnimeList through Jikan, each
+credited in the interface.
 
 Routarr also provides:
 

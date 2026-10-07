@@ -92,7 +92,6 @@ struct RawMovie {
     production_countries: Vec<ProductionCountry>,
     status: Option<String>,
     overview: Option<String>,
-    poster_path: Option<String>,
     #[serde(default)]
     keywords: KeywordsBlock,
     #[serde(default)]
@@ -111,7 +110,6 @@ struct RawTv {
     production_countries: Vec<ProductionCountry>,
     status: Option<String>,
     overview: Option<String>,
-    poster_path: Option<String>,
     #[serde(default)]
     keywords: KeywordsBlock,
     #[serde(default)]
@@ -129,7 +127,6 @@ pub struct TmdbDetails {
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
-    pub poster_path: Option<String>,
 }
 
 impl TmdbClient {
@@ -187,7 +184,6 @@ impl TmdbClient {
             certifications: movie_certifications(&raw.release_dates),
             status: raw.status,
             overview: raw.overview,
-            poster_path: raw.poster_path,
         })
     }
 
@@ -211,7 +207,6 @@ impl TmdbClient {
             certifications: tv_certifications(&raw.content_ratings),
             status: raw.status,
             overview: raw.overview,
-            poster_path: raw.poster_path,
         })
     }
 

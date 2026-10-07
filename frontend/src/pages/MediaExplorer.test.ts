@@ -229,6 +229,8 @@ describe('Media explorer', () => {
 
   it('takes a failed explanation off screen once the next one is read', async () => {
     show([media({ id: 'm7', title: 'Perfect Blue' })]);
+    // The panel names the sources from the catalogue it reads.
+    vi.spyOn(api, 'getMetadataProviders').mockResolvedValue({ providers: [], order: [] });
     vi.spyOn(api, 'explainMedia')
       .mockRejectedValueOnce(new ApiError('The rules could not be evaluated', 409, 'conflict'))
       .mockResolvedValueOnce({

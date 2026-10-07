@@ -121,6 +121,7 @@
   }
 
   let palette = $state(false);
+  let about = $state(false);
 
   /**
    * The shortcut, and the label that teaches it.
@@ -268,6 +269,7 @@
       offstage={narrow && !drawer}
       onNavigate={() => (drawer = false)}
       version={status.data?.version}
+      onAbout={() => (about = true)}
       counts={{
         jobs: status.data?.running_jobs ?? 0,
         decisions: status.data?.pending_decisions ?? 0,
@@ -426,6 +428,12 @@
   {#if proofRequest.request}
     {#await import('./ProofDialog.svelte') then { default: ProofDialog }}
       <ProofDialog />
+    {/await}
+  {/if}
+  <!-- Fetched when it is opened, for the reason the proof dialog is. -->
+  {#if about && status.data}
+    {#await import('./AboutDialog.svelte') then { default: AboutDialog }}
+      <AboutDialog version={status.data.version} onClose={() => (about = false)} />
     {/await}
   {/if}
 {/if}

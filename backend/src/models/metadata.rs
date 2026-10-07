@@ -66,7 +66,6 @@ pub struct ProviderMetadata {
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
-    pub poster_path: Option<String>,
 }
 
 /// What every enabled source, taken in priority order, adds up to.
@@ -84,8 +83,16 @@ pub struct MediaMetadata {
     /// or `MAL` for MyAnimeList's. Absent when the source did not say.
     #[serde(default)]
     pub certification_scale: Option<String>,
+    /// Where the title stands, in the words Radarr and Sonarr use: `tba`,
+    /// `announced`, `inCinemas` or `released` for a film, `upcoming`,
+    /// `continuing` or `ended` for a series.
     pub status: Option<String>,
+    /// The synopsis of the first source in the order that gives one.
     pub overview: Option<String>,
+    /// Always null: posters are not fetched. Kept until the next major
+    /// version for the clients that read it.
+    #[schema(deprecated)]
+    #[serde(default)]
     pub poster_path: Option<String>,
     /// Field name -> the source that supplied it. Only populated fields appear.
     #[serde(default)]
@@ -162,13 +169,6 @@ impl MediaMetadata {
                 "overview",
                 &mut merged.field_sources,
             );
-            take_value(
-                &mut merged.poster_path,
-                part.poster_path,
-                source,
-                "poster_path",
-                &mut merged.field_sources,
-            );
 
             // A source may come twice, the Arr's English being offered last.
             if merged.field_sources.len() > before && !merged.sources.iter().any(|s| s == source) {
@@ -176,9 +176,9 @@ impl MediaMetadata {
             }
         }
 
-        // Known means *matchable*. A source that supplied only a synopsis, a
-        // status or a poster is still listed, since it did answer and the
-        // panel says so, but no condition reads any of the three. An item
+        // Known means *matchable*. A source that supplied only a synopsis or a
+        // status is still listed, since it did answer and the panel says so,
+        // but no condition reads either. An item
         // holding nothing else is as blind to the engine as one holding
         // nothing at all, and counting it would have the library list say
         // "metadata" about an item no rule can touch.

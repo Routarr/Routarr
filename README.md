@@ -168,3 +168,17 @@ covers the setup, the dev container and the checks CI runs. Security issues go t
 ## Licence
 
 [GPL-3.0-only](LICENSE), like Radarr and Sonarr. Routarr is not affiliated with the Servarr project.
+
+## Data sources
+
+The metadata sources you enable are credited in the interface, on the Metadata sources screen and
+in About, as their terms ask.
+
+- Routarr uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by
+  [TMDB](https://www.themoviedb.org).
+- Metadata provided by [TheTVDB](https://thetvdb.com). Please consider adding missing information
+  or subscribing.
+- Data from [OMDb](https://www.omdbapi.com), licensed under
+  [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+- Data from [AniList](https://anilist.co), and from [MyAnimeList](https://myanimelist.net) through
+  [Jikan](https://jikan.moe).

@@ -1487,6 +1487,8 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
 }
 .site-footer .wrap { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; }
 .site-footer nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+/* The credit the metadata sources ask for, on a line of its own. */
+.site-footer .footer-data { order: 1; flex-basis: 100%; }
 .site-footer a { color: var(--text-soft); text-decoration: none; }
 .site-footer a:hover { color: var(--accent-text); }
 

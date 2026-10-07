@@ -219,6 +219,27 @@ async fn certifications_and_countries_are_extracted() {
     assert!(series.3.contains("documentary"), "series keywords come under `results`");
 }
 
+/// A source's status is stored in the words the Arrs use: TMDB's "Released"
+/// for a film and "Ended" for a series read as Radarr and Sonarr write them.
+#[tokio::test]
+async fn a_status_is_stored_in_the_words_the_arrs_use() {
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let statuses: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT media_type, status FROM metadata_cache ORDER BY media_type")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let statuses: Vec<(&str, Option<&str>)> =
+        statuses.iter().map(|(kind, status)| (kind.as_str(), status.as_deref())).collect();
+    assert_eq!(statuses, [("movie", Some("released")), ("series", Some("ended"))]);
+}
+
 #[tokio::test]
 async fn the_same_title_in_two_instances_is_fetched_once() {
     let tmdb = FakeTmdb::start().await;

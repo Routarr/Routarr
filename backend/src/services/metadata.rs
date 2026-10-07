@@ -87,6 +87,9 @@ pub struct ProviderInfo {
     /// The media types it answers for: TheTVDB for series alone, since Radarr
     /// carries no TheTVDB id.
     pub media_types: &'static [&'static str],
+    /// The site its data comes from, which the interface credits and links
+    /// to wherever that data is shown, as the sources' terms ask.
+    pub website: Option<&'static str>,
 }
 
 /// What a source answering films and series answers for.
@@ -110,6 +113,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
         ],
         media_types: EVERY_MEDIA_TYPE,
+        website: None,
     },
     ProviderInfo {
         id: TMDB,
@@ -126,6 +130,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
         ],
         media_types: EVERY_MEDIA_TYPE,
+        website: Some("https://www.themoviedb.org"),
     },
     ProviderInfo {
         id: ANILIST,
@@ -139,6 +144,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         // rating a `certification_in` rule could name.
         fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::OriginCountries],
         media_types: EVERY_MEDIA_TYPE,
+        website: Some("https://anilist.co"),
     },
     ProviderInfo {
         id: JIKAN,
@@ -149,6 +155,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         addressing: Addressing::Search,
         fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::Certification],
         media_types: EVERY_MEDIA_TYPE,
+        website: Some("https://myanimelist.net"),
     },
     ProviderInfo {
         id: OMDB,
@@ -166,6 +173,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
         ],
         media_types: EVERY_MEDIA_TYPE,
+        website: Some("https://www.omdbapi.com"),
     },
     ProviderInfo {
         id: TVDB,
@@ -181,6 +189,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::Certification,
         ],
         media_types: &["series"],
+        website: Some("https://thetvdb.com"),
     },
 ];
 
@@ -271,12 +280,11 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
         // the instance (`routing::resolve_metadata`).
         certification_scale: None,
         certifications: Default::default(),
-        // `status`, `overview` and the poster stay empty: the first is already a
+        // `status` and `overview` stay empty: the first is already a
         // column of `media` that the engine reads directly, and the other two
         // are not in the Arr payloads.
         status: None,
         overview: None,
-        poster_path: None,
     }
 }
 
@@ -457,11 +465,13 @@ impl FetchingSource {
         }
     }
 
+    /// What this source answers about one title, its status read into the
+    /// words the Arrs use (`integrations::status`).
     pub async fn fetch(&self, external_id: &str, media_type: &str) -> AppResult<ProviderMetadata> {
-        match self {
+        let mut answer = match self {
             Self::Tmdb(client) => {
                 let details = client.get_details(numeric(external_id, "TMDB")?, media_type).await?;
-                Ok(ProviderMetadata {
+                ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
                     original_language: details.original_language,
@@ -469,24 +479,23 @@ impl FetchingSource {
                     certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
-                    poster_path: details.poster_path,
                     ..Default::default()
-                })
+                }
             }
             Self::AniList(client) => {
                 let details = client.get_details(numeric(external_id, "AniList")?).await?;
-                Ok(ProviderMetadata {
+                ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
                     origin_countries: details.origin_countries,
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
-                })
+                }
             }
             Self::Jikan(client) => {
                 let details = client.get_details(numeric(external_id, "Jikan")?).await?;
-                Ok(ProviderMetadata {
+                ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
                     // MyAnimeList rates in a system of its own.
@@ -498,11 +507,11 @@ impl FetchingSource {
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
-                })
+                }
             }
             Self::Omdb(client) => {
                 let details = client.get_details(external_id).await?;
-                Ok(ProviderMetadata {
+                ProviderMetadata {
                     genres: details.genres,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
@@ -511,11 +520,11 @@ impl FetchingSource {
                     certification: details.certification,
                     overview: details.overview,
                     ..Default::default()
-                })
+                }
             }
             Self::Tvdb(client) => {
                 let details = client.get_details(external_id).await?;
-                Ok(ProviderMetadata {
+                ProviderMetadata {
                     genres: details.genres,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
@@ -523,9 +532,14 @@ impl FetchingSource {
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
-                })
+                }
             }
-        }
+        };
+        answer.status = answer
+            .status
+            .and_then(|raw| crate::integrations::status::read(&raw, media_type))
+            .map(str::to_string);
+        Ok(answer)
     }
 }
 
@@ -787,27 +801,26 @@ pub struct CacheRow {
     pub certifications: String,
     pub status: Option<String>,
     pub overview: Option<String>,
-    pub poster_path: Option<String>,
 }
 
 /// The columns a rule can actually be written against.
 ///
 /// `MetadataField` names five: genres, keywords, original language, origin
-/// countries, certification. The status, the synopsis and the poster are
-/// matchable by no condition, and the routing pass never opens them. A TMDB
-/// overview runs several times longer than an AniList one, so reading them in
-/// `load_cache` would load, for nothing, a share of the cache that grows with
-/// every source an operator adds.
+/// countries, certification. The status and the synopsis are matchable by no
+/// condition, and the routing pass never opens them. A TMDB overview runs
+/// several times longer than an AniList one, so reading them in `load_cache`
+/// would load, for nothing, a share of the cache that grows with every source
+/// an operator adds.
 ///
-/// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows all
-/// three, and one row is not worth a second query to trim.
+/// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows both,
+/// and one row is not worth a second query to trim.
 pub const EVALUATED_COLUMNS: &str = "source, external_id, media_type, genres, keywords,
      original_language, origin_countries, certification, certification_scale, certifications";
 
 /// What one row answers with. The three key columns are not among them: the
 /// only reader addresses a row by them and never reads them back.
 pub const CACHE_COLUMNS: &str = "genres, keywords, original_language, origin_countries,
-     certification, certification_scale, certifications, status, overview, poster_path";
+     certification, certification_scale, certifications, status, overview";
 
 impl CacheRow {
     /// Malformed JSON yields an empty list rather than an error: one bad cache
@@ -823,7 +836,6 @@ impl CacheRow {
             certifications: serde_json::from_str(&self.certifications).unwrap_or_default(),
             status: self.status,
             overview: self.overview,
-            poster_path: self.poster_path,
         }
     }
 }
@@ -929,7 +941,6 @@ pub async fn load_cache(
                 // path is where the panel gets them.
                 status: None,
                 overview: None,
-                poster_path: None,
             }
             .into_answer();
             ((row.source, row.external_id, row.media_type), answer)
@@ -941,7 +952,7 @@ pub async fn load_cache(
 /// library's.
 ///
 /// Every column of each row, `CACHE_COLUMNS`: the one-item readers show the
-/// status, the synopsis and the poster beside what the rules read. One lookup
+/// status and the synopsis beside what the rules read. One lookup
 /// per source and media type that holds an identifier for an item, its ids
 /// bound in chunks.
 pub async fn load_cache_of(
