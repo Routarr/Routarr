@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.validate()?;
     init_tracing(&config);
     log_panics();
-    for note in &config.startup_notes {
+    for note in config.startup_notes.iter().chain(&config.source_notes()) {
         warn!("{note}");
     }
 
