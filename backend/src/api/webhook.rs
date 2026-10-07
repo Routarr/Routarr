@@ -307,18 +307,14 @@ async fn run(
     // then be skipped in silence. The row carries what the Arr's own API
     // returned, which is the fuller answer.
     if let Some(id) = media_id.as_deref() {
-        let identity: Option<(Option<i64>, String)> =
-            sqlx::query_as("SELECT tmdb_id, media_type FROM media WHERE id = ?")
-                .bind(id)
-                .fetch_optional(&state.pool)
-                .await?;
-
-        // Metadata must exist before the rules run, otherwise the first decision
-        // for a brand-new item always falls back to the default category.
-        if let Some((Some(tmdb_id), media_type)) = identity
-            && let Err(e) = enrichment::enrich_one(state, tmdb_id, &media_type).await
-        {
-            warn!("Webhook enrichment failed for TMDb {tmdb_id}: {e}");
+        // Metadata must exist before the rules run, otherwise the first
+        // decision for a brand-new item falls back to the default category.
+        let enriched = async {
+            let media = crate::api::media::load_media(state, id).await?;
+            enrichment::enrich_one(state, &media).await
+        };
+        if let Err(e) = enriched.await {
+            warn!("Webhook enrichment failed for {id}: {e}");
         }
     }
 

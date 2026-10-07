@@ -8,11 +8,13 @@
 //! It has no TMDb, TVDB or IMDb identifier, so an item has to be found by title
 //! and year first, which `services::metadata` does once and remembers.
 
+use std::sync::{Arc, Mutex};
+
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::debug;
 
-use super::send_json;
+use super::{StatedLimit, send_json, send_json_stating};
 use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "AniList";
@@ -45,6 +47,9 @@ const DETAILS_QUERY: &str = "query ($id: Int) {
 pub struct AniListClient {
     client: Client,
     base_url: String,
+    /// The limit AniList stated beside its last answer, shared by every clone
+    /// a pass hands its requests.
+    stated: Arc<Mutex<StatedLimit>>,
 }
 
 /// A candidate returned by a search, with every title it is known by.
@@ -167,7 +172,27 @@ impl AniListClient {
     }
 
     pub fn new(client: Client, base_url: &str) -> Self {
-        Self { client, base_url: base_url.trim_end_matches('/').to_string() }
+        Self {
+            client,
+            base_url: base_url.trim_end_matches('/').to_string(),
+            stated: Arc::default(),
+        }
+    }
+
+    /// What AniList stated of its limit beside its last answer.
+    pub fn stated_limit(&self) -> StatedLimit {
+        *self.stated.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The answer to one query, the limit stated beside it kept for the pace.
+    async fn ask<T: serde::de::DeserializeOwned>(
+        &self,
+        query: &str,
+        variables: serde_json::Value,
+    ) -> AppResult<T> {
+        let (answer, stated) = send_json_stating(SERVICE, self.post(query, variables)).await?;
+        *self.stated.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = stated;
+        Ok(answer)
     }
 
     fn post(&self, query: &str, variables: serde_json::Value) -> reqwest::RequestBuilder {
@@ -190,11 +215,9 @@ impl AniListClient {
         // "a series" as far as Sonarr is concerned).
         let format = if media_type == "movie" { Some("MOVIE") } else { None };
 
-        let response: GraphQlResponse<SearchData> = send_json(
-            SERVICE,
-            self.post(SEARCH_QUERY, serde_json::json!({ "search": title, "format": format })),
-        )
-        .await?;
+        let response: GraphQlResponse<SearchData> = self
+            .ask(SEARCH_QUERY, serde_json::json!({ "search": title, "format": format }))
+            .await?;
 
         Ok(response
             .data()?
@@ -212,7 +235,7 @@ impl AniListClient {
     pub async fn get_details(&self, id: i64) -> AppResult<AniListDetails> {
         debug!("Fetching AniList {id}");
         let response: GraphQlResponse<DetailsData> =
-            send_json(SERVICE, self.post(DETAILS_QUERY, serde_json::json!({ "id": id }))).await?;
+            self.ask(DETAILS_QUERY, serde_json::json!({ "id": id })).await?;
 
         Ok(response.data()?.media.map(details_of).unwrap_or_default())
     }

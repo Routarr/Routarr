@@ -59,13 +59,15 @@ pub struct MediaListItem {
 /// A title known to no id is keyed by its folded title, which SQL cannot
 /// spell, so its search answers are left out, as in the facets. And a cached
 /// row is not a cached *answer*: a synopsis is readable by no condition, so
-/// the five fields `MetadataField` names are what is looked for.
+/// the five fields `MetadataField` names are what is looked for, the rating
+/// as the certification regions pick it.
 ///
-/// The source ids are `&'static str` from the catalogue, never anything a
-/// caller sent, which is what makes splicing them safe.
-pub(crate) fn metadata_predicate(
-    providers: &[&'static crate::services::metadata::ProviderInfo],
-) -> String {
+/// The order and the regions come from one snapshot of `settings`. The source
+/// ids are `&'static str` from the catalogue, never anything a caller sent,
+/// which is what makes splicing them safe.
+pub(crate) fn metadata_predicate(settings: &crate::state::Settings) -> String {
+    let providers = AppState::metadata_order_from(settings);
+    let cache = metadata::rated_cache(&AppState::certification_regions_from(settings));
     let answers = holds_any("c", &MetadataField::ALL);
     let clauses: Vec<String> = providers
         .iter()
@@ -80,14 +82,14 @@ pub(crate) fn metadata_predicate(
                         _ => "CAST(m.tvdb_id AS TEXT)",
                     };
                     format!(
-                        "EXISTS (SELECT 1 FROM metadata_cache c
+                        "EXISTS (SELECT 1 FROM {cache} c
                                   WHERE c.source = '{source}' AND c.external_id = {held}
                                     AND c.media_type = m.media_type AND {answers})"
                     )
                 }
                 metadata::Addressing::Search => format!(
                     "EXISTS (SELECT 1 FROM source_identifiers si
-                               JOIN metadata_cache c ON c.source = si.source
+                               JOIN {cache} c ON c.source = si.source
                                 AND c.external_id = si.external_id
                                 AND c.media_type = si.media_type
                               WHERE si.source = '{source}' AND si.media_type = m.media_type
@@ -166,7 +168,7 @@ pub async fn list(
     // only. Reading it off any cached row would contradict `has_metadata` in the
     // engine, which honours the order, and a list saying "metadata" next to a
     // rule saying there is none is the kind of disagreement nobody debugs twice.
-    let has_metadata = metadata_predicate(&state.metadata_order().await);
+    let has_metadata = metadata_predicate(&state.settings().await);
 
     // The correlated sub-selects keep this to two queries instead of the
     // per-row lookups the explorer would otherwise need.
@@ -229,6 +231,11 @@ impl ExternalTitle {
                     "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
                 )
             })?;
+        // An Arr writes a title it has no id for as 0, so 0 names every one of
+        // them at once.
+        if matches!(id, ExternalId::Tmdb(n) | ExternalId::Tvdb(n) if n <= 0) {
+            return Err(AppError::BadRequest("An id is a number above 0.".into()));
+        }
         // TheTVDB knows series alone, and no movie carries its id.
         if self.media_type == "movie" && matches!(id, ExternalId::Tvdb(_)) {
             return Err(AppError::BadRequest(
@@ -748,7 +755,9 @@ async fn metadata_facets(
     cache_column: &str,
     json: bool,
 ) -> AppResult<Vec<Facet>> {
-    let Some((rows, binds)) = facet_rows(sources, media_column, cache_column, json, false) else {
+    let Some((rows, binds)) =
+        facet_rows(sources, "metadata_cache", media_column, cache_column, json, false)
+    else {
         return Ok(Vec::new());
     };
     let sql = format!(
@@ -772,14 +781,17 @@ async fn metadata_facets(
 
 /// The certifications the enabled sources give, each with the systems that
 /// gave it: whether `R` is seventeen or eighteen and over depends on the
-/// system, and a MyAnimeList code is named by MyAnimeList's own words.
+/// system, and a MyAnimeList code is named by MyAnimeList's own words. A
+/// source rating for many countries gives the rating `regions` pick.
 async fn certification_facets(
     pool: &sqlx::SqlitePool,
     sources: &[&'static ProviderInfo],
+    regions: &[String],
     localizer: &Localizer,
 ) -> AppResult<Vec<Facet>> {
+    let cache = metadata::rated_cache(regions);
     let Some((rows, binds)) =
-        facet_rows(sources, Some("certification"), "certification", false, true)
+        facet_rows(sources, &cache, Some("certification"), "certification", false, true)
     else {
         return Ok(Vec::new());
     };
@@ -820,10 +832,12 @@ async fn certification_facets(
 /// joined through what `source_identifiers` resolved, by the key
 /// [`metadata::local_key_of`] gives an item. An item known to no id is keyed by
 /// its normalised title, which SQL cannot spell, so its search answers are
-/// left out of the counts. `scale` is the system a certification belongs to,
-/// and empty unless asked for.
+/// left out of the counts. `cache` is the table the answers are read from,
+/// `metadata_cache` or an expression over it. `scale` is the system a
+/// certification belongs to, and empty unless asked for.
 fn facet_rows(
     sources: &[&'static ProviderInfo],
+    cache: &str,
     media_column: Option<&str>,
     cache_column: &str,
     json: bool,
@@ -843,7 +857,7 @@ fn facet_rows(
         let cached = |join_media: &str, guard: &str| {
             format!(
                 "SELECT m.id AS media_id, {v} AS value, {cache_scale} AS scale
-                   FROM metadata_cache c{join_media}{join}
+                   FROM {cache} c{join_media}{join}
                   WHERE c.source = ? AND {guard}
                     AND c.{cache_column} IS NOT NULL AND c.{cache_column} != ''",
                 v = value("c", cache_column),
@@ -918,12 +932,14 @@ fn facet_rows(
 
 pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFacets>> {
     let pool = &state.pool;
-    // The order the engine reads, so the list offered and the list matched are
-    // the same one.
-    let sources = state.metadata_order().await;
+    // The order and the regions the engine reads, so the list offered and the
+    // list matched are the same one.
+    let settings = state.settings().await;
+    let sources = AppState::metadata_order_from(&settings);
+    let regions = AppState::certification_regions_from(&settings);
     let localizer = state.localizer().await;
     let total_media: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(pool).await?;
-    let known = metadata_predicate(&sources);
+    let known = metadata_predicate(&settings);
     let without_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
     )))
@@ -950,7 +966,7 @@ pub async fn facets(State(state): State<AppState>) -> AppResult<Json<LibraryFace
         // No media column: the sync does not read countries off the Arr's
         // payload, so the cache is the only place they exist.
         origin_countries: metadata_facets(pool, &sources, None, "origin_countries", true).await?,
-        certifications: certification_facets(pool, &sources, &localizer).await?,
+        certifications: certification_facets(pool, &sources, &regions, &localizer).await?,
         series_types: column_facets(pool, "series_type").await?,
         root_folders: folder_facets(pool).await?,
         statuses: name_statuses(column_facets(pool, "status").await?, &localizer),

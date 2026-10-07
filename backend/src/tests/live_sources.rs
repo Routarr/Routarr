@@ -134,8 +134,7 @@ async fn tmdb_answers_the_shape_the_client_expects() {
         return;
     };
 
-    let tmdb =
-        TmdbClient::new(client(), &key, crate::config::DEFAULT_TMDB_BASE_URL, &["US".to_string()]);
+    let tmdb = TmdbClient::new(client(), &key, crate::config::DEFAULT_TMDB_BASE_URL);
 
     let details = tmdb.get_details(8392, "movie").await.expect("TMDb details");
     assert!(details.genres.iter().any(|genre| genre == "Animation"), "{:?}", details.genres);
@@ -143,8 +142,8 @@ async fn tmdb_answers_the_shape_the_client_expects() {
     assert_eq!(details.origin_countries, vec!["JP"], "country drifted");
     // The appended blocks: asked for, and answered.
     assert!(!details.keywords.is_empty(), "no keywords came back");
-    assert!(details.certification.is_some(), "no certification came back");
-    println!("TMDb 8392: {:?} / {:?}", details.genres, details.certification);
+    assert!(details.certifications.contains_key("US"), "no US rating came back");
+    println!("TMDb 8392: {:?} / {:?}", details.genres, details.certifications);
 }
 
 #[tokio::test]
@@ -155,7 +154,12 @@ async fn omdb_answers_the_shape_the_client_expects() {
         return;
     };
 
-    let omdb = OmdbClient::new(client(), &key, crate::integrations::omdb::DEFAULT_BASE_URL);
+    let omdb = OmdbClient::new(
+        client(),
+        &key,
+        crate::integrations::omdb::DEFAULT_BASE_URL,
+        crate::integrations::omdb::FREE_DAILY_REQUESTS,
+    );
 
     assert!(omdb.test_connection().await.expect("OMDb probe"), "OMDb rejected the key");
 
@@ -181,7 +185,6 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
         &key,
         pin.as_deref(),
         crate::integrations::tvdb::DEFAULT_BASE_URL,
-        &["US".to_string()],
         std::sync::Arc::new(tokio::sync::Mutex::new(None)),
     );
 
@@ -193,7 +196,7 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
     assert!(!details.genres.is_empty(), "TheTVDB returned no genres");
     assert_eq!(details.original_language.as_deref(), Some("ja"), "639-3 mapping drifted");
     assert_eq!(details.origin_countries, vec!["JP"], "alpha-3 mapping drifted");
-    println!("TheTVDB {TVDB_SERIES}: {:?} / {:?}", details.genres, details.certification);
+    println!("TheTVDB {TVDB_SERIES}: {:?} / {:?}", details.genres, details.certifications);
 }
 
 /// Rate limiting is the one behaviour the offline suite cannot observe. A burst

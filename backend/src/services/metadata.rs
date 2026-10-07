@@ -14,7 +14,7 @@
 //!   `metadata_cache` under its own id namespace.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::error::AppResult;
 use crate::integrations::anilist::AniListClient;
@@ -31,6 +31,16 @@ pub const ANILIST: &str = "anilist";
 pub const JIKAN: &str = "jikan";
 pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
+
+/// The most days TMDb's terms let one of its answers be kept: six months.
+pub const TMDB_CACHE_DAYS: i64 = 180;
+
+/// How many days an answer of `source` is kept, from the lifetime `configured`:
+/// TMDb's terms hold its own to [`TMDB_CACHE_DAYS`].
+pub fn cache_days(source: &str, configured: i64) -> i64 {
+    let configured = configured.max(1);
+    if source == TMDB { configured.min(TMDB_CACHE_DAYS) } else { configured }
+}
 
 /// Order applied when the setting is missing or unreadable: the free source
 /// alone. Every other source is opt-in: each is extra requests, and a keyed
@@ -248,6 +258,7 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
         // The instance's, which the row does not hold: set by whoever knows
         // the instance (`routing::resolve_metadata`).
         certification_scale: None,
+        certifications: Default::default(),
         // `status`, `overview` and the poster stay empty: the first is already a
         // column of `media` that the engine reads directly, and the other two
         // are not in the Arr payloads.
@@ -303,12 +314,14 @@ impl FetchingSource {
     /// bought for nothing.
     pub fn rate(&self) -> Option<(u32, u32)> {
         match self {
-            // AniList documents 90 a minute. Nothing authenticates, so the
-            // limit is per address and shared with anything else on the host.
+            // AniList documents 30 a minute while degraded, 90 otherwise, and
+            // states the one in force beside each answer, which the pace
+            // follows (`paced_after`). Nothing authenticates, so the limit is
+            // per address and shared with anything else on the host.
             Self::AniList(client)
                 if client.base_url() == crate::integrations::anilist::DEFAULT_BASE_URL =>
             {
-                Some((90, 5))
+                Some((30, 2))
             }
             // Jikan documents three a second *and* sixty a minute. The minute is
             // the binding one, and it is unofficial infrastructure that deserves
@@ -348,6 +361,31 @@ impl FetchingSource {
         };
         let mut paces = PACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         paces.entry(self.id()).or_insert_with(|| RateLimiter::new(per_minute, burst)).clone()
+    }
+
+    /// The requests this source may be sent in a UTC day, counted across
+    /// every caller: an OMDb key is given a daily quota, a thousand on a free
+    /// one, and refuses every request past it until the day ends.
+    pub fn daily_quota(&self) -> Option<crate::services::quota::DailyQuota> {
+        match self {
+            Self::Omdb(client) => {
+                Some(crate::services::quota::DailyQuota::new(OMDB, client.daily_requests()))
+            }
+            _ => None,
+        }
+    }
+
+    /// Pace `pace` after an answer of this source: to the wait a refusal named,
+    /// and to the limit the source states beside a success.
+    pub async fn paced_after<T>(
+        &self,
+        pace: &crate::services::rate_limit::RateLimiter,
+        outcome: &AppResult<T>,
+    ) {
+        crate::services::rate_limit::honour_retry_after(pace, outcome).await;
+        if let (Self::AniList(client), Ok(_)) = (self, outcome) {
+            pace.follow(client.stated_limit()).await;
+        }
     }
 
     /// How many of this source's requests may be in flight at once.
@@ -416,11 +454,11 @@ impl FetchingSource {
                     keywords: details.keywords,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
-                    certification: details.certification,
-                    certification_scale: details.certification_scale,
+                    certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
                     poster_path: details.poster_path,
+                    ..Default::default()
                 })
             }
             Self::AniList(client) => {
@@ -469,8 +507,7 @@ impl FetchingSource {
                     genres: details.genres,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
-                    certification: details.certification,
-                    certification_scale: details.certification_scale,
+                    certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
@@ -605,27 +642,63 @@ pub async fn load_identifiers_of(
     Ok(identifiers)
 }
 
-/// How long a search that found nothing holds before the source is asked again.
+/// How long a search that found nothing for `key` holds before the source is
+/// asked again: thirty days and up to ten more, the same ones for a key each
+/// time.
 ///
 /// A work is often listed after the library holds it: a film indexed before its
 /// release is not on AniList or MyAnimeList yet. Not every pass either: a
 /// library's worth of misses, searched again each week against sources paced
-/// to about a request a second, would hold the enrichment for hours.
-const MISS_LIFETIME: &str = "-30 days";
+/// to about a request a second, would hold the enrichment for hours. And not
+/// on one day: the misses of a first pass would all come due in the same hours
+/// a month later.
+fn miss_lifetime(key: &str) -> chrono::Duration {
+    use sha2::Digest;
+    let spread = sha2::Sha256::digest(key.as_bytes())[0] % 11;
+    chrono::Duration::days(30 + i64::from(spread))
+}
 
 /// The keys already resolved for one source, so a pass only searches for what
 /// it has never searched for, or found nothing for long enough ago.
 pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet<String>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT media_type, local_key FROM source_identifiers
-          WHERE source = ? AND (external_id IS NOT NULL OR resolved_at > datetime('now', ?))",
+    let rows: Vec<(String, String, bool, String)> = sqlx::query_as(
+        "SELECT media_type, local_key, external_id IS NOT NULL, resolved_at
+           FROM source_identifiers WHERE source = ?",
     )
     .bind(source)
-    .bind(MISS_LIFETIME)
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().map(|(kind, key)| resolution_key(&kind, &key)).collect())
+    let now = chrono::Utc::now();
+    Ok(rows
+        .into_iter()
+        .map(|(kind, key, found, at)| (resolution_key(&kind, &key), found, at))
+        .filter(|(key, found, at)| {
+            *found
+                || crate::services::routing::parse_timestamp(at)
+                    .is_some_and(|at| at + miss_lifetime(key) > now)
+        })
+        .map(|(key, _, _)| key)
+        .collect())
+}
+
+/// The values of `anime_search`: AniList and MyAnimeList searched for the
+/// titles that may be anime, the default, or for every title.
+pub const ANIME_SEARCH: [&str; 2] = ["animated", "all"];
+
+/// Whether a source found by search may be searched for a title its Arr files
+/// under `genres` and `series_type`, under the `anime_search` setting `scope`.
+///
+/// Both such sources, AniList and MyAnimeList, list anime alone, so by default
+/// only a title that may be anime is: one filed under Animation or Anime, an
+/// anime series, or one with no genre yet to tell.
+pub fn may_search(scope: &str, genres: &[String], series_type: Option<&str>) -> bool {
+    scope == ANIME_SEARCH[1]
+        || series_type.is_some_and(|kind| kind.eq_ignore_ascii_case("anime"))
+        || genres.is_empty()
+        || genres
+            .iter()
+            .any(|genre| matches!(normalise_value(genre).as_str(), "animation" | "anime"))
 }
 
 /// `(media_type, local_key)` as one string, for set membership.
@@ -696,6 +769,7 @@ pub struct CacheRow {
     pub origin_countries: String,
     pub certification: Option<String>,
     pub certification_scale: Option<String>,
+    pub certifications: String,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -713,12 +787,12 @@ pub struct CacheRow {
 /// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows all
 /// three, and one row is not worth a second query to trim.
 pub const EVALUATED_COLUMNS: &str = "source, external_id, media_type, genres, keywords,
-     original_language, origin_countries, certification, certification_scale";
+     original_language, origin_countries, certification, certification_scale, certifications";
 
 /// What one row answers with. The three key columns are not among them: the
 /// only reader addresses a row by them and never reads them back.
 pub const CACHE_COLUMNS: &str = "genres, keywords, original_language, origin_countries,
-     certification, certification_scale, status, overview, poster_path";
+     certification, certification_scale, certifications, status, overview, poster_path";
 
 impl CacheRow {
     /// Malformed JSON yields an empty list rather than an error: one bad cache
@@ -731,11 +805,69 @@ impl CacheRow {
             origin_countries: serde_json::from_str(&self.origin_countries).unwrap_or_default(),
             certification: self.certification,
             certification_scale: self.certification_scale,
+            certifications: serde_json::from_str(&self.certifications).unwrap_or_default(),
             status: self.status,
             overview: self.overview,
             poster_path: self.poster_path,
         }
     }
+}
+
+/// The rating of the first of `regions` that `certifications` rates, and that
+/// region. A blank rating rates nothing.
+pub fn rating_for(
+    certifications: &BTreeMap<String, String>,
+    regions: &[String],
+) -> Option<(String, String)> {
+    regions.iter().find_map(|region| {
+        let region = region.to_ascii_uppercase();
+        let rating = certifications.get(&region)?.trim();
+        (!rating.is_empty()).then(|| (rating.to_string(), region))
+    })
+}
+
+/// `metadata_cache` as a table expression whose `certification` and
+/// `certification_scale` hold what [`rating_for`] picks for `regions` from a
+/// row's `certifications`, for the SQL that counts or lists ratings. A rating
+/// the row holds in its own column stands, as the merge keeps it.
+///
+/// The regions are spliced, never bound, so the expression reads in any
+/// query whatever it binds: only two ASCII letters are kept, which is all a
+/// country code is and all the settings accept.
+pub fn rated_cache(regions: &[String]) -> String {
+    let codes: Vec<String> = regions
+        .iter()
+        .map(|region| region.to_ascii_uppercase())
+        .filter(|code| code.len() == 2 && code.chars().all(|c| c.is_ascii_uppercase()))
+        .collect();
+    let picked = |what: &str| {
+        if codes.is_empty() {
+            return "NULL".to_string();
+        }
+        let listed: Vec<String> = codes.iter().map(|code| format!("'{code}'")).collect();
+        let ranked: String = codes
+            .iter()
+            .enumerate()
+            .map(|(rank, code)| format!(" WHEN '{code}' THEN {rank}"))
+            .collect();
+        format!(
+            "(SELECT {what} FROM json_each(CASE WHEN json_valid(certifications)
+                                              THEN certifications ELSE '{{}}' END) k
+               WHERE k.key IN ({}) AND TRIM(k.value) != ''
+               ORDER BY CASE k.key{ranked} END LIMIT 1)",
+            listed.join(", ")
+        )
+    };
+    format!(
+        "(SELECT source, external_id, media_type, genres, keywords, original_language,
+                 origin_countries,
+                 COALESCE(certification, {value}) AS certification,
+                 CASE WHEN certification IS NOT NULL THEN certification_scale
+                      ELSE {region} END AS certification_scale
+            FROM metadata_cache)",
+        value = picked("TRIM(k.value)"),
+        region = picked("k.key"),
+    )
 }
 
 /// Every cached answer, keyed by `(source, external id, media type)`.
@@ -759,6 +891,7 @@ pub async fn load_cache(
         origin_countries: String,
         certification: Option<String>,
         certification_scale: Option<String>,
+        certifications: String,
     }
 
     let rows: Vec<EvaluatedRow> =
@@ -776,6 +909,7 @@ pub async fn load_cache(
                 origin_countries: row.origin_countries,
                 certification: row.certification,
                 certification_scale: row.certification_scale,
+                certifications: row.certifications,
                 // Not loaded, because no condition can read them. The per-item
                 // path is where the panel gets them.
                 status: None,
@@ -843,6 +977,24 @@ pub async fn load_cache_of(
 #[cfg(test)]
 mod tests {
 
+    /// The regions are read in their order, not the ratings', whatever case
+    /// they are written in, and a blank rating rates nothing.
+    #[test]
+    fn the_first_region_rated_gives_the_rating() {
+        let rated = super::BTreeMap::from([
+            ("DE".to_string(), " ".to_string()),
+            ("FR".to_string(), "12".to_string()),
+            ("US".to_string(), "PG-13".to_string()),
+        ]);
+        let pick = |regions: &[&str]| {
+            let regions: Vec<String> = regions.iter().map(|region| region.to_string()).collect();
+            super::rating_for(&rated, &regions)
+        };
+        assert_eq!(pick(&["us", "FR"]), Some(("PG-13".into(), "US".into())));
+        assert_eq!(pick(&["DE", "FR"]), Some(("12".into(), "FR".into())));
+        assert_eq!(pick(&["DE", "GB"]), None);
+    }
+
     /// Enrichment and `GET /route` spend one budget per source: each at the
     /// full published rate, they would ask twice as fast as the source allows,
     /// and its 429s would stop the enrichment pass.
@@ -893,16 +1045,17 @@ mod tests {
         );
     }
 
-    /// A found id is kept for good, a miss for thirty days: one a day short of
-    /// them is still remembered, one a day past them is searched again.
+    /// A found id is kept for good, a miss for thirty to forty days: one a day
+    /// short of thirty is still remembered, one a day past forty is searched
+    /// again.
     #[tokio::test]
-    async fn a_miss_is_remembered_thirty_days_and_a_found_id_for_good() {
+    async fn a_miss_is_remembered_a_month_or_so_and_a_found_id_for_good() {
         let pool = crate::db::test_pool().await;
         sqlx::query(
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id, resolved_at)
              VALUES ('anilist', 'movie', 'found-long-ago', '523', datetime('now', '-400 days')),
                     ('anilist', 'movie', 'missed-29-days-ago', NULL, datetime('now', '-29 days')),
-                    ('anilist', 'movie', 'missed-31-days-ago', NULL, datetime('now', '-31 days')),
+                    ('anilist', 'movie', 'missed-41-days-ago', NULL, datetime('now', '-41 days')),
                     ('jikan', 'movie', 'another-source', '1', datetime('now'))",
         )
         .execute(&pool)
@@ -920,6 +1073,41 @@ mod tests {
                 resolution_key("movie", "missed-29-days-ago")
             ]
         );
+    }
+
+    /// TMDb's answers are kept six months at most, whatever the lifetime set,
+    /// and every other source's as long as it says.
+    #[test]
+    fn a_tmdb_answer_is_kept_six_months_at_most() {
+        assert_eq!(cache_days(TMDB, 3_650), 180);
+        assert_eq!(cache_days(TMDB, 30), 30);
+        assert_eq!(cache_days(OMDB, 3_650), 3_650);
+        assert_eq!(cache_days(OMDB, 0), 1);
+    }
+
+    /// The misses a pass writes in one go come due over ten days, not in the
+    /// same hours a month later.
+    #[test]
+    fn misses_written_at_one_instant_come_due_over_ten_days() {
+        let days: HashSet<i64> = (0..200)
+            .map(|n| miss_lifetime(&resolution_key("movie", &format!("title:{n}"))).num_days())
+            .collect();
+        assert_eq!(days, (30..=40).collect());
+    }
+
+    /// AniList and MyAnimeList list anime alone: a title is searched there when
+    /// its Arr files it under Animation or Anime, however spelt, when it is an
+    /// anime series, or when no genre tells yet, and any title when the
+    /// setting says so.
+    #[test]
+    fn only_a_title_that_may_be_anime_is_searched_by_default() {
+        let genres = |names: &[&str]| names.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        assert!(may_search("animated", &genres(&["ANIMATION"]), None));
+        assert!(may_search("animated", &genres(&["Drama", "anime"]), None));
+        assert!(may_search("animated", &[], None));
+        assert!(may_search("animated", &genres(&["Drama"]), Some("Anime")));
+        assert!(!may_search("animated", &genres(&["Drama"]), Some("standard")));
+        assert!(may_search("all", &genres(&["Drama"]), None));
     }
 
     /// The year agrees within one year either way, no further, and a candidate

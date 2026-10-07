@@ -18,12 +18,17 @@ use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "OMDb";
 pub const DEFAULT_BASE_URL: &str = "https://www.omdbapi.com";
+/// The requests a free key may send in a UTC day.
+pub const FREE_DAILY_REQUESTS: i64 = 1_000;
+/// The title a probe asks for.
+const PROBED: &str = "tt0096283";
 
 #[derive(Debug, Clone)]
 pub struct OmdbClient {
     client: Client,
     api_key: String,
     base_url: String,
+    daily_requests: i64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -62,46 +67,74 @@ impl OmdbClient {
         &self.base_url
     }
 
-    pub fn new(client: Client, api_key: &str, base_url: &str) -> Self {
+    /// `daily_requests` is what the key may send in a UTC day, which
+    /// [`FetchingSource::daily_quota`](crate::services::metadata::FetchingSource::daily_quota)
+    /// counts.
+    pub fn new(client: Client, api_key: &str, base_url: &str, daily_requests: i64) -> Self {
         Self {
             client,
             api_key: api_key.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
+            daily_requests,
         }
+    }
+
+    pub fn daily_requests(&self) -> i64 {
+        self.daily_requests
     }
 
     fn get(&self, query: &[(&str, &str)]) -> reqwest::RequestBuilder {
         self.client.get(&self.base_url).query(&[("apikey", self.api_key.as_str())]).query(query)
     }
 
+    /// The body for one IMDb id. OMDb refuses a spent quota with a 401, as it
+    /// refuses a wrong key, and only its words tell the two apart.
+    async fn ask(&self, imdb_id: &str) -> AppResult<RawResponse> {
+        send_json(SERVICE, self.get(&[("i", imdb_id)])).await.map_err(|error| match &error {
+            AppError::ExternalApi { status: 401, message, .. } if is_quota(message) => {
+                super::quota_spent(SERVICE)
+            }
+            _ => error,
+        })
+    }
+
+    /// Whether the key is accepted. A wrong key is a rejection, not an
+    /// outage, and a spent quota says so.
     pub async fn test_connection(&self) -> AppResult<bool> {
-        let raw: RawResponse = send_json(SERVICE, self.get(&[("i", "tt0096283")])).await?;
-        // A wrong key is a rejection, not an outage: say so instead of raising.
-        Ok(is_found(&raw))
+        let raw = self.ask(PROBED).await?;
+        refusal(&raw).map_or(Ok(is_found(&raw)), Err)
     }
 
     /// Everything Routarr needs about one IMDb id.
     pub async fn get_details(&self, imdb_id: &str) -> AppResult<OmdbDetails> {
         debug!("Fetching OMDb {imdb_id}");
-        let raw: RawResponse = send_json(SERVICE, self.get(&[("i", imdb_id)])).await?;
-        details_of(raw, imdb_id)
+        details_of(self.ask(imdb_id).await?, imdb_id)
     }
+}
+
+/// The error a refusing body says, a spent quota as one: a refused key or a
+/// spent quota is refused for every title alike, which the enrichment breaker
+/// counts, never a miss cached empty for days.
+fn refusal(raw: &RawResponse) -> Option<AppError> {
+    let error = raw.error.as_deref().filter(|error| !is_found(raw) && is_refusal(error))?;
+    Some(if is_quota(error) {
+        super::quota_spent(SERVICE)
+    } else {
+        AppError::ExternalApi {
+            service: SERVICE.into(),
+            status: 401,
+            message: error.to_string(),
+            retry_after: None,
+        }
+    })
 }
 
 /// The details a body carries, nothing for a miss, and an error for a refusal.
 fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
+    if let Some(error) = refusal(&raw) {
+        return Err(error);
+    }
     if !is_found(&raw) {
-        // A refused key or a spent quota is refused for every title alike, so
-        // it is an error, which the enrichment breaker counts, never a miss
-        // cached empty for days.
-        if let Some(error) = raw.error.as_deref().filter(|error| is_refusal(error)) {
-            return Err(AppError::ExternalApi {
-                service: SERVICE.into(),
-                status: 401,
-                message: error.to_string(),
-                retry_after: None,
-            });
-        }
         // "Movie not found" is an answer. Caching it empty is what stops the
         // next pass from asking again.
         debug!("OMDb has nothing for {imdb_id}: {:?}", raw.error);
@@ -121,8 +154,11 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
 /// Whether OMDb's `Error` refuses the key ("Invalid API key!", "No API key
 /// provided.") or the quota ("Request limit reached!") rather than the title.
 fn is_refusal(error: &str) -> bool {
-    let error = error.to_ascii_lowercase();
-    error.contains("api key") || error.contains("limit")
+    error.to_ascii_lowercase().contains("api key") || is_quota(error)
+}
+
+fn is_quota(error: &str) -> bool {
+    error.to_ascii_lowercase().contains("limit")
 }
 
 fn is_found(raw: &RawResponse) -> bool {
@@ -215,18 +251,20 @@ mod tests {
         }
     }
 
-    /// A refused key or a spent quota is an error, which the breaker counts,
+    /// A refused key or a spent quota is an error, a spent quota its own,
     /// whether OMDb sends it with a 401 or a 200. A miss is an empty answer,
     /// which is cached.
     #[test]
     fn a_refusal_is_an_error_and_a_miss_is_an_empty_answer() {
-        for refused in ["Invalid API key!", "No API key provided.", "Request limit reached!"] {
+        for refused in ["Invalid API key!", "No API key provided."] {
             let outcome = details_of(answering(refused), "tt0096283");
             assert!(
                 matches!(outcome, Err(AppError::ExternalApi { status: 401, .. })),
                 "{refused}: {outcome:?}"
             );
         }
+        let spent = details_of(answering("Request limit reached!"), "tt0096283").unwrap_err();
+        assert!(crate::integrations::is_quota_spent(&spent), "{spent:?}");
         for missed in ["Incorrect IMDb ID.", "Movie not found!"] {
             let outcome = details_of(answering(missed), "tt0000001").expect(missed);
             assert!(outcome.genres.is_empty() && outcome.certification.is_none(), "{missed}");

@@ -372,16 +372,23 @@ async fn a_series_is_placed_through_sonarr() {
     assert_eq!(unknown.status, StatusCode::NOT_FOUND, "{:?}", unknown.json);
 }
 
-/// TheTVDB knows series alone: a movie named by a TheTVDB id is refused.
+/// TheTVDB knows series alone: a movie named by a TheTVDB id is refused. And
+/// an Arr writes a title it has no id for as 0, so an id of 0 names every such
+/// title at once: refused before anything is asked.
 #[tokio::test]
-async fn a_movie_named_by_a_tvdb_id_is_refused() {
+async fn a_movie_named_by_a_tvdb_id_or_a_title_by_id_zero_is_refused() {
     let arr = FakeArr::start().await;
     let app = TestApp::new().await;
     radarr_library(&app, &arr).await;
 
-    let refused = app.get("/api/v1/route?type=movie&tvdb=76885").await;
-
-    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{:?}", refused.json);
+    for path in [
+        "/api/v1/route?type=movie&tvdb=76885",
+        "/api/v1/route?type=movie&tmdb=0",
+        "/api/v1/route?type=series&tvdb=-1",
+    ] {
+        let refused = app.get(path).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{path}: {:?}", refused.json);
+    }
     assert!(arr.recorded().reads.iter().all(|read| !read.contains("lookup")), "Radarr was asked");
 }
 

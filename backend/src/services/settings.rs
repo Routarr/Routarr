@@ -36,7 +36,11 @@ const KNOWN: &[(&str, Kind)] = &[
     // Ten years. Past that the intent is "never expire", which should be said
     // rather than approximated with a big number.
     ("metadata_cache_ttl_days", Kind::Bounded(1, 3_650)),
+    // OMDb's patron keys allow far more than a free key's thousand, and its
+    // pacing sends fewer than half a million a day, so a million is no limit.
+    ("omdb_daily_requests", Kind::Bounded(1, 1_000_000)),
     ("metadata_providers", Kind::ProviderList),
+    ("anime_search", Kind::AnimeSearch),
     ("backup_enabled", Kind::Bool),
     // A week, which is what `jobs::scheduler` clamps this to when it reads it.
     // A wider bound would let the interface accept a number that is silently
@@ -111,6 +115,8 @@ enum Kind {
     Theme,
     /// One of `notify::FORMATS`.
     NotificationFormat,
+    /// One of `metadata::ANIME_SEARCH`.
+    AnimeSearch,
     ProviderList,
     Onboarding,
 }
@@ -309,6 +315,14 @@ fn validate(
                 )));
             }
         }
+        Kind::AnimeSearch => {
+            if !crate::services::metadata::ANIME_SEARCH.contains(&value) {
+                return Err(bad(format!(
+                    "'{key}' must be one of {}",
+                    crate::services::metadata::ANIME_SEARCH.join(", ")
+                )));
+            }
+        }
         Kind::Onboarding => {
             if !ONBOARDING_STATES.contains(&value) {
                 return Err(bad(format!(
@@ -380,6 +394,7 @@ mod tests {
             "batch_limit",
             "confirmation_threshold",
             "metadata_cache_ttl_days",
+            "omdb_daily_requests",
             "backup_interval_hours",
             "backup_retention_count",
             "scheduler_interval_minutes",

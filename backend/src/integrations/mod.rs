@@ -27,14 +27,15 @@ const METADATA_ADDRESS: &str = "a cloud host's metadata service answers at the a
 const WRITE_REDIRECTED: &str =
     "the write was redirected, and would reach the new address as a read";
 const UNREADABLE: &str = "unreadable ";
+const TOO_LARGE: &str = "the answer is larger than ";
 
 /// The most of an answer read before the request is given up: a library of
 /// many thousand titles is tens of megabytes, and an address streaming
 /// without end must not fill memory first.
 #[cfg(not(test))]
-const MAX_BODY: usize = 256 << 20;
+pub(crate) const MAX_BODY: usize = 256 << 20;
 #[cfg(test)]
-const MAX_BODY: usize = 1 << 20;
+pub(crate) const MAX_BODY: usize = 1 << 20;
 /// The most of an error body read: what is shown of it is cut far shorter.
 const MAX_ERROR_BODY: usize = 64 << 10;
 
@@ -61,6 +62,8 @@ pub(crate) enum Transport {
     RedirectLoop,
     /// Something answered 2xx with a body that is not what the API returns.
     Unreadable,
+    /// The answer outgrew the most read of it.
+    TooLarge,
     /// A cloud host's metadata service answers at the address, where
     /// Routarr does not connect.
     MetadataAddress,
@@ -77,6 +80,7 @@ pub(crate) fn transport_failure(message: &str) -> Option<Transport> {
         REDIRECT_LOOP => Some(Transport::RedirectLoop),
         METADATA_ADDRESS => Some(Transport::MetadataAddress),
         other if other.starts_with(UNREADABLE) => Some(Transport::Unreadable),
+        other if other.starts_with(TOO_LARGE) => Some(Transport::TooLarge),
         _ => None,
     }
 }
@@ -106,10 +110,70 @@ pub(crate) async fn send_json<T: serde::de::DeserializeOwned>(
     json_within(service, response).await
 }
 
+/// [`send_json`] for a library listing, read up to `cap` bytes, which
+/// `ROUTARR_MAX_LIBRARY_MIB` sets.
+pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    request: reqwest::RequestBuilder,
+    cap: usize,
+) -> AppResult<T> {
+    let response = check_status(service, request).await?;
+    json_capped(service, response, cap, Some("ROUTARR_MAX_LIBRARY_MIB")).await
+}
+
+/// What a source states of its own limit beside an answer: AniList sends
+/// `X-RateLimit-Limit` and `X-RateLimit-Remaining` with each one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StatedLimit {
+    /// Requests a minute.
+    pub per_minute: Option<u32>,
+    /// Requests left before the source refuses.
+    pub remaining: Option<u32>,
+    /// When the allowance renews, in seconds since the Unix epoch.
+    pub reset: Option<u64>,
+}
+
+impl StatedLimit {
+    fn from_headers(headers: &reqwest::header::HeaderMap) -> Self {
+        fn number<T: std::str::FromStr>(
+            headers: &reqwest::header::HeaderMap,
+            name: &str,
+        ) -> Option<T> {
+            headers.get(name)?.to_str().ok()?.trim().parse().ok()
+        }
+        Self {
+            per_minute: number(headers, "x-ratelimit-limit"),
+            remaining: number(headers, "x-ratelimit-remaining"),
+            reset: number(headers, "x-ratelimit-reset"),
+        }
+    }
+}
+
+/// [`send_json`], with what the source states of its limit beside a success.
+pub(crate) async fn send_json_stating<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    request: reqwest::RequestBuilder,
+) -> AppResult<(T, StatedLimit)> {
+    let response = check_status(service, request).await?;
+    let stated = StatedLimit::from_headers(response.headers());
+    Ok((json_within(service, response).await?, stated))
+}
+
 /// The JSON a successful answer carries, read up to [`MAX_BODY`].
 pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
     service: &'static str,
     response: reqwest::Response,
+) -> AppResult<T> {
+    json_capped(service, response, MAX_BODY, None).await
+}
+
+/// The JSON of an answer read up to `cap` bytes. `variable` names what raises
+/// the cap, said when an answer outgrows it.
+async fn json_capped<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    response: reqwest::Response,
+    cap: usize,
+    variable: Option<&str>,
 ) -> AppResult<T> {
     let failed = |message: String| AppError::ExternalApi {
         service: service.to_string(),
@@ -117,10 +181,11 @@ pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
         message,
         retry_after: None,
     };
-    let body = match read_up_to(response, MAX_BODY).await {
+    let body = match read_up_to(response, cap).await {
         Ok((body, false)) => body,
         Ok((_, true)) => {
-            return Err(failed(format!("the answer is larger than {} MiB", MAX_BODY >> 20)));
+            let raise = variable.map(|name| format!(", which {name} raises")).unwrap_or_default();
+            return Err(failed(format!("{TOO_LARGE}{} MiB{raise}", cap >> 20)));
         }
         // A body that stopped coming, timed out or cut, is a transport
         // failure, and only one that arrived whole and did not decode is
@@ -213,6 +278,25 @@ async fn check_status(
         retry_after,
         message: said_beyond_the_status.unwrap_or_else(|| upstream_message(&body)),
     })
+}
+
+/// What a source with a daily quota answers once today's requests are spent.
+const QUOTA_SPENT: &str = "the requests allowed today are spent";
+
+/// The refusal of a source whose daily quota is spent: a 429 naming no wait,
+/// since the wait lasts until the quota renews.
+pub(crate) fn quota_spent(service: &str) -> AppError {
+    AppError::ExternalApi {
+        service: service.to_string(),
+        status: 429,
+        message: QUOTA_SPENT.to_string(),
+        retry_after: None,
+    }
+}
+
+/// Whether `error` is [`quota_spent`]'s.
+pub(crate) fn is_quota_spent(error: &AppError) -> bool {
+    matches!(error, AppError::ExternalApi { status: 429, message, .. } if message == QUOTA_SPENT)
 }
 
 /// The host a redirect the client stopped leads to, when it is not the host
@@ -451,6 +535,20 @@ fn truncate(input: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a source states of its limit is read from its headers, and a
+    /// header missing or unreadable states nothing.
+    #[test]
+    fn a_stated_limit_is_read_from_the_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-limit", "30".parse().unwrap());
+        headers.insert("x-ratelimit-remaining", " 0 ".parse().unwrap());
+        headers.insert("x-ratelimit-reset", "soon".parse().unwrap());
+        assert_eq!(
+            StatedLimit::from_headers(&headers),
+            StatedLimit { per_minute: Some(30), remaining: Some(0), reset: None }
+        );
+    }
 
     /// A wait in seconds, up to five minutes. Longer, or a date, is not
     /// honoured: a sleep nobody can interrupt is not how a pass should spend

@@ -1,10 +1,11 @@
 //! Which rating a rule reads when several sources rate one title, and how the
 //! interface names the ratings and the countries a library holds.
 //!
-//! Each rating belongs to a country's system: TMDb and TheTVDB pick one among
-//! the certification regions, OMDb rates for the United States, a Radarr for
-//! the country its metadata settings name, a Sonarr for the United States, and
-//! MyAnimeList has a system of its own. The regions decide among them.
+//! Each rating belongs to a country's system: TMDb and TheTVDB rate for many
+//! countries, of which the certification regions pick one, OMDb rates for the
+//! United States, a Radarr for the country its metadata settings name, a
+//! Sonarr for the United States, and MyAnimeList has a system of its own. The
+//! regions decide among them.
 
 use super::TestApp;
 use super::fake_arr::FakeArr;
@@ -31,17 +32,22 @@ async fn rated(
         .execute(&app.state.pool)
         .await
         .unwrap();
+    tmdb_rates(&app, tmdb.map(|rating| json!({ tmdb_country: rating })).unwrap_or(json!({}))).await;
+    app.store_setting("certification_regions", regions).await;
+    app
+}
+
+/// TMDb's answer for Totoro, rating it as `by_country` says, as the
+/// enrichment stores it.
+async fn tmdb_rates(app: &TestApp, by_country: serde_json::Value) {
     sqlx::query(
-        "UPDATE metadata_cache SET certification = ?, certification_scale = ?
+        "UPDATE metadata_cache SET certification = NULL, certifications = ?
           WHERE source = 'tmdb' AND external_id = '8392'",
     )
-    .bind(tmdb)
-    .bind(tmdb_country)
+    .bind(by_country.to_string())
     .execute(&app.state.pool)
     .await
     .unwrap();
-    app.store_setting("certification_regions", regions).await;
-    app
 }
 
 #[tokio::test]
@@ -61,9 +67,43 @@ async fn the_arrs_rating_stands_when_it_alone_rates_the_title() {
 
 #[tokio::test]
 async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
-    let app = rated(Some("PG"), "US", Some("12"), "DE", "FR").await;
-    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG"] })).await;
+    // The Arr rates for the US and MyAnimeList in its own system, both
+    // outside France, and TMDb rates for no region.
+    let app = rated_by_myanimelist("R+", "PG").await;
+    app.execute(&[
+        "UPDATE media SET certification = 'PG-13' WHERE id = 'm-1'",
+        "UPDATE instances SET certification_country = 'US'",
+    ])
+    .await;
+    app.store_setting("certification_regions", "FR").await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG-13"] })).await;
     assert_eq!(app.decided_category().await, "anime", "the Arr is listed first");
+
+    app.store_setting("metadata_providers", "jikan,arr,tmdb").await;
+    assert_ne!(app.decided_category().await, "anime", "MyAnimeList is listed first");
+}
+
+/// TMDb and TheTVDB rate a title for many countries, and the regions pick one
+/// each time the answer is read: a change of regions holds from the next
+/// simulation, with nothing asked again.
+#[tokio::test]
+async fn a_region_change_reaches_the_cached_tmdb_rating() {
+    let app = rated(None, "US", None, "US", "FR").await;
+    tmdb_rates(&app, json!({ "FR": "12", "US": "PG-13" })).await;
+    app.seed_rule_on(json!({ "type": "certification_in", "value": ["PG-13"] })).await;
+    assert_ne!(app.decided_category().await, "anime", "the French rating is read");
+    assert_eq!(facet_values(&app).await, ["12"]);
+
+    app.put("/api/v1/settings", json!({ "settings": { "certification_regions": "US, FR" } }))
+        .await
+        .assert_ok();
+
+    assert_eq!(app.decided_category().await, "anime", "the US now comes first");
+    assert_eq!(facet_values(&app).await, ["PG-13"], "the facets read the same rating");
+    let explained = app.get("/api/v1/media/m-1/explain").await;
+    let metadata = &explained.assert_ok()["metadata"];
+    assert_eq!(metadata["certification"], "PG-13");
+    assert_eq!(metadata["certification_scale"], "US");
 }
 
 /// A blank rating claims nothing, as the merge of the sources treats it: the
@@ -164,15 +204,14 @@ async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
     .execute(&app.state.pool)
     .await
     .unwrap();
-    sqlx::query(
-        "UPDATE metadata_cache SET certification = ?, certification_scale = 'US'
-          WHERE source = 'tmdb'",
-    )
-    .bind(us)
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    tmdb_rates(&app, json!({ "US": us })).await;
     app
+}
+
+async fn facet_values(app: &TestApp) -> Vec<String> {
+    let facets = app.get("/api/v1/media/facets").await;
+    let certifications = facets.assert_ok()["certifications"].as_array().unwrap().clone();
+    certifications.iter().map(|facet| facet["value"].as_str().unwrap().to_string()).collect()
 }
 
 async fn certification_facet(app: &TestApp, code: &str) -> serde_json::Value {
@@ -238,5 +277,45 @@ async fn an_upgrade_gives_each_cached_rating_its_system() {
     ];
     let rows: Vec<(&str, Option<&str>, bool)> =
         rows.iter().map(|(key, scale, due)| (key.as_str(), scale.as_deref(), *due)).collect();
+    assert_eq!(rows, expected);
+}
+
+/// An upgrade moves the one rating each TMDb and TheTVDB answer kept under
+/// its country, and has them asked again for every country's.
+#[tokio::test]
+async fn an_upgrade_keeps_each_cached_rating_under_its_country() {
+    let pool = super::database_through("031_zero_ids").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache
+            (source, external_id, media_type, certification, certification_scale, expires_at)
+         VALUES ('tmdb', '1', 'movie', 'PG', 'US', '2099-01-01 00:00:00'),
+                ('tvdb', '2', 'series', '-12', 'FR', '2099-01-01 00:00:00'),
+                ('tmdb', '3', 'movie', 'G', NULL, '2099-01-01 00:00:00'),
+                ('tmdb', '4', 'movie', NULL, NULL, '2099-01-01 00:00:00'),
+                ('omdb', 'tt5', 'movie', 'PG-13', 'US', '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    type Row = (String, String, Option<String>, Option<String>, bool);
+    let rows: Vec<Row> = sqlx::query_as(
+        "SELECT source || ':' || external_id, certifications, certification,
+                certification_scale, expires_at <= datetime('now')
+           FROM metadata_cache ORDER BY source, external_id",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let us = (Some("PG-13".to_string()), Some("US".to_string()));
+    let expected: Vec<Row> = vec![
+        ("omdb:tt5".into(), "{}".into(), us.0, us.1, false),
+        ("tmdb:1".into(), r#"{"US":"PG"}"#.into(), None, None, true),
+        ("tmdb:3".into(), "{}".into(), None, None, true),
+        ("tmdb:4".into(), "{}".into(), None, None, false),
+        ("tvdb:2".into(), r#"{"FR":"-12"}"#.into(), None, None, true),
+    ];
     assert_eq!(rows, expected);
 }

@@ -16,8 +16,7 @@ use crate::integrations::adapter::ArrMedia;
 use std::collections::HashMap;
 
 use crate::models::{DecisionAction, ExternalId, Instance, Media, MediaMetadata};
-use crate::services::metadata::{self, Addressing};
-use crate::services::rate_limit::honour_retry_after;
+use crate::services::metadata;
 use crate::services::routing::{self, ItemRoute};
 use crate::services::rule_engine::{OVERRIDE_RULE_ID, in_order};
 use crate::state::AppState;
@@ -148,7 +147,7 @@ pub async fn place(
             match asked.get(&title) {
                 Some(fresh) => fresh.clone(),
                 None => {
-                    let fresh = answered_now(state, &media).await;
+                    let fresh = crate::services::enrichment::ask_now(state, &media, None).await;
                     asked.insert(title, fresh.clone());
                     fresh
                 }
@@ -277,67 +276,6 @@ async fn unheld(
         certification: item.certification,
         last_synced_at: None,
     })
-}
-
-/// What each source able to answer says now about a title it has no cached
-/// answer for. A source that fails is left out: the placement is worked out
-/// with what the others said, and `unanswered_fields` shows the gap.
-async fn answered_now(state: &AppState, media: &Media) -> routing::Fresh {
-    let mut fresh = routing::Fresh::default();
-    let providers = state.metadata_order().await;
-    // Given back before any source is asked: held through their answers, it
-    // would starve the pool.
-    let read = async {
-        let mut connection = state.pool.acquire().await?;
-        let title = std::slice::from_ref(media);
-        let identifiers = metadata::load_identifiers_of(&mut connection, title).await?;
-        let cached =
-            metadata::load_cache_of(&mut connection, title, &providers, &identifiers).await?;
-        crate::error::AppResult::Ok((identifiers, cached))
-    };
-    let Ok((identifiers, cached)) = read.await else {
-        return fresh;
-    };
-    for source in state.metadata_sources().await {
-        let Some(provider) = metadata::info(source.id()) else { continue };
-        let known = metadata::external_id(provider, media, &identifiers);
-        let key = |external: &str| {
-            (source.id().to_string(), external.to_string(), media.media_type.clone())
-        };
-        let searched =
-            (source.id().to_string(), media.media_type.clone(), metadata::local_key(media));
-        // A search on record that found nothing is not run again here: the
-        // enrichment pass searches again once the miss is old enough.
-        let missed = identifiers.get(&searched).is_some_and(Option::is_none);
-        if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
-            continue;
-        }
-        let pace = source.pace();
-        let external = match (known, source.addressing()) {
-            (Some(external), _) => external,
-            (None, Addressing::Search) if missed => continue,
-            (None, Addressing::Search) => {
-                pace.acquire().await;
-                let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
-                honour_retry_after(&pace, &resolved).await;
-                match resolved {
-                    Ok(Some(external)) => {
-                        fresh.identifiers.insert(searched, Some(external.clone()));
-                        external
-                    }
-                    _ => continue,
-                }
-            }
-            (None, _) => continue,
-        };
-        pace.acquire().await;
-        let fetched = source.fetch(&external, &media.media_type).await;
-        honour_retry_after(&pace, &fetched).await;
-        if let Ok(answer) = fetched {
-            fresh.metadata.insert(key(&external), answer);
-        }
-    }
-    fresh
 }
 
 async fn answer(

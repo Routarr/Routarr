@@ -35,6 +35,8 @@ pub enum Cause {
     RedirectLoop,
     /// Something answers, but not the Arr's API: a web page, another port.
     NotTheApi,
+    /// The answer is larger than Routarr reads of it.
+    TooLarge,
     KeyRefused,
     /// Something in front of the Arr asks for its own sign-in.
     SignInInFront,
@@ -84,6 +86,7 @@ pub fn cause_of(error: &AppError) -> Option<Cause> {
             Transport::NotHttp => Some(Cause::NotHttp),
             Transport::RedirectLoop => Some(Cause::RedirectLoop),
             Transport::Unreadable => Some(Cause::NotTheApi),
+            Transport::TooLarge => Some(Cause::TooLarge),
         },
         300..=399 => Some(match integrations::redirected_to(message) {
             Some(host) => Cause::RedirectedElsewhere(host.to_string()),
@@ -160,7 +163,9 @@ pub fn explain(cause: &Cause, kind: &str, base_url: &str, localizer: &Localizer)
         Cause::RedirectLoop => {
             ("ArrRedirectLoop", vec![("service", service), ("address", address)])
         }
-        Cause::NotTheApi => (
+        // Only a library listing grows without bound in an Arr. A status or a
+        // folder list past the cap is something else streaming at the address.
+        Cause::NotTheApi | Cause::TooLarge => (
             "ArrNotTheApi",
             vec![("service", service), ("address", address), ("base", url_base.as_str())],
         ),

@@ -32,7 +32,7 @@
   },
   "live": {
     "en": "\\blive\\b",
-    "except": [],
+    "except": ["SettingAnimeSearchHelp"],
     "words": {
       "ar": "ف[ً-ْـ]*ع[ً-ْـ]*ل[ً-ْـ]*ي",
       "ca": "\\breals?\\b",

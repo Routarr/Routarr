@@ -55,14 +55,16 @@ impl Media {
             .collect()
     }
 
-    /// Genres as stored by the sync. Malformed JSON yields none, like
-    /// `tag_labels`: a metadata field must never break an evaluation.
+    /// Genres as stored by the sync.
     pub fn genre_list(&self) -> Vec<String> {
-        self.genres
-            .as_deref()
-            .and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok())
-            .unwrap_or_default()
+        genres_from(self.genres.as_deref())
     }
+}
+
+/// The genres a `genres` column holds. Malformed JSON yields none, like
+/// `tag_labels`: a metadata field must never break an evaluation.
+pub fn genres_from(column: Option<&str>) -> Vec<String> {
+    column.and_then(|raw| serde_json::from_str::<Vec<String>>(raw).ok()).unwrap_or_default()
 }
 
 /// A media row as the API shows one, its lists read out of the JSON strings

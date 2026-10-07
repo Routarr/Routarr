@@ -57,9 +57,9 @@ async fn library_configured(
     app
 }
 
-async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, Option<String>, String)> {
+async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, String, String)> {
     sqlx::query_as(
-        "SELECT CAST(external_id AS INTEGER), media_type, genres, keywords, certification,
+        "SELECT CAST(external_id AS INTEGER), media_type, genres, keywords, certifications,
          origin_countries FROM metadata_cache WHERE source = 'tmdb'
          ORDER BY CAST(external_id AS INTEGER), media_type",
     )
@@ -147,8 +147,9 @@ async fn a_second_delivery_for_the_same_series_fetches_nothing() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "series", 1399)]).await;
 
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
     for _ in 0..2 {
-        enrichment::enrich_one(&app.state, 1399, "series").await.unwrap();
+        enrichment::enrich_one(&app.state, &media).await.unwrap();
     }
 
     let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with("/tv/1399")).count();
@@ -202,7 +203,6 @@ async fn results_are_filed_against_the_media_they_belong_to() {
 async fn certifications_and_countries_are_extracted() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
-    app.store_setting("certification_regions", "FR, US").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -210,12 +210,12 @@ async fn certifications_and_countries_are_extracted() {
     let rows = cached(&app).await;
 
     let movie = rows.iter().find(|r| r.0 == 100).unwrap();
-    assert_eq!(movie.4.as_deref(), Some("Tous publics"), "the preferred region wins");
+    assert_eq!(movie.4, r#"{"FR":"Tous publics","US":"PG"}"#, "every country's rating is kept");
     assert!(movie.5.contains("JP"), "origin falls back to production_countries: {}", movie.5);
     assert!(movie.3.contains("anime"), "movie keywords: {}", movie.3);
 
     let series = rows.iter().find(|r| r.0 == 200).unwrap();
-    assert_eq!(series.4.as_deref(), Some("TV-14"), "series use content_ratings");
+    assert_eq!(series.4, r#"{"US":"TV-14"}"#, "series use content_ratings");
     assert!(series.3.contains("documentary"), "series keywords come under `results`");
 }
 
@@ -472,11 +472,12 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
 }
 
 /// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
-/// when nothing is set. Counted otherwise, every pass refetches the whole
-/// library, or a stale answer outlives the setting by months.
+/// when nothing is set, and a TMDb answer six months at most, as its terms
+/// require. Counted otherwise, every pass refetches the whole library, or a
+/// stale answer outlives the setting by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
-    for (setting, days) in [(None, 7), (Some("30"), 30)] {
+    for (setting, days) in [(None, 7), (Some("30"), 30), (Some("365"), 180)] {
         let tmdb = FakeTmdb::start().await;
         let app = library(&tmdb, &[(1, "movie", 100)]).await;
         if let Some(value) = setting {

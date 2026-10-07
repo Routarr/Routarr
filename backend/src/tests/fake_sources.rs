@@ -42,6 +42,8 @@ pub struct Recorded {
 /// which a search restricted to films never answers, and which their probes
 /// ask for.
 pub const ANILIST_ID: i64 = 523;
+/// The requests a minute AniList states beside each answer.
+pub const ANILIST_LIMIT: u32 = 20;
 pub const MAL_ID: &str = "523";
 pub const IMDB_ID: &str = "tt0096283";
 pub const TVDB_ID: &str = "76885";
@@ -237,7 +239,11 @@ async fn anilist(
         refused.headers_mut().insert("retry-after", seconds.to_string().parse().unwrap());
         return refused;
     }
-    anilist_answer(state, body).await.into_response()
+    // AniList states its limit beside every answer.
+    let mut answer = anilist_answer(state, body).await.into_response();
+    answer.headers_mut().insert("x-ratelimit-limit", ANILIST_LIMIT.to_string().parse().unwrap());
+    answer.headers_mut().insert("x-ratelimit-remaining", "29".parse().unwrap());
+    answer
 }
 
 async fn anilist_answer(

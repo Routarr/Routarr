@@ -470,51 +470,76 @@ async fn any_field_a_rule_reads_describes_the_item_to_every_counter() {
         ("an Arr genre", "genres = '[\"Drama\"]'", None),
         ("an Arr language", "original_language = 'ja'", None),
         ("an Arr certification", "certification = 'PG'", None),
-        ("cached keywords", "genres = '[]'", Some("'[\"kaiju\"]'")),
+        ("cached keywords", "genres = '[]'", Some("keywords = '[\"kaiju\"]'")),
+        ("a cached rating", "genres = '[]'", Some("certifications = '{\"US\":\"PG\"}'")),
     ];
-    for (case, arr_field, cached_keywords) in cases {
-        let arr = FakeArr::start().await;
-        let app = TestApp::synced_from("radarr", &arr).await;
-        let pool = &app.state.pool;
-        sqlx::query("DELETE FROM media WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)")
-            .execute(pool)
+    for (case, arr_field, cached) in cases {
+        let app = one_undescribed_film().await;
+        sqlx::query(AssertSqlSafe(format!("UPDATE media SET {arr_field}")))
+            .execute(&app.state.pool)
             .await
             .unwrap();
-        sqlx::query(
-            "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
-        )
-        .execute(pool)
+        if let Some(cached) = cached {
+            cache_for_the_film(&app, cached).await;
+        }
+        assert_eq!(described(&app).await, [true; 4], "{case}: engine, list, diagnostics, builder");
+    }
+}
+
+/// A rating for a country outside every certification region is one the
+/// engine never reads, and so describes nothing to any counter, until the
+/// regions name the country.
+#[tokio::test]
+async fn a_cached_rating_outside_the_regions_describes_nothing_to_any_counter() {
+    let app = one_undescribed_film().await;
+    cache_for_the_film(&app, "certifications = '{\"DE\":\"16\"}'").await;
+    app.store_setting("certification_regions", "FR,US").await;
+    assert_eq!(described(&app).await, [false; 4], "engine, list, diagnostics, builder");
+
+    app.store_setting("certification_regions", "FR,DE").await;
+    assert_eq!(described(&app).await, [true; 4], "engine, list, diagnostics, builder");
+}
+
+/// A library of one film its Arr describes in nothing, read from TMDb after
+/// the Arr.
+async fn one_undescribed_film() -> TestApp {
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    app.execute(&[
+        "DELETE FROM media WHERE id != (SELECT id FROM media ORDER BY id LIMIT 1)",
+        "UPDATE media SET genres = '[]', original_language = NULL, certification = NULL",
+    ])
+    .await;
+    set_order(&app, "arr,tmdb").await;
+    app
+}
+
+/// A TMDb answer for the film that holds `field` alone.
+async fn cache_for_the_film(app: &TestApp, field: &str) {
+    app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+                   SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie', datetime('now', '+7 days')
+                     FROM media"])
+        .await;
+    sqlx::query(AssertSqlSafe(format!("UPDATE metadata_cache SET {field}")))
+        .execute(&app.state.pool)
         .await
         .unwrap();
-        sqlx::query(AssertSqlSafe(format!("UPDATE media SET {arr_field}")))
-            .execute(pool)
-            .await
-            .unwrap();
-        if let Some(keywords) = cached_keywords {
-            sqlx::query(AssertSqlSafe(format!(
-                "INSERT INTO metadata_cache
-                    (source, external_id, media_type, genres, keywords, original_language,
-                     origin_countries, certification, cached_at, expires_at)
-                 SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie', '[]', {keywords}, NULL, '[]',
-                        NULL, datetime('now'), datetime('now', '+7 days')
-                   FROM media"
-            )))
-            .execute(pool)
-            .await
-            .unwrap();
-        }
-        set_order(&app, "arr,tmdb").await;
+}
 
-        let listed = app.get("/api/v1/media").await.assert_ok()["data"][0].clone();
-        let explained =
-            app.get(&format!("/api/v1/media/{}/explain", listed["id"].as_str().unwrap())).await;
-        assert!(!explained.assert_ok()["metadata"].is_null(), "{case}: the engine should read it");
-        assert_eq!(listed["has_metadata"], true, "{case}: the library column");
-        let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
-        assert_eq!(health["metadata"]["media_missing_metadata"], 0, "{case}: the diagnostics");
-        let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
-        assert_eq!(facets["without_metadata"], 0, "{case}: the rule builder's count");
-    }
+/// Whether the film is described to the engine, the library column, the
+/// diagnostics and the rule builder's count, in that order.
+async fn described(app: &TestApp) -> [bool; 4] {
+    let listed = app.get("/api/v1/media").await.assert_ok()["data"][0].clone();
+    let explained =
+        app.get(&format!("/api/v1/media/{}/explain", listed["id"].as_str().unwrap())).await;
+    let health = app.get("/api/v1/health?probe=false").await.assert_ok().clone();
+    let facets = app.get("/api/v1/media/facets").await.assert_ok().clone();
+    [
+        !explained.assert_ok()["metadata"].is_null(),
+        listed["has_metadata"] == true,
+        health["metadata"]["media_missing_metadata"] == 0,
+        facets["without_metadata"] == 0,
+    ]
 }
 
 // ------------------------------------------------------------ shipped order
