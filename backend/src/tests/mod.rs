@@ -282,9 +282,9 @@ impl TestApp {
 
         sqlx::query(
             "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-             original_language, origin_countries, certification, expires_at)
+             original_language, origin_countries, certifications, expires_at)
              VALUES ('tmdb', '8392', 'movie', '[\"Animation\",\"Family\"]', '[\"anime\"]', 'ja',
-                     '[\"JP\"]', 'G', '2099-01-01')",
+                     '[\"JP\"]', '{\"US\":\"G\"}', '2099-01-01')",
         )
         .execute(&self.state.pool)
         .await

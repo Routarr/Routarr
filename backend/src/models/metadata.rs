@@ -59,6 +59,11 @@ pub struct ProviderMetadata {
     /// The system `certification` belongs to: a country code, or `MAL`.
     #[serde(default)]
     pub certification_scale: Option<String>,
+    /// Every country's rating, from a source that rates for many, keyed by
+    /// upper-case country code. The certification regions pick one of them
+    /// when the answer is read, so a change of regions needs no new request.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,

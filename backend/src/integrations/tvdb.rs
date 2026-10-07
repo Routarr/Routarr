@@ -12,6 +12,7 @@
 
 use reqwest::Client;
 use serde::Deserialize;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::debug;
@@ -43,8 +44,6 @@ pub struct TvdbClient {
     /// Owned by `AppState`, so the token outlives the client and one login
     /// serves every pass until it expires.
     token: TokenCache,
-    /// Certification regions, most preferred first.
-    regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -52,9 +51,8 @@ pub struct TvdbDetails {
     pub genres: Vec<String>,
     pub original_language: Option<String>,
     pub origin_countries: Vec<String>,
-    pub certification: Option<String>,
-    /// The region `certification` was picked for.
-    pub certification_scale: Option<String>,
+    /// Every country's rating, by upper-case country code.
+    pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
 }
@@ -96,13 +94,11 @@ struct ContentRating {
 }
 
 impl TvdbClient {
-    /// `regions` as `AppState::certification_regions_from` reads them.
     pub fn new(
         client: Client,
         api_key: &str,
         pin: Option<&str>,
         base_url: &str,
-        regions: &[String],
         token: TokenCache,
     ) -> Self {
         Self {
@@ -111,7 +107,6 @@ impl TvdbClient {
             pin: pin.map(str::to_string),
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
-            regions: regions.to_vec(),
         }
     }
 
@@ -195,8 +190,6 @@ impl TvdbClient {
             return Ok(TvdbDetails::default());
         };
 
-        let (certification, certification_scale) =
-            pick_rating(&raw.content_ratings, &self.regions).unzip();
         Ok(TvdbDetails {
             genres: raw.genres.into_iter().filter_map(|entry| entry.name).collect(),
             original_language: raw.original_language.as_deref().and_then(language::from_iso_639_3),
@@ -206,52 +199,52 @@ impl TvdbClient {
                 .and_then(language::country_from_alpha3)
                 .into_iter()
                 .collect(),
-            certification,
-            certification_scale,
+            certifications: ratings_by_country(&raw.content_ratings),
             status: raw.status.and_then(|entry| entry.name),
             overview: raw.overview,
         })
     }
 }
 
-/// The rating for the first configured region that has one, and that region.
-fn pick_rating(ratings: &[ContentRating], regions: &[String]) -> Option<(String, String)> {
-    for region in regions {
-        let found = ratings.iter().find(|rating| {
-            rating
-                .country
-                .as_deref()
-                .and_then(language::country_from_alpha3)
-                .is_some_and(|country| country == *region)
-        });
-        if let Some(name) = found.and_then(|rating| rating.name.clone()) {
-            return Some((name, region.to_uppercase()));
+/// Each country's rating, by its two-letter code, the first of each kept. A
+/// rating for a country no two-letter code names, or a blank one, is dropped.
+fn ratings_by_country(ratings: &[ContentRating]) -> BTreeMap<String, String> {
+    let mut by_country = BTreeMap::new();
+    for rating in ratings {
+        let country = rating.country.as_deref().and_then(language::country_from_alpha3);
+        let name = rating.name.as_deref().map(str::trim).filter(|name| !name.is_empty());
+        if let (Some(country), Some(name)) = (country, name) {
+            by_country.entry(country).or_insert_with(|| name.to_string());
         }
     }
-    None
+    by_country
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn ratings() -> Vec<ContentRating> {
-        vec![
-            ContentRating { name: Some("TV-14".into()), country: Some("usa".into()) },
-            ContentRating { name: Some("-12".into()), country: Some("fra".into()) },
-        ]
+    fn by_country(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs.iter().map(|(country, rating)| (country.to_string(), rating.to_string())).collect()
     }
 
+    /// A blank rating, or one for a code no country has, rates nothing, and
+    /// a country rated twice keeps its first.
     #[test]
-    fn the_rating_follows_the_configured_region_order() {
-        assert_eq!(
-            pick_rating(&ratings(), &["FR".into(), "US".into()]).map(|(code, _)| code).as_deref(),
-            Some("-12")
-        );
-        assert_eq!(
-            pick_rating(&ratings(), &["US".into()]).map(|(code, _)| code).as_deref(),
-            Some("TV-14")
-        );
+    fn each_country_keeps_its_first_rating() {
+        let rating = |name: &str, country: &str| ContentRating {
+            name: Some(name.into()),
+            country: Some(country.into()),
+        };
+        let ratings = [
+            rating(" ", "usa"),
+            rating("TV-14", "usa"),
+            rating("-12", "fra"),
+            rating("-16", "fra"),
+            rating("12", "xxx"),
+            ContentRating { name: None, country: Some("deu".into()) },
+        ];
+        assert_eq!(ratings_by_country(&ratings), by_country(&[("FR", "-12"), ("US", "TV-14")]));
     }
 
     /// A captured-shape TheTVDB v4 `/series/{id}/extended` response through the
@@ -292,8 +285,8 @@ mod tests {
         assert_eq!(raw.original_country.as_deref(), Some("jpn"));
         assert_eq!(raw.status.and_then(|s| s.name).as_deref(), Some("Ended"));
         assert_eq!(
-            pick_rating(&raw.content_ratings, &["FR".into()]).map(|(code, _)| code).as_deref(),
-            Some("-12")
+            ratings_by_country(&raw.content_ratings),
+            by_country(&[("FR", "-12"), ("US", "TV-14")])
         );
     }
 
@@ -304,10 +297,5 @@ mod tests {
         let json = r#"{ "status": "success", "data": { "token": "eyJhbGciOi.stub.token" } }"#;
         let response: Envelope<LoginData> = serde_json::from_str(json).unwrap();
         assert_eq!(response.data.unwrap().token, "eyJhbGciOi.stub.token");
-    }
-
-    #[test]
-    fn a_region_nobody_rated_is_no_certification() {
-        assert_eq!(pick_rating(&ratings(), &["DE".into()]), None);
     }
 }

@@ -624,8 +624,7 @@ mod tests {
                 certification: Some("G".into()),
                 certification_scale: Some("US".into()),
                 status: Some("Released".into()),
-                overview: None,
-                poster_path: None,
+                ..Default::default()
             },
         )])
         .unwrap()

@@ -229,7 +229,7 @@ pub async fn health_check(
     // "Nothing at all is known about this item": no genres from its Arr and no
     // fetched answer either. An item the `arr` source alone describes is not
     // missing metadata, which is the whole point of that source.
-    let known = crate::api::media::metadata_predicate(&state.metadata_order().await);
+    let known = crate::api::media::metadata_predicate(&state.settings().await);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
     )))
@@ -504,7 +504,7 @@ async fn offline_warnings(
     // The same predicate the library column and the diagnostics count splice:
     // three spellings of one question is how a badge ends up contradicting the
     // number above it.
-    let known = crate::api::media::metadata_predicate(&state.metadata_order().await);
+    let known = crate::api::media::metadata_predicate(&state.settings().await);
     let row: (i64, i64, i64) = sqlx::query_as(AssertSqlSafe(format!(
         "SELECT
             (SELECT COUNT(*) FROM categories c WHERE {UNMAPPED}),

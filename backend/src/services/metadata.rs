@@ -14,7 +14,7 @@
 //!   `metadata_cache` under its own id namespace.
 
 use sqlx::{AssertSqlSafe, SqlitePool};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::error::AppResult;
 use crate::integrations::anilist::AniListClient;
@@ -248,6 +248,7 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
         // The instance's, which the row does not hold: set by whoever knows
         // the instance (`routing::resolve_metadata`).
         certification_scale: None,
+        certifications: Default::default(),
         // `status`, `overview` and the poster stay empty: the first is already a
         // column of `media` that the engine reads directly, and the other two
         // are not in the Arr payloads.
@@ -416,11 +417,11 @@ impl FetchingSource {
                     keywords: details.keywords,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
-                    certification: details.certification,
-                    certification_scale: details.certification_scale,
+                    certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
                     poster_path: details.poster_path,
+                    ..Default::default()
                 })
             }
             Self::AniList(client) => {
@@ -469,8 +470,7 @@ impl FetchingSource {
                     genres: details.genres,
                     original_language: details.original_language,
                     origin_countries: details.origin_countries,
-                    certification: details.certification,
-                    certification_scale: details.certification_scale,
+                    certifications: details.certifications,
                     status: details.status,
                     overview: details.overview,
                     ..Default::default()
@@ -696,6 +696,7 @@ pub struct CacheRow {
     pub origin_countries: String,
     pub certification: Option<String>,
     pub certification_scale: Option<String>,
+    pub certifications: String,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
@@ -713,12 +714,12 @@ pub struct CacheRow {
 /// The per-item path keeps `CACHE_COLUMNS`: the explanation panel shows all
 /// three, and one row is not worth a second query to trim.
 pub const EVALUATED_COLUMNS: &str = "source, external_id, media_type, genres, keywords,
-     original_language, origin_countries, certification, certification_scale";
+     original_language, origin_countries, certification, certification_scale, certifications";
 
 /// What one row answers with. The three key columns are not among them: the
 /// only reader addresses a row by them and never reads them back.
 pub const CACHE_COLUMNS: &str = "genres, keywords, original_language, origin_countries,
-     certification, certification_scale, status, overview, poster_path";
+     certification, certification_scale, certifications, status, overview, poster_path";
 
 impl CacheRow {
     /// Malformed JSON yields an empty list rather than an error: one bad cache
@@ -731,11 +732,69 @@ impl CacheRow {
             origin_countries: serde_json::from_str(&self.origin_countries).unwrap_or_default(),
             certification: self.certification,
             certification_scale: self.certification_scale,
+            certifications: serde_json::from_str(&self.certifications).unwrap_or_default(),
             status: self.status,
             overview: self.overview,
             poster_path: self.poster_path,
         }
     }
+}
+
+/// The rating of the first of `regions` that `certifications` rates, and that
+/// region. A blank rating rates nothing.
+pub fn rating_for(
+    certifications: &BTreeMap<String, String>,
+    regions: &[String],
+) -> Option<(String, String)> {
+    regions.iter().find_map(|region| {
+        let region = region.to_ascii_uppercase();
+        let rating = certifications.get(&region)?.trim();
+        (!rating.is_empty()).then(|| (rating.to_string(), region))
+    })
+}
+
+/// `metadata_cache` as a table expression whose `certification` and
+/// `certification_scale` hold what [`rating_for`] picks for `regions` from a
+/// row's `certifications`, for the SQL that counts or lists ratings. A rating
+/// the row holds in its own column stands, as the merge keeps it.
+///
+/// The regions are spliced, never bound, so the expression reads in any
+/// query whatever it binds: only two ASCII letters are kept, which is all a
+/// country code is and all the settings accept.
+pub fn rated_cache(regions: &[String]) -> String {
+    let codes: Vec<String> = regions
+        .iter()
+        .map(|region| region.to_ascii_uppercase())
+        .filter(|code| code.len() == 2 && code.chars().all(|c| c.is_ascii_uppercase()))
+        .collect();
+    let picked = |what: &str| {
+        if codes.is_empty() {
+            return "NULL".to_string();
+        }
+        let listed: Vec<String> = codes.iter().map(|code| format!("'{code}'")).collect();
+        let ranked: String = codes
+            .iter()
+            .enumerate()
+            .map(|(rank, code)| format!(" WHEN '{code}' THEN {rank}"))
+            .collect();
+        format!(
+            "(SELECT {what} FROM json_each(CASE WHEN json_valid(certifications)
+                                              THEN certifications ELSE '{{}}' END) k
+               WHERE k.key IN ({}) AND TRIM(k.value) != ''
+               ORDER BY CASE k.key{ranked} END LIMIT 1)",
+            listed.join(", ")
+        )
+    };
+    format!(
+        "(SELECT source, external_id, media_type, genres, keywords, original_language,
+                 origin_countries,
+                 COALESCE(certification, {value}) AS certification,
+                 CASE WHEN certification IS NOT NULL THEN certification_scale
+                      ELSE {region} END AS certification_scale
+            FROM metadata_cache)",
+        value = picked("TRIM(k.value)"),
+        region = picked("k.key"),
+    )
 }
 
 /// Every cached answer, keyed by `(source, external id, media type)`.
@@ -759,6 +818,7 @@ pub async fn load_cache(
         origin_countries: String,
         certification: Option<String>,
         certification_scale: Option<String>,
+        certifications: String,
     }
 
     let rows: Vec<EvaluatedRow> =
@@ -776,6 +836,7 @@ pub async fn load_cache(
                 origin_countries: row.origin_countries,
                 certification: row.certification,
                 certification_scale: row.certification_scale,
+                certifications: row.certifications,
                 // Not loaded, because no condition can read them. The per-item
                 // path is where the panel gets them.
                 status: None,
@@ -842,6 +903,24 @@ pub async fn load_cache_of(
 
 #[cfg(test)]
 mod tests {
+
+    /// The regions are read in their order, not the ratings', whatever case
+    /// they are written in, and a blank rating rates nothing.
+    #[test]
+    fn the_first_region_rated_gives_the_rating() {
+        let rated = super::BTreeMap::from([
+            ("DE".to_string(), " ".to_string()),
+            ("FR".to_string(), "12".to_string()),
+            ("US".to_string(), "PG-13".to_string()),
+        ]);
+        let pick = |regions: &[&str]| {
+            let regions: Vec<String> = regions.iter().map(|region| region.to_string()).collect();
+            super::rating_for(&rated, &regions)
+        };
+        assert_eq!(pick(&["us", "FR"]), Some(("PG-13".into(), "US".into())));
+        assert_eq!(pick(&["DE", "FR"]), Some(("12".into(), "FR".into())));
+        assert_eq!(pick(&["DE", "GB"]), None);
+    }
 
     /// Enrichment and `GET /route` spend one budget per source: each at the
     /// full published rate, they would ask twice as fast as the source allows,

@@ -5,6 +5,8 @@
 //! leaves the certification unpopulated, so `certification_in` matches
 //! nothing.
 
+use std::collections::BTreeMap;
+
 use reqwest::Client;
 use serde::Deserialize;
 use tracing::debug;
@@ -20,8 +22,6 @@ pub struct TmdbClient {
     api_key: String,
     /// API root, so a mirror or caching proxy can be used instead.
     base_url: String,
-    /// Preferred certification regions, most preferred first.
-    regions: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -125,22 +125,19 @@ pub struct TmdbDetails {
     pub keywords: Vec<String>,
     pub original_language: Option<String>,
     pub origin_countries: Vec<String>,
-    pub certification: Option<String>,
-    /// The region `certification` was picked for.
-    pub certification_scale: Option<String>,
+    /// Every country's rating, by upper-case country code.
+    pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
     pub poster_path: Option<String>,
 }
 
 impl TmdbClient {
-    /// `regions` as `AppState::certification_regions_from` reads them.
-    pub fn new(client: Client, api_key: &str, base_url: &str, regions: &[String]) -> Self {
+    pub fn new(client: Client, api_key: &str, base_url: &str) -> Self {
         Self {
             client,
             api_key: api_key.to_string(),
             base_url: base_url.trim_end_matches('/').to_string(),
-            regions: regions.to_vec(),
         }
     }
 
@@ -182,15 +179,12 @@ impl TmdbClient {
         )
         .await?;
 
-        let (certification, certification_scale) =
-            pick_movie_certification(&raw.release_dates, &self.regions).unzip();
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
             original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
-            certification,
-            certification_scale,
+            certifications: movie_certifications(&raw.release_dates),
             status: raw.status,
             overview: raw.overview,
             poster_path: raw.poster_path,
@@ -209,15 +203,12 @@ impl TmdbClient {
         )
         .await?;
 
-        let (certification, certification_scale) =
-            pick_tv_certification(&raw.content_ratings, &self.regions).unzip();
         Ok(TmdbDetails {
             genres: raw.genres.into_iter().map(|g| g.name).collect(),
             keywords: merge_keywords(raw.keywords),
             original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
             origin_countries: countries(raw.origin_country, raw.production_countries),
-            certification,
-            certification_scale,
+            certifications: tv_certifications(&raw.content_ratings),
             status: raw.status,
             overview: raw.overview,
             poster_path: raw.poster_path,
@@ -258,51 +249,40 @@ fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<Str
     production.into_iter().map(|c| c.iso_3166_1).collect()
 }
 
-/// The rating of the first region that has one, and that region.
-fn pick_movie_certification(
-    block: &ReleaseDatesBlock,
-    regions: &[String],
-) -> Option<(String, String)> {
-    for region in regions {
-        let found = block
-            .results
-            .iter()
-            .find(|entry| entry.iso_3166_1.eq_ignore_ascii_case(region))
-            .and_then(|entry| {
-                entry.release_dates.iter().map(|r| r.certification.trim()).find(|c| !c.is_empty())
-            });
-        if let Some(cert) = found {
-            return Some((cert.to_string(), region.to_uppercase()));
-        }
-    }
-    None
+/// Each country's rating of a film: the first of its releases there that is
+/// rated, since TMDb lists a release before its rating is known.
+fn movie_certifications(block: &ReleaseDatesBlock) -> BTreeMap<String, String> {
+    rated(block.results.iter().map(|entry| {
+        let rating = entry.release_dates.iter().map(|r| r.certification.as_str());
+        (entry.iso_3166_1.as_str(), rating.map(str::trim).find(|c| !c.is_empty()))
+    }))
 }
 
-/// The rating of the first region that has one, and that region.
-fn pick_tv_certification(
-    block: &ContentRatingsBlock,
-    regions: &[String],
-) -> Option<(String, String)> {
-    for region in regions {
-        let found = block
-            .results
-            .iter()
-            .find(|entry| entry.iso_3166_1.eq_ignore_ascii_case(region))
-            .map(|entry| entry.rating.trim())
-            .filter(|r| !r.is_empty());
-        if let Some(cert) = found {
-            return Some((cert.to_string(), region.to_uppercase()));
+/// Each country's rating of a series.
+fn tv_certifications(block: &ContentRatingsBlock) -> BTreeMap<String, String> {
+    rated(block.results.iter().map(|entry| (entry.iso_3166_1.as_str(), Some(entry.rating.trim()))))
+}
+
+/// The countries rated, by upper-case code, the first rating of each kept. A
+/// blank rating rates nothing.
+fn rated<'a>(
+    ratings: impl Iterator<Item = (&'a str, Option<&'a str>)>,
+) -> BTreeMap<String, String> {
+    let mut by_country = BTreeMap::new();
+    for (country, rating) in ratings {
+        if let Some(rating) = rating.filter(|rating| !rating.is_empty()) {
+            by_country.entry(country.trim().to_ascii_uppercase()).or_insert(rating.to_string());
         }
     }
-    None
+    by_country
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn regions() -> Vec<String> {
-        vec!["FR".into(), "US".into()]
+    fn by_country(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
+        pairs.iter().map(|(country, rating)| (country.to_string(), rating.to_string())).collect()
     }
 
     #[test]
@@ -352,17 +332,15 @@ mod tests {
         assert_eq!(countries(raw.origin_country, raw.production_countries), ["JP"]);
         assert_eq!(merge_keywords(raw.keywords), ["fight", "sequel"]);
         assert_eq!(
-            pick_movie_certification(&raw.release_dates, &["US".to_string()])
-                .map(|(code, _)| code)
-                .as_deref(),
-            Some("G")
+            movie_certifications(&raw.release_dates),
+            by_country(&[("JP", "G"), ("US", "G")])
         );
     }
 
-    /// A region whose TV rating is blank has no rating: the next region in
-    /// the order answers, and none at all leaves the field empty.
+    /// A blank TV rating rates nothing, and a country listed twice keeps its
+    /// first rating, under its upper-case code.
     #[test]
-    fn a_blank_tv_rating_falls_through_to_the_next_region() {
+    fn a_blank_tv_rating_rates_nothing() {
         let ratings = |pairs: &[(&str, &str)]| ContentRatingsBlock {
             results: pairs
                 .iter()
@@ -372,19 +350,10 @@ mod tests {
                 })
                 .collect(),
         };
-        let regions = ["US".to_string(), "FR".to_string()];
 
-        let blank_first = ratings(&[("US", "  "), ("FR", "-12")]);
-        assert_eq!(
-            pick_tv_certification(&blank_first, &regions).map(|(code, _)| code).as_deref(),
-            Some("-12")
-        );
-        let rated_first = ratings(&[("FR", "-12"), ("US", "TV-14")]);
-        assert_eq!(
-            pick_tv_certification(&rated_first, &regions).map(|(code, _)| code).as_deref(),
-            Some("TV-14")
-        );
-        assert_eq!(pick_tv_certification(&ratings(&[("US", "")]), &regions), None);
+        let block = ratings(&[("US", "  "), ("FR", "-12"), ("fr", "16"), ("gb", "15")]);
+        assert_eq!(tv_certifications(&block), by_country(&[("FR", "-12"), ("GB", "15")]));
+        assert_eq!(tv_certifications(&ratings(&[("US", "")])), by_country(&[]));
     }
 
     #[test]
@@ -408,66 +377,26 @@ mod tests {
         assert_eq!(out, vec!["KR"]);
     }
 
+    /// TMDb lists a release before its rating is known: the first rated
+    /// release of each country is its rating.
     #[test]
-    fn picks_certification_in_region_preference_order() {
+    fn a_film_is_rated_by_its_first_rated_release_in_each_country() {
         let block = ReleaseDatesBlock {
             results: vec![
                 ReleaseDatesEntry {
-                    iso_3166_1: "US".into(),
-                    release_dates: vec![ReleaseDate { certification: "PG".into() }],
+                    iso_3166_1: "FR".into(),
+                    release_dates: vec![
+                        ReleaseDate { certification: "  ".into() },
+                        ReleaseDate { certification: "12".into() },
+                        ReleaseDate { certification: "16".into() },
+                    ],
                 },
                 ReleaseDatesEntry {
-                    iso_3166_1: "FR".into(),
-                    release_dates: vec![ReleaseDate { certification: "Tous publics".into() }],
+                    iso_3166_1: "DE".into(),
+                    release_dates: vec![ReleaseDate { certification: String::new() }],
                 },
             ],
         };
-        assert_eq!(
-            pick_movie_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
-            Some("Tous publics")
-        );
-        assert_eq!(
-            pick_movie_certification(&block, &["US".to_string()]).map(|(code, _)| code).as_deref(),
-            Some("PG")
-        );
-    }
-
-    #[test]
-    fn skips_blank_certifications() {
-        let block = ReleaseDatesBlock {
-            results: vec![ReleaseDatesEntry {
-                iso_3166_1: "FR".into(),
-                release_dates: vec![
-                    ReleaseDate { certification: "  ".into() },
-                    ReleaseDate { certification: "12".into() },
-                ],
-            }],
-        };
-        assert_eq!(
-            pick_movie_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
-            Some("12")
-        );
-    }
-
-    #[test]
-    fn returns_none_when_no_region_matches() {
-        let block = ReleaseDatesBlock {
-            results: vec![ReleaseDatesEntry {
-                iso_3166_1: "DE".into(),
-                release_dates: vec![ReleaseDate { certification: "16".into() }],
-            }],
-        };
-        assert_eq!(pick_movie_certification(&block, &regions()), None);
-    }
-
-    #[test]
-    fn reads_tv_content_ratings() {
-        let block = ContentRatingsBlock {
-            results: vec![ContentRating { iso_3166_1: "US".into(), rating: "TV-14".into() }],
-        };
-        assert_eq!(
-            pick_tv_certification(&block, &regions()).map(|(code, _)| code).as_deref(),
-            Some("TV-14")
-        );
+        assert_eq!(movie_certifications(&block), by_country(&[("FR", "12")]));
     }
 }

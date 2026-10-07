@@ -57,9 +57,9 @@ async fn library_configured(
     app
 }
 
-async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, Option<String>, String)> {
+async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, String, String)> {
     sqlx::query_as(
-        "SELECT CAST(external_id AS INTEGER), media_type, genres, keywords, certification,
+        "SELECT CAST(external_id AS INTEGER), media_type, genres, keywords, certifications,
          origin_countries FROM metadata_cache WHERE source = 'tmdb'
          ORDER BY CAST(external_id AS INTEGER), media_type",
     )
@@ -203,7 +203,6 @@ async fn results_are_filed_against_the_media_they_belong_to() {
 async fn certifications_and_countries_are_extracted() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
-    app.store_setting("certification_regions", "FR, US").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -211,12 +210,12 @@ async fn certifications_and_countries_are_extracted() {
     let rows = cached(&app).await;
 
     let movie = rows.iter().find(|r| r.0 == 100).unwrap();
-    assert_eq!(movie.4.as_deref(), Some("Tous publics"), "the preferred region wins");
+    assert_eq!(movie.4, r#"{"FR":"Tous publics","US":"PG"}"#, "every country's rating is kept");
     assert!(movie.5.contains("JP"), "origin falls back to production_countries: {}", movie.5);
     assert!(movie.3.contains("anime"), "movie keywords: {}", movie.3);
 
     let series = rows.iter().find(|r| r.0 == 200).unwrap();
-    assert_eq!(series.4.as_deref(), Some("TV-14"), "series use content_ratings");
+    assert_eq!(series.4, r#"{"US":"TV-14"}"#, "series use content_ratings");
     assert!(series.3.contains("documentary"), "series keywords come under `results`");
 }
 

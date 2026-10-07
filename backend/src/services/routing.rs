@@ -1038,13 +1038,17 @@ pub(crate) fn resolve_metadata(
 /// rated, whichever source gave it, else the first source's, in the order of
 /// the sources.
 ///
-/// Each source rates in one system (TMDb and TheTVDB for the region they
-/// picked, OMDb for the United States, a Radarr for the country of its
+/// Each source answers in one system (TMDb and TheTVDB for the first region
+/// they rate, OMDb for the United States, a Radarr for the country of its
 /// metadata settings, MyAnimeList in its own), and the regions say whose
 /// system a rule is written for. A rating outside every region still answers
 /// when no source rates the title in one. A blank rating claims nothing, as in
 /// the merge, or the Arr's empty one would erase every source's.
 fn keep_the_regions_rating(parts: &mut [(&str, ProviderMetadata)], regions: &[String]) {
+    for (_, part) in parts.iter_mut().filter(|(_, part)| part.certification.is_none()) {
+        (part.certification, part.certification_scale) =
+            metadata::rating_for(&part.certifications, regions).unzip();
+    }
     let rank = |part: &ProviderMetadata| {
         part.certification_scale
             .as_deref()

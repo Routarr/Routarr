@@ -228,8 +228,8 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
         .await
         .unwrap();
 
-    let row: (Option<String>, String, Option<String>) = sqlx::query_as(
-        "SELECT original_language, origin_countries, certification FROM metadata_cache
+    let row: (Option<String>, String, String) = sqlx::query_as(
+        "SELECT original_language, origin_countries, certifications FROM metadata_cache
          WHERE source = 'tvdb'",
     )
     .fetch_one(&app.state.pool)
@@ -239,9 +239,7 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
     assert_eq!(asked(&sources, "tvdb"), ["movies/76885"]);
     assert_eq!(row.0.as_deref(), Some("ja"), "jpn -> ja");
     assert_eq!(row.1, r#"["JP"]"#, "jpn -> JP");
-    // Two ratings offered: the configured region order decides, and the default
-    // is US.
-    assert_eq!(row.2.as_deref(), Some("TV-14"));
+    assert_eq!(row.2, r#"{"FR":"-12","US":"TV-14"}"#, "fra -> FR, usa -> US");
 }
 
 // ------------------------------------------------------------- resolution

@@ -253,8 +253,7 @@ impl AppState {
     /// A TMDb client, when a key is stored or set, read from a settings snapshot.
     pub fn tmdb_from(&self, settings: &Settings) -> Option<TmdbClient> {
         let key = self.provider_key_from(settings, metadata::TMDB)?;
-        let regions = Self::certification_regions_from(settings);
-        Some(TmdbClient::new(self.http.clone(), &key, &self.config.tmdb_base_url, &regions))
+        Some(TmdbClient::new(self.http.clone(), &key, &self.config.tmdb_base_url))
     }
 
     /// Metadata sources as the user ordered them (`metadata::configured_order`).
@@ -290,10 +289,9 @@ impl AppState {
     /// key that disappeared between the setting and here simply yields no
     /// client, and the sources below it answer instead.
     pub async fn metadata_sources(&self) -> Vec<FetchingSource> {
-        // One read for the order, the keys and the regions: each separate read
-        // would be one more chance for a save to land between them.
+        // One read for the order and the keys: two reads would be one more
+        // chance for a save to land between them.
         let settings = self.settings().await;
-        let regions = Self::certification_regions_from(&settings);
         let mut sources = Vec::new();
 
         for provider in self.metadata_providers_from(&settings) {
@@ -327,7 +325,6 @@ impl AppState {
                         &key,
                         self.config.tvdb_pin.as_deref(),
                         &self.config.tvdb_base_url,
-                        &regions,
                         Arc::clone(&self.tvdb_token),
                     ))
                 }),
