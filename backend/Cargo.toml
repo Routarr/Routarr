@@ -56,11 +56,11 @@ uuid = { version = "1", features = ["v4", "serde"] }
 dotenvy = "0.15"
 thiserror = "2"
 futures = "0.3"
-aes-gcm = "0.11"
+aes-gcm = { version = "0.11", features = ["zeroize"] }
 # Password hashing for the single account of the `forms` mode. Argon2id with
 # the crate's own defaults: the parameters that matter are memory and time
 # cost, and the RustCrypto defaults track the OWASP recommendation.
-argon2 = { version = "0.6", features = ["getrandom"] }
+argon2 = { version = "0.6", features = ["getrandom", "zeroize"] }
 getrandom = "0.4"
 base64 = "0.23"
 # The client credentials of an OIDC token request are form-encoded before they
@@ -71,9 +71,11 @@ sha2 = "0.11"
 # Signs the outgoing notification, as Standard Webhooks specifies.
 hmac = "0.13"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
-# Archives sealed with the backup passphrase, in the age format, so one stays
-# readable with the `age` tool wherever Routarr is not running.
-age = { version = "0.12", default-features = false }
+# Archives sealed with the backup passphrase, a stream of AES-256-GCM chunks:
+# an archive is the whole database, never held in memory to be sealed.
+aead-stream = { version = "0.6", features = ["alloc"] }
+# The backup passphrase, wiped from memory once used.
+zeroize = "1"
 # The passphrase `routarr restore` asks for, typed without being shown.
 rpassword = "7"
 # The API contract: the OpenAPI document `GET /api/v1/openapi.json` serves and
@@ -104,11 +106,11 @@ unsafe_code = "forbid"
 [lints.clippy]
 uninlined_format_args = "allow"
 
-# The cost an archive is sealed with is made for a release build: unoptimised,
-# scrypt takes seconds where it takes a fraction of one, and the tests that
-# seal and open archives wait on it.
-[profile.dev.package.scrypt]
+# The cost an archive's key is derived at is made for a release build:
+# unoptimised, Argon2 takes seconds where it takes a fraction of one, and the
+# tests that seal and open archives wait on it.
+[profile.dev.package.argon2]
 opt-level = 3
 
-[profile.dev.package.salsa20]
+[profile.dev.package.blake2]
 opt-level = 3

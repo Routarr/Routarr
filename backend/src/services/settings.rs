@@ -78,10 +78,6 @@ const KNOWN: &[(&str, Kind)] = &[
     ("tvdb_api_key", Kind::Secret),
 ];
 
-/// The shortest backup passphrase a save accepts, the same floor as a
-/// sign-in password.
-pub const MIN_PASSPHRASE_LENGTH: usize = 12;
-
 /// What a setting's value has to be, and therefore how it is validated.
 ///
 /// One variant per shape rather than a free-form validator per key: the table
@@ -95,9 +91,8 @@ enum Kind {
     /// An `http://` or `https://` address, sealed like a `Secret`: whoever
     /// holds a Discord or Slack webhook address can post to the channel.
     WebhookUrl,
-    /// A passphrase a person chose, sealed like a `Secret`, of at least
-    /// [`MIN_PASSPHRASE_LENGTH`] characters: an archive copied away is guessed
-    /// offline, at whatever pace the copier can afford.
+    /// A passphrase a person chose, sealed like a `Secret`, and set only
+    /// through its own route.
     Passphrase,
     /// A whole number within an inclusive range, both ends stated at the table
     /// above so the reason for each ceiling sits beside the setting it bounds.
@@ -173,7 +168,6 @@ fn label(key: &str) -> &str {
     match key {
         "notification_webhook_url" => "SettingNotificationWebhook",
         "certification_regions" => "SettingCertificationRegions",
-        "backup_passphrase" => "SettingBackupPassphrase",
         other => other,
     }
 }
@@ -253,12 +247,10 @@ fn validate(
         // which is worse than letting the source report that it cannot connect,
         // and the diagnostics screen already probes each one.
         Kind::Secret => {}
+        // Set on its own, with the proof a session gives and the archives
+        // converted to it (`api::backup::set_passphrase`).
         Kind::Passphrase => {
-            let length = value.chars().count();
-            if length > 0 && length < MIN_PASSPHRASE_LENGTH {
-                let min = MIN_PASSPHRASE_LENGTH.to_string();
-                return Err(refused("SettingRefusedPassphraseShort", &[("min", &min)]));
-            }
+            return Err(bad(format!("'{key}' is set with PUT /api/v1/backups/passphrase")));
         }
         Kind::WebhookUrl => {
             // Empty means "no notifications", which is the default and not an

@@ -572,6 +572,19 @@ async fn offline_warnings(
         }
     }
 
+    // A passphrase the master key in place cannot open takes no backup at all,
+    // rather than one in the clear, while the settings still say one is set.
+    if let Some(sealed) = settings
+        .raw(crate::services::backup::PASSPHRASE_SETTING)
+        .filter(|value| !value.trim().is_empty())
+        && state.secrets.open(sealed).is_err()
+    {
+        warnings.push(Warning::new(
+            "backup_passphrase_unreadable",
+            localizer.translate("WarnBackupPassphraseUnreadable", &[]),
+        ));
+    }
+
     // An enabled instance with nothing mapped routes nowhere. Reported whether
     // or not it answers: being unreachable does not make the mapping appear,
     // and the two are separate things to fix.

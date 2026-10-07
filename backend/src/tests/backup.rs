@@ -936,11 +936,13 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     let config = app.state.config.clone();
     app.state.pool.close().await;
 
+    let work = dir.join(".backup-work");
+    std::fs::create_dir_all(&work).unwrap();
     for leftover in [
         backups.join(".routarr-backup-20260101-000000.zip.partial"),
-        backups.join(".routarr-backup-20260101-000000.zip.age.plain"),
-        backups.join(".routarr-backup-20260101-000000.zip.age.opened"),
         backups.join(".20260101-000000.db"),
+        work.join("0123456789abcdef-snapshot.db"),
+        work.join("fedcba9876543210-opened.zip"),
         dir.join("routarr.db.restore-staging"),
         dir.join("routarr.key.restore-staging"),
     ] {
@@ -959,6 +961,8 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
     left.sort();
     assert_eq!(left, [".keep".to_string(), file.name], "a leftover survived, or more went");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a staged file survived");
+    let in_the_clear = std::fs::read_dir(&work).unwrap().count();
+    assert_eq!(in_the_clear, 0, "a file of the work directory survived");
 }
 
 // ------------------------------------------------------------------- API

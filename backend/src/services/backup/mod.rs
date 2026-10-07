@@ -22,13 +22,12 @@ use sqlx::AssertSqlSafe;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use age::secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 pub use sealed::{
-    SETTING as PASSPHRASE_SETTING, is_sealed_name, passphrase, reseal_in_background,
-    stored_passphrase,
+    MIN_LENGTH as MIN_PASSPHRASE_LENGTH, Passphrase, SETTING as PASSPHRASE_SETTING, is_sealed_file,
+    passphrase_of, resume as resume_sealing, set as set_passphrase, stored_passphrase,
 };
 
 use crate::error::{AppError, AppResult};
@@ -56,7 +55,7 @@ pub struct BackupFile {
     pub size_bytes: u64,
     pub created_at: String,
     /// Sealed with the backup passphrase: a restore asks for it, and
-    /// `age -d` opens it without Routarr.
+    /// `routarr decrypt-backup` opens it by hand.
     pub encrypted: bool,
 }
 
@@ -198,7 +197,7 @@ async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
     suffix: &str,
-    passphrase: Option<SecretString>,
+    passphrase: Option<Passphrase>,
 ) -> AppResult<BackupFile> {
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
@@ -220,10 +219,9 @@ async fn write_archive(
         ));
     }
 
-    // A consistent snapshot of the live database, WAL included. The temporary
-    // file sits beside the archive so the copy never lands somewhere the
-    // container cannot write.
-    let snapshot = dir.join(format!(".{stamp}.db"));
+    // A consistent snapshot of the live database, WAL included, in the work
+    // directory, which the container can write and nobody else reads.
+    let snapshot = work_file(&config.data_dir, "snapshot.db")?;
     // A copy of the whole database, sealed credentials included, and twice
     // the space a backup costs: gone on every way out of this function. It
     // moves into the archive task below, which runs to its end whatever
@@ -257,9 +255,14 @@ async fn write_archive(
     let (archive, snapshot_path) = (path.clone(), snapshot.clone());
     let keys = [master_key, Some(config.api_key_path())];
     let manifest_for_zip = manifest.clone();
+    let zipped = match passphrase {
+        Some(_) => Some(work_file(&config.data_dir, "archive.zip")?),
+        None => None,
+    };
     let result = tokio::task::spawn_blocking(move || {
         let _snapshot = snapshot_scaffold;
-        build_zip(&archive, &snapshot_path, &manifest_for_zip, &keys, passphrase.as_ref())
+        let sealing = passphrase.as_ref().zip(zipped.as_deref());
+        build_zip(&archive, &snapshot_path, &manifest_for_zip, &keys, sealing)
     })
     .await
     .map_err(|e| AppError::Internal(format!("the archive task failed: {e}")))?;
@@ -269,7 +272,7 @@ async fn write_archive(
     crate::crypto::restrict_permissions(&path);
 
     info!("Backup written to {} ({size_bytes} bytes)", path.display());
-    let encrypted = sealed::is_sealed_name(&name);
+    let encrypted = sealed::is_sealed_file(&path);
     Ok(BackupFile { name, size_bytes, created_at: manifest.created_at, encrypted })
 }
 
@@ -310,12 +313,16 @@ async fn vacuum_into(pool: &sqlx::SqlitePool, target: &Path) -> AppResult<()> {
 /// here may read a file whose size follows the library into memory:
 /// `api/backup.rs` streams the download for exactly that reason, and an
 /// archive is the whole database.
+///
+/// `sealing` is the passphrase to seal it for, and where the zip is written in
+/// the clear before: a zip goes back to write its directory, which a sealed
+/// stream cannot. That file is removed whatever happens.
 fn build_zip(
     path: &Path,
     snapshot: &Path,
     manifest: &BackupManifest,
     keys: &[Option<PathBuf>; 2],
-    passphrase: Option<&SecretString>,
+    sealing: Option<(&Passphrase, &Path)>,
 ) -> AppResult<()> {
     // Written under a name `list` does not show, and given its own only once
     // whole: a zip is readable as soon as it is finished, and `ZipWriter`
@@ -323,14 +330,10 @@ fn build_zip(
     let partial = partial_path(path);
     std::fs::remove_file(&partial).ok();
     let mut scaffold = Scaffold(vec![partial.clone()]);
-    // A sealed archive is zipped beside it first: a zip goes back to write
-    // its directory, which a sealed stream cannot.
-    let zipped = match passphrase {
-        Some(_) => {
-            let plain = hidden(path, ".plain");
-            std::fs::remove_file(&plain).ok();
-            scaffold.0.push(plain.clone());
-            plain
+    let zipped = match sealing {
+        Some((_, plain)) => {
+            scaffold.0.push(plain.to_path_buf());
+            plain.to_path_buf()
         }
         None => partial.clone(),
     };
@@ -388,7 +391,7 @@ fn build_zip(
     // leave an empty file under that name, listed and counted by the retention.
     file.sync_all()
         .map_err(|e| AppError::Internal(format!("cannot write {}: {e}", zipped.display())))?;
-    if let Some(passphrase) = passphrase {
+    if let Some((passphrase, _)) = sealing {
         sealed::seal(&zipped, &partial, passphrase)?;
         std::fs::remove_file(&zipped).ok();
     }
@@ -404,13 +407,36 @@ fn build_zip(
 }
 
 fn partial_path(archive: &Path) -> PathBuf {
-    hidden(archive, ".partial")
+    let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    archive.with_file_name(format!(".{name}.partial"))
 }
 
-/// A file beside `archive` that `list` does not show, and a start removes.
-fn hidden(archive: &Path, suffix: &str) -> PathBuf {
-    let name = archive.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    archive.with_file_name(format!(".{name}{suffix}"))
+/// Where a backup, a restore and a conversion write what they hold in the
+/// clear: the snapshot, an archive zipped before it is sealed, a sealed one
+/// opened. Beside the database, which holds the same in the clear, and never
+/// in the backup folder, the one a passphrase protects when it is copied
+/// away. Private to the server's user, so a file another writes under the
+/// umask inside it, as `VACUUM INTO` does, is read by nobody else.
+fn work_dir(data_dir: &Path) -> AppResult<PathBuf> {
+    let dir = data_dir.join(".backup-work");
+    let refused =
+        |e: std::io::Error| AppError::Internal(format!("cannot prepare {}: {e}", dir.display()));
+    std::fs::create_dir_all(&dir).map_err(refused)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).map_err(refused)?;
+    }
+    Ok(dir)
+}
+
+/// A file of the work directory no other run writes: two openings of one
+/// archive at once each get their own.
+fn work_file(data_dir: &Path, label: &str) -> AppResult<PathBuf> {
+    let mut tag = [0u8; 8];
+    crate::crypto::random_bytes(&mut tag)?;
+    let tag: String = tag.iter().map(|byte| format!("{byte:02x}")).collect();
+    Ok(work_dir(data_dir)?.join(format!("{tag}-{label}")))
 }
 
 /// When the newest archive the owner or the schedule took was taken, as an
@@ -459,7 +485,7 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
                 .unwrap_or_default();
             let name = entry.file_name().to_string_lossy().into_owned();
             Some(BackupFile {
-                encrypted: sealed::is_sealed_name(&name),
+                encrypted: sealed::is_sealed_file(&entry.path()),
                 name,
                 size_bytes: metadata.len(),
                 created_at: created,
@@ -544,7 +570,7 @@ pub fn read_manifest(archive: &Path) -> AppResult<BackupManifest> {
 pub async fn stage_restore(
     state: &AppState,
     name: &str,
-    given: Option<SecretString>,
+    given: Option<Passphrase>,
 ) -> AppResult<BackupManifest> {
     if !is_valid_backup_name(name) {
         return Err(AppError::NotFound("Unknown backup".into()));
@@ -560,7 +586,8 @@ pub async fn stage_restore(
         let archive = backup_dir(&state).join(&name);
         let stored = sealed::passphrase(&state).await.ok().flatten();
         let localizer = state.localizer().await;
-        let opened = opened_if_sealed(&archive, given, stored, &localizer).await?;
+        let opened =
+            opened_if_sealed(&state.config.data_dir, &archive, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(archive.as_path(), |opened| opened.path.as_path());
         stage(&state.config, Some(&state.pool), source, &name).await
     })
@@ -571,20 +598,32 @@ pub async fn stage_restore(
 /// `archive` opened beside itself when it is sealed, with `given` or else
 /// `stored`. Refused with `passphrase_required` when neither opens it, which
 /// says whether a passphrase was given.
+///
+/// An archive named as sealed whose content is not is refused: in a folder
+/// where the archives are sealed, a zip in the clear under a sealed name is
+/// one somebody put there, and restoring it would bring back whatever it holds.
 async fn opened_if_sealed(
+    data_dir: &Path,
     archive: &Path,
-    given: Option<SecretString>,
-    stored: Option<SecretString>,
+    given: Option<Passphrase>,
+    stored: Option<Passphrase>,
     localizer: &crate::localization::Localizer,
 ) -> AppResult<Option<sealed::Opened>> {
+    let named_sealed =
+        archive.file_name().is_some_and(|name| sealed::is_sealed_name(&name.to_string_lossy()));
     if !sealed::is_sealed_file(archive) {
+        if named_sealed {
+            return Err(AppError::BadRequest(
+                "this archive is named as encrypted and is not: it is not restored".into(),
+            ));
+        }
         return Ok(None);
     }
     let refusal = if given.is_some() { "ErrorPassphraseWrong" } else { "ErrorPassphraseNeeded" };
-    let tried: Vec<SecretString> = given.into_iter().chain(stored).collect();
-    let path = archive.to_path_buf();
+    let tried: Vec<Passphrase> = given.into_iter().chain(stored).collect();
+    let (data_dir, path) = (data_dir.to_path_buf(), archive.to_path_buf());
     let opened = tokio::task::spawn_blocking(move || {
-        sealed::opened_copy(&path, &tried.iter().collect::<Vec<_>>())
+        sealed::opened_copy(&data_dir, &path, &tried.iter().collect::<Vec<_>>())
     })
     .await
     .map_err(|e| AppError::Internal(format!("the restore task failed: {e}")))??;
@@ -684,37 +723,21 @@ async fn stage(
 pub async fn stage_offline(
     config: &crate::config::Config,
     archive: &str,
-    given: Option<SecretString>,
+    given: Option<Passphrase>,
 ) -> AppResult<BackupManifest> {
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-
-    let in_folder = backups_in(&config.data_dir).join(archive);
-    let path = if is_valid_backup_name(archive) && in_folder.exists() {
-        in_folder
-    } else {
-        archive.into()
-    };
-    if !path.is_file() {
-        return Err(AppError::NotFound(format!("{} is not an archive", path.display())));
-    }
+    let path = archive_named(config, archive)?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
     // What the database in place has withdrawn since is carried over, as an
-    // online restore does. Opened as it is, never migrated: it may be the very
-    // database a start refuses.
-    let live = if config.db_path.is_file() {
-        let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
-        Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?)
-    } else {
-        None
-    };
+    // online restore does.
+    let live = database_in_place(config).await?;
     let staged = async {
         let stored = match &live {
             Some(live) => sealed::stored_passphrase(config, live).await.ok().flatten(),
             None => None,
         };
         let localizer = crate::localization::Localizer::new("en");
-        let opened = opened_if_sealed(&path, given, stored, &localizer).await?;
+        let opened = opened_if_sealed(&config.data_dir, &path, given, stored, &localizer).await?;
         let source = opened.as_ref().map_or(path.as_path(), |opened| opened.path.as_path());
         stage(config, live.as_ref(), source, &name).await
     }
@@ -725,25 +748,100 @@ pub async fn stage_offline(
     staged
 }
 
+/// `archive` as a command names it: a name from the backup folder, or a path.
+fn archive_named(config: &crate::config::Config, archive: &str) -> AppResult<PathBuf> {
+    let in_folder = backups_in(&config.data_dir).join(archive);
+    let path = if is_valid_backup_name(archive) && in_folder.exists() {
+        in_folder
+    } else {
+        archive.into()
+    };
+    if !path.is_file() {
+        return Err(AppError::NotFound(format!("{} is not an archive", path.display())));
+    }
+    Ok(path)
+}
+
+/// The database a command run with the server stopped reads, when there is
+/// one. Opened as it is, never migrated: it may be the very database a start
+/// refuses.
+async fn database_in_place(config: &crate::config::Config) -> AppResult<Option<sqlx::SqlitePool>> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    if !config.db_path.is_file() {
+        return Ok(None);
+    }
+    let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
+    Ok(Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?))
+}
+
+/// Write the sealed `archive` opened, as a zip at `out`: `routarr
+/// decrypt-backup`, to read an archive by hand. Opens with `given`, or else
+/// the passphrase the database in place holds. The zip carries the master key
+/// in the clear, so it is written private, never over a file that exists, and
+/// never in the backup folder, where the server would list it, serve it and
+/// a sync would copy it away.
+pub async fn decrypt_offline(
+    config: &crate::config::Config,
+    archive: &str,
+    out: &str,
+    given: Option<Passphrase>,
+) -> AppResult<PathBuf> {
+    let path = archive_named(config, archive)?;
+    if !sealed::is_sealed_file(&path) {
+        return Err(AppError::BadRequest(format!(
+            "{} is not encrypted: it opens as a zip as it is",
+            path.display()
+        )));
+    }
+    let out = PathBuf::from(out);
+    if out.exists() {
+        return Err(AppError::Conflict(format!("{} exists already", out.display())));
+    }
+    let folder = |path: &Path| path.parent().and_then(|parent| std::fs::canonicalize(parent).ok());
+    if folder(&out).is_some_and(|parent| {
+        Some(parent) == std::fs::canonicalize(backups_in(&config.data_dir)).ok()
+    }) {
+        return Err(AppError::BadRequest(
+            "an archive opened is not written into the backup folder, which a sync copies away"
+                .into(),
+        ));
+    }
+    let stored = match database_in_place(config).await? {
+        Some(live) => {
+            let stored = sealed::stored_passphrase(config, &live).await.ok().flatten();
+            live.close().await;
+            stored
+        }
+        None => None,
+    };
+    let localizer = crate::localization::Localizer::new("en");
+    let opened = opened_if_sealed(&config.data_dir, &path, given, stored, &localizer).await?;
+    let Some(opened) = opened else {
+        return Err(AppError::BadRequest(format!("{} is not encrypted", path.display())));
+    };
+    std::fs::rename(&opened.path, &out)
+        .or_else(|_| std::fs::copy(&opened.path, &out).map(|_| ()))
+        .map_err(|e| AppError::Internal(format!("cannot write {}: {e}", out.display())))?;
+    crate::crypto::restrict_permissions(&out);
+    Ok(out)
+}
+
 /// The newest archive in the backup folder this build can restore, by name.
 /// A sealed one counts when `passphrase` opens it.
 pub fn newest_openable(
     config: &crate::config::Config,
-    passphrase: Option<&SecretString>,
+    passphrase: Option<&Passphrase>,
 ) -> Option<String> {
     let dir = backups_in(&config.data_dir);
     list_in(&dir).into_iter().map(|file| file.name).find(|name| {
         let archive = dir.join(name);
-        let opened = match (sealed::is_sealed_name(name), passphrase) {
-            (false, _) => None,
-            (true, None) => return false,
-            (true, Some(passphrase)) => match sealed::opened_copy(&archive, &[passphrase]) {
-                Ok(Some(opened)) => Some(opened),
-                _ => return false,
-            },
+        let manifest = match (sealed::is_sealed_file(&archive), passphrase) {
+            (false, _) => read_manifest(&archive).ok(),
+            (true, None) => None,
+            (true, Some(passphrase)) => sealed::manifest(&archive, passphrase).ok().flatten(),
         };
-        let readable = opened.as_ref().map_or(archive.as_path(), |opened| opened.path.as_path());
-        read_manifest(readable).is_ok_and(|m| !crate::db::is_newer_schema(&m.schema))
+        manifest.is_some_and(|m| !crate::db::is_newer_schema(&m.schema))
     })
 }
 
@@ -860,6 +958,12 @@ pub fn sweep_leftovers(config: &crate::config::Config) {
     for target in [&config.db_path, &config.secret_key_path(), &config.api_key_path()] {
         std::fs::remove_file(staging_path(target)).ok();
     }
+    // Everything in the work directory is a run's, and none is running yet.
+    if let Ok(entries) = std::fs::read_dir(config.data_dir.join(".backup-work")) {
+        for entry in entries.filter_map(Result::ok) {
+            std::fs::remove_file(entry.path()).ok();
+        }
+    }
     let Ok(entries) = std::fs::read_dir(backups_in(&config.data_dir)) else {
         return;
     };
@@ -870,15 +974,13 @@ pub fn sweep_leftovers(config: &crate::config::Config) {
     }
 }
 
-/// A name only an interrupted run leaves: a partial archive, an archive zipped
-/// before it is sealed or opened to be restored, or a snapshot.
+/// A name only an interrupted run leaves in the backup folder: a partial
+/// archive, or a snapshot an earlier release took there.
 fn is_leftover(name: &str) -> bool {
     let Some(hidden) = name.strip_prefix('.') else {
         return false;
     };
-    let partial = [".partial", ".plain", ".opened"]
-        .iter()
-        .any(|suffix| hidden.strip_suffix(suffix).is_some_and(is_valid_backup_name));
+    let partial = hidden.strip_suffix(".partial").is_some_and(is_valid_backup_name);
     let snapshot = hidden.strip_suffix(".db").is_some_and(|stamp| {
         stamp.len() == 15
             && stamp.char_indices().all(|(i, c)| if i == 8 { c == '-' } else { c.is_ascii_digit() })
@@ -910,6 +1012,10 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         sqlx::query_as("SELECT id, username, password_hash, created_at, updated_at FROM users")
             .fetch_all(live)
             .await?;
+    let sealing: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+        .bind(sealed::SETTING)
+        .fetch_optional(live)
+        .await?;
 
     // A rollback journal, not a write-ahead log: the staged file is renamed
     // alone, and a log beside it would be left behind with these writes in it.
@@ -959,6 +1065,19 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
             }
         }
         sqlx::query("DELETE FROM sessions").execute(&mut *tx).await?;
+        // The backup passphrase of today: an archive taken before it was set,
+        // or changed, would otherwise bring back the old one, and every
+        // archive after the restore would be sealed with it, or not at all.
+        if let Some(sealing) = &sealing {
+            sqlx::query(
+                "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            )
+            .bind(sealed::SETTING)
+            .bind(sealing)
+            .execute(&mut *tx)
+            .await?;
+        }
         // An archive from before the signing secrets were stored gets their
         // table, as the migration that creates it would, or today's secrets
         // would be dropped and every notification go out unsigned.
@@ -1052,6 +1171,12 @@ fn key_in_place(config: &crate::config::Config, key_file: &Path) -> Option<Strin
         .map(|key| key.trim().to_string())
         .filter(|key| !key.is_empty());
     config.secret_key.clone().or(from_file)
+}
+
+/// Whether `passphrase` opens the sealed `archive`, as a restore would.
+#[cfg(test)]
+pub(crate) fn sealed_with(archive: &Path, passphrase: &str) -> bool {
+    sealed::opens(archive, &Passphrase::new(passphrase.to_string())).unwrap_or(false)
 }
 
 /// Whether a file is a Routarr database this build can open.
@@ -1184,8 +1309,8 @@ mod tests {
     #[test]
     fn only_a_name_routarr_generated_is_accepted() {
         assert!(is_valid_backup_name("routarr-backup-20260823-120000.zip"));
-        assert!(is_valid_backup_name("routarr-backup-20260823-120000-app.zip.age"));
-        assert!(!is_valid_backup_name("routarr-backup-20260823-120000.age"));
+        assert!(is_valid_backup_name("routarr-backup-20260823-120000-app.zip.enc"));
+        assert!(!is_valid_backup_name("routarr-backup-20260823-120000.enc"));
 
         // The download and delete endpoints take this from the URL: every way
         // out of the directory has to miss.
@@ -1226,6 +1351,29 @@ mod tests {
         assert!(outcome.is_err(), "an archive was written over another");
         assert_eq!(std::fs::read(&archive).unwrap(), b"an earlier archive");
         assert!(!partial_path(&archive).exists(), "the refused archive was left behind");
+    }
+
+    /// A sealed archive is zipped in the clear first: when the sealing fails,
+    /// that zip goes too, master key and all.
+    #[test]
+    fn a_sealing_that_fails_leaves_no_zip_in_the_clear() {
+        let dir = crate::tests::TempDir::new("zip-sealing-fails");
+        let snapshot = dir.join("snapshot.db");
+        std::fs::write(&snapshot, b"a database").unwrap();
+        let zipped = dir.join("archive.zip");
+        let nowhere = dir.join("missing").join("routarr-backup-20260101-000000.zip.enc");
+        let passphrase = Passphrase::new("the passphrase".to_string());
+
+        let outcome = build_zip(
+            &nowhere,
+            &snapshot,
+            &manifest(),
+            &[Some(dir.join("routarr.key")), Some(dir.join("routarr.api_key"))],
+            Some((&passphrase, &zipped)),
+        );
+
+        assert!(outcome.is_err(), "an archive was sealed where it cannot be");
+        assert!(!zipped.exists(), "the zip in the clear was left behind");
     }
 
     #[test]

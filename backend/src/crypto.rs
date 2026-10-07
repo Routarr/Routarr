@@ -26,7 +26,7 @@ use crate::error::{AppError, AppResult};
 /// shape: the one case where it matters is the one where the process should
 /// stop and say so. It is also what `rand` calls underneath, so this costs a
 /// dependency rather than a change of source.
-fn random_bytes(buffer: &mut [u8]) -> AppResult<()> {
+pub(crate) fn random_bytes(buffer: &mut [u8]) -> AppResult<()> {
     getrandom::fill(buffer).map_err(|e| {
         AppError::Internal(format!("the operating system refused to supply randomness: {e}"))
     })

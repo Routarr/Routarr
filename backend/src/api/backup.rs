@@ -66,7 +66,7 @@ pub async fn download(
         .map_err(|_| AppError::NotFound("Unknown backup".into()))?;
     let length = file.metadata().await.map(|m| m.len()).ok();
     let content_type =
-        if backup::is_sealed_name(&name) { "application/octet-stream" } else { "application/zip" };
+        if backup::is_sealed_file(&path) { "application/octet-stream" } else { "application/zip" };
     let mut response = (
         StatusCode::OK,
         [
@@ -99,8 +99,9 @@ pub struct RestoreResponse {
 }
 
 /// What a restore may carry: the passphrase of a sealed archive, once the
-/// server asked for it with `passphrase_required`.
-#[derive(Debug, Default, serde::Deserialize)]
+/// server asked for it with `passphrase_required`. No `Debug`: it would print
+/// the passphrase.
+#[derive(Default, serde::Deserialize)]
 pub struct RestoreRequest {
     #[serde(default)]
     pub passphrase: Option<String>,
@@ -119,14 +120,42 @@ pub async fn restore(
         serde_json::from_slice(&body)
             .map_err(|e| AppError::BadRequest(format!("The body is not a restore request: {e}")))?
     };
-    // Trimmed as the setting is when saved, so the same words open the archive.
-    let given = request
-        .passphrase
-        .map(|passphrase| passphrase.trim().to_string())
-        .filter(|passphrase| !passphrase.is_empty())
-        .map(age::secrecy::SecretString::from);
+    let given = request.passphrase.map(backup::passphrase_of).filter(|given| !given.is_empty());
     let manifest = backup::stage_restore(&state, &name, given).await?;
     let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
     crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(RestoreResponse { manifest, restart_required: true }))
+}
+
+/// The backup passphrase to set, an empty one removing it, with the proof a
+/// session gives. No `Debug`: it would print the passphrase.
+#[derive(serde::Deserialize)]
+pub struct PassphraseChange {
+    pub passphrase: String,
+    #[serde(flatten)]
+    pub proof: crate::api::account::Proof,
+}
+
+/// Set, change or remove the backup passphrase, and convert the archives on
+/// disk to it. The proof first, as for a key: removing the passphrase opens
+/// every archive, and one set by a session left open would seal them for
+/// somebody else.
+pub async fn set_passphrase(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
+    crate::api::auth::Client(client): crate::api::auth::Client,
+    Json(change): Json<PassphraseChange>,
+) -> AppResult<StatusCode> {
+    crate::api::account::prove(&state, &identity, &change.proof, client).await?;
+    let new = backup::passphrase_of(change.passphrase);
+    if !new.is_empty() && new.chars().count() < backup::MIN_PASSPHRASE_LENGTH {
+        let min = backup::MIN_PASSPHRASE_LENGTH.to_string();
+        let refusal = state.localizer().await.translate("ErrorPassphraseShort", &[("min", &min)]);
+        return Err(AppError::BadRequest(refusal));
+    }
+    let message =
+        if new.is_empty() { "AuditBackupPassphraseRemoved" } else { "AuditBackupPassphraseSet" };
+    backup::set_passphrase(&state, new, identity.attribution()).await?;
+    crate::api::auth::audited(&state, &identity, client, allowed(Kind::Backup, message));
+    Ok(StatusCode::NO_CONTENT)
 }
