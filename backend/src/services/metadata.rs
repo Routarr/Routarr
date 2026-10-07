@@ -338,8 +338,8 @@ impl FetchingSource {
             {
                 Some((300, 10))
             }
-            // TMDb and TheTVDB publish no rate limit, so concurrency is the only
-            // bound worth applying to them. A new source on a paced public
+            // TMDb publishes about forty a second, which concurrency stays
+            // under, and TheTVDB publishes none. A new source on a paced public
             // endpoint lands here too until it has its own arm, and goes unpaced.
             _ => None,
         }

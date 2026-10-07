@@ -159,8 +159,8 @@ async fn movie(
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
         "original_language": language,
-        // `origin_country` is absent from the movie payload, so the client must
-        // fall back to `production_countries`.
+        // Leaves `origin_country` out, as some TMDb records do, so the client
+        // falls back to `production_countries`.
         "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],
         "status": "Released",
         "overview": "Un film.",
