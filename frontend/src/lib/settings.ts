@@ -172,6 +172,18 @@ export const FIELDS: Field[] = [
     // fallback only has to be a list the backend accepts.
     fallback: 'arr',
   },
+  {
+    // The values of `metadata::ANIME_SEARCH` in `backend/src/services/metadata.rs`.
+    key: 'anime_search',
+    labelKey: 'SettingAnimeSearch',
+    helpKey: 'SettingAnimeSearchHelp',
+    kind: 'choice',
+    fallback: 'animated',
+    choices: [
+      { value: 'animated', labelKey: 'AnimeSearchAnimated' },
+      { value: 'all', labelKey: 'AnimeSearchAll' },
+    ],
+  },
   // The three metadata credentials. Sealed by the backend on the way in and
   // never returned, so the field always renders empty and a companion
   // `<key>_configured` boolean says whether one is set. Settable here as well as
@@ -385,6 +397,7 @@ export const SECTIONS = [
     labelKey: 'Metadata',
     keys: [
       'metadata_providers',
+      'anime_search',
       'tmdb_api_key',
       'omdb_api_key',
       'omdb_daily_requests',

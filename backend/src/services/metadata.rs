@@ -617,27 +617,63 @@ pub async fn load_identifiers_of(
     Ok(identifiers)
 }
 
-/// How long a search that found nothing holds before the source is asked again.
+/// How long a search that found nothing for `key` holds before the source is
+/// asked again: thirty days and up to ten more, the same ones for a key each
+/// time.
 ///
 /// A work is often listed after the library holds it: a film indexed before its
 /// release is not on AniList or MyAnimeList yet. Not every pass either: a
 /// library's worth of misses, searched again each week against sources paced
-/// to about a request a second, would hold the enrichment for hours.
-const MISS_LIFETIME: &str = "-30 days";
+/// to about a request a second, would hold the enrichment for hours. And not
+/// on one day: the misses of a first pass would all come due in the same hours
+/// a month later.
+fn miss_lifetime(key: &str) -> chrono::Duration {
+    use sha2::Digest;
+    let spread = sha2::Sha256::digest(key.as_bytes())[0] % 11;
+    chrono::Duration::days(30 + i64::from(spread))
+}
 
 /// The keys already resolved for one source, so a pass only searches for what
 /// it has never searched for, or found nothing for long enough ago.
 pub async fn resolved_keys(pool: &SqlitePool, source: &str) -> AppResult<HashSet<String>> {
-    let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT media_type, local_key FROM source_identifiers
-          WHERE source = ? AND (external_id IS NOT NULL OR resolved_at > datetime('now', ?))",
+    let rows: Vec<(String, String, bool, String)> = sqlx::query_as(
+        "SELECT media_type, local_key, external_id IS NOT NULL, resolved_at
+           FROM source_identifiers WHERE source = ?",
     )
     .bind(source)
-    .bind(MISS_LIFETIME)
     .fetch_all(pool)
     .await?;
 
-    Ok(rows.into_iter().map(|(kind, key)| resolution_key(&kind, &key)).collect())
+    let now = chrono::Utc::now();
+    Ok(rows
+        .into_iter()
+        .map(|(kind, key, found, at)| (resolution_key(&kind, &key), found, at))
+        .filter(|(key, found, at)| {
+            *found
+                || crate::services::routing::parse_timestamp(at)
+                    .is_some_and(|at| at + miss_lifetime(key) > now)
+        })
+        .map(|(key, _, _)| key)
+        .collect())
+}
+
+/// The values of `anime_search`: AniList and MyAnimeList searched for the
+/// titles that may be anime, the default, or for every title.
+pub const ANIME_SEARCH: [&str; 2] = ["animated", "all"];
+
+/// Whether a source found by search may be searched for a title its Arr files
+/// under `genres` and `series_type`, under the `anime_search` setting `scope`.
+///
+/// Both such sources, AniList and MyAnimeList, list anime alone, so by default
+/// only a title that may be anime is: one filed under Animation or Anime, an
+/// anime series, or one with no genre yet to tell.
+pub fn may_search(scope: &str, genres: &[String], series_type: Option<&str>) -> bool {
+    scope == ANIME_SEARCH[1]
+        || series_type.is_some_and(|kind| kind.eq_ignore_ascii_case("anime"))
+        || genres.is_empty()
+        || genres
+            .iter()
+            .any(|genre| matches!(normalise_value(genre).as_str(), "animation" | "anime"))
 }
 
 /// `(media_type, local_key)` as one string, for set membership.
@@ -984,16 +1020,17 @@ mod tests {
         );
     }
 
-    /// A found id is kept for good, a miss for thirty days: one a day short of
-    /// them is still remembered, one a day past them is searched again.
+    /// A found id is kept for good, a miss for thirty to forty days: one a day
+    /// short of thirty is still remembered, one a day past forty is searched
+    /// again.
     #[tokio::test]
-    async fn a_miss_is_remembered_thirty_days_and_a_found_id_for_good() {
+    async fn a_miss_is_remembered_a_month_or_so_and_a_found_id_for_good() {
         let pool = crate::db::test_pool().await;
         sqlx::query(
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id, resolved_at)
              VALUES ('anilist', 'movie', 'found-long-ago', '523', datetime('now', '-400 days')),
                     ('anilist', 'movie', 'missed-29-days-ago', NULL, datetime('now', '-29 days')),
-                    ('anilist', 'movie', 'missed-31-days-ago', NULL, datetime('now', '-31 days')),
+                    ('anilist', 'movie', 'missed-41-days-ago', NULL, datetime('now', '-41 days')),
                     ('jikan', 'movie', 'another-source', '1', datetime('now'))",
         )
         .execute(&pool)
@@ -1011,6 +1048,31 @@ mod tests {
                 resolution_key("movie", "missed-29-days-ago")
             ]
         );
+    }
+
+    /// The misses a pass writes in one go come due over ten days, not in the
+    /// same hours a month later.
+    #[test]
+    fn misses_written_at_one_instant_come_due_over_ten_days() {
+        let days: HashSet<i64> = (0..200)
+            .map(|n| miss_lifetime(&resolution_key("movie", &format!("title:{n}"))).num_days())
+            .collect();
+        assert_eq!(days, (30..=40).collect());
+    }
+
+    /// AniList and MyAnimeList list anime alone: a title is searched there when
+    /// its Arr files it under Animation or Anime, however spelt, when it is an
+    /// anime series, or when no genre tells yet, and any title when the
+    /// setting says so.
+    #[test]
+    fn only_a_title_that_may_be_anime_is_searched_by_default() {
+        let genres = |names: &[&str]| names.iter().map(|name| name.to_string()).collect::<Vec<_>>();
+        assert!(may_search("animated", &genres(&["ANIMATION"]), None));
+        assert!(may_search("animated", &genres(&["Drama", "anime"]), None));
+        assert!(may_search("animated", &[], None));
+        assert!(may_search("animated", &genres(&["Drama"]), Some("Anime")));
+        assert!(!may_search("animated", &genres(&["Drama"]), Some("standard")));
+        assert!(may_search("all", &genres(&["Drama"]), None));
     }
 
     /// The year agrees within one year either way, no further, and a candidate

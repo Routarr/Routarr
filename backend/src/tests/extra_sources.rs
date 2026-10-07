@@ -255,6 +255,43 @@ async fn a_second_pass_does_not_search_again() {
     assert_eq!(searches, 1, "a resolution is permanent, not per-run");
 }
 
+/// AniList and MyAnimeList list anime alone: a title its Arr files under no
+/// animated genre is searched there neither by a pass nor by a lookup, until
+/// the setting asks for every title.
+#[tokio::test]
+async fn a_title_the_arr_calls_live_action_is_not_searched() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
+    app.execute(&[
+        "UPDATE media SET genres = '[\"ANIMATION\",\"Family\"]'",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, imdb_id, genres)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', 1995, 'tt0113277', '[\"Drama\"]')",
+    ])
+    .await;
+    let searched = || -> Vec<String> {
+        let recorded = sources.recorded();
+        recorded
+            .searches
+            .iter()
+            .filter(|(id, _)| *id == "anilist")
+            .map(|(_, t)| t.clone())
+            .collect()
+    };
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    assert_eq!(searched(), ["My Neighbor Totoro"]);
+    app.get("/api/v1/route?type=movie&imdb=tt0113277&enrich=true").await.assert_ok();
+    assert_eq!(searched(), ["My Neighbor Totoro"], "a lookup searched a live-action title");
+
+    app.store_setting("anime_search", "all").await;
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    assert_eq!(searched(), ["My Neighbor Totoro", "Heat"]);
+}
+
 #[tokio::test]
 async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     let sources = FakeSources::with_mismatched_year().await;
@@ -453,7 +490,7 @@ async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
         .await
         .unwrap();
 
-    sqlx::query("UPDATE source_identifiers SET resolved_at = datetime('now', '-31 days')")
+    sqlx::query("UPDATE source_identifiers SET resolved_at = datetime('now', '-41 days')")
         .execute(&app.state.pool)
         .await
         .unwrap();

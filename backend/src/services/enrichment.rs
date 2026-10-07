@@ -103,8 +103,9 @@ async fn run_enrichment(
     job: &JobHandle,
 ) -> AppResult<EnrichmentReport> {
     // A source that knows none of our identifiers has to find its own first.
-    // A found identifier is kept, and a miss for `MISS_LIFETIME`, so this is
-    // a first-pass cost, not a per-run one.
+    // A found identifier is kept, and a miss for a month or so
+    // (`metadata::resolved_keys`), so this is a first-pass cost, not a
+    // per-run one.
     let limiter = source.pace();
 
     if source.addressing() == Addressing::Search {
@@ -333,8 +334,19 @@ fn is_source_level_failure<T>(outcome: &AppResult<T>) -> bool {
     )
 }
 
-/// One media row, reduced to what identifying it needs.
-type Candidate = (String, Option<i64>, String, Option<i64>, Option<i64>, Option<String>);
+/// One media row, reduced to what identifying it and telling whether it may
+/// be searched need.
+#[derive(sqlx::FromRow)]
+struct Candidate {
+    title: String,
+    year: Option<i64>,
+    media_type: String,
+    tmdb_id: Option<i64>,
+    tvdb_id: Option<i64>,
+    imdb_id: Option<String>,
+    genres: Option<String>,
+    series_type: Option<String>,
+}
 
 /// Find this source's identifier for every item it has never been asked about.
 ///
@@ -349,23 +361,36 @@ async fn resolve_identifiers(
 ) -> AppResult<()> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
 
-    let rows: Vec<Candidate> =
-        sqlx::query_as("SELECT title, year, media_type, tmdb_id, tvdb_id, imdb_id FROM media")
-            .fetch_all(&state.pool)
-            .await?;
+    let rows: Vec<Candidate> = sqlx::query_as(
+        "SELECT title, year, media_type, tmdb_id, tvdb_id, imdb_id, genres, series_type
+           FROM media",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let scope = state.setting("anime_search", metadata::ANIME_SEARCH[0].to_string()).await;
 
     // Deduplicated by local key: the same film in two Radarr instances is one
     // search, not two.
     let mut pending: Vec<(String, String, String, Option<i64>)> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    for (title, year, media_type, tmdb_id, tvdb_id, imdb_id) in rows {
-        let key = metadata::local_key_of(tmdb_id, tvdb_id, imdb_id.as_deref(), &title, year);
-        let dedup = metadata::resolution_key(&media_type, &key);
+    for row in rows {
+        let genres = crate::models::genres_from(row.genres.as_deref());
+        if !metadata::may_search(&scope, &genres, row.series_type.as_deref()) {
+            continue;
+        }
+        let key = metadata::local_key_of(
+            row.tmdb_id,
+            row.tvdb_id,
+            row.imdb_id.as_deref(),
+            &row.title,
+            row.year,
+        );
+        let dedup = metadata::resolution_key(&row.media_type, &key);
         if known.contains(&dedup) || !seen.insert(dedup) {
             continue;
         }
-        pending.push((key, media_type, title, year));
+        pending.push((key, row.media_type, row.title, row.year));
     }
 
     if pending.is_empty() {
@@ -530,6 +555,9 @@ pub async fn ask_now(
     let Ok((identifiers, cached)) = read.await else {
         return fresh;
     };
+    let scope = state.setting("anime_search", metadata::ANIME_SEARCH[0].to_string()).await;
+    let searchable =
+        metadata::may_search(&scope, &media.genre_list(), media.series_type.as_deref());
     for source in state.metadata_sources().await {
         if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             break;
@@ -550,7 +578,7 @@ pub async fn ask_now(
         let pace = source.pace();
         let external = match (known, source.addressing()) {
             (Some(external), _) => external,
-            (None, Addressing::Search) if missed => continue,
+            (None, Addressing::Search) if missed || !searchable => continue,
             (None, Addressing::Search) => {
                 pace.acquire().await;
                 let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
