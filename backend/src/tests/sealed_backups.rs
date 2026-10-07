@@ -189,3 +189,40 @@ async fn a_short_passphrase_is_refused_and_none_is_read_back() {
     assert_eq!(settings["backup_passphrase_configured"], true, "{settings}");
     assert!(!settings.to_string().contains(PASSPHRASE), "{settings}");
 }
+
+/// A start refused for a database a newer release migrated names a sealed
+/// archive too, opened with the passphrase that database holds.
+#[tokio::test]
+async fn a_refused_start_names_a_sealed_archive_it_can_open() {
+    let (app, _dir) = app_with_files("sealed-refused-start").await;
+    set_passphrase(&app, PASSPHRASE).await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    app.execute(&[super::backup::AHEAD]).await;
+    let config = app.state.config.clone();
+    app.state.pool.close().await;
+
+    let refused = crate::db::init_pool(&config).await;
+
+    let message = refused.expect_err("the database was opened").to_string();
+    assert!(message.contains(&format!("routarr restore {}", file.name)), "{message}");
+}
+
+/// A sealed archive altered after it was taken is refused as damaged, before
+/// anything is staged: its chunks are authenticated one by one.
+#[tokio::test]
+async fn a_sealed_archive_altered_on_disk_is_refused_as_damaged() {
+    let (app, dir) = app_with_files("sealed-damaged").await;
+    set_passphrase(&app, PASSPHRASE).await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let archive = dir.join("backups").join(&file.name);
+    let mut bytes = std::fs::read(&archive).unwrap();
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0xff;
+    std::fs::write(&archive, bytes).unwrap();
+
+    let refused = app.post(&format!("/api/v1/backups/{}/restore", file.name), json!({})).await;
+
+    assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.json);
+    assert!(refused.json["message"].as_str().unwrap().contains("damaged"), "{}", refused.json);
+    assert_eq!(archives(&dir), [file.name], "something was left beside the archive");
+}

@@ -1207,7 +1207,7 @@ async fn set_enabled(app: &TestApp) {
 
 /// The record a newer release leaves after migrating the database further
 /// than this build knows.
-const AHEAD: &str =
+pub(super) const AHEAD: &str =
     "INSERT INTO _opened_by (version, schema) VALUES ('99.0.0', '099_from_a_later_release')";
 
 /// One connection to a database file outside the pool, left in the journal
