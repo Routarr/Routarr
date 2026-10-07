@@ -747,13 +747,6 @@ a {
   height: 6px;
   border-radius: var(--radius-full);
   flex: none;
-  /* Optical, not geometric. A round mark beside lowercase text aligns to the
-     middle of the x-height. Centred on the line box it reads a pixel high,
-     because the ink of "Simulation" runs from the cap to the baseline while
-     the box also reserves room for a descender the word never uses. Nudged
-     rather than derived: the face is whatever the fallback stack resolves to,
-     so there is no one metric to compute it from. */
-  transform: translateY(1px);
 }
 .mode-dot.is-live {
   background-color: var(--status-success);
@@ -1195,9 +1188,6 @@ a {
   border-radius: var(--radius-full);
   background-color: currentColor;
   flex: none;
-  /* See `.mode-dot`: the label beside it is lowercase, so the dot belongs on
-     the x-height rather than on the middle of the line box. */
-  transform: translateY(1px);
 }
 .kind-radarr {
   color: var(--kind-radarr);
