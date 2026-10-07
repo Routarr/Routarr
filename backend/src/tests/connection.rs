@@ -37,20 +37,21 @@ async fn answering(
     .await
 }
 
-/// A Radarr whose status and root folders answer at once, and whose library
-/// answers as `movies` does: a sync that fails past the probe.
-async fn a_radarr_whose_library(movies: MethodRouter) -> super::Served {
+/// A Radarr or a Sonarr whose status and root folders answer at once, and
+/// whose library answers as `library` does: a sync that fails past the probe.
+async fn an_arr_whose_library(service: &'static str, library: MethodRouter) -> super::Served {
+    let listing = if service == "Sonarr" { "/api/v3/series" } else { "/api/v3/movie" };
     super::serve(
         Router::new()
             .route(
                 "/api/v3/system/status",
-                get(|| async {
-                    axum::Json(json!({ "version": "5.2.6.8376", "appName": "Radarr" }))
+                get(move || async move {
+                    axum::Json(json!({ "version": "5.2.6.8376", "appName": service }))
                 }),
             )
             .route("/api/v3/rootfolder", get(|| async { axum::Json(json!([])) }))
             .route("/api/v3/tag", get(|| async { axum::Json(json!([])) }))
-            .route("/api/v3/movie", movies),
+            .route(listing, library),
     )
     .await
 }
@@ -690,16 +691,19 @@ async fn a_failed_sync_is_explained_by_what_answers_at_the_address() {
 async fn a_library_slower_than_the_timeout_is_not_blamed_on_the_address() {
     let app = TestApp::new().await;
     let slow = FakeArr::holding_edits(Duration::from_secs(1)).await;
-    let stalled = a_radarr_whose_library(get(|| async {
-        let body = futures::stream::once(async {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"[]"))
-        });
-        axum::response::Response::builder()
-            .header("content-type", "application/json")
-            .body(axum::body::Body::from_stream(body))
-            .unwrap()
-    }))
+    let stalled = an_arr_whose_library(
+        "Radarr",
+        get(|| async {
+            let body = futures::stream::once(async {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                Ok::<_, std::io::Error>(axum::body::Bytes::from_static(b"[]"))
+            });
+            axum::response::Response::builder()
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from_stream(body))
+                .unwrap()
+        }),
+    )
     .await;
 
     for (id, address) in [("slow", slow.base_url.as_str()), ("stalled", &stalled)] {
@@ -707,20 +711,53 @@ async fn a_library_slower_than_the_timeout_is_not_blamed_on_the_address() {
 
         let response = app.post(&format!("/api/v1/instances/{id}/sync"), json!({})).await;
 
-        assert_eq!(
-            outage(&response),
-            said(&app, "InstanceSyncTimedOut", &[("service", "Radarr")]).await,
-            "{id}"
-        );
+        let named = [("service", "Radarr"), ("variable", "ROUTARR_LIBRARY_TIMEOUT_SECS")];
+        assert_eq!(outage(&response), said(&app, "InstanceSyncTimedOut", &named).await, "{id}");
+        assert!(outage(&response).contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{id}");
+    }
+}
+
+#[tokio::test]
+async fn a_library_past_the_size_cap_names_the_variable_that_raises_it() {
+    let app = TestApp::new().await;
+    let mut config = (*app.state.config).clone();
+    config.max_library_bytes = 2 << 20;
+    let app = TestApp::around(app.state.clone().with_config(config));
+    // Whitespace keeps an empty list valid JSON at any size, and 1.5 MiB is
+    // past the cap every other answer is held to under test.
+    let library = |service, bytes: usize| {
+        let body = format!("[{}]", " ".repeat(bytes));
+        an_arr_whose_library(
+            service,
+            get(move || async move { ([("content-type", "application/json")], body) }),
+        )
+    };
+
+    for service in ["Radarr", "Sonarr"] {
+        let kind = service.to_ascii_lowercase();
+        let within = library(service, 3 << 19).await;
+        let beyond = library(service, 5 << 19).await;
+        app.seed_instance_at(&format!("{kind}-within"), &kind, &within).await;
+        app.seed_instance_at(&format!("{kind}-beyond"), &kind, &beyond).await;
+
+        app.post(&format!("/api/v1/instances/{kind}-within/sync"), json!({}))
+            .await
+            .assert_status(StatusCode::OK);
+        let response = app.post(&format!("/api/v1/instances/{kind}-beyond/sync"), json!({})).await;
+
+        let named = [("service", service), ("variable", "ROUTARR_MAX_LIBRARY_MIB")];
+        assert_eq!(outage(&response), said(&app, "InstanceSyncTooLarge", &named).await);
     }
 }
 
 #[tokio::test]
 async fn a_library_that_cannot_be_read_is_named_as_such() {
     let app = TestApp::new().await;
-    let address =
-        a_radarr_whose_library(get(|| async { axum::Json(json!([{ "id": "not-a-number" }])) }))
-            .await;
+    let address = an_arr_whose_library(
+        "Radarr",
+        get(|| async { axum::Json(json!([{ "id": "not-a-number" }])) }),
+    )
+    .await;
     app.seed_instance_at("inst-1", "radarr", &address).await;
 
     let response = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
@@ -734,9 +771,10 @@ async fn a_library_that_cannot_be_read_is_named_as_such() {
 #[tokio::test]
 async fn a_library_failing_on_the_arrs_side_is_named() {
     let app = TestApp::new().await;
-    let address = a_radarr_whose_library(get(|| async {
-        (StatusCode::INTERNAL_SERVER_ERROR, "Database is locked")
-    }))
+    let address = an_arr_whose_library(
+        "Radarr",
+        get(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "Database is locked") }),
+    )
     .await;
     app.seed_instance_at("inst-1", "radarr", &address).await;
 

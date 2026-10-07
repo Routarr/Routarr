@@ -8,6 +8,9 @@ pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 /// `ROUTARR_HTTP_TIMEOUT_SECS` when unset.
 pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 
+/// `ROUTARR_MAX_LIBRARY_MIB` when unset.
+const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
+
 /// How long an apply follows the Arr's moves of files. A move within one
 /// filesystem is a rename the Arr ends in a second. One copying across disks
 /// takes minutes a film, longer than anyone watches an apply, and is left to
@@ -276,6 +279,10 @@ pub struct Config {
     /// other call: tens of thousands of titles from a NAS take far longer than
     /// a probe is given to answer.
     pub library_timeout: Duration,
+    /// The largest library listing read, in bytes, where every other answer
+    /// is held to a cap of its own: a library of tens of thousands of titles
+    /// outgrows any one size.
+    pub max_library_bytes: usize,
     /// How long an apply follows the Arr's moves of files before it records
     /// the ones still running as requested, for the next sync to settle.
     pub move_wait: Duration,
@@ -343,6 +350,7 @@ impl std::fmt::Debug for Config {
             trusted_proxies,
             http_timeout,
             library_timeout,
+            max_library_bytes,
             move_wait,
             webhook_answer_wait,
             secret_key,
@@ -385,6 +393,7 @@ impl std::fmt::Debug for Config {
             .field("trusted_proxies", trusted_proxies)
             .field("http_timeout", http_timeout)
             .field("library_timeout", library_timeout)
+            .field("max_library_bytes", max_library_bytes)
             .field("move_wait", move_wait)
             .field("webhook_answer_wait", webhook_answer_wait)
             .field("secret_key", &hidden(secret_key))
@@ -529,7 +538,12 @@ impl Config {
                 "ROUTARR_HTTP_TIMEOUT_SECS",
                 DEFAULT_HTTP_TIMEOUT_SECS,
             )?),
-            library_timeout: crate::http::LIBRARY_TIMEOUT,
+            library_timeout: Duration::from_secs(env_parse(
+                "ROUTARR_LIBRARY_TIMEOUT_SECS",
+                crate::http::LIBRARY_TIMEOUT.as_secs(),
+            )?),
+            max_library_bytes: env_parse("ROUTARR_MAX_LIBRARY_MIB", DEFAULT_MAX_LIBRARY_MIB)?
+                .saturating_mul(1 << 20),
             move_wait: MOVE_WAIT,
             webhook_answer_wait: WEBHOOK_ANSWER_WAIT,
             secret_key: non_empty("ROUTARR_SECRET_KEY"),
@@ -641,6 +655,20 @@ impl Config {
                     .into(),
             ));
         }
+        if self.library_timeout.is_zero() {
+            return Err(AppError::Config(
+                "ROUTARR_LIBRARY_TIMEOUT_SECS: 0 would make every library listing fail at once. \
+                 Unset it for the default of 300 seconds"
+                    .into(),
+            ));
+        }
+        if self.max_library_bytes == 0 {
+            return Err(AppError::Config(
+                "ROUTARR_MAX_LIBRARY_MIB: 0 would refuse every library. Unset it for the default \
+                 of 256 MiB"
+                    .into(),
+            ));
+        }
         Ok(())
     }
 
@@ -737,6 +765,7 @@ impl Config {
             trusted_proxies: vec![],
             http_timeout: Duration::from_millis(300),
             library_timeout: Duration::from_millis(900),
+            max_library_bytes: 1 << 20,
             move_wait: Duration::from_secs(2),
             webhook_answer_wait: Duration::from_secs(5),
             secret_key: Some("dGVzdC1rZXktMzItYnl0ZXMtZm9yLXVuaXQtdGVzdCE=".into()),
@@ -1111,11 +1140,18 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_timeout_is_refused_at_startup() {
-        let mut config = Config::for_tests();
-        config.http_timeout = Duration::ZERO;
-        let err = config.validate().unwrap_err().to_string();
+    fn a_zero_timeout_or_cap_is_refused_at_startup() {
+        let refused = |change: fn(&mut Config)| {
+            let mut config = Config::for_tests();
+            change(&mut config);
+            config.validate().unwrap_err().to_string()
+        };
+        let err = refused(|config| config.http_timeout = Duration::ZERO);
         assert!(err.contains("ROUTARR_HTTP_TIMEOUT_SECS"), "{err}");
+        let err = refused(|config| config.library_timeout = Duration::ZERO);
+        assert!(err.contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{err}");
+        let err = refused(|config| config.max_library_bytes = 0);
+        assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
     }
 
     fn oidc_config() -> Config {

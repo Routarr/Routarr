@@ -105,11 +105,11 @@ impl ArrAdapter {
         }
     }
 
-    /// The same adapter, listing the library within `timeout`.
-    pub fn with_library_timeout(self, timeout: std::time::Duration) -> Self {
+    /// The same adapter, listing the library within `timeout` and `cap` bytes.
+    pub fn with_library_limits(self, timeout: std::time::Duration, cap: usize) -> Self {
         match self {
-            Self::Radarr(c) => Self::Radarr(c.with_library_timeout(timeout)),
-            Self::Sonarr(c) => Self::Sonarr(c.with_library_timeout(timeout)),
+            Self::Radarr(c) => Self::Radarr(c.with_library_limits(timeout, cap)),
+            Self::Sonarr(c) => Self::Sonarr(c.with_library_limits(timeout, cap)),
         }
     }
 

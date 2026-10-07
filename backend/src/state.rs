@@ -168,7 +168,7 @@ impl AppState {
     pub fn adapter(&self, instance: &Instance) -> AppResult<ArrAdapter> {
         let api_key = self.secrets.open(&instance.api_key)?;
         Ok(ArrAdapter::for_instance(self.http.clone(), instance, &api_key)?
-            .with_library_timeout(self.config.library_timeout))
+            .with_library_limits(self.config.library_timeout, self.config.max_library_bytes))
     }
 
     /// Every setting as stored, read in one statement.

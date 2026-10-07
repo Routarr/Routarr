@@ -406,11 +406,17 @@ async fn explain_sync_failure(state: &AppState, id: &str, cause: Cause) -> AppRe
     check(&adapter, kind, &instance.base_url, &localizer).await?;
     // The probe passed, so the address answers as the Arr, and blaming it
     // sends the operator to edit an address that is right. What failed is the
-    // library listing, the one call large enough to outlast the timeout.
+    // library listing, the one call large enough to outlast its timeout or
+    // outgrow its cap.
     let service = [("service", connection::service_name(kind))];
     Ok(match cause {
         Cause::TimedOut => {
-            AppError::UpstreamDown(localizer.translate("InstanceSyncTimedOut", &service))
+            let named = [service[0], ("variable", "ROUTARR_LIBRARY_TIMEOUT_SECS")];
+            AppError::UpstreamDown(localizer.translate("InstanceSyncTimedOut", &named))
+        }
+        Cause::TooLarge => {
+            let named = [service[0], ("variable", "ROUTARR_MAX_LIBRARY_MIB")];
+            AppError::UpstreamDown(localizer.translate("InstanceSyncTooLarge", &named))
         }
         Cause::NotTheApi => {
             AppError::UpstreamDown(localizer.translate("InstanceSyncUnreadable", &service))

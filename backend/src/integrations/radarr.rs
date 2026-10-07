@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use super::arr_moves::{Api, MoveCommand};
-use super::send_json;
+use super::{send_json, send_json_within};
 use crate::error::{AppError, AppResult};
 use crate::models::ExternalId;
 
@@ -18,6 +18,8 @@ pub struct RadarrClient {
     api_key: String,
     /// How long the whole library may take to list.
     library_timeout: std::time::Duration,
+    /// The largest library listing read, in bytes.
+    library_cap: usize,
 }
 
 /// Movie data from Radarr API.
@@ -131,12 +133,13 @@ impl RadarrClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             library_timeout: crate::http::LIBRARY_TIMEOUT,
+            library_cap: crate::integrations::MAX_BODY,
         }
     }
 
-    /// The same client, listing the library within `timeout`.
-    pub fn with_library_timeout(self, timeout: std::time::Duration) -> Self {
-        Self { library_timeout: timeout, ..self }
+    /// The same client, listing the library within `timeout` and `cap` bytes.
+    pub fn with_library_limits(self, timeout: std::time::Duration, cap: usize) -> Self {
+        Self { library_timeout: timeout, library_cap: cap, ..self }
     }
 
     fn get(&self, path: &str) -> reqwest::RequestBuilder {
@@ -152,7 +155,7 @@ impl RadarrClient {
         // Without the parameter Radarr looks up and hashes every cover of the
         // library for an answer Routarr reads no image of.
         let request = self.get("/api/v3/movie").query(&[("excludeLocalCovers", "true")]);
-        send_json(SERVICE, request.timeout(self.library_timeout)).await
+        send_json_within(SERVICE, request.timeout(self.library_timeout), self.library_cap).await
     }
 
     /// One movie by id. A 404 surfaces as `ExternalApi { status: 404 }`.
