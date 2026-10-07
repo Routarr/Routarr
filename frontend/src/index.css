@@ -92,16 +92,18 @@
      never to be waited for. */
   --transition: 140ms ease;
 
-  /* The angle is what separates, colour signals and weight ranks. A 10px
-     radius on a 36px button is 28% of its height, the proportion of a
-     consumer application rather than of an operations tool.
+  /* The angle is what separates, colour signals and weight ranks. Corners
+     are square, controls, badges and surfaces alike: a radius of a few
+     pixels reads as a corner drawn badly rather than as a choice. The tokens
+     stay declared where each shape is drawn, since the browser rounds a
+     button or a field it is left to draw.
 
      `--radius-full` is a closed list: the kind, mode and confidence dots, the
      guide's step numbers, the navigation count and the scrollbar thumb. A pill
      anywhere else is a badge pretending to be a state. */
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 4px;
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
   --radius-full: 9999px;
 
   /* One scale for what sits above what. A literal picked per component is how
