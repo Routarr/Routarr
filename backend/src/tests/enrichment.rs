@@ -147,8 +147,9 @@ async fn a_second_delivery_for_the_same_series_fetches_nothing() {
     let tmdb = FakeTmdb::start().await;
     let app = library(&tmdb, &[(1, "series", 1399)]).await;
 
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
     for _ in 0..2 {
-        enrichment::enrich_one(&app.state, 1399, "series").await.unwrap();
+        enrichment::enrich_one(&app.state, &media).await.unwrap();
     }
 
     let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with("/tv/1399")).count();

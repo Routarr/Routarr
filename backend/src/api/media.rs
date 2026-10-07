@@ -229,6 +229,11 @@ impl ExternalTitle {
                     "Name the title by exactly one of `tmdb`, `tvdb` and `imdb`.".into(),
                 )
             })?;
+        // An Arr writes a title it has no id for as 0, so 0 names every one of
+        // them at once.
+        if matches!(id, ExternalId::Tmdb(n) | ExternalId::Tvdb(n) if n <= 0) {
+            return Err(AppError::BadRequest("An id is a number above 0.".into()));
+        }
         // TheTVDB knows series alone, and no movie carries its id.
         if self.media_type == "movie" && matches!(id, ExternalId::Tvdb(_)) {
             return Err(AppError::BadRequest(

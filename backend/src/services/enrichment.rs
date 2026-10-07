@@ -16,9 +16,10 @@ use tracing::{debug, info, warn};
 
 use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobHandle, JobKind};
-use crate::models::ProviderMetadata;
+use crate::models::{Media, ProviderMetadata};
 use crate::services::metadata::{self, Addressing, FetchingSource};
 use crate::services::rate_limit::{RateLimiter, honour_retry_after};
+use crate::services::routing;
 use crate::state::AppState;
 
 /// Outcome of an enrichment pass.
@@ -433,37 +434,115 @@ async fn pending_targets(
     }
 }
 
-/// Enrich one specific item, used by the webhook path.
-pub async fn enrich_one(state: &AppState, tmdb_id: i64, media_type: &str) -> AppResult<()> {
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
+/// How long a webhook delivery spends asking the sources about its title:
+/// every one it can address, at its own pace, within this. What is not
+/// reached is left to the next full pass.
+pub const WEBHOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
+/// What each source able to answer says now about `media`, where the cache
+/// holds no answer: the webhook stores it, the placement only reads it.
+///
+/// Each source is asked by the id it is addressed with, from the row or from
+/// a recorded search, or found by a search of its own, at its own pace, until
+/// `deadline`. A search that finds nothing is an answer, and so is a 404: the
+/// source does not have the title. A source that fails is left out and the
+/// next is asked.
+pub async fn ask_now(
+    state: &AppState,
+    media: &Media,
+    deadline: Option<tokio::time::Instant>,
+) -> routing::Fresh {
+    let mut fresh = routing::Fresh::default();
+    let providers = state.metadata_order().await;
+    // Given back before any source is asked: held through their answers, it
+    // would starve the pool.
+    let read = async {
+        let mut connection = state.pool.acquire().await?;
+        let title = std::slice::from_ref(media);
+        let identifiers = metadata::load_identifiers_of(&mut connection, title).await?;
+        let cached =
+            metadata::load_cache_of(&mut connection, title, &providers, &identifiers).await?;
+        AppResult::Ok((identifiers, cached))
+    };
+    let Ok((identifiers, cached)) = read.await else {
+        return fresh;
+    };
     for source in state.metadata_sources().await {
-        // The webhook only carries a TMDb id, so a source addressed by anything
-        // else (another id, or a search) is left to the next full pass rather
-        // than guessed at.
-        if source.addressing() != Addressing::Column("tmdb_id") {
+        if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
+            break;
+        }
+        let Some(provider) = metadata::info(source.id()) else { continue };
+        let known = metadata::external_id(provider, media, &identifiers);
+        let key = |external: &str| {
+            (source.id().to_string(), external.to_string(), media.media_type.clone())
+        };
+        let searched =
+            (source.id().to_string(), media.media_type.clone(), metadata::local_key(media));
+        // A search on record that found nothing is not run again here: the
+        // enrichment pass searches again once the miss is old enough.
+        let missed = identifiers.get(&searched).is_some_and(Option::is_none);
+        if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
             continue;
         }
-        let external_id = tmdb_id.to_string();
-        // Sonarr sends one delivery per imported episode: what the cache still
-        // holds is not fetched again, or a season costs one call per episode.
-        let cached: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM metadata_cache
-                            WHERE source = ? AND external_id = ? AND media_type = ?
-                              AND expires_at > datetime('now'))",
-        )
-        .bind(source.id())
-        .bind(&external_id)
-        .bind(media_type)
-        .fetch_one(&state.pool)
-        .await?;
-        if cached {
-            continue;
+        let pace = source.pace();
+        let external = match (known, source.addressing()) {
+            (Some(external), _) => external,
+            (None, Addressing::Search) if missed => continue,
+            (None, Addressing::Search) => {
+                pace.acquire().await;
+                let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
+                honour_retry_after(&pace, &resolved).await;
+                match resolved {
+                    Ok(Some(external)) => {
+                        fresh.identifiers.insert(searched, Some(external.clone()));
+                        external
+                    }
+                    Ok(None) => {
+                        fresh.identifiers.insert(searched, None);
+                        continue;
+                    }
+                    Err(_) => continue,
+                }
+            }
+            (None, _) => continue,
+        };
+        pace.acquire().await;
+        let fetched = source.fetch(&external, &media.media_type).await;
+        honour_retry_after(&pace, &fetched).await;
+        match fetched {
+            Ok(answer) => {
+                fresh.metadata.insert(key(&external), answer);
+            }
+            Err(AppError::ExternalApi { status: 404, .. }) => {
+                fresh.metadata.insert(key(&external), ProviderMetadata::default());
+            }
+            Err(_) => {}
         }
-        let data = source.fetch(&external_id, media_type).await?;
-        store_metadata(&state.pool, source.id(), &external_id, media_type, &data, ttl_days).await?;
     }
+    fresh
+}
 
+/// Enrich one title now, as the webhook does before its rules run, so the
+/// right root folder is known while the folder is still empty: every source
+/// the row can address, within [`WEBHOOK_BUDGET`]. What a source answered is
+/// stored as a full pass would store it.
+pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
+    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
+    let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
+    let fresh = ask_now(state, media, Some(deadline)).await;
+    for ((source, media_type, local_key), external) in &fresh.identifiers {
+        metadata::remember_identifier(
+            &state.pool,
+            source,
+            media_type,
+            local_key,
+            external.as_deref(),
+        )
+        .await?;
+    }
+    for ((source, external, media_type), data) in &fresh.metadata {
+        store_metadata(&state.pool, source, external, media_type, data, ttl_days).await?;
+    }
     Ok(())
 }
 

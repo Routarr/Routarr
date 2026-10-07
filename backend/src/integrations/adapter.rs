@@ -269,6 +269,13 @@ fn known_year(year: Option<i64>) -> Option<i64> {
     year.filter(|year| *year > 0)
 }
 
+/// An id the Arr writes as 0 is one it does not know: Sonarr sends a series
+/// with no TMDB id as `"tmdbId": 0`. Taken for an id, every such title would
+/// share one search key, and with it the one answer found for the first.
+fn known_id(id: Option<i64>) -> Option<i64> {
+    id.filter(|id| *id > 0)
+}
+
 fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
     let (has_files, size_on_disk) = (m.has_files(), m.size_on_disk());
     ArrMedia {
@@ -277,7 +284,7 @@ fn movie_to_media(m: crate::integrations::radarr::RadarrMovie) -> ArrMedia {
         title: m.title,
         sort_title: m.sort_title,
         year: known_year(m.year),
-        tmdb_id: m.tmdb_id,
+        tmdb_id: known_id(m.tmdb_id),
         tvdb_id: None,
         imdb_id: m.imdb_id,
         path: m.path,
@@ -308,8 +315,8 @@ fn series_to_media(s: crate::integrations::sonarr::SonarrSeries) -> ArrMedia {
         title: s.title,
         sort_title: s.sort_title,
         year: known_year(s.year),
-        tmdb_id: s.tmdb_id,
-        tvdb_id: s.tvdb_id,
+        tmdb_id: known_id(s.tmdb_id),
+        tvdb_id: known_id(s.tvdb_id),
         imdb_id: s.imdb_id,
         path: s.path,
         root_folder_path: s.root_folder_path,
@@ -363,5 +370,25 @@ mod tests {
         assert!(with_statistics(json!({ "episodeFileCount": 26 })));
         assert!(with_statistics(json!({})));
         assert!(series_has_files(json!({ "id": 20, "title": "Cowboy Bebop" })));
+    }
+
+    /// Sonarr writes a series with no TMDB id as `"tmdbId": 0`, its field being
+    /// a number it cannot leave out. Taken for an id, every such series shares
+    /// the key `tmdb:0` and the one answer a search gave the first of them.
+    #[test]
+    fn an_id_the_arr_writes_as_zero_is_no_id() {
+        let series = series_to_media(
+            serde_json::from_value(json!({ "id": 20, "title": "A", "tvdbId": 76885, "tmdbId": 0 }))
+                .unwrap(),
+        );
+        assert_eq!((series.tmdb_id, series.tvdb_id), (None, Some(76885)));
+        let unknown = series_to_media(
+            serde_json::from_value(json!({ "id": 21, "title": "B", "tvdbId": 0 })).unwrap(),
+        );
+        assert_eq!(unknown.tvdb_id, None);
+        let film = movie_to_media(
+            serde_json::from_value(json!({ "id": 10, "title": "C", "tmdbId": 0 })).unwrap(),
+        );
+        assert_eq!(film.tmdb_id, None);
     }
 }

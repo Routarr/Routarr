@@ -409,6 +409,71 @@ async fn a_jikan_film_is_resolved_by_its_aired_year() {
     assert_eq!(resolved.as_deref(), Some("523"));
 }
 
+/// The webhook enriches a new title before its rules run, from every source
+/// the row can address: TheTVDB by its id, AniList by a search. Asking TMDB
+/// alone, a series with no TMDB id was routed and auto-applied on nothing.
+#[tokio::test]
+async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
+    let sources = FakeSources::start().await;
+    let app = library(&sources, "tvdb,anilist,arr").await;
+    sqlx::query("UPDATE media SET media_type = 'series', tmdb_id = NULL, imdb_id = NULL")
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+
+    enrichment::enrich_one(&app.state, &media).await.unwrap();
+
+    assert_eq!(asked(&sources, "tvdb"), [format!("series/{}", super::fake_sources::TVDB_ID)]);
+    let searches = sources.recorded().searches.iter().filter(|(id, _)| *id == "anilist").count();
+    assert_eq!(searches, 1);
+    let resolved: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM source_identifiers WHERE source = 'anilist'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(resolved, 1, "the AniList search was not recorded");
+    assert!(cached(&app, "tvdb").await.is_some(), "TheTVDB's answer was not stored");
+}
+
+/// An upgrade forgets the ids an Arr wrote as 0, and the one answer every
+/// title without an id shared under the key `tmdb:0`: kept, it would go on
+/// routing them all until their next sync.
+#[tokio::test]
+async fn an_upgrade_forgets_the_ids_written_as_zero_and_what_they_shared() {
+    let pool = super::database_through("030_security_events").await;
+    sqlx::query(super::AN_INSTANCE).execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id, tvdb_id)
+         VALUES ('m-1', 'inst-1', 1, 'series', 'A', 0, 76885),
+                ('m-2', 'inst-1', 2, 'series', 'B', 1396, 81189)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
+         VALUES ('anilist', 'series', 'tmdb:0', '1'), ('anilist', 'series', 'tmdb:1396', NULL)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+
+    let ids: Vec<(String, Option<i64>, Option<i64>)> =
+        sqlx::query_as("SELECT id, tmdb_id, tvdb_id FROM media ORDER BY id")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(ids, [("m-1".into(), None, Some(76885)), ("m-2".into(), Some(1396), Some(81189))]);
+    let keys: Vec<String> = sqlx::query_scalar("SELECT local_key FROM source_identifiers")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(keys, ["tmdb:1396"]);
+}
+
 /// An upgrade forgets the films Jikan "found nothing" for, and nothing else. A
 /// database through migration 004 holds those answers as read from `year`,
 /// which Jikan leaves null for a film, so none of them is Jikan's.
