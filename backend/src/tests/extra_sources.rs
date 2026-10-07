@@ -167,11 +167,9 @@ async fn thetvdb_is_never_asked_about_a_film() {
         .unwrap();
     assert!(asked(&sources, "tvdb").is_empty(), "{:?}", asked(&sources, "tvdb"));
 
-    app.execute(&[
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
-                   VALUES ('tvdb', '76885', 'movie', '[\"Western\"]', '2099-01-01')",
-    ])
-    .await;
+    app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, genres)
+                   VALUES ('tvdb', '76885', 'movie', '[\"Western\"]')"])
+        .await;
     let explained = app.get("/api/v1/media/m-1/explain").await;
     assert!(explained.assert_ok()["metadata"].is_null(), "a film read TheTVDB's answer");
 }
@@ -1102,6 +1100,25 @@ async fn a_pass_names_the_source_and_stage_its_count_measures() {
     }
 }
 
+/// A searched source's answer ages as any other: past its lifetime it is read
+/// again by the id found, and the title is not searched again.
+#[tokio::test]
+async fn a_searched_answer_past_its_lifetime_is_read_again() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
+    let by = crate::jobs::Attribution::manual(None);
+    let pass = || enrichment::enrich_all_media(&app.state, &by);
+    pass().await.unwrap();
+    app.execute(&["UPDATE metadata_cache SET cached_at = datetime('now', '-8 days')"]).await;
+
+    pass().await.unwrap();
+
+    let recorded = sources.recorded();
+    let read = recorded.details.iter().filter(|(source, _)| *source == "jikan").count();
+    let searched = recorded.searches.iter().filter(|(source, _)| *source == "jikan").count();
+    assert_eq!((read, searched), (2, 1));
+}
+
 /// A finished pass counts the whole pass, not its last stage: TheTVDB, last
 /// here, has nothing to read about a film, and the task would end on no count
 /// at all after OMDb read one.
@@ -1120,6 +1137,30 @@ async fn a_finished_pass_counts_the_whole_pass() {
             .await
             .unwrap();
     assert_eq!(progress, (1, 1));
+}
+
+/// An upgrade keeps due the answers an earlier upgrade had asked again: their
+/// expiry goes, and with it the only mark that they were.
+#[tokio::test]
+async fn an_upgrade_keeps_due_the_answers_asked_again() {
+    let pool = super::database_through("036_rating_country_changes").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+         VALUES ('omdb', 'tt1', 'movie', datetime('now')),
+                ('tmdb', '3', 'movie', '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations_through(&pool, "037_cache_lifetime_at_read").await.unwrap();
+
+    let due: Vec<(String, bool)> =
+        sqlx::query_as("SELECT source, stale FROM metadata_cache ORDER BY source")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(due, [("omdb".to_string(), true), ("tmdb".to_string(), false)]);
 }
 
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read

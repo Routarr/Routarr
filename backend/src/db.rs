@@ -56,6 +56,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("034_full_vocabularies", include_str!("../migrations/034_full_vocabularies.sql")),
     ("035_status_words", include_str!("../migrations/035_status_words.sql")),
     ("036_rating_country_changes", include_str!("../migrations/036_rating_country_changes.sql")),
+    ("037_cache_lifetime_at_read", include_str!("../migrations/037_cache_lifetime_at_read.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -723,9 +724,10 @@ mod tests {
              VALUES ('rf-1', 'i-1', '/movies', 'somewhere')",
             "INSERT INTO root_folders (id, instance_id, path, accessible)
              VALUES ('rf-2', 'i-1', '/movies', 2)",
-            "INSERT INTO metadata_cache (source, external_id, media_type, origin_countries,
-                                         expires_at)
-             VALUES ('tmdb', '1', 'movie', NULL, '2099-01-01')",
+            "INSERT INTO metadata_cache (source, external_id, media_type, origin_countries)
+             VALUES ('tmdb', '1', 'movie', NULL)",
+            "INSERT INTO metadata_cache (source, external_id, media_type, stale)
+             VALUES ('tmdb', '2', 'movie', 2)",
             "UPDATE instances SET enabled = 2",
             "UPDATE media SET monitored = 2",
             "UPDATE media SET has_files = -1",

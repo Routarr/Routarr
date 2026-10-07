@@ -503,8 +503,8 @@ async fn seed_cache(pool: &SqlitePool, count: usize) {
     for i in 0..count {
         for (source, external_id) in [("tmdb", i.to_string()), ("omdb", format!("tt{i:07}"))] {
             sqlx::query(
-                "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
-                 VALUES (?, ?, 'movie', '[\"Action\"]', '2099-01-01')",
+                "INSERT INTO metadata_cache (source, external_id, media_type, genres)
+                 VALUES (?, ?, 'movie', '[\"Action\"]')",
             )
             .bind(source)
             .bind(external_id)

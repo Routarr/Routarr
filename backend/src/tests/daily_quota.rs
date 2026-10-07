@@ -59,11 +59,12 @@ async fn enrich(app: &TestApp) -> EnrichmentReport {
 async fn titles_never_asked_come_before_refreshes_the_stalest_first() {
     let sources = FakeSources::start().await;
     let app = films(&sources, 29).await;
-    // Ten answers expired, the one for tt0001000 a day ago, tt0001009 ten.
+    // Ten answers past their seven days, the one for tt0001000 by a day,
+    // tt0001009 by ten.
     sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+        "INSERT INTO metadata_cache (source, external_id, media_type, cached_at)
          SELECT 'omdb', imdb_id, 'movie',
-                datetime('now', '-' || (arr_id - 99) || ' days')
+                datetime('now', '-' || (arr_id - 92) || ' days')
            FROM media WHERE arr_id BETWEEN 100 AND 109",
     )
     .execute(&app.state.pool)

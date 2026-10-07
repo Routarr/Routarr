@@ -782,8 +782,8 @@ mod tests {
         .unwrap();
         for (source, id) in [("anilist", "47"), ("tmdb", "500"), ("tmdb", "42")] {
             sqlx::query(
-                "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
-                 VALUES (?, ?, 'movie', '2030-01-01')",
+                "INSERT INTO metadata_cache (source, external_id, media_type)
+                 VALUES (?, ?, 'movie')",
             )
             .bind(source)
             .bind(id)
@@ -825,8 +825,8 @@ mod tests {
             ("omdb", "ttm1", "-900 days"),
         ] {
             sqlx::query(
-                "INSERT INTO metadata_cache (source, external_id, media_type, cached_at, expires_at)
-                 VALUES (?, ?, 'movie', datetime('now', ?), '2030-01-01')",
+                "INSERT INTO metadata_cache (source, external_id, media_type, cached_at)
+                 VALUES (?, ?, 'movie', datetime('now', ?))",
             )
             .bind(source)
             .bind(id)
@@ -865,8 +865,8 @@ mod tests {
             ("omdb", "tt0000001", "series"),
         ] {
             sqlx::query(
-                "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
-                 VALUES (?, ?, ?, '2030-01-01')",
+                "INSERT INTO metadata_cache (source, external_id, media_type)
+                 VALUES (?, ?, ?)",
             )
             .bind(source)
             .bind(id)
@@ -910,8 +910,8 @@ mod tests {
         }
         for id in ["47", "48"] {
             sqlx::query(
-                "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
-                 VALUES ('anilist', ?, 'movie', '2030-01-01')",
+                "INSERT INTO metadata_cache (source, external_id, media_type)
+                 VALUES ('anilist', ?, 'movie')",
             )
             .bind(id)
             .execute(&state.pool)

@@ -204,10 +204,10 @@ async fn each_metadata_source_reports_its_health_cache_and_quota() {
          VALUES ('source:anilist', 1, NULL, datetime('now')),
                 ('source:omdb', 0, 'quota spent', datetime('now')),
                 ('instance:inst-1', 0, 'HTTP 503', datetime('now'))",
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
-         VALUES ('omdb', 'tt0096283', 'movie', '[\"Animation\"]', '2999-01-01 00:00:00'),
-                ('anilist', '523', 'movie', '[]', '2999-01-01 00:00:00'),
-                ('anilist', '524', 'movie', '[]', '2999-01-01 00:00:00')",
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres)
+         VALUES ('omdb', 'tt0096283', 'movie', '[\"Animation\"]'),
+                ('anilist', '523', 'movie', '[]'),
+                ('anilist', '524', 'movie', '[]')",
         "INSERT INTO source_requests (source, day, spent) VALUES ('omdb', date('now'), 1000)",
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
          VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', 1, 1)",

@@ -355,7 +355,7 @@ async fn expired_entries_are_re_fetched() {
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
-    sqlx::query("UPDATE metadata_cache SET expires_at = datetime('now', '-1 day')")
+    sqlx::query("UPDATE metadata_cache SET cached_at = datetime('now', '-8 days')")
         .execute(&app.state.pool)
         .await
         .unwrap();
@@ -534,30 +534,36 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     assert!(report.skipped > 0, "{report:?}");
 }
 
-/// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
-/// when nothing is set, and a TMDB answer six months at most, as its terms
-/// require. Counted otherwise, every pass refetches the whole library, or a
+/// A cached answer lives as many days as `metadata_cache_ttl_days` says when
+/// a pass reads it, seven when nothing is set, and a TMDB answer six months at
+/// most, as its terms require. The lifetime set now counts, not the one the
+/// answer was cached under, so lowering it refreshes the answers already
+/// cached. Counted otherwise, every pass refetches the whole library, or a
 /// stale answer outlives the setting by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
-    for (setting, days) in [(None, 7), (Some("30"), 30), (Some("365"), 180)] {
+    for (setting, days) in [(None, 7), (Some("1"), 1), (Some("365"), 180)] {
         let tmdb = FakeTmdb::start().await;
         let app = library(&tmdb, &[(1, "movie", 100)]).await;
+        let by = crate::jobs::Attribution::manual(None);
+        let pass = || enrichment::enrich_all_media(&app.state, &by);
         if let Some(value) = setting {
+            app.save_setting("metadata_cache_ttl_days", "30").await.assert_ok();
+            pass().await.unwrap();
             app.save_setting("metadata_cache_ttl_days", value).await.assert_ok();
+        } else {
+            pass().await.unwrap();
         }
 
-        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
-            .await
-            .unwrap();
-
-        let expires: String = sqlx::query_scalar("SELECT expires_at FROM metadata_cache")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-        let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
-        let left = (expires - chrono::Utc::now()).num_hours();
-        assert!((days * 24 - 2..=days * 24).contains(&left), "{setting:?}: {left} hours");
+        for (hours, asked) in [(days * 24 - 1, 1), (days * 24 + 1, 2)] {
+            sqlx::query("UPDATE metadata_cache SET cached_at = datetime('now', ?)")
+                .bind(format!("-{hours} hours"))
+                .execute(&app.state.pool)
+                .await
+                .unwrap();
+            pass().await.unwrap();
+            assert_eq!(tmdb.recorded().paths.len(), asked, "{setting:?}, {hours} hours old");
+        }
     }
 }
 

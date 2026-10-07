@@ -7,7 +7,6 @@
 //! Only *fetched* sources come through here: `arr` is enriched by the library
 //! sync itself, which is the point of it.
 
-use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
@@ -121,14 +120,15 @@ async fn run_enrichment(
     }
     job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
-    let targets = pending_targets(&state.pool, source).await?;
+    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
+    let targets =
+        pending_targets(&state.pool, source, metadata::cache_days(source.id(), ttl_days)).await?;
     if targets.is_empty() {
         info!("The {} cache is up to date", source.id());
         return Ok(EnrichmentReport { searched, ..Default::default() });
     }
 
     info!("{} item(s) need enrichment from {}", targets.len(), source.id());
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
     let total = targets.len();
 
     // `buffer_unordered` keeps N requests in flight without spawning a task per
@@ -214,15 +214,9 @@ async fn run_enrichment(
         };
         match result {
             Ok(data) => {
-                let stored = store_metadata(
-                    &state.pool,
-                    source.id(),
-                    &external_id,
-                    &media_type,
-                    &data,
-                    ttl_days,
-                )
-                .await;
+                let stored =
+                    store_metadata(&state.pool, source.id(), &external_id, &media_type, &data)
+                        .await;
                 match stored {
                     Ok(()) => report.enriched += 1,
                     Err(e) => {
@@ -485,7 +479,10 @@ async fn resolve_identifiers(
 }
 
 /// Distinct identifiers, in this source's own namespace, whose cache entry is
-/// missing or stale: the ones never asked first, then the stalest. A pass
+/// missing or due: the ones never asked first, then the ones someone asked
+/// for again, then the stalest. An answer is due once older than `lifetime`
+/// days, read now rather than written beside it, so a lifetime lowered
+/// applies to every answer at once. A pass
 /// that stops short, at a daily quota, would otherwise refresh the same
 /// titles each day and never reach the rest.
 ///
@@ -494,7 +491,9 @@ async fn resolve_identifiers(
 async fn pending_targets(
     pool: &SqlitePool,
     source: &FetchingSource,
+    lifetime: i64,
 ) -> AppResult<Vec<(String, String)>> {
+    let due = format!("-{lifetime} days");
     let answered = metadata::info(source.id())
         .map(|provider| provider.media_types)
         .unwrap_or_default()
@@ -516,10 +515,11 @@ async fn pending_targets(
                    AND c.media_type = m.media_type
              WHERE m.{column} IS NOT NULL AND CAST(m.{column} AS TEXT) != ''
                AND m.media_type IN ({answered})
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
-             ORDER BY c.external_id IS NOT NULL, c.expires_at"
+               AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at"
         )))
         .bind(source.id())
+        .bind(&due)
         .fetch_all(pool)
         .await?),
 
@@ -533,10 +533,11 @@ async fn pending_targets(
                    AND c.external_id = s.external_id
                    AND c.media_type = s.media_type
              WHERE s.source = ? AND s.external_id IS NOT NULL
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
-             ORDER BY c.external_id IS NOT NULL, c.expires_at",
+               AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at",
         )
         .bind(source.id())
+        .bind(&due)
         .fetch_all(pool)
         .await?),
     }
@@ -646,7 +647,6 @@ pub async fn ask_now(
 /// the row can address, within [`WEBHOOK_BUDGET`]. What a source answered is
 /// stored as a full pass would store it.
 pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
     let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
     let fresh = ask_now(state, media, Some(deadline)).await;
     for ((source, media_type, local_key), external) in &fresh.identifiers {
@@ -660,7 +660,7 @@ pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
         .await?;
     }
     for ((source, external, media_type), data) in &fresh.metadata {
-        store_metadata(&state.pool, source, external, media_type, data, ttl_days).await?;
+        store_metadata(&state.pool, source, external, media_type, data).await?;
     }
     Ok(())
 }
@@ -671,17 +671,12 @@ async fn store_metadata(
     external_id: &str,
     media_type: &str,
     data: &ProviderMetadata,
-    ttl_days: i64,
 ) -> AppResult<()> {
-    let expires_at = crate::services::routing::format_timestamp(
-        Utc::now() + chrono::Duration::days(metadata::cache_days(source, ttl_days)),
-    );
-
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
          original_language, origin_countries, certification, certification_scale,
-         certifications, status, overview, cached_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+         certifications, status, overview, cached_at, stale)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
          ON CONFLICT(source, external_id, media_type) DO UPDATE SET
             genres = excluded.genres,
             keywords = excluded.keywords,
@@ -693,7 +688,7 @@ async fn store_metadata(
             status = excluded.status,
             overview = excluded.overview,
             cached_at = excluded.cached_at,
-            expires_at = excluded.expires_at",
+            stale = 0",
     )
     .bind(source)
     .bind(external_id)
@@ -707,7 +702,6 @@ async fn store_metadata(
     .bind(serde_json::to_string(&data.certifications)?)
     .bind(&data.status)
     .bind(&data.overview)
-    .bind(&expires_at)
     .execute(pool)
     .await?;
 
