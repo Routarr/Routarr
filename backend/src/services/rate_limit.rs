@@ -2,9 +2,9 @@
 //!
 //! The circuit breaker in `enrichment` stops a pass hammering a source that is
 //! *down*. It does nothing about a source that is up and simply has a limit:
-//! AniList allows roughly 90 requests a minute and Jikan 60, and a concurrency
-//! cap is not a rate: four requests in flight can still mean forty a second if
-//! each one is fast.
+//! AniList allows 30 requests a minute while degraded and Jikan 60, and a
+//! concurrency cap is not a rate: four requests in flight can still mean forty
+//! a second if each one is fast.
 //!
 //! Without pacing, a first pass over a large library trips its own breaker,
 //! abandons the source, and has to be repeated until it converges. With it, the
@@ -21,6 +21,8 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
+use crate::integrations::StatedLimit;
+
 #[derive(Debug)]
 struct State {
     /// Available tokens. Negative means requests are queued ahead of this one.
@@ -29,6 +31,8 @@ struct State {
     /// source named: in the future, nothing refills and nothing goes out
     /// before it.
     last_refill: Instant,
+    /// Tokens added per second, which the source's stated limit retunes.
+    rate: f64,
 }
 
 /// Paces requests to one source. Cloning shares the same allowance, which is
@@ -36,8 +40,6 @@ struct State {
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     state: Arc<Mutex<State>>,
-    /// Tokens added per second.
-    rate: f64,
     /// How many may be spent at once after an idle period. A small library
     /// should not be slowed to the sustained rate it will never reach.
     capacity: f64,
@@ -47,9 +49,13 @@ impl RateLimiter {
     /// `per_minute` is the sustained ceiling, `burst` what an idle bucket holds.
     pub fn new(per_minute: u32, burst: u32) -> Self {
         let capacity = burst.max(1) as f64;
+        let rate = (per_minute.max(1) as f64) / 60.0;
         Self {
-            state: Arc::new(Mutex::new(State { tokens: capacity, last_refill: Instant::now() })),
-            rate: (per_minute.max(1) as f64) / 60.0,
+            state: Arc::new(Mutex::new(State {
+                tokens: capacity,
+                last_refill: Instant::now(),
+                rate,
+            })),
             capacity,
         }
     }
@@ -77,7 +83,7 @@ impl RateLimiter {
 
         if now > state.last_refill {
             let elapsed = (now - state.last_refill).as_secs_f64();
-            state.tokens = (state.tokens + elapsed * self.rate).min(self.capacity);
+            state.tokens = (state.tokens + elapsed * state.rate).min(self.capacity);
             state.last_refill = now;
         }
 
@@ -85,22 +91,48 @@ impl RateLimiter {
         // so the waiters it held leave at the source's rate from that moment
         // rather than all at once.
         state.tokens -= 1.0;
-        let owed = Duration::from_secs_f64((-state.tokens).max(0.0) / self.rate);
+        let owed = Duration::from_secs_f64((-state.tokens).max(0.0) / state.rate);
         (state.last_refill + owed).saturating_duration_since(now)
     }
 
     /// Hold everything back for `delay`, because the source asked, and let one
     /// request out at its end, the next at the source's rate after it.
-    ///
-    /// Only ever extends: two concurrent 429s must not let the shorter one
-    /// shorten the longer one's wait.
     pub async fn penalise(&self, delay: Duration) {
+        hold(&mut *self.state.lock().await, Instant::now() + delay);
+    }
+
+    /// Pace to the limit the source states: its rate, no more requests than it
+    /// says remain, and none before its reset once none remain. A reset
+    /// further than five minutes away is held to five, as a `Retry-After` is.
+    pub async fn follow(&self, stated: StatedLimit) {
         let mut state = self.state.lock().await;
-        let until = Instant::now() + delay;
-        if until > state.last_refill {
-            state.last_refill = until;
-            state.tokens = state.tokens.min(1.0);
+        if let Some(per_minute) = stated.per_minute.filter(|per_minute| *per_minute > 0) {
+            state.rate = f64::from(per_minute) / 60.0;
         }
+        if let Some(remaining) = stated.remaining {
+            state.tokens = state.tokens.min(f64::from(remaining));
+        }
+        if let (Some(0), Some(reset)) = (stated.remaining, stated.reset) {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let wait = Duration::from_secs(reset.saturating_sub(now).min(MAX_HOLD_SECS));
+            hold(&mut state, Instant::now() + wait);
+        }
+    }
+}
+
+/// The longest a source's own word holds every request back.
+const MAX_HOLD_SECS: u64 = 300;
+
+/// Hold everything back until `until`, letting one request out then. Only
+/// ever extends: two concurrent refusals must not let the shorter one shorten
+/// the longer one's wait.
+fn hold(state: &mut State, until: Instant) {
+    if until > state.last_refill {
+        state.last_refill = until;
+        state.tokens = state.tokens.min(1.0);
     }
 }
 
@@ -213,6 +245,23 @@ mod tests {
 
         let wait = limiter.reserve().await;
         assert!(wait >= Duration::from_secs(59), "a second 429 cut the first one short: {wait:?}");
+    }
+
+    /// The rate a source states replaces the one assumed, no more requests
+    /// go out than it says remain, and none before its reset once none do.
+    #[tokio::test(start_paused = true)]
+    async fn the_limit_a_source_states_is_followed() {
+        let limiter = RateLimiter::new(30, 5);
+        limiter.follow(StatedLimit { per_minute: Some(90), remaining: Some(1), reset: None }).await;
+        assert_eq!(limiter.reserve().await, Duration::ZERO);
+        let paced = limiter.reserve().await.as_secs_f64();
+        assert!((paced - 60.0 / 90.0).abs() < 0.01, "not paced at 90 a minute: {paced}");
+
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap();
+        let reset = Some(now.as_secs() + 40);
+        limiter.follow(StatedLimit { per_minute: None, remaining: Some(0), reset }).await;
+        let held = limiter.reserve().await;
+        assert!(held >= Duration::from_secs(38), "the reset was not waited for: {held:?}");
     }
 
     #[tokio::test(start_paused = true)]

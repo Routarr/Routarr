@@ -121,6 +121,44 @@ pub(crate) async fn send_json_within<T: serde::de::DeserializeOwned>(
     json_capped(service, response, cap, Some("ROUTARR_MAX_LIBRARY_MIB")).await
 }
 
+/// What a source states of its own limit beside an answer: AniList sends
+/// `X-RateLimit-Limit` and `X-RateLimit-Remaining` with each one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StatedLimit {
+    /// Requests a minute.
+    pub per_minute: Option<u32>,
+    /// Requests left before the source refuses.
+    pub remaining: Option<u32>,
+    /// When the allowance renews, in seconds since the Unix epoch.
+    pub reset: Option<u64>,
+}
+
+impl StatedLimit {
+    fn from_headers(headers: &reqwest::header::HeaderMap) -> Self {
+        fn number<T: std::str::FromStr>(
+            headers: &reqwest::header::HeaderMap,
+            name: &str,
+        ) -> Option<T> {
+            headers.get(name)?.to_str().ok()?.trim().parse().ok()
+        }
+        Self {
+            per_minute: number(headers, "x-ratelimit-limit"),
+            remaining: number(headers, "x-ratelimit-remaining"),
+            reset: number(headers, "x-ratelimit-reset"),
+        }
+    }
+}
+
+/// [`send_json`], with what the source states of its limit beside a success.
+pub(crate) async fn send_json_stating<T: serde::de::DeserializeOwned>(
+    service: &'static str,
+    request: reqwest::RequestBuilder,
+) -> AppResult<(T, StatedLimit)> {
+    let response = check_status(service, request).await?;
+    let stated = StatedLimit::from_headers(response.headers());
+    Ok((json_within(service, response).await?, stated))
+}
+
 /// The JSON a successful answer carries, read up to [`MAX_BODY`].
 pub(crate) async fn json_within<T: serde::de::DeserializeOwned>(
     service: &'static str,
@@ -497,6 +535,20 @@ fn truncate(input: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What a source states of its limit is read from its headers, and a
+    /// header missing or unreadable states nothing.
+    #[test]
+    fn a_stated_limit_is_read_from_the_headers() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-ratelimit-limit", "30".parse().unwrap());
+        headers.insert("x-ratelimit-remaining", " 0 ".parse().unwrap());
+        headers.insert("x-ratelimit-reset", "soon".parse().unwrap());
+        assert_eq!(
+            StatedLimit::from_headers(&headers),
+            StatedLimit { per_minute: Some(30), remaining: Some(0), reset: None }
+        );
+    }
 
     /// A wait in seconds, up to five minutes. Longer, or a date, is not
     /// honoured: a sleep nobody can interrupt is not how a pass should spend

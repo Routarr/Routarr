@@ -18,7 +18,7 @@ use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobHandle, JobKind};
 use crate::models::{Media, ProviderMetadata};
 use crate::services::metadata::{self, Addressing, FetchingSource};
-use crate::services::rate_limit::{RateLimiter, honour_retry_after};
+use crate::services::rate_limit::RateLimiter;
 use crate::services::routing;
 use crate::state::AppState;
 
@@ -174,7 +174,7 @@ async fn run_enrichment(
                     closed.store(true, Ordering::Relaxed);
                     return (external_id, media_type, Err(NotAsked::Deferred));
                 }
-                honour_retry_after(&limiter, &outcome).await;
+                source.paced_after(&limiter, &outcome).await;
                 breaker.record(&outcome);
                 (external_id, media_type, Ok(outcome))
             }
@@ -419,7 +419,7 @@ async fn resolve_identifiers(
 
                 limiter.acquire().await;
                 let outcome = source.resolve(&title, year, &media_type).await;
-                honour_retry_after(&limiter, &outcome).await;
+                source.paced_after(&limiter, &outcome).await;
                 breaker.record(&outcome);
                 (key, media_type, Some(outcome))
             }
@@ -582,7 +582,7 @@ pub async fn ask_now(
             (None, Addressing::Search) => {
                 pace.acquire().await;
                 let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
-                honour_retry_after(&pace, &resolved).await;
+                source.paced_after(&pace, &resolved).await;
                 match resolved {
                     Ok(Some(external)) => {
                         fresh.identifiers.insert(searched, Some(external.clone()));
@@ -613,7 +613,7 @@ pub async fn ask_now(
             }
             continue;
         }
-        honour_retry_after(&pace, &fetched).await;
+        source.paced_after(&pace, &fetched).await;
         match fetched {
             Ok(answer) => {
                 fresh.metadata.insert(key(&external), answer);

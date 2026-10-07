@@ -866,6 +866,27 @@ async fn a_working_source_is_never_cut_off_by_the_breaker() {
 
 // ------------------------------------------------------------ pacing
 
+/// AniList states its limit beside each answer, and the pace every request
+/// to it waits on follows that limit rather than the one assumed.
+#[tokio::test]
+async fn the_pace_follows_the_limit_anilist_states() {
+    use crate::services::rate_limit::RateLimiter;
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
+    let source = app.state.metadata_sources().await.into_iter().next().expect("AniList");
+    let pace = RateLimiter::new(90, 1);
+
+    let found = source.resolve("My Neighbor Totoro", Some(1988), "movie").await;
+    source.paced_after(&pace, &found).await;
+
+    tokio::time::pause();
+    let start = tokio::time::Instant::now();
+    pace.acquire().await;
+    pace.acquire().await;
+    let per_request = 60 / u64::from(super::fake_sources::ANILIST_LIMIT);
+    assert_eq!(start.elapsed().as_secs(), per_request, "not paced at the limit AniList stated");
+}
+
 #[tokio::test]
 async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     let sources = FakeSources::start().await;
@@ -896,7 +917,7 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
         sources.iter().map(|source| (source.id(), source.rate())).collect();
     assert_eq!(
         rates,
-        vec![("anilist", Some((90, 5))), ("jikan", Some((60, 3))), ("omdb", Some((300, 10)))]
+        vec![("anilist", Some((30, 2))), ("jikan", Some((60, 3))), ("omdb", Some((300, 10)))]
     );
 
     // A concurrency setting is a ceiling: Jikan, unofficial and documented at

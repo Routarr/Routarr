@@ -314,12 +314,14 @@ impl FetchingSource {
     /// bought for nothing.
     pub fn rate(&self) -> Option<(u32, u32)> {
         match self {
-            // AniList documents 90 a minute. Nothing authenticates, so the
-            // limit is per address and shared with anything else on the host.
+            // AniList documents 30 a minute while degraded, 90 otherwise, and
+            // states the one in force beside each answer, which the pace
+            // follows (`paced_after`). Nothing authenticates, so the limit is
+            // per address and shared with anything else on the host.
             Self::AniList(client)
                 if client.base_url() == crate::integrations::anilist::DEFAULT_BASE_URL =>
             {
-                Some((90, 5))
+                Some((30, 2))
             }
             // Jikan documents three a second *and* sixty a minute. The minute is
             // the binding one, and it is unofficial infrastructure that deserves
@@ -370,6 +372,19 @@ impl FetchingSource {
                 Some(crate::services::quota::DailyQuota::new(OMDB, client.daily_requests()))
             }
             _ => None,
+        }
+    }
+
+    /// Pace `pace` after an answer of this source: to the wait a refusal named,
+    /// and to the limit the source states beside a success.
+    pub async fn paced_after<T>(
+        &self,
+        pace: &crate::services::rate_limit::RateLimiter,
+        outcome: &AppResult<T>,
+    ) {
+        crate::services::rate_limit::honour_retry_after(pace, outcome).await;
+        if let (Self::AniList(client), Ok(_)) = (self, outcome) {
+            pace.follow(client.stated_limit()).await;
         }
     }
 
