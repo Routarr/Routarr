@@ -464,7 +464,7 @@ async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
 async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Probed {
     let needs_key = metadata::info(source.id()).is_some_and(|info| info.needs_key);
     let Some(quota) = source.daily_quota() else {
-        return Probed::of(&paced_probe(source).await, needs_key);
+        return Probed::of(&paced_probe(state, source).await, needs_key);
     };
     let today: Option<(bool, Option<String>)> = sqlx::query_as(
         "SELECT reachable, detail FROM probe_results
@@ -481,7 +481,7 @@ async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Pr
     if quota.reserve(&state.pool, 1).await.unwrap_or(0) == 0 {
         return Probed::quota_spent();
     }
-    let outcome = paced_probe(source).await;
+    let outcome = paced_probe(state, source).await;
     if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent)
         && let Err(e) = quota.exhaust(&state.pool).await
     {
@@ -492,8 +492,11 @@ async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Pr
 
 /// The source's connection test, waiting on its pace and holding the pace
 /// back as the answer asks.
-async fn paced_probe(source: &metadata::FetchingSource) -> crate::error::AppResult<bool> {
-    let pace = source.pace();
+async fn paced_probe(
+    state: &AppState,
+    source: &metadata::FetchingSource,
+) -> crate::error::AppResult<bool> {
+    let pace = state.paces.of(source);
     pace.acquire().await;
     let outcome = source.test_connection().await;
     source.paced_after(&pace, &outcome).await;

@@ -53,6 +53,7 @@ pub struct AppState {
     /// inside the client would mean logging in again each time. TheTVDB counts
     /// logins, and it is the only source that has any.
     pub tvdb_token: crate::integrations::tvdb::TokenCache,
+    pub paces: crate::services::metadata::Paces,
     /// The API key as it stands right now.
     ///
     /// Held here rather than on [`Config`] because it can change while the
@@ -488,6 +489,7 @@ impl AppState {
             )
             .unwrap(),
             tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
+            paces: Default::default(),
             jobs: JobRegistry::new(pool.clone()),
             api_key: Arc::new(std::sync::RwLock::new(resolve_api_key(&config))),
             sign_in: Arc::new(Default::default()),

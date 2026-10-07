@@ -1042,6 +1042,21 @@ async fn a_probe_names_why_a_source_did_not_answer() {
     }
 }
 
+/// A probe keeps to its source's pace: sent while the source has asked for
+/// quiet, it earns another refusal and reports the source as failing.
+#[tokio::test]
+async fn a_probe_waits_while_its_source_is_held_back() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
+    let jikan = app.state.metadata_sources().await.into_iter().find(|s| s.id() == "jikan");
+    let pace = app.state.paces.of(&jikan.expect("jikan is a source"));
+    pace.penalise(std::time::Duration::from_millis(300)).await;
+
+    let started = std::time::Instant::now();
+    assert!(probe_verdicts(&app).await.is_empty(), "the held source failed its probe");
+    assert!(started.elapsed() >= std::time::Duration::from_millis(250), "the probe did not wait");
+}
+
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
 /// into every ISO language and country, and leaves the other sources' answers.
 #[tokio::test]

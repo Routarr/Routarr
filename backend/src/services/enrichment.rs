@@ -106,7 +106,7 @@ async fn run_enrichment(
     // A found identifier is kept, and a miss for a month or so
     // (`metadata::resolved_keys`), so this is a first-pass cost, not a
     // per-run one.
-    let limiter = source.pace();
+    let limiter = state.paces.of(source);
 
     if source.addressing() == Addressing::Search {
         resolve_identifiers(state, source, job, &limiter).await?;
@@ -581,7 +581,7 @@ pub async fn ask_now(
         if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
             continue;
         }
-        let pace = source.pace();
+        let pace = state.paces.of(&source);
         let external = match (known, source.addressing()) {
             (Some(external), _) => external,
             (None, Addressing::Search) if missed || !searchable => continue,

@@ -15,6 +15,7 @@
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::anilist::AniListClient;
@@ -23,6 +24,7 @@ use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::models::{Media, MetadataField, ProviderMetadata};
+use crate::services::rate_limit::RateLimiter;
 use crate::services::rule_engine::normalise_value;
 
 pub const ARR: &str = "arr";
@@ -297,6 +299,27 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
 /// (it goes unpaced), `AppState::metadata_sources` (no client is ever built),
 /// and for a keyed source `provider_key_from` and `provider_keys_from` (its
 /// environment key is never read, and the source never counts as usable).
+/// The one pace every request to a source waits on, the enrichment pass's,
+/// `GET /route`'s and the health probe's alike: each at the full published
+/// rate, they would ask twice as fast as the source allows, and its 429s stop
+/// a pass. Held by the state rather than the process, so two states never
+/// slow each other.
+#[derive(Debug, Clone, Default)]
+pub struct Paces(Arc<std::sync::Mutex<HashMap<&'static str, RateLimiter>>>);
+
+impl Paces {
+    /// The limiter of `source`: at its published rate on its public endpoint,
+    /// unlimited elsewhere, and held back alike when the source refuses.
+    pub fn of(&self, source: &FetchingSource) -> RateLimiter {
+        let mut paces = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let pace = paces.entry(source.id()).or_insert_with(|| match source.rate() {
+            Some((per_minute, burst)) => RateLimiter::new(per_minute, burst),
+            None => RateLimiter::unlimited(),
+        });
+        pace.clone()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FetchingSource {
     Tmdb(TmdbClient),
@@ -365,24 +388,6 @@ impl FetchingSource {
         }
     }
 
-    /// The limiter for this source, ready to be shared across a pass.
-    /// The one pace every request to this source waits on, the enrichment
-    /// pass's and `GET /route`'s alike: each at the full published rate, they
-    /// would ask twice as fast as the source allows, and its 429s stop a pass.
-    /// An endpoint with no published rate, as a test stand-in, is not paced.
-    pub fn pace(&self) -> crate::services::rate_limit::RateLimiter {
-        use crate::services::rate_limit::RateLimiter;
-        static PACES: std::sync::LazyLock<
-            std::sync::Mutex<std::collections::HashMap<&'static str, RateLimiter>>,
-        > = std::sync::LazyLock::new(Default::default);
-
-        let Some((per_minute, burst)) = self.rate() else {
-            return RateLimiter::unlimited();
-        };
-        let mut paces = PACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        paces.entry(self.id()).or_insert_with(|| RateLimiter::new(per_minute, burst)).clone()
-    }
-
     /// The requests this source may be sent in a UTC day, counted across
     /// every caller: an OMDb key is given a daily quota, a thousand on a free
     /// one, and refuses every request past it until the day ends.
@@ -402,7 +407,7 @@ impl FetchingSource {
         pace: &crate::services::rate_limit::RateLimiter,
         outcome: &AppResult<T>,
     ) {
-        crate::services::rate_limit::honour_retry_after(pace, outcome).await;
+        crate::services::rate_limit::after_answer(pace, outcome).await;
         if let (Self::AniList(client), Ok(_)) = (self, outcome) {
             pace.follow(client.stated_limit()).await;
         }
@@ -1051,17 +1056,20 @@ mod tests {
         assert_eq!(pick(&["DE", "GB"]), None);
     }
 
-    /// Enrichment and `GET /route` spend one budget per source: each at the
-    /// full published rate, they would ask twice as fast as the source allows,
-    /// and its 429s would stop the enrichment pass.
+    /// Every path to a source spends one budget, a source with no published
+    /// rate included: unpaced, it is still held back when it refuses.
     #[tokio::test]
     async fn every_path_to_a_source_spends_one_pace() {
-        use crate::integrations::anilist::{AniListClient, DEFAULT_BASE_URL};
-        let source =
-            FetchingSource::AniList(AniListClient::new(reqwest::Client::new(), DEFAULT_BASE_URL));
-        source.pace().penalise(std::time::Duration::from_millis(300)).await;
+        use crate::integrations::anilist::AniListClient;
+        let paces = Paces::default();
+        let source = FetchingSource::AniList(AniListClient::new(
+            reqwest::Client::new(),
+            "http://127.0.0.1:1",
+        ));
+        assert_eq!(source.rate(), None, "the fixture's source is paced");
+        paces.of(&source).penalise(std::time::Duration::from_millis(300)).await;
         let started = std::time::Instant::now();
-        source.pace().acquire().await;
+        paces.of(&source).acquire().await;
         assert!(started.elapsed() >= std::time::Duration::from_millis(250), "two budgets");
     }
 
