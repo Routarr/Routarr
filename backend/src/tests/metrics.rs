@@ -191,6 +191,60 @@ async fn the_guardrail_switches_are_exposed() {
     assert!(scrape(&app).await.contains("routarr_dry_run 0"));
 }
 
+/// A source down, a quota spent and titles nothing describes are watched as
+/// an instance down is: a source never probed has no health sample, an
+/// instance's probe is not a source's, and the quota of a source without
+/// one is not reported.
+#[tokio::test]
+async fn each_metadata_source_reports_its_health_cache_and_quota() {
+    let sources = super::fake_sources::FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb,anilist,jikan").await;
+    app.execute(&[
+        "INSERT INTO probe_results (subject, reachable, detail, checked_at)
+         VALUES ('source:anilist', 1, NULL, datetime('now')),
+                ('source:omdb', 0, 'quota spent', datetime('now')),
+                ('instance:inst-1', 0, 'HTTP 503', datetime('now'))",
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
+         VALUES ('omdb', 'tt0096283', 'movie', '[\"Animation\"]', '2999-01-01 00:00:00'),
+                ('anilist', '523', 'movie', '[]', '2999-01-01 00:00:00'),
+                ('anilist', '524', 'movie', '[]', '2999-01-01 00:00:00')",
+        "INSERT INTO source_requests (source, day, spent) VALUES ('omdb', date('now'), 1000)",
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored, has_files)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Heat', 1, 1)",
+    ])
+    .await;
+
+    let body = scrape(&app).await;
+
+    let source = |name: &str, id: &str| format!("{name}{{source=\"{id}\"}}");
+    for (series, value) in [
+        (source("routarr_metadata_source_up", "anilist"), 1),
+        (source("routarr_metadata_source_up", "omdb"), 0),
+        (source("routarr_metadata_cache_entries", "anilist"), 2),
+        (source("routarr_metadata_cache_entries", "omdb"), 1),
+        (source("routarr_metadata_quota_spent", "omdb"), 1000),
+        (source("routarr_metadata_quota_limit", "omdb"), 1000),
+    ] {
+        assert!(body.contains(&format!("{series} {value}\n")), "no {series} {value} in:\n{body}");
+    }
+    for absent in [
+        source("routarr_metadata_source_up", "jikan"),
+        source("routarr_metadata_source_up", "inst-1"),
+        source("routarr_metadata_quota_spent", "anilist"),
+    ] {
+        assert!(!body.contains(&absent), "{absent} in:\n{body}");
+    }
+    // Totoro is described by OMDb, Heat by nothing.
+    assert!(
+        body.contains(
+            "routarr_media_without_metadata{arr_instance=\"Arr\",arr_instance_id=\"inst-1\",\
+             media_type=\"movie\"} 1\n"
+        ),
+        "{body}"
+    );
+    assert_well_formed(&body);
+}
+
 #[tokio::test]
 async fn a_category_name_with_a_quote_does_not_break_the_scrape() {
     let app = TestApp::new().await;
