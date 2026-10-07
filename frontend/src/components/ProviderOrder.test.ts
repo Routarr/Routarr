@@ -9,7 +9,7 @@ import ProviderOrder from './ProviderOrder.svelte';
 /**
  * A source's credential lives in the source's own row: a key is not a setting
  * of the application, it is a property of the source it unlocks. Stated below
- * the list, enabling TMDb would mean scrolling past the whole thing, saving,
+ * the list, enabling TMDB would mean scrolling past the whole thing, saving,
  * scrolling back and saving again.
  */
 
@@ -36,7 +36,7 @@ const STRINGS = {
 function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
   return {
     id: 'tmdb',
-    display_name: 'TMDb',
+    display_name: 'TMDB',
     fetched: true,
     needs_key: true,
     key_env: null,
@@ -103,7 +103,7 @@ describe('a credential is edited in the row of the source it unlocks', () => {
       strings: STRINGS,
     });
 
-    await userEvent.type(await screen.findByLabelText('TMDb'), 'ab');
+    await userEvent.type(await screen.findByLabelText('TMDB'), 'ab');
 
     expect(onKeyChange.mock.calls).toEqual([
       ['tmdb_api_key', 'a'],
@@ -133,8 +133,8 @@ describe('a credential is edited in the row of the source it unlocks', () => {
       strings: STRINGS,
     });
 
-    await screen.findByText('TMDb');
-    expect(screen.queryByLabelText('TMDb')).toBeNull();
+    await screen.findByText('TMDB');
+    expect(screen.queryByLabelText('TMDB')).toBeNull();
   });
 
   /**
@@ -156,7 +156,7 @@ describe('a credential is edited in the row of the source it unlocks', () => {
       strings: STRINGS,
     });
 
-    const field = await screen.findByLabelText('TMDb');
+    const field = await screen.findByLabelText('TMDB');
     expect(field.getAttribute('placeholder')).toBe('A key is stored – type to replace it');
   });
 });
@@ -183,7 +183,7 @@ describe('each source button names its source', () => {
       strings: STRINGS,
     });
 
-    expect(await screen.findByRole('button', { name: 'Enable – TMDb' })).toBeTruthy();
+    expect(await screen.findByRole('button', { name: 'Enable – TMDB' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Disable – AniList' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Move up – AniList' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Move down – Radarr / Sonarr' })).toBeTruthy();
@@ -245,9 +245,9 @@ describe('a source keeps the focus when its row moves', () => {
   it('hands a source switched off without its key to that key field', async () => {
     showSources('arr,tmdb');
 
-    await userEvent.click(await screen.findByRole('button', { name: 'Disable – TMDb' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Disable – TMDB' }));
 
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('TMDb')));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('TMDB')));
   });
 
   /** At the top, its Move up refused, the row keeps the focus on the way back down. */

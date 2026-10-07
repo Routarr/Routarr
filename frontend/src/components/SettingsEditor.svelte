@@ -669,7 +669,7 @@
           <!-- The three metadata credentials are rendered by the source list
                rather than here: a key is not a setting of the application, it
                is a property of the source it unlocks, and stated apart it would
-               make "enable TMDb" a round trip past the whole list and back,
+               make "enable TMDB" a round trip past the whole list and back,
                with a save at each end. -->
           {#each FIELDS.filter((field) => (active.keys as readonly string[]).includes(field.key) && !SELF_RENDERED.has(field.key)) as field (field.key)}
             <div class="form-group">

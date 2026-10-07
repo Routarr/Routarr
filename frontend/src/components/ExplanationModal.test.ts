@@ -116,7 +116,7 @@ describe('ExplanationModal', () => {
   /**
    * Which sources contributed, in priority order. With one source this is
    * obvious. With several it is the only way to know whether a genre came from
-   * the library or from TMDb.
+   * the library or from TMDB.
    */
   it('names the sources that contributed, in order', () => {
     show(

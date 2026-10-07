@@ -1039,7 +1039,7 @@ pub(crate) fn resolve_metadata(
 /// rated, whichever source gave it, else the first source's, in the order of
 /// the sources.
 ///
-/// Each source answers in one system (TMDb and TheTVDB for the first region
+/// Each source answers in one system (TMDB and TheTVDB for the first region
 /// they rate, OMDb for the United States, a Radarr for the country of its
 /// metadata settings, MyAnimeList in its own), and the regions say whose
 /// system a rule is written for. A rating outside every region still answers

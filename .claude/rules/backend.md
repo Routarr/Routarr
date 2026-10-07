@@ -116,7 +116,7 @@ Each of these questions has one function. Call it, never spell the question agai
 ## Sources and outbound HTTP
 
 - Evaluation reads the configured order (`metadata_order`) whatever the keys, so a cached
-  answer keeps counting after its key is removed, a TMDb one until the purge removes it at
+  answer keeps counting after its key is removed, a TMDB one until the purge removes it at
   six months (`metadata::cache_days`). Fetching and the "no source can answer" warnings read
   `metadata_providers`, the subset able to answer today.
 - A new source needs a `PROVIDERS` entry with its `Addressing` and a `FetchingSource` variant,
@@ -137,7 +137,7 @@ Each of these questions has one function. Call it, never spell the question agai
 - Every call uses the shared `state.http`, never `reqwest::Client::new()`: the shared client
   carries the timeout and the same-origin redirect policy that keeps `X-Api-Key` from leaking.
 - Send through `integrations::send_json` or `send_ok`. Never format a `reqwest::Error` with
-  `Display`: it embeds the URL, and a TMDb URL carries `?api_key=`.
+  `Display`: it embeds the URL, and a TMDB URL carries `?api_key=`.
 
 ## Localization
 

@@ -557,7 +557,7 @@ describe('an id list with an entry that is not an id', () => {
         conditions: [
           {
             type: 'tmdb_id_in',
-            label: 'TMDb id is',
+            label: 'TMDB id is',
             value_type: 'number_list',
             needs_metadata: false,
             suggestions: '',
@@ -570,7 +570,7 @@ describe('an id list with an entry that is not an id', () => {
         ],
       },
     });
-    const field = await screen.findByLabelText('TMDb id is');
+    const field = await screen.findByLabelText('TMDB id is');
     const save = screen.getByRole('button', { name: 'Save rule' });
 
     await userEvent.type(field, '603, 6O4');
@@ -661,7 +661,7 @@ describe('a condition field holding what it cannot read', () => {
       },
       catalog: {
         conditions: [
-          condition('tmdb_id_in', 'number_list', 'TMDb id is'),
+          condition('tmdb_id_in', 'number_list', 'TMDB id is'),
           condition('tvdb_id_in', 'number_list', 'TheTVDB id is'),
         ],
       },
@@ -671,7 +671,7 @@ describe('a condition field holding what it cannot read', () => {
     await waitFor(() => expect(save).toBeDisabled());
 
     // The row above goes: the unreadable one moves up and keeps its text.
-    await userEvent.click(screen.getByRole('button', { name: 'Delete – TMDb id is' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Delete – TMDB id is' }));
     expect(screen.getByLabelText('TheTVDB id is')).toHaveValue('6O4');
     expect(save).toBeDisabled();
 

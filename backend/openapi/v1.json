@@ -1015,7 +1015,7 @@
             "type": "object"
           },
           {
-            "description": "The title's TMDb id is one of these.",
+            "description": "The title's TMDB id is one of these.",
             "properties": {
               "type": {
                 "enum": [
@@ -1024,7 +1024,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "The title's TMDb id is one of these.",
+                "description": "The title's TMDB id is one of these.",
                 "items": {
                   "format": "int64",
                   "type": "integer"
@@ -5985,7 +5985,7 @@
             }
           },
           {
-            "description": "Only the titles with this TMDb id.",
+            "description": "Only the titles with this TMDB id.",
             "in": "query",
             "name": "tmdb_id",
             "required": false,
@@ -6340,7 +6340,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,
@@ -6406,7 +6406,7 @@
         "x-routarr-scope": "write"
       },
       "put": {
-        "description": "For an application that knows the title by its TMDb, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
+        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
         "operationId": "pin_by_external_id",
         "parameters": [
           {
@@ -6419,7 +6419,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,
@@ -6780,7 +6780,7 @@
     },
     "/route": {
       "get": {
-        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
+        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDB or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
         "operationId": "place_title",
         "parameters": [
           {
@@ -6793,7 +6793,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,

@@ -80,7 +80,7 @@ describe('Diagnostics', () => {
   it('tells a source waiting for a key apart from one that answered badly', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       withProviders([
-        { id: 'tmdb', display_name: 'TMDb', needs_key: true, configured: false, connected: null },
+        { id: 'tmdb', display_name: 'TMDB', needs_key: true, configured: false, connected: null },
         { id: 'omdb', display_name: 'OMDb', needs_key: true, configured: true, connected: false },
         {
           id: 'arr',
@@ -93,7 +93,7 @@ describe('Diagnostics', () => {
     );
     const { container } = show();
 
-    await screen.findByText('TMDb');
+    await screen.findByText('TMDB');
     const rows = [...container.querySelectorAll('.source-row')];
     expect(within(rows[0] as HTMLElement).getByText('needs an API key')).toBeTruthy();
     expect(within(rows[1] as HTMLElement).getByText('error')).toBeTruthy();

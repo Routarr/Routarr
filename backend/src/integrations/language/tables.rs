@@ -201,7 +201,7 @@ pub const LANGUAGES: &[(&str, &[&str])] = &[
 /// the bibliographic code beside the terminological one where they differ
 /// (`fre` and `fra`), sorted by the first. TheTVDB writes Cantonese `yue` and
 /// Taiwanese Mandarin `zhtw`, read as `zh`, Filipino `fil` is read as `tl`,
-/// and Norwegian Bokmål `nob` as the `no` TMDb gives.
+/// and Norwegian Bokmål `nob` as the `no` TMDB gives.
 pub(super) const ISO_639_3: &[(&str, &str)] = &[
     ("aar", "aa"),
     ("abk", "ab"),
@@ -413,7 +413,7 @@ pub(super) const ISO_639_3: &[(&str, &str)] = &[
 ];
 
 /// Every country a rule can name, as (ISO 3166-1 alpha-2 code, its spellings),
-/// the countries that no longer exist last, under the code TMDb files their
+/// the countries that no longer exist last, under the code TMDB files their
 /// films under (`RETIRED`). Read both ways for the same reason as
 /// [`LANGUAGES`]. West Germany is today's Germany, East Germany is not.
 pub const COUNTRIES: &[(&str, &[&str])] = &[

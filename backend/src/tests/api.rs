@@ -2779,7 +2779,7 @@ async fn health_reports_actionable_warnings() {
 
     assert_eq!(health["database"], "connected");
 
-    // Listed, the Arr answers without a key and TMDb does not: the source list
+    // Listed, the Arr answers without a key and TMDB does not: the source list
     // says so rather than the page claiming metadata is simply unavailable.
     let providers = health["metadata"]["providers"].as_array().unwrap();
     assert_eq!(providers[0]["id"], "arr");
@@ -2788,7 +2788,7 @@ async fn health_reports_actionable_warnings() {
     assert_eq!(providers[1]["configured"], false);
 
     let warnings = warning_messages(health);
-    assert!(warnings.iter().any(|w| w.contains("TMDb")));
+    assert!(warnings.iter().any(|w| w.contains("TMDB")));
     assert!(warnings.iter().any(|w| w.contains("unauthenticated")));
     assert_eq!(health["status"], "degraded");
 }

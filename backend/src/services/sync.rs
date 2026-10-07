@@ -536,7 +536,7 @@ pub fn media_row_id(instance_id: &str, arr_id: i64) -> String {
 /// A rebuilt Arr, or an instance pointed at another Arr, hands its ids out
 /// again, and the row's exception and proposals were about the title the id
 /// used to name. Told apart by type and by the one external id the Arr holds
-/// unique: Radarr refuses two films of one TMDb id, and Sonarr two series of
+/// unique: Radarr refuses two films of one TMDB id, and Sonarr two series of
 /// one TheTVDB id. Any other id changes when a metadata source corrects it,
 /// and the row takes the correction.
 async fn reassigned(

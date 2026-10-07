@@ -1,7 +1,7 @@
 //! Metadata as the engine consumes it, and as each source supplies it.
 //!
 //! Two shapes on purpose. `ProviderMetadata` is one source's answer, complete
-//! or not: Radarr knows the genres but not the keywords, TMDb knows both.
+//! or not: Radarr knows the genres but not the keywords, TMDB knows both.
 //! `MediaMetadata` is what the rule engine sees: the answers of every enabled
 //! source collapsed field by field, plus the record of which source won each
 //! field, without which "genre does not contain Animation" becomes impossible
@@ -100,8 +100,8 @@ impl MediaMetadata {
     ///
     /// Per field, the first source that has a value keeps it and the ones below
     /// do not overwrite it: a lower-priority source only fills a gap. That is
-    /// the whole point of the ordering: with Radarr above TMDb the genres come
-    /// from the library, and TMDb still contributes the keywords Radarr has no
+    /// the whole point of the ordering: with Radarr above TMDB the genres come
+    /// from the library, and TMDB still contributes the keywords Radarr has no
     /// notion of. Returns `None` when no source knew anything a condition
     /// reads, so `has_metadata` keeps meaning "something matchable is known
     /// about this item".
@@ -272,7 +272,7 @@ mod tests {
     fn a_lower_source_fills_the_gaps_instead_of_being_ignored() {
         let merged = MediaMetadata::merge([("arr", arr()), ("tmdb", tmdb())]).unwrap();
 
-        // Radarr has no notion of either, so TMDb still contributes them.
+        // Radarr has no notion of either, so TMDB still contributes them.
         assert_eq!(merged.keywords, vec!["anime"]);
         assert_eq!(merged.origin_countries, vec!["JP"]);
         assert_eq!(merged.source_of("keywords"), Some("tmdb"));
@@ -285,7 +285,7 @@ mod tests {
 
         assert_eq!(merged.genres, vec!["Fantasy"]);
         assert_eq!(merged.source_of("genres"), Some("tmdb"));
-        // TMDb answers every field the Arr could have answered, so the Arr adds
+        // TMDB answers every field the Arr could have answered, so the Arr adds
         // nothing at all from this position. That is the honest reading of
         // "lower priority", not a bug.
         assert_eq!(merged.sources, vec!["tmdb"]);

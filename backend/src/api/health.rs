@@ -690,7 +690,7 @@ async fn offline_warnings(
 
 /// What is wrong with the metadata configuration, in the user's language.
 ///
-/// Deliberately not "no TMDb key": with the Arr enabled, genre, language and
+/// Deliberately not "no TMDB key": with the Arr enabled, genre, language and
 /// certification rules match perfectly well without one. Only keywords and
 /// origin countries do not.
 fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<Warning> {
@@ -713,7 +713,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
     }
 
     // A key set in the environment for a source the list leaves out. The start
-    // lists TMDb for its key only while no list is stored, and any save of the
+    // lists TMDB for its key only while no list is stored, and any save of the
     // Settings screen stores one, so the key would otherwise be read and never
     // used, with nothing saying so.
     for provider in metadata::PROVIDERS {

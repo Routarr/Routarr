@@ -258,7 +258,7 @@ async fn enrich_asks_a_source_for_what_the_rules_read_and_stores_nothing() {
     let app = TestApp::around(app.state.clone().with_config(config));
     crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
     radarr_library(&app, &arr).await;
-    // Tried before the anime rule, and only TMDb answers keywords.
+    // Tried before the anime rule, and only TMDB answers keywords.
     app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
     sqlx::query("UPDATE rules SET priority = 1, target_category = 'kids' WHERE id = 'r-1'")
         .execute(&app.state.pool)
@@ -356,7 +356,7 @@ async fn a_series_is_placed_through_sonarr() {
     let unknown = app.get("/api/v1/route?type=series&tvdb=1").await;
     assert_eq!(unknown.status, StatusCode::NOT_FOUND);
 
-    // Named by TMDb, a series is found in the library, and one the library
+    // Named by TMDB, a series is found in the library, and one the library
     // does not hold through Sonarr's lookup of a `tmdb:` term.
     let by_tmdb = app.get("/api/v1/route?type=series&tmdb=30991").await;
     let found = by_tmdb.assert_ok();

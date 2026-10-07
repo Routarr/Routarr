@@ -1,8 +1,8 @@
 //! Servarr language names to ISO 639-1 codes.
 //!
-//! TMDb reports `original_language` as a code (`ja`), the Arrs as a word
+//! TMDB reports `original_language` as a code (`ja`), the Arrs as a word
 //! (`Japanese`). One field, two vocabularies: untranslated, a rule matching
-//! through TMDb silently stops matching the day the Arr answers first, the
+//! through TMDB silently stops matching the day the Arr answers first, the
 //! worst failure a routing rule has.
 //!
 //! The tables (`tables.rs`) hold every ISO 639-1 language and every ISO 3166-1
@@ -24,7 +24,7 @@ pub use tables::{COUNTRIES, LANGUAGES};
 /// the source below answer.
 pub fn normalise(name: &str) -> Option<String> {
     // "Portuguese (Brazil)" and "Spanish (Latino)" are regional spellings of a
-    // language TMDb reports without the region.
+    // language TMDB reports without the region.
     let base = name.split('(').next().unwrap_or(name).trim().to_lowercase();
     if matches!(base.as_str(), "" | "unknown" | "n/a" | "none") {
         return None;
@@ -39,9 +39,9 @@ pub fn normalise(name: &str) -> Option<String> {
         .or(Some(base))
 }
 
-/// ISO 639-1 from TMDb's `original_language`.
+/// ISO 639-1 from TMDB's `original_language`.
 ///
-/// TMDb writes ISO 639-1 but for two codes: `cn`, its Cantonese, which ISO
+/// TMDB writes ISO 639-1 but for two codes: `cn`, its Cantonese, which ISO
 /// files under `zh`, and `xx`, no language, which would claim the field and
 /// keep a lower source from filling it.
 pub fn from_tmdb(code: &str) -> Option<String> {
@@ -69,7 +69,7 @@ pub fn from_iso_639_3(code: &str) -> Option<String> {
 
 /// ISO 3166-1 alpha-2 from a country *name*.
 ///
-/// OMDb answers "United States, Japan" where TMDb answers `["US", "JP"]`, and
+/// OMDb answers "United States, Japan" where TMDB answers `["US", "JP"]`, and
 /// `origin_country` conditions are written against the code. A country we do not
 /// know yields nothing rather than a wrong code: a source below can still
 /// answer, and a wrong country silently misroutes.
@@ -100,13 +100,13 @@ pub fn country_from_alpha3(code: &str) -> Option<String> {
         .map(|index| ALPHA3[index].1.to_string())
 }
 
-/// The countries that no longer exist, by the code TMDb gives them, each named
+/// The countries that no longer exist, by the code TMDB gives them, each named
 /// by the dictionary key `CountryRetired<code>`: a browser names `SU` after
 /// Russia and `AN` after Curaçao, the countries that took their codes.
 pub const RETIRED: &[&str] = &["SU", "XG", "XC", "YU", "CS", "AN"];
 
 /// The other codes a source writes for those countries, ISO 3166-3's
-/// alpha-3 and East Germany's alpha-2 among them, and the code TMDb gives.
+/// alpha-3 and East Germany's alpha-2 among them, and the code TMDB gives.
 const RETIRED_ALIASES: &[(&str, &str)] = &[
     ("sun", "SU"),
     ("ddr", "XG"),
@@ -133,7 +133,7 @@ pub fn first_language(list: &str) -> Option<String> {
 mod tests {
     use super::*;
 
-    /// A country that no longer exists keeps the code TMDb files its films
+    /// A country that no longer exists keeps the code TMDB files its films
     /// under, whichever source names it and however: East Germany is not
     /// today's Germany, and a rule on `DE` does not take its films.
     #[test]
@@ -166,8 +166,8 @@ mod tests {
         assert_eq!(first_language("None, English").as_deref(), Some("en"));
     }
 
-    /// OMDb names the spoken Chinese, and Filipino, where TMDb gives the
-    /// language's code: `zh`, as TMDb's own Cantonese reads, and `tl`.
+    /// OMDb names the spoken Chinese, and Filipino, where TMDB gives the
+    /// language's code: `zh`, as TMDB's own Cantonese reads, and `tl`.
     #[test]
     fn omdb_spoken_chinese_and_filipino_read_as_their_codes() {
         for (spoken, code) in [("Mandarin", "zh"), ("Cantonese", "zh"), ("Filipino", "tl")] {
@@ -196,7 +196,7 @@ mod tests {
 
     /// Every ISO 639-1 language reads from its English name and from each of
     /// its three-letter codes, the bibliographic one and the terminological.
-    /// Bokmål's `nob` reads as the `no` TMDb and the Arrs give.
+    /// Bokmål's `nob` reads as the `no` TMDB and the Arrs give.
     #[test]
     fn every_iso_639_1_language_reads_from_its_name_and_its_three_letters() {
         for (code, spellings) in LANGUAGES {
@@ -316,7 +316,7 @@ mod tests {
         assert!(ALPHA3.windows(2).all(|pair| pair[0].0 < pair[1].0), "the table is unsorted");
     }
 
-    /// TMDb files a Soviet film under `SU`, so OMDb's "Soviet Union" does too,
+    /// TMDB files a Soviet film under `SU`, so OMDb's "Soviet Union" does too,
     /// or one rule reads the same film two ways depending on the source.
     #[test]
     fn the_soviet_union_reads_as_tmdb_writes_it() {

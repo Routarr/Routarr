@@ -1,7 +1,7 @@
 //! Which rating a rule reads when several sources rate one title, and how the
 //! interface names the ratings and the countries a library holds.
 //!
-//! Each rating belongs to a country's system: TMDb and TheTVDB rate for many
+//! Each rating belongs to a country's system: TMDB and TheTVDB rate for many
 //! countries, of which the certification regions pick one, OMDb rates for the
 //! United States, a Radarr for the country its metadata settings name, a
 //! Sonarr for the United States, and MyAnimeList has a system of its own. The
@@ -12,7 +12,7 @@ use super::fake_arr::FakeArr;
 use serde_json::json;
 
 /// The seeded library with the Arr rating Totoro `arr` in its instance's
-/// `country`, and TMDb rating it `tmdb` in `tmdb_country`, under `regions`.
+/// `country`, and TMDB rating it `tmdb` in `tmdb_country`, under `regions`.
 async fn rated(
     arr: Option<&str>,
     country: &str,
@@ -37,7 +37,7 @@ async fn rated(
     app
 }
 
-/// TMDb's answer for Totoro, rating it as `by_country` says, as the
+/// TMDB's answer for Totoro, rating it as `by_country` says, as the
 /// enrichment stores it.
 async fn tmdb_rates(app: &TestApp, by_country: serde_json::Value) {
     sqlx::query(
@@ -68,7 +68,7 @@ async fn the_arrs_rating_stands_when_it_alone_rates_the_title() {
 #[tokio::test]
 async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     // The Arr rates for the US and MyAnimeList in its own system, both
-    // outside France, and TMDb rates for no region.
+    // outside France, and TMDB rates for no region.
     let app = rated_by_myanimelist("R+", "PG").await;
     app.execute(&[
         "UPDATE media SET certification = 'PG-13' WHERE id = 'm-1'",
@@ -83,7 +83,7 @@ async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     assert_ne!(app.decided_category().await, "anime", "MyAnimeList is listed first");
 }
 
-/// TMDb and TheTVDB rate a title for many countries, and the regions pick one
+/// TMDB and TheTVDB rate a title for many countries, and the regions pick one
 /// each time the answer is read: a change of regions holds from the next
 /// simulation, with nothing asked again.
 #[tokio::test]
@@ -107,7 +107,7 @@ async fn a_region_change_reaches_the_cached_tmdb_rating() {
 }
 
 /// A blank rating claims nothing, as the merge of the sources treats it: the
-/// Arr's empty one, first in the order and in the region, leaves TMDb's.
+/// Arr's empty one, first in the order and in the region, leaves TMDB's.
 #[tokio::test]
 async fn a_blank_rating_does_not_erase_a_real_one() {
     let app = rated(Some(""), "US", Some("PG"), "US", "US").await;
@@ -185,7 +185,7 @@ async fn a_retired_country_is_named_in_the_readers_language() {
 }
 
 /// A library holding one rating MyAnimeList gave, `code`, and the US rating
-/// `us` TMDb gave.
+/// `us` TMDB gave.
 async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
     let app = TestApp::new().await;
     app.seed_library().await;
@@ -242,7 +242,7 @@ async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
 }
 
 /// An upgrade gives every cached rating the system it was issued under where
-/// the source settles it, and has TMDb and TheTVDB asked again for theirs,
+/// the source settles it, and has TMDB and TheTVDB asked again for theirs,
 /// which they rated for a region they did not name.
 #[tokio::test]
 async fn an_upgrade_gives_each_cached_rating_its_system() {
@@ -280,7 +280,7 @@ async fn an_upgrade_gives_each_cached_rating_its_system() {
     assert_eq!(rows, expected);
 }
 
-/// An upgrade moves the one rating each TMDb and TheTVDB answer kept under
+/// An upgrade moves the one rating each TMDB and TheTVDB answer kept under
 /// its country, and has them asked again for every country's.
 #[tokio::test]
 async fn an_upgrade_keeps_each_cached_rating_under_its_country() {

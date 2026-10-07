@@ -380,7 +380,7 @@ fn explain_media() {}
 /// library does not hold is looked up in the Arr and decided the same way,
 /// and its `action` is `add`. Nothing is stored. `unanswered_fields` lists what
 /// the rules read and no source answered, which `enrich=true` asks the sources
-/// for. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its
+/// for. Radarr looks a movie up by its TMDB or IMDb id, Sonarr a series by its
 /// TheTVDB or IMDb id. 404 when no instance knows the title.
 #[utoipa::path(
     get,
@@ -540,7 +540,7 @@ fn remove_exception() {}
 
 /// Pin a title by the id another service gives it
 ///
-/// For an application that knows the title by its TMDb, TheTVDB or IMDb id.
+/// For an application that knows the title by its TMDB, TheTVDB or IMDb id.
 /// Every copy of the title the library holds is pinned, one per instance, or
 /// only the one on `instance`. Each replaces the exception its copy had, and
 /// the pending proposals for it are withdrawn. 404 when no copy is in the

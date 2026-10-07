@@ -40,7 +40,7 @@ describe('localName', () => {
     expect(localName('language', 'qaa', 'fr')).toBeNull();
   });
 
-  /** TMDb still sends these, and the browser names each after its successor. */
+  /** TMDB still sends these, and the browser names each after its successor. */
   it('leaves a code that no longer exists to the caller', () => {
     for (const code of ['SU', 'DD', 'YU', 'CS', 'AN']) {
       expect(localName('region', code, 'en')).toBeNull();

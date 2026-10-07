@@ -4,7 +4,7 @@
 # The Open Graph card goes straight into the site. The captures go to
 # screenshots/captures/, outside what the site ships, until a page shows them.
 # Everything is disposable: its own database, its own fake Radarr, Sonarr and
-# TMDb, its own ports. A development instance is never touched, and no real
+# TMDB, its own ports. A development instance is never touched, and no real
 # library or API key can end up in a published image.
 set -euo pipefail
 

@@ -136,7 +136,7 @@
       </div>
       <!-- Which sources actually contributed, in priority order. With one
            source this is obvious. With several it is the only way to know
-           whether a genre came from the library or from TMDb. -->
+           whether a genre came from the library or from TMDB. -->
       <p class="text-muted text-sm mt-2">
         {sourcesLine[0]}{#each data.metadata.sources as source, index (source)}
           {#if index > 0}<span class="dir-aware"> → </span>{/if}{source}

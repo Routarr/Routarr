@@ -1,7 +1,7 @@
 //! The four signals the Arr already reports, and that rules can match on.
 //!
 //! Their value is that they need no external provider: a tag is the user's own
-//! intent, and Sonarr's `seriesType` settles the anime question that TMDb genres
+//! intent, and Sonarr's `seriesType` settles the anime question that TMDB genres
 //! answer badly. These tests follow each one from the Arr's JSON through the
 //! database to a rule that matches on it.
 
@@ -178,7 +178,7 @@ async fn the_new_signals_are_offered_by_the_condition_catalogue() {
         assert!(types.contains(&expected), "{expected} missing from the catalogue");
     }
 
-    // None of them needs TMDb: that is the point of using what the Arr knows.
+    // None of them needs TMDB: that is the point of using what the Arr knows.
     for condition in conditions {
         if condition["type"] == "tag_in" || condition["type"] == "series_type_is" {
             assert_eq!(condition["needs_metadata"], false);

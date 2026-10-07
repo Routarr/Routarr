@@ -32,11 +32,11 @@ pub const JIKAN: &str = "jikan";
 pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
 
-/// The most days TMDb's terms let one of its answers be kept: six months.
+/// The most days TMDB's terms let one of its answers be kept: six months.
 pub const TMDB_CACHE_DAYS: i64 = 180;
 
 /// How many days an answer of `source` is kept, from the lifetime `configured`:
-/// TMDb's terms hold its own to [`TMDB_CACHE_DAYS`].
+/// TMDB's terms hold its own to [`TMDB_CACHE_DAYS`].
 pub fn cache_days(source: &str, configured: i64) -> i64 {
     let configured = configured.max(1);
     if source == TMDB { configured.min(TMDB_CACHE_DAYS) } else { configured }
@@ -45,7 +45,7 @@ pub fn cache_days(source: &str, configured: i64) -> i64 {
 /// Order applied when the setting is missing or unreadable: the free source
 /// alone. Every other source is opt-in: each is extra requests, and a keyed
 /// one listed without its key answers nothing and makes the diagnostics warn.
-/// A TMDb key in the environment lists TMDb at startup
+/// A TMDB key in the environment lists TMDB at startup
 /// (`maintenance::converge_metadata_sources`).
 pub const DEFAULT_ORDER: &[&str] = &[ARR];
 
@@ -113,7 +113,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
     },
     ProviderInfo {
         id: TMDB,
-        display_name: "TMDb",
+        display_name: "TMDB",
         fetched: true,
         needs_key: true,
         key_env: Some("TMDB_API_KEY"),
@@ -350,7 +350,7 @@ impl FetchingSource {
             {
                 Some((300, 10))
             }
-            // TMDb publishes about forty a second, which concurrency stays
+            // TMDB publishes about forty a second, which concurrency stays
             // under, and TheTVDB publishes none. A new source on a paced public
             // endpoint lands here too until it has its own arm, and goes unpaced.
             _ => None,
@@ -460,7 +460,7 @@ impl FetchingSource {
     pub async fn fetch(&self, external_id: &str, media_type: &str) -> AppResult<ProviderMetadata> {
         match self {
             Self::Tmdb(client) => {
-                let details = client.get_details(numeric(external_id, "TMDb")?, media_type).await?;
+                let details = client.get_details(numeric(external_id, "TMDB")?, media_type).await?;
                 Ok(ProviderMetadata {
                     genres: details.genres,
                     keywords: details.keywords,
@@ -794,7 +794,7 @@ pub struct CacheRow {
 ///
 /// `MetadataField` names five: genres, keywords, original language, origin
 /// countries, certification. The status, the synopsis and the poster are
-/// matchable by no condition, and the routing pass never opens them. A TMDb
+/// matchable by no condition, and the routing pass never opens them. A TMDB
 /// overview runs several times longer than an AniList one, so reading them in
 /// `load_cache` would load, for nothing, a share of the cache that grows with
 /// every source an operator adds.
@@ -1090,7 +1090,7 @@ mod tests {
         );
     }
 
-    /// TMDb's answers are kept six months at most, whatever the lifetime set,
+    /// TMDB's answers are kept six months at most, whatever the lifetime set,
     /// and every other source's as long as it says.
     #[test]
     fn a_tmdb_answer_is_kept_six_months_at_most() {

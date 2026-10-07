@@ -353,7 +353,7 @@ fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> Option<u64> {
 /// Describe a transport failure **without echoing the URL**.
 ///
 /// `reqwest::Error`'s `Display` is `"... for url (<the full URL>)"`, query string
-/// included, and the TMDb URL carries `?api_key=`. That message is both logged
+/// included, and the TMDB URL carries `?api_key=`. That message is both logged
 /// and returned to the caller, so using it verbatim would publish the key on an
 /// ordinary network hiccup. The source chain carries the useful part ("dns
 /// error", "connection reset") and never the URL, so report that instead.
@@ -567,7 +567,7 @@ mod tests {
         assert_eq!(parse_retry_after(&reqwest::header::HeaderMap::new()), None);
     }
 
-    /// `reqwest`'s own message embeds the URL, and the TMDb URL embeds the key.
+    /// `reqwest`'s own message embeds the URL, and the TMDB URL embeds the key.
     /// Whatever the failure, the description handed to the log and to the API
     /// must not contain it.
     #[tokio::test]
@@ -625,7 +625,7 @@ mod tests {
     }
 
     /// A 200 that is not the API's JSON, as a captive portal or a cut body
-    /// answers. reqwest puts the URL in a decode error, and a TMDb or OMDb key
+    /// answers. reqwest puts the URL in a decode error, and a TMDB or OMDb key
     /// travels in that URL, so the description is built from the error's
     /// cause alone.
     #[tokio::test]
@@ -642,7 +642,7 @@ mod tests {
 
         let request = reqwest::Client::new()
             .get(format!("http://{address}/3/movie/1?api_key=SUPERSECRET123"));
-        let error = send_json::<serde_json::Value>("TMDb", request)
+        let error = send_json::<serde_json::Value>("TMDB", request)
             .await
             .expect_err("a page of HTML is not the API's JSON");
 

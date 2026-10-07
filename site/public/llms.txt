@@ -19,7 +19,7 @@ It works in four steps, and only the last one writes to the library:
 1. Sync reads films, series, tags and root folders from every connected Radarr and Sonarr. An
    empty response is never treated as a mass deletion.
 2. Enrich writes only to Routarr's own cache. Genres, original language and certification come
-   with the sync. TMDb adds keywords and origin country, and AniList does for anime.
+   with the sync. TMDB adds keywords and origin country, and AniList does for anime.
 3. Decide runs the rules by ascending priority, and the first match wins. Exclusions veto a rule
    that otherwise matched, and a title no rule matches falls to the default category. The result
    is a plan the user can read.
@@ -49,7 +49,7 @@ exists and is off by default. When enabled, it touches only titles with no files
 
 Metadata sources form an ordered list, and the order decides which source wins when they
 disagree. No metadata key is required: Radarr and Sonarr are a source of their own, and AniList
-and Jikan need no key. TMDb, OMDb and TheTVDB are optional.
+and Jikan need no key. TMDB, OMDb and TheTVDB are optional.
 
 Routarr also provides:
 

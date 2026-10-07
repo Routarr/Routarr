@@ -44,9 +44,9 @@ pub struct ArrMedia {
     pub tag_ids: Vec<i64>,
     /// Metadata the Arr already carries. It makes the `arr` source of
     /// `services::metadata` answer without a single extra request, which is
-    /// what lets Routarr classify a library with no TMDb key at all.
+    /// what lets Routarr classify a library with no TMDB key at all.
     pub genres: Vec<String>,
-    /// Normalised to the ISO 639-1 code TMDb would have returned, so both
+    /// Normalised to the ISO 639-1 code TMDB would have returned, so both
     /// sources speak the same vocabulary.
     pub original_language: Option<String>,
     pub certification: Option<String>,

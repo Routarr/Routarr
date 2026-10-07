@@ -153,7 +153,7 @@ function mount(
       },
       {
         id: 'tmdb',
-        display_name: 'TMDb',
+        display_name: 'TMDB',
         fetched: true,
         needs_key: true,
         key_env: 'TMDB_API_KEY',
@@ -435,7 +435,7 @@ describe('the metadata sources', () => {
   it('offers the credential in the row of the source that needs it', async () => {
     mountSources({ metadata_providers: 'arr' });
 
-    const field = await screen.findByLabelText('TMDb');
+    const field = await screen.findByLabelText('TMDB');
     expect(field.getAttribute('id')).toBe('setting-tmdb_api_key');
     // The variable is named once, by the field that accepts it.
     expect(field.getAttribute('placeholder')).toBe('API key, or the TMDB_API_KEY variable');
@@ -450,13 +450,13 @@ describe('the metadata sources', () => {
     mountSources({ metadata_providers: 'arr' });
 
     const enable = (await screen.findByRole('button', {
-      name: 'Enable – TMDb',
+      name: 'Enable – TMDB',
     })) as HTMLButtonElement;
     expect(enable.disabled).toBe(true);
 
     // A key typed but not yet saved counts: refusing the click then would send
     // the reader back for a save they cannot see the need for.
-    await userEvent.type(screen.getByLabelText('TMDb'), 'a-key');
+    await userEvent.type(screen.getByLabelText('TMDB'), 'a-key');
     expect(enable.disabled).toBe(false);
   });
 
@@ -484,7 +484,7 @@ describe('the metadata sources', () => {
   it('sends a credential the reader did type', async () => {
     mountSources({ metadata_providers: 'arr' });
 
-    await userEvent.type(await screen.findByLabelText('TMDb'), 'a-key');
+    await userEvent.type(await screen.findByLabelText('TMDB'), 'a-key');
     expect((await save()).tmdb_api_key).toBe('a-key');
   });
 
@@ -506,7 +506,7 @@ describe('the metadata sources', () => {
     // Arr's own row deliberately does not.
     mountSources({ metadata_providers: 'tmdb' }, { order: ['tmdb'] });
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Disable – TMDb' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Disable – TMDB' }));
     const payload = await save();
     expect(payload).toHaveProperty('metadata_providers');
     expect(payload.metadata_providers).toBe('');
@@ -537,7 +537,7 @@ describe('the metadata sources', () => {
       { metadata_cache_ttl_days: '30', metadata_providers: 'tmdb,arr,tmdb' },
       { configured: true, order: ['tmdb', 'arr'] },
     );
-    expect(await screen.findAllByRole('button', { name: 'Disable – TMDb' })).toHaveLength(1);
+    expect(await screen.findAllByRole('button', { name: 'Disable – TMDB' })).toHaveLength(1);
 
     await fireEvent.input(screen.getByLabelText('Cache lifetime'), { target: { value: '14' } });
     expect((await save()).metadata_providers).toBe('tmdb,arr');
@@ -638,20 +638,20 @@ describe("a source's stored key", () => {
   it('is removed at the next save', async () => {
     mountSources({ metadata_providers: 'arr', tmdb_api_key_configured: true });
 
-    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDb' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Remove – TMDB' }));
 
-    const field = screen.getByLabelText('TMDb');
+    const field = screen.getByLabelText('TMDB');
     await waitFor(() => expect(document.activeElement).toBe(field));
     expect(field.getAttribute('placeholder')).toBe('Removed when you save');
-    expect(screen.queryByRole('button', { name: 'Remove – TMDb' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Remove – TMDB' })).toBeNull();
     expect((await save()).tmdb_api_key).toBe('');
   });
 
   it('offers nothing to remove while no key is stored', async () => {
     mountSources({ metadata_providers: 'arr' });
 
-    await screen.findByLabelText('TMDb');
-    expect(screen.queryByRole('button', { name: 'Remove – TMDb' })).toBeNull();
+    await screen.findByLabelText('TMDB');
+    expect(screen.queryByRole('button', { name: 'Remove – TMDB' })).toBeNull();
   });
 });
 

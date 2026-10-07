@@ -1,6 +1,6 @@
 //! Several metadata sources, ordered by priority.
 //!
-//! The two properties worth defending: a library with **no TMDb key at all**
+//! The two properties worth defending: a library with **no TMDB key at all**
 //! still routes on genre, language and certification, because Radarr and Sonarr
 //! carry those in the payload the sync already reads. And when two sources
 //! disagree, the order the user set decides, field by field, with the loser
@@ -16,7 +16,7 @@ async fn set_order(app: &TestApp, order: &str) {
     app.store_setting("metadata_providers", order).await;
 }
 
-/// Cache a TMDb answer for the fake Radarr's movie, deliberately different from
+/// Cache a TMDB answer for the fake Radarr's movie, deliberately different from
 /// what the Arr says, so which one wins is observable.
 async fn cache_tmdb(app: &TestApp, genres: &str) {
     sqlx::query(
@@ -55,7 +55,7 @@ async fn a_genre_rule_matches_with_no_tmdb_key_configured() {
     let app = TestApp::synced_from("radarr", &arr).await;
     app.seed_rule_on(serde_json::json!({ "type": "genre_contains", "value": ["Animation"] })).await;
 
-    // `AppState::for_tests` configures no TMDb key, and nothing was enriched.
+    // `AppState::for_tests` configures no TMDB key, and nothing was enriched.
     assert!(app.state.config.tmdb_api_key.is_none());
     assert_eq!(app.decided_category().await, "anime");
 }
@@ -111,7 +111,7 @@ async fn a_lower_source_still_fills_what_the_higher_one_lacks() {
     let app = TestApp::synced_from("radarr", &arr).await;
     cache_tmdb(&app, r#"["Documentary"]"#).await;
     set_order(&app, "arr,tmdb").await;
-    // Radarr wins the genres above. Keywords exist only in TMDb's answer and
+    // Radarr wins the genres above. Keywords exist only in TMDB's answer and
     // must still be reachable.
     app.seed_rule_on(serde_json::json!({ "type": "keyword_contains", "value": ["anime"] })).await;
 
@@ -290,7 +290,7 @@ async fn a_disabled_source_no_longer_answers_for_an_item() {
     assert!(!listed_has_metadata(&app).await, "a source switched off still spoke for the item");
 }
 
-/// A series TheTVDB describes counts, though it carries no TMDb id.
+/// A series TheTVDB describes counts, though it carries no TMDB id.
 ///
 /// A predicate looking only in the `tmdb_id` namespace would read a series
 /// enriched by a source that addresses by `tvdb_id` as undescribed for ever, on
@@ -321,7 +321,7 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
 
     assert!(
         listed_has_metadata(&app).await,
-        "a TheTVDB answer was invisible for want of a TMDb id"
+        "a TheTVDB answer was invisible for want of a TMDB id"
     );
 }
 
@@ -358,7 +358,7 @@ async fn a_title_known_through_anilist_has_metadata_in_the_library() {
 }
 
 /// An id is an answer in its own namespace only: TheTVDB's series 1399 says
-/// nothing about the series whose TMDb id is 1399.
+/// nothing about the series whose TMDB id is 1399.
 #[tokio::test]
 async fn an_id_from_another_namespace_is_not_metadata() {
     let arr = FakeArr::start().await;
@@ -506,7 +506,7 @@ async fn a_cached_rating_outside_the_regions_describes_nothing_to_any_counter() 
     assert_eq!(described(&app).await, [true; 4], "engine, list, diagnostics, builder");
 }
 
-/// A library of one film its Arr describes in nothing, read from TMDb after
+/// A library of one film its Arr describes in nothing, read from TMDB after
 /// the Arr.
 async fn one_undescribed_film() -> TestApp {
     let arr = FakeArr::start().await;
@@ -520,7 +520,7 @@ async fn one_undescribed_film() -> TestApp {
     app
 }
 
-/// A TMDb answer for the film that holds `field` alone.
+/// A TMDB answer for the film that holds `field` alone.
 async fn cache_for_the_film(app: &TestApp, field: &str) {
     app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
                    SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie', datetime('now', '+7 days')
@@ -567,7 +567,7 @@ async fn with_tmdb_key_in_the_environment() -> TestApp {
     TestApp::around(crate::state::AppState::for_tests().await.with_config(config))
 }
 
-/// Listed without a key, TMDb answers nothing and the diagnostics say so, which
+/// Listed without a key, TMDB answers nothing and the diagnostics say so, which
 /// an installation nobody has configured yet reads as a fault of its own.
 #[tokio::test]
 async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
@@ -576,10 +576,10 @@ async fn a_fresh_install_lists_the_arr_alone_and_raises_no_key_warning() {
     let catalogue = app.get("/api/v1/metadata/providers").await;
     assert_eq!(catalogue.assert_ok()["order"], serde_json::json!(["arr"]));
     let warnings = warnings(&app).await;
-    assert!(!warnings.iter().any(|w| w.contains("TMDb")), "{warnings:?}");
+    assert!(!warnings.iter().any(|w| w.contains("TMDB")), "{warnings:?}");
 }
 
-/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and a
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDB on, and a
 /// start is what reads it.
 #[tokio::test]
 async fn a_start_lists_tmdb_when_its_key_is_in_the_environment() {
@@ -605,7 +605,7 @@ async fn a_tmdb_key_that_arrives_after_a_save_is_reported() {
 
     let expected = app.state.localizer().await.translate(
         "WarnProviderKeyUnlisted",
-        &[("provider", "TMDb"), ("variable", "TMDB_API_KEY")],
+        &[("provider", "TMDB"), ("variable", "TMDB_API_KEY")],
     );
     let warnings = warnings(&app).await;
     assert!(warnings.contains(&expected), "{warnings:?}");
@@ -621,7 +621,7 @@ async fn a_tmdb_key_for_a_listed_source_is_not_reported() {
     assert!(!warnings.iter().any(|w| w.contains("TMDB_API_KEY")), "{warnings:?}");
 }
 
-/// Taking TMDb out is a choice, and the environment must not undo it.
+/// Taking TMDB out is a choice, and the environment must not undo it.
 #[tokio::test]
 async fn a_chosen_order_is_never_changed_by_the_environment() {
     let app = with_tmdb_key_in_the_environment().await;
@@ -660,7 +660,7 @@ async fn a_database_that_routes_nothing_yet_drops_the_seeded_tmdb() {
     assert_eq!(upgraded(&[]).await, None);
 }
 
-/// Its rules may rely on what only TMDb answers.
+/// Its rules may rely on what only TMDB answers.
 #[tokio::test]
 async fn an_installation_with_an_instance_keeps_tmdb_across_the_upgrade() {
     assert_eq!(upgraded(&[AN_INSTANCE]).await.as_deref(), Some("arr,tmdb"));

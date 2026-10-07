@@ -560,7 +560,7 @@ async fn jikan_themes_and_demographics_become_keywords() {
     assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
-    // The vocabulary an anime library is actually sorted by, and which TMDb
+    // The vocabulary an anime library is actually sorted by, and which TMDB
     // does not express at all.
     assert_eq!(keywords, r#"["iyashikei","kids"]"#);
     // "G - All Ages" keeps the code a rule names.
@@ -595,7 +595,7 @@ async fn every_source_contributes_what_only_it_has() {
 }
 
 /// Radarr and Sonarr report English for any original language outside the
-/// ones they list (Cantonese, which TMDb writes `cn`, Malay, Swahili),
+/// ones they list (Cantonese, which TMDB writes `cn`, Malay, Swahili),
 /// so their English is the one answer a later source may correct. Any other
 /// language they report stands, as the order says, and their English stands
 /// where no other source knows the language.

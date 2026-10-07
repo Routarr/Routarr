@@ -730,7 +730,7 @@ fn laid_over(held: &Edits, id: i64, body: &mut serde_json::Value) {
     }
 }
 
-/// A film by its TMDb id, as Radarr's lookup answers: built afresh from TMDb,
+/// A film by its TMDB id, as Radarr's lookup answers: built afresh from TMDB,
 /// so with no id, no folder and no file even when the library holds it.
 /// Holding is what `GET /api/v3/movie?tmdbId=` tells. A miss answers 500
 /// with the exception Radarr throws (`MovieNotFoundException`), not 404.
@@ -749,7 +749,7 @@ async fn movie_lookup_tmdb(
     }
 }
 
-/// The same by IMDb id, on its own path: an IMDb id sent to the TMDb path
+/// The same by IMDb id, on its own path: an IMDb id sent to the TMDB path
 /// finds nothing, as in Radarr.
 async fn movie_lookup_imdb(
     State(state): State<FakeState>,
@@ -766,7 +766,7 @@ async fn movie_lookup_imdb(
     }
 }
 
-/// A held film as the lookup answers it: what TMDb says, none of the
+/// A held film as the lookup answers it: what TMDB says, none of the
 /// library's own fields.
 fn as_looked_up(mut movie: serde_json::Value) -> serde_json::Value {
     let fields = movie.as_object_mut().expect("an object");
@@ -779,7 +779,7 @@ fn as_looked_up(mut movie: serde_json::Value) -> serde_json::Value {
 
 fn movie_not_found(kind: &str, asked: &str) -> (StatusCode, Json<serde_json::Value>) {
     let message =
-        format!("Movie with {kind} {asked} was not found, it may have been removed from TMDb.");
+        format!("Movie with {kind} {asked} was not found, it may have been removed from TMDB.");
     let description = format!("NzbDrone.Core.Exceptions.MovieNotFoundException: {message}");
     let body = serde_json::json!({ "message": message, "description": description });
     (StatusCode::INTERNAL_SERVER_ERROR, Json(body))

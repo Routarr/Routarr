@@ -103,7 +103,7 @@ pub struct MediaQuery {
     pub category: Option<String>,
     /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
-    /// Only the titles with this TMDb id.
+    /// Only the titles with this TMDB id.
     pub tmdb_id: Option<i64>,
     /// Only the titles with this TheTVDB id.
     pub tvdb_id: Option<i64>,

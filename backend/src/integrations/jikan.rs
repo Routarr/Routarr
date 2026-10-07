@@ -2,7 +2,7 @@
 //!
 //! Also credential-free, and a useful second opinion on anime: its *themes* and
 //! *demographics* ("Shounen", "Iyashikei", "Military") are the vocabulary anime
-//! libraries are actually organised by, and neither TMDb nor AniList expresses
+//! libraries are actually organised by, and neither TMDB nor AniList expresses
 //! them the same way.
 //!
 //! Two things it is not: official, and generous with its rate limit. It allows a
@@ -152,7 +152,7 @@ impl JikanClient {
         let raw = response.data;
 
         // Themes and demographics are what an anime library is actually sorted
-        // by. As genres they would collide with TMDb's much coarser list, so
+        // by. As genres they would collide with TMDB's much coarser list, so
         // they land in the keywords where a rule can name them precisely.
         let mut keywords: Vec<String> = raw
             .themes

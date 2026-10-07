@@ -47,7 +47,7 @@ def movie(
         "status": "released",
         "added": "2026-08-19T10:00:00Z",
         # Radarr reports these itself. They are what lets Routarr classify with
-        # no TMDb key, which is how the end-to-end stack runs.
+        # no TMDB key, which is how the end-to-end stack runs.
         "genres": genres if genres is not None else ["Drama"],
         "originalLanguage": {"id": 1, "name": "English"},
         "certification": "PG-13",

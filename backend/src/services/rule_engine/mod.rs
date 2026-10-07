@@ -38,7 +38,7 @@ pub struct ConditionOutcome {
     /// Arr answers directly.
     // With several sources enabled, "genre does not contain Animation" is only
     // explainable if the reader can see whether the genres came from Radarr or
-    // from TMDb.
+    // from TMDB.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
 }
@@ -1394,7 +1394,7 @@ mod tests {
         assert!(!matches_without_metadata(Condition::GenreContains(vec!["Animation".into()])));
         assert!(!matches_without_metadata(Condition::OriginalLanguage(vec!["ja".into()])));
         // The negative form is vacuously true, which is the useful behaviour for
-        // a "not anime" rule on an item TMDb knows nothing about.
+        // a "not anime" rule on an item TMDB knows nothing about.
         assert!(matches_without_metadata(Condition::GenreNotContains(vec!["Animation".into()])));
     }
 
