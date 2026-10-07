@@ -22,6 +22,7 @@
     '/exceptions': () => import('./pages/Overrides.svelte'),
     '/tasks': () => import('./pages/Jobs.svelte'),
     '/move-log': () => import('./pages/Logs.svelte'),
+    '/security-log': () => import('./pages/SecurityLog.svelte'),
     '/diagnostics': () => import('./pages/Health.svelte'),
     '/applications': () => import('./pages/Applications.svelte'),
     '/reference': () => import('./pages/ApiReference.svelte'),

@@ -13,7 +13,9 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+use crate::api::auth::allowed;
 use crate::error::{AppError, AppResult};
+use crate::services::audit::Kind;
 use crate::services::backup::{self, BackupFile, BackupManifest};
 use crate::state::AppState;
 
@@ -53,8 +55,8 @@ pub async fn download(
     if !backup::is_valid_backup_name(&name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
-    let detail = format!("The archive {name}, which holds the master key, was downloaded");
-    crate::api::auth::audited(&state, &identity, client, "backup", detail);
+    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", &name);
+    crate::api::auth::audited(&state, &identity, client, event);
 
     // Streamed: an archive is the whole database, and reading it into memory
     // first doubles the process's footprint for the length of the download.
@@ -101,7 +103,7 @@ pub async fn restore(
     Path(name): Path<String>,
 ) -> AppResult<Json<RestoreResponse>> {
     let manifest = backup::stage_restore(&state, &name).await?;
-    let detail = format!("The archive {name} was staged, to be restored at the next start");
-    crate::api::auth::audited(&state, &identity, client, "restore", detail);
+    let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(RestoreResponse { manifest, restart_required: true }))
 }

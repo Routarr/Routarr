@@ -667,7 +667,7 @@ async fn a_refused_sign_in_is_logged_with_its_address_and_without_its_password()
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let log = capture.contents();
-    assert!(log.contains("A sign-in was refused for 203.0.113.9"), "{log}");
+    assert!(log.contains("A sign-in was refused") && log.contains("client=203.0.113.9"), "{log}");
     assert!(!log.contains(tried), "the password tried is in the log:\n{log}");
 }
 
@@ -720,6 +720,15 @@ async fn repeated_failures_from_one_address_are_slowed_and_another_address_is_no
 
     let elsewhere = app.send(sign_in_from([203, 0, 113, 9], &password)).await;
     assert_eq!(elsewhere.status, StatusCode::OK, "{}", elsewhere.json);
+
+    app.state.audit.flush().await;
+    let held: Vec<String> = sqlx::query_scalar(
+        "SELECT client FROM security_events WHERE message = 'AuditSignInHeldBack'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(held, ["198.51.100.7"], "the attempt held back left no event");
 }
 
 /// A request carrying the session, since `TestApp` sends no cookies.

@@ -217,6 +217,7 @@ pub struct MaintenanceReport {
     pub metadata_cache_removed: u64,
     pub source_identifiers_removed: u64,
     pub sessions_removed: u64,
+    pub security_events_removed: u64,
 }
 
 /// Purge stale rows according to the retention settings.
@@ -254,6 +255,7 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
 async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     let decision_days: i64 = state.bounding_setting("decision_retention_days", 30).await?;
     let log_days: i64 = state.bounding_setting("log_retention_days", 90).await?;
+    let security_days: i64 = state.bounding_setting("security_log_retention_days", 365).await?;
     let pool = &state.pool;
 
     let mut report = MaintenanceReport::default();
@@ -311,6 +313,15 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     // Housekeeping rather than a guard: an expired row already fails the
     // lookup, this is what stops the table growing for ever.
     report.sessions_removed = super::accounts::purge_expired_sessions(pool).await?;
+
+    if security_days > 0 {
+        report.security_events_removed = delete_older_than(
+            pool,
+            "DELETE FROM security_events WHERE at < datetime('now', ?)",
+            security_days,
+        )
+        .await?;
+    }
 
     // `decisions` deliberately carries no foreign key on `media_id`: an applied
     // decision must outlive the media it moved, or the audit trail would erase

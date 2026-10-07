@@ -93,6 +93,7 @@ PAIRS: dict[str, str] = {
     "RuleTestResult": "RuleTestResult",
     "RuleTestRun": "RuleTestRun",
     "RuleTrace": "RuleTrace",
+    "SecurityEvent": "SecurityEvent",
     "SimulationResult": "SimulationResult",
     "SyncReport": "SyncReport",
     "ValidationIssue": "ValidationIssue",

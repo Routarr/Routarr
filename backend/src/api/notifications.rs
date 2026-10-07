@@ -5,7 +5,9 @@ use super::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 
+use crate::api::auth::allowed;
 use crate::error::AppResult;
+use crate::services::audit::Kind;
 use crate::services::notify::{self, SigningStatus};
 use crate::state::AppState;
 
@@ -26,8 +28,8 @@ pub async fn rotate_signing(
     crate::api::auth::Client(client): crate::api::auth::Client,
 ) -> AppResult<Json<SigningSecret>> {
     let secret = notify::rotate_signing_secret(&state).await?;
-    let detail = "A new notification signing secret was made".to_string();
-    crate::api::auth::audited(&state, &identity, client, "signing_secret", detail);
+    let event = allowed(Kind::SigningSecret, "AuditSigningSecretMade");
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(SigningSecret { secret }))
 }
 
@@ -37,8 +39,8 @@ pub async fn remove_signing(
     crate::api::auth::Client(client): crate::api::auth::Client,
 ) -> AppResult<StatusCode> {
     notify::remove_signing_secrets(&state).await?;
-    let detail = "The notification signing secrets were removed".to_string();
-    crate::api::auth::audited(&state, &identity, client, "signing_secret", detail);
+    let event = allowed(Kind::SigningSecret, "AuditSigningSecretsRemoved");
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(StatusCode::NO_CONTENT)
 }
 

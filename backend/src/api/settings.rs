@@ -100,8 +100,9 @@ pub async fn update(
     // The names alone: a value may be a key or an address.
     let mut names: Vec<&str> = req.settings.keys().map(String::as_str).collect();
     names.sort_unstable();
-    let detail = format!("Settings were saved: {}", names.join(", "));
-    crate::api::auth::audited(&state, &identity, client, "settings", detail);
+    let event =
+        crate::api::auth::allowed(crate::services::audit::Kind::Settings, "AuditSettingsSaved");
+    crate::api::auth::audited(&state, &identity, client, event.with("names", names.join(", ")));
     Ok(Json(serde_json::json!({ "updated": req.settings.len() })))
 }
 

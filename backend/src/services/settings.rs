@@ -45,6 +45,7 @@ const KNOWN: &[(&str, Kind)] = &[
     ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT)),
     ("decision_retention_days", Kind::NonNegativeInt),
     ("log_retention_days", Kind::NonNegativeInt),
+    ("security_log_retention_days", Kind::NonNegativeInt),
     // The same bounds the scheduler clamps to when it reads this. The clamp
     // stays (it is the guard), but refusing here means the number on screen is
     // the number that runs, instead of one silently ignored.

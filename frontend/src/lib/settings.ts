@@ -296,6 +296,14 @@ export const FIELDS: Field[] = [
     fallback: '90',
     range: [0, null],
   },
+  {
+    key: 'security_log_retention_days',
+    labelKey: 'SettingSecurityLogRetention',
+    helpKey: 'SettingSecurityLogRetentionHelp',
+    kind: 'number',
+    fallback: '365',
+    range: [0, null],
+  },
 ];
 
 /**
@@ -360,6 +368,7 @@ export const SECTIONS = [
       'backup_retention_count',
       'decision_retention_days',
       'log_retention_days',
+      'security_log_retention_days',
     ],
   },
   {

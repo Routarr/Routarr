@@ -694,6 +694,7 @@ describe('housekeeping', () => {
       metadata_cache_removed: 0,
       source_identifiers_removed: 0,
       sessions_removed: 0,
+      security_events_removed: 0,
     });
     mount({});
     await openSection('Maintenance');

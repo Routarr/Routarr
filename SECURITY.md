@@ -270,13 +270,19 @@ the signing secret replaced. A line names the event, its outcome, who asked
 and the client's address, never a key, a token, a password or a code:
 
 ```text
-2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused for 203.0.113.9 event="sign_in" outcome="refused" subject="-" client=203.0.113.9
+2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused: wrong name or password. event="sign_in" outcome="refused" subject="-" client=203.0.113.9
 ```
 
 A refused key, an unknown application key and a write from another site,
 which anyone can send as fast as they like, are written once a minute per
 address with how many came since (`repeated=`). Every refused sign-in is
 written, since Routarr slows them itself.
+
+The same events are kept in the database for the **Security log** screen,
+which only the owner reads: no application key reaches it, whatever its
+scopes. It filters by event, outcome, name or address, and exports what it
+shows as CSV. They are kept 365 days by default (`security_log_retention_days`
+in the settings, 0 keeps them all), and the log lines are not affected.
 
 To ban an address at the firewall, point fail2ban at the container's log. With
 Docker's default `json-file` driver and the text log format:

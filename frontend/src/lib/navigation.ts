@@ -18,6 +18,7 @@ import {
   Server,
   Settings,
   ShieldAlert,
+  ShieldCheck,
 } from './icons';
 
 import { ROUTE_GROUPS, type Route } from './routes';
@@ -43,6 +44,7 @@ const ICONS: Record<string, Component<LucideProps>> = {
   '/history': History,
   '/tasks': ListChecks,
   '/move-log': ScrollText,
+  '/security-log': ShieldCheck,
   '/diagnostics': Activity,
   '/instances': Server,
   '/categories': FolderTree,

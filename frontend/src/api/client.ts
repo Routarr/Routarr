@@ -41,6 +41,7 @@ import type {
   Proof,
   Rule,
   RuleDraft,
+  SecurityEvent,
   Session,
   RestoreResult,
   RulePreview,
@@ -627,6 +628,9 @@ export const api = {
    */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
   exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
+  getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),
+  exportSecurityLog: (params?: QueryParams) => download(`/security-log/export${query(params)}`),
 
   // ---------------------------------------------------------- settings
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),

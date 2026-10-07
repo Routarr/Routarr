@@ -170,6 +170,7 @@ export interface MaintenanceReport {
   metadata_cache_removed: number;
   source_identifiers_removed: number;
   sessions_removed: number;
+  security_events_removed: number;
 }
 
 /** Which gate the shell must show. Readable without a session, by necessity. */
@@ -575,6 +576,38 @@ export interface NewApplication {
 /** A key just made. The token is in this answer and never again. */
 export interface MintedApplication extends Application {
   token: string;
+}
+
+/** What a security event is about, as `services::audit::Kind` names it. */
+export type SecurityEventKind =
+  | 'sign_in'
+  | 'sign_out'
+  | 'api_key'
+  | 'application_key'
+  | 'scope'
+  | 'origin'
+  | 'password'
+  | 'proof'
+  | 'backup'
+  | 'restore'
+  | 'configuration'
+  | 'settings'
+  | 'signing_secret'
+  | 'security_log';
+
+/** One event of the security log, which only the owner reads. */
+export interface SecurityEvent {
+  id: number;
+  at: string;
+  kind: SecurityEventKind;
+  outcome: 'allowed' | 'refused';
+  subject: string | null;
+  client: string | null;
+  /** A dictionary key, read with `params`. */
+  message: string;
+  params: Record<string, string>;
+  /** How many more like it the same address sent in the minute after. */
+  repeated: number;
 }
 
 export interface LogEntry {
