@@ -22,6 +22,8 @@ pub const DEFAULT_BASE_URL: &str = "https://www.omdbapi.com";
 pub const FREE_DAILY_REQUESTS: i64 = 1_000;
 /// The title a probe asks for.
 const PROBED: &str = "tt0096283";
+/// What OMDb answers for an id it does not hold.
+const MISSES: [&str; 3] = ["Movie not found!", "Incorrect IMDb ID.", "Series or season not found!"];
 
 #[derive(Debug, Clone)]
 pub struct OmdbClient {
@@ -135,10 +137,22 @@ fn details_of(raw: RawResponse, imdb_id: &str) -> AppResult<OmdbDetails> {
         return Err(error);
     }
     if !is_found(&raw) {
+        let said = raw.error.as_deref().unwrap_or_default();
         // "Movie not found" is an answer. Caching it empty is what stops the
         // next pass from asking again.
-        debug!("OMDb has nothing for {imdb_id}: {:?}", raw.error);
-        return Ok(OmdbDetails::default());
+        if MISSES.iter().any(|miss| said.trim().eq_ignore_ascii_case(miss)) {
+            debug!("OMDb has nothing for {imdb_id}: {said}");
+            return Ok(OmdbDetails::default());
+        }
+        // Anything else is OMDb failing on its side ("Error getting data."
+        // for titles it holds): neither cached as a miss for the cache's
+        // lifetime nor counted against the source, asked again next pass.
+        return Err(AppError::ExternalApi {
+            service: SERVICE.into(),
+            status: 200,
+            message: format!("OMDb answered an error: {said}"),
+            retry_after: None,
+        });
     }
 
     Ok(OmdbDetails {
@@ -265,9 +279,18 @@ mod tests {
         }
         let spent = details_of(answering("Request limit reached!"), "tt0096283").unwrap_err();
         assert!(crate::integrations::is_quota_spent(&spent), "{spent:?}");
-        for missed in ["Incorrect IMDb ID.", "Movie not found!"] {
+        for missed in ["Incorrect IMDb ID.", "Movie not found!", "Series or season not found!"] {
             let outcome = details_of(answering(missed), "tt0000001").expect(missed);
             assert!(outcome.genres.is_empty() && outcome.certification.is_none(), "{missed}");
+        }
+        // OMDb failing on its side for a title it holds: an error that is
+        // neither a refusal of the key nor an answer to cache.
+        for failed in ["Error getting data.", "Something new went wrong."] {
+            let outcome = details_of(answering(failed), "tt7241928");
+            assert!(
+                matches!(&outcome, Err(AppError::ExternalApi { status: 200, .. })),
+                "{failed}: {outcome:?}"
+            );
         }
     }
 }
