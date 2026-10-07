@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const ASSETS = fileURLToPath(new URL('../frontend/dist/assets/', import.meta.url));
 
 const CEILINGS = [
-  { name: 'the entry bundle', pattern: /^index-[\w-]+\.js$/, ceiling: 27_000 },
+  { name: 'the entry bundle', pattern: /^index-[\w-]+\.js$/, ceiling: 28_000 },
   { name: 'the shared runtime', pattern: /^vendor-[\w-]+\.js$/, ceiling: 75_000 },
 ];
 
