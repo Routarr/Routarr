@@ -1,6 +1,7 @@
 <script lang="ts">
   import { KeyRound } from '../lib/icons';
-  import { getApiKey, setApiKey } from '../api/client';
+  import { api, ApiError } from '../api/client';
+  import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
 
@@ -18,19 +19,20 @@
    * who has never seen one. The file, not the log: the log line is printed once
    * and goes with the container the first time an image update recreates it,
    * while the file is on the volume.
+   *
+   * The key is sent once and exchanged for a session cookie the page's scripts
+   * cannot read: kept in the browser's storage instead, any script that ever
+   * ran on the page could take a key that opens everything.
    */
   let key = $state('');
+  let error = $state<string | null>(null);
+  let busy = $state(false);
 
   // The container name the README and docker-compose.yml give it, and the data
   // directory the image sets. `scripts/smoke-image.sh` reads this line and runs
   // it against the built image, so an instruction that stopped working fails
   // the image build rather than a first visit.
   const READ_KEY_COMMAND = 'docker exec routarr cat /data/routarr.api_key';
-
-  // A key is already stored and the server still refused it: that is a *wrong*
-  // key, not a missing one. Without saying so, pasting a bad key returns the
-  // same blank screen and the user pastes it again.
-  const rejected = getApiKey().trim().length > 0;
 
   // The theme is a server setting, and the server will not answer until there
   // is a key, so this one screen follows the operating system instead. It is
@@ -40,13 +42,26 @@
     delete document.documentElement.dataset.theme;
   });
 
-  function submit(event: SubmitEvent) {
+  async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!key.trim()) return;
-    setApiKey(key);
-    // A reload rather than a state update: every page in the tree fetched and
-    // failed already, and re-mounting them all is exactly what a reload does.
-    location.reload();
+    busy = true;
+    error = null;
+    try {
+      await api.keySession(key.trim());
+      // A reload rather than a state update: every page in the tree fetched
+      // and failed already, and re-mounting them all is what a reload does.
+      location.reload();
+    } catch (cause) {
+      // A wrong key, said so: without it, pasting a bad key returns the same
+      // screen and the user pastes it again.
+      error =
+        cause instanceof ApiError && cause.status === 401
+          ? t('ApiKeyRejected')
+          : describeError(cause);
+    } finally {
+      busy = false;
+    }
   }
 </script>
 
@@ -59,9 +74,7 @@
       </h1>
     </div>
 
-    {#if rejected}
-      <ErrorBanner message={t('ApiKeyRejected')} />
-    {/if}
+    <ErrorBanner message={error} onDismiss={() => (error = null)} />
 
     <p class="text-muted text-base mb-3">
       {t('ApiKeyGeneratedFile', { file: 'routarr.api_key' })}
@@ -83,7 +96,9 @@
       />
     </div>
 
-    <button type="submit" class="btn btn-primary" disabled={!key.trim()}>{t('SaveKey')}</button>
+    <button type="submit" class="btn btn-primary" disabled={!key.trim() || busy}>
+      {t('SignIn')}
+    </button>
 
     <p class="text-muted text-sm mt-3">
       {t('ApiKeyChooseOwn', { variable: 'ROUTARR_API_KEY' })}

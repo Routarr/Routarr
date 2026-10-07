@@ -50,6 +50,25 @@ pub struct Attempt {
     verifier: String,
     /// Unix seconds.
     expires: i64,
+    /// Set when the person has to sign in again at the provider, whatever
+    /// session it holds: the token must then say they just did (`auth_time`).
+    #[serde(default)]
+    pub again: bool,
+    /// The screen to land on afterwards, a path under the mount point.
+    #[serde(default)]
+    pub return_to: Option<String>,
+}
+
+/// A screen a sign-in may land on: a path under the mount point, and nothing
+/// that leaves it.
+pub fn screen(path: &str) -> Option<String> {
+    let path = path.trim();
+    let inside = path.starts_with('/')
+        && !path.starts_with("//")
+        && !path.contains('\\')
+        && !path.contains("://")
+        && path.chars().all(|c| c.is_ascii_graphic());
+    inside.then(|| path.to_string())
 }
 
 impl Attempt {
@@ -162,8 +181,10 @@ pub struct Start {
     pub attempt: Attempt,
 }
 
-/// Begin a sign-in: make the attempt and build the provider's URL.
-pub async fn start(state: &AppState) -> AppResult<Start> {
+/// Begin a sign-in: make the attempt and build the provider's URL. `again`
+/// asks the provider to sign the person in again whatever session it holds,
+/// for what a session older than a few minutes may not do.
+pub async fn start(state: &AppState, again: bool, return_to: Option<String>) -> AppResult<Start> {
     let provider = discover(state).await?;
     let client_id = require(&state.config.oidc_client_id, "ROUTARR_OIDC_CLIENT_ID")?;
     let redirect_uri = require(&state.config.oidc_redirect_url, "ROUTARR_OIDC_REDIRECT_URL")?;
@@ -174,6 +195,8 @@ pub async fn start(state: &AppState) -> AppResult<Start> {
         nonce: crate::crypto::generate_secret()?,
         verifier: crate::crypto::generate_secret()?,
         expires: chrono::Utc::now().timestamp() + FLOW_MINUTES * 60,
+        again,
+        return_to,
     };
 
     // S256, never `plain`: the challenge is what travels through the browser,
@@ -186,7 +209,7 @@ pub async fn start(state: &AppState) -> AppResult<Start> {
         "openid profile groups"
     };
 
-    let query = [
+    let mut query = vec![
         ("response_type", "code"),
         ("scope", scope),
         ("client_id", client_id),
@@ -196,6 +219,11 @@ pub async fn start(state: &AppState) -> AppResult<Start> {
         ("code_challenge", &challenge),
         ("code_challenge_method", "S256"),
     ];
+    // Both: OpenID Connect Core gives `max_age=0` the meaning, and a provider
+    // that reads only one reads `prompt`.
+    if again {
+        query.extend([("max_age", "0"), ("prompt", "login")]);
+    }
     let url =
         reqwest::Url::parse_with_params(&provider.authorization_endpoint, query).map_err(|e| {
             AppError::Config(format!("the provider's authorization URL is unusable: {e}"))
@@ -224,6 +252,9 @@ struct Claims {
     azp: Option<String>,
     #[serde(default)]
     preferred_username: Option<String>,
+    /// When the person last signed in at the provider, in Unix seconds.
+    #[serde(default)]
+    auth_time: Option<i64>,
     /// The groups claim is named by the operator, so every other claim is kept.
     #[serde(flatten)]
     others: serde_json::Map<String, serde_json::Value>,
@@ -265,7 +296,7 @@ impl Audience {
 /// Finish a sign-in and return the subject to record for the person the
 /// provider vouched for, if the operator lets them in.
 pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult<String> {
-    let Attempt { nonce, verifier, .. } = attempt;
+    let Attempt { nonce, verifier, again, .. } = attempt;
     let provider = discover(state).await?;
     let client_id = require(&state.config.oidc_client_id, "ROUTARR_OIDC_CLIENT_ID")?;
     let client_secret = require(&state.config.oidc_client_secret, "ROUTARR_OIDC_CLIENT_SECRET")?;
@@ -308,6 +339,14 @@ pub async fn finish(state: &AppState, code: &str, attempt: Attempt) -> AppResult
     // The one claim that ties this token to the attempt this browser started.
     if claims.nonce.as_deref() != Some(nonce.as_str()) {
         return Err(AppError::BadRequest("The token belongs to another sign-in.".into()));
+    }
+    // Asked to sign the person in again, the provider has to say it did, and
+    // just now: a session it kept would otherwise pass for a fresh sign-in.
+    let recent = super::accounts::RECENT_SIGN_IN_SECONDS;
+    if again && !claims.auth_time.is_some_and(|at| chrono::Utc::now().timestamp() - at <= recent) {
+        return Err(AppError::Forbidden(
+            "the provider did not sign the person in again, or did not say when".into(),
+        ));
     }
 
     let config = &state.config;
@@ -429,6 +468,8 @@ mod tests {
             nonce: "n".into(),
             verifier: "v".into(),
             expires,
+            again: false,
+            return_to: None,
         };
 
         let live = attempt(now + 600, PURPOSE).sealed(&secrets).unwrap();

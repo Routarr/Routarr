@@ -31,6 +31,27 @@ pub const DEFAULT_USERNAME: &str = "admin";
 /// reason: a tab left open over a weekend should not ask again on Monday.
 pub const SESSION_DAYS: i64 = 7;
 
+/// How long a session lasts at most, used or not, in hours: then the mode that
+/// opened it decides again who may enter. A copied cookie stops working, and a
+/// person disabled at the OpenID Connect provider is asked again within a day,
+/// often without typing anything, since the provider keeps its own session.
+pub fn lifetime_hours(source: &str) -> i64 {
+    match source {
+        "oidc" => 24,
+        _ => 30 * 24,
+    }
+}
+
+/// How long after an OpenID Connect sign-in its session may still make or
+/// withdraw a key. Past it the provider is asked again first, since Routarr
+/// holds no password to ask for.
+pub const RECENT_SIGN_IN_SECONDS: i64 = 10 * 60;
+
+/// The `Max-Age` of the cookie a session is opened with, in seconds.
+pub fn opening_seconds(source: &str) -> i64 {
+    (SESSION_DAYS * 24).min(lifetime_hours(source)) * 3600
+}
+
 /// How many password checks may run at once.
 ///
 /// Two, not one, so a second person signing in is not queued behind the first.
@@ -448,7 +469,7 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
     .bind(stored(&id))
     .bind(subject)
     .bind(source)
-    .bind(format!("+{SESSION_DAYS} days"))
+    .bind(format!("+{} seconds", opening_seconds(source)))
     .execute(pool)
     .await?;
     Ok(id)
@@ -457,9 +478,11 @@ pub async fn open_session(pool: &SqlitePool, subject: &str, source: &str) -> App
 /// A live session, as answering it left it.
 pub struct Session {
     pub subject: String,
-    /// Answering it moved its expiry, which the browser's cookie does not
-    /// follow until it is given again.
-    pub renewed: bool,
+    /// When it was opened, in Unix seconds: what a recent sign-in is read from.
+    pub opened_at: i64,
+    /// The seconds the browser's cookie is given again for, when answering it
+    /// moved its expiry, which the cookie does not follow until it is.
+    pub renewed: Option<i64>,
 }
 
 /// The session behind an id, if it is live and `source` opened it, renewing it
@@ -474,36 +497,95 @@ pub struct Session {
 /// SQLite's own `datetime`, and comparing them anywhere else means agreeing on
 /// a format twice.
 pub async fn live_session(pool: &SqlitePool, id: &str, source: &str) -> AppResult<Option<Session>> {
-    let subject: Option<String> = sqlx::query_scalar(
-        "SELECT subject FROM sessions
-         WHERE id = ? AND source = ? AND expires_at > datetime('now')",
+    let lifetime = format!("-{} hours", lifetime_hours(source));
+    let live: Option<(String, i64)> = sqlx::query_as(
+        "SELECT subject, CAST(strftime('%s', created_at) AS INTEGER) FROM sessions
+         WHERE id = ? AND source = ? AND expires_at > datetime('now')
+           AND created_at > datetime('now', ?)",
     )
     .bind(stored(id))
     .bind(source)
+    .bind(&lifetime)
     .fetch_optional(pool)
     .await?;
-    let Some(subject) = subject else {
+    let Some((subject, opened_at)) = live else {
         return Ok(None);
     };
 
-    // Sliding, like Radarr's: use is what keeps a session alive. Extended only
-    // once it has less than `SESSION_DAYS - 1` days to run, so at most once a
-    // day, rather than on every request: this runs on each authenticated call,
-    // SQLite takes one writer at a time, and the Tasks screen polls every three
-    // seconds while a job runs. A window that slides once a day slides just as
-    // well, at a fraction of the writes.
-    let renewed = sqlx::query(
+    // Sliding, like Radarr's: use is what keeps a session alive, never past
+    // its lifetime. Extended only once it has less than `SESSION_DAYS - 1`
+    // days to run, so at most once a day, rather than on every request: this
+    // runs on each authenticated call, SQLite takes one writer at a time, and
+    // the Tasks screen polls every three seconds while a job runs. A session
+    // already as long as its lifetime allows is not written to at all.
+    let renewed: Option<i64> = sqlx::query_scalar(
         "UPDATE sessions SET last_used_at = datetime('now'),
-         expires_at = datetime('now', ?)
-         WHERE id = ? AND expires_at < datetime('now', ?)",
+                expires_at = MIN(datetime('now', ?), datetime(created_at, ?))
+          WHERE id = ?
+            AND expires_at < MIN(datetime('now', ?), datetime(created_at, ?, '-1 hour'))
+         RETURNING CAST(strftime('%s', expires_at) AS INTEGER)
+                 - CAST(strftime('%s', 'now') AS INTEGER)",
     )
     .bind(format!("+{SESSION_DAYS} days"))
+    .bind(format!("+{} hours", lifetime_hours(source)))
     .bind(stored(id))
     .bind(format!("+{} days", SESSION_DAYS - 1))
-    .execute(pool)
+    .bind(format!("+{} hours", lifetime_hours(source)))
+    .fetch_optional(pool)
     .await
-    .is_ok_and(|done| done.rows_affected() > 0);
-    Ok(Some(Session { subject, renewed }))
+    .ok()
+    .flatten();
+    Ok(Some(Session { subject, opened_at, renewed }))
+}
+
+/// One session as the owner sees it on the sessions screen: never its id,
+/// which opens it, but a handle that names it.
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct Listed {
+    /// The first characters of the stored digest: enough to name the session,
+    /// and nothing that opens it.
+    pub handle: String,
+    pub subject: String,
+    /// The mode that opened it: `forms`, `oidc` or `apikey`.
+    pub source: String,
+    pub created_at: String,
+    pub last_used_at: String,
+    pub expires_at: String,
+    /// Whether the request asking holds this one.
+    #[sqlx(skip)]
+    pub current: bool,
+}
+
+/// The live sessions, newest first, `current` set on the one `id` opens.
+pub async fn list_sessions(pool: &SqlitePool, current: Option<&str>) -> AppResult<Vec<Listed>> {
+    let mut listed: Vec<Listed> = sqlx::query_as(
+        "SELECT substr(id, 1, 16) AS handle, subject, source, created_at, last_used_at, expires_at
+           FROM sessions WHERE expires_at > datetime('now') ORDER BY created_at DESC, id",
+    )
+    .fetch_all(pool)
+    .await?;
+    let current = current.map(|id| stored(id)[..16].to_string());
+    for session in &mut listed {
+        session.current = current.as_deref() == Some(session.handle.as_str());
+    }
+    Ok(listed)
+}
+
+/// End the session `handle` names. `false` when none does.
+pub async fn end_session(pool: &SqlitePool, handle: &str) -> AppResult<bool> {
+    if handle.len() != 16 || !handle.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Ok(false);
+    }
+    let ended = sqlx::query("DELETE FROM sessions WHERE substr(id, 1, 16) = ?")
+        .bind(handle)
+        .execute(pool)
+        .await?;
+    Ok(ended.rows_affected() > 0)
+}
+
+/// End every session: signing out everywhere.
+pub async fn end_every_session(pool: &SqlitePool) -> AppResult<u64> {
+    Ok(sqlx::query("DELETE FROM sessions").execute(pool).await?.rows_affected())
 }
 
 /// End one session.
@@ -789,6 +871,60 @@ mod tests {
         let cutoff: String =
             sqlx::query_scalar("SELECT datetime('now', '+6 days')").fetch_one(&pool).await.unwrap();
         assert!(extended > cutoff, "the window did not slide: {extended}");
+    }
+
+    /// A session in daily use slides, never past the lifetime of the mode
+    /// that opened it: a copied cookie stops working, and the provider decides
+    /// again within a day.
+    #[tokio::test]
+    async fn a_session_past_its_absolute_lifetime_answers_nothing_even_in_use() {
+        let pool = crate::db::test_pool().await;
+        sqlx::query(
+            "INSERT INTO sessions (id, subject, source, created_at, expires_at)
+             VALUES (?, 'admin', 'forms', datetime('now', '-31 days'), datetime('now', '+6 days')),
+                    (?, 'u-42', 'oidc', datetime('now', '-25 hours'), datetime('now', '+6 days')),
+                    (?, 'admin', 'forms', datetime('now', '-29 days'), datetime('now', '+6 days'))",
+        )
+        .bind(stored("month-old"))
+        .bind(stored("day-old"))
+        .bind(stored("in-time"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        assert!(live_session(&pool, "month-old", "forms").await.unwrap().is_none());
+        assert!(live_session(&pool, "day-old", "oidc").await.unwrap().is_none());
+        assert!(live_session(&pool, "in-time", "forms").await.unwrap().is_some());
+    }
+
+    /// The renewal stops at the lifetime, and a session opened for no longer
+    /// than its lifetime is not written to at each request.
+    #[tokio::test]
+    async fn renewal_never_extends_past_the_absolute_lifetime() {
+        let pool = crate::db::test_pool().await;
+        sqlx::query(
+            "INSERT INTO sessions (id, subject, source, created_at, expires_at)
+             VALUES (?, 'admin', 'forms', datetime('now', '-29 days'), datetime('now', '+1 hour'))",
+        )
+        .bind(stored("closing"))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let session = live_session(&pool, "closing", "forms").await.unwrap().unwrap();
+        let given = session.renewed.expect("renewed close to its expiry");
+        assert!(given <= 24 * 3600 + 5, "renewed past the lifetime by {given} seconds");
+        let ends: bool = sqlx::query_scalar(
+            "SELECT expires_at <= datetime(created_at, '+720 hours') FROM sessions WHERE id = ?",
+        )
+        .bind(stored("closing"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(ends);
+
+        let id = open_session(&pool, "u-42", "oidc").await.unwrap();
+        let session = live_session(&pool, &id, "oidc").await.unwrap().unwrap();
+        assert_eq!(session.renewed, None, "a session already at its lifetime was written to");
     }
 
     #[tokio::test]

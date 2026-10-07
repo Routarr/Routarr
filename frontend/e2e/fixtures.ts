@@ -9,9 +9,6 @@ const ARR = process.env.ROUTARR_E2E_ARR ?? 'http://127.0.0.1:7979';
 /** The key the harness starts the server with, empty in a sign-in mode. */
 const API_KEY = process.env.ROUTARR_E2E_KEY ?? '';
 
-/** Where the frontend keeps the key it sends with every request. */
-const API_KEY_STORAGE = 'routarr.apiKey';
-
 function send(path: string, init?: RequestInit): Promise<Response> {
   return fetch(`${API}${path}`, {
     ...init,
@@ -186,15 +183,15 @@ async function openScreen(page: Page, path: string): Promise<void> {
  * holds no key to reset with, and `instanceId` is empty.
  */
 export const test = base.extend<{ instanceId: string }>({
-  // Seeded before any script runs, exactly as a returning user's browser would
-  // have it: the frontend reads the key from storage on its first request, so
-  // setting it afterwards would leave the initial page load unauthenticated.
+  // The session a returning browser holds, opened before the first page loads,
+  // through the page's own cookie jar: opened after it, the first requests
+  // would land on the key gate.
   page: async ({ page }, use) => {
     if (API_KEY) {
-      await page.addInitScript(
-        ([storageKey, value]) => window.localStorage.setItem(storageKey, value),
-        [API_KEY_STORAGE, API_KEY] as const,
-      );
+      const opened = await page.request.post(`${API}/auth/key-session`, {
+        data: { key: API_KEY },
+      });
+      expect(opened.ok(), `the key opened no session: ${opened.status()}`).toBe(true);
     }
     await use(page);
   },
@@ -247,4 +244,25 @@ async function writesDuring(page: Page, act: () => Promise<void>): Promise<strin
   return writes;
 }
 
-export { expect, api, apiWhenFree, openScreen, screenShown, unfold, writesDuring, API, ARR };
+/**
+ * Answer the proof a session gives before it makes or withdraws a key, with
+ * the key the harness serves: the dialog opens above the one that asked.
+ */
+async function proveWithKey(page: Page): Promise<void> {
+  const proof = page.getByRole('dialog', { name: 'Confirm with the API key' });
+  await proof.getByLabel('Routarr API key').fill(API_KEY);
+  await proof.getByRole('button', { name: 'Continue' }).click();
+}
+
+export {
+  expect,
+  api,
+  apiWhenFree,
+  openScreen,
+  proveWithKey,
+  screenShown,
+  unfold,
+  writesDuring,
+  API,
+  ARR,
+};

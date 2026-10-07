@@ -221,6 +221,44 @@ describe('Layout', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('later');
   });
 
+  /**
+   * The key is exchanged for a session, so a browser in `apikey` mode holds one
+   * like any other, and leaves it the same way.
+   */
+  it('signs a browser out of the session its API key opened', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'apikey',
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    const logout = vi.spyOn(api, 'logout').mockResolvedValue(undefined as never);
+    const reload = vi.fn();
+    vi.stubGlobal('location', { ...window.location, reload });
+    show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    expect(logout).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
+  });
+
+  /** Nobody signs in there, so there is nothing to leave. */
+  it.each(['none', 'external'] as const)('offers no sign-out in %s mode', async (mode) => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    const known = vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode,
+      api_key_configured: false,
+      api_key_pinned: false,
+    });
+    show();
+
+    await screen.findByText('the page');
+    await waitFor(() => expect(known).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
+  });
+
   it('totals what needs acting on into one control, and names both parts', async () => {
     vi.spyOn(api, 'getStatus').mockResolvedValue(
       status({

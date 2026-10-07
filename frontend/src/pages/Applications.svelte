@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
+  import { withProof } from '../lib/proof.svelte';
   import type { ApplicationScope, Guardrail, MintedApplication } from '../api/types';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -69,12 +70,19 @@
     event.preventDefault();
     dialogError = null;
     try {
-      minted = await api.createApplication({
-        name,
-        scopes,
-        may_confirm: operates ? mayConfirm : [],
-        may_move_files: operates && mayMoveFiles,
-      });
+      const made = await withProof((proof) =>
+        api.createApplication(
+          {
+            name,
+            scopes,
+            may_confirm: operates ? mayConfirm : [],
+            may_move_files: operates && mayMoveFiles,
+          },
+          proof,
+        ),
+      );
+      if (!made) return;
+      minted = made;
       creating = false;
       outcome.succeed(t('ApplicationCreated', { name: minted.name }));
       await applications.reload();

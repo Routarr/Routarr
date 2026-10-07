@@ -69,6 +69,7 @@ PAIRS: dict[str, str] = {
     "SigningStatus": "WebhookSigningStatus",
     "ImportReport": "ConfigImportReport",
     "ProviderDescription": "MetadataProvider",
+    "Listed": "Session",
     # One name on both sides: each is the payload, or a part of one.
     "AlternativeDecision": "AlternativeDecision",
     "Application": "Application",
@@ -103,6 +104,8 @@ PAIRS: dict[str, str] = {
 UNPAIRED: dict[str, str] = {
     "InstanceProbe": "a request body",
     "NewApplication": "a request body",
+    "Proof": "a request body",
+    "PasswordChanged": "built with json! in api::account::change_password",
     "RuleDraft": "a request body",
     "AuthMode": "built with json! in api::auth::mode",
     "Condition": "a tagged enum on the Rust side, which this check does not read",

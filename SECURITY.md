@@ -50,7 +50,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   `apikey` mode where it is the only way in. Both are refused while
   `ROUTARR_API_KEY` is set: the variable wins, so a key minted here would live
   until the next restart and no further. A leaked key is therefore revoked in a
-  click rather than a maintenance window.
+  click rather than a maintenance window, and the sessions it opened end with it.
+- **A session proves itself again before it makes a key.** Replacing or
+  withdrawing the API key and making an application key ask for the current
+  password in `forms` and for the key in `apikey`: a session left open on a
+  shared machine would otherwise make a key that outlives it. A wrong password
+  counts toward the wait of its address, as a failed sign-in does. In `oidc` the
+  sign-in has to be less than ten minutes old, and an older one is sent back to
+  the provider with `max_age=0`, whose `auth_time` is then checked. A key sent
+  in a header is its own proof.
+- **The browser holds no key.** In `apikey` mode the key is typed once and
+  exchanged at `POST /auth/key-session` for a session cookie, under the same
+  rules as a `forms` session, and the page's scripts never read it again. A
+  key a browser stored before is exchanged once and removed.
 - **An application key reaches only what its scopes grant, in every mode.**
   The owner makes one per application on the Applications screen. It reads,
   and may also operate (sync, simulate, apply, revert, run the rule tests,
@@ -119,11 +131,19 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
 - **The `forms` mode stores its single password with argon2id** and opens
   opaque server-side sessions, never signed tokens: revoking one is a delete,
   which a self-validating token cannot offer. A session is stored by the
-  SHA-256 digest of its id, so a copy of the database opens none. Changing the
-  password ends every session it had opened and removes `routarr.password`,
-  which held the first one. The cookie is `HttpOnly`, `SameSite=Lax` and scoped to
-  the mount point, and a write carrying it is refused when the request states an
-  origin that is not this one.
+  SHA-256 digest of its id, so a copy of the database opens none. The cookie is
+  `HttpOnly`, `SameSite=Lax` and scoped to the mount point, and a write carrying
+  it is refused when the request states an origin that is not this one.
+- **A session ends on its own, in use or not.** About a week without a request,
+  and at the latest thirty days after it opened, or twenty-four hours through
+  an OpenID Connect provider, so a provider that removes a person is followed
+  within a day. The Settings screen lists every live session, how it was
+  opened and when it was last used, and ends one or all of them.
+- **Changing the password asks for the current one** and ends every session
+  the old one opened, the browser that changed it given a new one. It removes
+  `routarr.password`, which held the first one, and can revoke every
+  application key and replace the API key with it, for a password that leaked.
+  `routarr reset-account --revoke-keys` does the same for an owner locked out.
 - **In `none` and `external` modes a write with no API key is refused when the
   request states an origin that is not this one.** Nothing else stands between
   a page of another site and the API there: `none` asks for nothing, and in
@@ -289,23 +309,19 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **`style-src` keeps `'unsafe-inline'`.** A few elements take a size or a
   colour mix computed from data as an inline style (`Confidence`, `LibraryFacets`,
   `Jobs`, `TableSkeleton`, and the size a screen hands `Modal`), and CSP does not
-  distinguish a style attribute from an injected `<style>` block. Styles cannot
-  exfiltrate `localStorage`. Scripts can, and `script-src 'self'` allows none.
+  distinguish a style attribute from an injected `<style>` block. A style runs
+  no code, and `script-src 'self'` allows no inline script.
 - **The API key is a full-access credential.** Whoever holds it can download a
   backup, which carries the master key, and can point a connection test or the
   outbound notification at any `http(s)` address the server can reach, the
   local network included, link-local addresses aside. Treat it as you would the Arr's own, and give another
   application a key of its own instead, which reaches none of that.
-- **That includes replacing the key itself.** `POST /auth/api-key` sits behind
-  the same middleware, so a stolen key can rotate itself. In `apikey` mode,
-  where it is the only credential, that locks the operator out of the interface:
-  their browser holds the value that has just stopped working. The way back in
+- **That includes replacing the key itself.** A key sent in a header is its
+  own proof, so a stolen key can rotate itself. In `apikey` mode, where it is
+  the only credential, that ends the operator's sessions, and the way back in
   is to read `data/routarr.api_key`, which the rotation has already written.
   Refusing this would protect nothing, since the same key already downloads a
   backup containing the master key and with it every stored Arr credential.
-- **The API key lives in the browser's `localStorage`.** That is what makes
-  `script-src` the directive that actually protects it, which is why it is as
-  tight as it is.
 - **Routarr trusts the Arrs it is pointed at.** It reads what they return and
   acts on it. Pointing it at a hostile server is pointing it at a hostile
   server.

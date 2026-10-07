@@ -38,6 +38,7 @@ export {
   Link2,
   ListChecks,
   Lock,
+  LogOut,
   Menu,
   MoveDown,
   MoveUp,

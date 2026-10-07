@@ -176,11 +176,41 @@ export interface MaintenanceReport {
 export interface AuthMode {
   mode: 'none' | 'apikey' | 'forms' | 'external' | 'oidc';
   /** Whether the server holds a key at all. False in `forms` and `oidc` until
-   *  somebody sets one, which is what makes the field to paste it pointless. */
+   *  somebody creates one, so the card offers to create rather than replace. */
   api_key_configured: boolean;
   /** Set through `ROUTARR_API_KEY`, so it cannot be replaced from here: the new
    *  one would last until the next restart. */
   api_key_pinned: boolean;
+}
+
+/**
+ * The proof a session gives before it makes or withdraws a key: the current
+ * password in `forms`, the API key in `apikey`. A key sent in a header, and an
+ * OpenID Connect session signed in within ten minutes, need none.
+ */
+export interface Proof {
+  current_password?: string;
+  current_key?: string;
+}
+
+/** One live session, named by a handle that opens nothing. */
+export interface Session {
+  handle: string;
+  subject: string;
+  /** The mode that opened it. */
+  source: 'forms' | 'oidc' | 'apikey';
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  /** Whether this browser holds it. */
+  current: boolean;
+}
+
+/** What a password change answers: the new API key, shown once, when every
+ *  key was revoked with it. */
+export interface PasswordChanged {
+  ok: boolean;
+  api_key: string | null;
 }
 
 /** What a restore answers with: staged, not applied until the next start. */

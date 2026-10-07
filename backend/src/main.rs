@@ -43,7 +43,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::from_env()?;
     match std::env::args().nth(1).as_deref() {
         Some("healthcheck") => return healthcheck(&config).await,
-        Some("reset-account") => return reset_account(&config).await,
+        Some("reset-account") => {
+            let revoke_keys = std::env::args().skip(2).any(|arg| arg == "--revoke-keys");
+            return reset_account(&config, revoke_keys).await;
+        }
         Some("restore") => return restore(&config, std::env::args().nth(2)).await,
         _ => {}
     }
@@ -296,9 +299,17 @@ async fn refuse_a_lost_master_key(
 /// `docker exec routarr /app/routarr reset-account`. The image carries no
 /// `sqlite3`, and the server can keep running, since a sign-in reads the
 /// account each time.
-async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>> {
+///
+/// With `--revoke-keys`, every application key is revoked and a new API key is
+/// written, for an operator who believes keys leaked with the password.
+async fn reset_account(
+    config: &Config,
+    revoke_keys: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let pool = db::init_pool(config).await?;
     let password = services::accounts::reset_account(&pool, &config.password_path()).await?;
+    let revoked =
+        if revoke_keys { Some(services::applications::revoke_all(&pool).await?) } else { None };
     pool.close().await;
     println!(
         "The account is reset. Sign in as '{}' with: {password}",
@@ -308,6 +319,19 @@ async fn reset_account(config: &Config) -> Result<(), Box<dyn std::error::Error>
         "The password is also in {}. Every session was closed.",
         config.password_path().display()
     );
+    if let Some(revoked) = revoked {
+        println!("Every application key was revoked: {revoked}.");
+        if config.api_key.is_some() {
+            println!("ROUTARR_API_KEY pins the API key: change the variable and restart.");
+        } else {
+            let path = config.api_key_path();
+            crypto::write_api_key(&path, &crypto::generate_secret()?)?;
+            println!(
+                "A new API key is in {}. Restart Routarr for it to replace the old one.",
+                path.display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -370,13 +394,21 @@ fn build_router(state: AppState) -> Router {
         AuthMode::Oidc => public
             .route("/auth/oidc/start", get(api::auth::oidc_start))
             .route("/auth/oidc/callback", get(api::auth::oidc_callback)),
-        AuthMode::ApiKey | AuthMode::None | AuthMode::External => public,
+        // The browser's way in: the key sent once for a session cookie, so it
+        // is kept nowhere a script on the page could read it.
+        AuthMode::ApiKey => public.route("/auth/key-session", post(api::auth::key_session)),
+        AuthMode::None | AuthMode::External => public,
     };
 
     let protected = Router::new()
         .route("/auth/me", get(api::auth::me))
-        .route("/auth/password", put(api::auth::change_password))
-        .route("/auth/api-key", post(api::auth::rotate_api_key).delete(api::auth::delete_api_key))
+        .route("/auth/password", put(api::account::change_password))
+        .route(
+            "/auth/api-key",
+            post(api::account::rotate_api_key).delete(api::account::delete_api_key),
+        )
+        .route("/auth/sessions", get(api::account::sessions).delete(api::account::end_sessions))
+        .route("/auth/sessions/{handle}", delete(api::account::end_session))
         // Keys for other applications, each held to its own scopes. Owner-only,
         // like every route `api::applications::GRANTS` does not name.
         .route("/applications", get(api::applications::list).post(api::applications::create))

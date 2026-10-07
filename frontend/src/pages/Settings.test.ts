@@ -18,6 +18,12 @@ import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
 import { captureDownloads } from '../test/downloads';
 
+// The proof a key needs has its own tests (`lib/proof.test.ts`): here it is
+// given, as the dialog would hand it back.
+vi.mock('../lib/proof.svelte', () => ({
+  withProof: <T>(send: (proof: object) => Promise<T>) => send({ current_key: 'the-key-proven' }),
+}));
+
 /**
  * The two screens built on the settings editor: Settings, and the metadata
  * sources, which have a screen of their own.
@@ -128,6 +134,8 @@ function mount(
   });
   // The backups card loads on mount, and unmocked it would reach the network.
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
+  // So does the sessions card, in every mode a browser signs in.
+  vi.spyOn(api, 'getSessions').mockResolvedValue([]);
   // The signing card loads with the Automation section, and its failure would
   // pass through every test of that section unseen.
   vi.spyOn(api, 'webhookSigning').mockResolvedValue({ signed: false, since: null, readable: true });
@@ -964,7 +972,7 @@ describe('the API key card', () => {
   it('is offered in the mode whose only credential it is', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
 
-    expect(await screen.findByLabelText('Routarr API key')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
     expect(screen.getByText('Generated at first start')).toBeInTheDocument();
   });
 
@@ -974,7 +982,7 @@ describe('the API key card', () => {
       mount({}, { mode, api_key_configured: true, api_key_pinned: false });
 
       await screen.findByRole('heading', { name: 'Settings', level: 1 });
-      expect(screen.queryByLabelText('Routarr API key')).toBeNull();
+      expect(screen.queryByRole('heading', { name: 'Routarr API key' })).toBeNull();
     },
   );
 
@@ -986,20 +994,19 @@ describe('the API key card', () => {
   it('is offered in a session mode that has a key, and says what it is for', async () => {
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
 
-    expect(await screen.findByLabelText('Routarr API key')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Routarr API key' })).toBeInTheDocument();
     expect(screen.getByText('For clients that cannot hold a session')).toBeInTheDocument();
     expect(screen.queryByText('Generated at first start')).toBeNull();
   });
 
   /**
-   * Nothing to paste, but something to create: this is how a script gets a
-   * credential without being handed the password.
+   * Something to create: this is how a script gets a credential without being
+   * handed the password.
    */
-  it('offers to mint one in a session mode that has none, and nothing to paste', async () => {
+  it('offers to mint one in a session mode that has none', async () => {
     mount({}, { mode: 'oidc', api_key_configured: false, api_key_pinned: false });
 
     expect(await screen.findByRole('button', { name: 'Create a key' })).toBeInTheDocument();
-    expect(screen.queryByLabelText('Routarr API key')).toBeNull();
   });
 
   /**
@@ -1014,7 +1021,11 @@ describe('the API key card', () => {
     expect(screen.queryByRole('button', { name: 'Regenerate' })).toBeNull();
   });
 
-  it('stores what it just minted, since this browser is a client too', async () => {
+  /**
+   * Shown once, with the proof sent, and kept nowhere: this browser holds a
+   * session, not the key.
+   */
+  it('shows what it just minted, once, and keeps no copy', async () => {
     const rotate = vi.spyOn(api, 'rotateApiKey').mockResolvedValue({ api_key: 'the-new-one' });
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
 
@@ -1022,11 +1033,9 @@ describe('the API key card', () => {
     // The question names what breaks, not just what is about to happen.
     expect(await answerConfirmation()).toBe('Regenerate the key?');
 
-    await waitFor(() => expect(rotate).toHaveBeenCalled());
-    // Shown once, and kept where the next request will find it: in `apikey`
-    // mode the browser was holding the key that just stopped working.
+    await waitFor(() => expect(rotate).toHaveBeenCalledWith({ current_key: 'the-key-proven' }));
     expect(await screen.findByText('the-new-one')).toBeInTheDocument();
-    expect(localStorage.getItem('routarr.apiKey')).toBe('the-new-one');
+    expect(localStorage.getItem('routarr.apiKey')).toBeNull();
   });
 
   it('asks before replacing a key other clients are using', async () => {
@@ -1063,16 +1072,14 @@ describe('the API key card', () => {
     expect(remove).not.toHaveBeenCalled();
   });
 
-  it('removes the key once confirmed, and forgets the copy this browser held', async () => {
-    localStorage.setItem('routarr.apiKey', 'the-old-one');
+  it('removes the key once confirmed, with the proof sent', async () => {
     const remove = vi.spyOn(api, 'deleteApiKey').mockResolvedValue(undefined as never);
     mount({}, { mode: 'forms', api_key_configured: true, api_key_pinned: false });
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove the key' }));
     await answerConfirmation();
 
-    expect(remove).toHaveBeenCalledTimes(1);
-    expect(localStorage.getItem('routarr.apiKey') ?? '').toBe('');
+    await waitFor(() => expect(remove).toHaveBeenCalledWith({ current_key: 'the-key-proven' }));
   });
 });
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
+import { api, ApiError } from '../api/client';
 import ApiKeyGate from './ApiKeyGate.svelte';
 
 /**
@@ -18,7 +19,7 @@ const STRINGS = {
   ApiKeyDockerCommand: 'With the Docker image:',
   ApiKeyChooseOwn: 'Or set {variable}',
   RoutarrApiKey: 'Routarr API key',
-  SaveKey: 'Save key',
+  SignIn: 'Sign in',
 };
 
 const reload = vi.fn();
@@ -32,47 +33,53 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => vi.clearAllMocks());
+afterEach(() => vi.restoreAllMocks());
 
 const show = () => renderWithI18n(ApiKeyGate, { strings: STRINGS });
+
+async function send(key: string) {
+  const field = await screen.findByLabelText('Routarr API key');
+  await fireEvent.input(field, { target: { value: key } });
+  await fireEvent.submit(field.closest('form') as HTMLFormElement);
+}
 
 describe('ApiKeyGate', () => {
   it('refuses to submit an empty key', async () => {
     show();
 
-    const save = await screen.findByRole('button', { name: 'Save key' });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it('stores the key and remounts the application', async () => {
-    show();
-
-    const field = await screen.findByLabelText('Routarr API key');
-    await fireEvent.input(field, { target: { value: 'a-real-key' } });
-    await fireEvent.submit(field.closest('form') as HTMLFormElement);
-
-    expect(localStorage.getItem('routarr.apiKey')).toBe('a-real-key');
-    // Every page in the tree has already fetched and failed, and re-mounting
-    // them all is exactly what a reload does.
-    expect(reload).toHaveBeenCalled();
+    const signIn = await screen.findByRole('button', { name: 'Sign in' });
+    expect((signIn as HTMLButtonElement).disabled).toBe(true);
   });
 
   /**
-   * A key is stored and the server refused it anyway: that is a *wrong* key,
-   * not a missing one. Without saying so, pasting a bad key returns the same
-   * blank screen and the user pastes it again.
+   * The key is sent once for a session cookie, and kept nowhere a script on
+   * the page could read it.
    */
-  it('distinguishes a refused key from a missing one', async () => {
-    localStorage.setItem('routarr.apiKey', 'the-wrong-key');
+  it('exchanges the key for a session, keeps no copy and remounts the application', async () => {
+    const exchanged = vi.spyOn(api, 'keySession').mockResolvedValue({ ok: true });
     show();
 
-    expect(await screen.findByText('That key was refused')).toBeTruthy();
+    await send(' a-real-key ');
+
+    expect(exchanged).toHaveBeenCalledWith('a-real-key');
+    expect(localStorage.getItem('routarr.apiKey')).toBeNull();
+    // Every page in the tree has already fetched and failed, and re-mounting
+    // them all is exactly what a reload does.
+    await vi.waitFor(() => expect(reload).toHaveBeenCalled());
   });
 
-  it('says nothing about refusal when no key was ever stored', async () => {
+  /**
+   * A refused key is said to be wrong: without it, pasting a bad key returns
+   * the same screen and the user pastes it again.
+   */
+  it('says a refused key was refused, and stays', async () => {
+    vi.spyOn(api, 'keySession').mockRejectedValue(new ApiError('', 401, 'unauthorized'));
     show();
 
-    await screen.findByRole('button', { name: 'Save key' });
     expect(screen.queryByText('That key was refused')).toBeNull();
+    await send('the-wrong-key');
+
+    expect(await screen.findByText('That key was refused')).toBeTruthy();
+    expect(reload).not.toHaveBeenCalled();
   });
 });

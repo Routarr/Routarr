@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
-  import { AlertTriangle, ListChecks, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -11,6 +11,7 @@
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
   import { statusRevision } from '../lib/status.svelte';
+  import { proofRequest } from '../lib/proof.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
     onboarding,
@@ -372,11 +373,20 @@
               <span class="visually-hidden">{attention.label}</span>
             </a>
           {/if}
-          <!-- Only where signing in was possible: a key or a proxy has no
-               session to end, and a button that does nothing is worse than
-               none. -->
-          {#if sessionMode}
-            <button class="btn btn-ghost btn-sm" onclick={signOut}>{t('SignOut')}</button>
+          <!-- Only where a browser holds a session, the key's included: a
+               proxy or an open instance has none to end, and a button that
+               does nothing is worse than none. -->
+          {#if sessionMode || auth.data?.mode === 'apikey'}
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              onclick={signOut}
+              aria-label={t('SignOut')}
+              title={t('SignOut')}
+            >
+              <LogOut size={14} aria-hidden="true" />
+              <span class="sign-out-label">{t('SignOut')}</span>
+            </button>
           {/if}
         </div>
       </header>
@@ -411,4 +421,11 @@
   {/if}
 
   <ConfirmDialog />
+  <!-- Fetched the first time a screen asks for a proof: only two screens do,
+       and the shell is what every visit downloads. -->
+  {#if proofRequest.request}
+    {#await import('./ProofDialog.svelte') then { default: ProofDialog }}
+      <ProofDialog />
+    {/await}
+  {/if}
 {/if}

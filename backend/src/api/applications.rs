@@ -123,13 +123,23 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Applicati
 }
 
 /// Make a key. Its token is in this answer and nowhere else, ever.
+/// A key asked for, with the proof a session gives (`api::account::prove`).
+#[derive(serde::Deserialize)]
+pub struct Requested {
+    #[serde(flatten)]
+    pub application: NewApplication,
+    #[serde(flatten)]
+    pub proof: crate::api::account::Proof,
+}
+
 pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
-    Json(new): Json<NewApplication>,
+    Json(requested): Json<Requested>,
 ) -> AppResult<Json<Minted>> {
-    let minted = applications::create(&state, new, identity.actor()).await?;
+    crate::api::account::prove(&state, &identity, &requested.proof, client).await?;
+    let minted = applications::create(&state, requested.application, identity.actor()).await?;
     let made = &minted.application;
     let scopes: Vec<&str> = made.scopes.iter().map(|scope| scope.as_str()).collect();
     let detail = format!(

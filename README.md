@@ -138,7 +138,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 Every variable is listed and commented in [`backend/.env.example`](backend/.env.example). Everything
 else is set in the interface, under **Settings** and **Metadata sources**.
 
-Behind a reverse proxy in `forms` or `oidc` mode, forward the public host and scheme
+Behind a reverse proxy in `apikey`, `forms` or `oidc` mode, forward the public host and scheme
 (`X-Forwarded-Host`, `X-Forwarded-Proto`), and the port in `X-Forwarded-Port` when it is not 80 or
 443: the host is what a write from the browser is checked against, the scheme what marks the
 session cookie `Secure`. A refused sign-in is logged, sign-ins are checked at most three at a
@@ -150,6 +150,7 @@ and the redirect URL have to be `https://`, except on `localhost`, and
 left at its defaults would let every account of its directory in. In `external` mode, publish the port to
 the proxy alone: the proxy is what signs people in. In `forms` mode, a lost password is reset with
 `docker exec routarr /app/routarr reset-account`, which prints a new one and signs everyone out.
+Add `--revoke-keys` to revoke every application key and replace the API key as well.
 
 In `none` mode Routarr answers to its addresses and `localhost`. Reached by a name, such as
 `nas.lan`, list it in `ROUTARR_ALLOWED_HOSTS`: a page of another site can make its own name point at

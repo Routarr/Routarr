@@ -42,6 +42,7 @@ mod rule_tests;
 mod scale;
 mod scheduler;
 mod security;
+mod sessions;
 mod stopped_runs;
 mod sync;
 mod webhook_fuzz;
@@ -703,8 +704,47 @@ impl TestApp {
 
 /// Collects what a `tracing` subscriber writes, so a test can read the log a
 /// request produced rather than trust that nothing sensitive is in it.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct LogCapture(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl Default for LogCapture {
+    fn default() -> Self {
+        std::sync::LazyLock::force(&BESIDE_EVERY_CAPTURE);
+        Self(std::sync::Arc::default())
+    }
+}
+
+/// A dispatcher that hears nothing, registered for as long as the tests run.
+///
+/// With one dispatcher registered, `tracing` decides whether a call site is
+/// heard by asking the dispatcher of the thread that reaches it first. Reached
+/// first by a test with no capture, the call site is marked unheard for every
+/// thread, and a capture on another thread misses its lines. With two, every
+/// registered dispatcher is asked, and a capture hears what it should.
+static BESIDE_EVERY_CAPTURE: std::sync::LazyLock<tracing::Dispatch> =
+    std::sync::LazyLock::new(|| tracing::Dispatch::new(Unheard));
+
+struct Unheard;
+
+impl tracing::Subscriber for Unheard {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
+        false
+    }
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+    fn event(&self, _: &tracing::Event<'_>) {}
+    fn enter(&self, _: &tracing::span::Id) {}
+    fn exit(&self, _: &tracing::span::Id) {}
+}
 
 impl LogCapture {
     pub fn contents(&self) -> String {
