@@ -187,12 +187,12 @@ describe('restoring a backup', () => {
 
 it('marks an archive sealed with the backup passphrase', async () => {
   vi.spyOn(api, 'listBackups').mockResolvedValue({
-    backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.age', encrypted: true }],
+    backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.enc', encrypted: true }],
     retention_count: 7,
   });
   renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
 
-  const sealed = (await screen.findByText('routarr-backup-20260905-101500.zip.age')).parentElement!;
+  const sealed = (await screen.findByText('routarr-backup-20260905-101500.zip.enc')).parentElement!;
   expect(within(sealed).getByText('Encrypted')).toBeTruthy();
   const plain = screen.getByText(FILE.name).parentElement!;
   expect(within(plain).queryByText('Encrypted')).toBeNull();

@@ -86,8 +86,8 @@ Back up the whole `data/` directory: the Arr and metadata keys, the notification
 signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
 the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
 An archive carries the master key: set a backup passphrase in **Settings** to encrypt every one,
-in the [age](https://age-encryption.org) format, so that a copy of the folder opens nothing without
-it. A restore asks for it, and `age -d` opens an archive where Routarr cannot run.
+so that a copy of the folder opens nothing without it. A restore asks for it, and
+`routarr decrypt-backup <archive>` writes one opened, to read it by hand.
 
 A start that applies new migrations archives the database first. Going back to an earlier release
 works while it knows every migration the database holds. When a start refuses the database, it

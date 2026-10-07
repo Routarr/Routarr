@@ -22,12 +22,11 @@ use sqlx::AssertSqlSafe;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use age::secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 pub use sealed::{
-    SETTING as PASSPHRASE_SETTING, is_sealed_name, passphrase, reseal_in_background,
+    Passphrase, SETTING as PASSPHRASE_SETTING, is_sealed_name, passphrase, reseal_in_background,
     stored_passphrase,
 };
 
@@ -56,7 +55,7 @@ pub struct BackupFile {
     pub size_bytes: u64,
     pub created_at: String,
     /// Sealed with the backup passphrase: a restore asks for it, and
-    /// `age -d` opens it without Routarr.
+    /// `routarr decrypt-backup` opens it by hand.
     pub encrypted: bool,
 }
 
@@ -198,7 +197,7 @@ async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
     suffix: &str,
-    passphrase: Option<SecretString>,
+    passphrase: Option<Passphrase>,
 ) -> AppResult<BackupFile> {
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
@@ -315,7 +314,7 @@ fn build_zip(
     snapshot: &Path,
     manifest: &BackupManifest,
     keys: &[Option<PathBuf>; 2],
-    passphrase: Option<&SecretString>,
+    passphrase: Option<&Passphrase>,
 ) -> AppResult<()> {
     // Written under a name `list` does not show, and given its own only once
     // whole: a zip is readable as soon as it is finished, and `ZipWriter`
@@ -544,7 +543,7 @@ pub fn read_manifest(archive: &Path) -> AppResult<BackupManifest> {
 pub async fn stage_restore(
     state: &AppState,
     name: &str,
-    given: Option<SecretString>,
+    given: Option<Passphrase>,
 ) -> AppResult<BackupManifest> {
     if !is_valid_backup_name(name) {
         return Err(AppError::NotFound("Unknown backup".into()));
@@ -573,15 +572,15 @@ pub async fn stage_restore(
 /// says whether a passphrase was given.
 async fn opened_if_sealed(
     archive: &Path,
-    given: Option<SecretString>,
-    stored: Option<SecretString>,
+    given: Option<Passphrase>,
+    stored: Option<Passphrase>,
     localizer: &crate::localization::Localizer,
 ) -> AppResult<Option<sealed::Opened>> {
     if !sealed::is_sealed_file(archive) {
         return Ok(None);
     }
     let refusal = if given.is_some() { "ErrorPassphraseWrong" } else { "ErrorPassphraseNeeded" };
-    let tried: Vec<SecretString> = given.into_iter().chain(stored).collect();
+    let tried: Vec<Passphrase> = given.into_iter().chain(stored).collect();
     let path = archive.to_path_buf();
     let opened = tokio::task::spawn_blocking(move || {
         sealed::opened_copy(&path, &tried.iter().collect::<Vec<_>>())
@@ -684,30 +683,14 @@ async fn stage(
 pub async fn stage_offline(
     config: &crate::config::Config,
     archive: &str,
-    given: Option<SecretString>,
+    given: Option<Passphrase>,
 ) -> AppResult<BackupManifest> {
-    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-
-    let in_folder = backups_in(&config.data_dir).join(archive);
-    let path = if is_valid_backup_name(archive) && in_folder.exists() {
-        in_folder
-    } else {
-        archive.into()
-    };
-    if !path.is_file() {
-        return Err(AppError::NotFound(format!("{} is not an archive", path.display())));
-    }
+    let path = archive_named(config, archive)?;
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
 
     // What the database in place has withdrawn since is carried over, as an
-    // online restore does. Opened as it is, never migrated: it may be the very
-    // database a start refuses.
-    let live = if config.db_path.is_file() {
-        let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
-        Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?)
-    } else {
-        None
-    };
+    // online restore does.
+    let live = database_in_place(config).await?;
     let staged = async {
         let stored = match &live {
             Some(live) => sealed::stored_passphrase(config, live).await.ok().flatten(),
@@ -725,11 +708,86 @@ pub async fn stage_offline(
     staged
 }
 
+/// `archive` as a command names it: a name from the backup folder, or a path.
+fn archive_named(config: &crate::config::Config, archive: &str) -> AppResult<PathBuf> {
+    let in_folder = backups_in(&config.data_dir).join(archive);
+    let path = if is_valid_backup_name(archive) && in_folder.exists() {
+        in_folder
+    } else {
+        archive.into()
+    };
+    if !path.is_file() {
+        return Err(AppError::NotFound(format!("{} is not an archive", path.display())));
+    }
+    Ok(path)
+}
+
+/// The database a command run with the server stopped reads, when there is
+/// one. Opened as it is, never migrated: it may be the very database a start
+/// refuses.
+async fn database_in_place(config: &crate::config::Config) -> AppResult<Option<sqlx::SqlitePool>> {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    if !config.db_path.is_file() {
+        return Ok(None);
+    }
+    let options = crate::db::with_paths(SqliteConnectOptions::new().filename(&config.db_path));
+    Ok(Some(SqlitePoolOptions::new().max_connections(1).connect_with(options).await?))
+}
+
+/// Write the sealed `archive` opened, as a zip at `out`, or beside it without
+/// its `.enc` when none is given: `routarr decrypt-backup`, to read an archive
+/// by hand. Opens with `given`, or else the passphrase the database in place
+/// holds. The zip carries the master key in clear, so it is written private,
+/// and never over a file that exists.
+pub async fn decrypt_offline(
+    config: &crate::config::Config,
+    archive: &str,
+    out: Option<&str>,
+    given: Option<Passphrase>,
+) -> AppResult<PathBuf> {
+    let path = archive_named(config, archive)?;
+    if !sealed::is_sealed_file(&path) {
+        return Err(AppError::BadRequest(format!(
+            "{} is not encrypted: it opens as a zip as it is",
+            path.display()
+        )));
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let out = match out {
+        Some(out) => PathBuf::from(out),
+        None => {
+            path.with_file_name(name.strip_suffix(sealed::SUFFIX).unwrap_or(&format!("{name}.zip")))
+        }
+    };
+    if out.exists() {
+        return Err(AppError::Conflict(format!("{} exists already", out.display())));
+    }
+    let stored = match database_in_place(config).await? {
+        Some(live) => {
+            let stored = sealed::stored_passphrase(config, &live).await.ok().flatten();
+            live.close().await;
+            stored
+        }
+        None => None,
+    };
+    let localizer = crate::localization::Localizer::new("en");
+    let opened = opened_if_sealed(&path, given, stored, &localizer).await?;
+    let Some(opened) = opened else {
+        return Err(AppError::BadRequest(format!("{} is not encrypted", path.display())));
+    };
+    std::fs::rename(&opened.path, &out)
+        .or_else(|_| std::fs::copy(&opened.path, &out).map(|_| ()))
+        .map_err(|e| AppError::Internal(format!("cannot write {}: {e}", out.display())))?;
+    crate::crypto::restrict_permissions(&out);
+    Ok(out)
+}
+
 /// The newest archive in the backup folder this build can restore, by name.
 /// A sealed one counts when `passphrase` opens it.
 pub fn newest_openable(
     config: &crate::config::Config,
-    passphrase: Option<&SecretString>,
+    passphrase: Option<&Passphrase>,
 ) -> Option<String> {
     let dir = backups_in(&config.data_dir);
     list_in(&dir).into_iter().map(|file| file.name).find(|name| {
@@ -1054,6 +1112,12 @@ fn key_in_place(config: &crate::config::Config, key_file: &Path) -> Option<Strin
     config.secret_key.clone().or(from_file)
 }
 
+/// Whether `passphrase` opens the sealed `archive`, as a restore would.
+#[cfg(test)]
+pub(crate) fn sealed_with(archive: &Path, passphrase: &str) -> bool {
+    sealed::opens(archive, &Passphrase::new(passphrase.to_string())).unwrap_or(false)
+}
+
 /// Whether a file is a Routarr database this build can open.
 ///
 /// Opened read-only and immutable, so the check writes nothing beside the file.
@@ -1184,8 +1248,8 @@ mod tests {
     #[test]
     fn only_a_name_routarr_generated_is_accepted() {
         assert!(is_valid_backup_name("routarr-backup-20260823-120000.zip"));
-        assert!(is_valid_backup_name("routarr-backup-20260823-120000-app.zip.age"));
-        assert!(!is_valid_backup_name("routarr-backup-20260823-120000.age"));
+        assert!(is_valid_backup_name("routarr-backup-20260823-120000-app.zip.enc"));
+        assert!(!is_valid_backup_name("routarr-backup-20260823-120000.enc"));
 
         // The download and delete endpoints take this from the URL: every way
         // out of the directory has to miss.

@@ -48,6 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return reset_account(&config, revoke_keys).await;
         }
         Some("restore") => return restore(&config, std::env::args().nth(2)).await,
+        Some("decrypt-backup") => {
+            let mut args = std::env::args().skip(2);
+            return decrypt_backup(&config, args.next(), args.next()).await;
+        }
         _ => {}
     }
     // Before anything binds a port: a value the server cannot honour should
@@ -184,21 +188,8 @@ async fn restore(
             "usage: routarr restore <archive>, a name from the backup folder or a path".into()
         );
     };
-    // From the environment, or else typed at the prompt once the archive turns
-    // out to be sealed with a passphrase the database in place does not hold.
-    let mut given = config::restore_passphrase().map(age::secrecy::SecretString::from);
-    let manifest = loop {
-        match services::backup::stage_offline(config, &archive, given.clone()).await {
-            Err(error::AppError::PassphraseRequired(refusal))
-                if std::io::IsTerminal::is_terminal(&std::io::stdin()) =>
-            {
-                println!("{refusal}");
-                let typed = rpassword::prompt_password("Passphrase: ")?;
-                given = Some(age::secrecy::SecretString::from(typed.trim().to_string()));
-            }
-            staged => break staged?,
-        }
-    };
+    let manifest =
+        asking_passphrase(|given| services::backup::stage_offline(config, &archive, given)).await?;
     println!(
         "{archive}, taken by Routarr v{} at schema {}, is restored at the next start.",
         manifest.version, manifest.schema
@@ -209,6 +200,54 @@ async fn restore(
         );
     }
     Ok(())
+}
+
+/// `routarr decrypt-backup <archive> [<zip>]`: write an encrypted archive
+/// opened, to read it by hand.
+async fn decrypt_backup(
+    config: &Config,
+    archive: Option<String>,
+    out: Option<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(archive) = archive else {
+        return Err("usage: routarr decrypt-backup <archive> [<zip>], a name from the backup \
+                    folder or a path"
+            .into());
+    };
+    let written = asking_passphrase(|given| {
+        services::backup::decrypt_offline(config, &archive, out.as_deref(), given)
+    })
+    .await?;
+    println!(
+        "{} written. It carries the master key in clear: delete it once read.",
+        written.display()
+    );
+    Ok(())
+}
+
+/// Run `attempt` with the archive passphrase from the environment, and again
+/// with one typed at the prompt each time it answers that one is needed,
+/// while there is a terminal to type it in.
+async fn asking_passphrase<T, Attempt, Answer>(
+    mut attempt: Attempt,
+) -> Result<T, Box<dyn std::error::Error>>
+where
+    Attempt: FnMut(Option<services::backup::Passphrase>) -> Answer,
+    Answer: std::future::Future<Output = error::AppResult<T>>,
+{
+    let mut given = config::archive_passphrase().map(services::backup::Passphrase::new);
+    loop {
+        match attempt(given.clone()).await {
+            Err(error::AppError::PassphraseRequired(refusal))
+                if std::io::IsTerminal::is_terminal(&std::io::stdin()) =>
+            {
+                println!("{refusal}");
+                let typed = rpassword::prompt_password("Passphrase: ")?;
+                given = Some(services::backup::Passphrase::new(typed.trim().to_string()));
+            }
+            done => return Ok(done?),
+        }
+    }
 }
 
 /// What a start reads from disk, in the one order that works: a staged

@@ -1,7 +1,6 @@
 //! Archives sealed with the backup passphrase: worth nothing without it, and
 //! restored with it, by the interface and with the server stopped.
 
-use age::secrecy::SecretString;
 use axum::http::StatusCode;
 use serde_json::json;
 
@@ -50,14 +49,6 @@ async fn finished_backup_tasks(app: &TestApp, finished: i64) {
     panic!("the archives were not brought to the passphrase in time: {jobs:?}");
 }
 
-/// Whether `passphrase` opens `archive`, as the `age` tool would.
-fn opens(archive: &std::path::Path, passphrase: &str) -> bool {
-    let file = std::io::BufReader::new(std::fs::File::open(archive).unwrap());
-    let decryptor = age::Decryptor::new_buffered(file).unwrap();
-    let identity = age::scrypt::Identity::new(SecretString::from(passphrase.to_string()));
-    decryptor.decrypt(std::iter::once(&identity as _)).is_ok()
-}
-
 /// An archive copied away opens nothing: not the database, not the master key
 /// it carries. Brought to another installation, which holds no passphrase, it
 /// is restored once its own is given, and the wrong one is said to be wrong.
@@ -68,10 +59,10 @@ async fn an_encrypted_archive_restores_with_its_passphrase_and_not_without() {
 
     let taken = app.post("/api/v1/backups", json!({})).await.assert_ok().clone();
     let name = taken["name"].as_str().unwrap().to_string();
-    assert!(name.ends_with(".zip.age"), "{taken}");
+    assert!(name.ends_with(".zip.enc"), "{taken}");
     assert_eq!(taken["encrypted"], true, "{taken}");
     let bytes = std::fs::read(dir.join("backups").join(&name)).unwrap();
-    assert!(bytes.starts_with(b"age-encryption.org/v1\n"));
+    assert!(bytes.starts_with(b"RTRSEAL\x01"));
     let readable = |needle: &[u8]| bytes.windows(needle.len()).any(|window| window == needle);
     assert!(!readable(b"SQLite format 3") && !readable(b"a-master-key"), "it is readable");
 
@@ -123,16 +114,16 @@ async fn the_archives_on_disk_follow_the_passphrase() {
 
     set_passphrase(&app, PASSPHRASE).await;
     finished_backup_tasks(&app, 2).await;
-    let sealed_name = format!("{}.age", plain.name);
+    let sealed_name = format!("{}.enc", plain.name);
     assert_eq!(archives(&dir), std::slice::from_ref(&sealed_name));
     let archive = dir.join("backups").join(&sealed_name);
-    assert!(opens(&archive, PASSPHRASE), "the passphrase set does not open it");
+    assert!(backup::sealed_with(&archive, PASSPHRASE), "the passphrase set does not open it");
 
     set_passphrase(&app, ANOTHER).await;
     finished_backup_tasks(&app, 3).await;
     assert_eq!(archives(&dir), std::slice::from_ref(&sealed_name));
-    assert!(opens(&archive, ANOTHER), "the new passphrase does not open it");
-    assert!(!opens(&archive, PASSPHRASE), "the old passphrase still opens it");
+    assert!(backup::sealed_with(&archive, ANOTHER), "the new passphrase does not open it");
+    assert!(!backup::sealed_with(&archive, PASSPHRASE), "the old passphrase still opens it");
 
     set_passphrase(&app, "").await;
     finished_backup_tasks(&app, 4).await;
@@ -169,7 +160,7 @@ async fn the_backup_before_a_migration_is_sealed_too() {
 
     let file = backup::before_migrating(&app.state.config, &app.state.pool).await.unwrap();
 
-    assert!(file.encrypted && file.name.ends_with(".zip.age"), "{file:?}");
+    assert!(file.encrypted && file.name.ends_with(".zip.enc"), "{file:?}");
 }
 
 /// A passphrase guessed offline is guessed at the copier's pace: a short one
@@ -225,4 +216,39 @@ async fn a_sealed_archive_altered_on_disk_is_refused_as_damaged() {
     assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{}", refused.json);
     assert!(refused.json["message"].as_str().unwrap().contains("damaged"), "{}", refused.json);
     assert_eq!(archives(&dir), [file.name], "something was left beside the archive");
+}
+
+/// An encrypted archive read by hand: written opened as a private zip beside
+/// it, with the passphrase the database in place holds or the one given, and
+/// never over a file that exists.
+#[tokio::test]
+async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
+    let (app, dir) = app_with_files("sealed-by-hand").await;
+    set_passphrase(&app, PASSPHRASE).await;
+    let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+    let config = (*app.state.config).clone();
+    app.state.pool.close().await;
+
+    let written = backup::decrypt_offline(&config, &file.name, None, None).await.unwrap();
+    assert_eq!(written, dir.join("backups").join(file.name.trim_end_matches(".enc")));
+    assert!(backup::read_manifest(&written).unwrap().includes_master_key);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&written).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "the zip in clear is readable by others: {mode:o}");
+    }
+    let again = backup::decrypt_offline(&config, &file.name, None, None).await;
+    assert!(matches!(again, Err(crate::error::AppError::Conflict(_))), "{again:?}");
+
+    let elsewhere = TempDir::new("sealed-by-hand-elsewhere");
+    let mut other = config.clone();
+    other.set_db_path(elsewhere.join("routarr.db"));
+    let archive = dir.join("backups").join(&file.name).to_string_lossy().into_owned();
+    let out = elsewhere.join("opened.zip").to_string_lossy().into_owned();
+    let asked = backup::decrypt_offline(&other, &archive, Some(&out), None).await;
+    assert!(matches!(asked, Err(crate::error::AppError::PassphraseRequired(_))), "{asked:?}");
+    let given = Some(backup::Passphrase::new(PASSPHRASE.to_string()));
+    backup::decrypt_offline(&other, &archive, Some(&out), given).await.unwrap();
+    assert!(backup::read_manifest(std::path::Path::new(&out)).is_ok());
 }

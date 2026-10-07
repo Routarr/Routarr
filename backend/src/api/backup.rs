@@ -124,7 +124,7 @@ pub async fn restore(
         .passphrase
         .map(|passphrase| passphrase.trim().to_string())
         .filter(|passphrase| !passphrase.is_empty())
-        .map(age::secrecy::SecretString::from);
+        .map(backup::Passphrase::new);
     let manifest = backup::stage_restore(&state, &name, given).await?;
     let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
     crate::api::auth::audited(&state, &identity, client, event);

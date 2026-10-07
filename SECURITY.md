@@ -214,12 +214,15 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   credential unreadable. The manifest records it, the restore returns it, and
   the interface warns on it rather than reporting a plain success.
 - **Archives can be sealed with a passphrase.** Set in the settings and
-  sealed with the master key like any credential, it encrypts every archive
-  in the age format (scrypt at 2^17, ChaCha20-Poly1305), so a copy of the
-  backup folder opens nothing without it, and `age -d` opens one where Routarr
-  cannot run. Changing or removing it converts the archives on disk, and one
-  sealed with an older passphrase is left as it is. A restore asks for it when
-  the installation does not hold it. A passphrase that cannot be opened takes
+  sealed with the master key like any credential, it encrypts every archive:
+  a key derived with Argon2id (64 MiB, three passes, a salt of its own), then
+  AES-256-GCM in chunks of 64 KiB under the STREAM construction. A copy of the
+  backup folder opens nothing without it, a chunk altered, moved, dropped or
+  added does not open, and a wrong passphrase is told apart from damage.
+  Changing or removing it converts the archives on disk, and one sealed with
+  an older passphrase is left as it is. A restore asks for it when the
+  installation does not hold it, and `routarr decrypt-backup` writes an
+  archive opened, to read it by hand. A passphrase that cannot be opened takes
   no archive at all rather than one in the clear.
 - **A restore brings back no credential withdrawn since the backup.** An
   application key revoked, a signing secret replaced, the master API key

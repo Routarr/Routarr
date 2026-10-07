@@ -258,7 +258,7 @@
             "type": "string"
           },
           "encrypted": {
-            "description": "Sealed with the backup passphrase: a restore asks for it, and\n`age -d` opens it without Routarr.",
+            "description": "Sealed with the backup passphrase: a restore asks for it, and\n`routarr decrypt-backup` opens it by hand.",
             "type": "boolean"
           },
           "name": {

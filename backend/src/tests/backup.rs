@@ -938,8 +938,8 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
     for leftover in [
         backups.join(".routarr-backup-20260101-000000.zip.partial"),
-        backups.join(".routarr-backup-20260101-000000.zip.age.plain"),
-        backups.join(".routarr-backup-20260101-000000.zip.age.opened"),
+        backups.join(".routarr-backup-20260101-000000.zip.enc.plain"),
+        backups.join(".routarr-backup-20260101-000000.zip.enc.opened"),
         backups.join(".20260101-000000.db"),
         dir.join("routarr.db.restore-staging"),
         dir.join("routarr.key.restore-staging"),
