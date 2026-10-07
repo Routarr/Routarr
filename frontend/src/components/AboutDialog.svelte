@@ -24,7 +24,9 @@
   <p class="text-md">{t('AboutVersion', { version })}</p>
   <p class="text-muted text-md mt-2">
     {t('AboutLicence')}
-    <a href={REPOSITORY} target="_blank" rel="noopener noreferrer">github.com/Routarr/Routarr</a>
+    <a class="text-link" href={REPOSITORY} target="_blank" rel="noopener noreferrer"
+      >github.com/Routarr/Routarr</a
+    >
   </p>
   <div class="mt-4">
     <SourceCredits />

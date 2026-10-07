@@ -40,11 +40,13 @@
           <img class="credit-logo" src={tmdbLogo} alt={t('TmdbLogo')} />
         {/if}
         <span>{t(CREDIT_KEY[provider.id] ?? '')}</span>
-        <a href={provider.website} target="_blank" rel="noopener noreferrer">
+        <a class="text-link" href={provider.website} target="_blank" rel="noopener noreferrer">
           {host(provider.website ?? '')}
         </a>
         {#if provider.id === 'omdb'}
-          <a href={OMDB_LICENCE} target="_blank" rel="noopener noreferrer">CC BY-NC 4.0</a>
+          <a class="text-link" href={OMDB_LICENCE} target="_blank" rel="noopener noreferrer"
+            >CC BY-NC 4.0</a
+          >
         {/if}
       </li>
     {/each}

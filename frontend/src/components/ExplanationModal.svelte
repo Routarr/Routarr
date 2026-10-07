@@ -92,7 +92,9 @@
 {#snippet named(id: string)}
   {@const provider = providerOf(id)}
   {#if provider?.website}
-    <a href={provider.website} target="_blank" rel="noopener noreferrer">{provider.display_name}</a>
+    <a class="text-link" href={provider.website} target="_blank" rel="noopener noreferrer"
+      >{provider.display_name}</a
+    >
   {:else}
     {provider?.display_name ?? id}
   {/if}
