@@ -288,6 +288,14 @@ pub async fn revoke(pool: &SqlitePool, id: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Revoke every live key, and say how many there were.
+pub async fn revoke_all(pool: &SqlitePool) -> AppResult<u64> {
+    Ok(sqlx::query("UPDATE api_keys SET revoked_at = datetime('now') WHERE revoked_at IS NULL")
+        .execute(pool)
+        .await?
+        .rows_affected())
+}
+
 /// What a presented token allows, or `None` when it names no live key.
 ///
 /// The last use is written at most once a minute, off the request: a caller

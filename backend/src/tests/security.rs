@@ -144,6 +144,7 @@ pub(super) const OPEN: &[(&str, &str)] = &[
     ("POST", "/api/v1/auth/logout"),
     ("GET", "/api/v1/auth/oidc/start"),
     ("GET", "/api/v1/auth/oidc/callback"),
+    ("POST", "/api/v1/auth/key-session"),
 ];
 
 /// The whole point of the API key is that *every* library-touching route is
@@ -510,7 +511,7 @@ async fn external_asks_for_nothing_and_says_so() {
 /// `data_dir`, and two of these sharing one would each overwrite the other's
 /// file while keeping their own account, so whichever read second would read a
 /// password that opens nothing.
-async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
+pub(super) async fn forms_app(label: &str) -> (TestApp, super::TempDir) {
     forms_app_under(label, "").await
 }
 
@@ -535,12 +536,12 @@ async fn forms_app_under(label: &str, base: &str) -> (TestApp, super::TempDir) {
     (TestApp::around(state), dir)
 }
 
-fn generated_password(app: &TestApp) -> String {
+pub(super) fn generated_password(app: &TestApp) -> String {
     std::fs::read_to_string(app.state.config.password_path()).unwrap()
 }
 
 /// Sign in and return the session cookie, as a browser would carry it.
-async fn sign_in(app: &TestApp, password: &str) -> String {
+pub(super) async fn sign_in(app: &TestApp, password: &str) -> String {
     use axum::body::Body;
     use axum::http::{Request, header};
     use tower::ServiceExt;
@@ -710,7 +711,7 @@ async fn repeated_failures_from_one_address_are_slowed_and_another_address_is_no
 }
 
 /// A request carrying the session, since `TestApp` sends no cookies.
-async fn with_session(
+pub(super) async fn with_session(
     app: &TestApp,
     method: &str,
     path: &str,
@@ -1343,7 +1344,9 @@ async fn the_password_changes_only_against_the_current_one() {
         serde_json::json!({ "current": "not it", "new_password": "a much longer one" }),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED, "a wrong current password was accepted");
+    // Forbidden, not 401: the session is good, and a 401 reads to the
+    // interface as a credential gone, which puts the sign-in gate up.
+    assert_eq!(status, StatusCode::FORBIDDEN, "a wrong current password was accepted");
 
     let (status, _) = with_session(
         &app,
@@ -1493,7 +1496,7 @@ async fn a_panicking_handler_is_logged_under_its_request_id() {
 
 /// An `apikey` installation whose key is the stored one rather than a pinned
 /// variable, which is the ordinary case, and the only one that can rotate.
-async fn stored_key_app(label: &str, key: &str) -> (TestApp, super::TempDir) {
+pub(super) async fn stored_key_app(label: &str, key: &str) -> (TestApp, super::TempDir) {
     let dir = super::TempDir::new(&format!("key-{label}"));
 
     let mut config = crate::config::Config::for_tests();
@@ -1531,6 +1534,7 @@ async fn a_key_minted_in_a_session_mode_is_the_one_on_disk() {
 
     let (app, _dir) = forms_app("mint").await;
     let session = open_session(&app).await;
+    let proof = serde_json::json!({ "current_password": generated_password(&app) }).to_string();
 
     // Nothing to present yet: the mode does not generate one.
     assert_eq!(crate::crypto::read_api_key(&app.state.config.api_key_path()), None);
@@ -1540,7 +1544,7 @@ async fn a_key_minted_in_a_session_mode_is_the_one_on_disk() {
             Request::post("/api/v1/auth/api-key")
                 .header(header::COOKIE, &session)
                 .header(header::CONTENT_TYPE, "application/json")
-                .body(Body::from("{}"))
+                .body(Body::from(proof.clone()))
                 .unwrap(),
         )
         .await
@@ -1558,7 +1562,8 @@ async fn a_key_minted_in_a_session_mode_is_the_one_on_disk() {
         .send(
             Request::delete("/api/v1/auth/api-key")
                 .header(header::COOKIE, &session)
-                .body(Body::empty())
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(proof))
                 .unwrap(),
         )
         .await;

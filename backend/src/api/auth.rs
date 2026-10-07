@@ -60,20 +60,23 @@ pub struct Identity {
     /// What an application key allows. `None` for a person, who may do
     /// everything.
     pub application: Option<Grant>,
+    /// When the session this request carries was opened, in Unix seconds, for
+    /// a person signed in through one. `None` for a key sent in a header.
+    pub signed_in_at: Option<i64>,
 }
 
 impl Identity {
     /// The caller nobody had to name: `none` lets everyone through under it.
     fn anonymous(source: AuthMode) -> Self {
-        Self { subject: "anonymous".to_string(), source, application: None }
+        Self { subject: "anonymous".to_string(), source, application: None, signed_in_at: None }
     }
 
     fn person(subject: String, source: AuthMode) -> Self {
-        Self { subject, source, application: None }
+        Self { subject, source, application: None, signed_in_at: None }
     }
 
     fn application(grant: Grant, source: AuthMode) -> Self {
-        Self { subject: grant.name.clone(), source, application: Some(grant) }
+        Self { subject: grant.name.clone(), source, application: Some(grant), signed_in_at: None }
     }
 
     /// The name worth recording on a write, if anybody vouched for one.
@@ -172,7 +175,7 @@ pub(crate) fn audited(
 }
 
 /// A refusal anyone can send as fast as they like, summed per address.
-fn refused(
+pub(crate) fn refused(
     state: &AppState,
     kind: &'static str,
     subject: Option<&str>,
@@ -301,10 +304,24 @@ pub async fn authenticate(
                 None => None,
             },
         },
+        // The key in a header, or the session a browser exchanged it for
+        // (`key_session`), which keeps the key out of the browser's storage.
         // A key-less ApiKey mode cannot happen: `main` generates one at startup
-        // and `DELETE /auth/api-key` refuses in this mode. Refusing rather than
-        // passing through keeps the failure loud if that ever stops being true.
-        AuthMode::ApiKey => api_key_identity(&state, request.headers()),
+        // and `DELETE /auth/api-key` refuses in this mode.
+        AuthMode::ApiKey => match api_key_identity(&state, request.headers()) {
+            Some(identity) => Some(identity),
+            None => match session_identity(&state, request.headers()).await {
+                Some(_) if !same_origin(&request, &state.config.cors_origins) => {
+                    refused(&state, "origin", None, client, refused_origin(&request));
+                    return foreign_origin();
+                }
+                Some((identity, renewed)) => {
+                    renewal = renewed;
+                    Some(identity)
+                }
+                None => None,
+            },
+        },
     };
 
     match identity {
@@ -403,9 +420,13 @@ async fn session_identity(
     let session = accounts::live_session(&state.pool, &id, mode.as_str()).await.ok().flatten()?;
     let renewal = session
         .renewed
-        .then(|| session_cookie(state, headers, &id, accounts::SESSION_DAYS))
+        .map(|seconds| session_cookie(state, headers, &id, seconds))
         .and_then(|cookie| axum::http::HeaderValue::from_str(&cookie).ok());
-    Some((Identity::person(session.subject, mode), renewal))
+    let identity = Identity {
+        signed_in_at: Some(session.opened_at),
+        ..Identity::person(session.subject, mode)
+    };
+    Some((identity, renewal))
 }
 
 /// One named cookie out of the header, without a crate for it.
@@ -551,55 +572,6 @@ pub async fn mode(State(state): State<AppState>) -> super::Json<serde_json::Valu
         // quietly expires.
         "api_key_pinned": state.config.api_key.is_some(),
     }))
-}
-
-/// Mint a new API key, replacing whatever was there.
-///
-/// The value is returned exactly once. Storing it to show again later would
-/// make every subsequent read of this screen a second chance to copy it, which
-/// is the property a credential should not have.
-pub async fn rotate_api_key(
-    State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<Identity>,
-    Client(client): Client,
-) -> AppResult<super::Json<serde_json::Value>> {
-    refuse_if_pinned(&state)?;
-    let key = state.rotate_api_key()?;
-    audited(&state, &identity, client, "api_key", "The API key was replaced".into());
-    Ok(super::Json(serde_json::json!({ "api_key": key })))
-}
-
-/// Withdraw the key, leaving the session as the only way in.
-pub async fn delete_api_key(
-    State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<Identity>,
-    Client(client): Client,
-) -> AppResult<StatusCode> {
-    refuse_if_pinned(&state)?;
-    // In `apikey` mode it is the only credential there is, and the middleware
-    // refuses every request once it is gone, including the one that would put
-    // it back.
-    if state.config.auth_mode == AuthMode::ApiKey {
-        return Err(AppError::Conflict(
-            "The API key is the only way in while ROUTARR_AUTH=apikey. Switch to a session mode \
-             before removing it."
-                .into(),
-        ));
-    }
-    state.clear_api_key()?;
-    audited(&state, &identity, client, "api_key", "The API key was withdrawn".into());
-    Ok(StatusCode::NO_CONTENT)
-}
-
-fn refuse_if_pinned(state: &AppState) -> AppResult<()> {
-    if state.config.api_key.is_some() {
-        return Err(AppError::Conflict(
-            "ROUTARR_API_KEY sets this key, so it cannot be changed here. Change the variable \
-             and restart."
-                .into(),
-        ));
-    }
-    Ok(())
 }
 
 #[derive(serde::Deserialize)]
@@ -764,9 +736,81 @@ pub async fn login(
                 StatusCode::OK,
                 [(
                     axum::http::header::SET_COOKIE,
-                    session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
+                    session_cookie(
+                        &state,
+                        &headers,
+                        &id,
+                        accounts::opening_seconds(AuthMode::Forms.as_str()),
+                    ),
                 )],
                 axum::Json(serde_json::json!({ "username": credentials.username.trim() })),
+            )
+                .into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct KeySession {
+    pub key: String,
+}
+
+/// Exchange the API key for a session cookie, in `apikey` mode.
+///
+/// What a browser keeps instead of the key: `HttpOnly`, so no script on the
+/// page can read it, ending with its lifetime or a sign-out. A wrong key counts
+/// toward the wait of the address it came from, as a wrong password does.
+pub async fn key_session(
+    State(state): State<AppState>,
+    Client(client): Client,
+    headers: HeaderMap,
+    super::Json(sent): super::Json<KeySession>,
+) -> Response {
+    if let Some(left) = state.sign_in.held_back(client) {
+        let seconds = left.as_secs() + 1;
+        let message = state
+            .localizer()
+            .await
+            .translate("ErrorSignInHeldBack", &[("seconds", &seconds.to_string())]);
+        return AppError::TooManyRequests { message, retry_after: seconds }.into_response();
+    }
+    let matched =
+        state.api_key().is_some_and(|expected| constant_time_eq(sent.key.trim(), &expected));
+    let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
+    if !matched {
+        state.audit.record(audit::Event {
+            kind: "sign_in",
+            outcome: audit::Outcome::Refused,
+            subject: None,
+            client,
+            detail: format!("A key that opens nothing was sent to sign in, from {address}"),
+            summed: false,
+        });
+        state.sign_in.failed(client);
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({
+                "error": "unauthorized",
+                "message": "This key opens nothing.",
+            })),
+        )
+            .into_response();
+    }
+    state.sign_in.succeeded(client);
+
+    let source = AuthMode::ApiKey.as_str();
+    match accounts::open_session(&state.pool, "apikey", source).await {
+        Ok(id) => {
+            let person = Identity::person("apikey".to_string(), AuthMode::ApiKey);
+            audited(&state, &person, client, "sign_in", "The API key opened a session".into());
+            (
+                StatusCode::OK,
+                [(
+                    axum::http::header::SET_COOKIE,
+                    session_cookie(&state, &headers, &id, accounts::opening_seconds(source)),
+                )],
+                axum::Json(serde_json::json!({ "ok": true })),
             )
                 .into_response()
         }
@@ -817,9 +861,24 @@ pub async fn me(axum::Extension(identity): axum::Extension<Identity>) -> super::
 /// shell shows, since the caller is a browser following a link. The reason goes
 /// to the log, where a configuration fault is fixed, and never to an anonymous
 /// caller.
-pub async fn oidc_start(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    use crate::services::oidc::FLOW_MINUTES;
-    let started = crate::services::oidc::start(&state)
+#[derive(serde::Deserialize)]
+pub struct StartQuery {
+    /// `0` to have the provider sign the person in again (`api::account::prove`).
+    #[serde(default)]
+    pub max_age: Option<i64>,
+    /// The screen to come back to, a path under the mount point.
+    #[serde(default, rename = "return")]
+    pub return_to: Option<String>,
+}
+
+pub async fn oidc_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    super::Query(query): super::Query<StartQuery>,
+) -> Response {
+    use crate::services::oidc::{FLOW_MINUTES, screen};
+    let return_to = query.return_to.as_deref().and_then(screen);
+    let started = crate::services::oidc::start(&state, query.max_age.is_some(), return_to)
         .await
         .and_then(|start| Ok((start.attempt.sealed(&state.secrets)?, start)));
     match started {
@@ -918,6 +977,11 @@ pub async fn oidc_callback(
         return failed();
     };
 
+    // The screen that sent the person to sign in again, under the mount point.
+    let landing = match attempt.return_to.as_deref() {
+        Some(screen) => format!("{home}{}", screen.trim_start_matches('/')),
+        None => home.clone(),
+    };
     let subject = match crate::services::oidc::finish(&state, &code, attempt).await {
         Ok(subject) => subject,
         Err(e) => {
@@ -944,11 +1008,16 @@ pub async fn oidc_callback(
                 axum::response::AppendHeaders([
                     (
                         axum::http::header::SET_COOKIE,
-                        session_cookie(&state, &headers, &id, accounts::SESSION_DAYS),
+                        session_cookie(
+                            &state,
+                            &headers,
+                            &id,
+                            accounts::opening_seconds(AuthMode::Oidc.as_str()),
+                        ),
                     ),
                     (axum::http::header::SET_COOKIE, cleared.unwrap_or_default()),
                 ]),
-                axum::response::Redirect::to(&home),
+                axum::response::Redirect::to(&landing),
             )
                 .into_response()
         }
@@ -959,77 +1028,8 @@ pub async fn oidc_callback(
     }
 }
 
-#[derive(serde::Deserialize)]
-pub struct PasswordChange {
-    pub current: String,
-    pub new_password: String,
-}
-
-/// Replace the password, having proved the old one.
-///
-/// Behind the middleware, so a session already opened it, and still asking for
-/// the current password, because a session left open on a shared machine is
-/// exactly the case a password change must not be free in.
-pub async fn change_password(
-    State(state): State<AppState>,
-    axum::Extension(identity): axum::Extension<Identity>,
-    Client(client): Client,
-    headers: HeaderMap,
-    super::Json(change): super::Json<PasswordChange>,
-) -> Response {
-    let Ok(Some((_, hash))) = accounts::account(&state.pool).await else {
-        return forbidden("This installation has no account to change");
-    };
-    // Through the throttle like a sign-in: this route is behind the middleware,
-    // so the queue is not the point, and keeping argon2 off the runtime is. A
-    // check left there holds a worker for the whole hash, and on a small
-    // machine that is every other request waiting.
-    // Busy reads as "not this password": the caller retries, and a change that
-    // proceeded on a check that never ran would be the one bug here worth
-    // fearing.
-    let current_matches: bool =
-        state.sign_in.verify(&change.current, &hash, None).await.unwrap_or_default();
-    if !current_matches {
-        state.audit.record(audit::Event {
-            kind: "password",
-            outcome: audit::Outcome::Refused,
-            subject: Some(&identity.subject),
-            client,
-            detail: "A password change was refused: the current password was wrong".into(),
-            summed: false,
-        });
-        return unauthorized();
-    }
-    if change.new_password.chars().count() < MIN_PASSWORD_LENGTH {
-        return (
-            StatusCode::BAD_REQUEST,
-            axum::Json(serde_json::json!({
-                "error": "bad_request",
-                "message": format!("A password needs at least {MIN_PASSWORD_LENGTH} characters."),
-            })),
-        )
-            .into_response();
-    }
-
-    let password_path = state.config.password_path();
-    match accounts::set_password(&state.pool, &password_path, &change.new_password).await {
-        // Every session it had opened is gone, including this one: the point of
-        // changing a password is that what the old one reached is now closed.
-        Ok(()) => {
-            audited(&state, &identity, client, "password", "The password was changed".into());
-            (
-                StatusCode::OK,
-                [(axum::http::header::SET_COOKIE, session_cookie(&state, &headers, "", 0))],
-                axum::Json(serde_json::json!({ "ok": true })),
-            )
-                .into_response()
-        }
-        Err(e) => e.into_response(),
-    }
-}
-
 /// Short enough not to argue with, long enough to be worth hashing.
-const MIN_PASSWORD_LENGTH: usize = 12;
+pub(crate) const MIN_PASSWORD_LENGTH: usize = 12;
 
 /// The `Set-Cookie` value, scoped to the mount point.
 ///
@@ -1039,8 +1039,12 @@ const MIN_PASSWORD_LENGTH: usize = 12;
 /// script that ever slips past the CSP. `Secure` follows the scheme the browser
 /// used: without it a cookie issued over TLS also travels on a plain `http://`
 /// request to the same host, and a proxy that terminates TLS answers both.
-fn session_cookie(state: &AppState, headers: &HeaderMap, id: &str, days: i64) -> String {
-    let max_age = if days == 0 { 0 } else { days * 24 * 60 * 60 };
+pub(crate) fn session_cookie(
+    state: &AppState,
+    headers: &HeaderMap,
+    id: &str,
+    max_age: i64,
+) -> String {
     cookie_header(state, headers, SESSION_COOKIE, id, max_age)
 }
 

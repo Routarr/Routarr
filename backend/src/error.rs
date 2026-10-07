@@ -63,6 +63,16 @@ pub enum AppError {
     #[error("Too many requests: {message}")]
     TooManyRequests { message: String, retry_after: u64 },
 
+    /// The server is already checking as many passwords as it will: a short
+    /// wait, answered 503 with `Retry-After: 1`.
+    #[error("Busy: {0}")]
+    Busy(String),
+
+    /// The sign-in behind this session is too old for what it asks, and has
+    /// to be made again at the provider first.
+    #[error("Sign in again: {0}")]
+    Reauthenticate(String),
+
     /// An outbound call failed: an Arr, a metadata source, the identity
     /// provider or the notification webhook.
     ///
@@ -130,7 +140,9 @@ impl AppError {
             | AppError::Forbidden(message)
             | AppError::ConfirmationRequired { message, .. }
             | AppError::ConfirmationWithheld { message, .. }
-            | AppError::TooManyRequests { message, .. } => message.clone(),
+            | AppError::TooManyRequests { message, .. }
+            | AppError::Busy(message)
+            | AppError::Reauthenticate(message) => message.clone(),
             internal if internal.is_internal() => {
                 "An internal error occurred. See the server log for details.".to_string()
             }
@@ -156,8 +168,8 @@ fn describe_external(service: &str, status: u16, message: &str) -> String {
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
-    /// `conflict`, `confirmation_required`, `too_many_requests`,
-    /// `external_api_error`, or an internal kind.
+    /// `conflict`, `confirmation_required`, `too_many_requests`, `busy`,
+    /// `reauthentication_required`, `external_api_error`, or an internal kind.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
@@ -192,6 +204,8 @@ impl IntoResponse for AppError {
             AppError::TooManyRequests { .. } => {
                 (StatusCode::TOO_MANY_REQUESTS, "too_many_requests")
             }
+            AppError::Busy(_) => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
+            AppError::Reauthenticate(_) => (StatusCode::FORBIDDEN, "reauthentication_required"),
             AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
                 (StatusCode::BAD_GATEWAY, "external_api_error")
             }
@@ -215,6 +229,7 @@ impl IntoResponse for AppError {
         };
         let retry_after = match &self {
             AppError::TooManyRequests { retry_after, .. } => Some(*retry_after),
+            AppError::Busy(_) => Some(1),
             _ => None,
         };
         let body =

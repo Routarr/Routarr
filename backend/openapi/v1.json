@@ -1624,7 +1624,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`,\n`external_api_error`, or an internal kind.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`, `busy`,\n`reauthentication_required`, `external_api_error`, or an internal kind.",
             "type": "string"
           },
           "includes": {

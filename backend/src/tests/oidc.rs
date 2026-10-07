@@ -57,7 +57,7 @@ async fn a_provider_whose_endpoints_are_in_the_clear_is_refused() {
     assert_eq!(response.status, StatusCode::SEE_OTHER, "{}", response.json);
     assert_eq!(response.location().as_deref(), Some("/?signin=failed"));
     // The log line the operator reads names what to fix.
-    let message = match crate::services::oidc::start(&app.state).await {
+    let message = match crate::services::oidc::start(&app.state, false, None).await {
         Ok(_) => String::from("the flow started"),
         Err(e) => e.to_string(),
     };
@@ -76,14 +76,16 @@ async fn a_provider_misdescribing_itself_is_refused_naming_what_to_fix() {
     let clear = crate::tests::fake_oidc::FakeOidc::start().await;
     clear.advertise_authorization_at("http://idp.example");
     let app = oidc_app(&clear).await;
-    let refused = crate::services::oidc::start(&app.state).await.err().map(|e| e.to_string());
+    let refused =
+        crate::services::oidc::start(&app.state, false, None).await.err().map(|e| e.to_string());
     let refused = refused.expect("an authorization endpoint in the clear was accepted");
     assert!(refused.contains("authorization_endpoint"), "{refused}");
 
     let renamed = crate::tests::fake_oidc::FakeOidc::start().await;
     renamed.call_itself("https://elsewhere.example");
     let app = oidc_app(&renamed).await;
-    let refused = crate::services::oidc::start(&app.state).await.err().map(|e| e.to_string());
+    let refused =
+        crate::services::oidc::start(&app.state, false, None).await.err().map(|e| e.to_string());
     let refused = refused.expect("a document naming another issuer was accepted");
     assert!(refused.contains("elsewhere.example"), "{refused}");
 }
@@ -640,4 +642,105 @@ async fn two_attempts_in_one_browser_both_finish() {
         assert_eq!(callback(&app, Some(&jar), &path).await.location().as_deref(), Some("/"));
     }
     assert_eq!(app.count("SELECT COUNT(*) FROM sessions").await, 2);
+}
+
+/// Routarr holds no password to ask an OpenID Connect session for, so a
+/// session older than ten minutes signs in again at the provider before it
+/// makes a key, and a fresh one goes on.
+#[tokio::test]
+async fn an_old_oidc_session_signs_in_again_before_it_mints_a_key() {
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let session = |age: &str| {
+        let app = &app;
+        let age = age.to_string();
+        async move {
+            let id = crate::services::accounts::open_session(&app.state.pool, "u-42", "oidc")
+                .await
+                .unwrap();
+            let shifted = format!("-{age}");
+            sqlx::query("UPDATE sessions SET created_at = datetime('now', ?) WHERE id = ?")
+                .bind(shifted)
+                .bind(crate::services::accounts::stored(&id))
+                .execute(&app.state.pool)
+                .await
+                .unwrap();
+            format!("routarr_session={id}")
+        }
+    };
+
+    let old = session("11 minutes").await;
+    let (status, body) = super::security::with_session(
+        &app,
+        "POST",
+        "/api/v1/auth/api-key",
+        &old,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "reauthentication_required", "{body}");
+
+    let fresh = session("1 minute").await;
+    let (status, body) = super::security::with_session(
+        &app,
+        "POST",
+        "/api/v1/auth/api-key",
+        &fresh,
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// Asked to sign the person in again, the provider is told so, and its token
+/// has to say it just did: a session it kept would otherwise pass for a fresh
+/// sign-in. The browser lands back on the screen that asked.
+#[tokio::test]
+async fn a_sign_in_asked_again_needs_a_fresh_auth_time_and_lands_where_it_was_asked() {
+    use axum::http::header;
+    use tower::ServiceExt;
+
+    let idp = crate::tests::fake_oidc::FakeOidc::start().await;
+    let app = oidc_app(&idp).await;
+    let again = |code: &'static str, claims: serde_json::Value| {
+        let app = &app;
+        let idp = &idp;
+        async move {
+            let request = Request::get("/api/v1/auth/oidc/start?max_age=0&return=/settings")
+                .body(Body::empty())
+                .unwrap();
+            let started = app.router.clone().oneshot(request).await.unwrap();
+            let location = started.headers()[header::LOCATION].to_str().unwrap().to_string();
+            let cookie = started.headers()[header::SET_COOKIE].to_str().unwrap();
+            let cookie = cookie.split(';').next().unwrap().to_string();
+            let asked: std::collections::HashMap<_, _> =
+                reqwest::Url::parse(&location).unwrap().query_pairs().into_owned().collect();
+            assert_eq!(asked.get("max_age").map(String::as_str), Some("0"), "{location}");
+            assert_eq!(asked.get("prompt").map(String::as_str), Some("login"), "{location}");
+            let mut claims = claims;
+            claims["nonce"] = serde_json::json!(asked["nonce"]);
+            idp.will_claim(claims);
+            let path = format!("/api/v1/auth/oidc/callback?code={code}&state={}", asked["state"]);
+            callback(app, Some(&cookie), &path).await.location()
+        }
+    };
+
+    let now = chrono::Utc::now().timestamp();
+    assert_eq!(again("one", serde_json::json!({})).await.as_deref(), Some("/?signin=failed"));
+    let stale = serde_json::json!({ "auth_time": now - 3600 });
+    assert_eq!(again("two", stale).await.as_deref(), Some("/?signin=failed"));
+    let fresh = serde_json::json!({ "auth_time": now });
+    assert_eq!(again("three", fresh).await.as_deref(), Some("/settings"));
+}
+
+/// A screen to come back to is a path under the mount point, and nothing
+/// that leaves it.
+#[test]
+fn a_sign_in_lands_only_under_the_mount_point() {
+    use crate::services::oidc::screen;
+    assert_eq!(screen("/settings").as_deref(), Some("/settings"));
+    for leaving in ["//evil.example", "https://evil.example", "/\\evil", "settings", "/a b"] {
+        assert_eq!(screen(leaving), None, "{leaving}");
+    }
 }
