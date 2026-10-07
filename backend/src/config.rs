@@ -9,7 +9,7 @@ pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 
 /// `ROUTARR_MAX_LIBRARY_MIB` when unset.
-const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
+pub(crate) const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
 
 /// How long an apply follows the Arr's moves of files. A move within one
 /// filesystem is a rename the Arr ends in a second. One copying across disks
