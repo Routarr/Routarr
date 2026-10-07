@@ -303,14 +303,14 @@ impl FakeArr {
         self.films.lock().expect("lock").held.retain(|held| *held != id);
     }
 
-    /// The most requests this fake ever had open at the same moment.
-    ///
     /// Rate films for `country` in the metadata settings, as Radarr writes a
     /// country there (`gb`).
     pub fn rate_for(&self, country: &str) {
         *self.certification_country.lock().expect("lock") = country.to_string();
     }
 
+    /// The most requests this fake ever had open at the same moment.
+    ///
     /// One means the caller was sequential: not slow, sequential.
     pub fn max_concurrent(&self) -> usize {
         self.max_in_flight.load(Ordering::SeqCst)

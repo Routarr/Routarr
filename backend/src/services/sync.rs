@@ -113,7 +113,7 @@ async fn sync_instance_inner(
     let was_failing = instance.last_sync_status.as_deref().is_some_and(|s| s.starts_with("error"));
 
     let list_folders = lists_folders(state, instance, by).await.unwrap_or(true);
-    let outcome = do_sync(state, instance, list_folders).await;
+    let outcome = do_sync(state, instance, list_folders, asked(by)).await;
     if outcome.is_ok()
         && let Err(e) = crate::services::executor::settle_requested(state, instance, by).await
     {
@@ -165,6 +165,12 @@ async fn sync_instance_inner(
     outcome
 }
 
+/// Whether somebody asked for this sync, through the interface or the API,
+/// rather than the schedule, a webhook or the automation.
+fn asked(by: &Attribution) -> bool {
+    matches!(by.trigger.as_str(), crate::jobs::TRIGGER_MANUAL | crate::jobs::TRIGGER_API)
+}
+
 /// How long a scheduled sync goes without listing the root folders.
 const FOLDERS_LISTED_EVERY: chrono::Duration = chrono::Duration::hours(24);
 
@@ -172,7 +178,7 @@ const FOLDERS_LISTED_EVERY: chrono::Duration = chrono::Duration::hours(24);
 /// every folder inside each: when somebody asked for it, and otherwise once a
 /// day. In between the free space of the mounts is read instead.
 async fn lists_folders(state: &AppState, instance: &Instance, by: &Attribution) -> AppResult<bool> {
-    if matches!(by.trigger.as_str(), crate::jobs::TRIGGER_MANUAL | crate::jobs::TRIGGER_API) {
+    if asked(by) {
         return Ok(true);
     }
     let listed: Option<String> =
@@ -197,6 +203,7 @@ async fn do_sync(
     state: &AppState,
     instance: &Instance,
     list_folders: bool,
+    asked: bool,
 ) -> AppResult<SyncReport> {
     let adapter = state.adapter(instance)?;
 
@@ -272,12 +279,27 @@ async fn do_sync(
     // first, so it takes the write lock as it opens.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
 
+    // A country other than the last one read leaves the films the Arr rated
+    // before under the previous country's ratings, until each is refreshed:
+    // its date is kept for the warning, which a sync somebody asks for after
+    // refreshing them clears.
     if let Some(country) = &certification_country {
-        sqlx::query("UPDATE instances SET certification_country = ? WHERE id = ?")
-            .bind(country)
-            .bind(&instance.id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE instances SET
+                certification_country_changed_at = CASE
+                    WHEN certification_country IS NOT NULL AND certification_country != ?1
+                        THEN datetime('now')
+                    WHEN ?3 THEN NULL
+                    ELSE certification_country_changed_at
+                END,
+                certification_country = ?1
+              WHERE id = ?2",
+        )
+        .bind(country)
+        .bind(&instance.id)
+        .bind(asked)
+        .execute(&mut *tx)
+        .await?;
     }
     if let Some(version) = &version {
         sqlx::query("UPDATE instances SET arr_version = ? WHERE id = ?")

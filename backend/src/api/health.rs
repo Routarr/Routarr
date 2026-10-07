@@ -55,6 +55,7 @@ pub struct Warning {
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
     /// `scheduler_panicked`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
+    /// `certification_country_changed`,
     /// `auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.
     /// The list may grow.
     pub code: &'static str,
@@ -681,6 +682,27 @@ async fn offline_warnings(
             localizer.translate(
                 "WarnCertificationCountry",
                 &[("name", &name), ("country", &country), ("regions", &regions.join(", "))],
+            ),
+        ));
+    }
+
+    // A Radarr whose rating country changed: the films it rated before keep
+    // the previous country's ratings until each is refreshed, which it does on
+    // its own within 180 days.
+    let changed: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, certification_country FROM instances
+          WHERE enabled = 1 AND certification_country IS NOT NULL
+            AND certification_country_changed_at > datetime('now', '-180 days')
+          ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (name, country) in changed {
+        warnings.push(Warning::new(
+            "certification_country_changed",
+            localizer.translate(
+                "WarnCertificationCountryChanged",
+                &[("name", &name), ("country", &country)],
             ),
         ));
     }

@@ -136,6 +136,44 @@ async fn a_sync_reads_the_country_a_radarr_rates_for_and_a_sonarr_rates_for_the_
     assert_eq!(country.as_deref(), Some("US"));
 }
 
+/// Whether `/status` warns that an Arr's rating country changed.
+async fn changed(app: &TestApp) -> bool {
+    let status = app.get("/api/v1/status").await;
+    let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
+    warnings.iter().any(|warning| warning["code"] == "certification_country_changed")
+}
+
+/// Radarr picks a film's rating when it reads the film's metadata, and reads
+/// an old film again only every 180 days. After its country changes, the films
+/// it rated before keep the previous country's ratings: the operator is told
+/// to refresh them, until a sync they ask for after doing so.
+#[tokio::test]
+async fn a_changed_rating_country_asks_for_every_film_to_be_refreshed() {
+    use crate::jobs::{Attribution, TRIGGER_SCHEDULE};
+    use crate::services::sync::sync_instance;
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    let scheduled = Attribution::unattended(TRIGGER_SCHEDULE);
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(!changed(&app).await, "the first country read is no change");
+
+    arr.rate_for("gb");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(changed(&app).await, "the change was not reported");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(changed(&app).await, "a scheduled sync cleared it");
+
+    sync_instance(&app.state, "inst-1", &Attribution::manual(None)).await.unwrap();
+    assert!(!changed(&app).await, "the sync asked for after the refresh kept it");
+
+    arr.rate_for("fr");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    app.execute(&["UPDATE instances SET certification_country_changed_at =
+                       datetime('now', '-181 days')"])
+        .await;
+    assert!(!changed(&app).await, "Radarr has refreshed every film on its own by then");
+}
+
 #[tokio::test]
 async fn an_arr_rating_for_a_country_outside_the_regions_is_reported() {
     let arr = FakeArr::start().await;

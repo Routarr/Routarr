@@ -1019,6 +1019,7 @@
   "WarnOidcOpenToAnyone": "Every account the OpenID Connect provider authenticates signs in with full access. Name the people or the groups who may in ROUTARR_OIDC_ALLOWED_SUBJECTS or ROUTARR_OIDC_ALLOWED_GROUPS, and remove ROUTARR_OIDC_ALLOW_ANYONE.",
   "WarnInstanceNoMapping": "Instance '{name}' has no root folder mapped to a category.",
   "WarnCertificationCountry": "{name} rates titles for {country}, which is not among the certification regions ({regions}). Its ratings count only after those of the regions: add {country} to them on the Metadata sources screen if they should count as much.",
+  "WarnCertificationCountryChanged": "{name} now rates films for {country}, and the films it rated before keep the previous country's ratings until each is refreshed. Refresh every movie in Radarr, then sync {name} here.",
   "WarnInstanceUnreachable": "Instance '{name}' is unreachable: {status}",
   "WarnMissingMetadata": "Media items with no external metadata yet: {count}.",
   "WarnNoEnabledInstance": "No enabled Arr instance, so there is nothing to route.",
