@@ -1,4 +1,4 @@
-import { test, expect, api } from './fixtures';
+import { test, expect, api, openScreen } from './fixtures';
 
 /**
  * The interface in a right-to-left language.
@@ -34,7 +34,7 @@ test.describe('right to left', () => {
    */
   test('a ticked checkbox draws the same tick right to left', async ({ page }) => {
     await setLanguage('ar');
-    await page.goto('/settings#automation');
+    await openScreen(page, '/settings#automation');
 
     const drawn = await page.evaluate(() => {
       const box = document.createElement('input');
