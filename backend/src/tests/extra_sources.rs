@@ -318,6 +318,23 @@ async fn a_title_the_arr_calls_live_action_is_not_searched() {
     assert_eq!(searched(), ["My Neighbor Totoro", "Heat"]);
 }
 
+/// A search the source refuses for this title alone, a 400 or a 422, is a
+/// search that found nothing: remembered, not asked again at every pass.
+#[tokio::test]
+async fn a_search_the_source_refuses_is_not_repeated_next_pass() {
+    let sources = FakeSources::failing(400).await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
+
+    for _ in 0..2 {
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+    }
+
+    let searched = sources.recorded().paths.iter().filter(|path| *path == "/anilist").count();
+    assert_eq!(searched, 1, "a refused search was asked again");
+}
+
 #[tokio::test]
 async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     let sources = FakeSources::with_mismatched_year().await;
@@ -855,7 +872,7 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
 /// Jikan answers `504` for *every* request whenever MyAnimeList is down.
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
-/// next pass. A source that has refused five times in one pass is down, so
+/// next pass. A source that has refused five times in a row is down, so
 /// Routarr stops asking, a searching source in its resolution stage and an
 /// addressed one in its fetching stage.
 #[tokio::test]

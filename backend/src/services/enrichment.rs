@@ -169,7 +169,7 @@ async fn run_enrichment(
                 // for the 429 never to be earned.
                 limiter.acquire().await;
                 sent.fetch_add(1, Ordering::Relaxed);
-                let outcome = source.fetch(&external_id, &media_type).await;
+                let outcome = source.answer(&external_id, &media_type).await;
                 if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent) {
                     closed.store(true, Ordering::Relaxed);
                     return (external_id, media_type, Err(NotAsked::Deferred));
@@ -199,13 +199,6 @@ async fn run_enrichment(
                 continue;
             }
         };
-        // A source that does not have the item says so with a 404. That is an
-        // answer, cached empty like OMDb's miss, or every pass asks again.
-        let result = match result {
-            Err(AppError::ExternalApi { status: 404, .. }) => Ok(ProviderMetadata::default()),
-            other => other,
-        };
-
         match result {
             Ok(data) => {
                 let stored = store_metadata(
@@ -298,7 +291,7 @@ struct Breaker {
 }
 
 impl Breaker {
-    /// A source that has refused this many times in one pass is down, not
+    /// A source that has refused this many times in a row is down, not
     /// unlucky.
     const LIMIT: usize = 5;
 
@@ -311,10 +304,14 @@ impl Breaker {
     }
 
     /// Record an outcome, counting only the failures that say something about
-    /// the *source* rather than about one item.
+    /// the *source* rather than about one item, and only in a row: one answer
+    /// starts the count again, or scattered errors over hours would abandon a
+    /// source that answers nearly every request.
     fn record<T>(&self, outcome: &AppResult<T>) {
         if is_source_level_failure(outcome) {
             self.failures.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.failures.store(0, Ordering::Relaxed);
         }
     }
 }
@@ -418,7 +415,7 @@ async fn resolve_identifiers(
                 }
 
                 limiter.acquire().await;
-                let outcome = source.resolve(&title, year, &media_type).await;
+                let outcome = source.find(&title, year, &media_type).await;
                 source.paced_after(&limiter, &outcome).await;
                 breaker.record(&outcome);
                 (key, media_type, Some(outcome))
@@ -449,9 +446,9 @@ async fn resolve_identifiers(
                     warn!("Could not record what {key} is on {}: {e}", source.id());
                 }
             }
-            // A failed search is *not* written down: it means the network
-            // failed, not that the source has nothing, and the difference
-            // decides whether the next pass ever tries again.
+            // A failed search is *not* written down: the source or the
+            // network failed, which says nothing of the title, and the
+            // difference decides whether the next pass ever tries again.
             Err(e) => warn!("Could not identify {key} on {}: {e}", source.id()),
         }
 
@@ -541,9 +538,9 @@ pub const WEBHOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(3
 ///
 /// Each source is asked by the id it is addressed with, from the row or from
 /// a recorded search, or found by a search of its own, at its own pace, until
-/// `deadline`. A search that finds nothing is an answer, and so is a 404: the
-/// source does not have the title. A source that fails is left out and the
-/// next is asked.
+/// `deadline`. A search that finds nothing is an answer, and so is a refusal
+/// about the title alone (`FetchingSource::answer`). A source that fails is
+/// left out and the next is asked.
 pub async fn ask_now(
     state: &AppState,
     media: &Media,
@@ -590,7 +587,7 @@ pub async fn ask_now(
             (None, Addressing::Search) if missed || !searchable => continue,
             (None, Addressing::Search) => {
                 pace.acquire().await;
-                let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
+                let resolved = source.find(&media.title, media.year, &media.media_type).await;
                 source.paced_after(&pace, &resolved).await;
                 match resolved {
                     Ok(Some(external)) => {
@@ -613,7 +610,7 @@ pub async fn ask_now(
             continue;
         }
         pace.acquire().await;
-        let fetched = source.fetch(&external, &media.media_type).await;
+        let fetched = source.answer(&external, &media.media_type).await;
         if let (Some(quota), Err(error)) = (&quota, &fetched)
             && crate::integrations::is_quota_spent(error)
         {
@@ -623,14 +620,8 @@ pub async fn ask_now(
             continue;
         }
         source.paced_after(&pace, &fetched).await;
-        match fetched {
-            Ok(answer) => {
-                fresh.metadata.insert(key(&external), answer);
-            }
-            Err(AppError::ExternalApi { status: 404, .. }) => {
-                fresh.metadata.insert(key(&external), ProviderMetadata::default());
-            }
-            Err(_) => {}
+        if let Ok(answer) = fetched {
+            fresh.metadata.insert(key(&external), answer);
         }
     }
     fresh

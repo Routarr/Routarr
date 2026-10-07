@@ -141,19 +141,23 @@ async fn a_retry_after_from_the_source_holds_back_the_next_request() {
 
 /// Sonarr sends one delivery per imported episode, and the webhook enriches
 /// the series on each. What the cache still holds is not fetched again: a
-/// season is one TMDB call, not one per episode.
+/// season is one TMDB call, not one per episode, and so is a series TMDB does
+/// not have, whose 404 is an answer.
 #[tokio::test]
 async fn a_second_delivery_for_the_same_series_fetches_nothing() {
-    let tmdb = FakeTmdb::start().await;
-    let app = library(&tmdb, &[(1, "series", 1399)]).await;
+    for (missing, id) in [(vec![], 1399), (vec![1400], 1400)] {
+        let tmdb = FakeTmdb::with(missing, vec![]).await;
+        let app = library(&tmdb, &[(1, "series", id)]).await;
 
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
-    for _ in 0..2 {
-        enrichment::enrich_one(&app.state, &media).await.unwrap();
+        let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+        for _ in 0..2 {
+            enrichment::enrich_one(&app.state, &media).await.unwrap();
+        }
+
+        let asked = format!("/tv/{id}");
+        let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with(&asked)).count();
+        assert_eq!(fetched, 1, "series {id}, cached, was fetched again");
     }
-
-    let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with("/tv/1399")).count();
-    assert_eq!(fetched, 1, "the cached series was fetched again");
 }
 
 #[tokio::test]
@@ -266,6 +270,44 @@ async fn one_failing_item_does_not_abort_the_pass() {
     let rows = cached(&app).await;
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, 200, "the reachable item was still cached");
+}
+
+/// A title the source refuses for itself alone, with a 400, 410 or 422, is an
+/// answer: stored empty, and not asked again at every pass.
+#[tokio::test]
+async fn a_title_the_source_refuses_is_not_asked_again_next_pass() {
+    for status in [400, 410, 422] {
+        let tmdb = FakeTmdb::down(status).await;
+        let app = library(&tmdb, &[(1, "movie", 100)]).await;
+
+        for _ in 0..2 {
+            enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(tmdb.recorded().paths.len(), 1, "a {status} was asked again");
+    }
+}
+
+/// A source failing now and then is working: the breaker counts failures in
+/// a row, so one title in four refused over a pass costs those titles alone,
+/// not the rest of the pass.
+#[tokio::test]
+async fn scattered_failures_do_not_abandon_a_working_source() {
+    let ids: Vec<i64> = (100..132).collect();
+    let refused: Vec<i64> = ids.iter().copied().filter(|id| id % 4 == 0).collect();
+    let tmdb = FakeTmdb::erroring(refused.clone()).await;
+    let titles: Vec<(i64, &str, i64)> =
+        ids.iter().enumerate().map(|(n, id)| (n as i64 + 1, "movie", *id)).collect();
+    let app = library(&tmdb, &titles).await;
+
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    assert_eq!(report.skipped, 0, "{report:?}");
+    assert_eq!((report.enriched, report.failed), (ids.len() - refused.len(), refused.len()));
 }
 
 /// An answer that cannot be stored costs that one item, not the pass: the

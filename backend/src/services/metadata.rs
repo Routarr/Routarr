@@ -16,7 +16,7 @@
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
@@ -435,6 +435,29 @@ impl FetchingSource {
     /// Returns `None` when nothing matched. That is an answer in its own right,
     /// and the one that stops the next pass from searching again for the same
     /// item.
+    /// [`FetchingSource::resolve`], a search the source refuses for this
+    /// title read as one that found nothing ([`is_a_miss`]).
+    pub async fn find(
+        &self,
+        title: &str,
+        year: Option<i64>,
+        media_type: &str,
+    ) -> AppResult<Option<String>> {
+        match self.resolve(title, year, media_type).await {
+            Err(error) if is_a_miss(&error) => Ok(None),
+            other => other,
+        }
+    }
+
+    /// [`FetchingSource::fetch`], a title the source refuses read as one it
+    /// has nothing about ([`is_a_miss`]), which is stored as an empty answer.
+    pub async fn answer(&self, external_id: &str, media_type: &str) -> AppResult<ProviderMetadata> {
+        match self.fetch(external_id, media_type).await {
+            Err(error) if is_a_miss(&error) => Ok(ProviderMetadata::default()),
+            other => other,
+        }
+    }
+
     pub async fn resolve(
         &self,
         title: &str,
@@ -541,6 +564,13 @@ impl FetchingSource {
             .map(str::to_string);
         Ok(answer)
     }
+}
+
+/// Whether a source's refusal is about one title rather than the source: a 404
+/// says it does not have the title, a 400, 410 or 422 that it will never answer
+/// that id or that query. Remembered as an answer, or every pass asks again.
+fn is_a_miss(error: &AppError) -> bool {
+    matches!(error, AppError::ExternalApi { status: 400 | 404 | 410 | 422, .. })
 }
 
 fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
