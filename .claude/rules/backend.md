@@ -151,6 +151,10 @@ Each of these questions has one function. Call it, never spell the question agai
   an English sentence using the word in another sense goes in that concept's `except`.
 - `python3 scripts/add-locale.py <code> < batch.json` merges translations into
   `backend/locales/<code>.json` and refuses a lost or invented `{placeholder}`.
+- A translator works from `python3 scripts/translation-context.py batch.json <codes>`: per
+  language, the batch, the words the file already uses for its terms, the glossary concepts and
+  the punctuation habits, never from whole dictionaries. A term a batch settles in every
+  language goes into `scripts/glossary.json`.
 - The dictionaries are `include_str!`'d. When a locale edit is missing from a fresh build,
   `touch backend/src/localization.rs` and build again.
 

@@ -156,7 +156,9 @@ below is welcome, and neither needs the toolchain.
   the value, keep every `{placeholder}` as it is, and run
   `python3 scripts/check-locales.py`, which names a placeholder, a core term or
   a key order that moved. `python3 scripts/add-locale.py <code> < batch.json`
-  merges a batch of keys and refuses a lost or invented placeholder.
+  merges a batch of keys and refuses a lost or invented placeholder, and
+  `python3 scripts/translation-context.py batch.json <code>` lists the words
+  the file already uses for the batch's terms.
 
 A few things hold every language together:
 
