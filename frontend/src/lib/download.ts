@@ -7,7 +7,6 @@ const READ_GRACE_MS = 60_000;
 /**
  * Save a blob under `filename` through a transient object URL.
  *
- * A blob download keeps the API key out of the URL, unlike a plain link.
  * Stated once, so no export can forget to revoke the URL it created. The
  * anchor is in the document while it is clicked: Firefox follows no click on
  * a detached one.

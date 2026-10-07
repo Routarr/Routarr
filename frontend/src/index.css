@@ -969,11 +969,12 @@ a {
   border-radius: var(--radius-xs);
 }
 
-/* No keyboard to teach a shortcut to, and the label would cost the width the
+/* No keyboard to teach a shortcut to, and the labels would cost the width the
    mode chip needs. The icon alone keeps its touch target. */
 @media (max-width: 900px) {
   .palette-trigger-label,
-  .palette-trigger-key {
+  .palette-trigger-key,
+  .sign-out-label {
     display: none;
   }
   .palette-trigger {

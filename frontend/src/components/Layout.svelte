@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
-  import { AlertTriangle, ListChecks, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -19,6 +19,7 @@
   } from '../lib/onboarding.svelte';
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
+  import ProofDialog from './ProofDialog.svelte';
   import Sidebar from './Sidebar.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -372,11 +373,20 @@
               <span class="visually-hidden">{attention.label}</span>
             </a>
           {/if}
-          <!-- Only where signing in was possible: a key or a proxy has no
-               session to end, and a button that does nothing is worse than
-               none. -->
-          {#if sessionMode}
-            <button class="btn btn-ghost btn-sm" onclick={signOut}>{t('SignOut')}</button>
+          <!-- Only where a browser holds a session, the key's included: a
+               proxy or an open instance has none to end, and a button that
+               does nothing is worse than none. -->
+          {#if sessionMode || auth.data?.mode === 'apikey'}
+            <button
+              type="button"
+              class="btn btn-ghost btn-sm"
+              onclick={signOut}
+              aria-label={t('SignOut')}
+              title={t('SignOut')}
+            >
+              <LogOut size={14} aria-hidden="true" />
+              <span class="sign-out-label">{t('SignOut')}</span>
+            </button>
           {/if}
         </div>
       </header>
@@ -411,4 +421,5 @@
   {/if}
 
   <ConfirmDialog />
+  <ProofDialog />
 {/if}

@@ -1,6 +1,6 @@
 import type { Locator } from '@playwright/test';
 
-import { test, expect, api, openScreen, unfold } from './fixtures';
+import { test, expect, api, openScreen, proveWithKey, unfold } from './fixtures';
 import { seedRows } from './seed';
 import { SCREENS as ROUTES } from './screens';
 
@@ -269,6 +269,7 @@ test.describe('on a phone', () => {
     const dialog = page.getByRole('dialog');
     await dialog.getByLabel('Name').fill('phone');
     await dialog.getByRole('button', { name: 'Create a key' }).click();
+    await proveWithKey(page);
 
     const token = page.locator('.secret-once');
     await expect(token).toBeVisible();

@@ -555,6 +555,8 @@ const MODALS: {
   path: string;
   /** The source file this entry opens. Cross-checked by src/test/modals.test.ts. */
   covers: string;
+  /** The name of the dialog swept, for one opened above another. */
+  named?: string;
   open: (page: Page) => Promise<void>;
 }[] = [
   {
@@ -622,6 +624,18 @@ const MODALS: {
     },
   },
   {
+    // The proof a session gives before a key is made, above the dialog that
+    // asked for the key.
+    path: '/applications',
+    covers: 'components/ProofDialog.svelte',
+    named: 'Confirm with the API key',
+    open: async (p) => {
+      await p.getByRole('button', { name: 'New key' }).click();
+      await p.getByRole('dialog').getByLabel('Name').fill('proof');
+      await p.getByRole('dialog').getByRole('button', { name: 'Create a key' }).click();
+    },
+  },
+  {
     // Offered on the move `offerRevert` makes sure of.
     path: '/history',
     covers: 'pages/History.svelte',
@@ -641,7 +655,7 @@ test('every modal names itself and every control inside it', async ({ page }) =>
     await openScreen(page, modal.path);
     await modal.open(page);
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('dialog', modal.named ? { name: modal.named } : {});
     await expect(dialog, `${modal.path} #${index} did not open`).toBeVisible();
 
     const found = await dialog.evaluate((root) => {

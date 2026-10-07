@@ -40,8 +40,6 @@
   const deleteId = (index: number) => `backup-delete-${index}`;
 
   async function download(name: string) {
-    // Fetched with the API key rather than linked: the archive carries the
-    // master key, so it is never reachable from an unauthenticated URL.
     downloadBlob(await api.downloadBackup(name), name);
   }
 </script>

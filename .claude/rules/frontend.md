@@ -128,9 +128,9 @@ Components named without a path live in `frontend/src/components/`.
 - A new journey queries by role and label, not by class. The suite runs serially against one
   server, which the `instanceId` fixture resets before every test, so a spec restores any
   setting it changes beyond that reset.
-- A spec imports `test`, `expect` and `api` from `frontend/e2e/fixtures.ts`, which seeds the key
-  the harness serves with. Imported from `@playwright/test`, a page lands on the key gate. A
-  screen opens with its `openScreen`, which fails on the not-found page a bare `h1` wait accepts.
+- A spec imports `test`, `expect` and `api` from `frontend/e2e/fixtures.ts`, which opens a session
+  with the harness's key. Imported from `@playwright/test`, a page lands on the key gate. A screen
+  opens with its `openScreen`, which fails on the not-found page a bare `h1` wait accepts.
 - `tsconfig.json` sets `erasableSyntaxOnly` (no `enum`, no `namespace`, no constructor parameter
   properties) and `noUncheckedIndexedAccess`.
 - ESLint is type-aware: no floating promise, type-only imports marked `type`, no `console.log`, and

@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { paginated } from '../test/fixtures';
 import { captureDownloads } from '../test/downloads';
-import { api } from '../api/client';
+import { api, ApiError } from '../api/client';
 import type { LogEntry } from '../api/types';
 import Logs from './Logs.svelte';
 
@@ -122,24 +122,20 @@ describe('Activity log', () => {
   });
 
   /**
-   * The export is a `fetch` rather than a link precisely so the key travels. As
-   * an `<a href>` the download would 401, and the only symptom would be an
-   * empty file.
+   * The export is a `fetch` rather than a link so a refusal is said on the
+   * screen. As an `<a href>` the browser would save the error's body as the
+   * file, and the only symptom would be a file of JSON.
    */
-  it('carries the API key when exporting, which a plain link could not', async () => {
+  it('says a refused export rather than saving the refusal as the file', async () => {
     vi.spyOn(api, 'getLogs').mockResolvedValue(paginated([entry()]));
-    localStorage.setItem('routarr.apiKey', 'the-key');
-    const fetcher = vi.fn().mockResolvedValue({ ok: true, blob: async () => new Blob(['a,b']) });
-    vi.stubGlobal('fetch', fetcher);
+    vi.spyOn(api, 'exportLogs').mockRejectedValue(new ApiError('', 403, 'forbidden'));
     const saved = captureDownloads();
 
     show();
     await fireEvent.click(await screen.findByRole('button', { name: /export csv/i }));
 
-    await waitFor(() => expect(saved).toHaveLength(1));
-    expect((nthCall(fetcher)[1] as { headers: Record<string, string> }).headers['X-Api-Key']).toBe(
-      'the-key',
-    );
+    expect(await screen.findByText(/403/)).toBeTruthy();
+    expect(saved).toHaveLength(0);
   });
 
   /** The file holds what the screen shows: the search and the outcome go with it. */

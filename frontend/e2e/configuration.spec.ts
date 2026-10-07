@@ -1,4 +1,4 @@
-import { test, expect, api, openScreen, writesDuring, API, ARR } from './fixtures';
+import { test, expect, api, openScreen, proveWithKey, writesDuring, API, ARR } from './fixtures';
 
 /**
  * The screens that configure the routing: root folders, exceptions, the rule
@@ -221,7 +221,7 @@ test.describe('the API key card', () => {
     await page.goto('/settings#general');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
-    await expect(page.getByLabel('Routarr API key')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Routarr API key' })).toBeVisible();
     await expect(page.getByText('cannot be changed here')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Regenerate' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Create a key' })).toHaveCount(0);
@@ -245,6 +245,7 @@ test.describe('application keys', () => {
     // that cannot operate, and the simulation below would answer 403.
     await dialog.getByRole('checkbox', { name: /^operate/i }).check();
     await dialog.getByRole('button', { name: 'Create a key' }).click();
+    await proveWithKey(page);
 
     // Read as the reader reads it, the one token on the page.
     const token = ((await page.getByText(/^rtr_\S+$/).textContent()) ?? '').trim();

@@ -73,6 +73,8 @@ BUILT = {
         "frontend/src/api/types.ts",
         r"(?:DecisionStatus = |^  status: )((?:'[a-z]+'(?: \| )?)+);",
     ),
+    # The mode that opened a session, on the sessions card.
+    "SessionSource": ("frontend/src/api/types.ts", r"^  source: ((?:'[a-z]+'(?: \| )?)+);"),
     "CountryRetired": (
         "backend/src/integrations/language.rs",
         r"pub const RETIRED: &\[&str\] = &\[([^\]]+)\];",
@@ -92,11 +94,11 @@ COUNTS_SOURCE = ROOT / "backend" / "src" / "localization.rs"
 # already written with their unit, years, ids, statuses and ordinals.
 NOT_COUNTS = {
     "address", "age", "arr", "base", "category", "cause", "certification", "code", "condition",
-    "countries", "country", "detail", "error", "expected", "field", "file", "first", "found",
+    "countries", "country", "detail", "ends", "error", "expected", "field", "file", "first", "found",
     "free", "host", "id", "index", "instance", "key", "kind", "label", "language", "max",
-    "message", "min", "minimum", "name", "names", "needed", "next", "number", "observed", "path", "paths",
+    "message", "min", "minimum", "name", "names", "needed", "next", "number", "observed", "opened", "path", "paths",
     "provider", "query", "reason", "regions", "rule", "screen", "second", "section", "service",
-    "since", "size", "source", "sources", "status", "title", "url", "value", "values",
+    "since", "size", "source", "sources", "status", "title", "url", "used", "value", "values",
     "variable", "version", "when", "year",
 }
 

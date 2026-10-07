@@ -59,6 +59,12 @@ function application(over: Partial<Application> = {}): Application {
 
 function show(listed: Application[]) {
   vi.spyOn(api, 'getApplications').mockResolvedValue(listed);
+  // A mode that asks no proof: the proof has its own tests (`lib/proof.test.ts`).
+  vi.spyOn(api, 'authMode').mockResolvedValue({
+    mode: 'none',
+    api_key_configured: false,
+    api_key_pinned: false,
+  });
   return renderWithI18n(Applications, { strings: STRINGS });
 }
 

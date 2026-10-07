@@ -3,7 +3,8 @@
   import { SvelteSet } from 'svelte/reactivity';
 
   import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
-  import { api, getApiKey, setApiKey } from '../api/client';
+  import { api } from '../api/client';
+  import { withProof } from '../lib/proof.svelte';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -20,6 +21,8 @@
   } from '../lib/settings';
   import FileButton from '../components/FileButton.svelte';
   import BackupCard from '../components/BackupCard.svelte';
+  import AccountCard from '../components/AccountCard.svelte';
+  import SessionsCard from '../components/SessionsCard.svelte';
   import NotificationTest from '../components/NotificationTest.svelte';
   import WebhookSigning from '../components/WebhookSigning.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -98,7 +101,6 @@
   const removing = new SvelteSet<string>();
   const outcome = createOutcome();
   let saving = $state(false);
-  let key = $state(getApiKey());
 
   /**
    * Whether this browser has any use for a key, and what to say about it.
@@ -134,13 +136,9 @@
     const existing = keyCard?.api_key_configured ?? false;
     if (existing && !(await askConfirmation(t('ConfirmRotateKey'), 'RegenerateKey'))) return;
     try {
-      const { api_key } = await api.rotateApiKey();
-      minted = api_key;
-      // This browser is a client too, and in `apikey` mode it is holding the
-      // key that just stopped working. The next request would 401 and drop the
-      // screen behind the gate.
-      setApiKey(api_key);
-      key = api_key;
+      const rotated = await withProof((proof) => api.rotateApiKey(proof));
+      if (!rotated) return;
+      minted = rotated.api_key;
       outcome.clear();
       await auth.reload();
     } catch (cause) {
@@ -151,10 +149,8 @@
   async function removeKey() {
     if (!(await askConfirmation(t('ConfirmRemoveKey'), 'RemoveKey'))) return;
     try {
-      await api.deleteApiKey();
+      if ((await withProof((proof) => api.deleteApiKey(proof))) === null) return;
       minted = null;
-      setApiKey('');
-      key = '';
       outcome.succeed(t('ApiKeyRemoved'));
       await auth.reload();
     } catch (cause) {
@@ -575,28 +571,6 @@
             </div>
           {/if}
 
-          {#if keyCard.api_key_configured}
-            <div class="flex gap-2 mb-3">
-              <input
-                type="password"
-                class="form-input"
-                aria-label={t('RoutarrApiKey')}
-                placeholder={t('ApiKeyPlaceholder')}
-                bind:value={key}
-              />
-              <button
-                type="button"
-                class="btn btn-secondary"
-                onclick={() => {
-                  setApiKey(key);
-                  outcome.succeed(t(key ? 'ApiKeyStored' : 'ApiKeyCleared'));
-                }}
-              >
-                {t('SaveKey')}
-              </button>
-            </div>
-          {/if}
-
           {#if keyCard.api_key_pinned}
             <!-- Rotating would mint a key the next restart replaces with the
                    variable's again, so the buttons are absent rather than
@@ -615,6 +589,16 @@
             </div>
           {/if}
         </div>
+      {/if}
+
+      {#if section === 'general' && auth.data?.mode === 'forms'}
+        <AccountCard {outcome} />
+      {/if}
+
+      <!-- Where a browser signs in: an open instance, or one behind a proxy
+           that authenticates for it, holds no session. -->
+      {#if section === 'general' && (auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' || auth.data?.mode === 'apikey')}
+        <SessionsCard {outcome} />
       {/if}
 
       {#if section === 'general'}

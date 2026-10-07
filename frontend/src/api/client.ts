@@ -37,8 +37,11 @@ import type {
   OverrideEntry,
   Paginated,
   RootFolder,
+  PasswordChanged,
+  Proof,
   Rule,
   RuleDraft,
+  Session,
   RestoreResult,
   RulePreview,
   Settings,
@@ -58,7 +61,13 @@ import type {
 // Resolved once: the mount point cannot change while the page is loaded, and
 // recomputing it per request would parse a URL on every call.
 const API_BASE = `${basePath()}/api/v1`;
-const API_KEY_STORAGE = 'routarr.apiKey';
+
+/**
+ * Where this browser's storage holds a key, which any script on the page can
+ * read. Found there, it is exchanged once for a session cookie, which no
+ * script can, and removed.
+ */
+const STORED_KEY = 'routarr.apiKey';
 
 /** Thrown for any non-2xx response, carrying the backend's message. */
 export class ApiError extends Error {
@@ -115,13 +124,47 @@ export class ApiError extends Error {
   }
 }
 
-export function getApiKey(): string {
-  return localStorage.getItem(API_KEY_STORAGE) ?? '';
-}
+let storedKeyRead = false;
+let exchanging: Promise<void> | null = null;
 
-export function setApiKey(key: string): void {
-  if (key.trim()) localStorage.setItem(API_KEY_STORAGE, key.trim());
-  else localStorage.removeItem(API_KEY_STORAGE);
+/**
+ * The exchange of a key found in storage, started by the first request and
+ * awaited by every request made while it runs. `null` once there is nothing to
+ * wait for, so a request with nothing stored leaves at once.
+ */
+function storedKeyExchange(): Promise<void> | null {
+  if (!storedKeyRead) {
+    storedKeyRead = true;
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(STORED_KEY);
+      localStorage.removeItem(STORED_KEY);
+    } catch {
+      // Storage refused, as in a private window: there is nothing to remove.
+    }
+    if (stored) {
+      const key = stored;
+      exchanging = exchange<unknown>(
+        '/auth/key-session',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        },
+        readJson,
+      )
+        // A key that opens nothing leaves the gate to ask for one.
+        .then(
+          () => undefined,
+          () => undefined,
+        )
+        .finally(() => {
+          exchanging = null;
+        });
+    }
+  }
+  return exchanging;
 }
 
 /**
@@ -160,7 +203,8 @@ async function request<T>(
   options: RequestInit = {},
   read: (response: Response) => Promise<T> = readJson,
 ): Promise<T> {
-  const key = getApiKey();
+  const pending = storedKeyExchange();
+  if (pending) await pending;
   // `Accept` asks a proxy in front for a 401 rather than a redirect to its
   // sign-in page, which several of them only answer to a browser's navigation.
   const headers: Record<string, string> = {
@@ -168,8 +212,6 @@ async function request<T>(
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
-  // Only sent when the user configured one. An open instance ignores it.
-  if (key) headers['X-Api-Key'] = key;
 
   // A server that never answers must not leave a spinner running forever. The
   // Arr calls the backend makes are bounded on its side. This bounds the one
@@ -194,12 +236,6 @@ async function request<T>(
   try {
     return await exchange<T>(path, { ...options, headers, signal }, read);
   } catch (cause) {
-    // Refused for a key rotated while the request was out, not for the one
-    // stored now. Taken as it is, the refusal puts the sign-in gate over the
-    // screen that shows the new key, the only time it is shown.
-    if (cause instanceof ApiError && cause.status === 401 && getApiKey() !== key) {
-      return request<T>(path, options, read);
-    }
     if (cause instanceof DOMException && cause.name === 'TimeoutError') {
       throw new ApiError('', 0, 'timeout');
     }
@@ -256,9 +292,9 @@ async function exchange<T>(
 }
 
 /**
- * A file the API serves, fetched rather than linked: a plain `<a href>` cannot
- * carry the key, and the download would 401 into an empty file. It has the
- * bound and the error reading of every other request.
+ * A file the API serves, fetched rather than linked: a refusal reaches the
+ * screen as any other does, where a link would save the error's body as the
+ * file. It has the bound and the error reading of every other request.
  */
 const download = (path: string) => request<Blob>(path, {}, readBlob);
 
@@ -456,12 +492,26 @@ export const api = {
       body: body({ username, password }),
     }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  /** The API key, sent once for a session cookie, in `apikey` mode. */
+  keySession: (key: string) =>
+    request<{ ok: boolean }>('/auth/key-session', { method: 'POST', body: body({ key }) }),
   /**
    * The new key comes back exactly once. No route reads it again, so a caller
    * that drops it has to mint another.
    */
-  rotateApiKey: () => request<{ api_key: string }>('/auth/api-key', { method: 'POST' }),
-  deleteApiKey: () => request<unknown>('/auth/api-key', { method: 'DELETE' }),
+  rotateApiKey: (proof: Proof) =>
+    request<{ api_key: string }>('/auth/api-key', { method: 'POST', body: body(proof) }),
+  deleteApiKey: (proof: Proof) =>
+    request<unknown>('/auth/api-key', { method: 'DELETE', body: body(proof) }),
+  changePassword: (current: string, newPassword: string, revokeKeys: boolean) =>
+    request<PasswordChanged>('/auth/password', {
+      method: 'PUT',
+      body: body({ current, new_password: newPassword, revoke_keys: revokeKeys }),
+    }),
+  getSessions: (signal?: AbortSignal) => request<Session[]>('/auth/sessions', { signal }),
+  endSession: (handle: string) =>
+    request<unknown>(`/auth/sessions/${encodeURIComponent(handle)}`, { method: 'DELETE' }),
+  endEverySession: () => request<{ ended: number }>('/auth/sessions', { method: 'DELETE' }),
 
   validateRule: (data: RuleDraft) =>
     request<{ valid: boolean; issues: ValidationIssue[] }>('/rules/validate', {
@@ -556,8 +606,11 @@ export const api = {
   sendTestNotification: () => request<unknown>('/notifications/test', { method: 'POST' }),
 
   getApplications: (signal?: AbortSignal) => request<Application[]>('/applications', { signal }),
-  createApplication: (data: NewApplication) =>
-    request<MintedApplication>('/applications', { method: 'POST', body: body(data) }),
+  createApplication: (data: NewApplication, proof: Proof) =>
+    request<MintedApplication>('/applications', {
+      method: 'POST',
+      body: body({ ...data, ...proof }),
+    }),
   revokeApplication: (id: string) => request<unknown>(`/applications/${id}`, { method: 'DELETE' }),
 
   getOverrides: (signal?: AbortSignal) => request<OverrideEntry[]>('/overrides', { signal }),
