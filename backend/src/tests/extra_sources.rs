@@ -113,7 +113,8 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 
 /// TheTVDB documents a month's validity. A token kept past it answers 401 on
 /// every read, one per pending title per pass, `failed` climbing, and nothing
-/// naming the cause.
+/// naming the cause. The reads in flight when it expires log in once between
+/// them, not once each.
 #[tokio::test]
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
@@ -124,27 +125,34 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
         .unwrap();
 
     sources.expire_tvdb_token();
-    // A second title to read, or the next pass has nothing to say.
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tvdb_id, monitored,
-         has_files)
-         VALUES ('m-2', 'inst-1', 11, 'series', 'Trigun', 1998, 77000, 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    // More titles to read than reads in flight, or the next pass has nothing
+    // to say.
+    let more = app.state.config.metadata_concurrency as i64 + 2;
+    for n in 0..more {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tvdb_id)
+             VALUES (?, 'inst-1', ?, 'series', ?, 1998, ?)",
+        )
+        .bind(format!("m-{n}-more"))
+        .bind(20 + n)
+        .bind(format!("Series {n}"))
+        .bind(77000 + n)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     let logins = sources.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
-    assert_eq!(logins, 2, "the expired token was not renewed");
+    assert_eq!(logins, 2, "the expired token was renewed more than once");
     let cached: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache WHERE source = 'tvdb'")
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(cached, 2, "the read behind the expired token was not retried");
+    assert_eq!(cached, 1 + more, "the reads behind the expired token were not retried");
 }
 
 /// TheTVDB answers for series alone: a film carrying a TheTVDB id is neither

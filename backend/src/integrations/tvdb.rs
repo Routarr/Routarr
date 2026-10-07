@@ -146,9 +146,11 @@ impl TvdbClient {
         Ok(token)
     }
 
-    async fn get(&self, path: &str) -> AppResult<reqwest::RequestBuilder> {
+    /// A read of `path` and the token it carries.
+    async fn get(&self, path: &str) -> AppResult<(reqwest::RequestBuilder, String)> {
         let token = self.token().await?;
-        Ok(self.client.get(format!("{}{path}", self.base_url)).bearer_auth(token))
+        let request = self.client.get(format!("{}{path}", self.base_url)).bearer_auth(&token);
+        Ok((request, token))
     }
 
     /// A read, logged in again once if the token has expired.
@@ -156,13 +158,21 @@ impl TvdbClient {
     /// TheTVDB documents a month's validity and the token lives for the life
     /// of the process, so past the month every read would answer 401, one per
     /// pending title per pass, with nothing naming the cause. A 401 drops the
-    /// cached token and the read is made once more with a fresh one. A second
-    /// 401 is the key's problem, and is reported as such.
+    /// token it was sent with and the read is made once more with a fresh one.
+    /// Only that token: the reads in flight beside it fail with it too, and
+    /// each dropping whatever the cache holds would throw away the token the
+    /// first of them just logged in for. A second 401 is the key's problem,
+    /// and is reported as such.
     async fn read<T: serde::de::DeserializeOwned>(&self, path: &str) -> AppResult<T> {
-        match send_json(SERVICE, self.get(path).await?).await {
+        let (request, sent) = self.get(path).await?;
+        match send_json(SERVICE, request).await {
             Err(crate::error::AppError::ExternalApi { status: 401, .. }) => {
-                self.token.lock().await.take();
-                send_json(SERVICE, self.get(path).await?).await
+                let mut cached = self.token.lock().await;
+                if cached.as_ref().is_some_and(|cached| cached.token == sent) {
+                    cached.take();
+                }
+                drop(cached);
+                send_json(SERVICE, self.get(path).await?.0).await
             }
             other => other,
         }
