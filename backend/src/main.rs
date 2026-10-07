@@ -184,7 +184,21 @@ async fn restore(
             "usage: routarr restore <archive>, a name from the backup folder or a path".into()
         );
     };
-    let manifest = services::backup::stage_offline(config, &archive).await?;
+    // From the environment, or else typed at the prompt once the archive turns
+    // out to be sealed with a passphrase the database in place does not hold.
+    let mut given = config::restore_passphrase().map(age::secrecy::SecretString::from);
+    let manifest = loop {
+        match services::backup::stage_offline(config, &archive, given.clone()).await {
+            Err(error::AppError::PassphraseRequired(refusal))
+                if std::io::IsTerminal::is_terminal(&std::io::stdin()) =>
+            {
+                println!("{refusal}");
+                let typed = rpassword::prompt_password("Passphrase: ")?;
+                given = Some(age::secrecy::SecretString::from(typed.trim().to_string()));
+            }
+            staged => break staged?,
+        }
+    };
     println!(
         "{archive}, taken by Routarr v{} at schema {}, is restored at the next start.",
         manifest.version, manifest.schema

@@ -797,6 +797,13 @@ fn list(key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// The passphrase `routarr restore` opens an encrypted archive with, when the
+/// database in place does not hold it. Read by that command alone, and kept
+/// out of `Config`, which the server holds for as long as it runs.
+pub fn restore_passphrase() -> Option<String> {
+    non_empty("ROUTARR_BACKUP_PASSPHRASE")
+}
+
 fn non_empty(key: &str) -> Option<String> {
     std::env::var(key).ok().map(|v| v.trim().to_string()).filter(|v| !v.is_empty())
 }

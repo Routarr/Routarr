@@ -43,6 +43,9 @@ const KNOWN: &[(&str, Kind)] = &[
     // not the one running.
     ("backup_interval_hours", Kind::Bounded(1, 24 * 7)),
     ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT)),
+    // Every archive sealed with it, so that a copy of the backup folder opens
+    // nothing without it (`services::backup::sealed`).
+    ("backup_passphrase", Kind::Passphrase),
     ("decision_retention_days", Kind::NonNegativeInt),
     ("log_retention_days", Kind::NonNegativeInt),
     ("security_log_retention_days", Kind::NonNegativeInt),
@@ -75,6 +78,10 @@ const KNOWN: &[(&str, Kind)] = &[
     ("tvdb_api_key", Kind::Secret),
 ];
 
+/// The shortest backup passphrase a save accepts, the same floor as a
+/// sign-in password.
+pub const MIN_PASSPHRASE_LENGTH: usize = 12;
+
 /// What a setting's value has to be, and therefore how it is validated.
 ///
 /// One variant per shape rather than a free-form validator per key: the table
@@ -88,6 +95,10 @@ enum Kind {
     /// An `http://` or `https://` address, sealed like a `Secret`: whoever
     /// holds a Discord or Slack webhook address can post to the channel.
     WebhookUrl,
+    /// A passphrase a person chose, sealed like a `Secret`, of at least
+    /// [`MIN_PASSPHRASE_LENGTH`] characters: an archive copied away is guessed
+    /// offline, at whatever pace the copier can afford.
+    Passphrase,
     /// A whole number within an inclusive range, both ends stated at the table
     /// above so the reason for each ceiling sits beside the setting it bounds.
     /// Converged at startup when stored outside the range, by
@@ -114,7 +125,7 @@ impl Kind {
     /// out, left out of a bundle and resealed when the master key rotates. An
     /// empty value is stored empty, and that is how a credential is removed.
     fn sealed(self) -> bool {
-        matches!(self, Kind::Secret | Kind::WebhookUrl)
+        matches!(self, Kind::Secret | Kind::WebhookUrl | Kind::Passphrase)
     }
 
     /// The inclusive range a value must sit in to be saved, if it is a number
@@ -162,6 +173,7 @@ fn label(key: &str) -> &str {
     match key {
         "notification_webhook_url" => "SettingNotificationWebhook",
         "certification_regions" => "SettingCertificationRegions",
+        "backup_passphrase" => "SettingBackupPassphrase",
         other => other,
     }
 }
@@ -241,6 +253,13 @@ fn validate(
         // which is worse than letting the source report that it cannot connect,
         // and the diagnostics screen already probes each one.
         Kind::Secret => {}
+        Kind::Passphrase => {
+            let length = value.chars().count();
+            if length > 0 && length < MIN_PASSPHRASE_LENGTH {
+                let min = MIN_PASSPHRASE_LENGTH.to_string();
+                return Err(refused("SettingRefusedPassphraseShort", &[("min", &min)]));
+            }
+        }
         Kind::WebhookUrl => {
             // Empty means "no notifications", which is the default and not an
             // error. Anything else has to be a URL we could actually POST to:

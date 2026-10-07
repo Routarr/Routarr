@@ -85,12 +85,15 @@ a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a 
 Back up the whole `data/` directory: the Arr and metadata keys, the notification address and the
 signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
 the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
+An archive carries the master key: set a backup passphrase in **Settings** to encrypt every one,
+in the [age](https://age-encryption.org) format, so that a copy of the folder opens nothing without
+it. A restore asks for it, and `age -d` opens an archive where Routarr cannot run.
 
 A start that applies new migrations archives the database first. Going back to an earlier release
 works while it knows every migration the database holds. When a start refuses the database, it
 names an archive it can open: restore it with the server stopped, through
 `docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
-Routarr.
+Routarr. An encrypted archive asks for its passphrase when the database in place does not hold it.
 
 ## Stronger isolation
 

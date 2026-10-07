@@ -640,10 +640,11 @@ export const api = {
   createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  restoreBackup: (name: string) =>
+  /** `passphrase` opens a sealed archive, once the server asked for it. */
+  restoreBackup: (name: string, passphrase?: string) =>
     request<RestoreResult>(`/backups/${encodeURIComponent(name)}/restore`, {
       method: 'POST',
-      body: body({}),
+      body: body(passphrase === undefined ? {} : { passphrase }),
     }),
   /** The archive carries the master key, so it is never reachable without one. */
   downloadBackup: (name: string) => download(`/backups/${encodeURIComponent(name)}`),

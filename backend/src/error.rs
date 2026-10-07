@@ -73,6 +73,11 @@ pub enum AppError {
     #[error("Sign in again: {0}")]
     Reauthenticate(String),
 
+    /// The archive is sealed with a passphrase the request did not give, or
+    /// gave wrong: asked again with the passphrase it was taken with.
+    #[error("Passphrase: {0}")]
+    PassphraseRequired(String),
+
     /// An outbound call failed: an Arr, a metadata source, the identity
     /// provider or the notification webhook.
     ///
@@ -142,7 +147,8 @@ impl AppError {
             | AppError::ConfirmationWithheld { message, .. }
             | AppError::TooManyRequests { message, .. }
             | AppError::Busy(message)
-            | AppError::Reauthenticate(message) => message.clone(),
+            | AppError::Reauthenticate(message)
+            | AppError::PassphraseRequired(message) => message.clone(),
             internal if internal.is_internal() => {
                 "An internal error occurred. See the server log for details.".to_string()
             }
@@ -169,7 +175,8 @@ fn describe_external(service: &str, status: u16, message: &str) -> String {
 pub struct ErrorResponse {
     /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
     /// `conflict`, `confirmation_required`, `too_many_requests`, `busy`,
-    /// `reauthentication_required`, `external_api_error`, or an internal kind.
+    /// `reauthentication_required`, `passphrase_required`, `external_api_error`,
+    /// or an internal kind.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
@@ -206,6 +213,7 @@ impl IntoResponse for AppError {
             }
             AppError::Busy(_) => (StatusCode::SERVICE_UNAVAILABLE, "busy"),
             AppError::Reauthenticate(_) => (StatusCode::FORBIDDEN, "reauthentication_required"),
+            AppError::PassphraseRequired(_) => (StatusCode::BAD_REQUEST, "passphrase_required"),
             AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
                 (StatusCode::BAD_GATEWAY, "external_api_error")
             }

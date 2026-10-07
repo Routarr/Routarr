@@ -4,11 +4,34 @@
   import { proofRequest, settleProof } from '../lib/proof.svelte';
 
   /**
-   * Asks for the password or the API key before a key is made or withdrawn.
-   * Mounted once, by `Layout`.
+   * Asks for the password or the API key before a key is made or withdrawn,
+   * and for the passphrase of a sealed archive before it is restored.
+   * Mounted by `Layout` the first time a screen asks.
    */
+  const WORDS = {
+    password: {
+      title: 'ProofPasswordTitle',
+      help: 'ProofPasswordHelp',
+      label: 'CurrentPassword',
+      autocomplete: 'current-password',
+    },
+    key: {
+      title: 'ProofKeyTitle',
+      help: 'ProofKeyHelp',
+      label: 'RoutarrApiKey',
+      autocomplete: 'off',
+    },
+    passphrase: {
+      title: 'ProofPassphraseTitle',
+      help: 'ProofPassphraseHelp',
+      label: 'Passphrase',
+      autocomplete: 'off',
+    },
+  } as const;
+
   const open = $derived(proofRequest.request !== null);
-  const asked = $derived(proofRequest.request?.asked ?? 'password');
+  const words = $derived(WORDS[proofRequest.request?.asked ?? 'password']);
+  const note = $derived(proofRequest.request?.note);
   let typed = $state('');
 
   function finish(value: string | null) {
@@ -24,27 +47,25 @@
 
 {#if open}
   <Modal
-    label={t(asked === 'password' ? 'ProofPasswordTitle' : 'ProofKeyTitle')}
+    label={t(words.title)}
     onClose={() => finish(null)}
     maxWidth={460}
     initialFocus="proof-value"
   >
     <form novalidate onsubmit={submit}>
-      <h2 class="card-title mb-3">
-        {t(asked === 'password' ? 'ProofPasswordTitle' : 'ProofKeyTitle')}
-      </h2>
-      <p class="text-muted text-base mb-3">
-        {t(asked === 'password' ? 'ProofPasswordHelp' : 'ProofKeyHelp')}
-      </p>
+      <h2 class="card-title mb-3">{t(words.title)}</h2>
+      {#if note}
+        <p class="field-error mb-3" role="alert">{note}</p>
+      {:else}
+        <p class="text-muted text-base mb-3">{t(words.help)}</p>
+      {/if}
       <div class="form-row">
-        <label class="form-label" for="proof-value">
-          {t(asked === 'password' ? 'CurrentPassword' : 'RoutarrApiKey')}
-        </label>
+        <label class="form-label" for="proof-value">{t(words.label)}</label>
         <input
           id="proof-value"
           type="password"
           class="form-input"
-          autocomplete={asked === 'password' ? 'current-password' : 'off'}
+          autocomplete={words.autocomplete}
           bind:value={typed}
         />
       </div>

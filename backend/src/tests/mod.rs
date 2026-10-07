@@ -41,6 +41,7 @@ mod rule_health;
 mod rule_tests;
 mod scale;
 mod scheduler;
+mod sealed_backups;
 mod security;
 mod sessions;
 mod stopped_runs;

@@ -213,6 +213,14 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   its archives contain none, and restoring one elsewhere leaves every sealed
   credential unreadable. The manifest records it, the restore returns it, and
   the interface warns on it rather than reporting a plain success.
+- **Archives can be sealed with a passphrase.** Set in the settings and
+  sealed with the master key like any credential, it encrypts every archive
+  in the age format (scrypt at 2^17, ChaCha20-Poly1305), so a copy of the
+  backup folder opens nothing without it, and `age -d` opens one where Routarr
+  cannot run. Changing or removing it converts the archives on disk, and one
+  sealed with an older passphrase is left as it is. A restore asks for it when
+  the installation does not hold it. A passphrase that cannot be opened takes
+  no archive at all rather than one in the clear.
 - **A restore brings back no credential withdrawn since the backup.** An
   application key revoked, a signing secret replaced, the master API key
   rotated or the password changed stay as they are today, and every session
@@ -318,9 +326,10 @@ Not vulnerabilities to report, but decisions, with reasons.
   distinguish a style attribute from an injected `<style>` block. A style runs
   no code, and `script-src 'self'` allows no inline script.
 - **The API key is a full-access credential.** Whoever holds it can download a
-  backup, which carries the master key, and can point a connection test or the
-  outbound notification at any `http(s)` address the server can reach, the
-  local network included, link-local addresses aside. Treat it as you would the Arr's own, and give another
+  backup, which carries the master key, remove the passphrase that seals it,
+  and point a connection test or the outbound notification at any `http(s)`
+  address the server can reach, the local network included, link-local
+  addresses aside. Treat it as you would the Arr's own, and give another
   application a key of its own instead, which reaches none of that.
 - **That includes replacing the key itself.** A key sent in a header is its
   own proof, so a stolen key can rotate itself. In `apikey` mode, where it is

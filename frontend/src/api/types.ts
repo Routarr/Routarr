@@ -160,6 +160,8 @@ export interface BackupFile {
   name: string;
   size_bytes: number;
   created_at: string;
+  /** Sealed with the backup passphrase: a restore asks for it. */
+  encrypted: boolean;
 }
 
 /** What a retention purge removed. */

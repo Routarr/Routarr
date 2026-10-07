@@ -58,6 +58,14 @@ pub async fn update(
     // is worse than a rejected one. Under the write lock the settings are
     // written with, so the category `default_category` names cannot be removed
     // between the check and the write.
+    //
+    // The passphrase the archives are sealed with now, read before the save
+    // replaces it: an archive it sealed is opened with it to be sealed again.
+    let sealing = if req.settings.contains_key(crate::services::backup::PASSPHRASE_SETTING) {
+        Some(crate::services::backup::passphrase(&state).await.ok().flatten())
+    } else {
+        None
+    };
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let categories: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?;
@@ -95,6 +103,11 @@ pub async fn update(
         && let Err(e) = crate::services::backup::prune(&state).await
     {
         tracing::warn!("Could not prune backups after the retention changed: {e}");
+    }
+
+    if let Some(old) = sealing {
+        let new = crate::services::backup::passphrase(&state).await?;
+        crate::services::backup::reseal_in_background(&state, old, new, identity.attribution());
     }
 
     // The names alone: a value may be a key or an address.

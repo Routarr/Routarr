@@ -4,6 +4,7 @@ import { waitFor } from '@testing-library/svelte';
 import { api, ApiError } from '../api/client';
 import type { AuthMode } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
+import { answerProof } from '../test/proof';
 import { withBase } from '../test/base';
 import { proofRequest, settleProof, signInAgainUrl, withProof } from './proof.svelte';
 import { router } from './router.svelte';
@@ -21,14 +22,6 @@ const inMode = (mode: AuthMode['mode']) =>
     api_key_pinned: false,
   });
 
-/** Answer the pending proof, and hand back what it asked for. */
-async function answerProof(value: string | null): Promise<string> {
-  await waitFor(() => expect(proofRequest.request).not.toBeNull());
-  const asked = proofRequest.request?.asked ?? '';
-  settleProof(value);
-  return asked;
-}
-
 afterEach(() => {
   settleProof(null);
   vi.restoreAllMocks();
@@ -45,7 +38,7 @@ describe('withProof', () => {
     const send = vi.fn().mockResolvedValue('written');
 
     const result = withProof(send);
-    expect(await answerProof('typed')).toBe(asked);
+    expect((await answerProof('typed')).asked).toBe(asked);
 
     expect(await result).toBe('written');
     expect(send).toHaveBeenCalledWith(sent);
