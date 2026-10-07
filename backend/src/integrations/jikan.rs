@@ -118,7 +118,7 @@ impl JikanClient {
 
     pub async fn test_connection(&self) -> AppResult<bool> {
         let probe = self.client.get(format!("{}/anime/1", self.base_url));
-        Ok(send_json::<serde_json::Value>(SERVICE, probe).await.is_ok())
+        send_json::<serde_json::Value>(SERVICE, probe).await.map(|_| true)
     }
 
     pub async fn search(&self, title: &str, media_type: &str) -> AppResult<Vec<JikanCandidate>> {

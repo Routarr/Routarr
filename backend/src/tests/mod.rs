@@ -836,6 +836,26 @@ pub async fn finished(app: &TestApp, id: &str) -> serde_json::Value {
     panic!("the task {id} never finished");
 }
 
+/// The codes of the warnings a probe of `/health` raises about the sources.
+pub async fn probe_verdicts(app: &TestApp) -> Vec<String> {
+    let health = app.get("/api/v1/health").await;
+    let warnings = health.assert_ok()["warnings"].as_array().expect("warnings").clone();
+    warnings
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .filter(|code| {
+            matches!(
+                *code,
+                "source_unreachable"
+                    | "source_quota_spent"
+                    | "source_rate_limited"
+                    | "source_key_refused"
+            )
+        })
+        .map(str::to_string)
+        .collect()
+}
+
 /// The warnings of a `/status` or `/health` answer, as the reader sees them.
 #[track_caller]
 pub fn warning_messages(body: &serde_json::Value) -> Vec<String> {

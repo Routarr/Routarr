@@ -10,7 +10,7 @@ use crate::services::{enrichment, metadata};
 use crate::state::AppState;
 
 use super::fake_sources::FakeSources;
-use super::{TestApp, warning_messages};
+use super::{TestApp, probe_verdicts, warning_messages};
 
 /// The library's titles made series, the only titles TheTVDB answers for.
 const SERIES_ALONE: &str = "UPDATE media SET media_type = 'series'";
@@ -1019,6 +1019,27 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         !after.contains(&unreachable),
         "a source nobody probes any more is still reported: {after:?}"
     );
+}
+
+/// A probe names what it found. A refused key, a source asking for fewer
+/// requests and one that does not answer each call for something else of the
+/// operator (a new key, patience, a look at the network), so one warning for
+/// all three sends them to the wrong place. A source taking no key that
+/// refuses is one not answering: there is no key to check.
+#[tokio::test]
+async fn a_probe_names_why_a_source_did_not_answer() {
+    for (status, order, verdict) in [
+        (429, "arr,jikan", "source_rate_limited"),
+        (429, "arr,anilist", "source_rate_limited"),
+        (401, "arr,tvdb", "source_key_refused"),
+        (401, "arr,omdb", "source_key_refused"),
+        (401, "arr,anilist", "source_unreachable"),
+        (503, "arr,anilist", "source_unreachable"),
+    ] {
+        let sources = FakeSources::failing(status).await;
+        let app = TestApp::one_film_on(&sources, order).await;
+        assert_eq!(probe_verdicts(&app).await, [verdict], "{order} answering {status}");
+    }
 }
 
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read

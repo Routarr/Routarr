@@ -8,8 +8,8 @@
 
 use std::collections::HashSet;
 
-use super::TestApp;
 use super::fake_sources::{FakeSources, OMDB_KEY};
+use super::{TestApp, probe_verdicts};
 use crate::jobs::Attribution;
 use crate::services::enrichment::{self, EnrichmentReport};
 use crate::services::quota::DailyQuota;
@@ -50,18 +50,6 @@ fn omdb_asked(sources: &FakeSources) -> HashSet<String> {
 
 async fn enrich(app: &TestApp) -> EnrichmentReport {
     enrichment::enrich_all_media(&app.state, &Attribution::manual(None)).await.unwrap()
-}
-
-/// The verdicts on a source a probe of `/health` warns of.
-async fn probe_warnings(app: &TestApp) -> Vec<String> {
-    let health = app.get("/api/v1/health").await;
-    let warnings = health.assert_ok()["warnings"].as_array().unwrap().clone();
-    warnings
-        .iter()
-        .filter_map(|warning| warning["code"].as_str())
-        .filter(|code| matches!(*code, "source_unreachable" | "source_quota_spent"))
-        .map(str::to_string)
-        .collect()
 }
 
 /// A day's quota goes to the titles never asked, then to the stalest answers:
@@ -130,7 +118,7 @@ async fn a_spent_omdb_quota_closes_the_day_and_caches_nothing() {
 
     let asked = omdb_requests(&sources);
     enrich(&app).await;
-    assert!(probe_warnings(&app).await.contains(&"source_quota_spent".to_string()));
+    assert!(probe_verdicts(&app).await.contains(&"source_quota_spent".to_string()));
     assert_eq!(omdb_requests(&sources), asked, "the closed day was asked again");
 }
 
@@ -142,16 +130,16 @@ async fn omdb_is_probed_once_a_day_from_its_quota() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "omdb").await;
 
-    assert!(probe_warnings(&app).await.is_empty());
-    assert!(probe_warnings(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
     assert_eq!(omdb_requests(&sources), 1);
 
     app.save_setting("omdb_api_key", OMDB_KEY).await.assert_ok();
-    assert!(probe_warnings(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
     assert_eq!(omdb_requests(&sources), 2, "a new key was not probed");
 
     app.store_setting("omdb_daily_requests", "2").await;
-    assert_eq!(probe_warnings(&app).await, ["source_quota_spent"]);
+    assert_eq!(probe_verdicts(&app).await, ["source_quota_spent"]);
     assert_eq!(omdb_requests(&sources), 2, "the probe asked past the quota");
     let status = app.get("/api/v1/status").await;
     let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
