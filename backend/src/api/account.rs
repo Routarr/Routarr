@@ -249,11 +249,18 @@ pub async fn change_password(
     } else {
         None
     };
-    // Every session it had opened is gone, including this one: the point of
-    // changing a password is that what the old one reached is now closed.
+    // Every session the old password opened is gone, this one included: the
+    // point of changing a password is that what the old one reached is closed.
+    // The browser that changed it proved the old one a moment ago, and gets a
+    // new session, so a key shown once in this answer is not lost to the
+    // sign-in screen.
+    let source = AuthMode::Forms.as_str();
+    let id = accounts::open_session(&state.pool, &identity.subject, source).await?;
+    let renewed =
+        super::auth::session_cookie(&state, &headers, &id, accounts::opening_seconds(source));
     Ok((
         StatusCode::OK,
-        [(axum::http::header::SET_COOKIE, super::auth::session_cookie(&state, &headers, "", 0))],
+        [(axum::http::header::SET_COOKIE, renewed)],
         axum::Json(serde_json::json!({ "ok": true, "api_key": api_key })),
     )
         .into_response())

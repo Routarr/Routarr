@@ -590,10 +590,11 @@ async fn a_session_close_to_expiry_gets_a_fresh_cookie() {
     assert!(renewed.contains("Max-Age=604800"), "{renewed}");
 }
 
-/// A password change ends the session it was made from and clears its cookie.
-/// Given again in the same answer, the cookie would outlive the session.
+/// A password change ends every session the old password opened, the one it
+/// was made from included, and hands that browser a new one, alone: the old
+/// cookie renewed in the same answer would come back.
 #[tokio::test]
-async fn a_password_change_keeps_its_cleared_cookie_on_a_renewed_session() {
+async fn a_password_change_ends_the_old_session_and_hands_a_new_one() {
     use axum::http::header;
     use tower::ServiceExt;
 
@@ -608,7 +609,7 @@ async fn a_password_change_keeps_its_cleared_cookie_on_a_renewed_session() {
     let body = serde_json::json!({ "current": password, "new_password": "another long password" });
     let request = Request::put("/api/v1/auth/password")
         .header(header::CONTENT_TYPE, "application/json")
-        .header(header::COOKIE, cookie)
+        .header(header::COOKIE, &cookie)
         .body(Body::from(body.to_string()))
         .unwrap();
     let response = app.router.clone().oneshot(request).await.unwrap();
@@ -621,7 +622,18 @@ async fn a_password_change_keeps_its_cleared_cookie_on_a_renewed_session() {
         .map(|value| value.to_str().unwrap())
         .collect();
     assert_eq!(cookies.len(), 1, "{cookies:?}");
-    assert!(cookies[0].contains("Max-Age=0"), "{cookies:?}");
+    let handed = cookies[0].split(';').next().unwrap().to_string();
+    assert_ne!(handed, cookie, "the old session was handed back");
+
+    let me = |cookie: String| {
+        let app = &app;
+        async move {
+            let request = Request::get("/api/v1/auth/me").header(header::COOKIE, cookie);
+            app.send(request.body(Body::empty()).unwrap()).await.status
+        }
+    };
+    assert_eq!(me(cookie).await, StatusCode::UNAUTHORIZED, "the old session lives on");
+    assert_eq!(me(handed).await, StatusCode::OK);
 }
 
 /// A refused sign-in leaves a line naming where it came from, which is what a
