@@ -327,22 +327,23 @@
               >{t('StatusUnavailable')}</span
             >
           {/if}
-        </div>
-
-        <div class="flex items-center gap-2">
-          <!-- A field for the question this product exists to answer,
-               reachable from every screen. -->
-          <button
-            type="button"
-            class="palette-trigger"
-            onclick={() => (palette = true)}
-            aria-label={t('CommandPalette')}
-          >
-            <Search size={14} aria-hidden="true" />
-            <span class="palette-trigger-label">{t('CommandPalette')}</span>
-            <kbd class="palette-trigger-key">{shortcut}</kbd>
-          </button>
-
+          <!-- What the state calls for beside the state itself: these come and
+               go, and on this side they never move the tools on the other. -->
+          {#if attention}
+            <!-- Failures first: they are what `is-critical` is painted for,
+                 and they are listed on the log screen, not on diagnostics.
+                 Sending an operator to a page that says nothing about the
+                 thing that just broke is worse than saying nothing. -->
+            <a
+              href={href(attention.critical ? '/move-log' : '/diagnostics')}
+              class="attention {attention.critical ? 'is-critical' : ''}"
+              title={attention.label}
+            >
+              <AlertTriangle size={14} aria-hidden="true" />
+              {attention.total}
+              <span class="visually-hidden">{attention.label}</span>
+            </a>
+          {/if}
           {#if guidePill}
             <!-- A figure and a glyph, the same width in every language, like
                  the chips beside it. The sentence is the accessible name. -->
@@ -360,21 +361,22 @@
               </span>
             </a>
           {/if}
-          {#if attention}
-            <!-- Failures first: they are what `is-critical` is painted for,
-                 and they are listed on the log screen, not on diagnostics.
-                 Sending an operator to a page that says nothing about the
-                 thing that just broke is worse than saying nothing. -->
-            <a
-              href={href(attention.critical ? '/move-log' : '/diagnostics')}
-              class="attention {attention.critical ? 'is-critical' : ''}"
-              title={attention.label}
-            >
-              <AlertTriangle size={14} aria-hidden="true" />
-              {attention.total}
-              <span class="visually-hidden">{attention.label}</span>
-            </a>
-          {/if}
+        </div>
+
+        <div class="flex items-center gap-2">
+          <!-- A field for the question this product exists to answer,
+               reachable from every screen. -->
+          <button
+            type="button"
+            class="palette-trigger"
+            onclick={() => (palette = true)}
+            aria-label={t('CommandPalette')}
+          >
+            <Search size={14} aria-hidden="true" />
+            <span class="palette-trigger-label">{t('CommandPalette')}</span>
+            <kbd class="palette-trigger-key">{shortcut}</kbd>
+          </button>
+
           <!-- Only where a browser holds a session, the key's included: a
                proxy or an open instance has none to end, and a button that
                does nothing is worse than none. -->
