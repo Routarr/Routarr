@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Archive, Download, Trash2 } from '../lib/icons';
-  import { api } from '../api/client';
+  import { Archive, Download, Lock, Trash2 } from '../lib/icons';
+  import { ApiError, api } from '../api/client';
+  import type { RestoreResult } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
@@ -8,6 +9,7 @@
   import Loading from './Loading.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { askPassphrase } from '../lib/proof.svelte';
   import { downloadBlob } from '../lib/download';
   import { handFocus } from '../lib/focus';
 
@@ -41,6 +43,24 @@
 
   async function download(name: string) {
     downloadBlob(await api.downloadBackup(name), name);
+  }
+
+  /**
+   * Stage `name`, asking for its passphrase while the server says it is sealed
+   * with one it does not hold. `null` when the question is declined.
+   */
+  async function restore(name: string): Promise<RestoreResult | null> {
+    let passphrase: string | undefined;
+    for (;;) {
+      try {
+        return await api.restoreBackup(name, passphrase);
+      } catch (cause) {
+        if (!(cause instanceof ApiError && cause.kind === 'passphrase_required')) throw cause;
+        const typed = await askPassphrase(passphrase === undefined ? undefined : cause.message);
+        if (typed === null) return null;
+        passphrase = typed;
+      }
+    }
   }
 </script>
 
@@ -89,6 +109,12 @@
         <div class="flex gap-2 items-center">
           <div class="flex-1">
             <span class="mono text-md">{file.name}</span>
+            {#if file.encrypted}
+              <span class="badge badge-plain">
+                <Lock size={12} aria-hidden="true" />
+                {t('BackupEncrypted')}
+              </span>
+            {/if}
             <div class="text-muted text-sm">
               {formatTimestamp(file.created_at, i18n.language)} · {formatBytes(
                 file.size_bytes,
@@ -123,7 +149,8 @@
                   ))
                 )
                   return;
-                const result = await api.restoreBackup(file.name);
+                const result = await restore(file.name);
+                if (!result) return;
                 // The manifest is the only place that knows. An archive taken
                 // while ROUTARR_SECRET_KEY held the master key carries no key
                 // file, and restoring it leaves every sealed Arr credential

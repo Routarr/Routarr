@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, waitFor } from '@testing-library/svelte';
+import { screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { captureDownloads } from '../test/downloads';
 import { answerConfirmation } from '../test/confirm';
+import { answerProof } from '../test/proof';
 import { ApiError, api } from '../api/client';
 import type { RestoreResult } from '../api/types';
 import { createOutcome } from '../lib/outcome.svelte';
@@ -27,12 +28,14 @@ const STRINGS = {
   RestoreStaged: 'Restore staged.',
   RestoreStagedWithoutKey: 'Restore staged, but the credentials will have to be entered again.',
   Retry: 'Retry',
+  BackupEncrypted: 'Encrypted',
 };
 
 const FILE = {
   name: 'routarr-backup-20260904-101500.zip',
   size_bytes: 1024,
   created_at: '2026-09-04 10:15:00',
+  encrypted: false,
 };
 
 function result(includes_master_key: boolean): RestoreResult {
@@ -136,6 +139,63 @@ describe('restoring a backup', () => {
     expect(restore).not.toHaveBeenCalled();
     expect(outcome.notice).toBe('Settings saved.');
   });
+
+  /**
+   * A sealed archive this installation holds no passphrase for: asked, sent,
+   * and asked again with the server's reason when it opened nothing.
+   */
+  it('asks for the passphrase of a sealed archive until one opens it', async () => {
+    const sealed = (message: string) => new ApiError(message, 400, 'passphrase_required');
+    const restore = vi
+      .spyOn(api, 'restoreBackup')
+      .mockRejectedValueOnce(sealed('This archive is encrypted.'))
+      .mockRejectedValueOnce(sealed('That passphrase does not open this archive.'))
+      .mockResolvedValue(result(true));
+    const outcome = mount();
+
+    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await answerConfirmation();
+    expect(await answerProof('the wrong one')).toEqual({ asked: 'passphrase', note: undefined });
+    expect(await answerProof('the right one')).toEqual({
+      asked: 'passphrase',
+      note: 'That passphrase does not open this archive.',
+    });
+
+    await waitFor(() => expect(outcome.notice).toBe('Restore staged.'));
+    expect(restore.mock.calls.map(([, passphrase]) => passphrase)).toEqual([
+      undefined,
+      'the wrong one',
+      'the right one',
+    ]);
+  });
+
+  it('stages nothing when the passphrase is not given', async () => {
+    const restore = vi
+      .spyOn(api, 'restoreBackup')
+      .mockRejectedValue(new ApiError('This archive is encrypted.', 400, 'passphrase_required'));
+    const outcome = mount();
+
+    await userEvent.click(await screen.findByRole('button', { name: /Restore – routarr-backup/ }));
+    await answerConfirmation();
+    await answerProof(null);
+
+    await waitFor(() => expect(restore).toHaveBeenCalledTimes(1));
+    expect(outcome.error).toBeNull();
+    expect(outcome.notice).toBeNull();
+  });
+});
+
+it('marks an archive sealed with the backup passphrase', async () => {
+  vi.spyOn(api, 'listBackups').mockResolvedValue({
+    backups: [FILE, { ...FILE, name: 'routarr-backup-20260905-101500.zip.age', encrypted: true }],
+    retention_count: 7,
+  });
+  renderWithI18n(BackupCard, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+  const sealed = (await screen.findByText('routarr-backup-20260905-101500.zip.age')).parentElement!;
+  expect(within(sealed).getByText('Encrypted')).toBeTruthy();
+  const plain = screen.getByText(FILE.name).parentElement!;
+  expect(within(plain).queryByText('Encrypted')).toBeNull();
 });
 
 describe('taking a backup', () => {

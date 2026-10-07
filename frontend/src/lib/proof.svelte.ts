@@ -15,9 +15,10 @@ import { t } from './i18n.svelte';
  */
 
 /** What the dialog asks for. */
-export type Asked = 'password' | 'key';
+export type Asked = 'password' | 'key' | 'passphrase';
 
-type Request = { asked: Asked; resolve: (value: string | null) => void };
+/** `note`, when there is one, is said in place of the help: why it asks again. */
+type Request = { asked: Asked; note?: string; resolve: (value: string | null) => void };
 
 const state = $state<{ request: Request | null }>({ request: null });
 
@@ -34,11 +35,19 @@ export function settleProof(value: string | null): void {
   pending?.resolve(value);
 }
 
-function ask(asked: Asked): Promise<string | null> {
+function ask(asked: Asked, note?: string): Promise<string | null> {
   state.request?.resolve(null);
   return new Promise((resolve) => {
-    state.request = { asked, resolve };
+    state.request = { asked, note, resolve };
   });
+}
+
+/**
+ * The passphrase a sealed archive was taken with, through the same dialog.
+ * `note` says why it is asked again, after one that opened nothing.
+ */
+export function askPassphrase(note?: string): Promise<string | null> {
+  return ask('passphrase', note);
 }
 
 /** Where the provider signs the person in again and sends them back here. */

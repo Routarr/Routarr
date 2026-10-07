@@ -3,7 +3,7 @@ import { fireEvent, screen } from '@testing-library/svelte';
 
 import { api } from '../api/client';
 import { renderWithI18n } from '../test/render';
-import { withProof } from '../lib/proof.svelte';
+import { askPassphrase, withProof } from '../lib/proof.svelte';
 import ProofDialog from './ProofDialog.svelte';
 
 /**
@@ -19,6 +19,9 @@ const STRINGS = {
   ProofPasswordTitle: 'Confirm with your password',
   ProofKeyTitle: 'Confirm with the API key',
   RoutarrApiKey: 'Routarr API key',
+  ProofPassphraseTitle: 'Archive passphrase',
+  ProofPassphraseHelp: 'This archive is encrypted.',
+  Passphrase: 'Passphrase',
 };
 
 function asking(mode: 'forms' | 'apikey') {
@@ -78,6 +81,24 @@ describe('ProofDialog', () => {
 
     const again = withProof(send);
     expect(await screen.findByLabelText('Current password')).toHaveValue('');
+    await fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
+    expect(await again).toBeNull();
+  });
+
+  /** Asked again, it says why rather than repeating the first question. */
+  it('asks for an archive passphrase, and says why it asks again', async () => {
+    renderWithI18n(ProofDialog, { strings: STRINGS });
+
+    const first = askPassphrase();
+    expect(await screen.findByRole('dialog', { name: 'Archive passphrase' })).toBeVisible();
+    expect(screen.getByText('This archive is encrypted.')).toBeVisible();
+    await fireEvent.input(screen.getByLabelText('Passphrase'), { target: { value: 'wrong' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await first).toBe('wrong');
+
+    const again = askPassphrase('That passphrase does not open this archive.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('does not open this archive');
+    expect(screen.queryByText('This archive is encrypted.')).toBeNull();
     await fireEvent(screen.getByRole('dialog'), new Event('cancel', { cancelable: true }));
     expect(await again).toBeNull();
   });

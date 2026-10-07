@@ -13,7 +13,9 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+use crate::api::auth::allowed;
 use crate::error::{AppError, AppResult};
+use crate::services::audit::Kind;
 use crate::services::backup::{self, BackupFile, BackupManifest};
 use crate::state::AppState;
 
@@ -53,8 +55,8 @@ pub async fn download(
     if !backup::is_valid_backup_name(&name) {
         return Err(AppError::NotFound("Unknown backup".into()));
     }
-    let detail = format!("The archive {name}, which holds the master key, was downloaded");
-    crate::api::auth::audited(&state, &identity, client, "backup", detail);
+    let event = allowed(Kind::Backup, "AuditBackupDownloaded").with("name", &name);
+    crate::api::auth::audited(&state, &identity, client, event);
 
     // Streamed: an archive is the whole database, and reading it into memory
     // first doubles the process's footprint for the length of the download.
@@ -63,10 +65,12 @@ pub async fn download(
         .await
         .map_err(|_| AppError::NotFound("Unknown backup".into()))?;
     let length = file.metadata().await.map(|m| m.len()).ok();
+    let content_type =
+        if backup::is_sealed_name(&name) { "application/octet-stream" } else { "application/zip" };
     let mut response = (
         StatusCode::OK,
         [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (header::CONTENT_TYPE, content_type.to_string()),
             (header::CONTENT_DISPOSITION, format!("attachment; filename=\"{name}\"")),
         ],
         axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)),
@@ -94,14 +98,35 @@ pub struct RestoreResponse {
     pub restart_required: bool,
 }
 
+/// What a restore may carry: the passphrase of a sealed archive, once the
+/// server asked for it with `passphrase_required`.
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct RestoreRequest {
+    #[serde(default)]
+    pub passphrase: Option<String>,
+}
+
 pub async fn restore(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
     Path(name): Path<String>,
+    body: axum::body::Bytes,
 ) -> AppResult<Json<RestoreResponse>> {
-    let manifest = backup::stage_restore(&state, &name).await?;
-    let detail = format!("The archive {name} was staged, to be restored at the next start");
-    crate::api::auth::audited(&state, &identity, client, "restore", detail);
+    let request: RestoreRequest = if body.iter().all(u8::is_ascii_whitespace) {
+        RestoreRequest::default()
+    } else {
+        serde_json::from_slice(&body)
+            .map_err(|e| AppError::BadRequest(format!("The body is not a restore request: {e}")))?
+    };
+    // Trimmed as the setting is when saved, so the same words open the archive.
+    let given = request
+        .passphrase
+        .map(|passphrase| passphrase.trim().to_string())
+        .filter(|passphrase| !passphrase.is_empty())
+        .map(age::secrecy::SecretString::from);
+    let manifest = backup::stage_restore(&state, &name, given).await?;
+    let event = allowed(Kind::Restore, "AuditRestoreStaged").with("name", &name);
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(RestoreResponse { manifest, restart_required: true }))
 }

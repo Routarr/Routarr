@@ -74,6 +74,7 @@ export const ROUTE_GROUPS: { key: string | null; items: Route[] }[] = [
     items: [
       { to: '/tasks', key: 'Tasks', hint: 'HintTasks', badge: 'jobs' },
       { to: '/move-log', key: 'Logs', hint: 'HintLogs', badge: 'failed' },
+      { to: '/security-log', key: 'SecurityLog', hint: 'HintSecurityLog' },
       { to: '/diagnostics', key: 'Diagnostics', hint: 'HintDiagnostics', badge: 'warnings' },
     ],
   },

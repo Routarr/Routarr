@@ -49,6 +49,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ),
     ("028_secret_salt", include_str!("../migrations/028_secret_salt.sql")),
     ("029_subject_keys", include_str!("../migrations/029_subject_keys.sql")),
+    ("030_security_events", include_str!("../migrations/030_security_events.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.
@@ -111,7 +112,9 @@ pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
     // Refused with the way back: the restore that needs no server, of the
     // newest archive this build can open.
     if let Some(newer) = opened_ahead(&mut *pool.acquire().await?).await? {
-        let archive = crate::services::backup::newest_openable(config)
+        let passphrase =
+            crate::services::backup::stored_passphrase(config, &pool).await.ok().flatten();
+        let archive = crate::services::backup::newest_openable(config, passphrase.as_ref())
             .unwrap_or_else(|| "<archive>".to_string());
         return Err(crate::error::AppError::Config(format!(
             "{}. Start that release again, or restore a backup this one can open, with the \

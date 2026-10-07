@@ -41,6 +41,7 @@ import type {
   Proof,
   Rule,
   RuleDraft,
+  SecurityEvent,
   Session,
   RestoreResult,
   RulePreview,
@@ -627,6 +628,9 @@ export const api = {
    */
   oidcStartUrl: () => `${API_BASE}/auth/oidc/start`,
   exportLogs: (params?: QueryParams) => download(`/logs/export${query(params)}`),
+  getSecurityLog: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<SecurityEvent>>(`/security-log${query(params)}`, { signal }),
+  exportSecurityLog: (params?: QueryParams) => download(`/security-log/export${query(params)}`),
 
   // ---------------------------------------------------------- settings
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
@@ -636,10 +640,11 @@ export const api = {
   createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  restoreBackup: (name: string) =>
+  /** `passphrase` opens a sealed archive, once the server asked for it. */
+  restoreBackup: (name: string, passphrase?: string) =>
     request<RestoreResult>(`/backups/${encodeURIComponent(name)}/restore`, {
       method: 'POST',
-      body: body({}),
+      body: body(passphrase === undefined ? {} : { passphrase }),
     }),
   /** The archive carries the master key, so it is never reachable without one. */
   downloadBackup: (name: string) => download(`/backups/${encodeURIComponent(name)}`),

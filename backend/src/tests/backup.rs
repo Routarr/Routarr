@@ -230,7 +230,8 @@ async fn a_backup_from_a_newer_schema_is_refused_rather_than_half_applied() {
         out.finish().unwrap();
     }
 
-    let outcome = backup::stage_restore(&app.state, "routarr-backup-99999999-000000.zip").await;
+    let outcome =
+        backup::stage_restore(&app.state, "routarr-backup-99999999-000000.zip", None).await;
     let message = outcome.expect_err("a newer schema must be refused").to_string();
     assert!(message.contains("Upgrade Routarr first"), "unhelpful refusal: {message}");
 
@@ -251,7 +252,7 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     // observable rather than a no-op.
     sqlx::query("DELETE FROM media").execute(&app.state.pool).await.unwrap();
 
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
 
     // Staged, not swapped: the pool is still open on the old file.
     assert!(dir.join("routarr.db.restore-pending").exists());
@@ -300,7 +301,7 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
             .await
             .unwrap();
 
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let config = app.state.config.clone();
     app.state.pool.close().await;
     assert!(backup::apply_pending_restore(&config).await.unwrap());
@@ -346,7 +347,7 @@ async fn a_restore_keeps_todays_api_key_and_password_and_signs_everyone_out() {
     let config = app.state.config.clone();
     std::fs::write(config.api_key_path(), "rotated-key").unwrap();
 
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     app.state.pool.close().await;
     assert!(backup::apply_pending_restore(&config).await.unwrap());
 
@@ -375,7 +376,7 @@ async fn a_restore_brings_back_the_key_its_credentials_were_sealed_with() {
     std::fs::write(config.secret_key_path(), "a-new-hosts-key").unwrap();
     std::fs::remove_file(config.api_key_path()).unwrap();
 
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     app.state.pool.close().await;
     assert!(backup::apply_pending_restore(&config).await.unwrap());
 
@@ -402,7 +403,8 @@ async fn a_restore_the_next_start_could_not_open_is_refused() {
     let mut config = (*app.state.config).clone();
     config.secret_key = Some("another-key-in-the-environment".to_string());
     let app = TestApp::around(app.state.clone().with_config(config));
-    let refused = backup::stage_restore(&app.state, &file.name).await.expect_err("it was staged");
+    let refused =
+        backup::stage_restore(&app.state, &file.name, None).await.expect_err("it was staged");
     assert!(refused.to_string().contains("ROUTARR_SECRET_KEY"), "{refused}");
     assert_eq!(restore_leftovers(&dir), Vec::<String>::new(), "a refused restore left files");
 }
@@ -420,8 +422,10 @@ async fn a_restore_whose_own_key_file_cannot_open_it_is_refused() {
     let stale = b"c3RhbGUta2V5LXRoYXQtc2VhbGVkLW5vdGhpbmctaGVyZQ==";
     forge(&backups.join(&file.name), &backups.join(forged), "routarr.key", stale);
 
-    backup::stage_restore(&app.state, &file.name).await.expect("the archive as taken restores");
-    let refused = backup::stage_restore(&app.state, forged).await.expect_err("it was staged");
+    backup::stage_restore(&app.state, &file.name, None)
+        .await
+        .expect("the archive as taken restores");
+    let refused = backup::stage_restore(&app.state, forged, None).await.expect_err("it was staged");
     assert!(refused.to_string().contains("routarr.key"), "{refused}");
 }
 
@@ -456,7 +460,7 @@ async fn a_start_opens_the_restored_database_with_the_restored_key() {
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     app.execute(&["DELETE FROM instances"]).await;
     std::fs::write(dir.join("routarr.key"), "the-key-of-today").unwrap();
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let config = (*app.state.config).clone();
     app.state.pool.close().await;
 
@@ -537,7 +541,7 @@ async fn a_restore_keeps_the_database_it_replaces() {
     let (app, dir) = app_with_files("pre-restore").await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-since', 'written-since')"]).await;
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let config = (*app.state.config).clone();
     app.state.pool.close().await;
 
@@ -641,7 +645,7 @@ async fn a_restore_that_fails_while_staging_leaves_nothing_for_the_next_start() 
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
     damage_entry(&dir.join("backups").join(&file.name), "routarr.db");
 
-    let refused = backup::stage_restore(&app.state, &file.name)
+    let refused = backup::stage_restore(&app.state, &file.name, None)
         .await
         .expect_err("a damaged archive must be refused");
 
@@ -674,7 +678,7 @@ async fn an_archive_whose_database_is_not_one_is_refused_before_anything_is_stag
         b"",
     );
 
-    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip", None)
         .await
         .expect_err("an archive holding no database must be refused");
 
@@ -739,7 +743,7 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
         .unwrap();
     // A key in use stays, so the archive's is staged only on a host that has none.
     std::fs::remove_file(app.state.config.api_key_path()).unwrap();
-    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip").await.unwrap();
+    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip", None).await.unwrap();
     assert!(
         dir.join("routarr.api_key.restore-pending").exists(),
         "precondition: the first archive carries the API key"
@@ -750,7 +754,7 @@ async fn staging_a_second_backup_replaces_the_first_entirely() {
         !entries(&backups.join(&second.name)).contains(&"routarr.api_key".to_string()),
         "precondition: the second archive carries no API key"
     );
-    backup::stage_restore(&app.state, &second.name).await.unwrap();
+    backup::stage_restore(&app.state, &second.name, None).await.unwrap();
 
     assert!(
         !dir.join("routarr.api_key.restore-pending").exists(),
@@ -788,7 +792,7 @@ async fn a_database_damaged_inside_is_refused_before_anything_is_staged() {
         &bytes,
     );
 
-    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip", None)
         .await
         .expect_err("a database damaged inside must be refused");
 
@@ -816,7 +820,7 @@ async fn a_key_the_archive_cannot_read_is_refused_rather_than_left_out() {
     bytes[usize::try_from(header).unwrap()] ^= 0xFF;
     std::fs::write(&archive, bytes).unwrap();
 
-    let refused = backup::stage_restore(&app.state, &file.name)
+    let refused = backup::stage_restore(&app.state, &file.name, None)
         .await
         .expect_err("a key that cannot be read must be refused");
 
@@ -839,7 +843,7 @@ async fn an_archive_missing_the_key_its_manifest_lists_is_refused() {
         None,
     );
 
-    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+    let refused = backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip", None)
         .await
         .expect_err("an archive that lost its master key must be refused");
 
@@ -855,7 +859,7 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
     let (app, dir) = app_with_files("refused-second").await;
     let backups = dir.join("backups");
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
 
     forge(
         &backups.join(&file.name),
@@ -863,7 +867,7 @@ async fn a_refused_restore_leaves_the_one_already_staged() {
         "routarr.db",
         b"",
     );
-    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip")
+    backup::stage_restore(&app.state, "routarr-backup-20000101-000000.zip", None)
         .await
         .expect_err("precondition: the second archive is refused");
 
@@ -885,13 +889,13 @@ async fn a_restore_is_staged_one_at_a_time() {
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
     let held = app.state.jobs.try_lock("restore").expect("the restore lock");
-    let refused = backup::stage_restore(&app.state, &file.name)
+    let refused = backup::stage_restore(&app.state, &file.name, None)
         .await
         .expect_err("a second staging must wait for the first");
     assert!(matches!(refused, crate::error::AppError::Conflict(_)), "{refused}");
     drop(held);
 
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
 }
 
 /// A newer binary may stage a restore and an older one make the next start.
@@ -934,6 +938,8 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
     for leftover in [
         backups.join(".routarr-backup-20260101-000000.zip.partial"),
+        backups.join(".routarr-backup-20260101-000000.zip.age.plain"),
+        backups.join(".routarr-backup-20260101-000000.zip.age.opened"),
         backups.join(".20260101-000000.db"),
         dir.join("routarr.db.restore-staging"),
         dir.join("routarr.key.restore-staging"),
@@ -1101,7 +1107,7 @@ async fn an_archive_without_the_master_key_says_so() {
 
     // And the restore hands that answer to the caller rather than swallowing
     // it: this is what the interface warns on.
-    let staged = backup::stage_restore(&app.state, &file.name).await.unwrap();
+    let staged = backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     assert!(!staged.includes_master_key);
 }
 
@@ -1201,7 +1207,7 @@ async fn set_enabled(app: &TestApp) {
 
 /// The record a newer release leaves after migrating the database further
 /// than this build knows.
-const AHEAD: &str =
+pub(super) const AHEAD: &str =
     "INSERT INTO _opened_by (version, schema) VALUES ('99.0.0', '099_from_a_later_release')";
 
 /// One connection to a database file outside the pool, left in the journal
@@ -1223,7 +1229,7 @@ async fn an_archive_a_newer_release_migrated_is_refused_when_staged() {
     app.execute(&[AHEAD]).await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
 
-    let refused = backup::stage_restore(&app.state, &file.name).await;
+    let refused = backup::stage_restore(&app.state, &file.name, None).await;
 
     let message = refused.expect_err("the archive was staged").to_string();
     assert!(message.contains("v99.0.0"), "{message}");
@@ -1237,7 +1243,7 @@ async fn an_archive_a_newer_release_migrated_is_refused_when_staged() {
 async fn a_pending_restore_a_newer_release_migrated_is_discarded() {
     let (app, dir) = app_with_files("ahead-pending").await;
     let file = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
-    backup::stage_restore(&app.state, &file.name).await.unwrap();
+    backup::stage_restore(&app.state, &file.name, None).await.unwrap();
     let pending = dir.join("routarr.db.restore-pending");
     let mut connection = open_file(&pending).await;
     sqlx::query(AHEAD).execute(&mut connection).await.unwrap();
@@ -1262,7 +1268,7 @@ async fn a_restore_can_be_staged_without_the_server() {
 
     let path = dir.join("backups").join(&file.name);
     for archive in [file.name.clone(), path.to_string_lossy().into_owned()] {
-        let manifest = backup::stage_offline(&config, &archive).await.unwrap();
+        let manifest = backup::stage_offline(&config, &archive, None).await.unwrap();
         assert_eq!(manifest.version, env!("CARGO_PKG_VERSION"));
     }
     let (_, pool, _) = crate::open_storage(&config).await.unwrap();
@@ -1360,7 +1366,7 @@ async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
         zip.finish().unwrap();
     }
 
-    backup::stage_restore(&app.state, name).await.unwrap();
+    backup::stage_restore(&app.state, name, None).await.unwrap();
 
     let mut staged = open_file(&dir.join("routarr.db.restore-pending")).await;
     let secrets: Vec<String> = sqlx::query_scalar("SELECT secret FROM webhook_secrets")

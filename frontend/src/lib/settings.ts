@@ -281,6 +281,13 @@ export const FIELDS: Field[] = [
     range: [1, 50],
   },
   {
+    key: 'backup_passphrase',
+    labelKey: 'SettingBackupPassphrase',
+    helpKey: 'SettingBackupPassphraseHelp',
+    kind: 'secret',
+    fallback: '',
+  },
+  {
     key: 'decision_retention_days',
     labelKey: 'SettingDecisionRetention',
     helpKey: 'SettingDecisionRetentionHelp',
@@ -294,6 +301,14 @@ export const FIELDS: Field[] = [
     helpKey: 'SettingLogRetentionHelp',
     kind: 'number',
     fallback: '90',
+    range: [0, null],
+  },
+  {
+    key: 'security_log_retention_days',
+    labelKey: 'SettingSecurityLogRetention',
+    helpKey: 'SettingSecurityLogRetentionHelp',
+    kind: 'number',
+    fallback: '365',
     range: [0, null],
   },
 ];
@@ -358,8 +373,10 @@ export const SECTIONS = [
       'backup_enabled',
       'backup_interval_hours',
       'backup_retention_count',
+      'backup_passphrase',
       'decision_retention_days',
       'log_retention_days',
+      'security_log_retention_days',
     ],
   },
   {

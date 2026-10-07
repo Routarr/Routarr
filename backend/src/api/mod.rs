@@ -22,6 +22,7 @@ pub mod overrides;
 pub mod root_folders;
 pub mod rule_tests;
 pub mod rules;
+pub mod security_log;
 pub mod settings;
 pub mod simulation;
 pub mod webhook;

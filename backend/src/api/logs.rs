@@ -176,7 +176,7 @@ fn build_filters(query: &LogQuery) -> (String, Vec<String>) {
 /// databases and from filenames: nothing the operator wrote and nothing this
 /// application validates. A leading apostrophe is the standard defusal: the
 /// spreadsheet reads the rest as text and does not display the quote.
-fn csv_field(value: &str) -> String {
+pub(crate) fn csv_field(value: &str) -> String {
     let escaped = value.replace('"', "\"\"").replace(['\n', '\r'], " ");
     let escaped = match escaped.chars().next() {
         Some('=' | '+' | '-' | '@' | '\t') => format!("'{escaped}"),

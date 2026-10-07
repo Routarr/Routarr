@@ -497,7 +497,7 @@ impl AppState {
             post_sync: Arc::new(tokio::sync::Mutex::new(None)),
             auto_apply_held: Arc::default(),
             notifications: Arc::default(),
-            audit: Arc::default(),
+            audit: Arc::new(crate::services::audit::Log::storing(pool.clone())),
             key_rates: Arc::default(),
             route_misses: Arc::default(),
             config: Arc::new(config),

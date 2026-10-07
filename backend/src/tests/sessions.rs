@@ -136,6 +136,37 @@ async fn the_key_opens_a_session_and_the_browser_keeps_no_key() {
     assert_ne!(status, StatusCode::UNAUTHORIZED, "a write with the session was refused");
 }
 
+/// A key guessed back to back is slowed as a password is: after five wrong
+/// keys from one address the next exchange waits, the right key included, and
+/// the wait is in the security log.
+#[tokio::test]
+async fn wrong_keys_from_one_address_are_slowed_and_logged() {
+    let app = TestApp::with_api_key(KEY).await;
+    let exchange = |key: &str| {
+        let mut request = Request::post("/api/v1/auth/key-session")
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(json!({ "key": key }).to_string()))
+            .unwrap();
+        request
+            .extensions_mut()
+            .insert(axum::extract::ConnectInfo(std::net::SocketAddr::from(([198, 51, 100, 9], 1))));
+        request
+    };
+    for _ in 0..5 {
+        app.send(exchange("a guess")).await.assert_status(StatusCode::UNAUTHORIZED);
+    }
+
+    app.send(exchange(KEY)).await.assert_status(StatusCode::TOO_MANY_REQUESTS);
+    app.state.audit.flush().await;
+    let held: Vec<String> = sqlx::query_scalar(
+        "SELECT client FROM security_events WHERE message = 'AuditSignInHeldBack'",
+    )
+    .fetch_all(&app.state.pool)
+    .await
+    .unwrap();
+    assert_eq!(held, ["198.51.100.9"]);
+}
+
 /// A cookie travels on a cross-site request whether the page meant it or not:
 /// a write whose origin is another site is refused, as in the sign-in modes.
 #[tokio::test]

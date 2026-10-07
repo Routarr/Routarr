@@ -257,6 +257,10 @@
           "created_at": {
             "type": "string"
           },
+          "encrypted": {
+            "description": "Sealed with the backup passphrase: a restore asks for it, and\n`age -d` opens it without Routarr.",
+            "type": "boolean"
+          },
           "name": {
             "type": "string"
           },
@@ -269,7 +273,8 @@
         "required": [
           "name",
           "size_bytes",
-          "created_at"
+          "created_at",
+          "encrypted"
         ],
         "type": "object"
       },
@@ -1624,7 +1629,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`, `busy`,\n`reauthentication_required`, `external_api_error`, or an internal kind.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`, `busy`,\n`reauthentication_required`, `passphrase_required`, `external_api_error`,\nor an internal kind.",
             "type": "string"
           },
           "includes": {

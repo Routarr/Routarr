@@ -161,35 +161,25 @@ pub(crate) fn audited(
     state: &AppState,
     identity: &Identity,
     client: Option<IpAddr>,
-    kind: &'static str,
-    detail: String,
+    event: audit::Event<'_>,
 ) {
-    state.audit.record(audit::Event {
-        kind,
-        outcome: audit::Outcome::Allowed,
-        subject: Some(&identity.subject),
-        client,
-        detail,
-        summed: false,
-    });
+    state.audit.record(event.by(Some(&identity.subject), client));
 }
 
 /// A refusal anyone can send as fast as they like, summed per address.
-pub(crate) fn refused(
-    state: &AppState,
-    kind: &'static str,
-    subject: Option<&str>,
-    client: Option<IpAddr>,
-    detail: String,
-) {
-    state.audit.record(audit::Event {
-        kind,
-        outcome: audit::Outcome::Refused,
-        subject,
-        client,
-        detail,
-        summed: true,
-    });
+pub(crate) fn refused(state: &AppState, client: Option<IpAddr>, event: audit::Event<'_>) {
+    let subject = event.subject;
+    state.audit.record(event.by(subject, client).summed());
+}
+
+/// An event `audited` records: a change someone was allowed to make.
+pub(crate) fn allowed(kind: audit::Kind, message: &'static str) -> audit::Event<'static> {
+    audit::Event::new(kind, audit::Outcome::Allowed, message)
+}
+
+/// An event `refused` records.
+pub(crate) fn refusal(kind: audit::Kind, message: &'static str) -> audit::Event<'static> {
+    audit::Event::new(kind, audit::Outcome::Refused, message)
 }
 
 /// Where a request came from, as the sign-in throttle reads it.
@@ -227,9 +217,8 @@ pub async fn authenticate(
                 // follows it.
                 let id = token.strip_prefix(TOKEN_PREFIX).and_then(|rest| rest.split_once('_'));
                 let id = id.map_or("", |(id, _)| id);
-                let detail =
-                    format!("An application key that does not exist or was revoked was sent: {id}");
-                refused(&state, "application_key", None, client, detail);
+                let event = refusal(audit::Kind::ApplicationKey, "AuditApplicationKeyUnknown");
+                refused(&state, client, event.with("id", id));
                 return unknown_application_key();
             }
             Err(e) => return e.into_response(),
@@ -242,10 +231,17 @@ pub async fn authenticate(
             return AppError::TooManyRequests { message, retry_after: wait.as_secs() + 1 }
                 .into_response();
         }
-        if let Err(refusal) = super::applications::admit(&grant, &request) {
-            let detail = format!("{} (key {}): {}", grant.name, grant.id, refusal.public_message());
-            refused(&state, "scope", Some(&grant.name), client, detail);
-            return refusal.into_response();
+        if let Err(refused_route) = super::applications::admit(&grant, &request) {
+            let (route, scope) = super::applications::asked(&request);
+            let event = match scope {
+                Some(scope) => {
+                    refusal(audit::Kind::Scope, "AuditScopeMissing").with("scope", scope.as_str())
+                }
+                None => refusal(audit::Kind::Scope, "AuditOwnerRoute"),
+            };
+            let event = event.with("name", &grant.name).with("id", &grant.id).with("route", route);
+            refused(&state, client, audit::Event { subject: Some(&grant.name), ..event });
+            return refused_route.into_response();
         }
         request.extensions_mut().insert(Identity::application(grant, state.config.auth_mode));
         return next.run(request).await;
@@ -261,7 +257,7 @@ pub async fn authenticate(
         mode @ (AuthMode::None | AuthMode::External) => {
             let keyless = api_key_identity(&state, request.headers()).is_none();
             if keyless && !same_origin(&request, &state.config.cors_origins) {
-                refused(&state, "origin", None, client, refused_origin(&request));
+                refused(&state, client, refused_origin(&request));
                 return foreign_origin();
             }
             // A page of another site can make its own name resolve to this
@@ -271,9 +267,8 @@ pub async fn authenticate(
                 && mode == AuthMode::None
                 && let Some(host) = foreign_host(&state, &request)
             {
-                let detail =
-                    format!("A request was sent to {host}, a name this Routarr does not answer to");
-                refused(&state, "origin", None, client, detail);
+                let event = refusal(audit::Kind::Origin, "AuditUnknownHost").with("host", &host);
+                refused(&state, client, event);
                 return forbidden(&format!(
                     "This Routarr runs with ROUTARR_AUTH=none and answers only to an address, \
                      localhost or a name listed in ROUTARR_ALLOWED_HOSTS. Add {host} to \
@@ -294,7 +289,7 @@ pub async fn authenticate(
                 // content type, so this is the third of three: an Origin that
                 // is present and foreign is not this application asking.
                 Some(_) if !same_origin(&request, &state.config.cors_origins) => {
-                    refused(&state, "origin", None, client, refused_origin(&request));
+                    refused(&state, client, refused_origin(&request));
                     return foreign_origin();
                 }
                 Some((identity, renewed)) => {
@@ -312,7 +307,7 @@ pub async fn authenticate(
             Some(identity) => Some(identity),
             None => match session_identity(&state, request.headers()).await {
                 Some(_) if !same_origin(&request, &state.config.cors_origins) => {
-                    refused(&state, "origin", None, client, refused_origin(&request));
+                    refused(&state, client, refused_origin(&request));
                     return foreign_origin();
                 }
                 Some((identity, renewed)) => {
@@ -344,8 +339,7 @@ pub async fn authenticate(
             // A request with no key at all is a browser before its sign-in,
             // not an attempt worth a line.
             if extract_key(request.headers()).is_some() {
-                let detail = "A request was sent with a key that opens nothing".to_string();
-                refused(&state, "api_key", None, client, detail);
+                refused(&state, client, refusal(audit::Kind::ApiKey, "AuditApiKeyRefused"));
             }
             (
                 StatusCode::UNAUTHORIZED,
@@ -360,13 +354,13 @@ pub async fn authenticate(
 }
 
 /// What the security log says of a write another site's page sent.
-fn refused_origin(request: &Request<Body>) -> String {
+fn refused_origin(request: &Request<Body>) -> audit::Event<'static> {
     let origin = request
         .headers()
         .get(axum::http::header::ORIGIN)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("-");
-    format!("A write was refused for coming from {origin}, another site")
+    refusal(audit::Kind::Origin, "AuditForeignOrigin").with("origin", origin)
 }
 
 /// The refusal of a token shaped like an application key that names no live one.
@@ -657,8 +651,7 @@ pub async fn login(
     // against nothing, the right password included.
     if let Some(left) = state.sign_in.held_back(client) {
         let seconds = left.as_secs() + 1;
-        let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
-        refused(&state, "sign_in", None, client, format!("A sign-in was held back for {address}"));
+        refused(&state, client, refusal(audit::Kind::SignIn, "AuditSignInHeldBack"));
         let message = state
             .localizer()
             .await
@@ -670,16 +663,9 @@ pub async fn login(
     // fail2ban filter reads, and never what was typed: a password typed into
     // the name field is a password.
     let refuse = || {
-        let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
-        state.audit.record(audit::Event {
-            kind: "sign_in",
-            outcome: audit::Outcome::Refused,
-            subject: None,
-            client,
-            detail: format!("A sign-in was refused for {address}"),
-            // Every one counts toward the wait and toward a fail2ban jail.
-            summed: false,
-        });
+        // Every one counts toward the wait and toward a fail2ban jail, so
+        // none is summed.
+        state.audit.record(refusal(audit::Kind::SignIn, "AuditSignInRefused").by(None, client));
         state.sign_in.failed(client);
         unauthorized()
     };
@@ -731,7 +717,7 @@ pub async fn login(
         Ok(id) => {
             let name = credentials.username.trim();
             let person = Identity::person(name.to_string(), AuthMode::Forms);
-            audited(&state, &person, client, "sign_in", format!("{name} signed in"));
+            audited(&state, &person, client, allowed(audit::Kind::SignIn, "AuditSignedIn"));
             (
                 StatusCode::OK,
                 [(
@@ -769,6 +755,7 @@ pub async fn key_session(
 ) -> Response {
     if let Some(left) = state.sign_in.held_back(client) {
         let seconds = left.as_secs() + 1;
+        refused(&state, client, refusal(audit::Kind::SignIn, "AuditSignInHeldBack"));
         let message = state
             .localizer()
             .await
@@ -777,16 +764,9 @@ pub async fn key_session(
     }
     let matched =
         state.api_key().is_some_and(|expected| constant_time_eq(sent.key.trim(), &expected));
-    let address = client.map_or_else(|| "an unknown address".to_string(), |ip| ip.to_string());
     if !matched {
-        state.audit.record(audit::Event {
-            kind: "sign_in",
-            outcome: audit::Outcome::Refused,
-            subject: None,
-            client,
-            detail: format!("A key that opens nothing was sent to sign in, from {address}"),
-            summed: false,
-        });
+        let event = refusal(audit::Kind::SignIn, "AuditKeySessionRefused");
+        state.audit.record(event.by(None, client));
         state.sign_in.failed(client);
         return (
             StatusCode::UNAUTHORIZED,
@@ -803,7 +783,8 @@ pub async fn key_session(
     match accounts::open_session(&state.pool, "apikey", source).await {
         Ok(id) => {
             let person = Identity::person("apikey".to_string(), AuthMode::ApiKey);
-            audited(&state, &person, client, "sign_in", "The API key opened a session".into());
+            let event = allowed(audit::Kind::SignIn, "AuditKeySessionOpened");
+            audited(&state, &person, client, event);
             (
                 StatusCode::OK,
                 [(
@@ -828,7 +809,7 @@ pub async fn logout(
         let mode = state.config.auth_mode.as_str();
         if let Ok(Some(session)) = accounts::live_session(&state.pool, &id, mode).await {
             let person = Identity::person(session.subject, state.config.auth_mode);
-            audited(&state, &person, client, "sign_out", "A session was ended".into());
+            audited(&state, &person, client, allowed(audit::Kind::SignOut, "AuditSignedOut"));
         }
         let _ = accounts::close_session(&state.pool, &id).await;
     }
@@ -985,14 +966,8 @@ pub async fn oidc_callback(
     let subject = match crate::services::oidc::finish(&state, &code, attempt).await {
         Ok(subject) => subject,
         Err(e) => {
-            state.audit.record(audit::Event {
-                kind: "sign_in",
-                outcome: audit::Outcome::Refused,
-                subject: None,
-                client,
-                detail: format!("An OpenID Connect sign-in failed: {e}"),
-                summed: false,
-            });
+            let event = refusal(audit::Kind::SignIn, "AuditOidcRefused").with("reason", e);
+            state.audit.record(event.by(None, client));
             return failed();
         }
     };
@@ -1002,8 +977,7 @@ pub async fn oidc_callback(
         // would replace the session the browser is being handed.
         Ok(id) => {
             let person = Identity::person(subject.clone(), AuthMode::Oidc);
-            let detail = format!("{subject} signed in through the OpenID Connect provider");
-            audited(&state, &person, client, "sign_in", detail);
+            audited(&state, &person, client, allowed(audit::Kind::SignIn, "AuditOidcSignedIn"));
             (
                 axum::response::AppendHeaders([
                     (

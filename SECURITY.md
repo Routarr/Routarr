@@ -213,6 +213,14 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   its archives contain none, and restoring one elsewhere leaves every sealed
   credential unreadable. The manifest records it, the restore returns it, and
   the interface warns on it rather than reporting a plain success.
+- **Archives can be sealed with a passphrase.** Set in the settings and
+  sealed with the master key like any credential, it encrypts every archive
+  in the age format (scrypt at 2^17, ChaCha20-Poly1305), so a copy of the
+  backup folder opens nothing without it, and `age -d` opens one where Routarr
+  cannot run. Changing or removing it converts the archives on disk, and one
+  sealed with an older passphrase is left as it is. A restore asks for it when
+  the installation does not hold it. A passphrase that cannot be opened takes
+  no archive at all rather than one in the clear.
 - **A restore brings back no credential withdrawn since the backup.** An
   application key revoked, a signing secret replaced, the master API key
   rotated or the password changed stay as they are today, and every session
@@ -270,13 +278,19 @@ the signing secret replaced. A line names the event, its outcome, who asked
 and the client's address, never a key, a token, a password or a code:
 
 ```text
-2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused for 203.0.113.9 event="sign_in" outcome="refused" subject="-" client=203.0.113.9
+2026-10-06T21:04:23.117Z  WARN request{...}: routarr::audit: A sign-in was refused: wrong name or password. event="sign_in" outcome="refused" subject="-" client=203.0.113.9
 ```
 
 A refused key, an unknown application key and a write from another site,
 which anyone can send as fast as they like, are written once a minute per
 address with how many came since (`repeated=`). Every refused sign-in is
 written, since Routarr slows them itself.
+
+The same events are kept in the database for the **Security log** screen,
+which only the owner reads: no application key reaches it, whatever its
+scopes. It filters by event, outcome, name or address, and exports what it
+shows as CSV. They are kept 365 days by default (`security_log_retention_days`
+in the settings, 0 keeps them all), and the log lines are not affected.
 
 To ban an address at the firewall, point fail2ban at the container's log. With
 Docker's default `json-file` driver and the text log format:
@@ -312,9 +326,10 @@ Not vulnerabilities to report, but decisions, with reasons.
   distinguish a style attribute from an injected `<style>` block. A style runs
   no code, and `script-src 'self'` allows no inline script.
 - **The API key is a full-access credential.** Whoever holds it can download a
-  backup, which carries the master key, and can point a connection test or the
-  outbound notification at any `http(s)` address the server can reach, the
-  local network included, link-local addresses aside. Treat it as you would the Arr's own, and give another
+  backup, which carries the master key, remove the passphrase that seals it,
+  and point a connection test or the outbound notification at any `http(s)`
+  address the server can reach, the local network included, link-local
+  addresses aside. Treat it as you would the Arr's own, and give another
   application a key of its own instead, which reaches none of that.
 - **That includes replacing the key itself.** A key sent in a header is its
   own proof, so a stolen key can rotate itself. In `apikey` mode, where it is

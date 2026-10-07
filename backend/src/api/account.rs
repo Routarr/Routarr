@@ -5,7 +5,9 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 
-use super::auth::{Client, Identity, SESSION_COOKIE, audited, constant_time_eq, cookie};
+use super::auth::{
+    Client, Identity, SESSION_COOKIE, allowed, audited, constant_time_eq, cookie, refusal,
+};
 use crate::config::AuthMode;
 use crate::error::{AppError, AppResult};
 use crate::services::accounts::{self, RECENT_SIGN_IN_SECONDS};
@@ -89,14 +91,8 @@ pub async fn prove(
     if proven {
         return Ok(());
     }
-    state.audit.record(audit::Event {
-        kind: "proof",
-        outcome: audit::Outcome::Refused,
-        subject: Some(&identity.subject),
-        client,
-        detail: "A session asked to touch a key without its proof".into(),
-        summed: false,
-    });
+    let event = refusal(audit::Kind::Proof, "AuditProofRefused");
+    state.audit.record(event.by(Some(&identity.subject), client));
     let key = if identity.source == AuthMode::ApiKey {
         "ErrorProofKeyWrong"
     } else {
@@ -143,7 +139,7 @@ pub async fn rotate_api_key(
     prove(&state, &identity, &proof_in(&body)?, client).await?;
     let key = state.rotate_api_key()?;
     end_key_sessions(&state, cookie(&headers, SESSION_COOKIE).as_deref()).await?;
-    audited(&state, &identity, client, "api_key", "The API key was replaced".into());
+    audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyReplaced"));
     Ok(super::Json(serde_json::json!({ "api_key": key })))
 }
 
@@ -167,7 +163,7 @@ pub async fn delete_api_key(
     }
     prove(&state, &identity, &proof_in(&body)?, client).await?;
     state.clear_api_key()?;
-    audited(&state, &identity, client, "api_key", "The API key was withdrawn".into());
+    audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyWithdrawn"));
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -222,14 +218,8 @@ pub async fn change_password(
         }
     };
     if !matched {
-        state.audit.record(audit::Event {
-            kind: "password",
-            outcome: audit::Outcome::Refused,
-            subject: Some(&identity.subject),
-            client,
-            detail: "A password change was refused: the current password was wrong".into(),
-            summed: false,
-        });
+        let event = refusal(audit::Kind::Password, "AuditPasswordRefused");
+        state.audit.record(event.by(Some(&identity.subject), client));
         return Err(AppError::Forbidden(localizer.translate("ErrorProofPasswordWrong", &[])));
     }
     let shortest = super::auth::MIN_PASSWORD_LENGTH;
@@ -241,10 +231,11 @@ pub async fn change_password(
 
     accounts::set_password(&state.pool, &state.config.password_path(), &change.new_password)
         .await?;
-    audited(&state, &identity, client, "password", "The password was changed".into());
+    audited(&state, &identity, client, allowed(audit::Kind::Password, "AuditPasswordChanged"));
     let api_key = if change.revoke_keys {
         let key = revoke_every_key(&state).await?;
-        audited(&state, &identity, client, "api_key", "Every key was revoked".into());
+        let event = allowed(audit::Kind::ApiKey, "AuditEveryKeyRevoked");
+        audited(&state, &identity, client, event);
         key
     } else {
         None
@@ -283,7 +274,8 @@ pub async fn end_sessions(
     headers: HeaderMap,
 ) -> AppResult<Response> {
     let ended = accounts::end_every_session(&state.pool).await?;
-    audited(&state, &identity, client, "sign_out", format!("Every session was ended: {ended}"));
+    let event = allowed(audit::Kind::SignOut, "AuditEverySessionEnded").with("count", ended);
+    audited(&state, &identity, client, event);
     Ok((
         StatusCode::OK,
         [(axum::http::header::SET_COOKIE, super::auth::session_cookie(&state, &headers, "", 0))],
@@ -305,7 +297,8 @@ pub async fn end_session(
     if !accounts::end_session(&state.pool, &handle).await? {
         return Err(AppError::NotFound("No live session has that handle".into()));
     }
-    audited(&state, &identity, client, "sign_out", format!("The session {handle} was ended"));
+    let event = allowed(audit::Kind::SignOut, "AuditSessionEnded").with("handle", &handle);
+    audited(&state, &identity, client, event);
     if current {
         let cleared = super::auth::session_cookie(&state, &headers, "", 0);
         return Ok(

@@ -233,12 +233,13 @@ pub async fn import(
     crate::api::auth::Client(client): crate::api::auth::Client,
     Json(req): Json<ImportRequest>,
 ) -> AppResult<Json<ImportReport>> {
-    let bundled = format!(
-        "{} setting(s), {} instance(s), {} rule(s)",
-        req.bundle.settings.len(),
-        req.bundle.instances.len(),
-        req.bundle.rules.len()
-    );
+    let bundled = crate::api::auth::allowed(
+        crate::services::audit::Kind::Configuration,
+        "AuditConfigurationImported",
+    )
+    .with("settings", req.bundle.settings.len())
+    .with("instances", req.bundle.instances.len())
+    .with("rules", req.bundle.rules.len());
     let bundle = req.bundle;
     if bundle.version != BUNDLE_VERSION {
         return Err(AppError::BadRequest(format!(
@@ -635,8 +636,7 @@ pub async fn import(
     }
 
     tx.commit().await?;
-    let detail = format!("A configuration bundle was imported: {bundled}");
-    crate::api::auth::audited(&state, &identity, client, "configuration", detail);
+    crate::api::auth::audited(&state, &identity, client, bundled);
     Ok(Json(report))
 }
 

@@ -2875,12 +2875,14 @@ async fn a_retention_of_zero_keeps_everything() {
     let app = aged_rows().await;
     app.save_setting("log_retention_days", "0").await.assert_ok();
     app.save_setting("decision_retention_days", "0").await.assert_ok();
+    app.save_setting("security_log_retention_days", "0").await.assert_ok();
     crate::services::maintenance::converge_setting_bounds(&app.state).await.unwrap();
 
     let response = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
 
     let report = response.assert_ok();
-    for removed in ["logs_removed", "jobs_removed", "decisions_removed"] {
+    for removed in ["logs_removed", "jobs_removed", "decisions_removed", "security_events_removed"]
+    {
         assert_eq!(report[removed], 0, "{removed}: {report}");
     }
 }
@@ -2906,6 +2908,9 @@ async fn aged_rows() -> TestApp {
                  datetime('now', '-29 days')),
                 ('d-failed-old', 'm-1', 'Totoro', 'movie', 'inst-1', 'anime', 'move', 'failed',
                  datetime('now', '-400 days'))",
+        "INSERT INTO security_events (at, kind, outcome, subject, message)
+         VALUES (datetime('now', '-366 days'), 'sign_in', 'allowed', 'ev-old', 'AuditSignedIn'),
+                (datetime('now', '-364 days'), 'sign_in', 'allowed', 'ev-new', 'AuditSignedIn')",
     ] {
         sqlx::query(statement).execute(&app.state.pool).await.unwrap();
     }
@@ -2914,9 +2919,9 @@ async fn aged_rows() -> TestApp {
 
 /// What outlived its retention goes, what is younger stays, and the report the
 /// Settings screen renders says how much went. Under the default windows, 90
-/// days for logs and jobs and 30 for proposals, each table holds a row a day
-/// past its window and a row a day inside it. A running job is never purged,
-/// however old.
+/// days for logs and jobs, 30 for proposals and 365 for the security log, each
+/// table holds a row a day past its window and a row a day inside it. A
+/// running job is never purged, however old.
 #[tokio::test]
 async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     let app = aged_rows().await;
@@ -2927,6 +2932,13 @@ async fn purging_removes_what_outlived_its_retention_and_reports_it() {
     assert_eq!(report["logs_removed"], 1, "{report}");
     assert_eq!(report["jobs_removed"], 1, "{report}");
     assert_eq!(report["decisions_removed"], 2, "{report}");
+    assert_eq!(report["security_events_removed"], 1, "{report}");
+    let events: Vec<String> =
+        sqlx::query_scalar("SELECT subject FROM security_events WHERE subject LIKE 'ev-%'")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(events, ["ev-new"]);
     for (table, kept) in [
         ("execution_logs", vec!["log-new"]),
         ("jobs", vec!["job-new", "job-running"]),

@@ -84,6 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let state = AppState {
         http: http::build_client(&config)?,
+        audit: Arc::new(services::audit::Log::storing(pool.clone())),
         pool,
         secrets,
         tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
@@ -94,7 +95,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         post_sync: Arc::new(tokio::sync::Mutex::new(None)),
         auto_apply_held: Arc::default(),
         notifications: Arc::default(),
-        audit: Arc::default(),
         key_rates: Arc::default(),
         route_misses: Arc::default(),
         config: Arc::new(config),
@@ -123,6 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // what it did, not dropped along with it.
     let pool = state.pool.clone();
     let jobs = state.jobs.clone();
+    let audit = Arc::clone(&state.audit);
     let app = build_router(state);
 
     let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
@@ -147,6 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         warn!("The scheduler did not stop within 10s, closing the database anyway");
     }
 
+    audit.flush().await;
     db::checkpoint_and_close(&pool).await;
 
     // `scripts/smoke-image.sh` looks for this line: reworded, it fails the image check.
@@ -182,7 +184,21 @@ async fn restore(
             "usage: routarr restore <archive>, a name from the backup folder or a path".into()
         );
     };
-    let manifest = services::backup::stage_offline(config, &archive).await?;
+    // From the environment, or else typed at the prompt once the archive turns
+    // out to be sealed with a passphrase the database in place does not hold.
+    let mut given = config::restore_passphrase().map(age::secrecy::SecretString::from);
+    let manifest = loop {
+        match services::backup::stage_offline(config, &archive, given.clone()).await {
+            Err(error::AppError::PassphraseRequired(refusal))
+                if std::io::IsTerminal::is_terminal(&std::io::stdin()) =>
+            {
+                println!("{refusal}");
+                let typed = rpassword::prompt_password("Passphrase: ")?;
+                given = Some(age::secrecy::SecretString::from(typed.trim().to_string()));
+            }
+            staged => break staged?,
+        }
+    };
     println!(
         "{archive}, taken by Routarr v{} at schema {}, is restored at the next start.",
         manifest.version, manifest.schema
@@ -486,6 +502,8 @@ fn build_router(state: AppState) -> Router {
         .route("/jobs/{id}/cancel", post(api::jobs::cancel))
         .route("/logs", get(api::logs::list))
         .route("/logs/export", get(api::logs::export))
+        .route("/security-log", get(api::security_log::list))
+        .route("/security-log/export", get(api::security_log::export))
         .route("/maintenance/purge", post(api::maintenance::purge))
         .route("/backups", get(api::backup::list).post(api::backup::create))
         // The name is validated against a generated shape before it ever

@@ -4,6 +4,7 @@ use super::Json;
 use axum::extract::State;
 
 use super::Path;
+use crate::services::audit::Kind;
 use axum::http::{Method, StatusCode};
 
 use crate::api::auth::Identity;
@@ -97,6 +98,21 @@ pub fn scope_for(method: &Method, route: &str) -> Option<Scope> {
 
 /// Let an application key through to the route it asked for, or say why not.
 pub fn admit(grant: &Grant, request: &axum::extract::Request) -> AppResult<()> {
+    match asked(request) {
+        (_, Some(scope)) if grant.allows(scope) => Ok(()),
+        (route, Some(scope)) => Err(AppError::Forbidden(format!(
+            "{route} needs the {} scope, which this application key does not hold.",
+            scope.as_str()
+        ))),
+        (route, None) => Err(AppError::Forbidden(format!(
+            "{route} is reserved to the owner: no application key may call it."
+        ))),
+    }
+}
+
+/// The route a request asks for, as `METHOD /template`, and the scope it
+/// needs: `None` for a route the owner keeps.
+pub fn asked(request: &axum::extract::Request) -> (String, Option<Scope>) {
     // The template, never the path sent: `/media/42` is `/media/{id}`, and a
     // grant keyed by the path would match nothing but the path it named.
     let matched = request
@@ -106,16 +122,7 @@ pub fn admit(grant: &Grant, request: &axum::extract::Request) -> AppResult<()> {
         .unwrap_or_default();
     let route = matched.rsplit_once("/api/v1").map_or(matched, |(_, route)| route);
     let method = request.method();
-    match scope_for(method, route) {
-        Some(scope) if grant.allows(scope) => Ok(()),
-        Some(scope) => Err(AppError::Forbidden(format!(
-            "{method} {route} needs the {} scope, which this application key does not hold.",
-            scope.as_str()
-        ))),
-        None => Err(AppError::Forbidden(format!(
-            "{method} {route} is reserved to the owner: no application key may call it."
-        ))),
-    }
+    (format!("{method} {route}"), scope_for(method, route))
 }
 
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Application>>> {
@@ -142,14 +149,16 @@ pub async fn create(
     let minted = applications::create(&state, requested.application, identity.actor()).await?;
     let made = &minted.application;
     let scopes: Vec<&str> = made.scopes.iter().map(|scope| scope.as_str()).collect();
-    let detail = format!(
-        "The application key {} ({}) was made, with the scopes [{}], may move files: {}",
-        made.name,
-        made.id,
-        scopes.join(", "),
-        made.may_move_files
-    );
-    crate::api::auth::audited(&state, &identity, client, "application_key", detail);
+    let message = if made.may_move_files {
+        "AuditApplicationKeyMadeMovingFiles"
+    } else {
+        "AuditApplicationKeyMade"
+    };
+    let event = crate::api::auth::allowed(Kind::ApplicationKey, message)
+        .with("name", &made.name)
+        .with("id", &made.id)
+        .with("scopes", scopes.join(", "));
+    crate::api::auth::audited(&state, &identity, client, event);
     Ok(Json(minted))
 }
 
@@ -160,7 +169,7 @@ pub async fn revoke(
     Path(id): Path<String>,
 ) -> AppResult<StatusCode> {
     applications::revoke(&state.pool, &id).await?;
-    let detail = format!("The application key {id} was revoked");
-    crate::api::auth::audited(&state, &identity, client, "application_key", detail);
+    let event = crate::api::auth::allowed(Kind::ApplicationKey, "AuditApplicationKeyRevoked");
+    crate::api::auth::audited(&state, &identity, client, event.with("id", &id));
     Ok(StatusCode::NO_CONTENT)
 }
