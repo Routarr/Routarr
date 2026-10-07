@@ -192,6 +192,14 @@ export const FIELDS: Field[] = [
     fallback: '',
   },
   {
+    key: 'omdb_daily_requests',
+    labelKey: 'SettingOmdbDailyRequests',
+    helpKey: 'SettingOmdbDailyRequestsHelp',
+    kind: 'number',
+    fallback: '1000',
+    range: [1, 1_000_000],
+  },
+  {
     key: 'tvdb_api_key',
     labelKey: 'SettingTvdbKey',
     helpKey: 'SettingTvdbKeyHelp',
@@ -379,6 +387,7 @@ export const SECTIONS = [
       'metadata_providers',
       'tmdb_api_key',
       'omdb_api_key',
+      'omdb_daily_requests',
       'tvdb_api_key',
       'metadata_cache_ttl_days',
       'certification_regions',

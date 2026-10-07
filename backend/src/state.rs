@@ -23,7 +23,7 @@ use crate::models::Instance;
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
-use crate::integrations::omdb::OmdbClient;
+use crate::integrations::omdb::{self, OmdbClient};
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
@@ -317,6 +317,7 @@ impl AppState {
                         self.http.clone(),
                         &key,
                         &self.config.omdb_base_url,
+                        settings.get("omdb_daily_requests", omdb::FREE_DAILY_REQUESTS),
                     ))
                 }),
                 metadata::TVDB => self.provider_key_from(&settings, metadata::TVDB).map(|key| {

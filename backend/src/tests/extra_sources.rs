@@ -12,47 +12,6 @@ use crate::state::AppState;
 use super::fake_sources::FakeSources;
 use super::{TestApp, warning_messages};
 
-/// A one-film library pointed at every fake source.
-///
-/// `title`/`year` are what the resolution has to work with, and `imdb`/`tvdb`
-/// are what the directly-addressed sources read.
-async fn library(sources: &FakeSources, order: &str) -> TestApp {
-    let app = TestApp::new().await;
-
-    let mut config = crate::config::Config::for_tests();
-    config.anilist_base_url = sources.anilist_url();
-    config.jikan_base_url = sources.jikan_url();
-    config.omdb_base_url = sources.omdb_url();
-    config.omdb_api_key = Some(super::fake_sources::OMDB_KEY.into());
-    config.tvdb_base_url = sources.tvdb_url();
-    config.tvdb_api_key = Some("tvdb-key".into());
-    config.tvdb_pin = Some("1234".into());
-
-    let app = TestApp::around(app.state.clone().with_config(config));
-
-    sqlx::query(
-        "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
-         VALUES ('inst-1', 'Arr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tmdb_id, tvdb_id,
-         imdb_id, monitored, has_files)
-         VALUES ('m-1', 'inst-1', 10, 'movie', 'My Neighbor Totoro', 1988, 8392, 76885,
-                 'tt0096283', 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
-
-    app.store_setting("metadata_providers", order).await;
-
-    app
-}
-
 /// The ids a source was asked to describe, in order.
 fn asked(sources: &FakeSources, source: &str) -> Vec<String> {
     let recorded = sources.recorded();
@@ -81,7 +40,7 @@ async fn cached(app: &TestApp, source: &str) -> Option<(String, String, Option<S
 #[tokio::test]
 async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "omdb").await;
+    let app = TestApp::one_film_on(&sources, "omdb").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -101,45 +60,10 @@ async fn omdb_is_addressed_by_the_imdb_id_and_normalises_its_prose() {
     );
 }
 
-/// A spent quota refuses every title alike, so the pass stops at the
-/// breaker rather than spending the next day's quota asking, and nothing is
-/// cached: each title is asked again once the quota is back.
-#[tokio::test]
-async fn a_spent_omdb_quota_stops_the_pass_and_caches_nothing() {
-    let sources = FakeSources::start().await;
-    let app = library(&sources, "omdb").await;
-    for index in 0..30 {
-        sqlx::query(
-            "INSERT INTO media (id, instance_id, arr_id, media_type, title, imdb_id)
-             VALUES (?, 'inst-1', ?, 'movie', ?, ?)",
-        )
-        .bind(format!("m-q{index}"))
-        .bind(100 + index)
-        .bind(format!("Film {index}"))
-        .bind(format!("tt{:07}", 1000 + index))
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
-    }
-    sources.spend_omdb_quota();
-
-    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
-        .await
-        .unwrap();
-
-    let asked = sources.recorded().paths.iter().filter(|path| *path == "/omdb").count();
-    assert!(asked < 31, "every title was asked: {asked}");
-    let cached: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache")
-        .fetch_one(&app.state.pool)
-        .await
-        .unwrap();
-    assert_eq!(cached, 0, "a refusal was cached as a miss");
-}
-
 #[tokio::test]
 async fn omdb_language_names_become_the_code_a_rule_matches() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "omdb").await;
+    let app = TestApp::one_film_on(&sources, "omdb").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -158,7 +82,7 @@ async fn omdb_language_names_become_the_code_a_rule_matches() {
 #[tokio::test]
 async fn the_tvdb_token_survives_between_passes_and_pages() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "tvdb").await;
+    let app = TestApp::one_film_on(&sources, "tvdb").await;
 
     // Two enrichment passes and a health probe: three separate occasions on
     // which the client is rebuilt. The token lives on the state, not the
@@ -190,7 +114,7 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 #[tokio::test]
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "tvdb").await;
+    let app = TestApp::one_film_on(&sources, "tvdb").await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -222,7 +146,7 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
 #[tokio::test]
 async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "tvdb").await;
+    let app = TestApp::one_film_on(&sources, "tvdb").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -247,7 +171,7 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
 #[tokio::test]
 async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -280,7 +204,7 @@ async fn anilist_finds_a_film_by_title_and_remembers_the_answer() {
 async fn a_film_is_searched_among_films_and_a_series_among_the_rest() {
     for (source, films) in [("anilist", "MOVIE"), ("jikan", "movie")] {
         let sources = FakeSources::start().await;
-        let app = library(&sources, source).await;
+        let app = TestApp::one_film_on(&sources, source).await;
         app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, year,
                                           tvdb_id)
                VALUES ('m-2', 'inst-1', 20, 'series', 'Cowboy Bebop', 1998, 76885)"])
@@ -318,7 +242,7 @@ async fn a_film_is_searched_among_films_and_a_series_among_the_rest() {
 #[tokio::test]
 async fn a_second_pass_does_not_search_again() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -334,7 +258,7 @@ async fn a_second_pass_does_not_search_again() {
 #[tokio::test]
 async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
     let sources = FakeSources::with_mismatched_year().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -365,7 +289,7 @@ async fn a_work_from_the_wrong_year_is_refused_and_the_refusal_is_remembered() {
 #[tokio::test]
 async fn a_pass_that_identifies_nothing_still_ends_its_progress() {
     let sources = FakeSources::with_mismatched_year().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, monitored, has_files)
          VALUES ('m-2', 'inst-1', 11, 'movie', 'Castle in the Sky', 1986, 1, 1)",
@@ -393,7 +317,7 @@ async fn a_pass_that_identifies_nothing_still_ends_its_progress() {
 #[tokio::test]
 async fn a_jikan_film_is_resolved_by_its_aired_year() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "jikan").await;
+    let app = TestApp::one_film_on(&sources, "jikan").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -413,7 +337,7 @@ async fn a_jikan_film_is_resolved_by_its_aired_year() {
 #[tokio::test]
 async fn a_webhook_enrichment_asks_every_source_the_row_can_address() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "tvdb,anilist,arr").await;
+    let app = TestApp::one_film_on(&sources, "tvdb,anilist,arr").await;
     sqlx::query("UPDATE media SET media_type = 'series', tmdb_id = NULL, imdb_id = NULL")
         .execute(&app.state.pool)
         .await
@@ -524,7 +448,7 @@ async fn an_upgrade_searches_jikan_again_for_the_films_it_misread() {
 #[tokio::test]
 async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
     let sources = FakeSources::with_mismatched_year().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -547,7 +471,7 @@ async fn a_search_that_found_nothing_is_tried_again_once_it_is_old() {
 #[tokio::test]
 async fn an_anilist_error_is_not_remembered_as_nothing_found() {
     let sources = FakeSources::with_graphql_errors().await;
-    let app = library(&sources, "anilist").await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -564,7 +488,7 @@ async fn an_anilist_error_is_not_remembered_as_nothing_found() {
 #[tokio::test]
 async fn jikan_themes_and_demographics_become_keywords() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "jikan").await;
+    let app = TestApp::one_film_on(&sources, "jikan").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -585,7 +509,7 @@ async fn jikan_themes_and_demographics_become_keywords() {
 #[tokio::test]
 async fn every_source_contributes_what_only_it_has() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,anilist,jikan,omdb,tvdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist,jikan,omdb,tvdb").await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -615,7 +539,7 @@ async fn every_source_contributes_what_only_it_has() {
 #[tokio::test]
 async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,omdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb").await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -648,7 +572,7 @@ async fn the_arrs_english_gives_way_to_a_source_that_knows_the_language() {
 #[tokio::test]
 async fn the_health_page_probes_every_enabled_source() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,anilist,omdb,tvdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist,omdb,tvdb").await;
 
     let response = app.get("/api/v1/health").await;
     let health = response.assert_ok();
@@ -678,7 +602,7 @@ async fn tvdb_connected(app: &TestApp) -> serde_json::Value {
 #[tokio::test]
 async fn a_revoked_tvdb_key_is_reported_by_the_next_probe() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,tvdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
     assert_eq!(tvdb_connected(&app).await, true, "the fixture's key does not work to begin with");
 
     sources.revoke_tvdb_key();
@@ -691,7 +615,7 @@ async fn a_revoked_tvdb_key_is_reported_by_the_next_probe() {
 #[tokio::test]
 async fn a_new_tvdb_key_logs_in_rather_than_reuse_the_old_token() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,tvdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,tvdb").await;
     tvdb_connected(&app).await;
 
     app.put("/api/v1/settings", serde_json::json!({ "settings": { "tvdb_api_key": "new-key" } }))
@@ -763,7 +687,7 @@ fn the_local_key_prefers_the_most_stable_identifier_it_has() {
 
 /// A library big enough that a doomed request per item would be obvious.
 async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
-    let app = library(sources, order).await;
+    let app = TestApp::one_film_on(sources, order).await;
 
     for arr_id in 100..(100 + count) {
         sqlx::query(
@@ -792,7 +716,7 @@ async fn library_of(sources: &FakeSources, order: &str, count: i64) -> TestApp {
 async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
     for source in ["tvdb", "anilist", "jikan"] {
         let sources = FakeSources::start().await;
-        let app = library(&sources, source).await;
+        let app = TestApp::one_film_on(&sources, source).await;
         app.execute(&[
             "UPDATE media SET tvdb_id = 999",
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
@@ -912,7 +836,7 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
     // Pointed at the fake, which is what a mirror or a proxy looks like, no
     // published limit applies, and pacing it would buy a delay for nothing.
     // This is also why the test suite does not spend a second per request.
-    let app = library(&sources, "anilist,jikan,omdb").await;
+    let app = TestApp::one_film_on(&sources, "anilist,jikan,omdb").await;
     for source in app.state.metadata_sources().await {
         assert!(
             source.rate().is_none(),
@@ -954,7 +878,7 @@ async fn the_public_endpoints_are_paced_and_a_mirror_is_not() {
 #[tokio::test]
 async fn a_source_switched_off_stops_being_reported_as_unreachable() {
     let sources = FakeSources::start().await;
-    let app = library(&sources, "arr,omdb").await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb").await;
     // A port nothing listens on, which is how a source that has stopped
     // answering behaves.
     let mut config = (*app.state.config).clone();

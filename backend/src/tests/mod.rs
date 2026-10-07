@@ -15,6 +15,7 @@ mod config_bundle;
 mod connection;
 mod contract;
 mod crypto_format;
+mod daily_quota;
 mod enrichment;
 mod executor;
 mod extra_sources;
@@ -446,6 +447,47 @@ impl TestApp {
         }
 
         app.store_setting("global_dry_run", "false").await;
+        app
+    }
+
+    /// A one-film library pointed at every fake source.
+    ///
+    /// `title`/`year` are what the resolution has to work with, and `imdb`/`tvdb`
+    /// are what the directly-addressed sources read.
+    pub async fn one_film_on(sources: &fake_sources::FakeSources, order: &str) -> Self {
+        let app = TestApp::new().await;
+
+        let mut config = crate::config::Config::for_tests();
+        config.anilist_base_url = sources.anilist_url();
+        config.jikan_base_url = sources.jikan_url();
+        config.omdb_base_url = sources.omdb_url();
+        config.omdb_api_key = Some(fake_sources::OMDB_KEY.into());
+        config.tvdb_base_url = sources.tvdb_url();
+        config.tvdb_api_key = Some("tvdb-key".into());
+        config.tvdb_pin = Some("1234".into());
+
+        let app = TestApp::around(app.state.clone().with_config(config));
+
+        sqlx::query(
+            "INSERT INTO instances (id, name, instance_type, base_url, api_key, enabled)
+             VALUES ('inst-1', 'Arr', 'radarr', 'http://127.0.0.1:1', 'k', 1)",
+        )
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tmdb_id, tvdb_id,
+             imdb_id, monitored, has_files)
+             VALUES ('m-1', 'inst-1', 10, 'movie', 'My Neighbor Totoro', 1988, 8392, 76885,
+                     'tt0096283', 1, 1)",
+        )
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+
+        app.store_setting("metadata_providers", order).await;
+
         app
     }
 

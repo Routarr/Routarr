@@ -242,6 +242,25 @@ async fn check_status(
     })
 }
 
+/// What a source with a daily quota answers once today's requests are spent.
+const QUOTA_SPENT: &str = "the requests allowed today are spent";
+
+/// The refusal of a source whose daily quota is spent: a 429 naming no wait,
+/// since the wait lasts until the quota renews.
+pub(crate) fn quota_spent(service: &str) -> AppError {
+    AppError::ExternalApi {
+        service: service.to_string(),
+        status: 429,
+        message: QUOTA_SPENT.to_string(),
+        retry_after: None,
+    }
+}
+
+/// Whether `error` is [`quota_spent`]'s.
+pub(crate) fn is_quota_spent(error: &AppError) -> bool {
+    matches!(error, AppError::ExternalApi { status: 429, message, .. } if message == QUOTA_SPENT)
+}
+
 /// The host a redirect the client stopped leads to, when it is not the host
 /// that answered. The client follows a redirect within the origin, so a 3xx
 /// arriving here leaves it, and on the same host only the port or the scheme

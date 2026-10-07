@@ -11,7 +11,7 @@ use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use tracing::{debug, info, warn};
 
 use crate::error::{AppError, AppResult};
@@ -30,6 +30,16 @@ pub struct EnrichmentReport {
     pub failed: usize,
     /// Items never asked about because the source was declared down mid-pass.
     pub skipped: usize,
+    /// Items left to a later day: the source's daily quota was spent.
+    pub deferred: usize,
+}
+
+/// Why an item of a pass went unanswered.
+enum NotAsked {
+    /// The breaker had opened.
+    Skipped,
+    /// Today's quota is spent, by the count or by the source's refusal.
+    Deferred,
 }
 
 /// Enrich every media item whose metadata is missing or expired, source by
@@ -61,6 +71,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
                 report.enriched += partial.enriched;
                 report.failed += partial.failed;
                 report.skipped += partial.skipped;
+                report.deferred += partial.deferred;
             }
             // One unreachable source must not cancel the ones below it: that is
             // exactly the case the ordered list exists to survive.
@@ -119,6 +130,18 @@ async fn run_enrichment(
     // input list positionally would file a movie's metadata under a series and
     // lose both.
     let breaker = Breaker::new();
+    // A source with a daily quota has the pass's share reserved at once, and
+    // what goes unsent given back after: a count taken inside each request in
+    // flight would wait on the database while this loop writes to it.
+    let quota = source.daily_quota();
+    let granted = match &quota {
+        Some(quota) => quota.reserve(&state.pool, total).await?,
+        None => total,
+    };
+    let targets: Vec<_> = targets.into_iter().take(granted).collect();
+    // Set once the source refuses for its quota, which closes the day early.
+    let closed = Arc::new(AtomicBool::new(false));
+    let sent = Arc::new(AtomicUsize::new(0));
 
     // Each answer is stored as it arrives, not once the pass ends: a pass over
     // a large library takes hours, and a restart or one failed write before
@@ -129,34 +152,51 @@ async fn run_enrichment(
             let source = source.clone();
             let breaker = breaker.clone();
             let limiter = limiter.clone();
+            let (closed, sent) = (Arc::clone(&closed), Arc::clone(&sent));
             async move {
                 // `buffer_unordered` has already been handed every item, so the
                 // breaker is checked here, as each future starts: the ones still
                 // queued turn into no-ops instead of requests.
                 if breaker.is_open() {
-                    return (external_id, media_type, None);
+                    return (external_id, media_type, Err(NotAsked::Skipped));
+                }
+                if closed.load(Ordering::Relaxed) {
+                    return (external_id, media_type, Err(NotAsked::Deferred));
                 }
 
                 // Paced before the request, not after a refusal: the point is
                 // for the 429 never to be earned.
                 limiter.acquire().await;
+                sent.fetch_add(1, Ordering::Relaxed);
                 let outcome = source.fetch(&external_id, &media_type).await;
+                if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent) {
+                    closed.store(true, Ordering::Relaxed);
+                    return (external_id, media_type, Err(NotAsked::Deferred));
+                }
                 honour_retry_after(&limiter, &outcome).await;
                 breaker.record(&outcome);
-                (external_id, media_type, Some(outcome))
+                (external_id, media_type, Ok(outcome))
             }
         })
         .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
-    let mut report = EnrichmentReport { considered: total, ..Default::default() };
+    let mut report =
+        EnrichmentReport { considered: total, deferred: total - granted, ..Default::default() };
     let mut rate_limited = false;
     let mut index = 0;
 
-    while let Some((external_id, media_type, result)) = results.next().await {
+    while let Some((external_id, media_type, asked)) = results.next().await {
         index += 1;
-        let Some(result) = result else {
-            report.skipped += 1;
-            continue;
+        let result = match asked {
+            Ok(result) => result,
+            Err(NotAsked::Skipped) => {
+                report.skipped += 1;
+                continue;
+            }
+            Err(NotAsked::Deferred) => {
+                report.deferred += 1;
+                continue;
+            }
         };
         // A source that does not have the item says so with a 404. That is an
         // answer, cached empty like OMDb's miss, or every pass asks again.
@@ -217,6 +257,25 @@ async fn run_enrichment(
             source.id(),
             Breaker::LIMIT,
             report.skipped
+        );
+    }
+
+    if let Some(quota) = &quota {
+        let given_back = if closed.load(Ordering::Relaxed) {
+            quota.exhaust(&state.pool).await
+        } else {
+            quota.give_back(&state.pool, granted - sent.load(Ordering::Relaxed)).await
+        };
+        if let Err(e) = given_back {
+            warn!("Could not count the requests {} sent today: {e}", source.id());
+        }
+    }
+    if let Some(quota) = quota.as_ref().filter(|_| report.deferred > 0) {
+        info!(
+            "{} has spent the {} requests it may send today: {} item(s) wait for a later pass",
+            source.id(),
+            quota.limit(),
+            report.deferred
         );
     }
 
@@ -390,7 +449,9 @@ async fn resolve_identifiers(
 }
 
 /// Distinct identifiers, in this source's own namespace, whose cache entry is
-/// missing or stale.
+/// missing or stale: the ones never asked first, then the stalest. A pass
+/// that stops short, at a daily quota, would otherwise refresh the same
+/// titles each day and never reach the rest.
 ///
 /// Deduplicating here matters: the same film present in two Radarr instances
 /// would otherwise be fetched twice.
@@ -410,7 +471,8 @@ async fn pending_targets(
                    AND c.external_id = CAST(m.{column} AS TEXT)
                    AND c.media_type = m.media_type
              WHERE m.{column} IS NOT NULL AND CAST(m.{column} AS TEXT) != ''
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))"
+               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
+             ORDER BY c.external_id IS NOT NULL, c.expires_at"
         )))
         .bind(source.id())
         .fetch_all(pool)
@@ -426,7 +488,8 @@ async fn pending_targets(
                    AND c.external_id = s.external_id
                    AND c.media_type = s.media_type
              WHERE s.source = ? AND s.external_id IS NOT NULL
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))",
+               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
+             ORDER BY c.external_id IS NOT NULL, c.expires_at",
         )
         .bind(source.id())
         .fetch_all(pool)
@@ -506,8 +569,22 @@ pub async fn ask_now(
             }
             (None, _) => continue,
         };
+        let quota = source.daily_quota();
+        if let Some(quota) = &quota
+            && quota.reserve(&state.pool, 1).await.unwrap_or(0) == 0
+        {
+            continue;
+        }
         pace.acquire().await;
         let fetched = source.fetch(&external, &media.media_type).await;
+        if let (Some(quota), Err(error)) = (&quota, &fetched)
+            && crate::integrations::is_quota_spent(error)
+        {
+            if let Err(e) = quota.exhaust(&state.pool).await {
+                warn!("Could not record that {} spent its quota: {e}", source.id());
+            }
+            continue;
+        }
         honour_retry_after(&pace, &fetched).await;
         match fetched {
             Ok(answer) => {

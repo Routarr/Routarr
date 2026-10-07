@@ -50,7 +50,8 @@ pub struct StatusResponse {
 pub struct Warning {
     /// What the warning is about, stable across releases and languages:
     /// `api_unauthenticated`, `api_external_auth`, `source_needs_key`,
-    /// `source_key_unlisted`, `source_unreachable`, `instance_unreachable`,
+    /// `source_key_unlisted`, `source_unreachable`, `source_quota_spent`,
+    /// `instance_unreachable`,
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
     /// `scheduler_panicked`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
@@ -229,7 +230,7 @@ pub async fn health_check(
     // "Nothing at all is known about this item": no genres from its Arr and no
     // fetched answer either. An item the `arr` source alone describes is not
     // missing metadata, which is the whole point of that source.
-    let known = crate::api::media::metadata_predicate(&state.settings().await);
+    let known = crate::api::media::metadata_predicate(&settings);
     let media_missing_metadata: i64 = sqlx::query_scalar(AssertSqlSafe(format!(
         "SELECT COUNT(*) FROM media m WHERE NOT ({known})"
     )))
@@ -245,7 +246,7 @@ pub async fn health_check(
     // that stopped answering while the navigation beside it, unable to know,
     // counts zero.
     if probe {
-        record_probe(&state, &providers, &instance_health).await?;
+        record_probe(&state, &connectivity, &instance_health).await?;
     }
 
     // One list, produced in one place. What a probe learned is in the table by
@@ -285,11 +286,13 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
             // Named from the catalogue rather than stored beside the verdict:
             // the display name belongs to the build, not to the observation.
             if let Some(info) = metadata::info(id) {
-                warnings.push(Warning::new(
-                    "source_unreachable",
-                    localizer
-                        .translate("WarnProviderUnreachable", &[("provider", info.display_name)]),
-                ));
+                let (code, key) = if detail.as_deref() == Some(QUOTA_SPENT) {
+                    ("source_quota_spent", "WarnProviderQuota")
+                } else {
+                    ("source_unreachable", "WarnProviderUnreachable")
+                };
+                let provider = [("provider", info.display_name)];
+                warnings.push(Warning::new(code, localizer.translate(key, &provider)));
             }
         } else if let Some(id) = subject.strip_prefix("instance:") {
             let name: Option<String> =
@@ -340,15 +343,15 @@ pub(crate) fn below_version(
 /// rather than from this table.
 async fn record_probe(
     state: &AppState,
-    providers: &[MetadataProviderHealth],
+    sources: &HashMap<String, Probed>,
     instances: &[InstanceHealth],
 ) -> AppResult<()> {
-    let rows: Vec<(String, bool, Option<String>)> = providers
+    // The sources probed, which leaves out the Arr, reached through the
+    // instance probes instead, and a source that could not be built at all:
+    // neither was looked at, so neither has a verdict to record.
+    let rows: Vec<(String, bool, Option<String>)> = sources
         .iter()
-        // `None` is the Arr, reached through the instance probes instead, and a
-        // source that could not be built at all: neither was looked at, so
-        // neither has a verdict to record.
-        .filter_map(|p| p.connected.map(|ok| (format!("source:{}", p.id), ok, None)))
+        .map(|(id, probed)| (format!("source:{id}"), probed.connected, probed.detail.clone()))
         .chain(instances.iter().map(|i| {
             let ok = !i.status.starts_with("error");
             (format!("instance:{}", i.id), ok, (!ok).then(|| i.status.clone()))
@@ -392,24 +395,78 @@ async fn record_probe(
     Ok(())
 }
 
+/// The `probe_results` detail of a source whose daily quota is spent.
+const QUOTA_SPENT: &str = "quota spent";
+
+/// What a probe of one source found.
+struct Probed {
+    connected: bool,
+    /// [`QUOTA_SPENT`], or nothing.
+    detail: Option<String>,
+}
+
+impl Probed {
+    fn of(outcome: &crate::error::AppResult<bool>) -> Self {
+        match outcome {
+            Err(error) if crate::integrations::is_quota_spent(error) => Self::quota_spent(),
+            outcome => Self { connected: *outcome.as_ref().unwrap_or(&false), detail: None },
+        }
+    }
+
+    fn quota_spent() -> Self {
+        Self { connected: false, detail: Some(QUOTA_SPENT.to_string()) }
+    }
+}
+
 /// Reachability of every fetched source that is enabled and configured.
 ///
 /// Probed concurrently and bounded by the shared HTTP timeout, like the Arr
 /// instances: probed one after another, the sources would make this page as
 /// slow as the sum of their timeouts.
-async fn probe_sources(state: &AppState) -> HashMap<String, bool> {
+async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
     let sources = state.metadata_sources().await;
-    let probes = sources.iter().map(|source| async move {
-        (source.id().to_string(), source.test_connection().await.unwrap_or(false))
-    });
+    let probes = sources
+        .iter()
+        .map(|source| async move { (source.id().to_string(), probe_source(state, source).await) });
 
     join_all(probes).await.into_iter().collect()
+}
+
+/// One source's probe. A source with a daily quota is asked once a day, the
+/// request taken from its quota, and the day's verdict stands until the day
+/// ends or a new key or quota is saved, which forgets it (migration 033).
+async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Probed {
+    let Some(quota) = source.daily_quota() else {
+        return Probed::of(&source.test_connection().await);
+    };
+    let today: Option<(bool, Option<String>)> = sqlx::query_as(
+        "SELECT reachable, detail FROM probe_results
+          WHERE subject = ? AND checked_at >= date('now')",
+    )
+    .bind(format!("source:{}", source.id()))
+    .fetch_optional(&state.pool)
+    .await
+    .ok()
+    .flatten();
+    if let Some((connected, detail)) = today {
+        return Probed { connected, detail };
+    }
+    if quota.reserve(&state.pool, 1).await.unwrap_or(0) == 0 {
+        return Probed::quota_spent();
+    }
+    let outcome = source.test_connection().await;
+    if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent)
+        && let Err(e) = quota.exhaust(&state.pool).await
+    {
+        tracing::warn!("Could not record that {} spent its quota: {e}", source.id());
+    }
+    Probed::of(&outcome)
 }
 
 /// The configured order, annotated with what each source can do right now.
 fn provider_health(
     state: &AppState,
-    connectivity: &HashMap<String, bool>,
+    connectivity: &HashMap<String, Probed>,
     settings: &Settings,
 ) -> Vec<MetadataProviderHealth> {
     let keys = state.provider_keys_from(settings);
@@ -422,7 +479,7 @@ fn provider_health(
             configured: metadata::is_usable(provider, &keys),
             // `None` for the Arr, which is reached through the instance probes
             // above, and for a source that cannot be built at all.
-            connected: connectivity.get(provider.id).copied(),
+            connected: connectivity.get(provider.id).map(|probed| probed.connected),
         })
         .collect()
 }

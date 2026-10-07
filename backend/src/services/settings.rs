@@ -36,6 +36,9 @@ const KNOWN: &[(&str, Kind)] = &[
     // Ten years. Past that the intent is "never expire", which should be said
     // rather than approximated with a big number.
     ("metadata_cache_ttl_days", Kind::Bounded(1, 3_650)),
+    // OMDb's patron keys allow far more than a free key's thousand, and its
+    // pacing sends fewer than half a million a day, so a million is no limit.
+    ("omdb_daily_requests", Kind::Bounded(1, 1_000_000)),
     ("metadata_providers", Kind::ProviderList),
     ("backup_enabled", Kind::Bool),
     // A week, which is what `jobs::scheduler` clamps this to when it reads it.
@@ -380,6 +383,7 @@ mod tests {
             "batch_limit",
             "confirmation_threshold",
             "metadata_cache_ttl_days",
+            "omdb_daily_requests",
             "backup_interval_hours",
             "backup_retention_count",
             "scheduler_interval_minutes",

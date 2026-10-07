@@ -351,6 +351,18 @@ impl FetchingSource {
         paces.entry(self.id()).or_insert_with(|| RateLimiter::new(per_minute, burst)).clone()
     }
 
+    /// The requests this source may be sent in a UTC day, counted across
+    /// every caller: an OMDb key is given a daily quota, a thousand on a free
+    /// one, and refuses every request past it until the day ends.
+    pub fn daily_quota(&self) -> Option<crate::services::quota::DailyQuota> {
+        match self {
+            Self::Omdb(client) => {
+                Some(crate::services::quota::DailyQuota::new(OMDB, client.daily_requests()))
+            }
+            _ => None,
+        }
+    }
+
     /// How many of this source's requests may be in flight at once.
     ///
     /// Jikan is an unofficial service with a documented handful of requests per

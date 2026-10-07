@@ -154,7 +154,12 @@ async fn omdb_answers_the_shape_the_client_expects() {
         return;
     };
 
-    let omdb = OmdbClient::new(client(), &key, crate::integrations::omdb::DEFAULT_BASE_URL);
+    let omdb = OmdbClient::new(
+        client(),
+        &key,
+        crate::integrations::omdb::DEFAULT_BASE_URL,
+        crate::integrations::omdb::FREE_DAILY_REQUESTS,
+    );
 
     assert!(omdb.test_connection().await.expect("OMDb probe"), "OMDb rejected the key");
 
