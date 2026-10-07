@@ -660,7 +660,7 @@ async fn store_metadata(
     ttl_days: i64,
 ) -> AppResult<()> {
     let expires_at = crate::services::routing::format_timestamp(
-        Utc::now() + chrono::Duration::days(ttl_days.max(1)),
+        Utc::now() + chrono::Duration::days(metadata::cache_days(source, ttl_days)),
     );
 
     sqlx::query(

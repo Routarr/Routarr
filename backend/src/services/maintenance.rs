@@ -378,6 +378,17 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
+    // TMDb's terms forbid keeping its answers past six months, whether a key
+    // still refreshes them or not.
+    report.metadata_cache_removed += sqlx::query(
+        "DELETE FROM metadata_cache WHERE source = ? AND cached_at < datetime('now', ?)",
+    )
+    .bind(super::metadata::TMDB)
+    .bind(format!("-{} days", super::metadata::TMDB_CACHE_DAYS))
+    .execute(pool)
+    .await?
+    .rows_affected();
+
     if report.decisions_removed + report.logs_removed + report.jobs_removed > 0 {
         info!(
             "Retention: removed {} decision(s), {} log(s), {} job(s), {} cache entrie(s)",
@@ -787,6 +798,50 @@ mod tests {
         assert_eq!(
             cache_rows(&state).await,
             vec![("anilist".into(), "47".into()), ("tmdb".into(), "500".into())]
+        );
+    }
+
+    /// TMDb's terms forbid keeping its answers past six months: one cached
+    /// longer goes though its title is still in the library, and another
+    /// source's stays at any age.
+    #[tokio::test]
+    async fn a_tmdb_answer_older_than_six_months_goes_whatever_names_it() {
+        let state = AppState::for_tests().await;
+        seed_media(&state, "m1").await;
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, tmdb_id)
+             VALUES ('m2', 'i1', 2, 'movie', 'T', 501)",
+        )
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE media SET tmdb_id = 500, imdb_id = 'ttm1' WHERE id = 'm1'")
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        for (source, id, age) in [
+            ("tmdb", "500", "-181 days"),
+            ("tmdb", "501", "-179 days"),
+            ("omdb", "ttm1", "-900 days"),
+        ] {
+            sqlx::query(
+                "INSERT INTO metadata_cache (source, external_id, media_type, cached_at, expires_at)
+                 VALUES (?, ?, 'movie', datetime('now', ?), '2030-01-01')",
+            )
+            .bind(source)
+            .bind(id)
+            .bind(age)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        }
+
+        let report = purge(&state).await.unwrap();
+
+        assert_eq!(report.metadata_cache_removed, 1);
+        assert_eq!(
+            cache_rows(&state).await,
+            vec![("omdb".into(), "ttm1".into()), ("tmdb".into(), "501".into())]
         );
     }
 

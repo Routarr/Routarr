@@ -472,11 +472,12 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
 }
 
 /// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
-/// when nothing is set. Counted otherwise, every pass refetches the whole
-/// library, or a stale answer outlives the setting by months.
+/// when nothing is set, and a TMDb answer six months at most, as its terms
+/// require. Counted otherwise, every pass refetches the whole library, or a
+/// stale answer outlives the setting by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
-    for (setting, days) in [(None, 7), (Some("30"), 30)] {
+    for (setting, days) in [(None, 7), (Some("30"), 30), (Some("365"), 180)] {
         let tmdb = FakeTmdb::start().await;
         let app = library(&tmdb, &[(1, "movie", 100)]).await;
         if let Some(value) = setting {

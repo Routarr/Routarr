@@ -32,6 +32,16 @@ pub const JIKAN: &str = "jikan";
 pub const OMDB: &str = "omdb";
 pub const TVDB: &str = "tvdb";
 
+/// The most days TMDb's terms let one of its answers be kept: six months.
+pub const TMDB_CACHE_DAYS: i64 = 180;
+
+/// How many days an answer of `source` is kept, from the lifetime `configured`:
+/// TMDb's terms hold its own to [`TMDB_CACHE_DAYS`].
+pub fn cache_days(source: &str, configured: i64) -> i64 {
+    let configured = configured.max(1);
+    if source == TMDB { configured.min(TMDB_CACHE_DAYS) } else { configured }
+}
+
 /// Order applied when the setting is missing or unreadable: the free source
 /// alone. Every other source is opt-in: each is extra requests, and a keyed
 /// one listed without its key answers nothing and makes the diagnostics warn.
@@ -1048,6 +1058,16 @@ mod tests {
                 resolution_key("movie", "missed-29-days-ago")
             ]
         );
+    }
+
+    /// TMDb's answers are kept six months at most, whatever the lifetime set,
+    /// and every other source's as long as it says.
+    #[test]
+    fn a_tmdb_answer_is_kept_six_months_at_most() {
+        assert_eq!(cache_days(TMDB, 3_650), 180);
+        assert_eq!(cache_days(TMDB, 30), 30);
+        assert_eq!(cache_days(OMDB, 3_650), 3_650);
+        assert_eq!(cache_days(OMDB, 0), 1);
     }
 
     /// The misses a pass writes in one go come due over ten days, not in the
