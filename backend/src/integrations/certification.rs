@@ -66,8 +66,9 @@ pub fn meaning(code: &str, scale: Option<&str>) -> Option<Meaning> {
         // Everyone: the BBFC's U, Spain's TP, the MPA's G, the American
         // television G and Y, the Dutch AL, Brazil's Livre.
         "U" | "TP" | "G" | "TV-G" | "TV-Y" | "AL" | "L" | "0" => Meaning::AllAges,
-        // A recommendation to a parent rather than a bound.
-        "PG" | "TV-PG" => Meaning::Guidance,
+        // A recommendation to a parent rather than a bound, Japan's PG12 one
+        // for the under twelves.
+        "PG" | "TV-PG" | "PG12" => Meaning::Guidance,
         "TV-Y7" => Meaning::From(7),
         "PG-13" => Meaning::From(13),
         "TV-14" => Meaning::From(14),
@@ -80,9 +81,16 @@ pub fn meaning(code: &str, scale: Option<&str>) -> Option<Meaning> {
         "15A" => Meaning::From(15),
         "NR" | "UR" | "UNRATED" | "NOT RATED" | "N/A" => Meaning::NotRated,
         // A bare number is an age everywhere it is used, and saying so is what
-        // tells "12" apart from a count.
+        // tells "12" apart from a count. So is one with a sign: French
+        // television writes `-12` for "not under twelve", others `16+`, and
+        // Japan `R15+`.
         _ => {
-            let age: u8 = key.parse().ok()?;
+            let bare = key
+                .strip_prefix('-')
+                .or_else(|| key.strip_prefix('R').and_then(|rest| rest.strip_suffix('+')))
+                .or_else(|| key.strip_suffix('+'))
+                .unwrap_or(key);
+            let age: u8 = bare.parse().ok()?;
             if age > 21 {
                 return None;
             }
@@ -130,8 +138,15 @@ mod tests {
     fn a_bare_number_is_an_age_and_a_large_one_is_not() {
         assert!(matches!(meaning("12", None), Some(Meaning::From(12))));
         assert!(matches!(meaning(" 16 ", None), Some(Meaning::From(16))));
+        // An age with a sign or a prefix states it as plainly.
+        for (code, age) in [("16+", 16), ("12+", 12), ("-12", 12), ("R15+", 15), ("r18+", 18)] {
+            assert_eq!(meaning(code, None), Some(Meaning::From(age)), "{code}");
+        }
+        assert_eq!(meaning("PG12", None), Some(Meaning::Guidance));
         // A year, or a count that wandered in: not an age, so not named.
         assert!(meaning("1999", None).is_none());
         assert!(meaning("42", None).is_none());
+        assert!(meaning("42+", None).is_none());
+        assert!(meaning("--12", None).is_none());
     }
 }
