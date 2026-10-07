@@ -30,6 +30,7 @@ const STRINGS = {
   FacetKeywords: 'Keywords',
   FacetLanguages: 'Original languages',
   ListSeparator: ' ; ',
+  ProviderSeriesOnly: 'series only',
 };
 
 function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
@@ -41,12 +42,16 @@ function provider(over: Partial<MetadataProvider> = {}): MetadataProvider {
     key_env: null,
     configured: false,
     fields: ['genres'],
+    media_types: ['movie', 'series'],
     ...over,
   } as MetadataProvider;
 }
 
-/** What enabling a source brings, in the reader's words rather than the engine's identifiers. */
-it('names the fields a source supplies by their captions', async () => {
+/**
+ * What enabling a source brings, in the reader's words rather than the
+ * engine's identifiers, and for which titles: TheTVDB answers for series alone.
+ */
+it('names the fields a source supplies by their captions, and a source for series alone', async () => {
   renderWithI18n(ProviderOrder, {
     props: {
       id: 'sources',
@@ -56,8 +61,9 @@ it('names the fields a source supplies by their captions', async () => {
           configured: true,
           fields: ['genres', 'keywords', 'original_language'],
         }),
+        provider({ id: 'tvdb', display_name: 'TheTVDB', media_types: ['series'] }),
       ],
-      value: 'tmdb',
+      value: 'tmdb,tvdb',
       onChange: vi.fn(),
       keys: {},
       onKeyChange: vi.fn(),
@@ -65,9 +71,9 @@ it('names the fields a source supplies by their captions', async () => {
     strings: STRINGS,
   });
 
-  expect(
-    await screen.findByText(/No key needed · Genres ; Keywords ; Original languages/),
-  ).toBeTruthy();
+  const tmdb = await screen.findByText(/No key needed · Genres ; Keywords ; Original languages/);
+  expect(tmdb.textContent).not.toContain('series only');
+  expect(screen.getByText(/· series only/)).toBeTruthy();
 });
 
 describe('a credential is edited in the row of the source it unlocks', () => {

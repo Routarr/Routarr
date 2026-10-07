@@ -484,11 +484,19 @@ async fn pending_targets(
     pool: &SqlitePool,
     source: &FetchingSource,
 ) -> AppResult<Vec<(String, String)>> {
+    let answered = metadata::info(source.id())
+        .map(|provider| provider.media_types)
+        .unwrap_or_default()
+        .iter()
+        .map(|kind| format!("'{kind}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
     match source.addressing() {
         // Not fetched at all.
         Addressing::Local => Ok(Vec::new()),
 
-        // `column` is a literal from `services::metadata`, never user input.
+        // `column` and the media types are literals from `services::metadata`,
+        // never user input.
         Addressing::Column(column) => Ok(sqlx::query_as(AssertSqlSafe(format!(
             "SELECT DISTINCT CAST(m.{column} AS TEXT), m.media_type FROM media m
              LEFT JOIN metadata_cache c
@@ -496,6 +504,7 @@ async fn pending_targets(
                    AND c.external_id = CAST(m.{column} AS TEXT)
                    AND c.media_type = m.media_type
              WHERE m.{column} IS NOT NULL AND CAST(m.{column} AS TEXT) != ''
+               AND m.media_type IN ({answered})
                AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
              ORDER BY c.external_id IS NOT NULL, c.expires_at"
         )))

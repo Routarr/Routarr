@@ -149,6 +149,7 @@ function mount(
         key_env: null,
         configured: true,
         fields: ['genres'],
+        media_types: ['movie', 'series'],
       },
       {
         id: 'tmdb',
@@ -158,6 +159,7 @@ function mount(
         key_env: 'TMDB_API_KEY',
         configured: provider.configured ?? false,
         fields: ['genres', 'keywords'],
+        media_types: ['movie', 'series'],
       },
     ],
     order: provider.order ?? ['arr'],

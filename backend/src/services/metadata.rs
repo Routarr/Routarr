@@ -84,7 +84,13 @@ pub struct ProviderInfo {
     pub key_env: Option<&'static str>,
     pub addressing: Addressing,
     pub fields: &'static [MetadataField],
+    /// The media types it answers for: TheTVDB for series alone, since Radarr
+    /// carries no TheTVDB id.
+    pub media_types: &'static [&'static str],
 }
+
+/// What a source answering films and series answers for.
+const EVERY_MEDIA_TYPE: &[&str] = &["movie", "series"];
 
 /// Every source this build knows about, in no particular order: priority is
 /// the user's, held in the `metadata_providers` setting.
@@ -103,6 +109,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginalLanguage,
             MetadataField::Certification,
         ],
+        media_types: EVERY_MEDIA_TYPE,
     },
     ProviderInfo {
         id: TMDB,
@@ -118,6 +125,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginCountries,
             MetadataField::Certification,
         ],
+        media_types: EVERY_MEDIA_TYPE,
     },
     ProviderInfo {
         id: ANILIST,
@@ -130,6 +138,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         // No certification: AniList has only an adult flag, which is not a
         // rating a `certification_in` rule could name.
         fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::OriginCountries],
+        media_types: EVERY_MEDIA_TYPE,
     },
     ProviderInfo {
         id: JIKAN,
@@ -139,6 +148,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
         key_env: None,
         addressing: Addressing::Search,
         fields: &[MetadataField::Genres, MetadataField::Keywords, MetadataField::Certification],
+        media_types: EVERY_MEDIA_TYPE,
     },
     ProviderInfo {
         id: OMDB,
@@ -155,6 +165,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginCountries,
             MetadataField::Certification,
         ],
+        media_types: EVERY_MEDIA_TYPE,
     },
     ProviderInfo {
         id: TVDB,
@@ -169,6 +180,7 @@ pub const PROVIDERS: &[ProviderInfo] = &[
             MetadataField::OriginCountries,
             MetadataField::Certification,
         ],
+        media_types: &["series"],
     },
 ];
 
@@ -502,7 +514,7 @@ impl FetchingSource {
                 })
             }
             Self::Tvdb(client) => {
-                let details = client.get_details(external_id, media_type).await?;
+                let details = client.get_details(external_id).await?;
                 Ok(ProviderMetadata {
                     genres: details.genres,
                     original_language: details.original_language,
@@ -739,6 +751,9 @@ pub fn external_id(
     media: &Media,
     identifiers: &Identifiers,
 ) -> Option<String> {
+    if !provider.media_types.contains(&media.media_type.as_str()) {
+        return None;
+    }
     match provider.addressing {
         Addressing::Local => None,
         Addressing::Column("tmdb_id") => media.tmdb_id.map(|id| id.to_string()),

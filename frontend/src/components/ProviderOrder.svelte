@@ -146,6 +146,7 @@
       .map((field) => t(METADATA_FIELD_KEY[field] ?? field))
       .join(t('ListSeparator'))}
   {/if}
+  {provider.media_types.includes('movie') ? '' : ` · ${t('ProviderSeriesOnly')}`}
 {/snippet}
 
 <div {id}>

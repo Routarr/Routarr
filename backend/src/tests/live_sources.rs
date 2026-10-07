@@ -192,7 +192,7 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
     // worth proving against the real service.
     assert!(tvdb.test_connection().await.expect("TheTVDB login"), "TheTVDB rejected the key");
 
-    let details = tvdb.get_details(TVDB_SERIES, "series").await.expect("TheTVDB details");
+    let details = tvdb.get_details(TVDB_SERIES).await.expect("TheTVDB details");
     assert!(!details.genres.is_empty(), "TheTVDB returned no genres");
     assert_eq!(details.original_language.as_deref(), Some("ja"), "639-3 mapping drifted");
     assert_eq!(details.origin_countries, vec!["JP"], "alpha-3 mapping drifted");

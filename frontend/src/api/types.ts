@@ -251,6 +251,8 @@ export interface MetadataProvider {
   key_env: string | null;
   configured: boolean;
   fields: string[];
+  /** `movie` and `series`: TheTVDB answers for series alone. */
+  media_types: string[];
 }
 
 export interface MetadataProviders {

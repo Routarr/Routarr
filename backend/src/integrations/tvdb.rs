@@ -6,9 +6,11 @@
 //! use and kept in `AppState`, so one login serves every enrichment pass until
 //! it expires, not one per item.
 //!
-//! Its key is free. A *user-supported* key additionally needs the subscriber PIN
-//! its owner was given, which is why the PIN is a separate optional setting
-//! rather than being folded into the key.
+//! Its key is free for a project earning under $50,000 a year that shows its
+//! attribution to whoever reads the metadata, which the Sources screen does. A
+//! *user-supported* key additionally needs the subscriber PIN its owner was
+//! given, which is why the PIN is a separate optional setting rather than being
+//! folded into the key.
 
 use reqwest::Client;
 use serde::Deserialize;
@@ -181,11 +183,12 @@ impl TvdbClient {
         }
     }
 
-    pub async fn get_details(&self, tvdb_id: &str, media_type: &str) -> AppResult<TvdbDetails> {
-        debug!("Fetching TheTVDB {media_type} {tvdb_id}");
-        let collection = if media_type == "movie" { "movies" } else { "series" };
+    /// Everything Routarr needs about one series. A film has no TheTVDB id:
+    /// Radarr carries none.
+    pub async fn get_details(&self, tvdb_id: &str) -> AppResult<TvdbDetails> {
+        debug!("Fetching TheTVDB series {tvdb_id}");
         let response: Envelope<RawRecord> =
-            self.read(&format!("/{collection}/{tvdb_id}/extended")).await?;
+            self.read(&format!("/series/{tvdb_id}/extended")).await?;
         let Some(raw) = response.data else {
             return Ok(TvdbDetails::default());
         };

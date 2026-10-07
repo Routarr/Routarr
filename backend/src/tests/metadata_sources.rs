@@ -210,6 +210,12 @@ async fn the_provider_catalogue_reports_what_each_source_needs() {
     // Named, so the interface can say what to set rather than "a key is
     // missing", which nobody can act on.
     assert_eq!(tmdb["key_env"], "TMDB_API_KEY");
+    assert_eq!(tmdb["media_types"], serde_json::json!(["movie", "series"]));
+
+    // Radarr carries no TheTVDB id, so TheTVDB answers for series alone.
+    let providers = response["providers"].as_array().unwrap();
+    let tvdb = providers.iter().find(|provider| provider["id"] == "tvdb").unwrap();
+    assert_eq!(tvdb["media_types"], serde_json::json!(["series"]));
 
     assert_eq!(response["order"][0], "arr");
 }

@@ -3766,6 +3766,13 @@
               "null"
             ]
           },
+          "media_types": {
+            "description": "The media types it answers for, `movie` and `series`: TheTVDB answers\nfor series alone.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "needs_key": {
             "type": "boolean"
           }
@@ -3776,7 +3783,8 @@
           "fetched",
           "needs_key",
           "configured",
-          "fields"
+          "fields",
+          "media_types"
         ],
         "type": "object"
       },
