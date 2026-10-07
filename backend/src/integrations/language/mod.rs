@@ -5,130 +5,16 @@
 //! through TMDb silently stops matching the day the Arr answers first, the
 //! worst failure a routing rule has.
 //!
-//! The list is the `Language` enum Radarr and Sonarr share. A name outside it
-//! keeps its own spelling, lowercased, so a rule still has something to compare
-//! against instead of the field going empty.
+//! The tables (`tables.rs`) hold every ISO 639-1 language and every ISO 3166-1
+//! country. Radarr names 57 languages and Sonarr 46 of them, OMDb writes
+//! English names of its own, and TheTVDB three-letter codes. A name no table
+//! knows keeps its own spelling, lowercased, so a rule still has something to
+//! compare against instead of the field going empty.
 
-/// Every language this build knows, as (ISO 639-1 code, the spellings a source may use).
-/// The first spelling is the one shown, the rest are what `normalise` accepts.
-///
-/// One table read both ways. A rule is written against the code, which no user
-/// would guess from a library that happens to hold five languages, so the rule
-/// builder offers this rather than what has been synced.
-pub const LANGUAGES: &[(&str, &[&str])] = &[
-    ("en", &["english"]),
-    ("fr", &["french"]),
-    ("es", &["spanish"]),
-    ("de", &["german"]),
-    ("it", &["italian"]),
-    ("da", &["danish"]),
-    ("nl", &["dutch", "flemish"]),
-    ("ja", &["japanese"]),
-    ("is", &["icelandic"]),
-    // OMDb names the spoken Chinese, where TMDb gives `zh`, or `cn` for its
-    // Cantonese, which `from_tmdb` reads as `zh`.
-    ("zh", &["chinese", "mandarin", "cantonese"]),
-    ("ru", &["russian"]),
-    ("pl", &["polish"]),
-    ("vi", &["vietnamese"]),
-    ("sv", &["swedish"]),
-    ("no", &["norwegian"]),
-    ("fi", &["finnish"]),
-    ("tr", &["turkish"]),
-    ("pt", &["portuguese"]),
-    ("el", &["greek"]),
-    ("ko", &["korean"]),
-    ("hu", &["hungarian"]),
-    ("he", &["hebrew"]),
-    ("lt", &["lithuanian"]),
-    ("cs", &["czech"]),
-    ("hi", &["hindi"]),
-    ("ro", &["romanian"]),
-    ("th", &["thai"]),
-    ("bg", &["bulgarian"]),
-    ("ar", &["arabic"]),
-    ("uk", &["ukrainian"]),
-    ("fa", &["persian"]),
-    ("bn", &["bengali"]),
-    ("sk", &["slovak"]),
-    ("lv", &["latvian"]),
-    ("ca", &["catalan"]),
-    ("hr", &["croatian"]),
-    ("sr", &["serbian"]),
-    ("bs", &["bosnian"]),
-    ("et", &["estonian"]),
-    ("ta", &["tamil"]),
-    ("id", &["indonesian"]),
-    ("te", &["telugu"]),
-    ("mk", &["macedonian"]),
-    ("sl", &["slovenian"]),
-    ("ml", &["malayalam"]),
-    ("kn", &["kannada"]),
-    ("sq", &["albanian"]),
-    ("af", &["afrikaans"]),
-    ("mr", &["marathi"]),
-    ("tl", &["tagalog", "filipino"]),
-    ("ur", &["urdu"]),
-    ("rm", &["romansh"]),
-    ("mn", &["mongolian"]),
-];
+mod tables;
 
-/// Every country this build knows, as (ISO 3166-1 alpha-2 code, its spellings).
-/// Read both ways for the same reason as [`LANGUAGES`].
-pub const COUNTRIES: &[(&str, &[&str])] = &[
-    ("US", &["united states", "usa", "united states of america"]),
-    ("GB", &["united kingdom", "uk", "great britain"]),
-    ("JP", &["japan"]),
-    ("FR", &["france"]),
-    // West Germany is today's Germany. East Germany is not: see `RETIRED`.
-    ("DE", &["germany", "west germany"]),
-    ("IT", &["italy"]),
-    ("ES", &["spain"]),
-    ("CA", &["canada"]),
-    ("AU", &["australia"]),
-    ("NZ", &["new zealand"]),
-    ("CN", &["china"]),
-    ("HK", &["hong kong"]),
-    ("TW", &["taiwan"]),
-    ("KR", &["south korea", "korea, south", "korea"]),
-    ("IN", &["india"]),
-    ("RU", &["russia"]),
-    // Countries that no longer exist, under the code TMDb files their films
-    // under (`RETIRED`).
-    ("SU", &["soviet union", "ussr"]),
-    ("XG", &["east germany", "german democratic republic", "gdr"]),
-    ("XC", &["czechoslovakia"]),
-    ("YU", &["yugoslavia"]),
-    ("CS", &["serbia and montenegro"]),
-    ("AN", &["netherlands antilles"]),
-    ("BR", &["brazil"]),
-    ("MX", &["mexico"]),
-    ("AR", &["argentina"]),
-    ("SE", &["sweden"]),
-    ("NO", &["norway"]),
-    ("DK", &["denmark"]),
-    ("FI", &["finland"]),
-    ("IS", &["iceland"]),
-    ("NL", &["netherlands"]),
-    ("BE", &["belgium"]),
-    ("IE", &["ireland"]),
-    ("PL", &["poland"]),
-    ("CZ", &["czech republic", "czechia"]),
-    ("AT", &["austria"]),
-    ("CH", &["switzerland"]),
-    ("PT", &["portugal"]),
-    ("GR", &["greece"]),
-    ("TR", &["turkey"]),
-    ("IL", &["israel"]),
-    ("ZA", &["south africa"]),
-    ("TH", &["thailand"]),
-    ("ID", &["indonesia"]),
-    ("PH", &["philippines"]),
-    ("VN", &["vietnam"]),
-    ("UA", &["ukraine"]),
-    ("HU", &["hungary"]),
-    ("RO", &["romania"]),
-];
+use tables::{ALPHA3, ISO_639_3};
+pub use tables::{COUNTRIES, LANGUAGES};
 
 /// ISO 639-1 code for a language *name*, or the name itself, lowercased, when it
 /// is not one we know.
@@ -168,75 +54,17 @@ pub fn from_tmdb(code: &str) -> Option<String> {
 
 /// ISO 639-1 from a three-letter code.
 ///
-/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. Every
-/// language of [`LANGUAGES`] is listed, the bibliographic form beside the
-/// terminological one where they differ (`fre` and `fra`), and a code outside
-/// the list answers `None`.
+/// TheTVDB answers `jpn`, Routarr's rules are written against `ja`. A code
+/// that names no ISO 639-1 language answers `None`.
 pub fn from_iso_639_3(code: &str) -> Option<String> {
     let code = code.trim().to_lowercase();
     if code.len() == 2 {
         return Some(code);
     }
-
-    let two = match code.as_str() {
-        "eng" => "en",
-        "fra" | "fre" => "fr",
-        "spa" => "es",
-        "deu" | "ger" => "de",
-        "ita" => "it",
-        "dan" => "da",
-        "nld" | "dut" => "nl",
-        "jpn" => "ja",
-        "isl" | "ice" => "is",
-        // TheTVDB writes Cantonese `yue` and Taiwanese Mandarin `zhtw`.
-        "zho" | "chi" | "yue" | "zhtw" => "zh",
-        "rus" => "ru",
-        "pol" => "pl",
-        "vie" => "vi",
-        "swe" => "sv",
-        "nor" | "nob" => "no",
-        "fin" => "fi",
-        "tur" => "tr",
-        "por" => "pt",
-        "ell" | "gre" => "el",
-        "kor" => "ko",
-        "hun" => "hu",
-        "heb" => "he",
-        "lit" => "lt",
-        "ces" | "cze" => "cs",
-        "hin" => "hi",
-        "ron" | "rum" => "ro",
-        "tha" => "th",
-        "bul" => "bg",
-        "ara" => "ar",
-        "ukr" => "uk",
-        "fas" | "per" => "fa",
-        "ben" => "bn",
-        "slk" | "slo" => "sk",
-        "lav" => "lv",
-        "cat" => "ca",
-        "hrv" => "hr",
-        "srp" => "sr",
-        "bos" => "bs",
-        "est" => "et",
-        "tam" => "ta",
-        "ind" => "id",
-        "tel" => "te",
-        "mkd" | "mac" => "mk",
-        "slv" => "sl",
-        "mal" => "ml",
-        "kan" => "kn",
-        "sqi" | "alb" => "sq",
-        "afr" => "af",
-        "mar" => "mr",
-        "tgl" => "tl",
-        "urd" => "ur",
-        "mon" => "mn",
-        "roh" => "rm",
-        _ => return None,
-    };
-
-    Some(two.to_string())
+    ISO_639_3
+        .binary_search_by(|(three, _)| (*three).cmp(code.as_str()))
+        .ok()
+        .map(|index| ISO_639_3[index].1.to_string())
 }
 
 /// ISO 3166-1 alpha-2 from a country *name*.
@@ -287,259 +115,6 @@ const RETIRED_ALIASES: &[(&str, &str)] = &[
     ("yug", "YU"),
     ("scg", "CS"),
     ("ant", "AN"),
-];
-
-/// (alpha-3, alpha-2) for every ISO 3166-1 country, sorted by the first.
-const ALPHA3: &[(&str, &str)] = &[
-    ("abw", "AW"),
-    ("afg", "AF"),
-    ("ago", "AO"),
-    ("aia", "AI"),
-    ("ala", "AX"),
-    ("alb", "AL"),
-    ("and", "AD"),
-    ("are", "AE"),
-    ("arg", "AR"),
-    ("arm", "AM"),
-    ("asm", "AS"),
-    ("ata", "AQ"),
-    ("atf", "TF"),
-    ("atg", "AG"),
-    ("aus", "AU"),
-    ("aut", "AT"),
-    ("aze", "AZ"),
-    ("bdi", "BI"),
-    ("bel", "BE"),
-    ("ben", "BJ"),
-    ("bes", "BQ"),
-    ("bfa", "BF"),
-    ("bgd", "BD"),
-    ("bgr", "BG"),
-    ("bhr", "BH"),
-    ("bhs", "BS"),
-    ("bih", "BA"),
-    ("blm", "BL"),
-    ("blr", "BY"),
-    ("blz", "BZ"),
-    ("bmu", "BM"),
-    ("bol", "BO"),
-    ("bra", "BR"),
-    ("brb", "BB"),
-    ("brn", "BN"),
-    ("btn", "BT"),
-    ("bvt", "BV"),
-    ("bwa", "BW"),
-    ("caf", "CF"),
-    ("can", "CA"),
-    ("cck", "CC"),
-    ("che", "CH"),
-    ("chl", "CL"),
-    ("chn", "CN"),
-    ("civ", "CI"),
-    ("cmr", "CM"),
-    ("cod", "CD"),
-    ("cog", "CG"),
-    ("cok", "CK"),
-    ("col", "CO"),
-    ("com", "KM"),
-    ("cpv", "CV"),
-    ("cri", "CR"),
-    ("cub", "CU"),
-    ("cuw", "CW"),
-    ("cxr", "CX"),
-    ("cym", "KY"),
-    ("cyp", "CY"),
-    ("cze", "CZ"),
-    ("deu", "DE"),
-    ("dji", "DJ"),
-    ("dma", "DM"),
-    ("dnk", "DK"),
-    ("dom", "DO"),
-    ("dza", "DZ"),
-    ("ecu", "EC"),
-    ("egy", "EG"),
-    ("eri", "ER"),
-    ("esh", "EH"),
-    ("esp", "ES"),
-    ("est", "EE"),
-    ("eth", "ET"),
-    ("fin", "FI"),
-    ("fji", "FJ"),
-    ("flk", "FK"),
-    ("fra", "FR"),
-    ("fro", "FO"),
-    ("fsm", "FM"),
-    ("gab", "GA"),
-    ("gbr", "GB"),
-    ("geo", "GE"),
-    ("ggy", "GG"),
-    ("gha", "GH"),
-    ("gib", "GI"),
-    ("gin", "GN"),
-    ("glp", "GP"),
-    ("gmb", "GM"),
-    ("gnb", "GW"),
-    ("gnq", "GQ"),
-    ("grc", "GR"),
-    ("grd", "GD"),
-    ("grl", "GL"),
-    ("gtm", "GT"),
-    ("guf", "GF"),
-    ("gum", "GU"),
-    ("guy", "GY"),
-    ("hkg", "HK"),
-    ("hmd", "HM"),
-    ("hnd", "HN"),
-    ("hrv", "HR"),
-    ("hti", "HT"),
-    ("hun", "HU"),
-    ("idn", "ID"),
-    ("imn", "IM"),
-    ("ind", "IN"),
-    ("iot", "IO"),
-    ("irl", "IE"),
-    ("irn", "IR"),
-    ("irq", "IQ"),
-    ("isl", "IS"),
-    ("isr", "IL"),
-    ("ita", "IT"),
-    ("jam", "JM"),
-    ("jey", "JE"),
-    ("jor", "JO"),
-    ("jpn", "JP"),
-    ("kaz", "KZ"),
-    ("ken", "KE"),
-    ("kgz", "KG"),
-    ("khm", "KH"),
-    ("kir", "KI"),
-    ("kna", "KN"),
-    ("kor", "KR"),
-    ("kwt", "KW"),
-    ("lao", "LA"),
-    ("lbn", "LB"),
-    ("lbr", "LR"),
-    ("lby", "LY"),
-    ("lca", "LC"),
-    ("lie", "LI"),
-    ("lka", "LK"),
-    ("lso", "LS"),
-    ("ltu", "LT"),
-    ("lux", "LU"),
-    ("lva", "LV"),
-    ("mac", "MO"),
-    ("maf", "MF"),
-    ("mar", "MA"),
-    ("mco", "MC"),
-    ("mda", "MD"),
-    ("mdg", "MG"),
-    ("mdv", "MV"),
-    ("mex", "MX"),
-    ("mhl", "MH"),
-    ("mkd", "MK"),
-    ("mli", "ML"),
-    ("mlt", "MT"),
-    ("mmr", "MM"),
-    ("mne", "ME"),
-    ("mng", "MN"),
-    ("mnp", "MP"),
-    ("moz", "MZ"),
-    ("mrt", "MR"),
-    ("msr", "MS"),
-    ("mtq", "MQ"),
-    ("mus", "MU"),
-    ("mwi", "MW"),
-    ("mys", "MY"),
-    ("myt", "YT"),
-    ("nam", "NA"),
-    ("ncl", "NC"),
-    ("ner", "NE"),
-    ("nfk", "NF"),
-    ("nga", "NG"),
-    ("nic", "NI"),
-    ("niu", "NU"),
-    ("nld", "NL"),
-    ("nor", "NO"),
-    ("npl", "NP"),
-    ("nru", "NR"),
-    ("nzl", "NZ"),
-    ("omn", "OM"),
-    ("pak", "PK"),
-    ("pan", "PA"),
-    ("pcn", "PN"),
-    ("per", "PE"),
-    ("phl", "PH"),
-    ("plw", "PW"),
-    ("png", "PG"),
-    ("pol", "PL"),
-    ("pri", "PR"),
-    ("prk", "KP"),
-    ("prt", "PT"),
-    ("pry", "PY"),
-    ("pse", "PS"),
-    ("pyf", "PF"),
-    ("qat", "QA"),
-    ("reu", "RE"),
-    ("rou", "RO"),
-    ("rus", "RU"),
-    ("rwa", "RW"),
-    ("sau", "SA"),
-    ("sdn", "SD"),
-    ("sen", "SN"),
-    ("sgp", "SG"),
-    ("sgs", "GS"),
-    ("shn", "SH"),
-    ("sjm", "SJ"),
-    ("slb", "SB"),
-    ("sle", "SL"),
-    ("slv", "SV"),
-    ("smr", "SM"),
-    ("som", "SO"),
-    ("spm", "PM"),
-    ("srb", "RS"),
-    ("ssd", "SS"),
-    ("stp", "ST"),
-    ("sur", "SR"),
-    ("svk", "SK"),
-    ("svn", "SI"),
-    ("swe", "SE"),
-    ("swz", "SZ"),
-    ("sxm", "SX"),
-    ("syc", "SC"),
-    ("syr", "SY"),
-    ("tca", "TC"),
-    ("tcd", "TD"),
-    ("tgo", "TG"),
-    ("tha", "TH"),
-    ("tjk", "TJ"),
-    ("tkl", "TK"),
-    ("tkm", "TM"),
-    ("tls", "TL"),
-    ("ton", "TO"),
-    ("tto", "TT"),
-    ("tun", "TN"),
-    ("tur", "TR"),
-    ("tuv", "TV"),
-    ("twn", "TW"),
-    ("tza", "TZ"),
-    ("uga", "UG"),
-    ("ukr", "UA"),
-    ("umi", "UM"),
-    ("ury", "UY"),
-    ("usa", "US"),
-    ("uzb", "UZ"),
-    ("vat", "VA"),
-    ("vct", "VC"),
-    ("ven", "VE"),
-    ("vgb", "VG"),
-    ("vir", "VI"),
-    ("vnm", "VN"),
-    ("vut", "VU"),
-    ("wlf", "WF"),
-    ("wsm", "WS"),
-    ("yem", "YE"),
-    ("zaf", "ZA"),
-    ("zmb", "ZM"),
-    ("zwe", "ZW"),
 ];
 
 /// Split a comma-separated list of country names into ISO codes.
@@ -601,6 +176,131 @@ mod tests {
         // TheTVDB's codes for both.
         assert_eq!(from_iso_639_3("yue").as_deref(), Some("zh"));
         assert_eq!(from_iso_639_3("zhtw").as_deref(), Some("zh"));
+    }
+
+    /// Every ISO country reads from its English name, as OMDb writes it, so a
+    /// country of a list is never dropped and left to claim the field with the
+    /// others alone.
+    #[test]
+    fn every_iso_country_reads_from_its_english_name() {
+        for (_, alpha2) in ALPHA3 {
+            let (_, spellings) = COUNTRIES.iter().find(|(code, _)| code == alpha2).expect(alpha2);
+            assert_eq!(country_codes(spellings[0]), [*alpha2], "{}", spellings[0]);
+        }
+        assert_eq!(country_codes("Egypt, France"), ["EG", "FR"]);
+        assert_eq!(country_codes("UK, USA, North Korea"), ["GB", "US", "KP"]);
+        assert_eq!(country_codes("Republic of North Macedonia"), ["MK"]);
+        assert_eq!(country_codes("Federal Republic of Yugoslavia"), ["YU"]);
+        assert_eq!(country_codes("Côte d'Ivoire, Ivory Coast, Iran"), ["CI", "CI", "IR"]);
+    }
+
+    /// Every ISO 639-1 language reads from its English name and from each of
+    /// its three-letter codes, the bibliographic one and the terminological.
+    /// Bokmål's `nob` reads as the `no` TMDb and the Arrs give.
+    #[test]
+    fn every_iso_639_1_language_reads_from_its_name_and_its_three_letters() {
+        for (code, spellings) in LANGUAGES {
+            assert_eq!(normalise(spellings[0]).as_deref(), Some(*code), "{}", spellings[0]);
+            let read = ISO_639_3.iter().any(|(_, two)| two == code);
+            assert!(read || *code == "nb", "{code} has no three letters");
+        }
+        assert_eq!(from_iso_639_3("nob").as_deref(), Some("no"));
+        assert_eq!(normalise("Malay").as_deref(), Some("ms"));
+        assert_eq!(normalise("Swahili").as_deref(), Some("sw"));
+        assert_eq!(normalise("Punjabi").as_deref(), Some("pa"));
+        for three in ["msa", "may"] {
+            assert_eq!(from_iso_639_3(three).as_deref(), Some("ms"), "{three}");
+        }
+        assert!(ISO_639_3.windows(2).all(|pair| pair[0].0 < pair[1].0), "the table is unsorted");
+    }
+
+    /// Radarr names 57 languages, Sonarr 46 of them: each reads as the code a
+    /// rule is written against, Georgian as `ka`.
+    #[test]
+    fn every_language_radarr_names_reads_as_its_code() {
+        let radarr = [
+            ("English", "en"),
+            ("French", "fr"),
+            ("Spanish", "es"),
+            ("German", "de"),
+            ("Italian", "it"),
+            ("Danish", "da"),
+            ("Dutch", "nl"),
+            ("Japanese", "ja"),
+            ("Icelandic", "is"),
+            ("Chinese", "zh"),
+            ("Russian", "ru"),
+            ("Polish", "pl"),
+            ("Vietnamese", "vi"),
+            ("Swedish", "sv"),
+            ("Norwegian", "no"),
+            ("Finnish", "fi"),
+            ("Turkish", "tr"),
+            ("Portuguese", "pt"),
+            ("Flemish", "nl"),
+            ("Greek", "el"),
+            ("Korean", "ko"),
+            ("Hungarian", "hu"),
+            ("Hebrew", "he"),
+            ("Lithuanian", "lt"),
+            ("Czech", "cs"),
+            ("Hindi", "hi"),
+            ("Romanian", "ro"),
+            ("Thai", "th"),
+            ("Bulgarian", "bg"),
+            ("Portuguese (Brazil)", "pt"),
+            ("Arabic", "ar"),
+            ("Ukrainian", "uk"),
+            ("Persian", "fa"),
+            ("Bengali", "bn"),
+            ("Slovak", "sk"),
+            ("Latvian", "lv"),
+            ("Spanish (Latino)", "es"),
+            ("Catalan", "ca"),
+            ("Croatian", "hr"),
+            ("Serbian", "sr"),
+            ("Bosnian", "bs"),
+            ("Estonian", "et"),
+            ("Tamil", "ta"),
+            ("Indonesian", "id"),
+            ("Telugu", "te"),
+            ("Macedonian", "mk"),
+            ("Slovenian", "sl"),
+            ("Malayalam", "ml"),
+            ("Kannada", "kn"),
+            ("Albanian", "sq"),
+            ("Afrikaans", "af"),
+            ("Marathi", "mr"),
+            ("Tagalog", "tl"),
+            ("Urdu", "ur"),
+            ("Romansh", "rm"),
+            ("Mongolian", "mn"),
+            ("Georgian", "ka"),
+        ];
+        assert_eq!(radarr.len(), 57);
+        for (name, code) in radarr {
+            assert_eq!(normalise(name).as_deref(), Some(code), "{name}");
+        }
+        assert_eq!(from_iso_639_3("kat").as_deref(), Some("ka"));
+        assert_eq!(from_iso_639_3("geo").as_deref(), Some("ka"));
+    }
+
+    /// One spelling names one language and one country, or which code it
+    /// reads as would depend on the order of a table.
+    #[test]
+    fn no_spelling_names_two_codes() {
+        for table in [LANGUAGES, COUNTRIES] {
+            let mut seen = std::collections::HashMap::new();
+            for (code, spellings) in table {
+                for spelling in *spellings {
+                    let first = seen.insert(*spelling, *code);
+                    assert!(
+                        first.is_none_or(|other| other == *code),
+                        "{spelling}: {first:?} {code}"
+                    );
+                }
+            }
+        }
     }
 
     /// Every ISO country reads from TheTVDB's three letters, the first and the

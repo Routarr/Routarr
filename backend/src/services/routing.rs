@@ -1006,8 +1006,9 @@ pub(crate) fn resolve_metadata(
             from_arr.certification_scale =
                 from_arr.certification.as_ref().and(arr_country.map(str::to_string));
             // Radarr and Sonarr report English for every original language
-            // outside the fifty-seven they know, so their English is offered
-            // last, where it fills the field only when no other source knows.
+            // outside the ones they list, 57 for Radarr and 46 for Sonarr, so
+            // their English is offered last, where it fills the field only
+            // when no other source knows.
             if from_arr.original_language.as_deref() == Some("en") {
                 arrs_english = from_arr.original_language.take();
             }

@@ -259,7 +259,7 @@ async fn an_upgrade_gives_each_cached_rating_its_system() {
     .await
     .unwrap();
 
-    crate::db::run_migrations(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, "015_certification_scale").await.unwrap();
 
     let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
         "SELECT source || ':' || external_id, certification_scale, expires_at <= datetime('now')
@@ -298,7 +298,7 @@ async fn an_upgrade_keeps_each_cached_rating_under_its_country() {
     .await
     .unwrap();
 
-    crate::db::run_migrations(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, "032_every_regions_rating").await.unwrap();
 
     type Row = (String, String, Option<String>, Option<String>, bool);
     let rows: Vec<Row> = sqlx::query_as(

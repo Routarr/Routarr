@@ -569,7 +569,7 @@ async fn every_source_contributes_what_only_it_has() {
 }
 
 /// Radarr and Sonarr report English for any original language outside the
-/// fifty-seven they know (Cantonese, which TMDb writes `cn`, Malay, Swahili),
+/// ones they list (Cantonese, which TMDb writes `cn`, Malay, Swahili),
 /// so their English is the one answer a later source may correct. Any other
 /// language they report stands, as the order says, and their English stands
 /// where no other source knows the language.
@@ -963,4 +963,30 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         !after.contains(&unreachable),
         "a source nobody probes any more is still reported: {after:?}"
     );
+}
+
+/// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
+/// into every ISO language and country, and leaves the other sources' answers.
+#[tokio::test]
+async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
+    let pool = super::database_through("033_daily_quotas").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+         VALUES ('omdb', 'tt1', 'movie', '2099-01-01 00:00:00'),
+                ('tvdb', '2', 'series', '2099-01-01 00:00:00'),
+                ('tmdb', '3', 'movie', '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations_through(&pool, "034_full_vocabularies").await.unwrap();
+
+    let due: Vec<String> = sqlx::query_scalar(
+        "SELECT source FROM metadata_cache WHERE expires_at <= datetime('now') ORDER BY source",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(due, ["omdb", "tvdb"]);
 }

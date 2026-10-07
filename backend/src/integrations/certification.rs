@@ -1,7 +1,7 @@
 //! What a certification code means, where that is not in dispute.
 //!
 //! `U`, `TP` and `TV-PG` say nothing to most readers, and the panel that shows
-//! what the library holds would list them bare. It sits beside `language.rs`
+//! what the library holds would list them bare. It sits beside `language`
 //! because it answers the same kind of question (what a code stands for) and
 //! for the same reason: the rule is written against the code, and the name is
 //! only ever what is shown.

@@ -78,7 +78,7 @@ BUILT = {
     # The mode that opened a session, on the sessions card.
     "SessionSource": ("frontend/src/api/types.ts", r"^  source: ((?:'[a-z]+'(?: \| )?)+);"),
     "CountryRetired": (
-        "backend/src/integrations/language.rs",
+        "backend/src/integrations/language/mod.rs",
         r"pub const RETIRED: &\[&str\] = &\[([^\]]+)\];",
     ),
 }
