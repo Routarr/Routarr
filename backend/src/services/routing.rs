@@ -1006,8 +1006,9 @@ pub(crate) fn resolve_metadata(
             from_arr.certification_scale =
                 from_arr.certification.as_ref().and(arr_country.map(str::to_string));
             // Radarr and Sonarr report English for every original language
-            // outside the fifty-seven they know, so their English is offered
-            // last, where it fills the field only when no other source knows.
+            // outside the ones they list, 57 for Radarr and 46 for Sonarr, so
+            // their English is offered last, where it fills the field only
+            // when no other source knows.
             if from_arr.original_language.as_deref() == Some("en") {
                 arrs_english = from_arr.original_language.take();
             }
@@ -1038,7 +1039,7 @@ pub(crate) fn resolve_metadata(
 /// rated, whichever source gave it, else the first source's, in the order of
 /// the sources.
 ///
-/// Each source answers in one system (TMDb and TheTVDB for the first region
+/// Each source answers in one system (TMDB and TheTVDB for the first region
 /// they rate, OMDb for the United States, a Radarr for the country of its
 /// metadata settings, MyAnimeList in its own), and the regions say whose
 /// system a rule is written for. A rating outside every region still answers

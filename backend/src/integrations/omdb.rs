@@ -1,7 +1,7 @@
 //! OMDb.
 //!
 //! Keyed on the **IMDb** identifier, which is the reason to have it: it answers
-//! for an item TMDb does not know, or one the library carries without a TMDb id.
+//! for an item TMDB does not know, or one the library carries without a TMDB id.
 //! A free key is required: the API rejects an unauthenticated request outright
 //! rather than degrading, so the source declares `needs_key`.
 //!

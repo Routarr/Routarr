@@ -55,6 +55,7 @@ pub struct Warning {
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
     /// `scheduler_panicked`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
+    /// `certification_country_changed`,
     /// `auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.
     /// The list may grow.
     pub code: &'static str,
@@ -685,12 +686,33 @@ async fn offline_warnings(
         ));
     }
 
+    // A Radarr whose rating country changed: the films it rated before keep
+    // the previous country's ratings until each is refreshed, which it does on
+    // its own within 180 days.
+    let changed: Vec<(String, String)> = sqlx::query_as(
+        "SELECT name, certification_country FROM instances
+          WHERE enabled = 1 AND certification_country IS NOT NULL
+            AND certification_country_changed_at > datetime('now', '-180 days')
+          ORDER BY name",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (name, country) in changed {
+        warnings.push(Warning::new(
+            "certification_country_changed",
+            localizer.translate(
+                "WarnCertificationCountryChanged",
+                &[("name", &name), ("country", &country)],
+            ),
+        ));
+    }
+
     Ok(warnings)
 }
 
 /// What is wrong with the metadata configuration, in the user's language.
 ///
-/// Deliberately not "no TMDb key": with the Arr enabled, genre, language and
+/// Deliberately not "no TMDB key": with the Arr enabled, genre, language and
 /// certification rules match perfectly well without one. Only keywords and
 /// origin countries do not.
 fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Settings) -> Vec<Warning> {
@@ -713,7 +735,7 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
     }
 
     // A key set in the environment for a source the list leaves out. The start
-    // lists TMDb for its key only while no list is stored, and any save of the
+    // lists TMDB for its key only while no list is stored, and any save of the
     // Settings screen stores one, so the key would otherwise be read and never
     // used, with nothing saying so.
     for provider in metadata::PROVIDERS {

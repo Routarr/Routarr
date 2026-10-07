@@ -572,6 +572,12 @@ const MODALS: {
     open: (p) => p.getByRole('button', { name: 'Quick search' }).click(),
   },
   {
+    // The version at the foot of the navigation, on every screen.
+    path: '/rules',
+    covers: 'components/AboutDialog.svelte',
+    open: (p) => p.getByRole('button', { name: /^Routarr v/ }).click(),
+  },
+  {
     path: '/instances',
     covers: 'pages/Instances.svelte',
     open: (p) => p.getByRole('button', { name: 'Add instance' }).click(),

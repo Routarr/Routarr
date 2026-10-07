@@ -294,9 +294,9 @@ impl TestApp {
         self.list_tmdb().await;
     }
 
-    /// List TMDb after the Arr, for a library TMDb describes.
+    /// List TMDB after the Arr, for a library TMDB describes.
     ///
-    /// Under the shipped order, the Arr alone, a TMDb answer in the cache counts
+    /// Under the shipped order, the Arr alone, a TMDB answer in the cache counts
     /// for nothing. An order a test set first is its own.
     pub async fn list_tmdb(&self) {
         sqlx::query(
@@ -349,9 +349,9 @@ impl TestApp {
         .unwrap();
     }
 
-    /// Everything that routes TMDb's film 8392 to `/movies/anime` on `inst-1`
+    /// Everything that routes TMDB's film 8392 to `/movies/anime` on `inst-1`
     /// but the film itself: the anime rule, the `anime` category mapped onto
-    /// `rf-2`, and TMDb's answer for 8392, listed. Each test seeds the item
+    /// `rf-2`, and TMDB's answer for 8392, listed. Each test seeds the item
     /// with the path, the files and the id its case needs.
     pub async fn seed_route_to_anime(&self) {
         self.seed_anime_rule().await;

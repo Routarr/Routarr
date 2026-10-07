@@ -54,7 +54,7 @@ pub struct MediaListItem {
 ///
 /// Only the *enabled* sources count, exactly as `routing::load_context` reads
 /// them. Each is joined on its own identifier, as `facet_rows` joins them: a
-/// TMDb id and a TheTVDB id share no namespace, and a source found by search
+/// TMDB id and a TheTVDB id share no namespace, and a source found by search
 /// is reached through what `source_identifiers` resolved the title's key to.
 /// A title known to no id is keyed by its folded title, which SQL cannot
 /// spell, so its search answers are left out, as in the facets. And a cached
@@ -208,7 +208,7 @@ pub struct ExternalTitle {
     /// `movie` or `series`.
     #[serde(rename = "type")]
     pub media_type: String,
-    /// The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`
+    /// The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`
     /// and `imdb`.
     pub tmdb: Option<i64>,
     /// The title's TheTVDB id.
@@ -733,7 +733,7 @@ fn name_certifications(
 /// Everything the *enabled* sources say about one axis, not just the Arr row.
 ///
 /// The rule builder offers this list, so it has to hold what the engine can
-/// actually match: a genre TMDb supplied is matched by a rule and would be
+/// actually match: a genre TMDB supplied is matched by a rule and would be
 /// missing from a list read off `media` alone. The `arr` branch is the media
 /// row, the others `metadata_cache`, and a source the user disabled
 /// contributes to none, exactly as `routing::load_context` reads them.
@@ -827,7 +827,7 @@ async fn certification_facets(
 /// one SQL union and the source ids it binds, in order. `None` when no source
 /// can answer it.
 ///
-/// Each source is joined on its own identifier: a TMDb id and a TheTVDB id
+/// Each source is joined on its own identifier: a TMDB id and a TheTVDB id
 /// share no namespace, and a source found by title (AniList, MyAnimeList) is
 /// joined through what `source_identifiers` resolved, by the key
 /// [`metadata::local_key_of`] gives an item. An item known to no id is keyed by

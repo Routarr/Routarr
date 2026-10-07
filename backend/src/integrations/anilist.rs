@@ -1,11 +1,11 @@
 //! AniList, through its public GraphQL API.
 //!
 //! The one source in the set that needs **no credential of any kind**, and the
-//! one that is strongest exactly where TMDb is weakest: it knows what an anime
+//! one that is strongest exactly where TMDB is weakest: it knows what an anime
 //! is, its country of origin, and it carries community tags that make far better
-//! keywords than TMDb's sparse ones.
+//! keywords than TMDB's sparse ones.
 //!
-//! It has no TMDb, TVDB or IMDb identifier, so an item has to be found by title
+//! It has no TMDB, TVDB or IMDb identifier, so an item has to be found by title
 //! and year first, which `services::metadata` does once and remembers.
 
 use std::sync::{Arc, Mutex};

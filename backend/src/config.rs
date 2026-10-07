@@ -2,7 +2,7 @@ use crate::error::{AppError, AppResult};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-/// Public TMDb API root.
+/// Public TMDB API root.
 pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 
 /// `ROUTARR_HTTP_TIMEOUT_SECS` when unset.
@@ -302,7 +302,7 @@ pub struct Config {
     /// A ceiling, not a target: `services::rate_limit` additionally paces each
     /// source to its published rate, and a source may lower this on its own.
     pub metadata_concurrency: usize,
-    /// TMDb API root. Overridable for a mirror, a caching proxy, or tests.
+    /// TMDB API root. Overridable for a mirror, a caching proxy, or tests.
     pub tmdb_base_url: String,
     /// OMDb key. Free, but mandatory: OMDb rejects an unauthenticated request.
     pub omdb_api_key: Option<String>,

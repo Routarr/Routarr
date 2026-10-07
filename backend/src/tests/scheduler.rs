@@ -433,7 +433,7 @@ async fn a_panicking_sweep_does_not_end_the_scheduler() {
 #[tokio::test]
 async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     let arr = FakeArr::start().await;
-    // TMDb holds its answer until the tick is back, and the call outlasts the
+    // TMDB holds its answer until the tick is back, and the call outlasts the
     // tick's bound, so the enrichment cannot end first however long the rest of
     // the tick takes.
     let tmdb = super::fake_tmdb::FakeTmdb::holding().await;
@@ -454,7 +454,7 @@ async fn a_tick_hands_its_post_sync_work_back_rather_than_awaiting_it() {
     assert!(!chain.is_finished(), "the enrichment ended without its answer");
     tmdb.release();
     chain.await.unwrap();
-    assert!(!tmdb.recorded().paths.is_empty(), "the enrichment never asked TMDb");
+    assert!(!tmdb.recorded().paths.is_empty(), "the enrichment never asked TMDB");
     let decisions: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM decisions")
         .fetch_one(&app.state.pool)
         .await

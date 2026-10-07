@@ -1,4 +1,4 @@
-//! Enrichment against a live fake TMDb.
+//! Enrichment against a live fake TMDB.
 //!
 //! The seam worth defending is attribution: results come back out of order, and
 //! pairing them with the input list by position files a movie's metadata under
@@ -28,7 +28,7 @@ async fn library_configured(
     adjust(&mut config);
     let state = app.state.clone().with_config(config);
     let app = TestApp::around(state);
-    // What startup does with a key from the environment: list TMDb.
+    // What startup does with a key from the environment: list TMDB.
     crate::services::maintenance::converge_metadata_sources(&app.state).await.unwrap();
 
     sqlx::query(
@@ -68,7 +68,7 @@ async fn cached(app: &TestApp) -> Vec<(i64, String, String, String, String, Stri
     .unwrap()
 }
 
-/// TMDb writes ISO 639-1 but for two codes. `cn`, its Cantonese, matches no
+/// TMDB writes ISO 639-1 but for two codes. `cn`, its Cantonese, matches no
 /// rule written against `zh`, and `xx`, no language, claims the field so that
 /// no lower source fills it.
 #[tokio::test]
@@ -141,7 +141,7 @@ async fn a_retry_after_from_the_source_holds_back_the_next_request() {
 
 /// Sonarr sends one delivery per imported episode, and the webhook enriches
 /// the series on each. What the cache still holds is not fetched again: a
-/// season is one TMDb call, not one per episode.
+/// season is one TMDB call, not one per episode.
 #[tokio::test]
 async fn a_second_delivery_for_the_same_series_fetches_nothing() {
     let tmdb = FakeTmdb::start().await;
@@ -217,6 +217,27 @@ async fn certifications_and_countries_are_extracted() {
     let series = rows.iter().find(|r| r.0 == 200).unwrap();
     assert_eq!(series.4, r#"{"US":"TV-14"}"#, "series use content_ratings");
     assert!(series.3.contains("documentary"), "series keywords come under `results`");
+}
+
+/// A source's status is stored in the words the Arrs use: TMDB's "Released"
+/// for a film and "Ended" for a series read as Radarr and Sonarr write them.
+#[tokio::test]
+async fn a_status_is_stored_in_the_words_the_arrs_use() {
+    let tmdb = FakeTmdb::start().await;
+    let app = library(&tmdb, &[(1, "movie", 100), (2, "series", 200)]).await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let statuses: Vec<(String, Option<String>)> =
+        sqlx::query_as("SELECT media_type, status FROM metadata_cache ORDER BY media_type")
+            .fetch_all(&app.state.pool)
+            .await
+            .unwrap();
+    let statuses: Vec<(&str, Option<&str>)> =
+        statuses.iter().map(|(kind, status)| (kind.as_str(), status.as_deref())).collect();
+    assert_eq!(statuses, [("movie", Some("released")), ("series", Some("ended"))]);
 }
 
 #[tokio::test]
@@ -323,7 +344,7 @@ async fn media_without_an_external_id_is_skipped() {
     assert!(tmdb.recorded().paths.is_empty());
 }
 
-/// TMDb listed with no key is asked nothing: every request would be refused.
+/// TMDB listed with no key is asked nothing: every request would be refused.
 /// The same library with a key is asked, the control.
 #[tokio::test]
 async fn enrichment_is_a_no_op_without_an_api_key() {
@@ -429,7 +450,7 @@ async fn enriched_metadata_reaches_the_rule_engine() {
     assert_eq!(after.decisions[0].target_root_folder.as_deref(), Some("/movies/anime"));
 }
 
-/// A 404 says TMDb does not have that title, and nothing about the next one:
+/// A 404 says TMDB does not have that title, and nothing about the next one:
 /// ten unknown titles in a row leave the eleventh to be asked and stored.
 #[tokio::test]
 async fn titles_tmdb_does_not_have_never_cut_it_off() {
@@ -453,7 +474,7 @@ async fn titles_tmdb_does_not_have_never_cut_it_off() {
     assert_eq!(described, [500]);
 }
 
-/// TMDb down answers every title alike: the fetching stage stops at the
+/// TMDB down answers every title alike: the fetching stage stops at the
 /// breaker instead of asking once per title, and leaves the rest to the next
 /// pass.
 #[tokio::test]
@@ -472,7 +493,7 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
 }
 
 /// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
-/// when nothing is set, and a TMDb answer six months at most, as its terms
+/// when nothing is set, and a TMDB answer six months at most, as its terms
 /// require. Counted otherwise, every pass refetches the whole library, or a
 /// stale answer outlives the setting by months.
 #[tokio::test]
@@ -498,7 +519,7 @@ async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
     }
 }
 
-/// A title TMDb does not have is an answer like any other: cached for the
+/// A title TMDB does not have is an answer like any other: cached for the
 /// cache's lifetime, so the next pass does not ask again.
 #[tokio::test]
 async fn a_title_tmdb_does_not_have_is_not_asked_again_next_pass() {

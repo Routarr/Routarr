@@ -1,4 +1,4 @@
-//! An in-process TMDb stand-in.
+//! An in-process TMDB stand-in.
 //!
 //! Answering slowly and out of order is what this fake is for: enrichment pairs
 //! results with its input list, and a result that comes back out of order is
@@ -27,24 +27,24 @@ pub struct Recorded {
 #[derive(Clone)]
 struct FakeState {
     recorded: Arc<Mutex<Recorded>>,
-    /// Ids TMDb does not have: they answer 404.
+    /// Ids TMDB does not have: they answer 404.
     failing: Arc<Vec<i64>>,
-    /// Ids TMDb fails on: they answer 500.
+    /// Ids TMDB fails on: they answer 500.
     erroring: Arc<Vec<i64>>,
     /// Ids that answer slowly, to force out-of-order completion.
     slow: Arc<Vec<i64>>,
     /// The `Retry-After` seconds the next item request is refused with, a 429
     /// answered once.
     throttle: Arc<Mutex<Option<u64>>>,
-    /// The status every item request answers, as TMDb does while it is down.
+    /// The status every item request answers, as TMDB does while it is down.
     down: Option<u16>,
     /// Item requests wait until this turns true.
     open: tokio::sync::watch::Receiver<bool>,
 }
 
-/// A film TMDb says is in Cantonese, which it writes `cn`.
+/// A film TMDB says is in Cantonese, which it writes `cn`.
 pub const CANTONESE: i64 = 1101;
-/// A film TMDb says has no language, which it writes `xx`.
+/// A film TMDB says has no language, which it writes `xx`.
 pub const NO_LANGUAGE: i64 = 1102;
 
 pub struct FakeTmdb {
@@ -147,7 +147,7 @@ async fn movie(
         return StatusCode::INTERNAL_SERVER_ERROR.into_response();
     }
 
-    // Two ids answer TMDb's two codes outside ISO 639-1: `cn`, its Cantonese,
+    // Two ids answer TMDB's two codes outside ISO 639-1: `cn`, its Cantonese,
     // and `xx`, no language at all.
     let language = match id {
         CANTONESE => "cn",
@@ -159,8 +159,8 @@ async fn movie(
         "title": format!("Movie {id}"),
         "genres": [{ "id": 16, "name": "Animation" }, { "id": 10751, "name": "Family" }],
         "original_language": language,
-        // `origin_country` is absent from the movie payload, so the client must
-        // fall back to `production_countries`.
+        // Leaves `origin_country` out, as some TMDB records do, so the client
+        // falls back to `production_countries`.
         "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],
         "status": "Released",
         "overview": "Un film.",
@@ -185,7 +185,7 @@ async fn movie(
 }
 
 /// Add `block` under `name` when the request's `append_to_response` names it,
-/// as TMDb answers only the blocks it was asked for.
+/// as TMDB answers only the blocks it was asked for.
 fn appended(
     body: &mut serde_json::Value,
     query: &HashMap<String, String>,

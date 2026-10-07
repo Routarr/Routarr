@@ -42,8 +42,8 @@ services:
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
       # Only while rotating ROUTARR_SECRET_KEY. Remove it afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
-      # Optional. Set before the metadata sources are first saved, it lists TMDb
-      # after Radarr and Sonarr. Afterwards, TMDb is turned on in the interface.
+      # Optional. Set before the metadata sources are first saved, it lists TMDB
+      # after Radarr and Sonarr. Afterwards, TMDB is turned on in the interface.
       - TMDB_API_KEY=${TMDB_API_KEY:-}
     restart: unless-stopped
     # An apply that is stopping records the moves the Arr has made before the

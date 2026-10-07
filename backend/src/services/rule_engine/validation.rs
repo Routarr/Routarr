@@ -380,7 +380,7 @@ mod tests {
         }
     }
 
-    /// Every field covered, i.e. the shipped default with a TMDb key set.
+    /// Every field covered, i.e. the shipped default with a TMDB key set.
     const ALL_FIELDS: &[MetadataField] = &[
         MetadataField::Genres,
         MetadataField::Keywords,
@@ -757,7 +757,7 @@ mod tests {
         assert!(issues.iter().any(|i| i.key == "ValidationConditionNoSource"));
     }
 
-    /// A warning phrased as "no TMDb key" would be wrong: the Arr is a source
+    /// A warning phrased as "no TMDB key" would be wrong: the Arr is a source
     /// too, and it answers genres without any key at all.
     #[test]
     fn a_condition_a_keyless_source_can_answer_is_not_flagged() {

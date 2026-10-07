@@ -12,6 +12,9 @@ use crate::state::AppState;
 use super::fake_sources::FakeSources;
 use super::{TestApp, warning_messages};
 
+/// The library's titles made series, the only titles TheTVDB answers for.
+const SERIES_ALONE: &str = "UPDATE media SET media_type = 'series'";
+
 /// The ids a source was asked to describe, in order.
 fn asked(sources: &FakeSources, source: &str) -> Vec<String> {
     let recorded = sources.recorded();
@@ -115,6 +118,7 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "tvdb").await;
+    app.execute(&[SERIES_ALONE]).await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -124,7 +128,7 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     sqlx::query(
         "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tvdb_id, monitored,
          has_files)
-         VALUES ('m-2', 'inst-1', 11, 'series', 'Cowboy Bebop', 1998, 76885, 1, 1)",
+         VALUES ('m-2', 'inst-1', 11, 'series', 'Trigun', 1998, 77000, 1, 1)",
     )
     .execute(&app.state.pool)
     .await
@@ -143,10 +147,32 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     assert_eq!(cached, 2, "the read behind the expired token was not retried");
 }
 
+/// TheTVDB answers for series alone: a film carrying a TheTVDB id is neither
+/// fetched nor read from its cache.
+#[tokio::test]
+async fn thetvdb_is_never_asked_about_a_film() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "tvdb").await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+    assert!(asked(&sources, "tvdb").is_empty(), "{:?}", asked(&sources, "tvdb"));
+
+    app.execute(&[
+        "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
+                   VALUES ('tvdb', '76885', 'movie', '[\"Western\"]', '2099-01-01')",
+    ])
+    .await;
+    let explained = app.get("/api/v1/media/m-1/explain").await;
+    assert!(explained.assert_ok()["metadata"].is_null(), "a film read TheTVDB's answer");
+}
+
 #[tokio::test]
 async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "tvdb").await;
+    app.execute(&[SERIES_ALONE]).await;
 
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
@@ -160,7 +186,7 @@ async fn thetvdb_three_letter_codes_become_the_ones_rules_are_written_against() 
     .await
     .unwrap();
 
-    assert_eq!(asked(&sources, "tvdb"), ["movies/76885"]);
+    assert_eq!(asked(&sources, "tvdb"), ["series/76885"]);
     assert_eq!(row.0.as_deref(), Some("ja"), "jpn -> ja");
     assert_eq!(row.1, r#"["JP"]"#, "jpn -> JP");
     assert_eq!(row.2, r#"{"FR":"-12","US":"TV-14"}"#, "fra -> FR, usa -> US");
@@ -534,7 +560,7 @@ async fn jikan_themes_and_demographics_become_keywords() {
     assert_eq!(asked(&sources, "jikan"), ["523"], "another work was described");
     let (genres, keywords, certification, _) = cached(&app, "jikan").await.expect("cached");
     assert_eq!(genres, r#"["Adventure"]"#);
-    // The vocabulary an anime library is actually sorted by, and which TMDb
+    // The vocabulary an anime library is actually sorted by, and which TMDB
     // does not express at all.
     assert_eq!(keywords, r#"["iyashikei","kids"]"#);
     // "G - All Ages" keeps the code a rule names.
@@ -569,7 +595,7 @@ async fn every_source_contributes_what_only_it_has() {
 }
 
 /// Radarr and Sonarr report English for any original language outside the
-/// fifty-seven they know (Cantonese, which TMDb writes `cn`, Malay, Swahili),
+/// ones they list (Cantonese, which TMDB writes `cn`, Malay, Swahili),
 /// so their English is the one answer a later source may correct. Any other
 /// language they report stands, as the order says, and their English stands
 /// where no other source knows the language.
@@ -754,6 +780,9 @@ async fn a_work_a_source_does_not_have_is_not_asked_again_next_pass() {
     for source in ["tvdb", "anilist", "jikan"] {
         let sources = FakeSources::start().await;
         let app = TestApp::one_film_on(&sources, source).await;
+        if source == "tvdb" {
+            app.execute(&[SERIES_ALONE]).await;
+        }
         app.execute(&[
             "UPDATE media SET tvdb_id = 999",
             "INSERT INTO source_identifiers (source, media_type, local_key, external_id)
@@ -781,6 +810,7 @@ async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
     let revoked = FakeSources::start().await;
     revoked.revoke_tvdb_key();
     let app = library_of(&revoked, "tvdb", 20).await;
+    app.execute(&[SERIES_ALONE]).await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -790,6 +820,7 @@ async fn a_tvdb_key_refused_at_login_costs_a_handful_of_attempts() {
     let tokenless = FakeSources::start().await;
     tokenless.answer_logins_without_a_token();
     let app = library_of(&tokenless, "tvdb", 3).await;
+    app.execute(&[SERIES_ALONE]).await;
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
@@ -963,4 +994,98 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         !after.contains(&unreachable),
         "a source nobody probes any more is still reported: {after:?}"
     );
+}
+
+/// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read
+/// into every ISO language and country, and leaves the other sources' answers.
+#[tokio::test]
+async fn an_upgrade_asks_omdb_and_thetvdb_again_for_the_full_vocabularies() {
+    let pool = super::database_through("033_daily_quotas").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+         VALUES ('omdb', 'tt1', 'movie', '2099-01-01 00:00:00'),
+                ('tvdb', '2', 'series', '2099-01-01 00:00:00'),
+                ('tmdb', '3', 'movie', '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations_through(&pool, "034_full_vocabularies").await.unwrap();
+
+    let due: Vec<String> = sqlx::query_scalar(
+        "SELECT source FROM metadata_cache WHERE expires_at <= datetime('now') ORDER BY source",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(due, ["omdb", "tvdb"]);
+}
+
+/// An upgrade reads each cached status into the words the Arrs use, as a new
+/// answer is read, and drops the posters nothing reads.
+#[tokio::test]
+async fn an_upgrade_reads_cached_statuses_as_a_new_answer_would() {
+    let pool = super::database_through("034_full_vocabularies").await;
+    let statuses = [
+        "Released",
+        "Ended",
+        "FINISHED",
+        "Finished Airing",
+        "RELEASING",
+        "Currently Airing",
+        "Returning Series",
+        "Continuing",
+        "HIATUS",
+        "Planned",
+        "In Production",
+        "Post Production",
+        "Pilot",
+        "NOT_YET_RELEASED",
+        "Not yet aired",
+        "Upcoming",
+        "Rumored",
+        "Canceled",
+        "CANCELLED",
+        "Something else",
+    ];
+    for (index, raw) in statuses.iter().enumerate() {
+        for kind in ["movie", "series"] {
+            sqlx::query(
+                "INSERT INTO metadata_cache (source, external_id, media_type, status, poster_path,
+                                             expires_at)
+                 VALUES ('tmdb', ?, ?, ?, '/p.jpg', '2099-01-01 00:00:00')",
+            )
+            .bind(index.to_string())
+            .bind(kind)
+            .bind(raw)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    crate::db::run_migrations_through(&pool, "035_status_words").await.unwrap();
+
+    for (index, raw) in statuses.iter().enumerate() {
+        for kind in ["movie", "series"] {
+            let stored: Option<String> = sqlx::query_scalar(
+                "SELECT status FROM metadata_cache WHERE external_id = ? AND media_type = ?",
+            )
+            .bind(index.to_string())
+            .bind(kind)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let read = crate::integrations::status::read(raw, kind);
+            assert_eq!(stored.as_deref(), read, "{raw} for a {kind}");
+        }
+    }
+    let posters: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM pragma_table_info('metadata_cache') WHERE name = 'poster_path'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(posters, 0);
 }

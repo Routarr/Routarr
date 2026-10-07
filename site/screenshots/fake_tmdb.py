@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A TMDb stand-in for the showcase screenshots.
+"""A TMDB stand-in for the showcase screenshots.
 
 The screenshots exist to show what the rule engine does with real signals, so
 the metadata has to be real-shaped: genres, keywords, original language and

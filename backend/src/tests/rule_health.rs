@@ -346,7 +346,7 @@ async fn certifications_are_grouped_by_meaning_youngest_first() {
     let from = |age: &str| Some(localizer.translate("CertFromAge", &[("age", age)]));
     let all_ages = named("CertAllAges");
     let groups: Vec<Option<String>> = listed.iter().map(|(_, group)| group.clone()).collect();
-    // `U` from the Arr, `G` from TMDb for the same film, and `TP` twice. Then a
+    // `U` from the Arr, `G` from TMDB for the same film, and `TP` twice. Then a
     // parent's guidance, each age upwards, the unrated, and what nobody can name.
     assert_eq!(
         groups,
@@ -399,7 +399,7 @@ async fn the_facets_count_what_the_library_actually_carries() {
     );
     assert!(values("original_languages").iter().any(|l| l == "ja"));
     // Both sources answer, and both answers are offered: `PG` is the Arr's,
-    // `G` the cached TMDb one. A list holding only the first would not contain
+    // `G` the cached TMDB one. A list holding only the first would not contain
     // every value the engine can match.
     let certifications = values("certifications");
     assert!(
@@ -475,7 +475,7 @@ async fn a_disabled_source_contributes_nothing_to_the_lists() {
         .iter()
         .map(|f| f["value"].as_str().unwrap())
         .collect();
-    assert_eq!(certifications, vec!["PG"], "TMDb is off, so its `G` must not be offered");
+    assert_eq!(certifications, vec!["PG"], "TMDB is off, so its `G` must not be offered");
 }
 
 /// The count that explains a rule matching nothing for a reason no condition
@@ -488,7 +488,7 @@ async fn items_carrying_no_metadata_at_all_are_counted_apart() {
         .execute(&app.state.pool)
         .await
         .unwrap();
-    // The cached TMDb answer has to go too: an item a source still describes is
+    // The cached TMDB answer has to go too: an item a source still describes is
     // not invisible to the conditions, and counting it as such would contradict
     // the lists this endpoint returns beside the figure.
     sqlx::query("DELETE FROM metadata_cache").execute(&app.state.pool).await.unwrap();
@@ -512,7 +512,7 @@ async fn an_item_described_only_by_a_fetched_source_is_not_counted_as_bare() {
 
     let response = app.get("/api/v1/media/facets").await;
     let body = response.assert_ok();
-    assert_eq!(body["without_metadata"], 0, "TMDb still describes it: {body}");
+    assert_eq!(body["without_metadata"], 0, "TMDB still describes it: {body}");
     let genres: Vec<&str> =
         body["genres"].as_array().unwrap().iter().map(|f| f["value"].as_str().unwrap()).collect();
     assert!(genres.contains(&"Animation"), "got {genres:?}");

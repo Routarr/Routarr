@@ -247,7 +247,7 @@ fn validate(
     };
 
     match kind {
-        // Nothing to check beyond a shape nobody can predict: TMDb accepts a v3
+        // Nothing to check beyond a shape nobody can predict: TMDB accepts a v3
         // key or a v4 token, OMDb an eight-character string, TheTVDB a UUID.
         // A pattern guessed here would reject a credential the provider accepts,
         // which is worse than letting the source report that it cannot connect,

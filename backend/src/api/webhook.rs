@@ -366,9 +366,9 @@ async fn run(
         }));
     };
 
-    // Re-evaluate just this item. Radarr sends a `Download` event per imported
-    // file, so a season import would otherwise trigger one full-library
-    // simulation per episode.
+    // Re-evaluate just this item. Sonarr sends a `Download` event per imported
+    // episode file, so a season import would otherwise trigger one
+    // full-library simulation per episode.
     let result = routing::run_simulation(
         &state.pool,
         routing::SimulationOptions {

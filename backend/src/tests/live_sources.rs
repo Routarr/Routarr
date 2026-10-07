@@ -127,7 +127,7 @@ async fn jikan_answers_the_shape_the_client_expects() {
 }
 
 #[tokio::test]
-#[ignore = "hits the real TMDb API; needs TMDB_API_KEY"]
+#[ignore = "hits the real TMDB API; needs TMDB_API_KEY"]
 async fn tmdb_answers_the_shape_the_client_expects() {
     let Ok(key) = std::env::var("TMDB_API_KEY") else {
         eprintln!("skipped: TMDB_API_KEY is not set");
@@ -136,14 +136,14 @@ async fn tmdb_answers_the_shape_the_client_expects() {
 
     let tmdb = TmdbClient::new(client(), &key, crate::config::DEFAULT_TMDB_BASE_URL);
 
-    let details = tmdb.get_details(8392, "movie").await.expect("TMDb details");
+    let details = tmdb.get_details(8392, "movie").await.expect("TMDB details");
     assert!(details.genres.iter().any(|genre| genre == "Animation"), "{:?}", details.genres);
     assert_eq!(details.original_language.as_deref(), Some("ja"), "language drifted");
     assert_eq!(details.origin_countries, vec!["JP"], "country drifted");
     // The appended blocks: asked for, and answered.
     assert!(!details.keywords.is_empty(), "no keywords came back");
     assert!(details.certifications.contains_key("US"), "no US rating came back");
-    println!("TMDb 8392: {:?} / {:?}", details.genres, details.certifications);
+    println!("TMDB 8392: {:?} / {:?}", details.genres, details.certifications);
 }
 
 #[tokio::test]
@@ -192,7 +192,7 @@ async fn thetvdb_answers_the_shape_the_client_expects() {
     // worth proving against the real service.
     assert!(tvdb.test_connection().await.expect("TheTVDB login"), "TheTVDB rejected the key");
 
-    let details = tvdb.get_details(TVDB_SERIES, "series").await.expect("TheTVDB details");
+    let details = tvdb.get_details(TVDB_SERIES).await.expect("TheTVDB details");
     assert!(!details.genres.is_empty(), "TheTVDB returned no genres");
     assert_eq!(details.original_language.as_deref(), Some("ja"), "639-3 mapping drifted");
     assert_eq!(details.origin_countries, vec!["JP"], "alpha-3 mapping drifted");

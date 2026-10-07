@@ -28,6 +28,12 @@ pub struct ProviderDescription {
     pub configured: bool,
     /// The fields it can supply, so the interface can say what enabling it buys.
     pub fields: Vec<&'static str>,
+    /// The media types it answers for, `movie` and `series`: TheTVDB answers
+    /// for series alone.
+    pub media_types: Vec<&'static str>,
+    /// The site its data comes from, which the interface credits and links
+    /// to. Null for Radarr and Sonarr.
+    pub website: Option<&'static str>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -51,6 +57,8 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<ProvidersResp
             key_env: provider.key_env,
             configured: metadata::is_usable(provider, &keys),
             fields: provider.fields.iter().map(|f| f.as_str()).collect(),
+            media_types: provider.media_types.to_vec(),
+            website: provider.website,
         })
         .collect();
 

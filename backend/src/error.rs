@@ -11,7 +11,7 @@ pub enum AppError {
 
     // There is deliberately **no** variant carrying a `reqwest::Error`, and in
     // particular no `#[from]` for one. Its `Display` is
-    // `"… for url (<the full URL>)"` with the query string, and the TMDb URL
+    // `"… for url (<the full URL>)"` with the query string, and the TMDB URL
     // carries `?api_key=`: a `From` impl would put that key in a 502 body from
     // a single `?`, silently. Every outbound failure goes through
     // `integrations::send_json`, which builds `ExternalApi` from the error's
@@ -284,8 +284,8 @@ mod tests {
 
     #[test]
     fn an_empty_cause_still_reads_as_a_sentence() {
-        assert_eq!(describe_external("TMDb", 0, "   "), "TMDb is unreachable");
-        assert_eq!(describe_external("TMDb", 500, ""), "TMDb returned HTTP 500");
+        assert_eq!(describe_external("TMDB", 0, "   "), "TMDB is unreachable");
+        assert_eq!(describe_external("TMDB", 500, ""), "TMDB returned HTTP 500");
     }
 
     /// The database names its constraints, and the webhook is reachable without

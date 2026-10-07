@@ -29,7 +29,7 @@ describe('outsideTheGuide', () => {
 
   /** Finish is a click the reader may never make, and an optional step never ends. */
   it('holds nothing back once every required step is done', () => {
-    const noKey = warning('TMDb has no API key', 'metadata');
+    const noKey = warning('TMDB has no API key', 'metadata');
     const ready = onboardingStatus(['instance', 'categories', 'rule', 'simulation']);
 
     expect(outsideTheGuide([noKey], ready)).toEqual([noKey]);

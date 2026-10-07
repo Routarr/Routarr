@@ -297,7 +297,7 @@ test.describe('metadata sources', () => {
    * button wired to nothing would look perfectly fine in a screenshot.
    */
   test('reordering the sources survives a save and a reload', async ({ page }) => {
-    // TMDb has no key here and answers nothing, but a listed source is ordered
+    // TMDB has no key here and answers nothing, but a listed source is ordered
     // all the same, and it is the one every stack knows.
     await listSources('arr,tmdb');
     await page.goto('/sources');
@@ -306,7 +306,7 @@ test.describe('metadata sources', () => {
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources.getByText('Radarr / Sonarr')).toBeVisible();
 
-    await sources.getByLabel('Move up – TMDb').click();
+    await sources.getByLabel('Move up – TMDB').click();
     await page.getByRole('button', { name: 'Save', exact: true }).click();
     await expect(page.locator('.banner-success')).toBeVisible();
 
@@ -314,7 +314,7 @@ test.describe('metadata sources', () => {
     // First row of the active group, i.e. the source that now wins a contested
     // field. `.source-name` rather than `strong`: the list is two named groups
     // with a rank column, and the name is its own element.
-    await expect(sources.locator('.source-name').first()).toHaveText('TMDb');
+    await expect(sources.locator('.source-name').first()).toHaveText('TMDB');
   });
 });
 
@@ -323,14 +323,14 @@ test.describe('metadata sources without a key', () => {
 
   /**
    * A fresh installation has configured nothing yet, so nothing on screen
-   * should call it a fault: TMDb waits in the inactive group for a key, and
+   * should call it a fault: TMDB waits in the inactive group for a key, and
    * the diagnostics say nothing about it.
    */
   test('a fresh stack lists the Arr alone and raises no key warning', async ({ page }) => {
     await page.goto('/sources');
     const sources = page.locator('#setting-metadata_providers');
-    await expect(sources.getByRole('button', { name: 'Enable – TMDb' })).toBeDisabled();
-    await expect(sources.getByLabel('TMDb', { exact: true })).toHaveAttribute(
+    await expect(sources.getByRole('button', { name: 'Enable – TMDB' })).toBeDisabled();
+    await expect(sources.getByLabel('TMDB', { exact: true })).toHaveAttribute(
       'placeholder',
       /TMDB_API_KEY/,
     );
@@ -339,16 +339,16 @@ test.describe('metadata sources without a key', () => {
     // its silence is read.
     await page.goto('/diagnostics');
     await expect(page.locator('.source-name')).toHaveText(['Radarr / Sonarr']);
-    await expect(page.getByText(/TMDb is in the source list/)).toHaveCount(0);
+    await expect(page.getByText(/TMDB is in the source list/)).toHaveCount(0);
 
-    // The same reading finds the warning once TMDb is listed without its key.
+    // The same reading finds the warning once TMDB is listed without its key.
     await listSources('arr,tmdb');
     await page.reload();
-    await expect(page.getByText(/TMDb is in the source list/)).toBeVisible();
+    await expect(page.getByText(/TMDB is in the source list/)).toBeVisible();
   });
 
   /**
-   * The stack runs with no TMDb, OMDb or TheTVDB key, which is exactly the
+   * The stack runs with no TMDB, OMDb or TheTVDB key, which is exactly the
    * state this has to render honestly: those sources answer nothing, and the
    * list is a priority order, so showing them as ordinary would describe a
    * configuration the engine does not have. Only a real browser can tell that
@@ -362,9 +362,9 @@ test.describe('metadata sources without a key', () => {
     const sources = page.locator('#setting-metadata_providers');
     await expect(sources).toBeVisible();
 
-    // TMDb is listed and has no key here: it stays in the list, in its
+    // TMDB is listed and has no key here: it stays in the list, in its
     // position, and says so in words rather than only by being greyed.
-    const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDb' });
+    const tmdb = sources.locator('.source-row').filter({ hasText: 'TMDB' });
     await expect(tmdb.getByText('inactive', { exact: true })).toBeVisible();
 
     // OMDb is not in the list and cannot be put in it until a key is given.

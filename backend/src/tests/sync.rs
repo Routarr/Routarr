@@ -468,7 +468,7 @@ async fn a_scheduled_sync_lists_the_root_folders_once_a_day() {
 }
 
 /// A corrected secondary id is a metadata fix, not an Arr id given to another
-/// title: only the id the Arr holds unique tells that, the TMDb id of a film
+/// title: only the id the Arr holds unique tells that, the TMDB id of a film
 /// and the TheTVDB id of a series. The exception and the proposal stay.
 #[tokio::test]
 async fn a_title_whose_secondary_id_was_corrected_keeps_its_exception() {

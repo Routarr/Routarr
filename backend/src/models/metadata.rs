@@ -1,7 +1,7 @@
 //! Metadata as the engine consumes it, and as each source supplies it.
 //!
 //! Two shapes on purpose. `ProviderMetadata` is one source's answer, complete
-//! or not: Radarr knows the genres but not the keywords, TMDb knows both.
+//! or not: Radarr knows the genres but not the keywords, TMDB knows both.
 //! `MediaMetadata` is what the rule engine sees: the answers of every enabled
 //! source collapsed field by field, plus the record of which source won each
 //! field, without which "genre does not contain Animation" becomes impossible
@@ -66,7 +66,6 @@ pub struct ProviderMetadata {
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
-    pub poster_path: Option<String>,
 }
 
 /// What every enabled source, taken in priority order, adds up to.
@@ -84,8 +83,16 @@ pub struct MediaMetadata {
     /// or `MAL` for MyAnimeList's. Absent when the source did not say.
     #[serde(default)]
     pub certification_scale: Option<String>,
+    /// Where the title stands, in the words Radarr and Sonarr use: `tba`,
+    /// `announced`, `inCinemas` or `released` for a film, `upcoming`,
+    /// `continuing` or `ended` for a series.
     pub status: Option<String>,
+    /// The synopsis of the first source in the order that gives one.
     pub overview: Option<String>,
+    /// Always null: posters are not fetched. Kept until the next major
+    /// version for the clients that read it.
+    #[schema(deprecated)]
+    #[serde(default)]
     pub poster_path: Option<String>,
     /// Field name -> the source that supplied it. Only populated fields appear.
     #[serde(default)]
@@ -100,8 +107,8 @@ impl MediaMetadata {
     ///
     /// Per field, the first source that has a value keeps it and the ones below
     /// do not overwrite it: a lower-priority source only fills a gap. That is
-    /// the whole point of the ordering: with Radarr above TMDb the genres come
-    /// from the library, and TMDb still contributes the keywords Radarr has no
+    /// the whole point of the ordering: with Radarr above TMDB the genres come
+    /// from the library, and TMDB still contributes the keywords Radarr has no
     /// notion of. Returns `None` when no source knew anything a condition
     /// reads, so `has_metadata` keeps meaning "something matchable is known
     /// about this item".
@@ -162,13 +169,6 @@ impl MediaMetadata {
                 "overview",
                 &mut merged.field_sources,
             );
-            take_value(
-                &mut merged.poster_path,
-                part.poster_path,
-                source,
-                "poster_path",
-                &mut merged.field_sources,
-            );
 
             // A source may come twice, the Arr's English being offered last.
             if merged.field_sources.len() > before && !merged.sources.iter().any(|s| s == source) {
@@ -176,9 +176,9 @@ impl MediaMetadata {
             }
         }
 
-        // Known means *matchable*. A source that supplied only a synopsis, a
-        // status or a poster is still listed, since it did answer and the
-        // panel says so, but no condition reads any of the three. An item
+        // Known means *matchable*. A source that supplied only a synopsis or a
+        // status is still listed, since it did answer and the panel says so,
+        // but no condition reads either. An item
         // holding nothing else is as blind to the engine as one holding
         // nothing at all, and counting it would have the library list say
         // "metadata" about an item no rule can touch.
@@ -272,7 +272,7 @@ mod tests {
     fn a_lower_source_fills_the_gaps_instead_of_being_ignored() {
         let merged = MediaMetadata::merge([("arr", arr()), ("tmdb", tmdb())]).unwrap();
 
-        // Radarr has no notion of either, so TMDb still contributes them.
+        // Radarr has no notion of either, so TMDB still contributes them.
         assert_eq!(merged.keywords, vec!["anime"]);
         assert_eq!(merged.origin_countries, vec!["JP"]);
         assert_eq!(merged.source_of("keywords"), Some("tmdb"));
@@ -285,7 +285,7 @@ mod tests {
 
         assert_eq!(merged.genres, vec!["Fantasy"]);
         assert_eq!(merged.source_of("genres"), Some("tmdb"));
-        // TMDb answers every field the Arr could have answered, so the Arr adds
+        // TMDB answers every field the Arr could have answered, so the Arr adds
         // nothing at all from this position. That is the honest reading of
         // "lower priority", not a bug.
         assert_eq!(merged.sources, vec!["tmdb"]);

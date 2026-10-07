@@ -1015,7 +1015,7 @@
             "type": "object"
           },
           {
-            "description": "The title's TMDb id is one of these.",
+            "description": "The title's TMDB id is one of these.",
             "properties": {
               "type": {
                 "enum": [
@@ -1024,7 +1024,7 @@
                 "type": "string"
               },
               "value": {
-                "description": "The title's TMDb id is one of these.",
+                "description": "The title's TMDB id is one of these.",
                 "items": {
                   "format": "int64",
                   "type": "integer"
@@ -2622,12 +2622,15 @@
             ]
           },
           "overview": {
+            "description": "The synopsis of the first source in the order that gives one.",
             "type": [
               "string",
               "null"
             ]
           },
           "poster_path": {
+            "deprecated": true,
+            "description": "Always null: posters are not fetched. Kept until the next major\nversion for the clients that read it.",
             "type": [
               "string",
               "null"
@@ -2641,6 +2644,7 @@
             "type": "array"
           },
           "status": {
+            "description": "Where the title stands, in the words Radarr and Sonarr use: `tba`,\n`announced`, `inCinemas` or `released` for a film, `upcoming`,\n`continuing` or `ended` for a series.",
             "type": [
               "string",
               "null"
@@ -3766,8 +3770,22 @@
               "null"
             ]
           },
+          "media_types": {
+            "description": "The media types it answers for, `movie` and `series`: TheTVDB answers\nfor series alone.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "needs_key": {
             "type": "boolean"
+          },
+          "website": {
+            "description": "The site its data comes from, which the interface credits and links\nto. Null for Radarr and Sonarr.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -3776,7 +3794,8 @@
           "fetched",
           "needs_key",
           "configured",
-          "fields"
+          "fields",
+          "media_types"
         ],
         "type": "object"
       },
@@ -4652,7 +4671,7 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `source_quota_spent`,\n`instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.\nThe list may grow.",
+            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `source_quota_spent`,\n`instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`,\n`auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.\nThe list may grow.",
             "type": "string"
           },
           "guide_step": {
@@ -5977,7 +5996,7 @@
             }
           },
           {
-            "description": "Only the titles with this TMDb id.",
+            "description": "Only the titles with this TMDB id.",
             "in": "query",
             "name": "tmdb_id",
             "required": false,
@@ -6332,7 +6351,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,
@@ -6398,7 +6417,7 @@
         "x-routarr-scope": "write"
       },
       "put": {
-        "description": "For an application that knows the title by its TMDb, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
+        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
         "operationId": "pin_by_external_id",
         "parameters": [
           {
@@ -6411,7 +6430,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,
@@ -6772,7 +6791,7 @@
     },
     "/route": {
       "get": {
-        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDb or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
+        "description": "For each enabled Arr of the title's kind, or the one `instance` names. A\ntitle the library holds is decided as a simulation decides it. One the\nlibrary does not hold is looked up in the Arr and decided the same way,\nand its `action` is `add`. Nothing is stored. `unanswered_fields` lists what\nthe rules read and no source answered, which `enrich=true` asks the sources\nfor. Radarr looks a movie up by its TMDB or IMDb id, Sonarr a series by its\nTheTVDB or IMDb id. 404 when no instance knows the title.",
         "operationId": "place_title",
         "parameters": [
           {
@@ -6785,7 +6804,7 @@
             }
           },
           {
-            "description": "The title's TMDb id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
+            "description": "The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`\nand `imdb`.",
             "in": "query",
             "name": "tmdb",
             "required": false,

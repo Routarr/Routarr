@@ -116,7 +116,7 @@ Each of these questions has one function. Call it, never spell the question agai
 ## Sources and outbound HTTP
 
 - Evaluation reads the configured order (`metadata_order`) whatever the keys, so a cached
-  answer keeps counting after its key is removed, a TMDb one until the purge removes it at
+  answer keeps counting after its key is removed, a TMDB one until the purge removes it at
   six months (`metadata::cache_days`). Fetching and the "no source can answer" warnings read
   `metadata_providers`, the subset able to answer today.
 - A new source needs a `PROVIDERS` entry with its `Addressing` and a `FetchingSource` variant,
@@ -125,8 +125,9 @@ Each of these questions has one function. Call it, never spell the question agai
   endpoint, `AppState::metadata_sources`, and for a keyed source `provider_key_from` and
   `provider_keys_from`.
 - A source answers in Routarr's vocabulary: an ISO 639-1 language code and an ISO 3166-1
-  alpha-2 country code, converted through `backend/src/integrations/language.rs`. A name or a
-  three-letter code stored as it came matches no rule written against `ja` or `JP`.
+  alpha-2 country code, converted through `backend/src/integrations/language/`, whose tables
+  hold every ISO language and country. A name or a three-letter code stored as it came
+  matches no rule written against `ja` or `JP`.
 - A source that rates sets `certification_scale` in `metadata::fetch`: the country whose system
   the rating belongs to, or `MAL`. `routing::keep_the_regions_rating` puts the first region's
   rating ahead of the source order, so a rating left without its scale loses to every region's.
@@ -136,7 +137,7 @@ Each of these questions has one function. Call it, never spell the question agai
 - Every call uses the shared `state.http`, never `reqwest::Client::new()`: the shared client
   carries the timeout and the same-origin redirect policy that keeps `X-Api-Key` from leaking.
 - Send through `integrations::send_json` or `send_ok`. Never format a `reqwest::Error` with
-  `Display`: it embeds the URL, and a TMDb URL carries `?api_key=`.
+  `Display`: it embeds the URL, and a TMDB URL carries `?api_key=`.
 
 ## Localization
 

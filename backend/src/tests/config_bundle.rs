@@ -183,7 +183,7 @@ async fn nothing_reproducible_is_carried() {
     let bundle = export(&app).await;
 
     // The library, the decision history and the metadata cache all come back
-    // from the Arrs and TMDb. Carrying them would bloat the bundle past being
+    // from the Arrs and TMDB. Carrying them would bloat the bundle past being
     // readable for no gain.
     for absent in ["media", "decisions", "metadata_cache", "jobs", "execution_logs"] {
         assert!(bundle.get(absent).is_none(), "{absent} has no business in a bundle");

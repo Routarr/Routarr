@@ -250,7 +250,7 @@ impl AppState {
         keys
     }
 
-    /// A TMDb client, when a key is stored or set, read from a settings snapshot.
+    /// A TMDB client, when a key is stored or set, read from a settings snapshot.
     pub fn tmdb_from(&self, settings: &Settings) -> Option<TmdbClient> {
         let key = self.provider_key_from(settings, metadata::TMDB)?;
         Some(TmdbClient::new(self.http.clone(), &key, &self.config.tmdb_base_url))

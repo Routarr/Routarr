@@ -805,7 +805,7 @@ describe('every screen names and dates things one way', () => {
 
   /** Sentence case, as every other title and button is written. */
   it('capitalises no common word after the first in a title or a menu entry', () => {
-    const PROPER = /^(Radarr|Sonarr|Routarr|TMDb|Arr|API|URL)$/;
+    const PROPER = /^(Radarr|Sonarr|Routarr|TMDB|Arr|API|URL)$/;
     const keys = new Set(titles().flatMap(({ nav, title }) => [nav, title!]));
     for (const button of ['NewRule', 'NewCategory', 'NewOverride', 'AddInstance']) keys.add(button);
     const loud = [...keys]

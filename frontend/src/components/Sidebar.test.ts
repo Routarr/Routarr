@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { fireEvent, screen } from '@testing-library/svelte';
 
 import { SCREENS } from '../lib/routes';
 import { renderWithI18n } from '../test/render';
@@ -41,6 +41,7 @@ const STRINGS = {
   Logs: 'Move log',
   Diagnostics: 'Diagnostics',
   Settings: 'Settings',
+  AboutRoutarr: 'About Routarr',
 };
 
 const show = (props: Record<string, unknown> = {}) =>
@@ -52,6 +53,18 @@ afterEach(() => {
 });
 
 describe('Sidebar', () => {
+  /** The version opens what Routarr is, its licence and its sources' credits. */
+  it('opens the About dialog from the version', async () => {
+    const onAbout = vi.fn();
+    show({ version: '0.2.0', onAbout });
+
+    const version = screen.getByRole('button', { name: /v0\.2\.0/ });
+    expect(version).toHaveAttribute('title', 'About Routarr');
+    await fireEvent.click(version);
+
+    expect(onAbout).toHaveBeenCalledOnce();
+  });
+
   it('names every destination, even when the rail hides the label', async () => {
     show();
 

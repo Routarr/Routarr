@@ -172,7 +172,7 @@ pub enum Condition {
     #[serde(rename = "title_contains")]
     TitleContains(Vec<String>),
 
-    /// The title's TMDb id is one of these.
+    /// The title's TMDB id is one of these.
     #[serde(rename = "tmdb_id_in")]
     TmdbIdIn(Vec<i64>),
 
@@ -272,10 +272,10 @@ impl Condition {
 
     /// The metadata field this condition reads, if any.
     ///
-    /// Naming the field rather than answering "does this need TMDb?" is what
+    /// Naming the field rather than answering "does this need TMDB?" is what
     /// lets Routarr tell the user *which* source is missing: with Radarr alone
     /// enabled, a genre rule is fine and a keyword rule cannot match, and a
-    /// single "does this need TMDb?" answer would warn about both alike.
+    /// single "does this need TMDB?" answer would warn about both alike.
     pub fn metadata_field(&self) -> Option<MetadataField> {
         Some(match self {
             Condition::GenreContains(_)

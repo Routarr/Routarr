@@ -1,4 +1,4 @@
-//! TMDb API v3 client.
+//! TMDB API v3 client.
 //!
 //! Details, keywords and certifications come back in a single request through
 //! `append_to_response`. Fetching them separately costs a call per item and
@@ -14,7 +14,7 @@ use tracing::debug;
 use super::{language, send_json};
 use crate::error::{AppError, AppResult};
 
-const SERVICE: &str = "TMDb";
+const SERVICE: &str = "TMDB";
 
 #[derive(Debug, Clone)]
 pub struct TmdbClient {
@@ -92,7 +92,6 @@ struct RawMovie {
     production_countries: Vec<ProductionCountry>,
     status: Option<String>,
     overview: Option<String>,
-    poster_path: Option<String>,
     #[serde(default)]
     keywords: KeywordsBlock,
     #[serde(default)]
@@ -111,7 +110,6 @@ struct RawTv {
     production_countries: Vec<ProductionCountry>,
     status: Option<String>,
     overview: Option<String>,
-    poster_path: Option<String>,
     #[serde(default)]
     keywords: KeywordsBlock,
     #[serde(default)]
@@ -129,7 +127,6 @@ pub struct TmdbDetails {
     pub certifications: BTreeMap<String, String>,
     pub status: Option<String>,
     pub overview: Option<String>,
-    pub poster_path: Option<String>,
 }
 
 impl TmdbClient {
@@ -141,7 +138,7 @@ impl TmdbClient {
         }
     }
 
-    /// TMDb accepts a v3 key as an `api_key` query parameter and a v4 token as a
+    /// TMDB accepts a v3 key as an `api_key` query parameter and a v4 token as a
     /// bearer. Users paste either, and sending *both* forms every time would
     /// put a v4 token in the query string, where a mirror, a caching proxy or
     /// an access log would record it. A v4 token is a JWT, so telling them
@@ -169,7 +166,7 @@ impl TmdbClient {
 
     /// Fetch everything Routarr needs about a movie in one request.
     pub async fn get_movie(&self, tmdb_id: i64) -> AppResult<TmdbDetails> {
-        debug!("Fetching TMDb movie {tmdb_id}");
+        debug!("Fetching TMDB movie {tmdb_id}");
         let raw: RawMovie = send_json(
             SERVICE,
             self.get(
@@ -187,13 +184,12 @@ impl TmdbClient {
             certifications: movie_certifications(&raw.release_dates),
             status: raw.status,
             overview: raw.overview,
-            poster_path: raw.poster_path,
         })
     }
 
     /// Fetch everything Routarr needs about a series in one request.
     pub async fn get_tv(&self, tmdb_id: i64) -> AppResult<TmdbDetails> {
-        debug!("Fetching TMDb series {tmdb_id}");
+        debug!("Fetching TMDB series {tmdb_id}");
         let raw: RawTv = send_json(
             SERVICE,
             self.get(
@@ -211,7 +207,6 @@ impl TmdbClient {
             certifications: tv_certifications(&raw.content_ratings),
             status: raw.status,
             overview: raw.overview,
-            poster_path: raw.poster_path,
         })
     }
 
@@ -239,7 +234,7 @@ fn merge_keywords(block: KeywordsBlock) -> Vec<String> {
     all
 }
 
-/// `origin_country` is only populated on some TMDb records. The production
+/// `origin_country` is only populated on some TMDB records. The production
 /// countries stand in for it, so `origin_country` conditions still have data to
 /// work with.
 fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<String> {
@@ -250,7 +245,7 @@ fn countries(origin: Vec<String>, production: Vec<ProductionCountry>) -> Vec<Str
 }
 
 /// Each country's rating of a film: the first of its releases there that is
-/// rated, since TMDb lists a release before its rating is known.
+/// rated, since TMDB lists a release before its rating is known.
 fn movie_certifications(block: &ReleaseDatesBlock) -> BTreeMap<String, String> {
     rated(block.results.iter().map(|entry| {
         let rating = entry.release_dates.iter().map(|r| r.certification.as_str());
@@ -288,7 +283,7 @@ mod tests {
     #[test]
     fn a_v4_token_is_told_apart_from_a_v3_key() {
         // Sending a v4 token as a query parameter would write it into every
-        // access log between here and TMDb.
+        // access log between here and TMDB.
         assert!(is_v4_token("eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJ4In0.c2lnbmF0dXJl"));
         assert!(!is_v4_token("0123456789abcdef0123456789abcdef"));
         assert!(!is_v4_token(""));
@@ -296,10 +291,10 @@ mod tests {
         assert!(!is_v4_token("eyJnotajwt"));
     }
 
-    /// A captured-shape TMDb movie, appended blocks included, through the
+    /// A captured-shape TMDB movie, appended blocks included, through the
     /// real types: the fields the client ignores, a release with an empty
     /// certification before the rated one, and `origin_country` beside the
-    /// production countries. A change in TMDb's shape surfaces here.
+    /// production countries. A change in TMDB's shape surfaces here.
     #[test]
     fn a_real_shape_movie_payload_deserialises() {
         let json = r#"{
@@ -377,7 +372,7 @@ mod tests {
         assert_eq!(out, vec!["KR"]);
     }
 
-    /// TMDb lists a release before its rating is known: the first rated
+    /// TMDB lists a release before its rating is known: the first rated
     /// release of each country is its rating.
     #[test]
     fn a_film_is_rated_by_its_first_rated_release_in_each_country() {

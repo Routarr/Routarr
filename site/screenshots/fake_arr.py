@@ -45,7 +45,7 @@ TAGS = [{"id": 1, "label": "4k"}, {"id": 2, "label": "rewatch"}, {"id": 3, "labe
 
 
 # What a real Radarr or Sonarr carries in its payload and Routarr's `arr`
-# source reads without a request: without these, every shot would show TMDb
+# source reads without a request: without these, every shot would show TMDB
 # supplying everything, which the FAQ says is not how it works.
 DETAILS = {
     "Akira": (["Animation", "Science Fiction"], "Japanese", "R"),

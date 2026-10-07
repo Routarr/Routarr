@@ -27,12 +27,12 @@ pub async fn converge(state: &AppState) -> AppResult<()> {
     Ok(())
 }
 
-/// List TMDb when the environment hands in its key and nobody chose the
+/// List TMDB when the environment hands in its key and nobody chose the
 /// sources yet.
 ///
-/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDb on, and the
+/// The Compose file offers `TMDB_API_KEY` as the way to turn TMDB on, and the
 /// shipped order is the Arr alone: without this, the key would be read and
-/// never used. A list already stored is left as it is, TMDb in it or not,
+/// never used. A list already stored is left as it is, TMDB in it or not,
 /// since taking a source out is a choice the environment must not undo.
 ///
 /// Converged at startup rather than resolved on each read, because routing
@@ -52,7 +52,7 @@ pub async fn converge_metadata_sources(state: &AppState) -> AppResult<bool> {
     .rows_affected()
         > 0;
     if listed {
-        info!("TMDB_API_KEY is set, so TMDb joins the metadata sources after Radarr and Sonarr");
+        info!("TMDB_API_KEY is set, so TMDB joins the metadata sources after Radarr and Sonarr");
     }
     Ok(listed)
 }
@@ -378,7 +378,7 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
-    // TMDb's terms forbid keeping its answers past six months, whether a key
+    // TMDB's terms forbid keeping its answers past six months, whether a key
     // still refreshes them or not.
     report.metadata_cache_removed += sqlx::query(
         "DELETE FROM metadata_cache WHERE source = ? AND cached_at < datetime('now', ?)",
@@ -801,7 +801,7 @@ mod tests {
         );
     }
 
-    /// TMDb's terms forbid keeping its answers past six months: one cached
+    /// TMDB's terms forbid keeping its answers past six months: one cached
     /// longer goes though its title is still in the library, and another
     /// source's stays at any age.
     #[tokio::test]

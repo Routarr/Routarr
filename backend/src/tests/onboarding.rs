@@ -278,7 +278,7 @@ async fn a_library_already_in_place_ticks_the_simulation_step() {
 async fn a_source_listed_with_its_key_ticks_the_metadata_step() {
     let keyless = TestApp::new().await;
     keyless.list_tmdb().await;
-    assert!(!done(&steps(&keyless).await, "metadata"), "TMDb without a key answers nothing");
+    assert!(!done(&steps(&keyless).await, "metadata"), "TMDB without a key answers nothing");
 
     let mut config = crate::config::Config::for_tests();
     config.tmdb_api_key = Some("from-the-environment".into());

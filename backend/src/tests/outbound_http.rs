@@ -1,6 +1,6 @@
 //! What the shared outbound client does with a redirect.
 //!
-//! Every call to a Radarr, a Sonarr or TMDb carries a credential in a *custom*
+//! Every call to a Radarr, a Sonarr or TMDB carries a credential in a *custom*
 //! header (`X-Api-Key`). reqwest strips `Authorization` and `Cookie` when a
 //! redirect crosses to another host, but it has no way to know a custom header
 //! is sensitive, so a redirect would forward the key verbatim.

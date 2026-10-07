@@ -3,7 +3,7 @@
   import { Lock, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
   import { DECISION_ACTION_KEY } from '../api/format';
-  import { describeError } from '../lib/async.svelte';
+  import { createAsync, describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import Confidence from './Confidence.svelte';
@@ -16,6 +16,42 @@
   // The sources line holds arrows that mirror between its values, so the
   // summary is cut where the values go and drawn around them.
   const sourcesLine = $derived(t('MetadataSourcesLine', { sources: '\u0000' }).split('\u0000'));
+
+  /**
+   * Each source named and linked to its site, as the sources' terms ask of
+   * whoever shows their data. Until the catalogue answers, its id stands in.
+   */
+  const catalogue = createAsync((signal) => api.getMetadataProviders(signal));
+  const providerOf = (id: string) => catalogue.data?.providers.find((p) => p.id === id);
+
+  /** A sentence cut where its source goes, so the source is drawn as a link. */
+  const around = (key: string, params: Record<string, string> = {}) =>
+    t(key, { ...params, source: '\u0000' }).split('\u0000');
+
+  /**
+   * The dictionary key naming a title's status, in the words Radarr and Sonarr
+   * write it, which every metadata source's status is read into.
+   */
+  const ARR_STATUS_KEY: Record<string, string> = {
+    tba: 'ArrStatusTba',
+    announced: 'ArrStatusAnnounced',
+    inCinemas: 'ArrStatusInCinemas',
+    released: 'ArrStatusReleased',
+    upcoming: 'ArrStatusUpcoming',
+    continuing: 'ArrStatusContinuing',
+    ended: 'ArrStatusEnded',
+    deleted: 'ArrStatusDeleted',
+  };
+
+  const status = $derived(data.metadata?.status ?? null);
+  const statusLine = $derived(
+    status
+      ? around('MetadataStatusLine', {
+          status: ARR_STATUS_KEY[status] ? t(ARR_STATUS_KEY[status]) : status,
+        })
+      : [],
+  );
+  const synopsisLine = $derived(around('SynopsisFrom'));
 
   /**
    * Pinning is one click because the panel already holds the whole answer.
@@ -53,6 +89,17 @@
   };
 </script>
 
+{#snippet named(id: string)}
+  {@const provider = providerOf(id)}
+  {#if provider?.website}
+    <a class="text-link" href={provider.website} target="_blank" rel="noopener noreferrer"
+      >{provider.display_name}</a
+    >
+  {:else}
+    {provider?.display_name ?? id}
+  {/if}
+{/snippet}
+
 <Modal label={data.media.title} {onClose} maxWidth={780} maxHeight="88vh">
   <div class="modal-header">
     <h2 class="modal-title">{data.media.title}</h2>
@@ -80,6 +127,7 @@
   </div>
 
   <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
+  <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
 
   <div class="card card-inset">
     <div class="flex items-center justify-between">
@@ -136,10 +184,23 @@
       </div>
       <!-- Which sources actually contributed, in priority order. With one
            source this is obvious. With several it is the only way to know
-           whether a genre came from the library or from TMDb. -->
+           whether a genre came from the library or from TMDB. -->
+      {#if status}
+        <p class="text-md mt-2">
+          {statusLine[0]}{@render named(data.metadata.field_sources.status ?? '')}{statusLine[1]}
+        </p>
+      {/if}
+      {#if data.metadata.overview}
+        <p class="text-md mt-2">{data.metadata.overview}</p>
+        <p class="text-muted text-sm mt-1">
+          {synopsisLine[0]}{@render named(
+            data.metadata.field_sources.overview ?? '',
+          )}{synopsisLine[1]}
+        </p>
+      {/if}
       <p class="text-muted text-sm mt-2">
         {sourcesLine[0]}{#each data.metadata.sources as source, index (source)}
-          {#if index > 0}<span class="dir-aware"> → </span>{/if}{source}
+          {#if index > 0}<span class="dir-aware"> → </span>{/if}{@render named(source)}
         {/each}{sourcesLine[1]}
       </p>
     </div>

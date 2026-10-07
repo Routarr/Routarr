@@ -162,8 +162,8 @@ describe('ConditionValue', () => {
   /** Dropped without a word, `603, 6O4` saves one id and the second title is never routed. */
   it('names an entry it cannot read as an id, and marks the field', async () => {
     const onChange = vi.fn();
-    show({ spec: spec({ value_type: 'number_list', label: 'TMDb id' }), value: [], onChange });
-    const field = screen.getByLabelText('TMDb id');
+    show({ spec: spec({ value_type: 'number_list', label: 'TMDB id' }), value: [], onChange });
+    const field = screen.getByLabelText('TMDB id');
 
     await fireEvent.input(field, { target: { value: '603, 6O4' } });
 

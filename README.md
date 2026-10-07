@@ -30,7 +30,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
 - **Safe by default**: six gates in a fixed order, the first to object stopping the rest (global
   dry-run, batch limit, reachability, capacity, a confirmation threshold you set, and a revalidation
   at the moment of writing). Every applied move can be reverted.
-- **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDb,
+- **Metadata without API keys**: Radarr and Sonarr themselves, AniList and Jikan, with TMDB,
   OMDb and TheTVDB optional, in the order you choose.
 - **Real time**: Radarr/Sonarr webhooks, and optional routing of new titles before they download.
 - **Several instances** of Radarr 4.2 or later and Sonarr 4 or later, on Linux or Windows: a
@@ -44,7 +44,7 @@ the rule that matched, a confidence and a justification.](.github/assets/simulat
   What they may call is a stable contract, served by your instance at `/api/v1/openapi.json`
   and listed on its API reference screen. A first call is at
   [routarr.app/api](https://routarr.app/api/).
-- **Where would it go?** Ask by TMDb, TheTVDB or IMDb id, before the title is even added: a
+- **Where would it go?** Ask by TMDB, TheTVDB or IMDb id, before the title is even added: a
   request bot learns the folder the rules choose, and nothing is stored.
 - **Backups**, configuration export, Prometheus metrics, and notifications written for Discord,
   ntfy, Gotify or Apprise, or as JSON for any other receiver, signed as Standard Webhooks
@@ -122,7 +122,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
    `/data/movies/4k` for an Arr in a Linux container, `D:\Movies\4K` or `\\nas\films` for one on
    Windows.
 3. **Metadata sources** (optional): Radarr and Sonarr already supply genres, language and
-   certification. Enable TMDb or another source there for keywords and origin country.
+   certification. Enable TMDB or another source there for keywords and origin country.
 4. **Rules**: write rules and preview their impact.
 5. **Simulation**: run it, read the justifications, apply what you agree with.
 6. **Settings** (optional): turn off the global dry-run once you trust the result.
@@ -168,3 +168,17 @@ covers the setup, the dev container and the checks CI runs. Security issues go t
 ## Licence
 
 [GPL-3.0-only](LICENSE), like Radarr and Sonarr. Routarr is not affiliated with the Servarr project.
+
+## Data sources
+
+The metadata sources you enable are credited in the interface, on the Metadata sources screen and
+in About, as their terms ask.
+
+- Routarr uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by
+  [TMDB](https://www.themoviedb.org).
+- Metadata provided by [TheTVDB](https://thetvdb.com). Please consider adding missing information
+  or subscribing.
+- Data from [OMDb](https://www.omdbapi.com), licensed under
+  [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
+- Data from [AniList](https://anilist.co), and from [MyAnimeList](https://myanimelist.net) through
+  [Jikan](https://jikan.moe).

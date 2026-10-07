@@ -1,7 +1,7 @@
 //! Which rating a rule reads when several sources rate one title, and how the
 //! interface names the ratings and the countries a library holds.
 //!
-//! Each rating belongs to a country's system: TMDb and TheTVDB rate for many
+//! Each rating belongs to a country's system: TMDB and TheTVDB rate for many
 //! countries, of which the certification regions pick one, OMDb rates for the
 //! United States, a Radarr for the country its metadata settings name, a
 //! Sonarr for the United States, and MyAnimeList has a system of its own. The
@@ -12,7 +12,7 @@ use super::fake_arr::FakeArr;
 use serde_json::json;
 
 /// The seeded library with the Arr rating Totoro `arr` in its instance's
-/// `country`, and TMDb rating it `tmdb` in `tmdb_country`, under `regions`.
+/// `country`, and TMDB rating it `tmdb` in `tmdb_country`, under `regions`.
 async fn rated(
     arr: Option<&str>,
     country: &str,
@@ -37,7 +37,7 @@ async fn rated(
     app
 }
 
-/// TMDb's answer for Totoro, rating it as `by_country` says, as the
+/// TMDB's answer for Totoro, rating it as `by_country` says, as the
 /// enrichment stores it.
 async fn tmdb_rates(app: &TestApp, by_country: serde_json::Value) {
     sqlx::query(
@@ -68,7 +68,7 @@ async fn the_arrs_rating_stands_when_it_alone_rates_the_title() {
 #[tokio::test]
 async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     // The Arr rates for the US and MyAnimeList in its own system, both
-    // outside France, and TMDb rates for no region.
+    // outside France, and TMDB rates for no region.
     let app = rated_by_myanimelist("R+", "PG").await;
     app.execute(&[
         "UPDATE media SET certification = 'PG-13' WHERE id = 'm-1'",
@@ -83,7 +83,7 @@ async fn ratings_outside_the_regions_follow_the_order_of_the_sources() {
     assert_ne!(app.decided_category().await, "anime", "MyAnimeList is listed first");
 }
 
-/// TMDb and TheTVDB rate a title for many countries, and the regions pick one
+/// TMDB and TheTVDB rate a title for many countries, and the regions pick one
 /// each time the answer is read: a change of regions holds from the next
 /// simulation, with nothing asked again.
 #[tokio::test]
@@ -107,7 +107,7 @@ async fn a_region_change_reaches_the_cached_tmdb_rating() {
 }
 
 /// A blank rating claims nothing, as the merge of the sources treats it: the
-/// Arr's empty one, first in the order and in the region, leaves TMDb's.
+/// Arr's empty one, first in the order and in the region, leaves TMDB's.
 #[tokio::test]
 async fn a_blank_rating_does_not_erase_a_real_one() {
     let app = rated(Some(""), "US", Some("PG"), "US", "US").await;
@@ -134,6 +134,44 @@ async fn a_sync_reads_the_country_a_radarr_rates_for_and_a_sonarr_rates_for_the_
             .await
             .unwrap();
     assert_eq!(country.as_deref(), Some("US"));
+}
+
+/// Whether `/status` warns that an Arr's rating country changed.
+async fn changed(app: &TestApp) -> bool {
+    let status = app.get("/api/v1/status").await;
+    let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
+    warnings.iter().any(|warning| warning["code"] == "certification_country_changed")
+}
+
+/// Radarr picks a film's rating when it reads the film's metadata, and reads
+/// an old film again only every 180 days. After its country changes, the films
+/// it rated before keep the previous country's ratings: the operator is told
+/// to refresh them, until a sync they ask for after doing so.
+#[tokio::test]
+async fn a_changed_rating_country_asks_for_every_film_to_be_refreshed() {
+    use crate::jobs::{Attribution, TRIGGER_SCHEDULE};
+    use crate::services::sync::sync_instance;
+    let arr = FakeArr::start().await;
+    let app = TestApp::synced_from("radarr", &arr).await;
+    let scheduled = Attribution::unattended(TRIGGER_SCHEDULE);
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(!changed(&app).await, "the first country read is no change");
+
+    arr.rate_for("gb");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(changed(&app).await, "the change was not reported");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    assert!(changed(&app).await, "a scheduled sync cleared it");
+
+    sync_instance(&app.state, "inst-1", &Attribution::manual(None)).await.unwrap();
+    assert!(!changed(&app).await, "the sync asked for after the refresh kept it");
+
+    arr.rate_for("fr");
+    sync_instance(&app.state, "inst-1", &scheduled).await.unwrap();
+    app.execute(&["UPDATE instances SET certification_country_changed_at =
+                       datetime('now', '-181 days')"])
+        .await;
+    assert!(!changed(&app).await, "Radarr has refreshed every film on its own by then");
 }
 
 #[tokio::test]
@@ -185,7 +223,7 @@ async fn a_retired_country_is_named_in_the_readers_language() {
 }
 
 /// A library holding one rating MyAnimeList gave, `code`, and the US rating
-/// `us` TMDb gave.
+/// `us` TMDB gave.
 async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
     let app = TestApp::new().await;
     app.seed_library().await;
@@ -242,7 +280,7 @@ async fn an_r_is_named_once_every_system_giving_it_agrees_on_its_age() {
 }
 
 /// An upgrade gives every cached rating the system it was issued under where
-/// the source settles it, and has TMDb and TheTVDB asked again for theirs,
+/// the source settles it, and has TMDB and TheTVDB asked again for theirs,
 /// which they rated for a region they did not name.
 #[tokio::test]
 async fn an_upgrade_gives_each_cached_rating_its_system() {
@@ -259,7 +297,7 @@ async fn an_upgrade_gives_each_cached_rating_its_system() {
     .await
     .unwrap();
 
-    crate::db::run_migrations(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, "015_certification_scale").await.unwrap();
 
     let rows: Vec<(String, Option<String>, bool)> = sqlx::query_as(
         "SELECT source || ':' || external_id, certification_scale, expires_at <= datetime('now')
@@ -280,7 +318,7 @@ async fn an_upgrade_gives_each_cached_rating_its_system() {
     assert_eq!(rows, expected);
 }
 
-/// An upgrade moves the one rating each TMDb and TheTVDB answer kept under
+/// An upgrade moves the one rating each TMDB and TheTVDB answer kept under
 /// its country, and has them asked again for every country's.
 #[tokio::test]
 async fn an_upgrade_keeps_each_cached_rating_under_its_country() {
@@ -298,7 +336,7 @@ async fn an_upgrade_keeps_each_cached_rating_under_its_country() {
     .await
     .unwrap();
 
-    crate::db::run_migrations(&pool).await.unwrap();
+    crate::db::run_migrations_through(&pool, "032_every_regions_rating").await.unwrap();
 
     type Row = (String, String, Option<String>, Option<String>, bool);
     let rows: Vec<Row> = sqlx::query_as(

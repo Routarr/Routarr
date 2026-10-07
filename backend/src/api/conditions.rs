@@ -352,7 +352,7 @@ pub async fn condition_catalog(State(state): State<AppState>) -> Json<ConditionC
 
     // Whether a condition can match depends on which sources are enabled, so
     // the catalogue answers it rather than the interface marking it
-    // "(needs TMDb)" once and for all.
+    // "(needs TMDB)" once and for all.
     let covered = metadata::covered_fields(&state.metadata_providers().await);
 
     let conditions = CONDITIONS

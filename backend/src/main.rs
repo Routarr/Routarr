@@ -531,7 +531,7 @@ fn build_router(state: AppState) -> Router {
         .route("/decisions/revert", post(api::decisions::revert))
         .route("/overrides", get(api::overrides::list).post(api::overrides::create))
         // Pins by the id another service gives a title, for an application that
-        // knows the title by its TMDb, TheTVDB or IMDb id and not by Routarr's.
+        // knows the title by its TMDB, TheTVDB or IMDb id and not by Routarr's.
         .route(
             "/overrides/external",
             put(api::overrides::pin_external).delete(api::overrides::unpin_external),

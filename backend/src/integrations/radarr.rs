@@ -53,7 +53,7 @@ pub struct RadarrMovie {
     /// Tag ids the user attached in Radarr.
     #[serde(default)]
     pub tags: Vec<i64>,
-    /// Metadata Radarr already holds, so there is no reason to ask TMDb for it
+    /// Metadata Radarr already holds, so there is no reason to ask TMDB for it
     /// a second time. Free: it is in this very payload.
     #[serde(default)]
     pub genres: Vec<String>,
@@ -163,7 +163,7 @@ impl RadarrClient {
         send_json(SERVICE, self.get(&format!("/api/v3/movie/{id}"))).await
     }
 
-    /// A movie as TMDb or IMDb names it, whether the library holds it or not,
+    /// A movie as TMDB or IMDb names it, whether the library holds it or not,
     /// `None` when Radarr knows no such movie.
     pub async fn lookup_movie(&self, id: &ExternalId) -> AppResult<Option<RadarrMovie>> {
         let request = match id {
@@ -175,16 +175,16 @@ impl RadarrClient {
             }
             ExternalId::Tvdb(_) => {
                 return Err(AppError::BadRequest(
-                    "Radarr looks a movie up by its TMDb or IMDb id.".into(),
+                    "Radarr looks a movie up by its TMDB or IMDb id.".into(),
                 ));
             }
         };
         let found: RadarrMovie = match send_json(SERVICE, request).await {
             Ok(movie) => movie,
             Err(AppError::ExternalApi { status: 404, .. }) => return Ok(None),
-            // Radarr answers an id TMDb does not know with a 500 naming its
+            // Radarr answers an id TMDB does not know with a 500 naming its
             // `MovieNotFoundException`: "Movie with tmdbId 1 was not found, it
-            // may have been removed from TMDb."
+            // may have been removed from TMDB."
             Err(AppError::ExternalApi { status: 500, ref message, .. })
                 if message.starts_with("Movie with ") && message.contains(" was not found") =>
             {
@@ -192,7 +192,7 @@ impl RadarrClient {
             }
             Err(e) => return Err(e),
         };
-        // The lookup builds the film afresh from TMDb, with no id, folder or
+        // The lookup builds the film afresh from TMDB, with no id, folder or
         // tags even when the library holds it: the library is asked for that,
         // and its answer held to the id asked, since a proxy or a fork that
         // ignores the filter answers the whole library.
