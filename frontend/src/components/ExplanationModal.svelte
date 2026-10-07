@@ -1,17 +1,24 @@
 <script lang="ts">
   import { api } from '../api/client';
-  import { Lock, ShieldCheck } from '../lib/icons';
+  import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
-  import { DECISION_ACTION_KEY } from '../api/format';
+  import { DECISION_ACTION_KEY, formatCount } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
+  import { createOutcome } from '../lib/outcome.svelte';
+  import { invalidateStatus } from '../lib/status.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
+  import OutcomeBanner from './OutcomeBanner.svelte';
   import Confidence from './Confidence.svelte';
   import EmptyState from './EmptyState.svelte';
   import Modal from './Modal.svelte';
 
   /** Condition-by-condition trace of why a media item lands where it does. */
   let { data, onClose }: { data: Explanation; onClose: () => void } = $props();
+
+  /** The explanation read again once the sources were asked again, else the one given. */
+  let refreshed = $state<Explanation | null>(null);
+  const view = $derived(refreshed ?? data);
 
   // The sources line holds arrows that mirror between its values, so the
   // summary is cut where the values go and drawn around them.
@@ -43,7 +50,7 @@
     deleted: 'ArrStatusDeleted',
   };
 
-  const status = $derived(data.metadata?.status ?? null);
+  const status = $derived(view.metadata?.status ?? null);
   const statusLine = $derived(
     status
       ? around('MetadataStatusLine', {
@@ -69,15 +76,40 @@
     pinError = null;
     try {
       await api.pinRuleTest(
-        t('PinnedCaseName', { title: data.media.title, category: data.target_category }),
-        data.media.id,
-        data.target_category,
+        t('PinnedCaseName', { title: view.media.title, category: view.target_category }),
+        view.media.id,
+        view.target_category,
       );
       pinned = true;
     } catch (err) {
       pinError = describeError(err);
     } finally {
       pinning = false;
+    }
+  }
+
+  /**
+   * Asks every source again about this title, its AniList and MyAnimeList
+   * matches forgotten, then reads the explanation again from what they said.
+   */
+  const outcome = createOutcome();
+  let refreshing = $state(false);
+
+  async function refresh() {
+    refreshing = true;
+    try {
+      const { answered } = await api.refreshTitleMetadata(view.media.id);
+      refreshed = await api.explainMedia(view.media.id);
+      invalidateStatus();
+      if (answered > 0) {
+        outcome.succeed(t('TitleRefreshed', { count: formatCount(answered, i18n.language) }));
+      } else {
+        outcome.warn(t('TitleRefreshedByNone'));
+      }
+    } catch (err) {
+      outcome.fail(err);
+    } finally {
+      refreshing = false;
     }
   }
 
@@ -100,10 +132,19 @@
   {/if}
 {/snippet}
 
-<Modal label={data.media.title} {onClose} maxWidth={780} maxHeight="88vh">
+<Modal label={view.media.title} {onClose} maxWidth={780} maxHeight="88vh">
   <div class="modal-header">
-    <h2 class="modal-title">{data.media.title}</h2>
+    <h2 class="modal-title">{view.media.title}</h2>
     <div class="flex gap-2 items-center">
+      <button
+        class="btn btn-secondary btn-sm"
+        disabled={refreshing}
+        onclick={() => void refresh()}
+        title={t('RefreshTitleMetadataHint')}
+      >
+        <RefreshCw size={14} />
+        {t('RefreshTitleMetadata')}
+      </button>
       <!-- Disabled once taken rather than hidden: a button that vanishes leaves
            the user unsure whether it worked. -->
       <button
@@ -128,57 +169,58 @@
 
   <ErrorBanner message={pinError} onDismiss={() => (pinError = null)} />
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
+  <OutcomeBanner {outcome} />
 
   <div class="card card-inset">
     <div class="flex items-center justify-between">
       <div>
         <div class="text-muted text-md">{t('ProposedCategory')}</div>
         <div class="flex items-center gap-2 mt-2">
-          <span class="badge badge-value">{data.target_category}</span>
-          {#if data.override_category}
+          <span class="badge badge-value">{view.target_category}</span>
+          {#if view.override_category}
             <span class="badge badge-value muted">
               <Lock size={11} aria-hidden="true" />
               {t('ManualOverride')}
             </span>
           {/if}
-          <span class="badge badge-value muted">{t(DECISION_ACTION_KEY[data.action])}</span>
+          <span class="badge badge-value muted">{t(DECISION_ACTION_KEY[view.action])}</span>
         </div>
       </div>
       <div class="w-120">
         <div class="text-muted text-md">{t('Confidence')}</div>
-        <div class="mt-2"><Confidence value={data.confidence} meter /></div>
+        <div class="mt-2"><Confidence value={view.confidence} meter /></div>
       </div>
     </div>
 
     <p class="text-muted text-md mt-4">
-      <span class="mono">{data.media.current_root_folder ?? t('None')}</span>
+      <span class="mono">{view.media.current_root_folder ?? t('None')}</span>
       <span class="dir-aware">→</span>
-      <span class="mono">{data.target_root_folder ?? t('NoRootFolderMapped')}</span>
+      <span class="mono">{view.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
-    {#if !data.instance_enabled}
+    {#if !view.instance_enabled}
       <p class="text-warning text-md mt-2">{t('ExplainInstanceOff')}</p>
     {/if}
   </div>
 
-  {#if data.metadata}
+  {#if view.metadata}
     <div class="card">
       <div class="card-header">
         <h3 class="card-title">{t('MetadataTitle')}</h3>
       </div>
       <div class="flex flex-wrap gap-2 mt-2">
-        {#each data.metadata.genres as genre (genre)}
+        {#each view.metadata.genres as genre (genre)}
           <span class="badge badge-info">{genre}</span>
         {/each}
       </div>
       <p class="text-muted text-md mt-2">
         {t('MetadataSummary', {
-          language: data.metadata.original_language ?? t('None'),
-          countries: data.metadata.origin_countries.join(t('ListSeparator')) || t('None'),
-          certification: data.metadata.certification ?? t('None'),
+          language: view.metadata.original_language ?? t('None'),
+          countries: view.metadata.origin_countries.join(t('ListSeparator')) || t('None'),
+          certification: view.metadata.certification ?? t('None'),
         })}
       </p>
       <div class="flex flex-wrap gap-2 mt-2">
-        {#each data.metadata.keywords.slice(0, 15) as keyword (keyword)}
+        {#each view.metadata.keywords.slice(0, 15) as keyword (keyword)}
           <span class="badge badge-plain">{keyword}</span>
         {/each}
       </div>
@@ -187,19 +229,19 @@
            whether a genre came from the library or from TMDB. -->
       {#if status}
         <p class="text-md mt-2">
-          {statusLine[0]}{@render named(data.metadata.field_sources.status ?? '')}{statusLine[1]}
+          {statusLine[0]}{@render named(view.metadata.field_sources.status ?? '')}{statusLine[1]}
         </p>
       {/if}
-      {#if data.metadata.overview}
-        <p class="text-md mt-2">{data.metadata.overview}</p>
+      {#if view.metadata.overview}
+        <p class="text-md mt-2">{view.metadata.overview}</p>
         <p class="text-muted text-sm mt-1">
           {synopsisLine[0]}{@render named(
-            data.metadata.field_sources.overview ?? '',
+            view.metadata.field_sources.overview ?? '',
           )}{synopsisLine[1]}
         </p>
       {/if}
       <p class="text-muted text-sm mt-2">
-        {sourcesLine[0]}{#each data.metadata.sources as source, index (source)}
+        {sourcesLine[0]}{#each view.metadata.sources as source, index (source)}
           {#if index > 0}<span class="dir-aware"> → </span>{/if}{@render named(source)}
         {/each}{sourcesLine[1]}
       </p>
@@ -212,10 +254,10 @@
     <div class="card-header">
       <h3 class="card-title">{t('RuleEvaluation')}</h3>
     </div>
-    {#if data.rule_traces.length === 0}
+    {#if view.rule_traces.length === 0}
       <EmptyState>{t('NoRuleApplies')}</EmptyState>
     {:else}
-      {#each data.rule_traces as trace (trace.rule_id)}
+      {#each view.rule_traces as trace (trace.rule_id)}
         <div class="mt-4">
           <div class="flex items-center gap-2">
             <strong>{trace.rule_name}</strong>

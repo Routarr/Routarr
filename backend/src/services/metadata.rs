@@ -668,6 +668,28 @@ pub async fn load_identifiers(connection: &mut sqlx::SqliteConnection) -> AppRes
 }
 
 /// The resolutions made for one item, which is all one media page reads.
+/// Whether the cached answer of `source` for `external_id` was asked for
+/// again. An answer that cannot be read is taken as current: asking a source
+/// on a database error is a request spent for nothing.
+pub async fn is_stale(
+    pool: &SqlitePool,
+    source: &str,
+    external_id: &str,
+    media_type: &str,
+) -> bool {
+    let stale: Option<bool> = sqlx::query_scalar(
+        "SELECT stale FROM metadata_cache WHERE source = ? AND external_id = ? AND media_type = ?",
+    )
+    .bind(source)
+    .bind(external_id)
+    .bind(media_type)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    stale.unwrap_or(false)
+}
+
 pub async fn load_identifiers_of(
     connection: &mut sqlx::SqliteConnection,
     media: &[Media],

@@ -40,6 +40,10 @@ const STRINGS = {
   MetadataStatusLine: 'Status: {status}, from {source}',
   SynopsisFrom: 'Synopsis from {source}',
   ArrStatusReleased: 'Released',
+  RefreshTitleMetadata: 'Ask the sources again',
+  RefreshTitleMetadataHint: 'Reads this title again.',
+  TitleRefreshed: 'Sources that answered: {count}',
+  TitleRefreshedByNone: 'No source answered.',
 };
 
 function explanation(over: Partial<Explanation> = {}): Explanation {
@@ -98,6 +102,44 @@ describe('ExplanationModal', () => {
     await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('already a case');
+  });
+
+  /**
+   * A refresh shows what the sources say now: the explanation is read again
+   * once they have answered, and how many did is said, a refresh none of them
+   * answered included.
+   */
+  it('reads the explanation again once the sources were asked again', async () => {
+    const asked = vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 2 });
+    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation({ target_category: 'kids' }));
+    show(explanation());
+
+    await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
+
+    expect(await screen.findByText('Sources that answered: 2')).toBeTruthy();
+    expect(screen.getByText('kids')).toBeTruthy();
+    expect(asked).toHaveBeenCalledWith(explanation().media.id);
+  });
+
+  it('says so when no source answered a refresh', async () => {
+    vi.spyOn(api, 'refreshTitleMetadata').mockResolvedValue({ answered: 0 });
+    vi.spyOn(api, 'explainMedia').mockResolvedValue(explanation());
+    show(explanation());
+
+    await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
+
+    expect(await screen.findByText('No source answered.')).toBeTruthy();
+  });
+
+  it('announces a refresh that was refused', async () => {
+    vi.spyOn(api, 'refreshTitleMetadata').mockRejectedValue(
+      new ApiError('a pass is running', 409, 'conflict'),
+    );
+    show(explanation());
+
+    await fireEvent.click(screen.getByRole('button', { name: /ask the sources again/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('a pass is running');
   });
 
   it('says where the item is and where it would go', () => {

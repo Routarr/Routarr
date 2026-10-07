@@ -563,6 +563,7 @@ fn build_router(state: AppState) -> Router {
         .route("/notifications/test", post(api::notifications::test))
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/metadata/providers", get(api::metadata::list))
+        .route("/metadata/refresh", post(api::metadata::refresh))
         .route("/config/export", get(api::config::export))
         .route("/config/import", post(api::config::import))
         .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));

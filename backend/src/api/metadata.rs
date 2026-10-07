@@ -1,4 +1,5 @@
-//! The metadata sources this build knows about.
+//! The metadata sources this build knows about, and a refresh of what they
+//! answered.
 //!
 //! The Settings screen needs the whole catalogue, not just the enabled part:
 //! a source can only be added back to the priority list if the interface knows
@@ -7,10 +8,14 @@
 
 use super::Json;
 use axum::extract::State;
-use serde::Serialize;
+use axum::http::HeaderMap;
+use axum::response::Response;
+use serde::{Deserialize, Serialize};
 
-use crate::error::AppResult;
-use crate::services::metadata;
+use crate::api::auth::Identity;
+use crate::api::jobs::{answer, prefers_async};
+use crate::error::{AppError, AppResult};
+use crate::services::{enrichment, metadata};
 use crate::state::AppState;
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -63,4 +68,48 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<ProvidersResp
         .collect();
 
     Ok(Json(ProvidersResponse { providers, order }))
+}
+
+/// What to ask the sources again about: one source's answers, one title's,
+/// both, or everything when neither is named.
+#[derive(Debug, Default, Deserialize)]
+pub struct RefreshRequest {
+    pub source: Option<String>,
+    pub media_id: Option<String>,
+}
+
+/// Ask the sources again, as a task. A title is asked at once, its search
+/// matches forgotten; a source or everything is marked due and read by a
+/// pass, refused while one runs.
+pub async fn refresh(
+    State(state): State<AppState>,
+    axum::Extension(identity): axum::Extension<Identity>,
+    headers: HeaderMap,
+    Json(request): Json<RefreshRequest>,
+) -> AppResult<Response> {
+    let source = match request.source.as_deref() {
+        None => None,
+        Some(id) => Some(
+            metadata::info(id)
+                .filter(|provider| provider.fetched)
+                .ok_or_else(|| {
+                    AppError::BadRequest(format!("'{id}' is not a source Routarr asks"))
+                })?
+                .id,
+        ),
+    };
+    let by = identity.attribution();
+    let task_state = state.clone();
+    match request.media_id {
+        Some(id) => {
+            let media = crate::api::media::load_media(&state, &id).await?;
+            let work =
+                async move { enrichment::refresh_title(&task_state, &by, &media, source).await };
+            answer(&state, prefers_async(&headers), work).await
+        }
+        None => {
+            let work = async move { enrichment::refresh(&task_state, &by, source).await };
+            answer(&state, prefers_async(&headers), work).await
+        }
+    }
 }

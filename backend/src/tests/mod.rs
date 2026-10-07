@@ -37,6 +37,7 @@ mod placement;
 mod provider_keys;
 pub(crate) mod races;
 mod ratings;
+mod refresh;
 mod routing;
 mod rule_health;
 mod rule_tests;

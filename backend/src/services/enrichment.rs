@@ -22,7 +22,7 @@ use crate::services::routing;
 use crate::state::AppState;
 
 /// Outcome of an enrichment pass.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct EnrichmentReport {
     /// Titles a source that has to search for its own identifiers looked for.
     pub searched: usize,
@@ -46,6 +46,37 @@ enum NotAsked {
 /// Enrich every media item whose metadata is missing or expired, source by
 /// source, in the user's priority order.
 pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
+    let _pass = pass_lock(state).await?;
+    run_pass(state, by).await
+}
+
+/// Ask `source`, or every source, again for each answer it gave, then run a
+/// pass that reads them. Refused before anything is marked while a pass
+/// runs: that pass counted its titles already, and the refresh would wait
+/// for the next.
+pub async fn refresh(
+    state: &AppState,
+    by: &Attribution,
+    source: Option<&'static str>,
+) -> AppResult<EnrichmentReport> {
+    let _pass = pass_lock(state).await?;
+    sqlx::query("UPDATE metadata_cache SET stale = 1 WHERE ?1 IS NULL OR source = ?1")
+        .bind(source)
+        .execute(&state.pool)
+        .await?;
+    run_pass(state, by).await
+}
+
+async fn pass_lock(state: &AppState) -> AppResult<crate::jobs::JobLock> {
+    match state.jobs.try_lock("enrich") {
+        Some(lock) => Ok(lock),
+        None => Err(AppError::Conflict(
+            state.localizer().await.translate("ErrorEnrichmentInProgress", &[]),
+        )),
+    }
+}
+
+async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
     // Built on `metadata_providers`, the sources able to answer today: a source
     // with no key would fail every request of the pass. Evaluation reads the
     // whole `metadata_order` instead, so what a source answered before its key
@@ -56,11 +87,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
         return Ok(EnrichmentReport::default());
     }
 
-    let Some(_lock) = state.jobs.try_lock("enrich") else {
-        return Err(AppError::Conflict("An enrichment pass is already running".into()));
-    };
-
-    let job =
+    let mut job =
         state.jobs.start(JobKind::Enrich, by, None, Detail::new("JobDetailEnriching")).await?;
 
     let mut report = EnrichmentReport::default();
@@ -88,6 +115,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
         Ok(()) => {
             let counted = report.searched + report.considered;
             job.progress(counted, counted).await;
+            job.report(&report);
             job.succeed(
                 Detail::new("JobDetailEnriched")
                     .with("enriched", report.enriched)
@@ -593,7 +621,11 @@ pub async fn ask_now(
         // A search on record that found nothing is not run again here: the
         // enrichment pass searches again once the miss is old enough.
         let missed = identifiers.get(&searched).is_some_and(Option::is_none);
-        if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
+        // An answer asked for again counts as none.
+        if let Some(external) =
+            known.as_deref().filter(|external| cached.contains_key(&key(external)))
+            && !metadata::is_stale(&state.pool, source.id(), external, &media.media_type).await
+        {
             continue;
         }
         let pace = state.paces.of(&source);
@@ -648,7 +680,96 @@ pub async fn ask_now(
 /// stored as a full pass would store it.
 pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
     let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
-    let fresh = ask_now(state, media, Some(deadline)).await;
+    store_fresh(state, &ask_now(state, media, Some(deadline)).await).await.map(|_| ())
+}
+
+/// What asking the sources again about one title found.
+#[derive(Debug, serde::Serialize)]
+pub struct TitleRefresh {
+    /// The sources that gave an answer.
+    pub answered: usize,
+}
+
+/// Ask the sources again about `media`, or `source` alone: its answers are
+/// marked stale and its search match forgotten, so a wrong AniList or
+/// MyAnimeList match is searched for anew, then each source is asked what
+/// the title lacks. An answer a source does not give stays stale for the
+/// next pass.
+pub async fn refresh_title(
+    state: &AppState,
+    by: &Attribution,
+    media: &Media,
+    source: Option<&'static str>,
+) -> AppResult<TitleRefresh> {
+    let detail = |key| Detail::new(key).with("title", &media.title);
+    let mut job =
+        state.jobs.start(JobKind::Enrich, by, None, detail("JobDetailRefreshingTitle")).await?;
+    let outcome = async {
+        forget_title(state, media, source).await?;
+        store_fresh(state, &ask_now(state, media, None).await).await
+    }
+    .await;
+    match outcome {
+        Ok(answered) => {
+            let refreshed = TitleRefresh { answered };
+            job.report(&refreshed);
+            job.succeed(detail("JobDetailRefreshedTitle").with("answered", answered)).await;
+            Ok(refreshed)
+        }
+        Err(e) => {
+            job.fail(&e).await;
+            Err(e)
+        }
+    }
+}
+
+/// Mark `media`'s answers stale, `source`'s alone when named, and forget
+/// what each searched source found for it.
+async fn forget_title(
+    state: &AppState,
+    media: &Media,
+    source: Option<&'static str>,
+) -> AppResult<()> {
+    let title = std::slice::from_ref(media);
+    let identifiers = {
+        let mut connection = state.pool.acquire().await?;
+        metadata::load_identifiers_of(&mut connection, title).await?
+    };
+    let asked = metadata::PROVIDERS
+        .iter()
+        .filter(|provider| provider.fetched && source.is_none_or(|id| id == provider.id));
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    for provider in asked {
+        if let Some(external) = metadata::external_id(provider, media, &identifiers) {
+            sqlx::query(
+                "UPDATE metadata_cache SET stale = 1
+                  WHERE source = ? AND external_id = ? AND media_type = ?",
+            )
+            .bind(provider.id)
+            .bind(&external)
+            .bind(&media.media_type)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if provider.addressing == Addressing::Search {
+            sqlx::query(
+                "DELETE FROM source_identifiers
+                  WHERE source = ? AND media_type = ? AND local_key = ?",
+            )
+            .bind(provider.id)
+            .bind(&media.media_type)
+            .bind(metadata::local_key(media))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Store what [`ask_now`] found, as a pass stores it, and answer how many
+/// answers that was.
+async fn store_fresh(state: &AppState, fresh: &routing::Fresh) -> AppResult<usize> {
     for ((source, media_type, local_key), external) in &fresh.identifiers {
         metadata::remember_identifier(
             &state.pool,
@@ -662,7 +783,7 @@ pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
     for ((source, external, media_type), data) in &fresh.metadata {
         store_metadata(&state.pool, source, external, media_type, data).await?;
     }
-    Ok(())
+    Ok(fresh.metadata.len())
 }
 
 async fn store_metadata(

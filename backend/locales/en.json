@@ -458,6 +458,7 @@
   "ErrorInstanceDisabled": "Instance '{name}' is disabled, so nothing is written to it.",
   "ErrorNoSelection": "No decision selected",
   "ErrorNotEnoughSpace": "{path} would receive {needed} but reports only {free} free.",
+  "ErrorEnrichmentInProgress": "The sources are already being read. Ask again once that task ends.",
   "ErrorSimulationInProgress": "A simulation is already running.",
   "Evaluated": "Evaluated",
   "EvaluatingRules": "Evaluating rules…",
@@ -539,6 +540,8 @@
   "JobDetailEnriching": "Enriching metadata",
   "JobDetailFetching": "Reading the metadata from {source}",
   "JobDetailIdentifying": "Finding each title on {source}",
+  "JobDetailRefreshedTitle": "Sources that answered about {title}: {answered}",
+  "JobDetailRefreshingTitle": "Asking the sources again about {title}",
   "JobDetailInterrupted": "Interrupted by a Routarr restart",
   "JobDetailNoOutcome": "The task ended without reporting an outcome, see the server log",
   "JobDetailPanicked": "The scheduled pass stopped on an internal error: {cause}",
@@ -1161,5 +1164,14 @@
   "WebhookTriggersRadarr": "Tick On Movie Added, On Import, On Rename, On Movie Delete and On Movie File Delete.",
   "WebhookTriggersSonarr": "Tick On Series Add, On Import, On Rename, On Series Delete and On Episode File Delete.",
   "WebhookUrlWithToken": "Webhook URL for an older Arr",
-  "WebhookUrlWithTokenHelp": "Radarr before 5.16 and Sonarr before 4.0.11 send no header: paste this address instead, the token in it."
+  "WebhookUrlWithTokenHelp": "Radarr before 5.16 and Sonarr before 4.0.11 send no header: paste this address instead, the token in it.",
+  "RefreshTitleMetadata": "Ask the sources again",
+  "RefreshTitleMetadataHint": "Reads this title again from every source, and searches AniList and MyAnimeList for it anew.",
+  "TitleRefreshed": "Sources that answered: {count}",
+  "TitleRefreshedByNone": "No source answered. The next pass asks them again.",
+  "SourceRefreshTitle": "Read the answers again",
+  "SourceRefreshHelp": "Routarr reads a source's answers again once they are older than the cache lifetime. After a source corrects its data, read its answers again now.",
+  "SourceRefresh": "Read again",
+  "SourceRefreshed": "{source}: answers read again: {enriched}, failed: {failed}",
+  "SourceRefreshNone": "No source to read again: Radarr and Sonarr's metadata comes with each sync."
 }
