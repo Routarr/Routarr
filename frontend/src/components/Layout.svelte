@@ -11,6 +11,7 @@
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
   import { statusRevision } from '../lib/status.svelte';
+  import { proofRequest } from '../lib/proof.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
     onboarding,
@@ -19,7 +20,6 @@
   } from '../lib/onboarding.svelte';
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
-  import ProofDialog from './ProofDialog.svelte';
   import Sidebar from './Sidebar.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
@@ -421,5 +421,11 @@
   {/if}
 
   <ConfirmDialog />
-  <ProofDialog />
+  <!-- Fetched the first time a screen asks for a proof: only two screens do,
+       and the shell is what every visit downloads. -->
+  {#if proofRequest.request}
+    {#await import('./ProofDialog.svelte') then { default: ProofDialog }}
+      <ProofDialog />
+    {/await}
+  {/if}
 {/if}
