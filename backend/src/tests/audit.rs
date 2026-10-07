@@ -215,6 +215,8 @@ async fn the_export_says_each_event_in_the_configured_language() {
     let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let csv = String::from_utf8(body.to_vec()).unwrap();
     let french = crate::localization::Localizer::new("fr").translate("AuditApiKeyRefused", &[]);
+    let english = crate::localization::Localizer::new("en").translate("AuditApiKeyRefused", &[]);
+    assert_ne!(french, english, "French falls back to English, which proves nothing here");
     assert!(csv.lines().nth(1).is_some_and(|line| line.contains(&french)), "{csv}");
     assert!(csv.contains("203.0.113.21"), "{csv}");
 }
