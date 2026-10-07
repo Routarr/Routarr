@@ -240,7 +240,7 @@ describe('CommandPalette', () => {
 
     // A term that names a screen as well as a film: what must survive the
     // failure is the half that never needed the network.
-    await userEvent.type(screen.getByRole('combobox'), 'log');
+    await userEvent.type(screen.getByRole('combobox'), 'logs');
     await screen.findByRole('alert');
     expect(screen.getByRole('option')).toHaveTextContent('Logs');
 
