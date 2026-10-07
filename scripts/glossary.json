@@ -394,5 +394,67 @@
       "zh_CN": "媒体库",
       "zh_TW": "媒體庫"
     }
+  },
+  "session": {
+    "en": "\\bsessions?\\b",
+    "except": [],
+    "words": {
+      "ar": "جلس",
+      "ca": "sessi",
+      "cs": "relac",
+      "da": "session",
+      "de": "sitzung",
+      "el": "συνεδρ",
+      "es": "sesi[oó]n",
+      "fi": "istun",
+      "fr": "session",
+      "hu": "munkamenet",
+      "it": "session",
+      "ja": "セッション",
+      "ko": "세션",
+      "nb_NO": "økt",
+      "nl": "sessie",
+      "pl": "sesj",
+      "pt": "sess",
+      "ro": "sesiun",
+      "ru": "сеанс",
+      "sk": "relác",
+      "sv": "session",
+      "tr": "oturum",
+      "uk": "сеанс",
+      "zh_CN": "会话",
+      "zh_TW": "工作階段"
+    }
+  },
+  "passphrase": {
+    "en": "\\bpassphrases?\\b",
+    "except": [],
+    "words": {
+      "ar": "عبار\\S* (ال)?مرور",
+      "ca": "frases? de pas",
+      "cs": "přístupov\\w* fráz",
+      "da": "adgangssætning",
+      "de": "passphrase",
+      "el": "φράσ\\w* πρόσβασης",
+      "es": "frases? de contraseña",
+      "fi": "salalau",
+      "fr": "phrases? secrètes?",
+      "hu": "jelmondat",
+      "it": "passphrase",
+      "ja": "パスフレーズ",
+      "ko": "암호 문구",
+      "nb_NO": "passfrase",
+      "nl": "wachtwoordzin",
+      "pl": "fraz\\w* hasła",
+      "pt": "frases?-passe",
+      "ro": "fraz\\w* de acces",
+      "ru": "парольн\\w* фраз",
+      "sk": "prístupov\\w* fráz",
+      "sv": "lösenfras",
+      "tr": "parola ifade",
+      "uk": "парольн\\w* фраз",
+      "zh_CN": "密码短语",
+      "zh_TW": "密碼片語"
+    }
   }
 }
