@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { nthCall } from '../test/spy';
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
@@ -52,6 +52,7 @@ const STRINGS = {
   MetadataSources: 'Metadata sources',
   SettingMetadataTtl: 'Cache lifetime',
   SettingsTabGeneral: 'General',
+  SettingsTabSecurity: 'Security',
   GuideTitle: 'Getting started',
   GuideRestartText: 'Show the steps again.',
   GuideRestart: 'Show the guide',
@@ -751,7 +752,7 @@ describe('the section strip', () => {
     await fireEvent.keyDown(general, { key: 'ArrowRight' });
 
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'Routing' }).getAttribute('aria-selected')).toBe(
+      expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe(
         'true',
       ),
     );
@@ -974,6 +975,10 @@ describe('importing a configuration', () => {
  * the card is also where one is minted.
  */
 describe('the API key card', () => {
+  // Who may come in is the Security section's.
+  beforeEach(() => window.history.replaceState({}, '', '/settings#security'));
+  afterEach(() => window.history.replaceState({}, '', '/settings'));
+
   it('is offered in the mode whose only credential it is', async () => {
     mount({}, { mode: 'apikey', api_key_configured: true, api_key_pinned: false });
 

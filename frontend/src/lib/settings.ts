@@ -350,6 +350,14 @@ export const SECTIONS = [
     keys: ['ui_language', 'ui_theme'],
   },
   {
+    // Who may come in and what they did: the key, the account and the
+    // sessions are drawn beside this field (`SettingsEditor`).
+    id: 'security',
+    page: 'settings',
+    labelKey: 'SettingsTabSecurity',
+    keys: ['security_log_retention_days'],
+  },
+  {
     id: 'routing',
     page: 'settings',
     labelKey: 'SettingsTabRouting',
@@ -388,7 +396,6 @@ export const SECTIONS = [
       'backup_retention_count',
       'decision_retention_days',
       'log_retention_days',
-      'security_log_retention_days',
     ],
   },
   {

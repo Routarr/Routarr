@@ -218,7 +218,7 @@ test.describe('the API key card', () => {
    * browser against a real server can tell which of the two shipped.
    */
   test('offers no rotation while the environment sets the key', async ({ page }) => {
-    await page.goto('/settings#general');
+    await page.goto('/settings#security');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 
     await expect(page.getByRole('heading', { name: 'Routarr API key' })).toBeVisible();

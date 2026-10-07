@@ -35,7 +35,7 @@
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
-  import { guardLeaving, navigate } from '../lib/router.svelte';
+  import { guardLeaving, href, navigate } from '../lib/router.svelte';
   import { downloadJson } from '../lib/download';
 
   /**
@@ -550,7 +550,7 @@
       aria-labelledby={tabbed ? `tab-${section}` : undefined}
       tabindex="-1"
     >
-      {#if section === 'general' && keyCard}
+      {#if section === 'security' && keyCard}
         <div class="card">
           <div class="card-header">
             <div>
@@ -592,13 +592,13 @@
         </div>
       {/if}
 
-      {#if section === 'general' && auth.data?.mode === 'forms'}
+      {#if section === 'security' && auth.data?.mode === 'forms'}
         <AccountCard {outcome} />
       {/if}
 
       <!-- Where a browser signs in: an open instance, or one behind a proxy
            that authenticates for it, holds no session. -->
-      {#if section === 'general' && (auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' || auth.data?.mode === 'apikey')}
+      {#if section === 'security' && (auth.data?.mode === 'forms' || auth.data?.mode === 'oidc' || auth.data?.mode === 'apikey')}
         <SessionsCard {outcome} />
       {/if}
 
@@ -817,6 +817,12 @@
                open, a button that saves every field of every section of the
                screen has an invisible scope, and nothing signals that anything
                is pending. -->
+          {#if section === 'security'}
+            <p class="text-muted text-sm mt-3">
+              <a class="text-link" href={href('/security-log')}>{t('OpenSecurityLog')}</a>
+            </p>
+          {/if}
+
           {#if changed.length > 0}
             <div class="save-bar" role="status">
               <div>
