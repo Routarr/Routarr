@@ -46,8 +46,9 @@ Components named without a path live in `frontend/src/components/`.
   table, and fails on an exported interface in neither `PAIRS` nor `UNPAIRED` (a request body,
   a payload built with `json!`). A `#[serde(flatten)]` struct arrives flat.
 - A new setting needs a `KNOWN` entry in `backend/src/services/settings.rs`, which refuses unknown
-  keys, and a `FIELDS` entry in `frontend/src/lib/settings.ts` listed in exactly one `SECTIONS`
-  group. A number field's `range` repeats the backend's bounds.
+  keys and holds its default, and a `FIELDS` entry in `frontend/src/lib/settings.ts` listed in
+  exactly one `SECTIONS` group. A number field's `range` repeats the backend's bounds, and every
+  `fallback` the `KNOWN` default, which `frontend/src/lib/settings.test.ts` reads.
 - A value shown with a name carries the code in `value` and the name in `label`. Render
   `label ?? value` and write `value` into a rule: the engine matches the code.
 
