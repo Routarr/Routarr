@@ -64,11 +64,12 @@ describe('SourceCredits', () => {
       'href',
       'https://thetvdb.com',
     );
-    const omdb = screen.getByText(STRINGS.CreditOmdb).closest('li')!;
-    expect(within(omdb).getByRole('link', { name: 'CC BY-NC 4.0' })).toHaveAttribute(
-      'href',
-      'https://creativecommons.org/licenses/by-nc/4.0/',
-    );
+    // The licence's name in the sentence is its link, said once.
+    const licence = screen.getByRole('link', { name: 'CC BY-NC 4.0' });
+    expect(licence).toHaveAttribute('href', 'https://creativecommons.org/licenses/by-nc/4.0/');
+    const omdb = licence.closest('li')!;
+    expect(omdb.textContent?.split('CC BY-NC 4.0')).toHaveLength(2);
+    expect(within(omdb).getByRole('link', { name: 'www.omdbapi.com' })).toBeTruthy();
     expect(screen.getByText(STRINGS.CreditAnilist)).toBeTruthy();
     expect(screen.getByText(STRINGS.CreditJikan)).toBeTruthy();
     // The Arrs supply their own library: nothing of theirs to credit.
