@@ -110,7 +110,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
 
     Ok(Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        dry_run: settings.bool("global_dry_run", true),
+        dry_run: settings.bool("global_dry_run"),
         running_jobs: row.0,
         pending_decisions: row.1,
         failed_decisions: row.2,
@@ -655,14 +655,14 @@ async fn offline_warnings(
 
     // A backup that fails does so again at every interval, and nothing else
     // shows it until the day an archive is needed.
-    if state.bool_setting("backup_enabled", true).await {
+    if state.bool_setting("backup_enabled").await {
         let last: Option<String> = sqlx::query_scalar(
             "SELECT status FROM jobs WHERE kind = 'backup'
               ORDER BY started_at DESC, rowid DESC LIMIT 1",
         )
         .fetch_optional(&state.pool)
         .await?;
-        let hours: i64 = state.setting("backup_interval_hours", 24i64).await.clamp(1, 24 * 7);
+        let hours: i64 = state.setting::<i64>("backup_interval_hours").await.clamp(1, 24 * 7);
         if last.as_deref() == Some("failed") {
             warnings
                 .push(Warning::new("backup_failed", localizer.translate("WarnBackupFailed", &[])));
@@ -685,7 +685,7 @@ async fn offline_warnings(
     // own save may do that. Named here so the operator is the one who lowers
     // it: the screen refuses to save it as it stands, and this says why.
     for (key, max) in crate::services::settings::retention_counts() {
-        let stored: i64 = settings.get(key, 0i64);
+        let stored: i64 = settings.get(key);
         if stored > max {
             warnings.push(Warning::new(
                 "setting_above_maximum",

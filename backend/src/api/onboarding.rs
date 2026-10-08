@@ -107,7 +107,7 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     // A source beside the Arr's own data that can answer today, which is what
     // makes keyword and country conditions usable.
     let metadata = state.metadata_providers().await.iter().any(|source| source.id != "arr");
-    let live = !state.bool_setting("global_dry_run", true).await;
+    let live = !state.bool_setting("global_dry_run").await;
 
     let steps = vec![
         OnboardingStep { id: step::INSTANCE, done: instance, optional: false },
@@ -119,7 +119,7 @@ async fn status(state: &AppState) -> AppResult<OnboardingStatus> {
     ];
     let complete = steps.iter().all(|step| step.done || step.optional);
 
-    let stored: String = state.setting("onboarding", String::new()).await;
+    let stored: String = state.setting::<String>("onboarding").await;
     let current =
         if ONBOARDING_STATES.contains(&stored.as_str()) { stored } else { "pending".to_string() };
 

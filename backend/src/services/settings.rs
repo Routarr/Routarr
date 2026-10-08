@@ -23,58 +23,58 @@ const MAX_BACKUPS_KEPT: i64 = 50;
 ///
 /// An unknown key is rejected rather than silently stored: a typo like
 /// `global_dryrun` would otherwise look saved while dry-run stayed on.
-const KNOWN: &[(&str, Kind)] = &[
-    ("default_category", Kind::Category),
-    ("global_dry_run", Kind::Bool),
-    ("auto_sync_enabled", Kind::Bool),
-    ("auto_simulate_enabled", Kind::Bool),
-    ("auto_apply_enabled", Kind::Bool),
+const KNOWN: &[(&str, Kind, &str)] = &[
+    ("default_category", Kind::Category, crate::state::DEFAULT_CATEGORY),
+    ("global_dry_run", Kind::Bool, "true"),
+    ("auto_sync_enabled", Kind::Bool, "true"),
+    ("auto_simulate_enabled", Kind::Bool, "true"),
+    ("auto_apply_enabled", Kind::Bool, "false"),
     // Every count is bounded on both sides: a number that decides how long a
     // list gets and how much disk it costs is not special to backups.
     // Unbounded, each of these has a value that reads as "off" while the
     // interface reports it as set: an interval of a million hours is a backup
     // that never runs.
-    ("batch_limit", Kind::Bounded(1, 1_000)),
-    ("confirmation_threshold", Kind::Bounded(1, 10_000)),
+    ("batch_limit", Kind::Bounded(1, 1_000), "50"),
+    ("confirmation_threshold", Kind::Bounded(1, 10_000), "10"),
     // Ten years. Past that the intent is "never expire", which should be said
     // rather than approximated with a big number.
-    ("metadata_cache_ttl_days", Kind::Bounded(1, 3_650)),
+    ("metadata_cache_ttl_days", Kind::Bounded(1, 3_650), "7"),
     // OMDb's patron keys allow far more than a free key's thousand, and its
     // pacing sends fewer than half a million a day, so a million is no limit.
-    ("omdb_daily_requests", Kind::Bounded(1, 1_000_000)),
-    ("metadata_providers", Kind::ProviderList),
-    ("anime_search", Kind::AnimeSearch),
-    ("backup_enabled", Kind::Bool),
+    ("omdb_daily_requests", Kind::Bounded(1, 1_000_000), "1000"),
+    ("metadata_providers", Kind::ProviderList, crate::services::metadata::ARR),
+    ("anime_search", Kind::AnimeSearch, crate::services::metadata::ANIME_SEARCH[0]),
+    ("backup_enabled", Kind::Bool, "true"),
     // A week, which is what `jobs::scheduler` clamps this to when it reads it.
     // A wider bound would let the interface accept a number that is silently
     // not the one running.
-    ("backup_interval_hours", Kind::Bounded(1, 24 * 7)),
-    ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT)),
+    ("backup_interval_hours", Kind::Bounded(1, 24 * 7), "24"),
+    ("backup_retention_count", Kind::Retention(1, MAX_BACKUPS_KEPT), "7"),
     // Every archive sealed with it, so that a copy of the backup folder opens
     // nothing without it (`services::backup::sealed`).
-    ("backup_passphrase", Kind::Passphrase),
+    ("backup_passphrase", Kind::Passphrase, ""),
     // Zero keeps everything, and ten years is the most a count of days is
     // worth: further, SQLite's date arithmetic runs past every stored date
     // and then to NULL, which purges nothing while the screen shows a number.
-    ("decision_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
-    ("log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
-    ("security_log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
+    ("decision_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "30"),
+    ("log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "90"),
+    ("security_log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS), "365"),
     // The same bounds the scheduler clamps to when it reads this. The clamp
     // stays (it is the guard), but refusing here means the number on screen is
     // the number that runs, instead of one silently ignored.
-    ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60)),
-    ("certification_regions", Kind::CountryList),
-    ("notification_webhook_url", Kind::WebhookUrl),
-    ("notification_format", Kind::NotificationFormat),
+    ("scheduler_interval_minutes", Kind::Bounded(1, 24 * 60), "15"),
+    ("certification_regions", Kind::CountryList, "US"),
+    ("notification_webhook_url", Kind::WebhookUrl, ""),
+    ("notification_format", Kind::NotificationFormat, "auto"),
     // What the webhook receives beside the failures, which it always does.
-    ("notify_sync_failed", Kind::Bool),
-    ("notify_simulation_completed", Kind::Bool),
-    ("notify_moves_completed", Kind::Bool),
-    ("ui_language", Kind::Language),
-    ("ui_theme", Kind::Theme),
+    ("notify_sync_failed", Kind::Bool, "false"),
+    ("notify_simulation_completed", Kind::Bool, "false"),
+    ("notify_moves_completed", Kind::Bool, "false"),
+    ("ui_language", Kind::Language, crate::localization::DEFAULT_LANGUAGE),
+    ("ui_theme", Kind::Theme, "dark"),
     // Whether the getting-started guide is still wanted. Written by
     // `PUT /onboarding`, listed here so a configuration bundle carries it.
-    ("onboarding", Kind::Onboarding),
+    ("onboarding", Kind::Onboarding, "pending"),
     // The metadata credentials. Sealed on the way in and never returned, the
     // same posture as an Arr's key, which is the *more* dangerous of the two,
     // since it writes to the library while these only read.
@@ -83,9 +83,9 @@ const KNOWN: &[(&str, Kind)] = &[
     // `metadata::PROVIDERS`: `AppState::provider_key_from` and the check that
     // refuses a source without its key build that name, so a key stored under
     // any other is never read.
-    ("tmdb_api_key", Kind::Secret),
-    ("omdb_api_key", Kind::Secret),
-    ("tvdb_api_key", Kind::Secret),
+    ("tmdb_api_key", Kind::Secret, ""),
+    ("omdb_api_key", Kind::Secret, ""),
+    ("tvdb_api_key", Kind::Secret, ""),
 ];
 
 /// What a setting's value has to be, and therefore how it is validated.
@@ -165,16 +165,23 @@ pub fn check(
 ) -> AppResult<()> {
     let kind = KNOWN
         .iter()
-        .find(|(k, _)| *k == key)
-        .map(|(_, kind)| *kind)
+        .find(|(k, _, _)| *k == key)
+        .map(|(_, kind, _)| *kind)
         .ok_or_else(|| AppError::BadRequest(format!("Unknown setting '{key}'")))?;
     validate(key, value, kind, categories, localizer)
+}
+
+/// What `key` holds when nothing is stored, or what is stored cannot be read:
+/// one answer for every reader, the interface's fallback included
+/// (`frontend/src/lib/settings.ts`, held to this by its test).
+pub fn default_of(key: &str) -> &'static str {
+    KNOWN.iter().find(|(k, _, _)| *k == key).map_or("", |(_, _, default)| *default)
 }
 
 /// Whether `key` holds a category's name, which its writers store in the
 /// form category names take before this module compares it.
 pub fn names_a_category(key: &str) -> bool {
-    KNOWN.iter().any(|(k, kind)| *k == key && matches!(kind, Kind::Category))
+    KNOWN.iter().any(|(k, kind, _)| *k == key && matches!(kind, Kind::Category))
 }
 
 /// The label a typed setting is shown under, for a refusal that names it.
@@ -198,7 +205,7 @@ fn label(key: &str) -> &str {
 /// opened. A `Retention` count answers its floor and no ceiling: raised like
 /// any other, never lowered by a start.
 pub fn bounds(key: &str) -> Option<(i64, i64)> {
-    KNOWN.iter().find(|(k, _)| *k == key).and_then(|(_, kind)| {
+    KNOWN.iter().find(|(k, _, _)| *k == key).and_then(|(_, kind, _)| {
         let (min, max) = kind.range()?;
         Some((min, if kind.lowered_at_startup() { max } else { i64::MAX }))
     })
@@ -207,7 +214,7 @@ pub fn bounds(key: &str) -> Option<(i64, i64)> {
 /// Every retention count with its ceiling, for the warning that names a
 /// stored value above one.
 pub fn retention_counts() -> impl Iterator<Item = (&'static str, i64)> {
-    KNOWN.iter().filter_map(|(k, kind)| match kind {
+    KNOWN.iter().filter_map(|(k, kind, _)| match kind {
         Kind::Retention(_, max) => Some((*k, *max)),
         _ => None,
     })
@@ -220,7 +227,7 @@ pub fn retention_counts() -> impl Iterator<Item = (&'static str, i64)> {
 pub fn ranged_keys() -> Vec<(&'static str, i64, i64, bool)> {
     KNOWN
         .iter()
-        .filter_map(|(k, kind)| {
+        .filter_map(|(k, kind, _)| {
             kind.range().map(|(min, max)| (*k, min, max, kind.lowered_at_startup()))
         })
         .collect()
@@ -231,12 +238,12 @@ pub fn ranged_keys() -> Vec<(&'static str, i64, i64, bool)> {
 /// Sealed with a master key one installation holds, so it is meaningless
 /// anywhere else: a bundle must neither carry it nor accept it.
 pub fn is_secret(key: &str) -> bool {
-    KNOWN.iter().any(|(k, kind)| *k == key && kind.sealed())
+    KNOWN.iter().any(|(k, kind, _)| *k == key && kind.sealed())
 }
 
 /// Every key that holds a sealed value, for the pass that reseals them all.
 pub fn sealed_keys() -> Vec<&'static str> {
-    KNOWN.iter().filter(|(_, kind)| kind.sealed()).map(|(k, _)| *k).collect()
+    KNOWN.iter().filter(|(_, kind, _)| kind.sealed()).map(|(k, _, _)| *k).collect()
 }
 
 fn validate(
@@ -421,6 +428,21 @@ mod tests {
     fn the_scheduler_interval_refuses_what_it_would_have_clamped() {
         assert!(check("scheduler_interval_minutes", "1440", &[], &Localizer::new("en")).is_ok());
         assert!(check("scheduler_interval_minutes", "1441", &[], &Localizer::new("en")).is_err());
+    }
+
+    /// Each default is a value its own setting accepts, so falling back to
+    /// it never reads as a value the screen would refuse.
+    #[test]
+    fn every_setting_has_one_default_that_its_own_validation_accepts() {
+        for (key, kind, default) in KNOWN {
+            if default.is_empty() {
+                continue;
+            }
+            let categories = [default.to_string()];
+            let checked = validate(key, default, *kind, &categories, &Localizer::new("en"));
+            assert!(checked.is_ok(), "{key}'s default {default:?}: {checked:?}");
+        }
+        assert_eq!(default_of("an unknown key"), "");
     }
 
     /// A retention of zero keeps everything, and one past ten years is

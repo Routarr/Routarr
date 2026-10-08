@@ -1768,8 +1768,8 @@ async fn valid_settings_are_stored() {
     .await
     .assert_ok();
 
-    assert!(!app.state.bool_setting("global_dry_run", true).await);
-    assert_eq!(app.state.setting("batch_limit", 0usize).await, 5);
+    assert!(!app.state.bool_setting("global_dry_run").await);
+    assert_eq!(app.state.setting::<usize>("batch_limit").await, 5);
 }
 
 /// A client reading every setting and writing them all back, as a script

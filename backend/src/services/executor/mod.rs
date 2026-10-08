@@ -221,7 +221,7 @@ pub async fn apply_simulation_in_batches(
         return Err(AppError::Conflict(localizer.translate("ErrorApplyInProgress", &[])));
     };
 
-    let size: usize = state.bounding_setting("batch_limit", 50usize).await?.max(1);
+    let size: usize = state.bounding_setting::<usize>("batch_limit").await?.max(1);
     let batches_planned = ids.len().div_ceil(size);
 
     let mut job = state
@@ -692,7 +692,7 @@ async fn stop_reason(state: &AppState, stop: &Stop) -> Option<StopReason> {
         Some(StopReason::Shutdown)
     } else if stop.cancelled() {
         Some(StopReason::Cancelled)
-    } else if state.bool_setting("global_dry_run", true).await {
+    } else if state.bool_setting("global_dry_run").await {
         Some(StopReason::DryRun)
     } else {
         None

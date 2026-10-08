@@ -462,7 +462,7 @@ pub async fn send(state: &AppState, event: Event) {
         return;
     }
     if let Some(setting) = event.asked_by()
-        && !state.bool_setting(setting, false).await
+        && !state.bool_setting(setting).await
     {
         debug!(event = event.kind(), "Not asked for by the webhook");
         return;
@@ -521,7 +521,7 @@ pub fn send_later(state: &AppState, event: Event) {
 }
 
 async fn webhook_url(state: &AppState, kind: &str) -> Option<String> {
-    let stored = state.setting::<String>("notification_webhook_url", String::new()).await;
+    let stored = state.setting::<String>("notification_webhook_url").await;
     if stored.trim().is_empty() {
         debug!(event = kind, "No notification webhook configured");
         return None;
@@ -607,7 +607,7 @@ impl Delivery {
                 return Err(Undelivered::SecretUnreadable);
             }
         };
-        let format = state.setting::<String>("notification_format", "auto".into()).await;
+        let format = state.setting::<String>("notification_format").await;
         let payload = payload(&self.event, &self.at, Format::of(&format, &url));
         // Signed at each attempt: a receiver refuses a timestamp too old, and a
         // retry five minutes on would carry one.

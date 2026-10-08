@@ -260,9 +260,9 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
 }
 
 async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
-    let decision_days: i64 = state.bounding_setting("decision_retention_days", 30).await?;
-    let log_days: i64 = state.bounding_setting("log_retention_days", 90).await?;
-    let security_days: i64 = state.bounding_setting("security_log_retention_days", 365).await?;
+    let decision_days: i64 = state.bounding_setting("decision_retention_days").await?;
+    let log_days: i64 = state.bounding_setting("log_retention_days").await?;
+    let security_days: i64 = state.bounding_setting("security_log_retention_days").await?;
     let pool = &state.pool;
 
     let mut report = MaintenanceReport::default();

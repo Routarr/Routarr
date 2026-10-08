@@ -24,7 +24,7 @@ use crate::services::backup::Credential;
 use crate::integrations::adapter::ArrAdapter;
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
-use crate::integrations::omdb::{self, OmdbClient};
+use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::services::metadata::{self, FetchingSource, ProviderInfo};
@@ -107,14 +107,20 @@ impl Settings {
     }
 
     /// `default` when absent or unparseable, as `AppState::setting` answers.
-    pub fn get<T: std::str::FromStr>(&self, key: &str, default: T) -> T {
-        self.raw(key).and_then(|v| v.trim().parse().ok()).unwrap_or(default)
+    pub fn get<T: std::str::FromStr + Default>(&self, key: &str) -> T {
+        self.raw(key).and_then(|v| v.trim().parse().ok()).unwrap_or_else(|| default_of(key))
     }
 
     /// `true` or `1`, as `AppState::bool_setting` answers.
-    pub fn bool(&self, key: &str, default: bool) -> bool {
-        self.raw(key).map_or(default, is_true)
+    pub fn bool(&self, key: &str) -> bool {
+        is_true(self.raw(key).unwrap_or(crate::services::settings::default_of(key)))
     }
+}
+
+/// The default `services::settings::KNOWN` gives `key`, read as `T`: the one
+/// answer every reader of a setting falls back to.
+fn default_of<T: std::str::FromStr + Default>(key: &str) -> T {
+    crate::services::settings::default_of(key).parse().unwrap_or_default()
 }
 
 /// How a boolean setting is stored: `true` in any case, or `1`.
@@ -324,7 +330,7 @@ impl AppState {
                         self.http.clone(),
                         &key,
                         &self.config.omdb_base_url,
-                        settings.get("omdb_daily_requests", omdb::FREE_DAILY_REQUESTS),
+                        settings.get("omdb_daily_requests"),
                     ))
                 }),
                 metadata::TVDB => self.provider_key_from(&settings, metadata::TVDB).map(|key| {
@@ -384,12 +390,14 @@ impl AppState {
                 .collect::<Vec<_>>()
         })
         .filter(|v: &Vec<String>| !v.is_empty())
-        .unwrap_or_else(|| vec!["US".to_string()])
+        .unwrap_or_else(|| {
+            vec![crate::services::settings::default_of("certification_regions").into()]
+        })
     }
 
     /// Read a setting, falling back to `default` when absent or unparseable,
     /// and when the database fails to answer: for what only shows or paces.
-    pub async fn setting<T: std::str::FromStr>(&self, key: &str, default: T) -> T {
+    pub async fn setting<T: std::str::FromStr + Default>(&self, key: &str) -> T {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(&self.pool)
@@ -397,7 +405,7 @@ impl AppState {
             .ok()
             .flatten()
             .and_then(|v| v.trim().parse().ok())
-            .unwrap_or(default)
+            .unwrap_or_else(|| default_of(key))
     }
 
     /// Read a setting that bounds what is deleted or written, falling back to
@@ -405,16 +413,15 @@ impl AppState {
     /// to answer is an error: taken for the default, a retention would delete
     /// what a longer one keeps, and a batch limit would let through more than
     /// the operator allows.
-    pub async fn bounding_setting<T: std::str::FromStr>(
+    pub async fn bounding_setting<T: std::str::FromStr + Default>(
         &self,
         key: &str,
-        default: T,
     ) -> AppResult<T> {
         let stored: Option<String> = sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(&self.pool)
             .await?;
-        Ok(stored.and_then(|v| v.trim().parse().ok()).unwrap_or(default))
+        Ok(stored.and_then(|v| v.trim().parse().ok()).unwrap_or_else(|| default_of(key)))
     }
 
     /// The category the engine falls back to when no rule matched.
@@ -441,14 +448,14 @@ impl AppState {
     }
 
     /// Read a boolean setting: `true` in any case, or `1`, is on.
-    pub async fn bool_setting(&self, key: &str, default: bool) -> bool {
+    pub async fn bool_setting(&self, key: &str) -> bool {
         sqlx::query_scalar::<_, String>("SELECT value FROM settings WHERE key = ?")
             .bind(key)
             .fetch_optional(&self.pool)
             .await
             .ok()
             .flatten()
-            .map_or(default, |v| is_true(&v))
+            .map_or_else(|| is_true(crate::services::settings::default_of(key)), |v| is_true(&v))
     }
 
     /// Load an instance by id, or 404.
@@ -520,9 +527,9 @@ mod settings_tests {
         Settings(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
     }
 
-    /// The snapshot trims, answers the default on anything unparseable or
-    /// absent, and reads `true` or `1` as a switch, the rules `AppState::setting`
-    /// and `bool_setting` apply to one key.
+    /// The snapshot trims, answers the setting's own default on anything
+    /// unparseable or absent, and reads `true` or `1` as a switch, the rules
+    /// `AppState::setting` and `bool_setting` apply to one key.
     #[test]
     fn a_snapshot_trims_defaults_and_reads_switches() {
         let settings = stored(&[
@@ -532,13 +539,13 @@ mod settings_tests {
             ("auto_apply_enabled", "1"),
             ("notify_sync_failed", "yes"),
         ]);
-        assert_eq!(settings.get("batch_limit", 50i64), 12);
-        assert_eq!(settings.get("confirmation_threshold", 10i64), 10, "unparseable is the default");
-        assert_eq!(settings.get("absent", 7i64), 7);
-        assert!(settings.bool("global_dry_run", false));
-        assert!(settings.bool("auto_apply_enabled", false));
-        assert!(!settings.bool("notify_sync_failed", true), "`yes` is not a switch");
-        assert!(settings.bool("absent", true));
+        assert_eq!(settings.get::<i64>("batch_limit"), 12);
+        assert_eq!(settings.get::<i64>("confirmation_threshold"), 10, "unparseable is the default");
+        assert_eq!(settings.get::<i64>("backup_retention_count"), 7, "absent is the default");
+        assert!(settings.bool("global_dry_run"));
+        assert!(settings.bool("auto_apply_enabled"));
+        assert!(!settings.bool("notify_sync_failed"), "`yes` is not a switch");
+        assert!(settings.bool("backup_enabled"), "absent is the default");
         assert_eq!(settings.raw("batch_limit"), Some(" 12 "), "raw is as stored");
     }
 

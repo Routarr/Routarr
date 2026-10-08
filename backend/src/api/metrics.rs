@@ -275,7 +275,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when global dry-run is blocking every write.",
         samples: vec![(
             String::new(),
-            if state.bool_setting("global_dry_run", true).await { 1.0 } else { 0.0 },
+            if state.bool_setting("global_dry_run").await { 1.0 } else { 0.0 },
         )],
     });
     families.push(Family {
@@ -283,7 +283,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when routing decisions are applied without confirmation.",
         samples: vec![(
             String::new(),
-            if state.bool_setting("auto_apply_enabled", false).await { 1.0 } else { 0.0 },
+            if state.bool_setting("auto_apply_enabled").await { 1.0 } else { 0.0 },
         )],
     });
 

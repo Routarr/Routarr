@@ -18,8 +18,6 @@ use crate::error::{AppError, AppResult};
 
 const SERVICE: &str = "OMDb";
 pub const DEFAULT_BASE_URL: &str = "https://www.omdbapi.com";
-/// The requests a free key may send in a UTC day.
-pub const FREE_DAILY_REQUESTS: i64 = 1_000;
 /// The title a probe asks for.
 const PROBED: &str = "tt0096283";
 /// What OMDb answers for an id it does not hold.
