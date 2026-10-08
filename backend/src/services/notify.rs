@@ -716,13 +716,19 @@ pub async fn rotate_signing_secret(state: &AppState) -> AppResult<String> {
         .bind(state.secrets.seal(&secret)?)
         .execute(&mut *tx)
         .await?;
+    let replaced = crate::services::backup::Credential::SigningSecret;
+    crate::services::backup::set_withdrawn(&mut *tx, replaced, false).await?;
     tx.commit().await?;
     Ok(secret)
 }
 
 /// Stop signing.
 pub async fn remove_signing_secrets(state: &AppState) -> AppResult<()> {
-    sqlx::query("DELETE FROM webhook_secrets").execute(&state.pool).await?;
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
+    let removed = crate::services::backup::Credential::SigningSecret;
+    crate::services::backup::set_withdrawn(&mut *tx, removed, true).await?;
+    tx.commit().await?;
     Ok(())
 }
 

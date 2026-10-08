@@ -13,6 +13,7 @@ use crate::error::{AppError, AppResult};
 use crate::jobs::JobRegistry;
 use crate::localization::{DEFAULT_LANGUAGE, Localizer};
 use crate::models::Instance;
+use crate::services::backup::Credential;
 
 // The state imports from the layers that read it: handlers, services and jobs
 // all receive it, and it is the one place a client is built, from the
@@ -151,15 +152,20 @@ impl AppState {
     /// The file is rewritten first: a key live in memory but absent from disk
     /// would work until the next restart and then lock everybody out, which is
     /// the one failure worse than not rotating at all.
-    pub fn rotate_api_key(&self) -> AppResult<String> {
+    pub async fn rotate_api_key(&self) -> AppResult<String> {
         let key = crate::crypto::generate_secret()?;
         crate::crypto::write_api_key(&self.config.api_key_path(), &key)?;
         *self.api_key.write().unwrap_or_else(|p| p.into_inner()) = Some(key.clone());
+        let replaced = Credential::MasterApiKey;
+        crate::services::backup::set_withdrawn(&self.pool, replaced, false).await?;
         Ok(key)
     }
 
-    /// Withdraw the key entirely, leaving the session as the only way in.
-    pub fn clear_api_key(&self) -> AppResult<()> {
+    /// Withdraw the key entirely, leaving the session as the only way in. The
+    /// withdrawal is recorded first: a restore reads it, or brings the
+    /// archive's key back as it would to a host that never held one.
+    pub async fn clear_api_key(&self) -> AppResult<()> {
+        crate::services::backup::set_withdrawn(&self.pool, Credential::MasterApiKey, true).await?;
         crate::crypto::remove_api_key(&self.config.api_key_path())?;
         *self.api_key.write().unwrap_or_else(|p| p.into_inner()) = None;
         Ok(())

@@ -346,6 +346,85 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
     pool.close().await;
 }
 
+/// A master key or a signing secret withdrawn since the backup stays
+/// withdrawn. The installation then holds neither, as a new host does, and
+/// only the record of the withdrawal tells the two apart: a new host still
+/// gets the archive's, and so does one whose withdrawn credentials were
+/// replaced, then lost. A key `ROUTARR_API_KEY` stands in for is not brought
+/// back either, and the record goes with the restored database.
+#[tokio::test]
+async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
+    use crate::services::notify;
+
+    // (case, key file restored, secrets restored)
+    for (case, expected) in [
+        ("withdrawn", (false, false)),
+        ("new-host", (true, true)),
+        ("replaced-then-lost", (true, true)),
+        ("pinned", (false, true)),
+    ] {
+        let (app, _dir) = app_with_files(case).await;
+        notify::rotate_signing_secret(&app.state).await.unwrap();
+        let file =
+            backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+        if matches!(case, "withdrawn" | "replaced-then-lost") {
+            app.state.clear_api_key().await.unwrap();
+            notify::remove_signing_secrets(&app.state).await.unwrap();
+        }
+        if case == "replaced-then-lost" {
+            app.state.rotate_api_key().await.unwrap();
+            notify::rotate_signing_secret(&app.state).await.unwrap();
+        }
+        if case != "withdrawn" {
+            std::fs::remove_file(app.state.config.api_key_path()).unwrap();
+            app.execute(&["DELETE FROM webhook_secrets"]).await;
+        }
+        let app = if case == "pinned" {
+            let mut config = (*app.state.config).clone();
+            config.api_key = Some("a-pinned-key".into());
+            TestApp::around(app.state.clone().with_config(config))
+        } else {
+            app
+        };
+
+        backup::stage_restore(&app.state, &file.name, None).await.unwrap();
+        let config = app.state.config.clone();
+        app.state.pool.close().await;
+        assert!(backup::apply_pending_restore(&config).await.unwrap());
+
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display()))
+            .await
+            .unwrap();
+        let secrets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webhook_secrets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let restored = (config.api_key_path().exists(), secrets > 0);
+        assert_eq!(restored, expected, "{case}");
+        if case == "withdrawn" {
+            let recorded: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM withdrawn_credentials")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(recorded, 2, "the restored database forgot what was withdrawn");
+        }
+        pool.close().await;
+    }
+}
+
+/// A restore writes the record of withdrawals into an archive taken before
+/// that table existed, and the next start's migration still applies to it.
+#[tokio::test]
+async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades() {
+    let pool = super::database_through("037_cache_lifetime_at_read").await;
+    sqlx::raw_sql(include_str!("../../migrations/038_withdrawn_credentials.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
+}
+
 /// The master API key and the account's password are today's too: one
 /// rotated or changed because it leaked is not brought back, and every session
 /// the archive held is closed, as a changed password closes them.

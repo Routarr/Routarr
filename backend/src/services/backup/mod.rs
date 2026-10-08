@@ -633,6 +633,46 @@ async fn opened_if_sealed(
     }
 }
 
+/// A credential the owner can withdraw outright, which a restore must not
+/// bring back while it stays withdrawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credential {
+    MasterApiKey,
+    SigningSecret,
+}
+
+impl Credential {
+    /// Its row in `withdrawn_credentials`.
+    fn name(self) -> &'static str {
+        match self {
+            Self::MasterApiKey => "master_api_key",
+            Self::SigningSecret => "signing_secret",
+        }
+    }
+}
+
+/// Record `credential` as withdrawn, or as replaced by a new one.
+pub async fn set_withdrawn<'e>(
+    executor: impl sqlx::SqliteExecutor<'e>,
+    credential: Credential,
+    withdrawn: bool,
+) -> AppResult<()> {
+    let statement = if withdrawn {
+        "INSERT INTO withdrawn_credentials (name) VALUES (?) ON CONFLICT(name) DO NOTHING"
+    } else {
+        "DELETE FROM withdrawn_credentials WHERE name = ?"
+    };
+    sqlx::query(statement).bind(credential.name()).execute(executor).await?;
+    Ok(())
+}
+
+async fn is_withdrawn(live: &sqlx::SqlitePool, credential: Credential) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM withdrawn_credentials WHERE name = ?)")
+        .bind(credential.name())
+        .fetch_one(live)
+        .await?)
+}
+
 /// Stage `archive`, carrying into it what `live`, the database it replaces,
 /// has withdrawn since.
 async fn stage(
@@ -678,6 +718,10 @@ async fn stage(
             "the archive's database cannot be restored: {reason}"
         )));
     }
+    let key_withdrawn = match live {
+        Some(live) => is_withdrawn(live, Credential::MasterApiKey).await?,
+        None => false,
+    };
     if let Some(live) = live {
         keep_withdrawn_credentials(live, &staged_database).await?;
     }
@@ -697,8 +741,11 @@ async fn stage(
             continue;
         }
         // The API key in use stays: whoever restores holds it, and one rotated
-        // because it leaked must not come back with the archive.
-        if *target == config.api_key_path() && target.exists() {
+        // because it leaked must not come back with the archive. Nor does one
+        // withdrawn since, or one `ROUTARR_API_KEY` stands in for: unused
+        // today, it would answer again once the variable is lifted.
+        let kept = target.exists() || key_withdrawn || config.api_key.is_some();
+        if *target == config.api_key_path() && kept {
             std::fs::remove_file(&staging).ok();
             continue;
         }
@@ -995,10 +1042,11 @@ fn is_leftover(name: &str) -> bool {
 /// revoked because it leaked is part of the damage, not of the library: it
 /// stays revoked. The account's password is today's and no session survives.
 /// The signing secrets follow today's too, replaced ones included, so a
-/// receiver already given the new secret keeps accepting. A key the live
+/// receiver already given the new secret keeps accepting, and none comes back
+/// once they were withdrawn (`withdrawn_credentials`). A key the live
 /// database never held, as on a new host, comes back as the backup has it,
 /// and so do the backup's account and secrets when the live database holds
-/// none.
+/// none and withdrew none.
 async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
@@ -1016,6 +1064,12 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         .bind(sealed::SETTING)
         .fetch_optional(live)
         .await?;
+    let withdrawn: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, withdrawn_at FROM withdrawn_credentials")
+            .fetch_all(live)
+            .await?;
+    let secrets_withdrawn =
+        withdrawn.iter().any(|(name, _)| name == Credential::SigningSecret.name());
 
     // A rollback journal, not a write-ahead log: the staged file is renamed
     // alone, and a log beside it would be left behind with these writes in it.
@@ -1094,6 +1148,26 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
                     .bind(created_at)
                     .execute(&mut *tx)
                     .await?;
+            }
+        }
+        // Secrets withdrawn since stay withdrawn, and the record goes with the
+        // restored database, so a restore of an older archive still finds it.
+        if secrets_withdrawn && holds("webhook_secrets").fetch_one(&mut *tx).await? {
+            sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
+        }
+        if !withdrawn.is_empty() {
+            sqlx::raw_sql(include_str!("../../../migrations/038_withdrawn_credentials.sql"))
+                .execute(&mut *tx)
+                .await?;
+            for (name, withdrawn_at) in &withdrawn {
+                sqlx::query(
+                    "INSERT INTO withdrawn_credentials (name, withdrawn_at) VALUES (?, ?)
+                     ON CONFLICT(name) DO NOTHING",
+                )
+                .bind(name)
+                .bind(withdrawn_at)
+                .execute(&mut *tx)
+                .await?;
             }
         }
         tx.commit().await?;
