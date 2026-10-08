@@ -26,7 +26,7 @@ const STRINGS = {
   ConfirmEndEverySession: 'End every session?',
   SessionEnded: 'Session ended.',
   Retry: 'Retry',
-  SessionsShowMore: 'Show the {count} others',
+  SessionsShowMore: 'Show the rest ({count})',
   SessionsShowFewer: 'Show fewer',
 };
 
@@ -92,7 +92,7 @@ describe('SessionsCard', () => {
     expect(rows).toHaveLength(5);
     expect(within(rows[0]!.parentElement!).getByText('This browser')).toBeInTheDocument();
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Show the 3 others' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Show the rest (3)' }));
     rows = await ends();
     expect(rows).toHaveLength(8);
     await fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));

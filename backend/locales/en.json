@@ -123,7 +123,7 @@
   "PasswordChangedKeysRevoked": "Password changed. Every other session was ended and every key revoked.",
   "Sessions": "Sessions",
   "SessionsHelp": "Each browser signed in, and when. A session ends on its own after 30 days, or 24 hours through an OpenID Connect provider.",
-  "SessionsShowMore": "Show the {count} others",
+  "SessionsShowMore": "Show the rest ({count})",
   "SessionsShowFewer": "Show fewer",
   "SignOutEverywhere": "Sign out everywhere",
   "NoSessions": "No browser is signed in.",

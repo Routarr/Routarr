@@ -93,6 +93,7 @@ pub fn decimal_separator(code: &str) -> char {
 pub const COUNTS: &[&str] = &[
     "afterMoves",
     "afterUnmatched",
+    "answered",
     "applied",
     "archives",
     "batches",
