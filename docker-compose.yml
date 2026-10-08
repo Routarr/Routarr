@@ -21,6 +21,8 @@ services:
       - ROUTARR_HOST=0.0.0.0
       - ROUTARR_DB_PATH=/config/routarr.db
       - ROUTARR_LOG_LEVEL=info
+      # The time zone the log lines are dated in, e.g. Europe/Paris.
+      - TZ=${TZ:-}
       # Protects every /api/v1 route but the few a signed-out browser needs
       # (/ping, the languages, the sign-in) and the webhook, which carries a
       # token of its own. Left unset, Routarr generates one into

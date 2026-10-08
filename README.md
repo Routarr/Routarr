@@ -176,6 +176,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_SECRET_KEY` | *(generated)* | Encrypts the stored Radarr/Sonarr keys |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
+| `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris` |
 
 Every variable is listed and commented in [`backend/.env.example`](backend/.env.example). Everything
 else is set in the interface, under **Settings** and **Metadata sources**.

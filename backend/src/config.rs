@@ -142,6 +142,21 @@ fn log_format_from(raw: &str) -> (String, bool) {
     }
 }
 
+/// The tracing filter `RUST_LOG` names, kept when it parses, and what the
+/// start says of it: a filter left in an environment replaces the level set
+/// in `ROUTARR_LOG_LEVEL` without a word otherwise.
+fn log_filter_from(raw: Option<String>) -> (Option<String>, Option<String>) {
+    let Some(filter) = raw else { return (None, None) };
+    let variable = "RUST_LOG";
+    if tracing_subscriber::EnvFilter::try_new(&filter).is_ok() {
+        let note = format!("{variable} is '{filter}' and replaces the level of ROUTARR_LOG_LEVEL");
+        (Some(filter), Some(note))
+    } else {
+        let note = format!("{variable} is '{filter}', which no filter reads: it is not applied");
+        (None, Some(note))
+    }
+}
+
 /// Whether a URL is reached over TLS, or on this machine, where no wire is
 /// involved and a provider under test or beside the container is plain http.
 pub fn reaches_over_tls(url: &str) -> bool {
@@ -268,6 +283,9 @@ pub struct Config {
     pub log_level: String,
     /// `text` (default) or `json`, which is easier to ship to a log collector.
     pub log_format: String,
+    /// `RUST_LOG`, a tracing filter that replaces `log_level` whole when it
+    /// parses.
+    pub log_filter: Option<String>,
     /// What was read and set aside for a default, said as warnings once the
     /// log is up: read before it, nothing would hear them.
     pub startup_notes: Vec<String>,
@@ -372,6 +390,7 @@ impl std::fmt::Debug for Config {
             data_dir,
             log_level,
             log_format,
+            log_filter,
             startup_notes,
             frontend_dir,
             tmdb_api_key,
@@ -415,6 +434,7 @@ impl std::fmt::Debug for Config {
             .field("data_dir", data_dir)
             .field("log_level", log_level)
             .field("log_format", log_format)
+            .field("log_filter", log_filter)
             .field("startup_notes", startup_notes)
             .field("frontend_dir", frontend_dir)
             .field("tmdb_api_key", &hidden(tmdb_api_key))
@@ -560,6 +580,8 @@ impl Config {
             startup_notes
                 .push(format!("{variable} is '{raw_format}', neither text nor json: text"));
         }
+        let (log_filter, note) = log_filter_from(non_empty("RUST_LOG"));
+        startup_notes.extend(note);
         Ok(Self {
             host: env_or("ROUTARR_HOST", "0.0.0.0"),
             port: env_parse("ROUTARR_PORT", 9876)?,
@@ -567,6 +589,7 @@ impl Config {
             db_path,
             log_level,
             log_format,
+            log_filter,
             startup_notes,
             frontend_dir: path_or(std::env::var("ROUTARR_FRONTEND_DIR").ok(), default_frontend_dir),
             tmdb_api_key: non_empty("TMDB_API_KEY"),
@@ -867,6 +890,7 @@ impl Config {
             data_dir: std::env::temp_dir().join(format!("routarr-tests-{}", std::process::id())),
             log_level: "error".into(),
             log_format: "text".into(),
+            log_filter: None,
             startup_notes: Vec::new(),
             frontend_dir: PathBuf::from("/nonexistent"),
             tmdb_api_key: None,
@@ -1034,6 +1058,19 @@ mod tests {
         assert_eq!(concurrency_from(4), (4, false));
     }
 
+    /// `RUST_LOG` is read here with every other variable, and said at start
+    /// when it replaces the level, or when it holds no filter and does not.
+    #[test]
+    fn rust_log_is_read_here_and_said_when_it_overrides() {
+        assert_eq!(log_filter_from(None), (None, None));
+        let (kept, note) = log_filter_from(Some("routarr=debug,sqlx=info".into()));
+        assert_eq!(kept.as_deref(), Some("routarr=debug,sqlx=info"));
+        assert!(note.is_some_and(|note| note.contains("replaces")));
+        let (kept, note) = log_filter_from(Some("routarr=loud".into()));
+        assert_eq!(kept, None);
+        assert!(note.is_some_and(|note| note.contains("not applied")));
+    }
+
     /// The image's probe reads this address. Written raw from the variable,
     /// `routarr` would give `:9876routarr` and a container unhealthy for ever,
     /// and `/routarr/` a double slash the interface's fallback page answers.
@@ -1082,7 +1119,7 @@ mod tests {
         for line in source.lines() {
             // Every quoted name with a known prefix, the `env_or("NAME", …)` and
             // `non_empty("NAME")` call sites among them.
-            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_"] {
+            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"] {
                 let Some(at) = line.find(&format!("\"{prefix}")) else { continue };
                 let rest = &line[at + 1..];
                 let Some(end) = rest.find('"') else { continue };
@@ -1125,7 +1162,9 @@ mod tests {
                     && name
                         .chars()
                         .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_"].iter().any(|p| name.starts_with(p))
+                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"]
+                        .iter()
+                        .any(|p| name.starts_with(p))
             })
             .collect();
         assert!(

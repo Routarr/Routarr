@@ -898,19 +898,26 @@ fn cors_layer(config: &Config) -> CorsLayer {
 }
 
 fn init_tracing(config: &Config) {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        format!("routarr={},tower_http=warn,sqlx=warn", config.log_level).into()
-    });
+    let filter = config
+        .log_filter
+        .as_deref()
+        .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
+        .unwrap_or_else(|| {
+            format!("routarr={},tower_http=warn,sqlx=warn", config.log_level).into()
+        });
 
     let registry = tracing_subscriber::registry().with(filter);
+    // The time of the place the operator set in `TZ`, as Radarr and Sonarr log
+    // it, its offset written so the line reads the same anywhere.
+    let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
 
     if config.log_format.eq_ignore_ascii_case("json") {
-        registry.with(tracing_subscriber::fmt::layer().json()).init();
+        registry.with(tracing_subscriber::fmt::layer().json().with_timer(local)).init();
     } else {
         // Colours only on a terminal: in `docker logs` and in a file the
         // escape codes stand between a fail2ban filter and the address.
         let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
-        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours)).init();
+        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours).with_timer(local)).init();
     }
 }
 
