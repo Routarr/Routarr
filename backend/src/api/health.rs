@@ -51,6 +51,7 @@ pub struct Warning {
     /// What the warning is about, stable across releases and languages:
     /// `api_unauthenticated`, `api_external_auth`, `source_needs_key`,
     /// `source_key_unlisted`, `source_unreachable`, `source_quota_spent`,
+    /// `source_rate_limited`, `source_key_refused`,
     /// `instance_unreachable`,
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
     /// `scheduler_panicked`, `setting_above_maximum`,
@@ -287,11 +288,11 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
             // Named from the catalogue rather than stored beside the verdict:
             // the display name belongs to the build, not to the observation.
             if let Some(info) = metadata::info(id) {
-                let (code, key) = if detail.as_deref() == Some(QUOTA_SPENT) {
-                    ("source_quota_spent", "WarnProviderQuota")
-                } else {
-                    ("source_unreachable", "WarnProviderUnreachable")
-                };
+                let (code, key) =
+                    VERDICTS.iter().find(|(said, ..)| detail.as_deref() == Some(*said)).map_or(
+                        ("source_unreachable", "WarnProviderUnreachable"),
+                        |(_, code, key)| (*code, *key),
+                    );
                 let provider = [("provider", info.display_name)];
                 warnings.push(Warning::new(code, localizer.translate(key, &provider)));
             }
@@ -398,20 +399,42 @@ async fn record_probe(
 
 /// The `probe_results` detail of a source whose daily quota is spent.
 const QUOTA_SPENT: &str = "quota spent";
+/// The source asked for fewer requests.
+const RATE_LIMITED: &str = "rate limited";
+/// A source that needs a key refused the one it was given.
+const KEY_REFUSED: &str = "key refused";
+
+/// Each `probe_results` detail of a source that did not answer, with the
+/// warning code and the dictionary key that say it. A source with none of
+/// these did not answer at all (`source_unreachable`).
+const VERDICTS: [(&str, &str, &str); 3] = [
+    (QUOTA_SPENT, "source_quota_spent", "WarnProviderQuota"),
+    (RATE_LIMITED, "source_rate_limited", "WarnProviderRateLimited"),
+    (KEY_REFUSED, "source_key_refused", "WarnProviderKeyRefused"),
+];
 
 /// What a probe of one source found.
 struct Probed {
     connected: bool,
-    /// [`QUOTA_SPENT`], or nothing.
+    /// One of [`VERDICTS`], or nothing.
     detail: Option<String>,
 }
 
 impl Probed {
-    fn of(outcome: &crate::error::AppResult<bool>) -> Self {
-        match outcome {
-            Err(error) if crate::integrations::is_quota_spent(error) => Self::quota_spent(),
-            outcome => Self { connected: *outcome.as_ref().unwrap_or(&false), detail: None },
-        }
+    /// The verdict on `outcome`. A refusal names the key only where the
+    /// source takes one: a keyless source refusing is one not answering.
+    fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool) -> Self {
+        use crate::error::AppError;
+        let detail = match outcome {
+            Ok(true) => return Self { connected: true, detail: None },
+            Err(error) if crate::integrations::is_quota_spent(error) => QUOTA_SPENT,
+            Err(AppError::ExternalApi { status: 429, .. }) => RATE_LIMITED,
+            Ok(false) | Err(AppError::ExternalApi { status: 401 | 403, .. }) if needs_key => {
+                KEY_REFUSED
+            }
+            _ => return Self { connected: false, detail: None },
+        };
+        Self { connected: false, detail: Some(detail.to_string()) }
     }
 
     fn quota_spent() -> Self {
@@ -433,12 +456,15 @@ async fn probe_sources(state: &AppState) -> HashMap<String, Probed> {
     join_all(probes).await.into_iter().collect()
 }
 
-/// One source's probe. A source with a daily quota is asked once a day, the
-/// request taken from its quota, and the day's verdict stands until the day
-/// ends or a new key or quota is saved, which forgets it (migration 033).
+/// One source's probe, at the pace every other request to the source keeps:
+/// unpaced during a pass, it earns the source's 429 and reports it as the
+/// source down. A source with a daily quota is asked once a day, the request
+/// taken from its quota, and the day's verdict stands until the day ends or a
+/// new key or quota is saved, which forgets it (migration 033).
 async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Probed {
+    let needs_key = metadata::info(source.id()).is_some_and(|info| info.needs_key);
     let Some(quota) = source.daily_quota() else {
-        return Probed::of(&source.test_connection().await);
+        return Probed::of(&paced_probe(state, source).await, needs_key);
     };
     let today: Option<(bool, Option<String>)> = sqlx::query_as(
         "SELECT reachable, detail FROM probe_results
@@ -455,13 +481,26 @@ async fn probe_source(state: &AppState, source: &metadata::FetchingSource) -> Pr
     if quota.reserve(&state.pool, 1).await.unwrap_or(0) == 0 {
         return Probed::quota_spent();
     }
-    let outcome = source.test_connection().await;
+    let outcome = paced_probe(state, source).await;
     if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent)
         && let Err(e) = quota.exhaust(&state.pool).await
     {
         tracing::warn!("Could not record that {} spent its quota: {e}", source.id());
     }
-    Probed::of(&outcome)
+    Probed::of(&outcome, needs_key)
+}
+
+/// The source's connection test, waiting on its pace and holding the pace
+/// back as the answer asks.
+async fn paced_probe(
+    state: &AppState,
+    source: &metadata::FetchingSource,
+) -> crate::error::AppResult<bool> {
+    let pace = state.paces.of(source);
+    pace.acquire().await;
+    let outcome = source.test_connection().await;
+    source.paced_after(&pace, &outcome).await;
+    outcome
 }
 
 /// The configured order, annotated with what each source can do right now.

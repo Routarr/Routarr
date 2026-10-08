@@ -198,16 +198,7 @@ impl TmdbClient {
             ),
         )
         .await?;
-
-        Ok(TmdbDetails {
-            genres: raw.genres.into_iter().map(|g| g.name).collect(),
-            keywords: merge_keywords(raw.keywords),
-            original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
-            origin_countries: countries(raw.origin_country, raw.production_countries),
-            certifications: tv_certifications(&raw.content_ratings),
-            status: raw.status,
-            overview: raw.overview,
-        })
+        Ok(tv_details(raw))
     }
 
     /// Dispatch on Routarr's own media type discriminator.
@@ -254,6 +245,18 @@ fn movie_certifications(block: &ReleaseDatesBlock) -> BTreeMap<String, String> {
 }
 
 /// Each country's rating of a series.
+fn tv_details(raw: RawTv) -> TmdbDetails {
+    TmdbDetails {
+        genres: raw.genres.into_iter().map(|g| g.name).collect(),
+        keywords: merge_keywords(raw.keywords),
+        original_language: raw.original_language.as_deref().and_then(language::from_tmdb),
+        origin_countries: countries(raw.origin_country, raw.production_countries),
+        certifications: tv_certifications(&raw.content_ratings),
+        status: raw.status,
+        overview: raw.overview,
+    }
+}
+
 fn tv_certifications(block: &ContentRatingsBlock) -> BTreeMap<String, String> {
     rated(block.results.iter().map(|entry| (entry.iso_3166_1.as_str(), Some(entry.rating.trim()))))
 }
@@ -330,6 +333,51 @@ mod tests {
             movie_certifications(&raw.release_dates),
             by_country(&[("JP", "G"), ("US", "G")])
         );
+    }
+
+    /// A captured-shape TMDB series, `keywords` and `content_ratings`
+    /// appended, through the real mapping: the keywords under `results` where
+    /// a film has them under `keywords`, a rating with its descriptors, and
+    /// the many fields the client ignores.
+    #[test]
+    fn a_real_shape_series_payload_maps() {
+        let json = r#"{
+          "adult": false, "backdrop_path": "/4qdHTzM5ccwLTPqbVwSBqavKrEH.jpg",
+          "created_by": [{ "id": 1, "credit_id": "5257", "name": "Hajime Yatate", "gender": 0 }],
+          "episode_run_time": [25], "first_air_date": "1998-04-03",
+          "genres": [{ "id": 16, "name": "Animation" }, { "id": 10759, "name": "Action & Adventure" }],
+          "homepage": "", "id": 30991, "in_production": false, "languages": ["ja"],
+          "last_air_date": "1999-04-24",
+          "last_episode_to_air": { "id": 1, "name": "The Real Folk Blues (2)", "air_date": "1999-04-24",
+            "episode_number": 26, "season_number": 1, "runtime": 25 },
+          "name": "Cowboy Bebop", "next_episode_to_air": null,
+          "networks": [{ "id": 98, "name": "TV Tokyo", "origin_country": "JP" }],
+          "number_of_episodes": 26, "number_of_seasons": 1, "origin_country": ["JP"],
+          "original_language": "ja", "original_name": "カウボーイビバップ",
+          "overview": "A bounty hunting crew in 2071.", "popularity": 61.4,
+          "poster_path": "/xDiXDfZwC6XYC6fxHI1jl3A3Ill.jpg",
+          "production_companies": [{ "id": 18, "name": "Sunrise", "origin_country": "JP" }],
+          "production_countries": [{ "iso_3166_1": "JP", "name": "Japan" }],
+          "seasons": [{ "id": 43160, "season_number": 1, "episode_count": 26, "air_date": "1998-04-03" }],
+          "spoken_languages": [{ "english_name": "Japanese", "iso_639_1": "ja", "name": "日本語" }],
+          "status": "Ended", "tagline": "", "type": "Scripted",
+          "vote_average": 8.4, "vote_count": 2100,
+          "keywords": { "results": [{ "name": "bounty hunter", "id": 6122 }, { "name": "space western", "id": 15219 }] },
+          "content_ratings": { "results": [
+            { "descriptors": [], "iso_3166_1": "US", "rating": "TV-14" },
+            { "descriptors": ["Violence"], "iso_3166_1": "DE", "rating": "16" },
+            { "descriptors": [], "iso_3166_1": "JP", "rating": "" }
+          ] }
+        }"#;
+
+        let series = tv_details(serde_json::from_str(json).unwrap());
+
+        assert_eq!(series.genres, ["Animation", "Action & Adventure"]);
+        assert_eq!(series.keywords, ["bounty hunter", "space western"]);
+        assert_eq!(series.original_language.as_deref(), Some("ja"));
+        assert_eq!(series.origin_countries, ["JP"]);
+        assert_eq!(series.certifications, by_country(&[("DE", "16"), ("US", "TV-14")]));
+        assert_eq!(series.status.as_deref(), Some("Ended"));
     }
 
     /// A blank TV rating rates nothing, and a country listed twice keeps its

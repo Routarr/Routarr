@@ -207,14 +207,34 @@ mod tests {
     }
 
     /// Each title a command carries, single or bulk, with the command's
-    /// state. Commands that move nothing are left out.
+    /// state. Commands that move nothing are left out. The first two are
+    /// `/api/v3/command` entries in full, as Radarr and Sonarr list them.
     #[test]
     fn every_title_a_move_command_carries_is_read() {
         let listed: Vec<CommandDto> = serde_json::from_value(json!([
-            { "id": 7, "name": "MoveMovie", "status": "started",
-              "body": { "movieId": 10, "destinationPath": "/movies/anime/Totoro" } },
-            { "id": 8, "name": "BulkMoveSeries", "status": "failed", "message": "disk full",
-              "body": { "series": [{ "seriesId": 20 }, { "seriesId": 21 }] } },
+            { "name": "MoveMovie", "commandName": "Move Movie",
+              "message": "Moving My Neighbor Totoro (1988)",
+              "body": { "movieId": 10, "sourcePath": "/movies/standard/Totoro",
+                "destinationPath": "/movies/anime/Totoro", "sendUpdatesToClient": true,
+                "updateScheduledTask": true, "completionMessage": "Completed",
+                "requiresDiskAccess": true, "isExclusive": false, "isTypeExclusive": false,
+                "isLongRunning": false, "name": "MoveMovie", "trigger": "unspecified",
+                "suppressMessages": false },
+              "priority": "normal", "status": "started", "queued": "2026-10-07T19:02:11Z",
+              "started": "2026-10-07T19:02:11Z", "trigger": "unspecified",
+              "stateChangeTime": "2026-10-07T19:02:11Z", "sendUpdatesToClient": true,
+              "updateScheduledTask": true, "id": 7 },
+            { "name": "BulkMoveSeries", "commandName": "Bulk Move Series", "message": "disk full",
+              "body": { "series": [{ "seriesId": 20, "sourcePath": "/tv/standard/Dark" },
+                  { "seriesId": 21, "sourcePath": "/tv/standard/Mushi-Shi" }],
+                "destinationRootFolder": "/tv/anime", "sendUpdatesToClient": true,
+                "requiresDiskAccess": true, "name": "BulkMoveSeries", "trigger": "manual" },
+              "priority": "normal", "status": "failed", "result": "unsuccessful",
+              "queued": "2026-10-07T19:03:00Z", "started": "2026-10-07T19:03:00Z",
+              "ended": "2026-10-07T19:03:02Z", "duration": "00:00:01.9934120",
+              "exception": "System.IO.IOException: No space left on device",
+              "trigger": "manual", "stateChangeTime": "2026-10-07T19:03:00Z",
+              "lastExecutionTime": "2026-10-07T19:03:02Z", "id": 8 },
             { "id": 9, "name": "RefreshMovie", "status": "completed", "body": { "movieIds": [10] } },
             { "id": 10, "name": "MoveSeries", "status": "Completed", "body": { "seriesId": 22 } },
         ]))

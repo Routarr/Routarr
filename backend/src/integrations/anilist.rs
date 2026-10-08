@@ -204,7 +204,7 @@ impl AniListClient {
     /// Cheap reachability probe: the smallest legal query.
     pub async fn test_connection(&self) -> AppResult<bool> {
         let probe = self.post("query { Media(id: 1) { id } }", serde_json::json!({}));
-        Ok(send_json::<serde_json::Value>(SERVICE, probe).await.is_ok())
+        send_json::<serde_json::Value>(SERVICE, probe).await.map(|_| true)
     }
 
     /// Candidates for a title, most relevant first.

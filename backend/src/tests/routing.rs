@@ -105,10 +105,10 @@ async fn the_library_pass_does_not_carry_what_no_rule_can_read() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at)
          VALUES ('tmdb', '129', 'movie', '[\"Animation\"]', '[]', 'ja', '[\"JP\"]',
                  'PG', 'released', 'A very long synopsis nobody can match on.',
-                 datetime('now'), datetime('now', '+7 days'))",
+                 datetime('now'))",
     )
     .execute(&app.state.pool)
     .await

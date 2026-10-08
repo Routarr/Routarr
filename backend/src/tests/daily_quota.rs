@@ -8,8 +8,8 @@
 
 use std::collections::HashSet;
 
-use super::TestApp;
 use super::fake_sources::{FakeSources, OMDB_KEY};
+use super::{TestApp, probe_verdicts};
 use crate::jobs::Attribution;
 use crate::services::enrichment::{self, EnrichmentReport};
 use crate::services::quota::DailyQuota;
@@ -52,18 +52,6 @@ async fn enrich(app: &TestApp) -> EnrichmentReport {
     enrichment::enrich_all_media(&app.state, &Attribution::manual(None)).await.unwrap()
 }
 
-/// The verdicts on a source a probe of `/health` warns of.
-async fn probe_warnings(app: &TestApp) -> Vec<String> {
-    let health = app.get("/api/v1/health").await;
-    let warnings = health.assert_ok()["warnings"].as_array().unwrap().clone();
-    warnings
-        .iter()
-        .filter_map(|warning| warning["code"].as_str())
-        .filter(|code| matches!(*code, "source_unreachable" | "source_quota_spent"))
-        .map(str::to_string)
-        .collect()
-}
-
 /// A day's quota goes to the titles never asked, then to the stalest answers:
 /// asked in the order the table happens to hold them, the same titles would be
 /// refreshed each day and the rest never reached.
@@ -71,11 +59,12 @@ async fn probe_warnings(app: &TestApp) -> Vec<String> {
 async fn titles_never_asked_come_before_refreshes_the_stalest_first() {
     let sources = FakeSources::start().await;
     let app = films(&sources, 29).await;
-    // Ten answers expired, the one for tt0001000 a day ago, tt0001009 ten.
+    // Ten answers past their seven days, the one for tt0001000 by a day,
+    // tt0001009 by ten.
     sqlx::query(
-        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+        "INSERT INTO metadata_cache (source, external_id, media_type, cached_at)
          SELECT 'omdb', imdb_id, 'movie',
-                datetime('now', '-' || (arr_id - 99) || ' days')
+                datetime('now', '-' || (arr_id - 92) || ' days')
            FROM media WHERE arr_id BETWEEN 100 AND 109",
     )
     .execute(&app.state.pool)
@@ -130,7 +119,7 @@ async fn a_spent_omdb_quota_closes_the_day_and_caches_nothing() {
 
     let asked = omdb_requests(&sources);
     enrich(&app).await;
-    assert!(probe_warnings(&app).await.contains(&"source_quota_spent".to_string()));
+    assert!(probe_verdicts(&app).await.contains(&"source_quota_spent".to_string()));
     assert_eq!(omdb_requests(&sources), asked, "the closed day was asked again");
 }
 
@@ -142,16 +131,16 @@ async fn omdb_is_probed_once_a_day_from_its_quota() {
     let sources = FakeSources::start().await;
     let app = TestApp::one_film_on(&sources, "omdb").await;
 
-    assert!(probe_warnings(&app).await.is_empty());
-    assert!(probe_warnings(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
     assert_eq!(omdb_requests(&sources), 1);
 
     app.save_setting("omdb_api_key", OMDB_KEY).await.assert_ok();
-    assert!(probe_warnings(&app).await.is_empty());
+    assert!(probe_verdicts(&app).await.is_empty());
     assert_eq!(omdb_requests(&sources), 2, "a new key was not probed");
 
     app.store_setting("omdb_daily_requests", "2").await;
-    assert_eq!(probe_warnings(&app).await, ["source_quota_spent"]);
+    assert_eq!(probe_verdicts(&app).await, ["source_quota_spent"]);
     assert_eq!(omdb_requests(&sources), 2, "the probe asked past the quota");
     let status = app.get("/api/v1/status").await;
     let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();

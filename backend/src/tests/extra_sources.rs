@@ -10,7 +10,7 @@ use crate::services::{enrichment, metadata};
 use crate::state::AppState;
 
 use super::fake_sources::FakeSources;
-use super::{TestApp, warning_messages};
+use super::{TestApp, probe_verdicts, warning_messages};
 
 /// The library's titles made series, the only titles TheTVDB answers for.
 const SERIES_ALONE: &str = "UPDATE media SET media_type = 'series'";
@@ -113,7 +113,8 @@ async fn the_tvdb_token_survives_between_passes_and_pages() {
 
 /// TheTVDB documents a month's validity. A token kept past it answers 401 on
 /// every read, one per pending title per pass, `failed` climbing, and nothing
-/// naming the cause.
+/// naming the cause. The reads in flight when it expires log in once between
+/// them, not once each.
 #[tokio::test]
 async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
     let sources = FakeSources::start().await;
@@ -124,27 +125,34 @@ async fn an_expired_tvdb_token_is_renewed_once_and_the_read_retried() {
         .unwrap();
 
     sources.expire_tvdb_token();
-    // A second title to read, or the next pass has nothing to say.
-    sqlx::query(
-        "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tvdb_id, monitored,
-         has_files)
-         VALUES ('m-2', 'inst-1', 11, 'series', 'Trigun', 1998, 77000, 1, 1)",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    // More titles to read than reads in flight, or the next pass has nothing
+    // to say.
+    let more = app.state.config.metadata_concurrency as i64 + 2;
+    for n in 0..more {
+        sqlx::query(
+            "INSERT INTO media (id, instance_id, arr_id, media_type, title, year, tvdb_id)
+             VALUES (?, 'inst-1', ?, 'series', ?, 1998, ?)",
+        )
+        .bind(format!("m-{n}-more"))
+        .bind(20 + n)
+        .bind(format!("Series {n}"))
+        .bind(77000 + n)
+        .execute(&app.state.pool)
+        .await
+        .unwrap();
+    }
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
 
     let logins = sources.recorded().paths.iter().filter(|path| *path == "/tvdb/login").count();
-    assert_eq!(logins, 2, "the expired token was not renewed");
+    assert_eq!(logins, 2, "the expired token was renewed more than once");
     let cached: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM metadata_cache WHERE source = 'tvdb'")
             .fetch_one(&app.state.pool)
             .await
             .unwrap();
-    assert_eq!(cached, 2, "the read behind the expired token was not retried");
+    assert_eq!(cached, 1 + more, "the reads behind the expired token were not retried");
 }
 
 /// TheTVDB answers for series alone: a film carrying a TheTVDB id is neither
@@ -159,11 +167,9 @@ async fn thetvdb_is_never_asked_about_a_film() {
         .unwrap();
     assert!(asked(&sources, "tvdb").is_empty(), "{:?}", asked(&sources, "tvdb"));
 
-    app.execute(&[
-        "INSERT INTO metadata_cache (source, external_id, media_type, genres, expires_at)
-                   VALUES ('tvdb', '76885', 'movie', '[\"Western\"]', '2099-01-01')",
-    ])
-    .await;
+    app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, genres)
+                   VALUES ('tvdb', '76885', 'movie', '[\"Western\"]')"])
+        .await;
     let explained = app.get("/api/v1/media/m-1/explain").await;
     assert!(explained.assert_ok()["metadata"].is_null(), "a film read TheTVDB's answer");
 }
@@ -316,6 +322,23 @@ async fn a_title_the_arr_calls_live_action_is_not_searched() {
         .await
         .unwrap();
     assert_eq!(searched(), ["My Neighbor Totoro", "Heat"]);
+}
+
+/// A search the source refuses for this title alone, a 400 or a 422, is a
+/// search that found nothing: remembered, not asked again at every pass.
+#[tokio::test]
+async fn a_search_the_source_refuses_is_not_repeated_next_pass() {
+    let sources = FakeSources::failing(400).await;
+    let app = TestApp::one_film_on(&sources, "anilist").await;
+
+    for _ in 0..2 {
+        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+            .await
+            .unwrap();
+    }
+
+    let searched = sources.recorded().paths.iter().filter(|path| *path == "/anilist").count();
+    assert_eq!(searched, 1, "a refused search was asked again");
 }
 
 #[tokio::test]
@@ -855,7 +878,7 @@ async fn a_retry_after_received_while_searching_holds_the_next_search() {
 /// Jikan answers `504` for *every* request whenever MyAnimeList is down.
 /// Without a breaker, a five-thousand-title library issues five thousand doomed
 /// requests, logs five thousand warnings, and repeats the whole thing on the
-/// next pass. A source that has refused five times in one pass is down, so
+/// next pass. A source that has refused five times in a row is down, so
 /// Routarr stops asking, a searching source in its resolution stage and an
 /// addressed one in its fetching stage.
 #[tokio::test]
@@ -994,6 +1017,150 @@ async fn a_source_switched_off_stops_being_reported_as_unreachable() {
         !after.contains(&unreachable),
         "a source nobody probes any more is still reported: {after:?}"
     );
+}
+
+/// A probe names what it found. A refused key, a source asking for fewer
+/// requests and one that does not answer each call for something else of the
+/// operator (a new key, patience, a look at the network), so one warning for
+/// all three sends them to the wrong place. A source taking no key that
+/// refuses is one not answering: there is no key to check.
+#[tokio::test]
+async fn a_probe_names_why_a_source_did_not_answer() {
+    for (status, order, verdict) in [
+        (429, "arr,jikan", "source_rate_limited"),
+        (429, "arr,anilist", "source_rate_limited"),
+        (401, "arr,tvdb", "source_key_refused"),
+        (401, "arr,omdb", "source_key_refused"),
+        (401, "arr,anilist", "source_unreachable"),
+        (503, "arr,anilist", "source_unreachable"),
+    ] {
+        let sources = FakeSources::failing(status).await;
+        let app = TestApp::one_film_on(&sources, order).await;
+        assert_eq!(probe_verdicts(&app).await, [verdict], "{order} answering {status}");
+    }
+}
+
+/// A probe keeps to its source's pace: sent while the source has asked for
+/// quiet, it earns another refusal and reports the source as failing.
+#[tokio::test]
+async fn a_probe_waits_while_its_source_is_held_back() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
+    let jikan = app.state.metadata_sources().await.into_iter().find(|s| s.id() == "jikan");
+    let pace = app.state.paces.of(&jikan.expect("jikan is a source"));
+    pace.penalise(std::time::Duration::from_millis(300)).await;
+
+    let started = std::time::Instant::now();
+    assert!(probe_verdicts(&app).await.is_empty(), "the held source failed its probe");
+    assert!(started.elapsed() >= std::time::Duration::from_millis(250), "the probe did not wait");
+}
+
+/// A pass counts again from zero at each source and each stage, so the task
+/// names the one its count measures, and a stage starts on no count until it
+/// has one: under one label, or beside the last stage's figures, the count
+/// says nothing true. Only the reading stage, held before its first answer,
+/// has a count to check: a search writes the one it starts on at once.
+#[tokio::test]
+async fn a_pass_names_the_source_and_stage_its_count_measures() {
+    for (order, id, stage, count) in [
+        ("arr,jikan", "jikan", "JobDetailIdentifying", None),
+        ("arr,jikan,omdb", "omdb", "JobDetailFetching", Some((0, 0))),
+    ] {
+        let sources = FakeSources::start().await;
+        let app = TestApp::one_film_on(&sources, order).await;
+        let source = app.state.metadata_sources().await.into_iter().find(|s| s.id() == id);
+        let pace = app.state.paces.of(&source.expect("the source is configured"));
+        pace.penalise(std::time::Duration::from_secs(1)).await;
+
+        let state = app.state.clone();
+        let pass = tokio::spawn(async move {
+            enrichment::enrich_all_media(&state, &crate::jobs::Attribution::manual(None)).await
+        });
+        let name = metadata::info(id).unwrap().display_name;
+        let (named, current, total) = loop {
+            let running: Option<(String, i64, i64)> = sqlx::query_as(
+                "SELECT detail_key, progress_current, progress_total FROM jobs
+                  WHERE status = 'running' AND detail_params = ?",
+            )
+            .bind(serde_json::json!({ "source": name }).to_string())
+            .fetch_optional(&app.state.pool)
+            .await
+            .unwrap();
+            if let Some(named) = running {
+                break named;
+            }
+            assert!(!pass.is_finished(), "{order}: the pass never named {name}");
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        };
+        assert_eq!(named, stage, "{order}");
+        if let Some(count) = count {
+            assert_eq!((current, total), count, "{order}: the count of the stage before");
+        }
+        pass.await.unwrap().unwrap();
+    }
+}
+
+/// A searched source's answer ages as any other: past its lifetime it is read
+/// again by the id found, and the title is not searched again.
+#[tokio::test]
+async fn a_searched_answer_past_its_lifetime_is_read_again() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,jikan").await;
+    let by = crate::jobs::Attribution::manual(None);
+    let pass = || enrichment::enrich_all_media(&app.state, &by);
+    pass().await.unwrap();
+    app.execute(&["UPDATE metadata_cache SET cached_at = datetime('now', '-8 days')"]).await;
+
+    pass().await.unwrap();
+
+    let recorded = sources.recorded();
+    let read = recorded.details.iter().filter(|(source, _)| *source == "jikan").count();
+    let searched = recorded.searches.iter().filter(|(source, _)| *source == "jikan").count();
+    assert_eq!((read, searched), (2, 1));
+}
+
+/// A finished pass counts the whole pass, not its last stage: TheTVDB, last
+/// here, has nothing to read about a film, and the task would end on no count
+/// at all after OMDb read one.
+#[tokio::test]
+async fn a_finished_pass_counts_the_whole_pass() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,omdb,tvdb").await;
+
+    enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let progress: (i64, i64) =
+        sqlx::query_as("SELECT progress_current, progress_total FROM jobs WHERE kind = 'enrich'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(progress, (1, 1));
+}
+
+/// An upgrade keeps due the answers an earlier upgrade had asked again: their
+/// expiry goes, and with it the only mark that they were.
+#[tokio::test]
+async fn an_upgrade_keeps_due_the_answers_asked_again() {
+    let pool = super::database_through("036_rating_country_changes").await;
+    sqlx::query(
+        "INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
+         VALUES ('omdb', 'tt1', 'movie', datetime('now')),
+                ('tmdb', '3', 'movie', '2099-01-01 00:00:00')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    crate::db::run_migrations_through(&pool, "037_cache_lifetime_at_read").await.unwrap();
+
+    let due: Vec<(String, bool)> =
+        sqlx::query_as("SELECT source, stale FROM metadata_cache ORDER BY source")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(due, [("omdb".to_string(), true), ("tmdb".to_string(), false)]);
 }
 
 /// An upgrade has OMDb and TheTVDB asked again, whose names and codes now read

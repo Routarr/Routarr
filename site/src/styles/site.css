@@ -39,14 +39,15 @@
   --mark-met: #15803d;
   --mark-unmet: #b42318;
 
-  /* 3 for a badge, 6 for anything that takes a click, 12 for a surface that
-     holds rows. The application keeps its own 2 / 3 / 4: it is dense, this is
-     not, and the two are read months apart. Two deliberate exceptions stay
-     circular (the terminal's window dots and the numbered markers), because
-     a round mark is what they are, not a rounded rectangle. */
-  --radius-xs: 3px;
-  --radius-sm: 6px;
-  --radius-md: 12px;
+  /* Square corners, as the application draws them: the page shows its plan,
+     its states and its gates, and the same objects must read as the same
+     shapes on both. The tokens stay where each shape is drawn. Two deliberate
+     exceptions stay circular (the terminal's window dots and the numbered
+     markers), because a round mark is what they are, not a rounded
+     rectangle. */
+  --radius-xs: 0;
+  --radius-sm: 0;
+  --radius-md: 0;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 30px rgba(15, 23, 42, 0.08);
   --maxw: 1140px;
 
@@ -296,7 +297,7 @@ img { max-width: 100%; height: auto; }
   font-size: 0.66rem;
   color: var(--text-muted);
   border: 1px solid var(--border);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 2px 5px;
 }
 
@@ -1667,24 +1668,19 @@ h2 em { font-style: normal; color: var(--accent-text); }
 /* One line, in four languages. Three pairs across the card leave about thirty
    characters per note, so the notes are two words and the row may not wrap:
    a legend on four lines is a paragraph pretending to be a key. */
+/* Laid out as the safety section's legend: each entry after the last, the
+   row wrapping where the card is too narrow for it. */
 .plan-legend {
   display: flex;
-  flex-wrap: nowrap;
-  justify-content: space-between;
-  gap: 0 18px;
+  flex-wrap: wrap;
+  gap: 10px 26px;
   margin: 0;
   padding: 14px 24px;
   border-top: 1px solid var(--border);
   font-size: 0.88rem;
   color: var(--text-muted);
 }
-.plan-legend > span { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
-/* Below 1000px the row stops being a row rather than bursting its card: the
-   French notes need more than the card has at this width. One line is the
-   goal where the card is wide, not a rule to keep at the cost of overflow. */
-@media (max-width: 999px) {
-  .plan-legend { flex-wrap: wrap; justify-content: flex-start; gap: 10px 24px; }
-}
+.plan-legend > span { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; }
 
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
    the table and the legend. */

@@ -30,11 +30,12 @@ const WRITE_REDIRECTED: &str =
 const UNREADABLE: &str = "unreadable ";
 const TOO_LARGE: &str = "the answer is larger than ";
 
-/// The most of an answer read before the request is given up: a library of
-/// many thousand titles is tens of megabytes, and an address streaming
-/// without end must not fill memory first.
+/// The most of an answer read before the request is given up, a library
+/// listing aside (`ROUTARR_MAX_LIBRARY_MIB`): a metadata answer or an Arr's
+/// folder list holds a few megabytes at most, and an address streaming without
+/// end must not fill memory first, once for each request in flight.
 #[cfg(not(test))]
-pub(crate) const MAX_BODY: usize = 256 << 20;
+pub(crate) const MAX_BODY: usize = 16 << 20;
 #[cfg(test)]
 pub(crate) const MAX_BODY: usize = 1 << 20;
 /// The most of an error body read: what is shown of it is cut far shorter.

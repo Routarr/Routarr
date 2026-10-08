@@ -55,6 +55,10 @@ fn arr_instance(id: &str, name: &str) -> String {
     format!("arr_instance=\"{}\",arr_instance_id=\"{}\"", label(name), label(id))
 }
 
+fn source_label(source: &str) -> String {
+    format!("source=\"{}\"", label(source))
+}
+
 /// Each title's latest standing decision, over `decisions d`: what the
 /// engine wants for it now. An older one an apply left standing is history,
 /// and counted, it reads as a library still moving.
@@ -146,6 +150,87 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
                 (arr_instance(id, name), if *enabled { 1.0 } else { 0.0 })
             })
             .collect(),
+    });
+
+    // The titles nothing describes, by the predicate the diagnostics count and
+    // the library column share: a third spelling would disagree with both.
+    let known = crate::api::media::metadata_predicate(&state.settings().await);
+    let undescribed: Vec<(String, String, String, i64)> = sqlx::query_as(AssertSqlSafe(format!(
+        "SELECT i.id, i.name, m.media_type, COUNT(*)
+           FROM media m JOIN instances i ON i.id = m.instance_id
+          WHERE NOT ({known})
+          GROUP BY i.id, i.name, m.media_type"
+    )))
+    .fetch_all(pool)
+    .await?;
+    families.push(Family {
+        name: "routarr_media_without_metadata",
+        help: "Titles no metadata source describes, which no rule on metadata can match.",
+        samples: undescribed
+            .into_iter()
+            .map(|(id, name, kind, count)| {
+                (
+                    format!("{},media_type=\"{}\"", arr_instance(&id, &name), label(&kind)),
+                    count as f64,
+                )
+            })
+            .collect(),
+    });
+
+    // Source health as 1/0, from the last probe `/health` ran. A source never
+    // probed has no sample: not asked is not down.
+    let probed: Vec<(String, bool)> = sqlx::query_as(
+        "SELECT subject, reachable FROM probe_results WHERE subject GLOB 'source:*'",
+    )
+    .fetch_all(pool)
+    .await?;
+    families.push(Family {
+        name: "routarr_metadata_source_up",
+        help: "1 when the last probe of this metadata source found it answering, 0 otherwise.",
+        samples: probed
+            .iter()
+            .filter_map(|(subject, up)| Some((subject.strip_prefix("source:")?, up)))
+            .map(|(source, up)| (source_label(source), if *up { 1.0 } else { 0.0 }))
+            .collect(),
+    });
+
+    let cached: Vec<(String, i64)> =
+        sqlx::query_as("SELECT source, COUNT(*) FROM metadata_cache GROUP BY source")
+            .fetch_all(pool)
+            .await?;
+    families.push(Family {
+        name: "routarr_metadata_cache_entries",
+        help: "Answers and misses each metadata source has cached.",
+        samples: cached
+            .into_iter()
+            .map(|(source, count)| (source_label(&source), count as f64))
+            .collect(),
+    });
+
+    // A spent quota stops a source until the next UTC day, while its probe
+    // stood earlier in the day, so the count is what says it.
+    let mut spent = Vec::new();
+    let mut limits = Vec::new();
+    for source in state.metadata_sources().await {
+        let Some(quota) = source.daily_quota() else { continue };
+        let today: Option<i64> = sqlx::query_scalar(
+            "SELECT spent FROM source_requests WHERE source = ? AND day = date('now')",
+        )
+        .bind(source.id())
+        .fetch_optional(pool)
+        .await?;
+        spent.push((source_label(source.id()), today.unwrap_or(0) as f64));
+        limits.push((source_label(source.id()), quota.limit() as f64));
+    }
+    families.push(Family {
+        name: "routarr_metadata_quota_spent",
+        help: "Requests a metadata source with a daily quota was sent today, UTC.",
+        samples: spent,
+    });
+    families.push(Family {
+        name: "routarr_metadata_quota_limit",
+        help: "Requests a metadata source with a daily quota may be sent a day.",
+        samples: limits,
     });
 
     let jobs: Vec<(String, String, i64)> =

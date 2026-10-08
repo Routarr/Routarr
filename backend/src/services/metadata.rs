@@ -15,14 +15,16 @@
 
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::integrations::anilist::AniListClient;
 use crate::integrations::jikan::JikanClient;
 use crate::integrations::omdb::OmdbClient;
 use crate::integrations::tmdb::TmdbClient;
 use crate::integrations::tvdb::TvdbClient;
 use crate::models::{Media, MetadataField, ProviderMetadata};
+use crate::services::rate_limit::RateLimiter;
 use crate::services::rule_engine::normalise_value;
 
 pub const ARR: &str = "arr";
@@ -297,6 +299,27 @@ pub fn from_media(media: &Media) -> ProviderMetadata {
 /// (it goes unpaced), `AppState::metadata_sources` (no client is ever built),
 /// and for a keyed source `provider_key_from` and `provider_keys_from` (its
 /// environment key is never read, and the source never counts as usable).
+/// The one pace every request to a source waits on, the enrichment pass's,
+/// `GET /route`'s and the health probe's alike: each at the full published
+/// rate, they would ask twice as fast as the source allows, and its 429s stop
+/// a pass. Held by the state rather than the process, so two states never
+/// slow each other.
+#[derive(Debug, Clone, Default)]
+pub struct Paces(Arc<std::sync::Mutex<HashMap<&'static str, RateLimiter>>>);
+
+impl Paces {
+    /// The limiter of `source`: at its published rate on its public endpoint,
+    /// unlimited elsewhere, and held back alike when the source refuses.
+    pub fn of(&self, source: &FetchingSource) -> RateLimiter {
+        let mut paces = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let pace = paces.entry(source.id()).or_insert_with(|| match source.rate() {
+            Some((per_minute, burst)) => RateLimiter::new(per_minute, burst),
+            None => RateLimiter::unlimited(),
+        });
+        pace.clone()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum FetchingSource {
     Tmdb(TmdbClient),
@@ -365,24 +388,6 @@ impl FetchingSource {
         }
     }
 
-    /// The limiter for this source, ready to be shared across a pass.
-    /// The one pace every request to this source waits on, the enrichment
-    /// pass's and `GET /route`'s alike: each at the full published rate, they
-    /// would ask twice as fast as the source allows, and its 429s stop a pass.
-    /// An endpoint with no published rate, as a test stand-in, is not paced.
-    pub fn pace(&self) -> crate::services::rate_limit::RateLimiter {
-        use crate::services::rate_limit::RateLimiter;
-        static PACES: std::sync::LazyLock<
-            std::sync::Mutex<std::collections::HashMap<&'static str, RateLimiter>>,
-        > = std::sync::LazyLock::new(Default::default);
-
-        let Some((per_minute, burst)) = self.rate() else {
-            return RateLimiter::unlimited();
-        };
-        let mut paces = PACES.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        paces.entry(self.id()).or_insert_with(|| RateLimiter::new(per_minute, burst)).clone()
-    }
-
     /// The requests this source may be sent in a UTC day, counted across
     /// every caller: an OMDb key is given a daily quota, a thousand on a free
     /// one, and refuses every request past it until the day ends.
@@ -402,7 +407,7 @@ impl FetchingSource {
         pace: &crate::services::rate_limit::RateLimiter,
         outcome: &AppResult<T>,
     ) {
-        crate::services::rate_limit::honour_retry_after(pace, outcome).await;
+        crate::services::rate_limit::after_answer(pace, outcome).await;
         if let (Self::AniList(client), Ok(_)) = (self, outcome) {
             pace.follow(client.stated_limit()).await;
         }
@@ -435,6 +440,29 @@ impl FetchingSource {
     /// Returns `None` when nothing matched. That is an answer in its own right,
     /// and the one that stops the next pass from searching again for the same
     /// item.
+    /// [`FetchingSource::resolve`], a search the source refuses for this
+    /// title read as one that found nothing ([`is_a_miss`]).
+    pub async fn find(
+        &self,
+        title: &str,
+        year: Option<i64>,
+        media_type: &str,
+    ) -> AppResult<Option<String>> {
+        match self.resolve(title, year, media_type).await {
+            Err(error) if is_a_miss(&error) => Ok(None),
+            other => other,
+        }
+    }
+
+    /// [`FetchingSource::fetch`], a title the source refuses read as one it
+    /// has nothing about ([`is_a_miss`]), which is stored as an empty answer.
+    pub async fn answer(&self, external_id: &str, media_type: &str) -> AppResult<ProviderMetadata> {
+        match self.fetch(external_id, media_type).await {
+            Err(error) if is_a_miss(&error) => Ok(ProviderMetadata::default()),
+            other => other,
+        }
+    }
+
     pub async fn resolve(
         &self,
         title: &str,
@@ -543,6 +571,13 @@ impl FetchingSource {
     }
 }
 
+/// Whether a source's refusal is about one title rather than the source: a 404
+/// says it does not have the title, a 400, 410 or 422 that it will never answer
+/// that id or that query. Remembered as an answer, or every pass asks again.
+fn is_a_miss(error: &AppError) -> bool {
+    matches!(error, AppError::ExternalApi { status: 400 | 404 | 410 | 422, .. })
+}
+
 fn numeric(external_id: &str, service: &str) -> AppResult<i64> {
     external_id.parse().map_err(|_| {
         crate::error::AppError::BadRequest(format!("'{external_id}' is not a {service} identifier"))
@@ -633,6 +668,28 @@ pub async fn load_identifiers(connection: &mut sqlx::SqliteConnection) -> AppRes
 }
 
 /// The resolutions made for one item, which is all one media page reads.
+/// Whether the cached answer of `source` for `external_id` was asked for
+/// again. An answer that cannot be read is taken as current: asking a source
+/// on a database error is a request spent for nothing.
+pub async fn is_stale(
+    pool: &SqlitePool,
+    source: &str,
+    external_id: &str,
+    media_type: &str,
+) -> bool {
+    let stale: Option<bool> = sqlx::query_scalar(
+        "SELECT stale FROM metadata_cache WHERE source = ? AND external_id = ? AND media_type = ?",
+    )
+    .bind(source)
+    .bind(external_id)
+    .bind(media_type)
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten();
+    stale.unwrap_or(false)
+}
+
 pub async fn load_identifiers_of(
     connection: &mut sqlx::SqliteConnection,
     media: &[Media],
@@ -1021,17 +1078,20 @@ mod tests {
         assert_eq!(pick(&["DE", "GB"]), None);
     }
 
-    /// Enrichment and `GET /route` spend one budget per source: each at the
-    /// full published rate, they would ask twice as fast as the source allows,
-    /// and its 429s would stop the enrichment pass.
+    /// Every path to a source spends one budget, a source with no published
+    /// rate included: unpaced, it is still held back when it refuses.
     #[tokio::test]
     async fn every_path_to_a_source_spends_one_pace() {
-        use crate::integrations::anilist::{AniListClient, DEFAULT_BASE_URL};
-        let source =
-            FetchingSource::AniList(AniListClient::new(reqwest::Client::new(), DEFAULT_BASE_URL));
-        source.pace().penalise(std::time::Duration::from_millis(300)).await;
+        use crate::integrations::anilist::AniListClient;
+        let paces = Paces::default();
+        let source = FetchingSource::AniList(AniListClient::new(
+            reqwest::Client::new(),
+            "http://127.0.0.1:1",
+        ));
+        assert_eq!(source.rate(), None, "the fixture's source is paced");
+        paces.of(&source).penalise(std::time::Duration::from_millis(300)).await;
         let started = std::time::Instant::now();
-        source.pace().acquire().await;
+        paces.of(&source).acquire().await;
         assert!(started.elapsed() >= std::time::Duration::from_millis(250), "two budgets");
     }
 

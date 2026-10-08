@@ -7,7 +7,6 @@
 //! Only *fetched* sources come through here: `arr` is enriched by the library
 //! sync itself, which is the point of it.
 
-use chrono::Utc;
 use futures::stream::{self, StreamExt};
 use sqlx::{AssertSqlSafe, SqlitePool};
 use std::sync::Arc;
@@ -23,8 +22,10 @@ use crate::services::routing;
 use crate::state::AppState;
 
 /// Outcome of an enrichment pass.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct EnrichmentReport {
+    /// Titles a source that has to search for its own identifiers looked for.
+    pub searched: usize,
     pub considered: usize,
     pub enriched: usize,
     pub failed: usize,
@@ -45,6 +46,37 @@ enum NotAsked {
 /// Enrich every media item whose metadata is missing or expired, source by
 /// source, in the user's priority order.
 pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
+    let _pass = pass_lock(state).await?;
+    run_pass(state, by).await
+}
+
+/// Ask `source`, or every source, again for each answer it gave, then run a
+/// pass that reads them. Refused before anything is marked while a pass
+/// runs: that pass counted its titles already, and the refresh would wait
+/// for the next.
+pub async fn refresh(
+    state: &AppState,
+    by: &Attribution,
+    source: Option<&'static str>,
+) -> AppResult<EnrichmentReport> {
+    let _pass = pass_lock(state).await?;
+    sqlx::query("UPDATE metadata_cache SET stale = 1 WHERE ?1 IS NULL OR source = ?1")
+        .bind(source)
+        .execute(&state.pool)
+        .await?;
+    run_pass(state, by).await
+}
+
+async fn pass_lock(state: &AppState) -> AppResult<crate::jobs::JobLock> {
+    match state.jobs.try_lock("enrich") {
+        Some(lock) => Ok(lock),
+        None => Err(AppError::Conflict(
+            state.localizer().await.translate("ErrorEnrichmentInProgress", &[]),
+        )),
+    }
+}
+
+async fn run_pass(state: &AppState, by: &Attribution) -> AppResult<EnrichmentReport> {
     // Built on `metadata_providers`, the sources able to answer today: a source
     // with no key would fail every request of the pass. Evaluation reads the
     // whole `metadata_order` instead, so what a source answered before its key
@@ -55,11 +87,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
         return Ok(EnrichmentReport::default());
     }
 
-    let Some(_lock) = state.jobs.try_lock("enrich") else {
-        return Err(AppError::Conflict("An enrichment pass is already running".into()));
-    };
-
-    let job =
+    let mut job =
         state.jobs.start(JobKind::Enrich, by, None, Detail::new("JobDetailEnriching")).await?;
 
     let mut report = EnrichmentReport::default();
@@ -67,6 +95,7 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
     for source in &sources {
         match run_enrichment(state, source, &job).await {
             Ok(partial) => {
+                report.searched += partial.searched;
                 report.considered += partial.considered;
                 report.enriched += partial.enriched;
                 report.failed += partial.failed;
@@ -84,6 +113,9 @@ pub async fn enrich_all_media(state: &AppState, by: &Attribution) -> AppResult<E
 
     match &outcome {
         Ok(()) => {
+            let counted = report.searched + report.considered;
+            job.progress(counted, counted).await;
+            job.report(&report);
             job.succeed(
                 Detail::new("JobDetailEnriched")
                     .with("enriched", report.enriched)
@@ -106,20 +138,25 @@ async fn run_enrichment(
     // A found identifier is kept, and a miss for a month or so
     // (`metadata::resolved_keys`), so this is a first-pass cost, not a
     // per-run one.
-    let limiter = source.pace();
+    let limiter = state.paces.of(source);
+    let name = metadata::info(source.id()).map_or(source.id(), |info| info.display_name);
 
+    let mut searched = 0;
     if source.addressing() == Addressing::Search {
-        resolve_identifiers(state, source, job, &limiter).await?;
+        job.stage(Detail::new("JobDetailIdentifying").with("source", name)).await;
+        searched = resolve_identifiers(state, source, job, &limiter).await?;
     }
+    job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
-    let targets = pending_targets(&state.pool, source).await?;
+    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
+    let targets =
+        pending_targets(&state.pool, source, metadata::cache_days(source.id(), ttl_days)).await?;
     if targets.is_empty() {
         info!("The {} cache is up to date", source.id());
-        return Ok(EnrichmentReport::default());
+        return Ok(EnrichmentReport { searched, ..Default::default() });
     }
 
     info!("{} item(s) need enrichment from {}", targets.len(), source.id());
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
     let total = targets.len();
 
     // `buffer_unordered` keeps N requests in flight without spawning a task per
@@ -169,7 +206,7 @@ async fn run_enrichment(
                 // for the 429 never to be earned.
                 limiter.acquire().await;
                 sent.fetch_add(1, Ordering::Relaxed);
-                let outcome = source.fetch(&external_id, &media_type).await;
+                let outcome = source.answer(&external_id, &media_type).await;
                 if outcome.as_ref().is_err_and(crate::integrations::is_quota_spent) {
                     closed.store(true, Ordering::Relaxed);
                     return (external_id, media_type, Err(NotAsked::Deferred));
@@ -181,8 +218,12 @@ async fn run_enrichment(
         })
         .buffer_unordered(source.concurrency(state.config.metadata_concurrency));
 
-    let mut report =
-        EnrichmentReport { considered: total, deferred: total - granted, ..Default::default() };
+    let mut report = EnrichmentReport {
+        searched,
+        considered: total,
+        deferred: total - granted,
+        ..Default::default()
+    };
     let mut rate_limited = false;
     let mut index = 0;
 
@@ -199,24 +240,11 @@ async fn run_enrichment(
                 continue;
             }
         };
-        // A source that does not have the item says so with a 404. That is an
-        // answer, cached empty like OMDb's miss, or every pass asks again.
-        let result = match result {
-            Err(AppError::ExternalApi { status: 404, .. }) => Ok(ProviderMetadata::default()),
-            other => other,
-        };
-
         match result {
             Ok(data) => {
-                let stored = store_metadata(
-                    &state.pool,
-                    source.id(),
-                    &external_id,
-                    &media_type,
-                    &data,
-                    ttl_days,
-                )
-                .await;
+                let stored =
+                    store_metadata(&state.pool, source.id(), &external_id, &media_type, &data)
+                        .await;
                 match stored {
                     Ok(()) => report.enriched += 1,
                     Err(e) => {
@@ -298,7 +326,7 @@ struct Breaker {
 }
 
 impl Breaker {
-    /// A source that has refused this many times in one pass is down, not
+    /// A source that has refused this many times in a row is down, not
     /// unlucky.
     const LIMIT: usize = 5;
 
@@ -311,10 +339,14 @@ impl Breaker {
     }
 
     /// Record an outcome, counting only the failures that say something about
-    /// the *source* rather than about one item.
+    /// the *source* rather than about one item, and only in a row: one answer
+    /// starts the count again, or scattered errors over hours would abandon a
+    /// source that answers nearly every request.
     fn record<T>(&self, outcome: &AppResult<T>) {
         if is_source_level_failure(outcome) {
             self.failures.fetch_add(1, Ordering::Relaxed);
+        } else {
+            self.failures.store(0, Ordering::Relaxed);
         }
     }
 }
@@ -352,13 +384,14 @@ struct Candidate {
 ///
 /// Both outcomes are written down. Remembering that AniList has nothing for
 /// *The Matrix* is what stops the next passes from searching for it again,
-/// until the miss is old enough to be worth asking about once more.
+/// until the miss is old enough to be worth asking about once more. Answers
+/// how many titles it looked for.
 async fn resolve_identifiers(
     state: &AppState,
     source: &FetchingSource,
     job: &JobHandle,
     limiter: &RateLimiter,
-) -> AppResult<()> {
+) -> AppResult<usize> {
     let known = metadata::resolved_keys(&state.pool, source.id()).await?;
 
     let rows: Vec<Candidate> = sqlx::query_as(
@@ -394,7 +427,7 @@ async fn resolve_identifiers(
     }
 
     if pending.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
 
     let total = pending.len();
@@ -418,7 +451,7 @@ async fn resolve_identifiers(
                 }
 
                 limiter.acquire().await;
-                let outcome = source.resolve(&title, year, &media_type).await;
+                let outcome = source.find(&title, year, &media_type).await;
                 source.paced_after(&limiter, &outcome).await;
                 breaker.record(&outcome);
                 (key, media_type, Some(outcome))
@@ -449,9 +482,9 @@ async fn resolve_identifiers(
                     warn!("Could not record what {key} is on {}: {e}", source.id());
                 }
             }
-            // A failed search is *not* written down: it means the network
-            // failed, not that the source has nothing, and the difference
-            // decides whether the next pass ever tries again.
+            // A failed search is *not* written down: the source or the
+            // network failed, which says nothing of the title, and the
+            // difference decides whether the next pass ever tries again.
             Err(e) => warn!("Could not identify {key} on {}: {e}", source.id()),
         }
 
@@ -470,11 +503,14 @@ async fn resolve_identifiers(
         );
     }
 
-    Ok(())
+    Ok(total)
 }
 
 /// Distinct identifiers, in this source's own namespace, whose cache entry is
-/// missing or stale: the ones never asked first, then the stalest. A pass
+/// missing or due: the ones never asked first, then the ones someone asked
+/// for again, then the stalest. An answer is due once older than `lifetime`
+/// days, read now rather than written beside it, so a lifetime lowered
+/// applies to every answer at once. A pass
 /// that stops short, at a daily quota, would otherwise refresh the same
 /// titles each day and never reach the rest.
 ///
@@ -483,7 +519,9 @@ async fn resolve_identifiers(
 async fn pending_targets(
     pool: &SqlitePool,
     source: &FetchingSource,
+    lifetime: i64,
 ) -> AppResult<Vec<(String, String)>> {
+    let due = format!("-{lifetime} days");
     let answered = metadata::info(source.id())
         .map(|provider| provider.media_types)
         .unwrap_or_default()
@@ -505,10 +543,11 @@ async fn pending_targets(
                    AND c.media_type = m.media_type
              WHERE m.{column} IS NOT NULL AND CAST(m.{column} AS TEXT) != ''
                AND m.media_type IN ({answered})
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
-             ORDER BY c.external_id IS NOT NULL, c.expires_at"
+               AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at"
         )))
         .bind(source.id())
+        .bind(&due)
         .fetch_all(pool)
         .await?),
 
@@ -522,10 +561,11 @@ async fn pending_targets(
                    AND c.external_id = s.external_id
                    AND c.media_type = s.media_type
              WHERE s.source = ? AND s.external_id IS NOT NULL
-               AND (c.external_id IS NULL OR c.expires_at < datetime('now'))
-             ORDER BY c.external_id IS NOT NULL, c.expires_at",
+               AND (c.external_id IS NULL OR c.stale = 1 OR c.cached_at < datetime('now', ?))
+             ORDER BY c.external_id IS NOT NULL, c.stale = 0, c.cached_at",
         )
         .bind(source.id())
+        .bind(&due)
         .fetch_all(pool)
         .await?),
     }
@@ -541,9 +581,9 @@ pub const WEBHOOK_BUDGET: std::time::Duration = std::time::Duration::from_secs(3
 ///
 /// Each source is asked by the id it is addressed with, from the row or from
 /// a recorded search, or found by a search of its own, at its own pace, until
-/// `deadline`. A search that finds nothing is an answer, and so is a 404: the
-/// source does not have the title. A source that fails is left out and the
-/// next is asked.
+/// `deadline`. A search that finds nothing is an answer, and so is a refusal
+/// about the title alone (`FetchingSource::answer`). A source that fails is
+/// left out and the next is asked.
 pub async fn ask_now(
     state: &AppState,
     media: &Media,
@@ -581,16 +621,20 @@ pub async fn ask_now(
         // A search on record that found nothing is not run again here: the
         // enrichment pass searches again once the miss is old enough.
         let missed = identifiers.get(&searched).is_some_and(Option::is_none);
-        if known.as_deref().is_some_and(|external| cached.contains_key(&key(external))) {
+        // An answer asked for again counts as none.
+        if let Some(external) =
+            known.as_deref().filter(|external| cached.contains_key(&key(external)))
+            && !metadata::is_stale(&state.pool, source.id(), external, &media.media_type).await
+        {
             continue;
         }
-        let pace = source.pace();
+        let pace = state.paces.of(&source);
         let external = match (known, source.addressing()) {
             (Some(external), _) => external,
             (None, Addressing::Search) if missed || !searchable => continue,
             (None, Addressing::Search) => {
                 pace.acquire().await;
-                let resolved = source.resolve(&media.title, media.year, &media.media_type).await;
+                let resolved = source.find(&media.title, media.year, &media.media_type).await;
                 source.paced_after(&pace, &resolved).await;
                 match resolved {
                     Ok(Some(external)) => {
@@ -613,7 +657,7 @@ pub async fn ask_now(
             continue;
         }
         pace.acquire().await;
-        let fetched = source.fetch(&external, &media.media_type).await;
+        let fetched = source.answer(&external, &media.media_type).await;
         if let (Some(quota), Err(error)) = (&quota, &fetched)
             && crate::integrations::is_quota_spent(error)
         {
@@ -623,14 +667,8 @@ pub async fn ask_now(
             continue;
         }
         source.paced_after(&pace, &fetched).await;
-        match fetched {
-            Ok(answer) => {
-                fresh.metadata.insert(key(&external), answer);
-            }
-            Err(AppError::ExternalApi { status: 404, .. }) => {
-                fresh.metadata.insert(key(&external), ProviderMetadata::default());
-            }
-            Err(_) => {}
+        if let Ok(answer) = fetched {
+            fresh.metadata.insert(key(&external), answer);
         }
     }
     fresh
@@ -641,9 +679,97 @@ pub async fn ask_now(
 /// the row can address, within [`WEBHOOK_BUDGET`]. What a source answered is
 /// stored as a full pass would store it.
 pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
     let deadline = tokio::time::Instant::now() + WEBHOOK_BUDGET;
-    let fresh = ask_now(state, media, Some(deadline)).await;
+    store_fresh(state, &ask_now(state, media, Some(deadline)).await).await.map(|_| ())
+}
+
+/// What asking the sources again about one title found.
+#[derive(Debug, serde::Serialize)]
+pub struct TitleRefresh {
+    /// The sources that gave an answer.
+    pub answered: usize,
+}
+
+/// Ask the sources again about `media`, or `source` alone: its answers are
+/// marked stale and its search match forgotten, so a wrong AniList or
+/// MyAnimeList match is searched for anew, then each source is asked what
+/// the title lacks. An answer a source does not give stays stale for the
+/// next pass.
+pub async fn refresh_title(
+    state: &AppState,
+    by: &Attribution,
+    media: &Media,
+    source: Option<&'static str>,
+) -> AppResult<TitleRefresh> {
+    let detail = |key| Detail::new(key).with("title", &media.title);
+    let mut job =
+        state.jobs.start(JobKind::Enrich, by, None, detail("JobDetailRefreshingTitle")).await?;
+    let outcome = async {
+        forget_title(state, media, source).await?;
+        store_fresh(state, &ask_now(state, media, None).await).await
+    }
+    .await;
+    match outcome {
+        Ok(answered) => {
+            let refreshed = TitleRefresh { answered };
+            job.report(&refreshed);
+            job.succeed(detail("JobDetailRefreshedTitle").with("answered", answered)).await;
+            Ok(refreshed)
+        }
+        Err(e) => {
+            job.fail(&e).await;
+            Err(e)
+        }
+    }
+}
+
+/// Mark `media`'s answers stale, `source`'s alone when named, and forget
+/// what each searched source found for it.
+async fn forget_title(
+    state: &AppState,
+    media: &Media,
+    source: Option<&'static str>,
+) -> AppResult<()> {
+    let title = std::slice::from_ref(media);
+    let identifiers = {
+        let mut connection = state.pool.acquire().await?;
+        metadata::load_identifiers_of(&mut connection, title).await?
+    };
+    let asked = metadata::PROVIDERS
+        .iter()
+        .filter(|provider| provider.fetched && source.is_none_or(|id| id == provider.id));
+    let mut tx = crate::db::write_transaction(&state.pool).await?;
+    for provider in asked {
+        if let Some(external) = metadata::external_id(provider, media, &identifiers) {
+            sqlx::query(
+                "UPDATE metadata_cache SET stale = 1
+                  WHERE source = ? AND external_id = ? AND media_type = ?",
+            )
+            .bind(provider.id)
+            .bind(&external)
+            .bind(&media.media_type)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if provider.addressing == Addressing::Search {
+            sqlx::query(
+                "DELETE FROM source_identifiers
+                  WHERE source = ? AND media_type = ? AND local_key = ?",
+            )
+            .bind(provider.id)
+            .bind(&media.media_type)
+            .bind(metadata::local_key(media))
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Store what [`ask_now`] found, as a pass stores it, and answer how many
+/// answers that was.
+async fn store_fresh(state: &AppState, fresh: &routing::Fresh) -> AppResult<usize> {
     for ((source, media_type, local_key), external) in &fresh.identifiers {
         metadata::remember_identifier(
             &state.pool,
@@ -655,9 +781,9 @@ pub async fn enrich_one(state: &AppState, media: &Media) -> AppResult<()> {
         .await?;
     }
     for ((source, external, media_type), data) in &fresh.metadata {
-        store_metadata(&state.pool, source, external, media_type, data, ttl_days).await?;
+        store_metadata(&state.pool, source, external, media_type, data).await?;
     }
-    Ok(())
+    Ok(fresh.metadata.len())
 }
 
 async fn store_metadata(
@@ -666,17 +792,12 @@ async fn store_metadata(
     external_id: &str,
     media_type: &str,
     data: &ProviderMetadata,
-    ttl_days: i64,
 ) -> AppResult<()> {
-    let expires_at = crate::services::routing::format_timestamp(
-        Utc::now() + chrono::Duration::days(metadata::cache_days(source, ttl_days)),
-    );
-
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
          original_language, origin_countries, certification, certification_scale,
-         certifications, status, overview, cached_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), ?)
+         certifications, status, overview, cached_at, stale)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), 0)
          ON CONFLICT(source, external_id, media_type) DO UPDATE SET
             genres = excluded.genres,
             keywords = excluded.keywords,
@@ -688,7 +809,7 @@ async fn store_metadata(
             status = excluded.status,
             overview = excluded.overview,
             cached_at = excluded.cached_at,
-            expires_at = excluded.expires_at",
+            stale = 0",
     )
     .bind(source)
     .bind(external_id)
@@ -702,7 +823,6 @@ async fn store_metadata(
     .bind(serde_json::to_string(&data.certifications)?)
     .bind(&data.status)
     .bind(&data.overview)
-    .bind(&expires_at)
     .execute(pool)
     .await?;
 

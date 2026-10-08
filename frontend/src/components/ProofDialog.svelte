@@ -59,7 +59,7 @@
       {:else}
         <p class="text-muted text-base mb-3">{t(words.help)}</p>
       {/if}
-      <div class="form-row">
+      <div class="form-group">
         <label class="form-label" for="proof-value">{t(words.label)}</label>
         <input
           id="proof-value"

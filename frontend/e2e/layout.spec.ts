@@ -485,6 +485,33 @@ test.describe('the chrome draws one line', () => {
       `the chrome is stepped: sidebar ends at ${sidebarBottom}, top bar at ${topbarBottom}`,
     ).toBeLessThanOrEqual(1);
   });
+
+  /**
+   * A dot inside a framed chip is read against the frame, not against the
+   * letters beside it, so it sits on the frame's middle. The kind badge draws
+   * its dot as `::before`, which no query can measure, so what is checked
+   * there is whatever could still move it once the row has centred it.
+   */
+  test('a dot sits on the middle of the chip that frames it', async ({ page }) => {
+    await openScreen(page, '/instances');
+
+    const modeOffset = await page.locator('.mode-chip').evaluate((chip) => {
+      const frame = chip.getBoundingClientRect();
+      const dot = chip.querySelector('.mode-dot')!.getBoundingClientRect();
+      return dot.top + dot.height / 2 - (frame.top + frame.height / 2);
+    });
+    expect(Math.abs(modeOffset), 'the mode dot is off its chip').toBeLessThanOrEqual(0.5);
+
+    const kindOffset = await page
+      .locator('.badge-kind')
+      .first()
+      .evaluate((badge) => {
+        const dot = getComputedStyle(badge, '::before');
+        const shift = new DOMMatrix(dot.transform).m42;
+        return shift + parseFloat(dot.marginTop) - parseFloat(dot.marginBottom);
+      });
+    expect(kindOffset, 'the kind dot is off its badge').toBe(0);
+  });
 });
 
 /**

@@ -141,19 +141,23 @@ async fn a_retry_after_from_the_source_holds_back_the_next_request() {
 
 /// Sonarr sends one delivery per imported episode, and the webhook enriches
 /// the series on each. What the cache still holds is not fetched again: a
-/// season is one TMDB call, not one per episode.
+/// season is one TMDB call, not one per episode, and so is a series TMDB does
+/// not have, whose 404 is an answer.
 #[tokio::test]
 async fn a_second_delivery_for_the_same_series_fetches_nothing() {
-    let tmdb = FakeTmdb::start().await;
-    let app = library(&tmdb, &[(1, "series", 1399)]).await;
+    for (missing, id) in [(vec![], 1399), (vec![1400], 1400)] {
+        let tmdb = FakeTmdb::with(missing, vec![]).await;
+        let app = library(&tmdb, &[(1, "series", id)]).await;
 
-    let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
-    for _ in 0..2 {
-        enrichment::enrich_one(&app.state, &media).await.unwrap();
+        let media = crate::api::media::load_media(&app.state, "m-1").await.unwrap();
+        for _ in 0..2 {
+            enrichment::enrich_one(&app.state, &media).await.unwrap();
+        }
+
+        let asked = format!("/tv/{id}");
+        let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with(&asked)).count();
+        assert_eq!(fetched, 1, "series {id}, cached, was fetched again");
     }
-
-    let fetched = tmdb.recorded().paths.iter().filter(|p| p.starts_with("/tv/1399")).count();
-    assert_eq!(fetched, 1, "the cached series was fetched again");
 }
 
 #[tokio::test]
@@ -268,6 +272,44 @@ async fn one_failing_item_does_not_abort_the_pass() {
     assert_eq!(rows[0].0, 200, "the reachable item was still cached");
 }
 
+/// A title the source refuses for itself alone, with a 400, 410 or 422, is an
+/// answer: stored empty, and not asked again at every pass.
+#[tokio::test]
+async fn a_title_the_source_refuses_is_not_asked_again_next_pass() {
+    for status in [400, 410, 422] {
+        let tmdb = FakeTmdb::down(status).await;
+        let app = library(&tmdb, &[(1, "movie", 100)]).await;
+
+        for _ in 0..2 {
+            enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(tmdb.recorded().paths.len(), 1, "a {status} was asked again");
+    }
+}
+
+/// A source failing now and then is working: the breaker counts failures in
+/// a row, so one title in four refused over a pass costs those titles alone,
+/// not the rest of the pass.
+#[tokio::test]
+async fn scattered_failures_do_not_abandon_a_working_source() {
+    let ids: Vec<i64> = (100..132).collect();
+    let refused: Vec<i64> = ids.iter().copied().filter(|id| id % 4 == 0).collect();
+    let tmdb = FakeTmdb::erroring(refused.clone()).await;
+    let titles: Vec<(i64, &str, i64)> =
+        ids.iter().enumerate().map(|(n, id)| (n as i64 + 1, "movie", *id)).collect();
+    let app = library(&tmdb, &titles).await;
+
+    let report = enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    assert_eq!(report.skipped, 0, "{report:?}");
+    assert_eq!((report.enriched, report.failed), (ids.len() - refused.len(), refused.len()));
+}
+
 /// An answer that cannot be stored costs that one item, not the pass: the
 /// others are written as they arrive, and the next pass tries the failed one.
 #[tokio::test]
@@ -313,7 +355,7 @@ async fn expired_entries_are_re_fetched() {
     enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
         .await
         .unwrap();
-    sqlx::query("UPDATE metadata_cache SET expires_at = datetime('now', '-1 day')")
+    sqlx::query("UPDATE metadata_cache SET cached_at = datetime('now', '-8 days')")
         .execute(&app.state.pool)
         .await
         .unwrap();
@@ -492,30 +534,36 @@ async fn a_tmdb_outage_is_abandoned_rather_than_asked_once_per_title() {
     assert!(report.skipped > 0, "{report:?}");
 }
 
-/// A cached answer lives as many days as `metadata_cache_ttl_days` says, seven
-/// when nothing is set, and a TMDB answer six months at most, as its terms
-/// require. Counted otherwise, every pass refetches the whole library, or a
+/// A cached answer lives as many days as `metadata_cache_ttl_days` says when
+/// a pass reads it, seven when nothing is set, and a TMDB answer six months at
+/// most, as its terms require. The lifetime set now counts, not the one the
+/// answer was cached under, so lowering it refreshes the answers already
+/// cached. Counted otherwise, every pass refetches the whole library, or a
 /// stale answer outlives the setting by months.
 #[tokio::test]
 async fn a_cached_answer_lives_as_many_days_as_the_setting_says() {
-    for (setting, days) in [(None, 7), (Some("30"), 30), (Some("365"), 180)] {
+    for (setting, days) in [(None, 7), (Some("1"), 1), (Some("365"), 180)] {
         let tmdb = FakeTmdb::start().await;
         let app = library(&tmdb, &[(1, "movie", 100)]).await;
+        let by = crate::jobs::Attribution::manual(None);
+        let pass = || enrichment::enrich_all_media(&app.state, &by);
         if let Some(value) = setting {
+            app.save_setting("metadata_cache_ttl_days", "30").await.assert_ok();
+            pass().await.unwrap();
             app.save_setting("metadata_cache_ttl_days", value).await.assert_ok();
+        } else {
+            pass().await.unwrap();
         }
 
-        enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None))
-            .await
-            .unwrap();
-
-        let expires: String = sqlx::query_scalar("SELECT expires_at FROM metadata_cache")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
-        let expires = crate::services::routing::parse_timestamp(&expires).expect(&expires);
-        let left = (expires - chrono::Utc::now()).num_hours();
-        assert!((days * 24 - 2..=days * 24).contains(&left), "{setting:?}: {left} hours");
+        for (hours, asked) in [(days * 24 - 1, 1), (days * 24 + 1, 2)] {
+            sqlx::query("UPDATE metadata_cache SET cached_at = datetime('now', ?)")
+                .bind(format!("-{hours} hours"))
+                .execute(&app.state.pool)
+                .await
+                .unwrap();
+            pass().await.unwrap();
+            assert_eq!(tmdb.recorded().paths.len(), asked, "{setting:?}, {hours} hours old");
+        }
     }
 }
 

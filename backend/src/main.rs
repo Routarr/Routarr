@@ -60,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.validate()?;
     init_tracing(&config);
     log_panics();
-    for note in &config.startup_notes {
+    for note in config.startup_notes.iter().chain(&config.source_notes()) {
         warn!("{note}");
     }
 
@@ -92,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         pool,
         secrets,
         tvdb_token: Arc::new(tokio::sync::Mutex::new(None)),
+        paces: Default::default(),
         jobs: job_registry,
         api_key: Arc::new(std::sync::RwLock::new(api_key)),
         sign_in: Arc::new(Default::default()),
@@ -562,6 +563,7 @@ fn build_router(state: AppState) -> Router {
         .route("/notifications/test", post(api::notifications::test))
         .route("/onboarding", get(api::onboarding::get).put(api::onboarding::update))
         .route("/metadata/providers", get(api::metadata::list))
+        .route("/metadata/refresh", post(api::metadata::refresh))
         .route("/config/export", get(api::config::export))
         .route("/config/import", post(api::config::import))
         .route_layer(middleware::from_fn_with_state(state.clone(), api::auth::authenticate));

@@ -9,7 +9,7 @@ pub const DEFAULT_TMDB_BASE_URL: &str = "https://api.themoviedb.org/3";
 pub const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 20;
 
 /// `ROUTARR_MAX_LIBRARY_MIB` when unset.
-const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
+pub(crate) const DEFAULT_MAX_LIBRARY_MIB: usize = 256;
 
 /// How long an apply follows the Arr's moves of files. A move within one
 /// filesystem is a rename the Arr ends in a second. One copying across disks
@@ -181,6 +181,20 @@ impl Network {
 /// `Access-Control-Allow-Credentials`, which the Fetch standard forbids
 /// combining with a wildcard, and `AllowOrigin::list` answers a wildcard with a
 /// panic, so an installation that set it would never start at all.
+/// A metadata source's root, refused at start when it is no address a request
+/// can go to: a typo would only ever show as the source being unreachable.
+fn validate_source_root(variable: &str, root: &str) -> AppResult<()> {
+    let bad = |why: &str| AppError::Config(format!("{variable}: '{root}' {why}"));
+    let url = reqwest::Url::parse(root).map_err(|_| bad("is not a URL"))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(bad("must start with http:// or https://"));
+    }
+    if url.host_str().is_none() {
+        return Err(bad("names no host"));
+    }
+    Ok(())
+}
+
 fn validate_origin(origin: &str) -> AppResult<()> {
     // Named through a constant rather than inline: the sample-env check scans
     // this file for a quoted `ROUTARR_*` and reads the whole literal as a
@@ -586,6 +600,35 @@ impl Config {
         })
     }
 
+    /// Each metadata source's root, by the variable that sets it, and whether
+    /// a key travels with its requests.
+    fn source_roots(&self) -> [(&'static str, &str, bool); 5] {
+        [
+            ("ROUTARR_TMDB_BASE_URL", &self.tmdb_base_url, true),
+            ("ROUTARR_OMDB_BASE_URL", &self.omdb_base_url, true),
+            ("ROUTARR_TVDB_BASE_URL", &self.tvdb_base_url, true),
+            ("ROUTARR_ANILIST_BASE_URL", &self.anilist_base_url, false),
+            ("ROUTARR_JIKAN_BASE_URL", &self.jikan_base_url, false),
+        ]
+    }
+
+    /// What start says of the sources' roots: a key sent over plain http to
+    /// another host travels in the clear, TMDB's and OMDb's in the address
+    /// itself.
+    pub fn source_notes(&self) -> Vec<String> {
+        let in_clear = |root: &str| {
+            root.to_ascii_lowercase().starts_with("http://")
+                && !crate::services::connection::is_loopback(root)
+        };
+        self.source_roots()
+            .into_iter()
+            .filter(|(_, root, keyed)| *keyed && in_clear(root))
+            .map(|(variable, root, _)| {
+                format!("{variable} is '{root}': the source's key travels in the clear over http")
+            })
+            .collect()
+    }
+
     /// Returns the socket address to bind to.
     pub fn bind_address(&self) -> String {
         format!("{}:{}", self.host, self.port)
@@ -631,6 +674,9 @@ impl Config {
     pub fn validate(&self) -> AppResult<()> {
         for origin in &self.cors_origins {
             validate_origin(origin)?;
+        }
+        for (variable, root, _) in self.source_roots() {
+            validate_source_root(variable, root)?;
         }
         if let Some(key) = &self.api_key
             && key.chars().count() < MIN_PINNED_KEY_LENGTH
@@ -1152,6 +1198,27 @@ mod tests {
         assert!(err.contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{err}");
         let err = refused(|config| config.max_library_bytes = 0);
         assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
+    }
+
+    /// A source's root that is no address a request can go to stops the start,
+    /// naming its variable, where it would only show as the source being
+    /// unreachable. A key sent over plain http is said at start.
+    #[test]
+    fn a_source_root_is_checked_at_start() {
+        let mut config = Config::for_tests();
+        config.tmdb_base_url = "api.themoviedb.org/3".into();
+        let err = config.validate().unwrap_err().to_string();
+        assert!(err.contains("ROUTARR_TMDB_BASE_URL"), "{err}");
+        config.tmdb_base_url = "ftp://mirror.lan/3".into();
+        assert!(config.validate().is_err());
+
+        let mut config = Config::for_tests();
+        config.omdb_base_url = "http://mirror.lan".into();
+        config.anilist_base_url = "http://mirror.lan/graphql".into();
+        config.validate().unwrap();
+        let notes = config.source_notes();
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("ROUTARR_OMDB_BASE_URL"), "{notes:?}");
     }
 
     fn oidc_config() -> Config {

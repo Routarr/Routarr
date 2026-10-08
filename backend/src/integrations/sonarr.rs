@@ -103,7 +103,7 @@ impl SonarrClient {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.to_string(),
             library_timeout: crate::http::LIBRARY_TIMEOUT,
-            library_cap: crate::integrations::MAX_BODY,
+            library_cap: crate::config::DEFAULT_MAX_LIBRARY_MIB << 20,
         }
     }
 

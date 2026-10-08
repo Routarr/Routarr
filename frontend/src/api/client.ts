@@ -14,6 +14,7 @@ import type {
   BatchApplyReport,
   ConfigImportReport,
   Category,
+  EnrichmentReport,
   ConditionCatalog,
   Decision,
   ErrorBody,
@@ -52,6 +53,7 @@ import type {
   WebhookSigningStatus,
   SyncReport,
   TestConnectionResponse,
+  TitleRefresh,
   ValidationIssue,
   LibraryFacets,
   RuleHealthReport,
@@ -636,6 +638,15 @@ export const api = {
   getSettings: (signal?: AbortSignal) => request<StoredSettings>('/settings', { signal }),
   getMetadataProviders: (signal?: AbortSignal) =>
     request<MetadataProviders>('/metadata/providers', { signal }),
+  /** Ask every source again about one title at once, its search matches forgotten. */
+  refreshTitleMetadata: (mediaId: string) =>
+    followed<TitleRefresh>('/metadata/refresh', {
+      method: 'POST',
+      body: body({ media_id: mediaId }),
+    }),
+  /** Have a pass read every answer `source` gave again. */
+  refreshSource: (source: string) =>
+    followed<EnrichmentReport>('/metadata/refresh', { method: 'POST', body: body({ source }) }),
   listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),
   createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>

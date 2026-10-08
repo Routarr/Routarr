@@ -26,6 +26,8 @@ const STRINGS = {
   ConfirmEndEverySession: 'End every session?',
   SessionEnded: 'Session ended.',
   Retry: 'Retry',
+  SessionsShowMore: 'Show the rest ({count})',
+  SessionsShowFewer: 'Show fewer',
 };
 
 const session = (handle: string, overrides: Partial<Session> = {}): Session => ({
@@ -40,7 +42,11 @@ const session = (handle: string, overrides: Partial<Session> = {}): Session => (
 });
 
 const HERE = session('aaaa', { current: true });
-const THERE = session('bbbb', { source: 'apikey', created_at: '2026-10-02 08:00:00' });
+const THERE = session('bbbb', {
+  subject: 'apikey',
+  source: 'apikey',
+  created_at: '2026-10-02 08:00:00',
+});
 
 function mount(listed: Session[] = [HERE, THERE]) {
   const list = vi.spyOn(api, 'getSessions').mockResolvedValue(listed);
@@ -68,6 +74,29 @@ describe('SessionsCard', () => {
     expect(row(here).getByText('This browser')).toBeInTheDocument();
     expect(row(there).getByText('API key')).toBeInTheDocument();
     expect(row(there).queryByText('This browser')).toBeNull();
+    // A key names nobody: its source says all there is.
+    expect(row(here).getByText('admin')).toBeInTheDocument();
+    expect(row(there).queryByText('apikey')).toBeNull();
+  });
+
+  /**
+   * Every browser that signs in opens a session, so the list grows with them:
+   * five show, this browser's first, and the rest when asked for, or the list
+   * pushes the settings below it out of reach.
+   */
+  it('shows five sessions, this browser first, and the rest when asked', async () => {
+    const others = Array.from({ length: 7 }, (_, n) => session(`s${n}`));
+    mount([...others, HERE]);
+
+    let rows = await ends();
+    expect(rows).toHaveLength(5);
+    expect(within(rows[0]!.parentElement!).getByText('This browser')).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Show the rest (3)' }));
+    rows = await ends();
+    expect(rows).toHaveLength(8);
+    await fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }));
+    expect(await ends()).toHaveLength(5);
   });
 
   it('ends another session once confirmed, and lists what is left', async () => {

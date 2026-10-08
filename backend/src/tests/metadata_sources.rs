@@ -21,8 +21,8 @@ async fn set_order(app: &TestApp, order: &str) {
 async fn cache_tmdb(app: &TestApp, genres: &str) {
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         original_language, origin_countries, expires_at)
-         VALUES ('tmdb', '8392', 'movie', ?, '[\"anime\"]', 'en', '[\"US\"]', '2099-01-01')",
+         original_language, origin_countries)
+         VALUES ('tmdb', '8392', 'movie', ?, '[\"anime\"]', 'en', '[\"US\"]')",
     )
     .bind(genres)
     .execute(&app.state.pool)
@@ -247,9 +247,9 @@ async fn cache_row(app: &TestApp, source: &str, external_id: &str, genres: &str)
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at)
          VALUES (?, ?, 'movie', ?, '[]', NULL, '[]', NULL, NULL, NULL,
-                 datetime('now'), datetime('now', '+7 days'))",
+                 datetime('now'))",
     )
     .bind(source)
     .bind(external_id)
@@ -312,9 +312,9 @@ async fn a_series_known_only_to_thetvdb_is_not_undescribed() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at)
          VALUES ('tvdb', '4242', 'series', '[\"Animation\"]', '[]', NULL, '[]', NULL,
-                 NULL, NULL, datetime('now'), datetime('now', '+7 days'))",
+                 NULL, NULL, datetime('now'))",
     )
     .execute(&app.state.pool)
     .await
@@ -372,9 +372,8 @@ async fn an_id_from_another_namespace_is_not_metadata() {
     .await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-                                     origin_countries, cached_at, expires_at)
-         VALUES ('tvdb', '1399', 'series', '[\"Animation\"]', '[]', '[]', datetime('now'),
-                 datetime('now', '+7 days'))",
+                                     origin_countries, cached_at)
+         VALUES ('tvdb', '1399', 'series', '[\"Animation\"]', '[]', '[]', datetime('now'))",
     )
     .execute(&app.state.pool)
     .await
@@ -436,10 +435,10 @@ async fn a_cached_synopsis_alone_is_not_metadata_to_either_of_them() {
     sqlx::query(
         "INSERT INTO metadata_cache
             (source, external_id, media_type, genres, keywords, original_language,
-             origin_countries, certification, status, overview, cached_at, expires_at)
+             origin_countries, certification, status, overview, cached_at)
          VALUES ('tmdb', ?, 'movie', '[]', '[]', NULL, '[]', NULL, NULL,
                  'A synopsis, and nothing a rule can read.',
-                 datetime('now'), datetime('now', '+7 days'))",
+                 datetime('now'))",
     )
     .bind(tmdb_id.to_string())
     .execute(&app.state.pool)
@@ -523,8 +522,8 @@ async fn one_undescribed_film() -> TestApp {
 
 /// A TMDB answer for the film that holds `field` alone.
 async fn cache_for_the_film(app: &TestApp, field: &str) {
-    app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type, expires_at)
-                   SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie', datetime('now', '+7 days')
+    app.execute(&["INSERT INTO metadata_cache (source, external_id, media_type)
+                   SELECT 'tmdb', CAST(tmdb_id AS TEXT), 'movie'
                      FROM media"])
         .await;
     sqlx::query(AssertSqlSafe(format!("UPDATE metadata_cache SET {field}")))

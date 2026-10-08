@@ -19,6 +19,19 @@
   const sessions = createAsync((signal) => api.getSessions(signal));
   let busy = $state(false);
 
+  /**
+   * How many sessions show before the rest is asked for. Every browser that
+   * signs in opens one, so the list grows with them, and unbounded it would
+   * push the settings below it out of reach.
+   */
+  const SHOWN = 5;
+  let everyOne = $state(false);
+  // This browser's first: the one most often looked for.
+  const ordered = $derived(
+    [...(sessions.data ?? [])].sort((a, b) => Number(b.current) - Number(a.current)),
+  );
+  const shown = $derived(everyOne ? ordered : ordered.slice(0, SHOWN));
+
   const endId = (index: number) => `session-end-${index}`;
 
   async function end(handle: string, index: number, current: boolean) {
@@ -81,11 +94,14 @@
     <p class="text-muted">{t('NoSessions')}</p>
   {:else if sessions.data}
     <div class="flex-col gap-2">
-      {#each sessions.data as session, index (session.handle)}
+      {#each shown as session, index (session.handle)}
         <div class="flex gap-2 items-center">
           <div class="flex-1">
-            <span class="text-md">{session.subject}</span>
-            <span class="badge badge-plain">{t(`SessionSource${capitalize(session.source)}`)}</span>
+            <!-- A key names nobody: its source says all there is. -->
+            {#if session.source !== 'apikey'}
+              <span class="text-md">{session.subject}</span>
+            {/if}
+            <span class="badge badge-kind">{t(`SessionSource${capitalize(session.source)}`)}</span>
             {#if session.current}
               <span class="badge badge-info">{t('ThisSession')}</span>
             {/if}
@@ -113,5 +129,16 @@
         </div>
       {/each}
     </div>
+    {#if ordered.length > SHOWN}
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm mt-3"
+        onclick={() => (everyOne = !everyOne)}
+      >
+        {everyOne
+          ? t('SessionsShowFewer')
+          : t('SessionsShowMore', { count: ordered.length - SHOWN })}
+      </button>
+    {/if}
   {/if}
 </div>

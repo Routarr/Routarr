@@ -37,6 +37,7 @@ mod placement;
 mod provider_keys;
 pub(crate) mod races;
 mod ratings;
+mod refresh;
 mod routing;
 mod rule_health;
 mod rule_tests;
@@ -283,9 +284,9 @@ impl TestApp {
 
         sqlx::query(
             "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-             original_language, origin_countries, certifications, expires_at)
+             original_language, origin_countries, certifications)
              VALUES ('tmdb', '8392', 'movie', '[\"Animation\",\"Family\"]', '[\"anime\"]', 'ja',
-                     '[\"JP\"]', '{\"US\":\"G\"}', '2099-01-01')",
+                     '[\"JP\"]', '{\"US\":\"G\"}')",
         )
         .execute(&self.state.pool)
         .await
@@ -368,8 +369,8 @@ impl TestApp {
         .unwrap();
         sqlx::query(
             "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-             original_language, origin_countries, expires_at)
-             VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]', '2099-01-01')",
+             original_language, origin_countries)
+             VALUES ('tmdb', '8392', 'movie', '[\"Animation\"]', '[]', 'ja', '[]')",
         )
         .execute(&self.state.pool)
         .await
@@ -834,6 +835,26 @@ pub async fn finished(app: &TestApp, id: &str) -> serde_json::Value {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     panic!("the task {id} never finished");
+}
+
+/// The codes of the warnings a probe of `/health` raises about the sources.
+pub async fn probe_verdicts(app: &TestApp) -> Vec<String> {
+    let health = app.get("/api/v1/health").await;
+    let warnings = health.assert_ok()["warnings"].as_array().expect("warnings").clone();
+    warnings
+        .iter()
+        .filter_map(|warning| warning["code"].as_str())
+        .filter(|code| {
+            matches!(
+                *code,
+                "source_unreachable"
+                    | "source_quota_spent"
+                    | "source_rate_limited"
+                    | "source_key_refused"
+            )
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 /// The warnings of a `/status` or `/health` answer, as the reader sees them.

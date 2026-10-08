@@ -78,6 +78,7 @@ PAIRS: dict[str, str] = {
     "CapacityForecast": "CapacityForecast",
     "ConditionOutcome": "ConditionOutcome",
     "Decision": "Decision",
+    "EnrichmentReport": "EnrichmentReport",
     "Explanation": "Explanation",
     "Facet": "Facet",
     "LibraryFacets": "LibraryFacets",
@@ -96,6 +97,7 @@ PAIRS: dict[str, str] = {
     "SecurityEvent": "SecurityEvent",
     "SimulationResult": "SimulationResult",
     "SyncReport": "SyncReport",
+    "TitleRefresh": "TitleRefresh",
     "ValidationIssue": "ValidationIssue",
     "Vocabularies": "Vocabularies",
 }

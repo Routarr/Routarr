@@ -391,4 +391,124 @@ mod tests {
         );
         assert_eq!(film.tmdb_id, None);
     }
+
+    /// A Radarr v5 `/api/v3/movie` item in full, through the real types: every
+    /// field the client ignores, the language as an id and a name, the files
+    /// counted in `statistics` beside the older `hasFile`. A change in Radarr's
+    /// shape surfaces here, where a fake written to fit the mapping hides it.
+    #[test]
+    fn a_real_shape_radarr_movie_maps() {
+        let movie = movie_to_media(
+            serde_json::from_str(
+                r#"{
+          "title": "My Neighbor Totoro", "originalTitle": "となりのトトロ",
+          "originalLanguage": { "id": 8, "name": "Japanese" },
+          "alternateTitles": [{ "sourceType": "tmdb", "movieMetadataId": 12,
+            "title": "Tonari no Totoro", "cleanTitle": "tonarinototoro", "id": 31 }],
+          "secondaryYearSourceId": 0, "sortTitle": "my neighbor totoro",
+          "sizeOnDisk": 4389203851, "status": "released",
+          "overview": "Two sisters move to the country.",
+          "inCinemas": "1988-04-16T00:00:00Z", "physicalRelease": "2006-03-07T00:00:00Z",
+          "digitalRelease": "2020-02-01T00:00:00Z", "releaseDate": "2006-03-07T00:00:00Z",
+          "images": [{ "coverType": "poster", "url": "/MediaCover/12/poster.jpg?lastWrite=638",
+            "remoteUrl": "https://image.tmdb.org/t/p/original/rtGDOeG9LzoerkDGZF9dnVeLppL.jpg" }],
+          "website": "", "year": 1988, "youTubeTrailerId": "92a7Hj0ijLs",
+          "studio": "Studio Ghibli", "path": "/movies/anime/My Neighbor Totoro (1988)",
+          "qualityProfileId": 4, "hasFile": true, "movieFileId": 7, "monitored": true,
+          "minimumAvailability": "released", "isAvailable": true,
+          "folderName": "/movies/anime/My Neighbor Totoro (1988)", "runtime": 86,
+          "cleanTitle": "myneighbortotoro", "imdbId": "tt0096283", "tmdbId": 8392,
+          "titleSlug": "8392-my-neighbor-totoro", "rootFolderPath": "/movies/anime/",
+          "certification": "G", "genres": ["Animation", "Family", "Fantasy"],
+          "keywords": ["forest", "spirit"], "tags": [2, 5],
+          "added": "2024-01-04T18:22:41Z",
+          "ratings": {
+            "imdb": { "votes": 393000, "value": 8.1, "type": "user" },
+            "tmdb": { "votes": 8100, "value": 8.06, "type": "user" },
+            "rottenTomatoes": { "votes": 0, "value": 94, "type": "user" }
+          },
+          "collection": { "title": "Studio Ghibli Collection", "tmdbId": 1000 },
+          "popularity": 46.2, "lastSearchTime": "2024-01-04T18:23:00Z",
+          "statistics": { "movieFileCount": 1, "sizeOnDisk": 4389203851,
+            "releaseGroups": ["GHIBLI"] },
+          "id": 12
+        }"#,
+            )
+            .expect("a Radarr movie"),
+        );
+
+        assert_eq!(
+            (movie.arr_id, movie.title.as_str(), movie.year, movie.tmdb_id),
+            (12, "My Neighbor Totoro", Some(1988), Some(8392))
+        );
+        assert_eq!(movie.imdb_id.as_deref(), Some("tt0096283"));
+        assert_eq!(movie.root_folder_path.as_deref(), Some("/movies/anime/"));
+        assert_eq!(movie.path.as_deref(), Some("/movies/anime/My Neighbor Totoro (1988)"));
+        assert!(movie.monitored && movie.has_files);
+        assert_eq!(movie.size_on_disk, Some(4389203851));
+        assert_eq!(movie.status.as_deref(), Some("released"));
+        assert_eq!(movie.tag_ids, [2, 5]);
+        assert_eq!(movie.genres, ["Animation", "Family", "Fantasy"]);
+        assert_eq!(movie.original_language.as_deref(), Some("ja"));
+        assert_eq!(movie.certification.as_deref(), Some("G"));
+    }
+
+    /// A Sonarr v4 `/api/v3/series` item in full, for a series TheTVDB maps to
+    /// no TMDB id, which Sonarr writes as 0: the seasons with their own
+    /// statistics, the series' statistics, its ratings and its alternate
+    /// titles, none of which the client reads beyond its counts.
+    #[test]
+    fn a_real_shape_sonarr_series_maps() {
+        let series = series_to_media(
+            serde_json::from_str(
+                r#"{
+          "title": "Mushi-Shi", "alternateTitles": [{ "title": "Mushishi", "sceneSeasonNumber": -1 }],
+          "sortTitle": "mushishi", "status": "ended", "ended": true,
+          "overview": "Ginko travels to study the mushi.", "previousAiring": "2014-12-20T15:00:00Z",
+          "network": "Fuji TV", "airTime": "00:00",
+          "images": [{ "coverType": "poster", "url": "/MediaCover/20/poster.jpg?lastWrite=638",
+            "remoteUrl": "https://artworks.thetvdb.com/banners/posters/79570-1.jpg" }],
+          "originalLanguage": { "id": 8, "name": "Japanese" },
+          "seasons": [
+            { "seasonNumber": 0, "monitored": false, "statistics": { "episodeFileCount": 0,
+              "episodeCount": 0, "totalEpisodeCount": 2, "sizeOnDisk": 0, "releaseGroups": [],
+              "percentOfEpisodes": 0.0 } },
+            { "seasonNumber": 1, "monitored": true, "statistics": {
+              "previousAiring": "2006-06-19T15:00:00Z", "episodeFileCount": 26, "episodeCount": 26,
+              "totalEpisodeCount": 26, "sizeOnDisk": 30734221312, "releaseGroups": ["Coalgirls"],
+              "percentOfEpisodes": 100.0 } },
+            { "seasonNumber": 2, "monitored": true, "statistics": {
+              "previousAiring": "2014-12-20T15:00:00Z", "episodeFileCount": 20, "episodeCount": 20,
+              "totalEpisodeCount": 20, "sizeOnDisk": 24500000000, "releaseGroups": ["Coalgirls"],
+              "percentOfEpisodes": 100.0 } }
+          ],
+          "year": 2005, "path": "/tv/anime/Mushi-Shi", "qualityProfileId": 6,
+          "seasonFolder": true, "monitored": true, "monitorNewItems": "all",
+          "useSceneNumbering": false, "runtime": 25, "tvdbId": 79570, "tvRageId": 0,
+          "tvMazeId": 3184, "tmdbId": 0, "firstAired": "2005-10-22T00:00:00Z",
+          "lastAired": "2014-12-20T00:00:00Z", "seriesType": "anime",
+          "cleanTitle": "mushishi", "imdbId": "tt0807832", "titleSlug": "mushi-shi",
+          "rootFolderPath": "/tv/anime/", "certification": "TV-14",
+          "genres": ["Animation", "Anime", "Drama"], "tags": [3],
+          "added": "2023-05-02T09:14:07Z", "ratings": { "votes": 1200, "value": 8.7 },
+          "statistics": { "seasonCount": 2, "episodeFileCount": 46, "episodeCount": 46,
+            "totalEpisodeCount": 48, "sizeOnDisk": 55234221312, "releaseGroups": ["Coalgirls"],
+            "percentOfEpisodes": 100.0 },
+          "languageProfileId": 1, "id": 20
+        }"#,
+            )
+            .expect("a Sonarr series"),
+        );
+
+        assert_eq!((series.arr_id, series.year), (20, Some(2005)));
+        assert_eq!((series.tmdb_id, series.tvdb_id), (None, Some(79570)));
+        assert_eq!(series.root_folder_path.as_deref(), Some("/tv/anime/"));
+        assert_eq!(series.season_count, Some(2), "the specials counted as a season");
+        assert!(series.has_files);
+        assert_eq!(series.size_on_disk, Some(55234221312));
+        assert_eq!(series.series_type.as_deref(), Some("anime"));
+        assert_eq!(series.status.as_deref(), Some("ended"));
+        assert_eq!(series.original_language.as_deref(), Some("ja"));
+        assert_eq!(series.certification.as_deref(), Some("TV-14"));
+    }
 }

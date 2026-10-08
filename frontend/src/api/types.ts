@@ -716,6 +716,26 @@ export interface TestConnectionResponse {
   warning: string | null;
 }
 
+/** What a pass reading a source's answers again did. */
+export interface EnrichmentReport {
+  /** Titles a source that searches for its own identifiers looked for. */
+  searched: number;
+  /** Answers the pass set out to read. */
+  considered: number;
+  enriched: number;
+  failed: number;
+  /** Never asked: the source was taken for down during the pass. */
+  skipped: number;
+  /** Left to a later day: the source's daily quota was spent. */
+  deferred: number;
+}
+
+/** What asking the sources again about one title found. */
+export interface TitleRefresh {
+  /** The sources that gave an answer. */
+  answered: number;
+}
+
 export interface SyncReport {
   instance_id: string;
   instance_name: string;

@@ -60,19 +60,24 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
-        <Lock size={18} aria-hidden="true" />
-        {t('BackupEncryption')}
-      </h2>
+      <!-- The state beside the name it qualifies: an archive left clear
+           carries the master key, which is what the note warns of. Below
+           it where both do not fit, rather than the name broken in two. -->
+      <div class="flex flex-wrap items-center gap-2">
+        <h2 class="card-title flex items-center gap-2">
+          <Lock size={18} aria-hidden="true" />
+          {t('BackupEncryption')}
+        </h2>
+        <span class="badge {encrypted ? 'badge-success' : 'badge-warning'}">
+          {t(encrypted ? 'BackupEncryptionOn' : 'BackupEncryptionOff')}
+        </span>
+      </div>
       <p class="card-note">{t('BackupEncryptionHelp')}</p>
     </div>
-    <span class="badge {encrypted ? 'badge-success' : 'badge-plain'}">
-      {t(encrypted ? 'BackupEncryptionOn' : 'BackupEncryptionOff')}
-    </span>
   </div>
 
   <form novalidate onsubmit={save}>
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label" for="backup-passphrase-new">{t('NewPassphrase')}</label>
       <input
         id="backup-passphrase-new"
@@ -88,7 +93,7 @@
         {t('BackupPassphraseKeep')}
       </p>
     </div>
-    <div class="form-row">
+    <div class="form-group">
       <label class="form-label" for="backup-passphrase-repeat">{t('RepeatPassphrase')}</label>
       <input
         id="backup-passphrase-repeat"

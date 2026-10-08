@@ -235,8 +235,8 @@ async fn rated_by_myanimelist(code: &str, us: &str) -> TestApp {
     .await;
     sqlx::query(
         "INSERT INTO metadata_cache (source, external_id, media_type, genres, keywords,
-         origin_countries, certification, certification_scale, expires_at)
-         VALUES ('jikan', '523', 'movie', '[]', '[]', '[]', ?, 'MAL', '2099-01-01')",
+         origin_countries, certification, certification_scale)
+         VALUES ('jikan', '523', 'movie', '[]', '[]', '[]', ?, 'MAL')",
     )
     .bind(code)
     .execute(&app.state.pool)

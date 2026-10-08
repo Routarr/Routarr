@@ -33,6 +33,8 @@ struct State {
     last_refill: Instant,
     /// Tokens added per second, which the source's stated limit retunes.
     rate: f64,
+    /// How long the next refusal that names no wait holds everything back.
+    back_off: Duration,
 }
 
 /// Paces requests to one source. Cloning shares the same allowance, which is
@@ -55,6 +57,7 @@ impl RateLimiter {
                 tokens: capacity,
                 last_refill: Instant::now(),
                 rate,
+                back_off: FIRST_BACK_OFF,
             })),
             capacity,
         }
@@ -65,11 +68,19 @@ impl RateLimiter {
         Self::new(u32::MAX, u32::MAX)
     }
 
-    /// Wait until this caller may issue its request.
+    /// Wait until this caller may issue its request. A hold placed while it
+    /// slept ends after the instant it was given, so it takes a place after
+    /// the hold, or it would go out while the source still refuses.
     pub async fn acquire(&self) {
-        let wait = self.reserve().await;
-        if !wait.is_zero() {
+        loop {
+            let wait = self.reserve().await;
+            if wait.is_zero() {
+                return;
+            }
             tokio::time::sleep(wait).await;
+            if self.state.lock().await.last_refill <= Instant::now() {
+                return;
+            }
         }
     }
 
@@ -101,6 +112,26 @@ impl RateLimiter {
         hold(&mut *self.state.lock().await, Instant::now() + delay);
     }
 
+    /// Hold everything back after a refusal that named no wait, for longer each
+    /// time the source still refuses once a hold has ended. A refusal met
+    /// while a hold is in force answers a request sent before it, and the hold
+    /// already covers it.
+    pub async fn back_off(&self) {
+        let mut state = self.state.lock().await;
+        let now = Instant::now();
+        if state.last_refill > now {
+            return;
+        }
+        let held = state.back_off;
+        state.back_off = (held * 2).min(Duration::from_secs(MAX_HOLD_SECS));
+        hold(&mut state, now + held);
+    }
+
+    /// The source answered: its next refusal backs off from the start again.
+    async fn answered(&self) {
+        self.state.lock().await.back_off = FIRST_BACK_OFF;
+    }
+
     /// Pace to the limit the source states: its rate, no more requests than it
     /// says remain, and none before its reset once none remain. A reset
     /// further than five minutes away is held to five, as a `Retry-After` is.
@@ -123,8 +154,11 @@ impl RateLimiter {
     }
 }
 
-/// The longest a source's own word holds every request back.
+/// The longest a source's own word, or a back-off, holds every request back.
 const MAX_HOLD_SECS: u64 = 300;
+
+/// The first back-off after a refusal that named no wait.
+const FIRST_BACK_OFF: Duration = Duration::from_secs(30);
 
 /// Hold everything back until `until`, letting one request out then. Only
 /// ever extends: two concurrent refusals must not let the shorter one shorten
@@ -136,19 +170,27 @@ fn hold(state: &mut State, until: Instant) {
     }
 }
 
-/// Hold the limiter back when a source states how long it wants to be left
-/// alone.
+/// Pace `limiter` after an answer of its source.
 ///
-/// Pacing is a guess about someone else's limit. `Retry-After` is that someone
-/// telling us. When it arrives, every later request slows to match instead of
-/// spending its budget discovering the same thing again.
-pub async fn honour_retry_after<T>(limiter: &RateLimiter, outcome: &crate::error::AppResult<T>) {
-    if let Err(crate::error::AppError::ExternalApi {
-        retry_after: Some(seconds), service, ..
-    }) = outcome
-    {
-        tracing::warn!("{service} asked for {seconds}s before the next request, pacing after it");
-        limiter.penalise(Duration::from_secs(*seconds)).await;
+/// Pacing is a guess about someone else's limit. A refusal is that someone
+/// telling us: held back as long as its `Retry-After` names, or for a back-off
+/// when it names nothing, every later request waits instead of spending its
+/// budget discovering the same thing again.
+pub async fn after_answer<T>(limiter: &RateLimiter, outcome: &crate::error::AppResult<T>) {
+    use crate::error::AppError;
+    match outcome {
+        Ok(_) => limiter.answered().await,
+        Err(AppError::ExternalApi { retry_after: Some(seconds), service, .. }) => {
+            tracing::warn!(
+                "{service} asked for {seconds}s before the next request, pacing after it"
+            );
+            limiter.penalise(Duration::from_secs(*seconds)).await;
+        }
+        Err(AppError::ExternalApi { status: 429, service, .. }) => {
+            tracing::warn!("{service} refused a request as too many, backing off");
+            limiter.back_off().await;
+        }
+        Err(_) => {}
     }
 }
 
@@ -262,6 +304,59 @@ mod tests {
         limiter.follow(StatedLimit { per_minute: None, remaining: Some(0), reset }).await;
         let held = limiter.reserve().await;
         assert!(held >= Duration::from_secs(38), "the reset was not waited for: {held:?}");
+    }
+
+    /// A request whose turn came before a refusal still waits for the hold
+    /// the refusal asked: sent at its turn, it earns the same refusal again.
+    #[tokio::test(start_paused = true)]
+    async fn a_waiter_reserved_before_a_penalty_waits_for_its_end() {
+        let limiter = RateLimiter::new(60, 1);
+        limiter.acquire().await;
+        let waiter = tokio::spawn({
+            let limiter = limiter.clone();
+            async move {
+                limiter.acquire().await;
+                Instant::now()
+            }
+        });
+        tokio::task::yield_now().await;
+
+        let refused = Instant::now();
+        limiter.penalise(Duration::from_secs(30)).await;
+
+        let sent = waiter.await.unwrap();
+        assert!(sent - refused >= Duration::from_secs(30), "sent {:?} in", sent - refused);
+    }
+
+    fn too_many() -> crate::error::AppResult<()> {
+        Err(crate::error::AppError::ExternalApi {
+            service: "AniList".into(),
+            status: 429,
+            message: String::new(),
+            retry_after: None,
+        })
+    }
+
+    /// A 429 that names no wait still slows the source, for longer each time
+    /// it refuses again once the hold is over, and from the start again once
+    /// it answers. The refusals of requests already in flight when the hold
+    /// began do not lengthen it.
+    #[tokio::test(start_paused = true)]
+    async fn a_429_without_retry_after_still_slows_the_source() {
+        let limiter = RateLimiter::unlimited();
+        let mut holds = Vec::new();
+        for _ in 0..6 {
+            after_answer(&limiter, &too_many()).await;
+            after_answer(&limiter, &too_many()).await;
+            let wait = limiter.reserve().await;
+            holds.push(wait.as_secs());
+            tokio::time::advance(wait).await;
+        }
+        assert_eq!(holds, [30, 60, 120, 240, 300, 300]);
+
+        after_answer(&limiter, &Ok(())).await;
+        after_answer(&limiter, &too_many()).await;
+        assert_eq!(limiter.reserve().await.as_secs(), 30);
     }
 
     #[tokio::test(start_paused = true)]
