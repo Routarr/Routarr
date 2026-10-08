@@ -212,7 +212,6 @@
   "AutoRefreshing": "Opdaterer automatisk",
   "BackToDashboard": "Tilbage til oversigten",
   "BackupNow": "Sikkerhedskopiér nu",
-  "BackupTogetherHint": "En konfigurationseksport indeholder aldrig dine Arr-API-nøgler. De er forseglet med en nøgle, kun denne installation har. Kopiér data/routarr.db og data/routarr.key sammen til en fuld sikkerhedskopi. Uden nøglen er de gemte nøgler tabt.",
   "Backups": "Sikkerhedskopier",
   "BackupsHelp": "Tages efter tidsplan og gemmes ved siden af databasen. Hvert arkiv indeholder databasen, hovednøglen og API-nøglen, altså alt hvad en gendannelse kræver. Det gør filen lige så følsom som nøglen selv.",
   "BaseUrl": "Basis-URL",

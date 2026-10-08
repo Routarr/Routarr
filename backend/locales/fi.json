@@ -212,7 +212,6 @@
   "AutoRefreshing": "Päivittyy automaattisesti",
   "BackToDashboard": "Takaisin yleisnäkymään",
   "BackupNow": "Varmuuskopioi nyt",
-  "BackupTogetherHint": "Asetusten vienti ei koskaan sisällä Arr-API-avaimiasi: ne on sinetöity avaimella, joka on vain tällä asennuksella. Täyttä varmuuskopiota varten kopioi data/routarr.db ja data/routarr.key yhdessä. Tallennetut avaimet menetetään ilman avainta.",
   "Backups": "Varmuuskopiot",
   "BackupsHelp": "Otetaan aikataulun mukaan ja säilytetään tietokannan vieressä. Jokainen arkisto sisältää tietokannan, pääavaimen ja API-avaimen eli kaiken, mitä palautus tarvitsee. Tämä tekee tiedostosta yhtä arkaluonteisen kuin avain itse.",
   "BaseUrl": "Perus-URL",

@@ -212,7 +212,6 @@
   "AutoRefreshing": "Automatisch vernieuwen",
   "BackToDashboard": "Terug naar het overzicht",
   "BackupNow": "Nu back-uppen",
-  "BackupTogetherHint": "Een configuratie-export bevat nooit je Arr-API-sleutels: die zijn verzegeld met een sleutel die alleen deze installatie heeft. Kopieer voor een volledige back-up data/routarr.db en data/routarr.key samen. Zonder de sleutel zijn de opgeslagen sleutels onherstelbaar.",
   "Backups": "Back-ups",
   "BackupsHelp": "Volgens schema gemaakt en naast de database bewaard. Elk archief bevat de database, de hoofdsleutel en de API-sleutel, dus alles wat een herstel nodig heeft. Daardoor is het bestand net zo gevoelig als de sleutel zelf.",
   "BaseUrl": "Basis-URL",

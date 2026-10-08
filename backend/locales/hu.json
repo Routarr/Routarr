@@ -212,7 +212,6 @@
   "AutoRefreshing": "Automatikus frissítés",
   "BackToDashboard": "Vissza az áttekintéshez",
   "BackupNow": "Mentés most",
-  "BackupTogetherHint": "A konfigurációs export soha nem tartalmazza az Arr API-kulcsokat: azokat csak ezen a telepítésen meglévő kulcs zárja le. Teljes mentéshez másolja a data/routarr.db és a data/routarr.key fájlt együtt. A kulcs nélkül a tárolt kulcsok visszaállíthatatlanok.",
   "Backups": "Biztonsági mentések",
   "BackupsHelp": "Ütemezetten készülnek és az adatbázis mellett tárolódnak. Minden archívum tartalmazza az adatbázist, a főkulcsot és az API-kulcsot, vagyis mindent, amire a visszaállításnak szüksége van, ezért a fájl ugyanolyan érzékeny, mint maga a kulcs.",
   "BaseUrl": "Alap-URL",

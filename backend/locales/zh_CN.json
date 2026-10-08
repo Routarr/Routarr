@@ -212,7 +212,6 @@
   "AutoRefreshing": "自动刷新中",
   "BackToDashboard": "返回仪表板",
   "BackupNow": "立即备份",
-  "BackupTogetherHint": "配置导出绝不包含你的 Arr API 密钥：它们由仅本安装持有的密钥封存。若要完整备份，请将 data/routarr.db 与 data/routarr.key 一并复制。没有该密钥，已存储的密钥将无法恢复。",
   "Backups": "备份",
   "BackupsHelp": "按计划创建并保存在数据库旁边。每个存档包含数据库、主密钥和 API 密钥，即恢复所需的一切，因此该文件与密钥本身同样敏感。",
   "BaseUrl": "基础 URL",

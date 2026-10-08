@@ -83,18 +83,20 @@ configured Radarr and Sonarr instances, to the metadata sources the user enables
 Connect provider if one is used, and to a notification webhook if one is set.
 
 To install, save the compose file from the README (image ghcr.io/routarr/routarr:latest, port
-9876, ./data mounted at /data) and run:
+9876, ./config mounted at /config) and run:
 
 ```bash
-mkdir -p data && sudo chown 1000:1000 data
+mkdir -p config && sudo chown 1000:1000 config
 docker compose up -d
-docker exec routarr cat /data/routarr.api_key
+docker exec routarr cat /config/routarr.api_key
 ```
 
 The last command prints the API key generated on first start. Open http://localhost:9876 and
 paste it. The container runs as uid 1000 and drops every capability, so the data directory has
-to belong to uid 1000. Back up the whole data/ directory: without routarr.key, the stored Arr
-credentials cannot be recovered. The image tag latest follows the most recent release, 0.1
+to belong to uid 1000. Routarr archives itself into config/backups/ on a schedule, each archive a
+consistent copy holding the database and routarr.key, without which the stored Arr credentials
+cannot be recovered: keep copies of those archives, and copy the config/ folder itself only with
+Routarr stopped. The image tag latest follows the most recent release, 0.1
 follows the patch releases of 0.1, and a full version such as 0.1.0 pins one.
 
 For stronger isolation the same image runs under gVisor (runtime: runsc in the compose file), a

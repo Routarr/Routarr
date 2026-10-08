@@ -212,7 +212,6 @@
   "AutoRefreshing": "Automatyczne odświeżanie",
   "BackToDashboard": "Powrót do pulpitu",
   "BackupNow": "Utwórz kopię teraz",
-  "BackupTogetherHint": "Eksport konfiguracji nigdy nie zawiera kluczy API Arr: są zapieczętowane kluczem, który ma tylko ta instalacja. Aby wykonać pełną kopię zapasową, skopiuj razem data/routarr.db i data/routarr.key. Bez klucza zapisane klucze są nie do odzyskania.",
   "Backups": "Kopie zapasowe",
   "BackupsHelp": "Tworzone według harmonogramu i przechowywane obok bazy danych. Każde archiwum zawiera bazę, klucz główny i klucz API, czyli wszystko, czego wymaga przywracanie, przez co plik jest równie wrażliwy jak sam klucz.",
   "BaseUrl": "Adres bazowy",

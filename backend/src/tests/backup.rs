@@ -109,6 +109,28 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
     pool.close().await;
 }
 
+/// The hourly pass folds the write-ahead log into the database file, so a
+/// copy of `routarr.db` alone, taken while Routarr runs, holds what was written
+/// before the pass rather than possibly no table at all. Such a copy is still
+/// not a safe one: the archives are.
+#[tokio::test]
+async fn a_maintenance_pass_folds_the_log_into_the_database() {
+    let (app, dir) = app_with_files("checkpoint").await;
+    app.execute(&["INSERT INTO categories (id, name) VALUES ('c-1', 'anime')"]).await;
+
+    crate::services::maintenance::run(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let copy = dir.join("copy.db");
+    std::fs::copy(dir.join("routarr.db"), &copy).unwrap();
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", copy.display())).await.unwrap();
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&pool).await.unwrap();
+    assert!(names.contains(&"anime".to_string()), "the copy holds {names:?}");
+    pool.close().await;
+}
+
 /// A retention count stored above the ceiling this build enforces is honoured
 /// as it is: lowering it removes archives, and nothing but the operator's own
 /// save may do that. Named in the warnings until then, since the screen

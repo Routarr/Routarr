@@ -77,7 +77,7 @@ RUN addgroup -g 1000 routarr && adduser -D -u 1000 -G routarr routarr
 WORKDIR /app
 ENV ROUTARR_PORT=9876 \
     ROUTARR_HOST=0.0.0.0 \
-    ROUTARR_DB_PATH=/data/routarr.db \
+    ROUTARR_DB_PATH=/config/routarr.db \
     ROUTARR_FRONTEND_DIR=/app/frontend/dist \
     ROUTARR_LOG_LEVEL=info
 
@@ -93,12 +93,14 @@ COPY LICENSE /app/LICENSE
 # uid 1000: nothing under it is written at run time, and a process that can
 # rewrite its own binary or the `index.html` it serves turns any code
 # execution into a persistent one.
-RUN mkdir -p /data && chown routarr:routarr /data
+RUN mkdir -p /config && chown routarr:routarr /config
 # Numeric, so a host without the image's /etc/passwd still resolves it.
 USER 1000:1000
 
 EXPOSE 9876
-VOLUME ["/data"]
+# `/config`, as Radarr and Sonarr keep theirs. A volume still mounted at `/data`
+# keeps its database: Routarr opens it there while `/config` holds none.
+VOLUME ["/config"]
 
 # The binary probes itself: it reads the port and the mount point as the server
 # does, so `ROUTARR_BASE_PATH=routarr` and a changed ROUTARR_PORT probe the

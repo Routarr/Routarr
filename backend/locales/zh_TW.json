@@ -212,7 +212,6 @@
   "AutoRefreshing": "自動重新整理中",
   "BackToDashboard": "返回儀表板",
   "BackupNow": "立即備份",
-  "BackupTogetherHint": "設定匯出絕不包含你的 Arr API 金鑰：它們由僅本安裝持有的金鑰封存。若要完整備份，請將 data/routarr.db 與 data/routarr.key 一併複製。沒有該金鑰，已儲存的金鑰將無法還原。",
   "Backups": "備份",
   "BackupsHelp": "依排程建立並保存在資料庫旁。每個封存包含資料庫、主金鑰與 API 金鑰，即還原所需的一切，因此該檔案與金鑰本身同樣敏感。",
   "BaseUrl": "基礎 URL",

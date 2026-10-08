@@ -212,7 +212,6 @@
   "AutoRefreshing": "Aggiornamento automatico",
   "BackToDashboard": "Torna al riepilogo",
   "BackupNow": "Esegui backup ora",
-  "BackupTogetherHint": "Un'esportazione della configurazione non contiene mai le tue chiavi API Arr: sono sigillate con una chiave che solo questa installazione possiede. Per un backup completo, copia data/routarr.db e data/routarr.key insieme: senza la chiave, quelle memorizzate sono irrecuperabili.",
   "Backups": "Backup",
   "BackupsHelp": "Eseguiti su pianificazione e conservati accanto al database. Ogni archivio contiene database, chiave principale e chiave API: tutto ciò che serve a un ripristino, il che rende il file sensibile quanto la chiave stessa.",
   "BaseUrl": "URL di base",

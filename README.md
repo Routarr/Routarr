@@ -15,8 +15,9 @@ to do.
 every move before it makes one.
 
 > [!NOTE]
-> Nothing is moved until you turn the global dry-run off. Back up your `data/` directory before
-> upgrading from one version to the next.
+> Nothing is moved until you turn the global dry-run off. Before upgrading from one version to the
+> next, download a backup from **Settings → Maintenance**, or stop Routarr and copy its `config/`
+> folder.
 
 ![The simulation screen: moves proposed for the library, each with its source and target folder,
 the rule that matched, a confidence and a justification.](.github/assets/simulation.webp)
@@ -61,7 +62,7 @@ services:
     ports:
       - "9876:9876"
     volumes:
-      - ./data:/data
+      - ./config:/config
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -73,27 +74,41 @@ services:
 ```
 
 ```bash
-mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000
+mkdir -p config && sudo chown 1000:1000 config   # the container runs as uid 1000
 docker compose up -d
-docker exec routarr cat /data/routarr.api_key  # the API key generated on first start
+docker exec routarr cat /config/routarr.api_key  # the API key generated on first start
 ```
 
 Open **http://localhost:9876** and paste the key. Images are published for `linux/amd64` and
 `linux/arm64`. `latest` follows the newest release, `0.1` follows the patch releases of 0.1, and
 a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a major line too.
 
-Back up the whole `data/` directory: the Arr and metadata keys, the notification address and the
-signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
-the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
+Routarr archives itself into `backups/` beside its database, every day unless you change the
+interval, and **Settings → Maintenance** lists the archives and downloads any of them. An archive
+is a consistent copy taken while Routarr runs: the database, the `routarr.key` without which the
+Arr and metadata keys, the notification address and the signing secret stored in it cannot be read
+(unless `ROUTARR_SECRET_KEY` replaces it), and the API key. Keep copies of the archives off the
+machine. Copy the `config/` folder itself only with Routarr stopped: a copy of `routarr.db` taken
+while it runs can miss every recent change.
+
 An archive carries the master key: set a backup passphrase in **Settings → Maintenance** to encrypt
 every one, so that a copy of the folder opens nothing without it. A restore asks for it, and
 `routarr decrypt-backup <archive> <zip>` writes one opened, to read it by hand.
 
+To restore an archive:
+
+- **On the same host:** **Restore** beside it in **Settings → Maintenance**, then
+  `docker compose restart routarr`.
+- **On a new host:** start Routarr once, copy the archive into `config/backups/` with its name
+  unchanged and owned by uid 1000, then restore it from **Settings → Maintenance** and restart.
+- **With the server stopped**, when the interface cannot be reached:
+  `docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
+  Routarr. An encrypted archive asks for its passphrase when the database in place does not hold
+  it.
+
 A start that applies new migrations archives the database first. Going back to an earlier release
 works while it knows every migration the database holds. When a start refuses the database, it
-names an archive it can open: restore it with the server stopped, through
-`docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
-Routarr. An encrypted archive asks for its passphrase when the database in place does not hold it.
+names an archive it can open: restore that one with the server stopped, as above.
 
 ## Stronger isolation
 

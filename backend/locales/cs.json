@@ -212,7 +212,6 @@
   "AutoRefreshing": "Automatické obnovování",
   "BackToDashboard": "Zpět na přehled",
   "BackupNow": "Zálohovat nyní",
-  "BackupTogetherHint": "Export konfigurace nikdy neobsahuje vaše klíče API Arr: jsou zapečetěné klíčem, který má jen tato instalace. Pro úplnou zálohu zkopírujte data/routarr.db a data/routarr.key společně. Bez klíče jsou uložené klíče nenávratně ztracené.",
   "Backups": "Zálohy",
   "BackupsHelp": "Vytvářejí se podle plánu a ukládají vedle databáze. Každý archiv obsahuje databázi, hlavní klíč a klíč API, tedy vše, co obnovení potřebuje, což činí soubor stejně citlivým jako samotný klíč.",
   "BaseUrl": "Základní URL",

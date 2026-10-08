@@ -105,7 +105,7 @@ ok "the first-run command names the container and the data path of docker-compos
 # the root filesystem read-only included.
 docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
   -p "127.0.0.1:$PORT:9876" \
-  -v "$VOLUME:/data" \
+  -v "$VOLUME:/config" \
   --cap-drop ALL \
   --security-opt no-new-privileges:true \
   --read-only \
@@ -171,11 +171,11 @@ ok "leaves /app read-only to uid 1000"
 # the server still running: the image carries no sqlite3 to do it by hand.
 reset=$(docker exec "$NAME" /app/routarr reset-account) || fail "reset-account failed"
 grep -qF 'The account is reset' <<<"$reset" || fail "reset-account printed no new password"
-docker exec "$NAME" test -s /data/routarr.password || fail "reset-account wrote no password file"
+docker exec "$NAME" test -s /config/routarr.password || fail "reset-account wrote no password file"
 ok "\`/app/routarr reset-account\` gives the account a new password"
 
 # A backup and a restore staged for the next start, on a read-only root: what
-# either writes lands in /data, and the restart below applies the restore.
+# either writes lands in /config, and the restart below applies the restore.
 backup=$(curl -fsS --max-time 30 -X POST -H "X-Api-Key: $key" "$BASE/api/v1/backups") ||
   fail "a backup failed on a read-only root"
 archive=$(sed -n 's/.*"name":"\([^"]*\)".*/\1/p' <<<"$backup")
@@ -216,5 +216,23 @@ expect_status 200 "still accepts the same key after a restart" -H "X-Api-Key: $k
 generated=$(grep -cF 'Generated an API key' <<<"$(logs)" || true)
 [ "$generated" = 1 ] || fail "a key was generated $generated times across two starts"
 ok "does not generate a second key on restart"
+
+# The same volume mounted at /data, where a compose file can still mount it:
+# the database there is opened, its key with it, rather than an empty library
+# in the image's /config.
+docker rm -f "$NAME" >/dev/null
+docker run -d --name "$NAME" ${RUNTIME_FLAGS[@]+"${RUNTIME_FLAGS[@]}"} \
+  -p "127.0.0.1:$PORT:9876" \
+  -v "$VOLUME:/data" \
+  --cap-drop ALL \
+  --security-opt no-new-privileges:true \
+  --read-only \
+  --tmpfs /tmp:size=64m,noexec,nosuid \
+  "$IMAGE" >/dev/null
+wait_for 30 "answer on /api/v1/ping with the volume at /data" pings
+expect_status 200 "accepts the same key with the volume at /data" -H "X-Api-Key: $key" "$BASE/api/v1/status"
+grep -qF 'The database is read from /data/routarr.db' <<<"$(logs)" ||
+  fail "no note saying the database is read from /data"
+ok "opens a database left in /data, and says how to move it"
 
 echo "The image starts, serves, and keeps its key."

@@ -212,7 +212,6 @@
   "AutoRefreshing": "Actualisation automatique",
   "BackToDashboard": "Retour au tableau de bord",
   "BackupNow": "Sauvegarder maintenant",
-  "BackupTogetherHint": "Un export de configuration ne contient jamais vos clés d'API Arr : elles sont scellées avec une clé que seule cette installation détient. Pour une sauvegarde complète, copiez data/routarr.db et data/routarr.key ensemble. Sans la clé, les clés stockées sont irrécupérables.",
   "Backups": "Sauvegardes",
   "BackupsHelp": "Effectuées automatiquement et conservées à côté de la base. Chaque archive contient la base, la clé maîtresse et la clé d'API, soit tout ce qu'une restauration exige, ce qui rend le fichier aussi sensible que la clé elle-même.",
   "BaseUrl": "URL de base",

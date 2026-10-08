@@ -212,7 +212,6 @@
   "AutoRefreshing": "Reîmprospătare automată",
   "BackToDashboard": "Înapoi la panou",
   "BackupNow": "Fă o copie acum",
-  "BackupTogetherHint": "Un export de configurație nu conține niciodată cheile API Arr: sunt sigilate cu o cheie deținută doar de această instalare. Pentru o copie de rezervă completă, copiază împreună data/routarr.db și data/routarr.key. Fără cheie, cele stocate sunt irecuperabile.",
   "Backups": "Copii de rezervă",
   "BackupsHelp": "Se fac programat și se păstrează lângă baza de date. Fiecare arhivă conține baza, cheia principală și cheia API, adică tot ce necesită o restaurare, ceea ce face fișierul la fel de sensibil ca și cheia.",
   "BaseUrl": "URL de bază",

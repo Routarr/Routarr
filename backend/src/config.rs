@@ -33,6 +33,32 @@ fn data_dir_for(db_path: &Path) -> PathBuf {
     }
 }
 
+/// Where the image keeps the database: `/config`, as Radarr and Sonarr keep
+/// theirs.
+const IMAGE_DB_PATH: &str = "/config/routarr.db";
+
+/// Where a container that mounts `/data` and not `/config` holds its database.
+const DATA_DB_PATH: &str = "/data/routarr.db";
+
+/// The database to open: `configured`, unless it is the image's own path,
+/// holds nothing yet, and `/data` holds a database. A volume mounted at
+/// `/data` keeps its library then, and the note says how to follow the
+/// image's layout, rather than an empty library opened in its place.
+fn settled_db_path(
+    configured: PathBuf,
+    exists: impl Fn(&Path) -> bool,
+) -> (PathBuf, Option<String>) {
+    let (image, data) = (Path::new(IMAGE_DB_PATH), Path::new(DATA_DB_PATH));
+    if configured == image && !exists(image) && exists(data) {
+        let note = format!(
+            "The database is read from {DATA_DB_PATH}. To follow the image's layout, mount the \
+             same folder at /config instead of /data."
+        );
+        return (data.to_path_buf(), Some(note));
+    }
+    (configured, None)
+}
+
 /// How a caller proves who it is.
 ///
 /// The names follow the Servarr applications, which offer `None`, `Forms` and
@@ -466,12 +492,13 @@ impl Config {
     /// default in its place: with the default, `ROUTARR_PORT=987 6` would run
     /// on 9876 while the operator believes their port is in force.
     pub fn from_env() -> AppResult<Self> {
-        let db_path =
+        let configured =
             path_or(std::env::var("ROUTARR_DB_PATH").ok(), || PathBuf::from("./data/routarr.db"));
+        let (db_path, settled) = settled_db_path(configured, Path::exists);
         // Each variable is named apart from its value: the sample-env check
         // scans this file for a quoted `ROUTARR_*` and would read a message
         // beginning with the name as a variable of its own.
-        let mut startup_notes = Vec::new();
+        let mut startup_notes: Vec<String> = settled.into_iter().collect();
         let raw_auth = env_or("ROUTARR_AUTH", "apikey");
         let (auth_mode, unknown) = AuthMode::parse(&raw_auth);
         if unknown {
@@ -1198,6 +1225,25 @@ mod tests {
         assert!(err.contains("ROUTARR_LIBRARY_TIMEOUT_SECS"), "{err}");
         let err = refused(|config| config.max_library_bytes = 0);
         assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
+    }
+
+    /// A container that mounts `/data` and not `/config` keeps its library,
+    /// and is told how to follow the image's layout. A path set to anything
+    /// else, or a `/config` that holds a database, is opened as it is.
+    #[test]
+    fn a_database_left_in_data_is_still_opened() {
+        let image = PathBuf::from(IMAGE_DB_PATH);
+        let only_data = |path: &Path| path == Path::new(DATA_DB_PATH);
+        let (opened, note) = settled_db_path(image.clone(), only_data);
+        assert_eq!(opened, PathBuf::from(DATA_DB_PATH));
+        assert!(note.is_some_and(|note| note.contains("/config")));
+
+        let both = |_: &Path| true;
+        assert_eq!(settled_db_path(image.clone(), both), (image.clone(), None));
+        let neither = |_: &Path| false;
+        assert_eq!(settled_db_path(image, neither).0, PathBuf::from(IMAGE_DB_PATH));
+        let elsewhere = PathBuf::from("/srv/routarr/routarr.db");
+        assert_eq!(settled_db_path(elsewhere.clone(), only_data), (elsewhere, None));
     }
 
     /// A source's root that is no address a request can go to stops the start,

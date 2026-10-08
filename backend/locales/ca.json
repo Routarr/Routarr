@@ -212,7 +212,6 @@
   "AutoRefreshing": "Actualització automàtica",
   "BackToDashboard": "Torna al tauler",
   "BackupNow": "Fes una còpia ara",
-  "BackupTogetherHint": "Una exportació de configuració mai no conté les teves claus API Arr: estan segellades amb una clau que només té aquesta instal·lació. Per a una còpia de seguretat completa, copia data/routarr.db i data/routarr.key junts. Sense la clau, les claus desades són irrecuperables.",
   "Backups": "Còpies de seguretat",
   "BackupsHelp": "Es fan de manera programada i es desen al costat de la base de dades. Cada arxiu conté la base, la clau mestra i la clau API: tot el que cal per restaurar, cosa que fa el fitxer tan sensible com la clau mateixa.",
   "BaseUrl": "URL base",

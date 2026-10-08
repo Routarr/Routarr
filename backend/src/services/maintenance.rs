@@ -235,6 +235,13 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
     if let Err(e) = sqlx::query("PRAGMA optimize").execute(&state.pool).await {
         warn!("Could not refresh the query planner's statistics: {e}");
     }
+    // The write-ahead log folded into the database file, without waiting on a
+    // reader: SQLite does it only past a thousand pages, and a copy of the file
+    // alone taken while Routarr runs would miss everything since, up to the
+    // whole schema. Such a copy is still not a safe one, the archives are.
+    if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(PASSIVE)").execute(&state.pool).await {
+        warn!("Could not fold the write-ahead log into the database: {e}");
+    }
 
     match &outcome {
         Ok(report) => {

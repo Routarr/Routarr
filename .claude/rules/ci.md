@@ -34,7 +34,7 @@ paths:
 - A file the root `Dockerfile` copies from outside `backend/` and `frontend/`, as it copies
   `LICENSE`, goes into the `image` pattern of `scripts/changed-areas.sh`. Otherwise a change to
   it is first built by `release.yml`.
-- The first-run command, `docker exec routarr cat /data/routarr.api_key`, depends on
+- The first-run command, `docker exec routarr cat /config/routarr.api_key`, depends on
   `container_name` in `docker-compose.yml` and on `ROUTARR_DB_PATH`, set in the `Dockerfile`
   and again in `docker-compose.yml`. `scripts/smoke-image.sh` runs the copy in
   `ApiKeyGate.svelte` against the image and holds it to `docker-compose.yml`, and

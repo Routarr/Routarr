@@ -212,7 +212,6 @@
   "AutoRefreshing": "Atualização automática",
   "BackToDashboard": "Voltar ao painel",
   "BackupNow": "Criar cópia agora",
-  "BackupTogetherHint": "Uma exportação de configuração nunca contém as suas chaves de API Arr: estão seladas com uma chave que só esta instalação possui. Para uma cópia de segurança completa, copie data/routarr.db e data/routarr.key em conjunto. Sem a chave, as chaves guardadas são irrecuperáveis.",
   "Backups": "Cópias de segurança",
   "BackupsHelp": "Efetuadas de forma agendada e guardadas junto à base de dados. Cada arquivo contém a base, a chave mestra e a chave de API, ou seja, tudo aquilo de que um restauro precisa, o que torna o ficheiro tão sensível como a própria chave.",
   "BaseUrl": "URL base",

@@ -212,7 +212,6 @@
   "AutoRefreshing": "자동 새로고침 중",
   "BackToDashboard": "대시보드로 돌아가기",
   "BackupNow": "지금 백업",
-  "BackupTogetherHint": "설정 내보내기에는 Arr API 키가 절대 포함되지 않습니다. 이 설치본만 가진 키로 봉인되어 있기 때문입니다. 전체 백업을 하려면 data/routarr.db와 data/routarr.key를 함께 복사하세요. 키가 없으면 저장된 API 키는 복구할 수 없습니다.",
   "Backups": "백업",
   "BackupsHelp": "일정에 따라 생성되어 데이터베이스 옆에 보관됩니다. 각 아카이브에는 데이터베이스, 마스터 키, API 키가 들어 있습니다. 복원에 필요한 모든 것이므로 파일은 키 자체만큼 민감합니다.",
   "BaseUrl": "기본 URL",

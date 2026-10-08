@@ -212,7 +212,6 @@
   "AutoRefreshing": "Oppdaterer automatisk",
   "BackToDashboard": "Tilbake til oversikten",
   "BackupNow": "Sikkerhetskopier nå",
-  "BackupTogetherHint": "En konfigurasjonseksport inneholder aldri Arr-API-nøklene dine: de er forseglet med en nøkkel bare denne installasjonen har. Kopier data/routarr.db og data/routarr.key sammen for en full sikkerhetskopi. Uten nøkkelen er de lagrede nøklene tapt.",
   "Backups": "Sikkerhetskopier",
   "BackupsHelp": "Tas etter tidsplan og lagres ved siden av databasen. Hvert arkiv inneholder databasen, hovednøkkelen og API-nøkkelen, altså alt en gjenoppretting trenger. Det gjør filen like følsom som nøkkelen selv.",
   "BaseUrl": "Basis-URL",

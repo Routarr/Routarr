@@ -212,7 +212,6 @@
   "AutoRefreshing": "Automatische Aktualisierung",
   "BackToDashboard": "Zurück zur Übersicht",
   "BackupNow": "Jetzt sichern",
-  "BackupTogetherHint": "Ein Konfigurationsexport enthält niemals Ihre Arr-API-Schlüssel, denn sie sind mit einem Schlüssel versiegelt, den nur diese Installation besitzt. Für eine vollständige Sicherung kopieren Sie data/routarr.db und data/routarr.key zusammen. Ohne den Schlüssel sind die gespeicherten Schlüssel verloren.",
   "Backups": "Sicherungen",
   "BackupsHelp": "Planmäßig erstellt und neben der Datenbank abgelegt. Jedes Archiv enthält Datenbank, Hauptschlüssel und API-Schlüssel, also alles, was eine Wiederherstellung braucht. Das macht die Datei so sensibel wie den Schlüssel selbst.",
   "BaseUrl": "Basis-URL",

@@ -809,7 +809,7 @@
               </button>
             </div>
             <p class="text-muted text-sm mt-3">
-              {t('BackupTogetherHint')}
+              {t('BackupCopyHint')}
             </p>
           {/if}
 

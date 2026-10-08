@@ -212,7 +212,6 @@
   "AutoRefreshing": "Otomatik yenileniyor",
   "BackToDashboard": "Panele dön",
   "BackupNow": "Şimdi yedekle",
-  "BackupTogetherHint": "Bir yapılandırma dışa aktarımı Arr API anahtarlarınızı asla içermez: bunlar yalnızca bu kurulumun sahip olduğu bir anahtarla mühürlenmiştir. Tam yedek için data/routarr.db ve data/routarr.key dosyalarını birlikte kopyalayın. Anahtar olmadan, saklananlar kurtarılamaz.",
   "Backups": "Yedekler",
   "BackupsHelp": "Zamanlanmış olarak alınır ve veritabanının yanında saklanır. Her arşiv veritabanını, ana anahtarı ve API anahtarını, yani bir geri yüklemenin ihtiyaç duyduğu her şeyi içerir. Bu da dosyayı anahtarın kendisi kadar hassas kılar.",
   "BaseUrl": "Temel URL",
