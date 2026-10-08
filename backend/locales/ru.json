@@ -743,7 +743,6 @@
   "PurgeResult": "Удалено. Решений: {decisions}, записей журнала: {logs}, задач: {jobs}.",
   "QuantifierLabel": "Как сочетаются эти значения",
   "RaisePriority": "Повысить приоритет",
-  "RangeAtLeast": "Введите целое число не менее {min}.",
   "RangeBetween": "Введите целое число от {min} до {max}.",
   "EnterWholeNumber": "Введите целое число.",
   "EnterNumber": "Введите число.",

@@ -743,7 +743,6 @@
   "PurgeResult": "Odstránené. Rozhodnutia: {decisions}, protokoly: {logs}, úlohy: {jobs}.",
   "QuantifierLabel": "Ako sa tieto hodnoty kombinujú",
   "RaisePriority": "Zvýšiť prioritu",
-  "RangeAtLeast": "Zadajte celé číslo {min} alebo väčšie.",
   "RangeBetween": "Zadajte celé číslo od {min} do {max}.",
   "EnterWholeNumber": "Zadajte celé číslo.",
   "EnterNumber": "Zadajte číslo.",

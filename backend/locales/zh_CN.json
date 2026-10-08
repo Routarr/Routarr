@@ -743,7 +743,6 @@
   "PurgeResult": "已移除。决策：{decisions}，日志：{logs}，任务：{jobs}。",
   "QuantifierLabel": "这些值如何组合",
   "RaisePriority": "提高优先级",
-  "RangeAtLeast": "请输入大于或等于 {min} 的整数。",
   "RangeBetween": "请输入 {min} 至 {max} 之间的整数。",
   "EnterWholeNumber": "请输入整数。",
   "EnterNumber": "请输入数字。",

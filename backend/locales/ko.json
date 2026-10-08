@@ -743,7 +743,6 @@
   "PurgeResult": "제거했습니다. 결정: {decisions}, 로그: {logs}, 작업: {jobs}.",
   "QuantifierLabel": "이 값들이 결합되는 방식",
   "RaisePriority": "우선순위 높이기",
-  "RangeAtLeast": "{min} 이상의 정수를 입력하세요.",
   "RangeBetween": "{min}부터 {max}까지의 정수를 입력하세요.",
   "EnterWholeNumber": "정수를 입력하세요.",
   "EnterNumber": "숫자를 입력하세요.",

@@ -743,7 +743,6 @@
   "PurgeResult": "Eltávolítva. Döntések: {decisions}, naplók: {logs}, feladatok: {jobs}.",
   "QuantifierLabel": "Hogyan kombinálódnak ezek az értékek",
   "RaisePriority": "Prioritás növelése",
-  "RangeAtLeast": "Adjon meg egy legalább {min} értékű egész számot.",
   "RangeBetween": "Adjon meg egy {min} és {max} közötti egész számot.",
   "EnterWholeNumber": "Adjon meg egy egész számot.",
   "EnterNumber": "Adjon meg egy számot.",

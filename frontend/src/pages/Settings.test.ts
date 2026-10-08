@@ -36,7 +36,6 @@ vi.mock('../lib/proof.svelte', () => ({
 const STRINGS = {
   Settings: 'Settings',
   RangeBetween: 'Enter a whole number from {min} to {max}.',
-  RangeAtLeast: 'Enter a whole number of {min} or more.',
   SectionHasInvalid: '{section}: a value is outside its bounds',
   SaveHeldInvalid: 'Save waits for every marked value to be within its bounds.',
   LiveModeWarning: 'Live mode is on',
@@ -1136,19 +1135,6 @@ describe('a number outside its bounds', () => {
     );
     expect(screen.getByRole('button', { name: 'Save' })).toHaveAccessibleDescription(
       'Save waits for every marked value to be within its bounds.',
-    );
-  });
-
-  /** A retention has no ceiling, so its bound is said as a floor. */
-  it('says an open-ended bound as a floor', async () => {
-    mount({ log_retention_days: '90' });
-    await openSection('Maintenance');
-    const field = await screen.findByLabelText('Log retention');
-
-    await fireEvent.input(field, { target: { value: '-1' } });
-
-    expect(field).toHaveAccessibleDescription(
-      expect.stringContaining('Enter a whole number of 0 or more.'),
     );
   });
 

@@ -743,7 +743,6 @@
   "PurgeResult": "Fjernet. Beslutninger: {decisions}, logfiler: {logs}, opgaver: {jobs}.",
   "QuantifierLabel": "Hvordan disse værdier kombineres",
   "RaisePriority": "Hæv prioriteten",
-  "RangeAtLeast": "Angiv et heltal på mindst {min}.",
   "RangeBetween": "Angiv et heltal fra {min} til {max}.",
   "EnterWholeNumber": "Angiv et heltal.",
   "EnterNumber": "Angiv et tal.",

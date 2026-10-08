@@ -743,7 +743,6 @@
   "PurgeResult": "Eliminats. Decisions: {decisions}, registres: {logs}, tasques: {jobs}.",
   "QuantifierLabel": "Com es combinen aquests valors",
   "RaisePriority": "Puja la prioritat",
-  "RangeAtLeast": "Introdueix un nombre enter igual o superior a {min}.",
   "RangeBetween": "Introdueix un nombre enter entre {min} i {max}.",
   "EnterWholeNumber": "Introdueix un nombre enter.",
   "EnterNumber": "Introdueix un nombre.",

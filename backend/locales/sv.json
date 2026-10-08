@@ -743,7 +743,6 @@
   "PurgeResult": "Borttagna. Beslut: {decisions}, loggar: {logs}, uppgifter: {jobs}.",
   "QuantifierLabel": "Hur dessa värden kombineras",
   "RaisePriority": "Höj prioriteten",
-  "RangeAtLeast": "Ange ett heltal på minst {min}.",
   "RangeBetween": "Ange ett heltal från {min} till {max}.",
   "EnterWholeNumber": "Ange ett heltal.",
   "EnterNumber": "Ange ett tal.",

@@ -743,7 +743,6 @@
   "PurgeResult": "Entfernt. Entscheidungen: {decisions}, Protokolle: {logs}, Aufgaben: {jobs}.",
   "QuantifierLabel": "Wie diese Werte kombiniert werden",
   "RaisePriority": "Priorität erhöhen",
-  "RangeAtLeast": "Geben Sie eine ganze Zahl ab {min} ein.",
   "RangeBetween": "Geben Sie eine ganze Zahl von {min} bis {max} ein.",
   "EnterWholeNumber": "Geben Sie eine ganze Zahl ein.",
   "EnterNumber": "Geben Sie eine Zahl ein.",

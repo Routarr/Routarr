@@ -743,7 +743,6 @@
   "PurgeResult": "تمت الإزالة. القرارات: {decisions}، السجلات: {logs}، المهام: {jobs}.",
   "QuantifierLabel": "كيف تُجمع هذه القيم",
   "RaisePriority": "رفع الأولوية",
-  "RangeAtLeast": "أدخل عددًا صحيحًا لا يقل عن {min}.",
   "RangeBetween": "أدخل عددًا صحيحًا من {min} إلى {max}.",
   "EnterWholeNumber": "أدخل عددًا صحيحًا.",
   "EnterNumber": "أدخل عددًا.",

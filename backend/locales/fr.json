@@ -743,7 +743,6 @@
   "PurgeResult": "Éléments supprimés. Décisions : {decisions}, journaux : {logs}, tâches : {jobs}.",
   "QuantifierLabel": "Comment ces valeurs se combinent",
   "RaisePriority": "Augmenter la priorité",
-  "RangeAtLeast": "Saisissez un nombre entier supérieur ou égal à {min}.",
   "RangeBetween": "Saisissez un nombre entier compris entre {min} et {max}.",
   "EnterWholeNumber": "Saisissez un nombre entier.",
   "EnterNumber": "Saisissez un nombre.",

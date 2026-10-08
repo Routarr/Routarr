@@ -743,7 +743,6 @@
   "PurgeResult": "Itens removidos. Decisões: {decisions}, registos: {logs}, tarefas: {jobs}.",
   "QuantifierLabel": "Como estes valores se combinam",
   "RaisePriority": "Subir a prioridade",
-  "RangeAtLeast": "Introduza um número inteiro igual ou superior a {min}.",
   "RangeBetween": "Introduza um número inteiro entre {min} e {max}.",
   "EnterWholeNumber": "Introduza um número inteiro.",
   "EnterNumber": "Introduza um número.",

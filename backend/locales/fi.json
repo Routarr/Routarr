@@ -743,7 +743,6 @@
   "PurgeResult": "Poistettu. Päätöksiä: {decisions}, lokeja: {logs}, tehtäviä: {jobs}.",
   "QuantifierLabel": "Miten nämä arvot yhdistyvät",
   "RaisePriority": "Nosta prioriteettia",
-  "RangeAtLeast": "Anna kokonaisluku, joka on vähintään {min}.",
   "RangeBetween": "Anna kokonaisluku, joka on vähintään {min} ja enintään {max}.",
   "EnterWholeNumber": "Anna kokonaisluku.",
   "EnterNumber": "Anna luku.",

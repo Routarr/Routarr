@@ -743,7 +743,6 @@
   "PurgeResult": "Verwijderd. Beslissingen: {decisions}, logboeken: {logs}, taken: {jobs}.",
   "QuantifierLabel": "Hoe deze waarden worden gecombineerd",
   "RaisePriority": "Prioriteit verhogen",
-  "RangeAtLeast": "Vul een geheel getal in van minstens {min}.",
   "RangeBetween": "Vul een geheel getal in van {min} tot en met {max}.",
   "EnterWholeNumber": "Voer een geheel getal in.",
   "EnterNumber": "Voer een getal in.",

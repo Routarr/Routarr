@@ -744,7 +744,6 @@
   "PurgeResult": "Removed. Decisions: {decisions}, logs: {logs}, jobs: {jobs}.",
   "QuantifierLabel": "How these values combine",
   "RaisePriority": "Raise priority",
-  "RangeAtLeast": "Enter a whole number of {min} or more.",
   "RangeBetween": "Enter a whole number from {min} to {max}.",
   "EnterWholeNumber": "Enter a whole number.",
   "EnterNumber": "Enter a number.",

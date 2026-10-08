@@ -743,7 +743,6 @@
   "PurgeResult": "Usunięto. Decyzje: {decisions}, dzienniki: {logs}, zadania: {jobs}.",
   "QuantifierLabel": "Jak łączą się te wartości",
   "RaisePriority": "Podnieś priorytet",
-  "RangeAtLeast": "Wpisz liczbę całkowitą nie mniejszą niż {min}.",
   "RangeBetween": "Wpisz liczbę całkowitą od {min} do {max}.",
   "EnterWholeNumber": "Wpisz liczbę całkowitą.",
   "EnterNumber": "Wpisz liczbę.",

@@ -743,7 +743,6 @@
   "PurgeResult": "Elementos eliminados. Decisiones: {decisions}, registros: {logs}, tareas: {jobs}.",
   "QuantifierLabel": "Cómo se combinan estos valores",
   "RaisePriority": "Subir la prioridad",
-  "RangeAtLeast": "Introduce un número entero mayor o igual que {min}.",
   "RangeBetween": "Introduce un número entero entre {min} y {max}.",
   "EnterWholeNumber": "Introduce un número entero.",
   "EnterNumber": "Introduce un número.",

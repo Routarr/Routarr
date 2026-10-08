@@ -743,7 +743,6 @@
   "PurgeResult": "Elemente eliminate. Decizii: {decisions}, jurnale: {logs}, sarcini: {jobs}.",
   "QuantifierLabel": "Cum se combină aceste valori",
   "RaisePriority": "Crește prioritatea",
-  "RangeAtLeast": "Introdu un număr întreg mai mare sau egal cu {min}.",
   "RangeBetween": "Introdu un număr întreg de la {min} la {max}.",
   "EnterWholeNumber": "Introdu un număr întreg.",
   "EnterNumber": "Introdu un număr.",

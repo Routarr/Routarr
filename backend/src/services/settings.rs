@@ -14,6 +14,9 @@ pub const ONBOARDING_STATES: [&str; 3] = ["pending", "dismissed", "done"];
 ///
 /// A ceiling rather than a matter of taste: this is the length of a list the
 /// interface renders in full, and the number of archives a disk has to hold.
+/// The longest retention in days a setting may hold.
+const MAX_RETENTION_DAYS: i64 = 3_650;
+
 const MAX_BACKUPS_KEPT: i64 = 50;
 
 /// Settings Routarr knows about, with the validation each one requires.
@@ -50,9 +53,12 @@ const KNOWN: &[(&str, Kind)] = &[
     // Every archive sealed with it, so that a copy of the backup folder opens
     // nothing without it (`services::backup::sealed`).
     ("backup_passphrase", Kind::Passphrase),
-    ("decision_retention_days", Kind::NonNegativeInt),
-    ("log_retention_days", Kind::NonNegativeInt),
-    ("security_log_retention_days", Kind::NonNegativeInt),
+    // Zero keeps everything, and ten years is the most a count of days is
+    // worth: further, SQLite's date arithmetic runs past every stored date
+    // and then to NULL, which purges nothing while the screen shows a number.
+    ("decision_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
+    ("log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
+    ("security_log_retention_days", Kind::Retention(0, MAX_RETENTION_DAYS)),
     // The same bounds the scheduler clamps to when it reads this. The clamp
     // stays (it is the guard), but refusing here means the number on screen is
     // the number that runs, instead of one silently ignored.
@@ -108,7 +114,6 @@ enum Kind {
     /// removes what is beyond it, so nothing but the operator's own save may,
     /// and `offline_warnings` names a stored value above the ceiling until then.
     Retention(i64, i64),
-    NonNegativeInt,
     Category,
     CountryList,
     Language,
@@ -285,13 +290,6 @@ fn validate(
                 return Err(bad(format!("'{key}' must be between {min} and {max}")));
             }
         }
-        Kind::NonNegativeInt => {
-            let n: i64 =
-                value.parse().map_err(|_| bad(format!("'{key}' must be a whole number")))?;
-            if n < 0 {
-                return Err(bad(format!("'{key}' cannot be negative")));
-            }
-        }
         Kind::Category => {
             if !categories.iter().any(|c| c == value) {
                 return Err(bad(format!("'{key}': category '{value}' does not exist")));
@@ -416,12 +414,16 @@ mod tests {
         assert!(check("scheduler_interval_minutes", "1441", &[], &Localizer::new("en")).is_err());
     }
 
+    /// A retention of zero keeps everything, and one past ten years is
+    /// refused rather than saved as a number that purges nothing.
     #[test]
-    fn retention_may_be_zero_to_disable() {
-        assert!(
-            validate("log_retention_days", "0", Kind::NonNegativeInt, &[], &Localizer::new("en"))
-                .is_ok()
-        );
+    fn a_retention_in_days_is_zero_or_up_to_ten_years() {
+        for key in ["decision_retention_days", "log_retention_days", "security_log_retention_days"]
+        {
+            assert!(check(key, "0", &[], &Localizer::new("en")).is_ok(), "{key}");
+            assert!(check(key, "3650", &[], &Localizer::new("en")).is_ok(), "{key}");
+            assert!(check(key, "3651", &[], &Localizer::new("en")).is_err(), "{key}");
+        }
     }
 
     #[test]

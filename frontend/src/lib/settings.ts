@@ -38,10 +38,9 @@ export interface Field {
   /**
    * The interval a `number` accepts: the bounds `services/settings.rs` enforces,
    * stated here so the field refuses a value before a save instead of after
-   * it, in a refusal naming a key in a tab the operator never opened. `null`
-   * is no upper bound: a retention in days has none.
+   * it, in a refusal naming a key in a tab the operator never opened.
    */
-  range?: [number, number | null];
+  range?: [number, number];
   /** What a `choice` offers. */
   choices?: Choice[];
 }
@@ -306,7 +305,7 @@ export const FIELDS: Field[] = [
     helpKey: 'SettingDecisionRetentionHelp',
     kind: 'number',
     fallback: '30',
-    range: [0, null],
+    range: [0, 3650],
   },
   {
     key: 'log_retention_days',
@@ -314,7 +313,7 @@ export const FIELDS: Field[] = [
     helpKey: 'SettingLogRetentionHelp',
     kind: 'number',
     fallback: '90',
-    range: [0, null],
+    range: [0, 3650],
   },
   {
     key: 'security_log_retention_days',
@@ -322,7 +321,7 @@ export const FIELDS: Field[] = [
     helpKey: 'SettingSecurityLogRetentionHelp',
     kind: 'number',
     fallback: '365',
-    range: [0, null],
+    range: [0, 3650],
   },
 ];
 

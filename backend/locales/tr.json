@@ -743,7 +743,6 @@
   "PurgeResult": "Kaldırıldı. Kararlar: {decisions}, günlükler: {logs}, görevler: {jobs}.",
   "QuantifierLabel": "Bu değerlerin nasıl birleştiği",
   "RaisePriority": "Önceliği yükselt",
-  "RangeAtLeast": "{min} veya daha büyük bir tam sayı girin.",
   "RangeBetween": "{min} ile {max} arasında bir tam sayı girin.",
   "EnterWholeNumber": "Bir tam sayı girin.",
   "EnterNumber": "Bir sayı girin.",
