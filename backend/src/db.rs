@@ -847,8 +847,8 @@ mod tests {
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("main.rs");
         let after_serving = MAIN
-            .split_once("listener::serve(socket, app, shutdown_signal()")
-            .expect("main serves until a shutdown signal")
+            .split_once("listener::serve(")
+            .expect("main serves until a stop is asked")
             .1;
         let shutdown =
             after_serving.split_once("Routarr stopped cleanly").expect("main says it stopped").0;

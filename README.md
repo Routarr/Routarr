@@ -64,6 +64,7 @@ services:
     volumes:
       - ./config:/config
     restart: unless-stopped
+    stop_grace_period: 30s
     cap_drop:
       - ALL
     security_opt:
@@ -79,9 +80,11 @@ docker compose up -d
 docker exec routarr cat /config/routarr.api_key  # the API key generated on first start
 ```
 
-Open **http://localhost:9876** and paste the key. Images are published for `linux/amd64` and
-`linux/arm64`. `latest` follows the newest release, `0.1` follows the patch releases of 0.1, and
-a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a major line too.
+Open **http://localhost:9876** and paste the key. `stop_grace_period` gives a stop the time to
+record the moves in flight and close the database: with `docker run`, pass `--stop-timeout 30`.
+Images are published for `linux/amd64` and `linux/arm64`. `latest` follows the newest release,
+`0.1` follows the patch releases of 0.1, and a full version such as `0.1.0` pins one. From 1.0.0 a
+major tag (`1`) follows a major line too.
 
 Routarr archives itself into `backups/` beside its database, every day unless you change the
 interval, and **Settings → Maintenance** lists the archives and downloads any of them. An archive

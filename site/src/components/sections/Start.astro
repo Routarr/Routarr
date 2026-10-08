@@ -63,6 +63,7 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
     <span class="k">volumes</span>:
       - <span class="s">./config:/config</span>
     <span class="k">restart</span>: <span class="s">unless-stopped</span>
+    <span class="k">stop_grace_period</span>: <span class="s">30s</span>
     <span class="k">cap_drop</span>:
       - <span class="s">ALL</span>
     <span class="k">security_opt</span>:

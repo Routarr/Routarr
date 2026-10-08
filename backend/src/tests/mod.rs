@@ -46,6 +46,7 @@ mod scheduler;
 mod sealed_backups;
 mod security;
 mod sessions;
+mod shutdown;
 mod stopped_runs;
 mod sync;
 mod webhook_fuzz;

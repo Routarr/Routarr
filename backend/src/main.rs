@@ -120,9 +120,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     warn_on_insecure_defaults(&state);
 
     // Stopped before the pool closes: SQLite will not truncate a WAL another
-    // connection is writing, which is what a sweep in flight is doing.
-    let (stop_scheduler, scheduler_stopped) = tokio::sync::watch::channel(false);
-    let scheduler = jobs::scheduler::start(state.clone(), scheduler_stopped);
+    // connection is writing, which is what a sweep in flight is doing. Told
+    // with the server, so no pass starts while the requests drain.
+    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
+    let scheduler = jobs::scheduler::start(state.clone(), stopping.clone());
 
     let bind_addr = state.config.bind_address();
     // Kept past `build_router`, which consumes the state: the pool has to be
@@ -136,23 +137,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
     info!("Routarr web server listening on http://{bind_addr}");
 
-    listener::serve(socket, app, shutdown_signal(), listener::HEADER_READ_TIMEOUT).await;
+    listener::serve(
+        socket,
+        app,
+        fired(stopping),
+        fired(hurrying.clone()),
+        listener::HEADER_READ_TIMEOUT,
+        listener::DRAIN,
+    )
+    .await;
 
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
     // SIGTERM is counting. Past the deadline SQLite rolls the sweep back and
     // only the WAL truncation is lost. An apply ends before its next move and
-    // records the moves the Arr has made, within the Compose file's 30s grace.
-    let _ = stop_scheduler.send(true);
-    let (drained, scheduler) = tokio::join!(
-        jobs.drain(std::time::Duration::from_secs(20)),
-        tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
-    );
-    if !drained {
-        warn!("Moves were still being recorded after 20s, closing the database anyway");
-    }
-    if scheduler.is_err() {
-        warn!("The scheduler did not stop within 10s, closing the database anyway");
+    // records the moves the Arr has made. With the drain, the stop fits the
+    // Compose file's 30s grace, and a second signal stops waiting.
+    let waits = async {
+        tokio::join!(
+            jobs.drain(std::time::Duration::from_secs(20)),
+            tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
+        )
+    };
+    tokio::select! {
+        (drained, scheduler) = waits => {
+            if !drained {
+                warn!("Moves were still being recorded after 20s, closing the database anyway");
+            }
+            if scheduler.is_err() {
+                warn!("The scheduler did not stop within 10s, closing the database anyway");
+            }
+        }
+        () = fired(hurrying) => warn!("Closing the database without waiting for the work in flight"),
     }
 
     audit.flush().await;
@@ -896,7 +912,33 @@ fn warn_on_insecure_defaults(state: &AppState) {
     }
 }
 
-/// Resolve on Ctrl-C or SIGTERM so in-flight requests finish before exit.
+/// The stop, said at once to the server and the scheduler: `first` stops
+/// both, and `second`, awaited only once `first` has resolved, skips what the
+/// stop waits for.
+fn stop_on(
+    first: impl Future<Output = ()> + Send + 'static,
+    second: impl Future<Output = ()> + Send + 'static,
+) -> (tokio::sync::watch::Receiver<bool>, tokio::sync::watch::Receiver<bool>) {
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    let (hurry, hurrying) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        first.await;
+        let _ = stop.send(true);
+        second.await;
+        warn!("A second signal: stopping without waiting");
+        let _ = hurry.send(true);
+    });
+    (stopping, hurrying)
+}
+
+/// Resolves once `flag` is raised.
+async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
+    if flag.wait_for(|raised| *raised).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+/// Resolve on Ctrl-C or SIGTERM.
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("failed to install Ctrl-C handler");

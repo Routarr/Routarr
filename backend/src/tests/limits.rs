@@ -20,7 +20,9 @@ async fn listening(header_read_timeout: Duration) -> std::net::SocketAddr {
         socket,
         app.router.clone(),
         std::future::pending(),
+        std::future::pending(),
         header_read_timeout,
+        crate::listener::DRAIN,
     ));
     address
 }
