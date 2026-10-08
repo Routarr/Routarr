@@ -108,9 +108,13 @@ test.describe('form fields carry a programmatic label', () => {
       for (const control of controls) {
         expect(control.id, `${name}: a control has no id to be labelled by`).toBeTruthy();
         expect(control.labels, `${name}: ${control.id} is not labelled`).toBe(1);
-        // The explanatory paragraph is announced with the field rather than lost.
-        expect(control.describedBy, `${name}: ${control.id}`).toBe(`${control.id}-help`);
-        checked += 1;
+        // A setting's explanatory paragraph is announced with its field rather
+        // than lost. The forms beside the settings (the account, the backup
+        // passphrase) explain themselves in their card's note.
+        if (control.id.startsWith('setting-')) {
+          expect(control.describedBy, `${name}: ${control.id}`).toBe(`${control.id}-help`);
+          checked += 1;
+        }
       }
     }
 

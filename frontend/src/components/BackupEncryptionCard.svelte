@@ -61,8 +61,9 @@
   <div class="card-header">
     <div>
       <!-- The state beside the name it qualifies: an archive left clear
-           carries the master key, which is what the note warns of. -->
-      <div class="flex items-center gap-2">
+           carries the master key, which is what the note warns of. Below
+           it where both do not fit, rather than the name broken in two. -->
+      <div class="flex flex-wrap items-center gap-2">
         <h2 class="card-title flex items-center gap-2">
           <Lock size={18} aria-hidden="true" />
           {t('BackupEncryption')}
