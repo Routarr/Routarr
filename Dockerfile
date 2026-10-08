@@ -102,11 +102,12 @@ EXPOSE 9876
 # keeps its database: Routarr opens it there while `/config` holds none.
 VOLUME ["/config"]
 
-# The binary probes itself: it reads the port and the mount point as the server
-# does, so `ROUTARR_BASE_PATH=routarr` and a changed ROUTARR_PORT probe the
-# address actually served. A wrong address would report a healthy container as
-# unhealthy, and an orchestrator restarts it in a loop. `/api/v1/ping` is
-# deliberately unauthenticated, so this works with an API key set.
+# The binary probes itself: it reads the host, the port and the mount point as
+# the server does, so `ROUTARR_BASE_PATH=routarr`, a changed ROUTARR_PORT and a
+# ROUTARR_HOST naming one address probe the address actually served. A wrong
+# address would report a healthy container as unhealthy, and an orchestrator
+# restarts it in a loop. `/api/v1/ping` is deliberately unauthenticated, so this
+# works with an API key set.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD ["/app/routarr", "healthcheck"]
 

@@ -459,6 +459,36 @@ impl std::fmt::Debug for Config {
 /// four to work. Getting this wrong produces a double slash or a missing one in
 /// every generated URL, which is the kind of bug that only shows up behind the
 /// proxy, the one place it cannot be debugged comfortably.
+/// The most requests in flight per source a pass may hold.
+const MAX_METADATA_CONCURRENCY: usize = 16;
+
+/// The concurrency asked for, held to 1 to [`MAX_METADATA_CONCURRENCY`], and
+/// whether it had to be, which the start says rather than keeps quiet.
+fn concurrency_from(asked: usize) -> (usize, bool) {
+    let kept = asked.clamp(1, MAX_METADATA_CONCURRENCY);
+    (kept, kept != asked)
+}
+
+/// Refuse a mount point the router cannot serve and a link cannot carry: a
+/// segment of anything but letters, digits and `-._~` panics in a route, ends
+/// a URL at `?` or `#`, or breaks out of the `<base href>` the page is given.
+fn validate_base_path(base_path: &str) -> AppResult<()> {
+    let segments: Vec<&str> = base_path.trim_start_matches('/').split('/').collect();
+    let served = base_path.is_empty()
+        || segments.iter().all(|segment| {
+            !matches!(*segment, "" | "." | "..")
+                && segment.chars().all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c))
+        });
+    if served {
+        return Ok(());
+    }
+    let variable = "ROUTARR_BASE_PATH";
+    Err(AppError::Config(format!(
+        "{variable} is '{base_path}', which no address can carry. Use letters, digits, '-', '.', \
+         '_' and '~' between slashes, such as /routarr"
+    )))
+}
+
 pub fn normalise_base_path(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches('/');
     if trimmed.is_empty() { String::new() } else { format!("/{trimmed}") }
@@ -505,6 +535,15 @@ impl Config {
             let variable = "ROUTARR_AUTH";
             startup_notes.push(format!(
                 "{variable} is '{raw_auth}', which no mode is called: the API key is required"
+            ));
+        }
+        let asked = env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?;
+        let (metadata_concurrency, clamped) = concurrency_from(asked);
+        if clamped {
+            let variable = "ROUTARR_METADATA_CONCURRENCY";
+            startup_notes.push(format!(
+                "{variable} is {asked}, outside 1 to {MAX_METADATA_CONCURRENCY}: \
+                 {metadata_concurrency}"
             ));
         }
         let raw_level = env_or("ROUTARR_LOG_LEVEL", "info");
@@ -592,7 +631,7 @@ impl Config {
             allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             // Bounds how many requests are *open* per source, and `rate_limit`
             // bounds how many are made.
-            metadata_concurrency: env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?.clamp(1, 16),
+            metadata_concurrency,
             tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
                 .trim_end_matches('/')
                 .to_string(),
@@ -658,14 +697,24 @@ impl Config {
 
     /// Returns the socket address to bind to.
     pub fn bind_address(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        format!("{}:{}", bracketed(&self.host), self.port)
     }
 
-    /// Where `routarr healthcheck` asks whether the server is up: the port and
-    /// the mount point as the server itself reads them, so `routarr` and
-    /// `/routarr/` probe the address it serves.
+    /// Where `routarr healthcheck` asks whether the server is up: the host, the
+    /// port and the mount point as the server itself reads them, so a server
+    /// bound to one address, IPv6 included, is asked there.
     pub fn ping_url(&self) -> String {
-        format!("http://127.0.0.1:{}{}/api/v1/ping", self.port, self.base_path)
+        format!("http://{}:{}{}/api/v1/ping", self.probe_host(), self.port, self.base_path)
+    }
+
+    /// The address the probe reaches the server at: the loopback when it binds
+    /// every address, which only a client can not name.
+    fn probe_host(&self) -> String {
+        match self.host.trim() {
+            "" | "0.0.0.0" => "127.0.0.1".into(),
+            "::" | "[::]" => "[::1]".into(),
+            host => bracketed(host),
+        }
     }
 
     /// Point the configuration at a database, moving its data directory with
@@ -699,6 +748,7 @@ impl Config {
     /// start with a sentence naming the variable, rather than as a panic from
     /// a dependency, or as a feature that silently does nothing.
     pub fn validate(&self) -> AppResult<()> {
+        validate_base_path(&self.base_path)?;
         for origin in &self.cors_origins {
             validate_origin(origin)?;
         }
@@ -880,6 +930,14 @@ pub fn host_name(host: &str) -> String {
     }
 }
 
+/// A host as it is written beside a port: an IPv6 address in brackets.
+fn bracketed(host: &str) -> String {
+    match host.parse::<std::net::Ipv6Addr>() {
+        Ok(_) => format!("[{host}]"),
+        Err(_) => host.to_string(),
+    }
+}
+
 /// A path variable, or its default when unset or blank: an empty
 /// `ROUTARR_DB_PATH` would open a private temporary database per pooled
 /// connection, and an empty frontend directory would switch to API only.
@@ -949,6 +1007,20 @@ mod tests {
     /// mode keeps the API key and says so, `warning` is the level it names,
     /// and an unknown level or format falls back with a word.
     #[test]
+    fn a_mount_point_the_router_cannot_serve_is_refused_by_name() {
+        let mut config = Config::for_tests();
+        for refused in ["{x}", "a{b", "*x", "a?b", "a#b", "my app", "a\"b", "a//b", "a/../b"] {
+            config.base_path = normalise_base_path(refused);
+            let err = config.validate().expect_err(refused).to_string();
+            assert!(err.contains("ROUTARR_BASE_PATH"), "{refused}: {err}");
+        }
+        for served in ["routarr", "apps/routarr", "", "r.a_t~-1"] {
+            config.base_path = normalise_base_path(served);
+            assert!(config.validate().is_ok(), "{served}");
+        }
+    }
+
+    #[test]
     fn a_value_not_understood_is_said_rather_than_swallowed() {
         assert_eq!(AuthMode::parse("nome"), (AuthMode::ApiKey, true));
         assert_eq!(AuthMode::parse("oidc"), (AuthMode::Oidc, false));
@@ -957,6 +1029,9 @@ mod tests {
         assert_eq!(log_level_from("verbose"), ("info".to_string(), true));
         assert_eq!(log_format_from("JSON"), ("json".to_string(), false));
         assert_eq!(log_format_from("pretty"), ("text".to_string(), true));
+        assert_eq!(concurrency_from(100), (16, true));
+        assert_eq!(concurrency_from(0), (1, true));
+        assert_eq!(concurrency_from(4), (4, false));
     }
 
     /// The image's probe reads this address. Written raw from the variable,
@@ -976,6 +1051,17 @@ mod tests {
         }
         config.base_path = normalise_base_path("");
         assert_eq!(config.ping_url(), "http://127.0.0.1:9876/api/v1/ping");
+
+        // The host it binds, or the loopback when it binds every address.
+        for (host, asked) in [
+            ("0.0.0.0", "127.0.0.1"),
+            ("::", "[::1]"),
+            ("::1", "[::1]"),
+            ("192.168.1.4", "192.168.1.4"),
+        ] {
+            config.host = host.into();
+            assert_eq!(config.ping_url(), format!("http://{asked}:9876/api/v1/ping"), "{host}");
+        }
     }
 
     /// `.env.example` is the only place most people will ever read the list of
@@ -1360,5 +1446,7 @@ mod tests {
         config.host = "127.0.0.1".into();
         config.port = 9876;
         assert_eq!(config.bind_address(), "127.0.0.1:9876");
+        config.host = "::1".into();
+        assert_eq!(config.bind_address(), "[::1]:9876");
     }
 }

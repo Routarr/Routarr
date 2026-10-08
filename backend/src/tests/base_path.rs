@@ -114,6 +114,19 @@ async fn nothing_answers_outside_the_mount_point() {
     assert_eq!(status_of(&app, "/api/v1/ping").await, StatusCode::NOT_FOUND);
 }
 
+/// The bare address, typed by someone who forgot the mount point, leads to
+/// it rather than to an empty page.
+#[tokio::test]
+async fn the_root_leads_to_the_mount_point() {
+    let app = mounted_at("/routarr").await;
+
+    let answer = app.raw("/").await;
+
+    assert_eq!(answer.status(), StatusCode::TEMPORARY_REDIRECT);
+    let location = answer.headers().get(axum::http::header::LOCATION).unwrap();
+    assert_eq!(location, "/routarr/");
+}
+
 #[tokio::test]
 async fn the_default_deployment_is_untouched() {
     let app = mounted_at("").await;

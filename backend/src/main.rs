@@ -616,7 +616,14 @@ fn build_router(state: AppState) -> Router {
     // a script with a typo in its path would parse HTML as JSON.
     let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
 
-    let api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
+    let mut api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
+    // Mounted under a sub-path, the root, where someone typing the bare
+    // address lands, leads in rather than answering an empty 404.
+    if !config.base_path.is_empty() {
+        let mounted = format!("{}/", config.base_path);
+        let lead_in = move || async move { axum::response::Redirect::temporary(&mounted) };
+        api = api.route("/", get(lead_in));
+    }
     let app = request_layers(api)
         // Rules and import bundles are the only large bodies. 2 MiB is generous
         // for them and stops an unauthenticated request from buffering
