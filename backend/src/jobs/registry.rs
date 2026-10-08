@@ -83,11 +83,11 @@ impl Detail {
         self
     }
 
-    fn english(&self) -> String {
+    pub(crate) fn english(&self) -> String {
         Localizer::new(DEFAULT_LANGUAGE).translate_map(self.key, &self.params)
     }
 
-    fn stored_params(&self) -> String {
+    pub(crate) fn stored_params(&self) -> String {
         serde_json::Value::from_iter(
             self.params
                 .iter()

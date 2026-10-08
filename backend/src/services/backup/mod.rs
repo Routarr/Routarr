@@ -162,7 +162,9 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
     let suffix = if by_application { APPLICATION_SUFFIX } else { "" };
     let outcome = match sealed::passphrase(state).await {
-        Ok(passphrase) => write_archive(&state.config, &state.pool, suffix, passphrase).await,
+        Ok(passphrase) => {
+            write_archive(&state.config, &state.pool, suffix, passphrase, Some(&job.id)).await
+        }
         Err(e) => Err(e),
     };
 
@@ -182,6 +184,36 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     outcome
 }
 
+/// Write the backup's own job into its snapshot as the success it is once the
+/// archive exists. Taken while the job runs, the row would come back running
+/// with every restore, and the first start after it would mark it interrupted:
+/// a failed backup shown for the very archive just restored.
+async fn settle_in_snapshot(snapshot: &Path, job: &str, name: &str) -> AppResult<()> {
+    use sqlx::{ConnectOptions, Connection};
+    let detail = crate::jobs::Detail::new("JobDetailBackedUp").with("file", name);
+    // A rollback journal: the snapshot is zipped alone, and a log beside it
+    // would be left out with this write in it.
+    let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(snapshot)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
+        .connect()
+        .await?;
+    let settled = sqlx::query(
+        "UPDATE jobs SET status = 'success', detail = ?, detail_key = ?, detail_params = ?,
+                finished_at = datetime('now')
+          WHERE id = ?",
+    )
+    .bind(detail.english())
+    .bind("JobDetailBackedUp")
+    .bind(detail.stored_params())
+    .bind(job)
+    .execute(&mut connection)
+    .await;
+    connection.close().await.ok();
+    settled?;
+    Ok(())
+}
+
 /// Take a backup of a database the server has not opened yet, before a start
 /// migrates it: the archives kept afterwards would all be of the new schema,
 /// which the release before cannot open.
@@ -190,15 +222,17 @@ pub async fn before_migrating(
     pool: &sqlx::SqlitePool,
 ) -> AppResult<BackupFile> {
     let passphrase = sealed::stored_passphrase(config, pool).await?;
-    write_archive(config, pool, "", passphrase).await
+    write_archive(config, pool, "", passphrase, None).await
 }
 
-/// Write an archive, sealed for `passphrase` when there is one.
+/// Write an archive, sealed for `passphrase` when there is one, for the job
+/// `job` when one runs it.
 async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
     suffix: &str,
     passphrase: Option<Passphrase>,
+    job: Option<&str>,
 ) -> AppResult<BackupFile> {
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
@@ -230,6 +264,9 @@ async fn write_archive(
     // remove it under the task that reads it.
     let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
     vacuum_into(pool, &snapshot).await?;
+    if let Some(job) = job {
+        settle_in_snapshot(&snapshot, job, &name).await?;
+    }
 
     let schema: String =
         sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
@@ -465,7 +502,13 @@ fn taken_by_a_key(file: &BackupFile) -> bool {
 }
 
 fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
-    let stamp = stamp_of(&file.name)?;
+    stamped_at(&file.name)
+}
+
+/// When the archive `name` was taken, by the UTC stamp in its name, which a
+/// copy of the folder keeps and its file dates do not.
+fn stamped_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let stamp = stamp_of(name)?;
     let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
     Some(chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc())
 }
@@ -485,13 +528,12 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
         .filter(|entry| entry.file_name().to_str().is_some_and(is_valid_backup_name))
         .filter_map(|entry| {
             let metadata = entry.metadata().ok()?;
-            let created = metadata
-                .modified()
-                .ok()
-                .map(chrono::DateTime::<chrono::Utc>::from)
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // The file's date only for a name that carries no stamp.
+            let created = stamped_at(&name)
+                .or_else(|| metadata.modified().ok().map(chrono::DateTime::<chrono::Utc>::from))
                 .map(crate::services::routing::format_timestamp)
                 .unwrap_or_default();
-            let name = entry.file_name().to_string_lossy().into_owned();
             Some(BackupFile {
                 encrypted: sealed::is_sealed_file(&entry.path()),
                 name,

@@ -293,6 +293,15 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     let restored: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
     assert_eq!(restored, 1, "the staged database was not applied");
+    // The backup that wrote the archive is in it as the success it was, not
+    // as a task the next start finds running and marks interrupted.
+    let interrupted = crate::jobs::JobRegistry::new(pool.clone()).recover_orphans().await.unwrap();
+    assert_eq!(interrupted, 0, "the restored database holds its backup as still running");
+    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'backup'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "success");
     pool.close().await;
 }
 
@@ -1070,15 +1079,25 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
 #[tokio::test]
 async fn the_api_takes_lists_and_deletes_a_backup() {
-    let (app, _dir) = app_with_files("api").await;
+    let (app, dir) = app_with_files("api").await;
 
     let created = app.post("/api/v1/backups", serde_json::json!({})).await;
     let name = created.assert_ok()["name"].as_str().unwrap().to_string();
+
+    // Dated by the stamp in its name, as retention and the schedule read it,
+    // not by the file's own date, which a copy of the folder to a new host
+    // resets.
+    let file = std::fs::File::options().write(true).open(dir.join("backups").join(&name)).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200)).unwrap();
+    let stamp = name.trim_start_matches("routarr-backup-").trim_end_matches(".zip");
+    let stamped = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").unwrap().and_utc();
 
     let listed = app.get("/api/v1/backups").await;
     let body = listed.assert_ok();
     assert_eq!(body["backups"].as_array().unwrap().len(), 1);
     assert_eq!(body["retention_count"], 7);
+    let listed_at = body["backups"][0]["created_at"].as_str().unwrap();
+    assert_eq!(listed_at, crate::services::routing::format_timestamp(stamped));
 
     // The download is the point of the route, beyond its refusals: the bytes
     // have to be the archive, typed as one.
