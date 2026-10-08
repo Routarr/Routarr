@@ -110,6 +110,27 @@ A start that applies new migrations archives the database first. Going back to a
 works while it knows every migration the database holds. When a start refuses the database, it
 names an archive it can open: restore that one with the server stopped, as above.
 
+## Install notes
+
+- **The folder's owner.** The container runs as uid 1000. On a NAS whose app folders belong to
+  another user, run Routarr as that user rather than changing the folder's owner, with
+  `user: "99:100"` on Unraid or `user: "1026:100"` on Synology under `routarr:` in the compose file.
+  `ls -ln` shows the numbers a folder belongs to.
+- **A local disk.** Keep `config/` on a disk of the host, not on an NFS or SMB share: SQLite's
+  write-ahead log does not work over a network filesystem. The archives in `config/backups/` may be
+  copied anywhere.
+- **64-bit only.** Images are published for `linux/amd64` and `linux/arm64`: a Raspberry Pi needs a
+  64-bit system.
+- **Under a sub-path.** Behind a reverse proxy at `/routarr`, set `ROUTARR_BASE_PATH=/routarr` and
+  forward the path whole, prefix included:
+  - nginx: `location /routarr/ { proxy_pass http://routarr:9876; }`, with no path after the address
+    in `proxy_pass`, which would remove the prefix.
+  - Caddy: `handle /routarr* { reverse_proxy routarr:9876 }`, not `handle_path`, which removes it.
+  - Traefik: a ``PathPrefix(`/routarr`)`` rule without a `StripPrefix` middleware.
+- **No media folder.** Routarr asks Radarr and Sonarr to move the files and reads none of them, so
+  it mounts nothing but `config/`. Its `/config` has nothing to do with the `/data` media folder the
+  TRaSH guides set up for the Arrs.
+
 ## Stronger isolation
 
 The container already runs as uid 1000 with every capability dropped. To put a kernel of its own
@@ -122,7 +143,7 @@ kernel, not the host's. CI runs the image's whole start-up check under gVisor on
 the image.
 
 It protects the host from a compromised Routarr: reaching the host no longer takes one flaw in
-your kernel. It does not protect what Routarr holds, the Arr keys and the `data/` directory, which
+your kernel. It does not protect what Routarr holds, the Arr keys and the `config/` folder, which
 a compromised Routarr reads either way. Disk access is slower under gVisor, which a single SQLite
 file barely feels.
 
