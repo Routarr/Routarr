@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { FIELDS, SECTIONS } from './settings';
 
@@ -53,6 +55,62 @@ describe('the settings grouping', () => {
     for (const field of FIELDS) {
       expect(field.labelKey, field.key).toBeTruthy();
       expect(field.helpKey, field.key).toBeTruthy();
+    }
+  });
+});
+
+/** A file of the backend, read as text. */
+function backend(...parts: string[]): string {
+  return fs.readFileSync(
+    path.resolve(__dirname, '..', '..', '..', 'backend', 'src', ...parts),
+    'utf8',
+  );
+}
+
+/**
+ * Each setting's default as `KNOWN` in `services/settings.rs` declares it,
+ * the constants it names read where they are written.
+ */
+function backendDefaults(): Map<string, string> {
+  const constants = new Map<string, string>();
+  for (const [file, name] of [
+    [['state.rs'], 'DEFAULT_CATEGORY'],
+    [['services', 'metadata.rs'], 'ARR'],
+    [['localization.rs'], 'DEFAULT_LANGUAGE'],
+  ] as const) {
+    const found = new RegExp(`pub const ${name}: &str = "([^"]*)";`).exec(backend(...file));
+    if (found?.[1] !== undefined) constants.set(name, found[1]);
+  }
+  const search = /pub const ANIME_SEARCH: \[&str; \d+\] = \["([^"]*)"/.exec(
+    backend('services', 'metadata.rs'),
+  );
+  if (search?.[1] !== undefined) constants.set('ANIME_SEARCH[0]', search[1]);
+
+  const table = backend('services', 'settings.rs');
+  const defaults = new Map<string, string>();
+  for (const entry of table.matchAll(/^\s+\("([a-z_]+)", Kind::[^\n]*, ([^\n]+)\),$/gm)) {
+    const [, key, written] = entry;
+    if (key === undefined || written === undefined) continue;
+    const literal = /^"([^"]*)"$/.exec(written);
+    const named = written.split('::').pop() ?? '';
+    defaults.set(key, literal?.[1] ?? constants.get(named) ?? `unresolved ${written}`);
+  }
+  return defaults;
+}
+
+/**
+ * A field shows the backend's own default while nothing is stored, since a
+ * setting never saved is left out of `GET /settings`. Written twice, the two
+ * copies would part the day one of them changed, and the screen would show a
+ * value the server does not apply.
+ */
+describe('each fallback', () => {
+  it("is the backend's default", () => {
+    const defaults = backendDefaults();
+    expect(defaults.size).toBeGreaterThan(25);
+    for (const field of FIELDS) {
+      expect(defaults.has(field.key), `${field.key} is not a setting the backend knows`).toBe(true);
+      expect(field.fallback, field.key).toBe(defaults.get(field.key));
     }
   });
 });

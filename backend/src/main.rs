@@ -37,7 +37,23 @@ use config::{AuthMode, Config};
 use state::AppState;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::process::ExitCode {
+    match run().await {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            // In one sentence, never Rust's dump of the error: through the log
+            // once it is set up, so a JSON log keeps the line, else on stderr.
+            if tracing::dispatcher::has_been_set() {
+                log_error!("{error}");
+            } else {
+                eprintln!("Error: {error}");
+            }
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let config = Config::from_env()?;
@@ -120,9 +136,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     warn_on_insecure_defaults(&state);
 
     // Stopped before the pool closes: SQLite will not truncate a WAL another
-    // connection is writing, which is what a sweep in flight is doing.
-    let (stop_scheduler, scheduler_stopped) = tokio::sync::watch::channel(false);
-    let scheduler = jobs::scheduler::start(state.clone(), scheduler_stopped);
+    // connection is writing, which is what a sweep in flight is doing. Told
+    // with the server, so no pass starts while the requests drain.
+    let (stopping, hurrying) = stop_on(shutdown_signal(), shutdown_signal());
+    let scheduler = jobs::scheduler::start(state.clone(), stopping.clone());
 
     let bind_addr = state.config.bind_address();
     // Kept past `build_router`, which consumes the state: the pool has to be
@@ -133,26 +150,45 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audit = Arc::clone(&state.audit);
     let app = build_router(state);
 
-    let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
+    let socket = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
+        error::AppError::Config(format!(
+            "Routarr cannot listen on {bind_addr} (ROUTARR_HOST, ROUTARR_PORT): {e}"
+        ))
+    })?;
     info!("Routarr web server listening on http://{bind_addr}");
 
-    listener::serve(socket, app, shutdown_signal(), listener::HEADER_READ_TIMEOUT).await;
+    listener::serve(
+        socket,
+        app,
+        fired(stopping),
+        fired(hurrying.clone()),
+        listener::HEADER_READ_TIMEOUT,
+        listener::DRAIN,
+    )
+    .await;
 
     // Bounded: a sweep talking to an unreachable Arr would otherwise hold the
     // shutdown open for the full connect timeout, and a runtime that has sent
     // SIGTERM is counting. Past the deadline SQLite rolls the sweep back and
     // only the WAL truncation is lost. An apply ends before its next move and
-    // records the moves the Arr has made, within the Compose file's 30s grace.
-    let _ = stop_scheduler.send(true);
-    let (drained, scheduler) = tokio::join!(
-        jobs.drain(std::time::Duration::from_secs(20)),
-        tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
-    );
-    if !drained {
-        warn!("Moves were still being recorded after 20s, closing the database anyway");
-    }
-    if scheduler.is_err() {
-        warn!("The scheduler did not stop within 10s, closing the database anyway");
+    // records the moves the Arr has made. With the drain, the stop fits the
+    // Compose file's 30s grace, and a second signal stops waiting.
+    let waits = async {
+        tokio::join!(
+            jobs.drain(std::time::Duration::from_secs(20)),
+            tokio::time::timeout(std::time::Duration::from_secs(10), scheduler)
+        )
+    };
+    tokio::select! {
+        (drained, scheduler) = waits => {
+            if !drained {
+                warn!("Moves were still being recorded after 20s, closing the database anyway");
+            }
+            if scheduler.is_err() {
+                warn!("The scheduler did not stop within 10s, closing the database anyway");
+            }
+        }
+        () = fired(hurrying) => warn!("Closing the database without waiting for the work in flight"),
     }
 
     audit.flush().await;
@@ -263,6 +299,7 @@ pub(crate) async fn open_storage(
     // API key is read, since the archive can carry another one: read first,
     // the old key is served until the restart after, when it changes under
     // every client without a word.
+    db::prepare_data_dir(config)?;
     services::backup::sweep_leftovers(config);
     if services::backup::apply_pending_restore(config).await? {
         info!("A staged backup was restored");
@@ -579,7 +616,14 @@ fn build_router(state: AppState) -> Router {
     // a script with a typo in its path would parse HTML as JSON.
     let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
 
-    let api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
+    let mut api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
+    // Mounted under a sub-path, the root, where someone typing the bare
+    // address lands, leads in rather than answering an empty 404.
+    if !config.base_path.is_empty() {
+        let mounted = format!("{}/", config.base_path);
+        let lead_in = move || async move { axum::response::Redirect::temporary(&mounted) };
+        api = api.route("/", get(lead_in));
+    }
     let app = request_layers(api)
         // Rules and import bundles are the only large bodies. 2 MiB is generous
         // for them and stops an unauthenticated request from buffering
@@ -854,19 +898,26 @@ fn cors_layer(config: &Config) -> CorsLayer {
 }
 
 fn init_tracing(config: &Config) {
-    let filter = tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        format!("routarr={},tower_http=warn,sqlx=warn", config.log_level).into()
-    });
+    let filter = config
+        .log_filter
+        .as_deref()
+        .and_then(|filter| tracing_subscriber::EnvFilter::try_new(filter).ok())
+        .unwrap_or_else(|| {
+            format!("routarr={},tower_http=warn,sqlx=warn", config.log_level).into()
+        });
 
     let registry = tracing_subscriber::registry().with(filter);
+    // The time of the place the operator set in `TZ`, as Radarr and Sonarr log
+    // it, its offset written so the line reads the same anywhere.
+    let local = tracing_subscriber::fmt::time::ChronoLocal::rfc_3339();
 
     if config.log_format.eq_ignore_ascii_case("json") {
-        registry.with(tracing_subscriber::fmt::layer().json()).init();
+        registry.with(tracing_subscriber::fmt::layer().json().with_timer(local)).init();
     } else {
         // Colours only on a terminal: in `docker logs` and in a file the
         // escape codes stand between a fail2ban filter and the address.
         let colours = std::io::IsTerminal::is_terminal(&std::io::stdout());
-        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours)).init();
+        registry.with(tracing_subscriber::fmt::layer().with_ansi(colours).with_timer(local)).init();
     }
 }
 
@@ -896,7 +947,33 @@ fn warn_on_insecure_defaults(state: &AppState) {
     }
 }
 
-/// Resolve on Ctrl-C or SIGTERM so in-flight requests finish before exit.
+/// The stop, said at once to the server and the scheduler: `first` stops
+/// both, and `second`, awaited only once `first` has resolved, skips what the
+/// stop waits for.
+fn stop_on(
+    first: impl Future<Output = ()> + Send + 'static,
+    second: impl Future<Output = ()> + Send + 'static,
+) -> (tokio::sync::watch::Receiver<bool>, tokio::sync::watch::Receiver<bool>) {
+    let (stop, stopping) = tokio::sync::watch::channel(false);
+    let (hurry, hurrying) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        first.await;
+        let _ = stop.send(true);
+        second.await;
+        warn!("A second signal: stopping without waiting");
+        let _ = hurry.send(true);
+    });
+    (stopping, hurrying)
+}
+
+/// Resolves once `flag` is raised.
+async fn fired(mut flag: tokio::sync::watch::Receiver<bool>) {
+    if flag.wait_for(|raised| *raised).await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+/// Resolve on Ctrl-C or SIGTERM.
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c().await.expect("failed to install Ctrl-C handler");

@@ -43,6 +43,16 @@ pub struct UpdateSettingsRequest {
     pub settings: HashMap<String, String>,
 }
 
+/// The form a setting is checked and stored in: trimmed, and a category's
+/// name in the one form category names take, so `Anime` names `anime`.
+pub(crate) fn stored_value(key: &str, value: &str) -> String {
+    if crate::services::settings::names_a_category(key) {
+        crate::api::categories::stored_form(value)
+    } else {
+        value.trim().to_string()
+    }
+}
+
 pub async fn update(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
@@ -61,21 +71,23 @@ pub async fn update(
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     let categories: Vec<String> =
         sqlx::query_scalar("SELECT name FROM categories").fetch_all(&mut *tx).await?;
-    for (key, value) in &req.settings {
+    let written: Vec<(&String, String)> =
+        req.settings.iter().map(|(key, value)| (key, stored_value(key, value))).collect();
+    for (key, value) in &written {
         check(key, value, &categories, &localizer)?;
     }
-    if let Some(fallback) = req.settings.get("default_category") {
-        crate::race::checked("settings::default_category", fallback.trim()).await;
+    if let Some((_, fallback)) = written.iter().find(|(key, _)| *key == "default_category") {
+        crate::race::checked("settings::default_category", fallback).await;
     }
 
-    for (key, value) in &req.settings {
+    for (key, value) in &written {
         // Sealed here rather than in the client, so a value reaching the table
         // in plaintext is impossible whatever the caller sent. An empty value
         // stays empty: sealing nothing would store an opaque blob meaning "unset".
-        let stored = if is_secret(key) && !value.trim().is_empty() {
-            state.secrets.seal(value.trim())?
+        let stored = if is_secret(key) && !value.is_empty() {
+            state.secrets.seal(value)?
         } else {
-            value.trim().to_string()
+            value.clone()
         };
         sqlx::query(
             "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))

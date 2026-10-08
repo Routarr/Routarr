@@ -15,8 +15,9 @@ to do.
 every move before it makes one.
 
 > [!NOTE]
-> Nothing is moved until you turn the global dry-run off. Back up your `data/` directory before
-> upgrading from one version to the next.
+> Nothing is moved until you turn the global dry-run off. Before upgrading from one version to the
+> next, download a backup from **Settings → Maintenance**, or stop Routarr and copy its `config/`
+> folder.
 
 ![The simulation screen: moves proposed for the library, each with its source and target folder,
 the rule that matched, a confidence and a justification.](.github/assets/simulation.webp)
@@ -61,8 +62,9 @@ services:
     ports:
       - "9876:9876"
     volumes:
-      - ./data:/data
+      - ./config:/config
     restart: unless-stopped
+    stop_grace_period: 30s
     cap_drop:
       - ALL
     security_opt:
@@ -73,27 +75,64 @@ services:
 ```
 
 ```bash
-mkdir -p data && sudo chown 1000:1000 data   # the container runs as uid 1000
+mkdir -p config && sudo chown 1000:1000 config   # the container runs as uid 1000
 docker compose up -d
-docker exec routarr cat /data/routarr.api_key  # the API key generated on first start
+docker exec routarr cat /config/routarr.api_key  # the API key generated on first start
 ```
 
-Open **http://localhost:9876** and paste the key. Images are published for `linux/amd64` and
-`linux/arm64`. `latest` follows the newest release, `0.1` follows the patch releases of 0.1, and
-a full version such as `0.1.0` pins one. From 1.0.0 a major tag (`1`) follows a major line too.
+Open **http://localhost:9876** and paste the key. `stop_grace_period` gives a stop the time to
+record the moves in flight and close the database: with `docker run`, pass `--stop-timeout 30`.
+Images are published for `linux/amd64` and `linux/arm64`. `latest` follows the newest release,
+`0.1` follows the patch releases of 0.1, and a full version such as `0.1.0` pins one. From 1.0.0 a
+major tag (`1`) follows a major line too.
 
-Back up the whole `data/` directory: the Arr and metadata keys, the notification address and the
-signing secret stored in the database cannot be read without the `routarr.key` file beside it, or
-the `ROUTARR_SECRET_KEY` that replaces it. Routarr also archives itself into `data/backups/`, every day unless you change the interval.
+Routarr archives itself into `backups/` beside its database, every day unless you change the
+interval, and **Settings → Maintenance** lists the archives and downloads any of them. An archive
+is a consistent copy taken while Routarr runs: the database, the `routarr.key` without which the
+Arr and metadata keys, the notification address and the signing secret stored in it cannot be read
+(unless `ROUTARR_SECRET_KEY` replaces it), and the API key. Keep copies of the archives off the
+machine. Copy the `config/` folder itself only with Routarr stopped: a copy of `routarr.db` taken
+while it runs can miss every recent change.
+
 An archive carries the master key: set a backup passphrase in **Settings → Maintenance** to encrypt
 every one, so that a copy of the folder opens nothing without it. A restore asks for it, and
 `routarr decrypt-backup <archive> <zip>` writes one opened, to read it by hand.
 
+To restore an archive:
+
+- **On the same host:** **Restore** beside it in **Settings → Maintenance**, then
+  `docker compose restart routarr`.
+- **On a new host:** start Routarr once, copy the archive into `config/backups/` with its name
+  unchanged and owned by uid 1000, then restore it from **Settings → Maintenance** and restart.
+- **With the server stopped**, when the interface cannot be reached:
+  `docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
+  Routarr. An encrypted archive asks for its passphrase when the database in place does not hold
+  it.
+
 A start that applies new migrations archives the database first. Going back to an earlier release
 works while it knows every migration the database holds. When a start refuses the database, it
-names an archive it can open: restore it with the server stopped, through
-`docker compose run --rm routarr /app/routarr restore routarr-backup-<date>.zip`, then start
-Routarr. An encrypted archive asks for its passphrase when the database in place does not hold it.
+names an archive it can open: restore that one with the server stopped, as above.
+
+## Install notes
+
+- **The folder's owner.** The container runs as uid 1000. On a NAS whose app folders belong to
+  another user, run Routarr as that user rather than changing the folder's owner, with
+  `user: "99:100"` on Unraid or `user: "1026:100"` on Synology under `routarr:` in the compose file.
+  `ls -ln` shows the numbers a folder belongs to.
+- **A local disk.** Keep `config/` on a disk of the host, not on an NFS or SMB share: SQLite's
+  write-ahead log does not work over a network filesystem. The archives in `config/backups/` may be
+  copied anywhere.
+- **64-bit only.** Images are published for `linux/amd64` and `linux/arm64`: a Raspberry Pi needs a
+  64-bit system.
+- **Under a sub-path.** Behind a reverse proxy at `/routarr`, set `ROUTARR_BASE_PATH=/routarr` and
+  forward the path whole, prefix included:
+  - nginx: `location /routarr/ { proxy_pass http://routarr:9876; }`, with no path after the address
+    in `proxy_pass`, which would remove the prefix.
+  - Caddy: `handle /routarr* { reverse_proxy routarr:9876 }`, not `handle_path`, which removes it.
+  - Traefik: a ``PathPrefix(`/routarr`)`` rule without a `StripPrefix` middleware.
+- **No media folder.** Routarr asks Radarr and Sonarr to move the files and reads none of them, so
+  it mounts nothing but `config/`. Its `/config` has nothing to do with the `/data` media folder the
+  TRaSH guides set up for the Arrs.
 
 ## Stronger isolation
 
@@ -107,7 +146,7 @@ kernel, not the host's. CI runs the image's whole start-up check under gVisor on
 the image.
 
 It protects the host from a compromised Routarr: reaching the host no longer takes one flaw in
-your kernel. It does not protect what Routarr holds, the Arr keys and the `data/` directory, which
+your kernel. It does not protect what Routarr holds, the Arr keys and the `config/` folder, which
 a compromised Routarr reads either way. Disk access is slower under gVisor, which a single SQLite
 file barely feels.
 
@@ -137,6 +176,7 @@ On a fresh install the dashboard walks through these steps and ticks each one on
 | `ROUTARR_SECRET_KEY` | *(generated)* | Encrypts the stored Radarr/Sonarr keys |
 | `ROUTARR_BASE_PATH` | *(empty)* | Sub-path behind a reverse proxy, e.g. `/routarr` |
 | `ROUTARR_LOG_LEVEL` | `info` | Log verbosity |
+| `TZ` | *(UTC)* | The time zone the log lines are dated in, e.g. `Europe/Paris` |
 
 Every variable is listed and commented in [`backend/.env.example`](backend/.env.example). Everything
 else is set in the interface, under **Settings** and **Metadata sources**.

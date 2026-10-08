@@ -25,11 +25,19 @@ use tower::ServiceExt;
 /// one after on a kept-alive connection.
 pub const HEADER_READ_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// How long the open requests are given once a stop is asked. The work in
+/// flight and the database are given the rest of the Compose file's 30-second
+/// grace, which a runtime ends with SIGKILL.
+pub const DRAIN: Duration = Duration::from_secs(5);
+
 /// How many connections are served at once. The next one waits in the
 /// kernel's backlog rather than taking a descriptor of its own.
 const MAX_CONNECTIONS: usize = 512;
 
-/// Serve `app` until `shutdown` resolves, then let the open connections finish.
+/// Serve `app` until `shutdown` resolves, then let the open connections
+/// finish, for `drain` at most or until `hurry` resolves. A probe of a host
+/// that never answers, or a client that never reads, would otherwise hold the
+/// stop open past any grace.
 ///
 /// Every request carries the peer's address as `ConnectInfo`, which the
 /// sign-in throttle and the security log read.
@@ -37,7 +45,9 @@ pub async fn serve(
     listener: TcpListener,
     app: Router,
     shutdown: impl Future<Output = ()>,
+    hurry: impl Future<Output = ()>,
     header_read_timeout: Duration,
+    drain: Duration,
 ) {
     let open = Arc::new(Semaphore::new(MAX_CONNECTIONS));
     let graceful = GracefulShutdown::new();
@@ -68,7 +78,16 @@ pub async fn serve(
             drop(permit);
         });
     }
-    graceful.shutdown().await;
+    let cut = async {
+        tokio::select! {
+            () = tokio::time::sleep(drain) => {}
+            () = hurry => {}
+        }
+    };
+    tokio::select! {
+        () = graceful.shutdown() => {}
+        () = cut => tracing::warn!("Requests still open were cut for Routarr to stop"),
+    }
 }
 
 /// The next connection, once one of the places is free. `None` when the

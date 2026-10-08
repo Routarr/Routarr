@@ -96,7 +96,7 @@ pub fn start_with(
                 Err(panic) => record_panic(&state, &describe_panic(panic)).await,
             }
 
-            let minutes: u64 = state.setting("scheduler_interval_minutes", 15u64).await;
+            let minutes: u64 = state.setting::<u64>("scheduler_interval_minutes").await;
             let wait = Duration::from_secs(minutes.min(24 * 60) * 60).max(timings.floor);
             if wait_or_stop(&mut shutdown, wait).await {
                 // A sync route may have started the chain as well as a pass, so
@@ -202,7 +202,7 @@ fn spawn_post_sync(state: AppState, by: Attribution) -> JoinHandle<()> {
         // webhook's single-item run takes no such lock and must not:
         // `routing::store_run` touches only the media it evaluated, so a season
         // import is never blocked by a sweep.
-        if state.bool_setting("auto_simulate_enabled", true).await
+        if state.bool_setting("auto_simulate_enabled").await
             && let Some(_pass) = state.jobs.try_lock(FULL_SIMULATION)
         {
             let Some(result) = simulate_after_sync(&state, &by).await else { return };
@@ -298,7 +298,7 @@ pub(crate) async fn tick(
 
     // Auto-sync only gates the sync sweep. Retention maintenance keeps running:
     // disabling background syncs must not silently disable the purges too.
-    let auto_sync = state.bool_setting("auto_sync_enabled", true).await;
+    let auto_sync = state.bool_setting("auto_sync_enabled").await;
     if !auto_sync {
         debug!("Auto-sync is disabled in settings, skipping sync sweep");
     }
@@ -341,8 +341,8 @@ pub(crate) async fn tick(
 
     // A backup is worth taking on its own cadence: it protects against losing
     // the database, which has nothing to do with whether anything synced.
-    if state.bool_setting("backup_enabled", true).await {
-        let hours: u64 = state.setting("backup_interval_hours", 24u64).await.clamp(1, 24 * 7);
+    if state.bool_setting("backup_enabled").await {
+        let hours: u64 = state.setting::<u64>("backup_interval_hours").await.clamp(1, 24 * 7);
         // The first tick of a process counts from the newest archive on disk: a
         // restart taking one at once prunes the oldest good one, and a few
         // restarts after a bad change leave only copies of the damage.
@@ -368,6 +368,9 @@ pub(crate) async fn tick(
                 Err(e) => {
                     *last_backup = Some(tokio::time::Instant::now());
                     error!("Scheduled backup failed: {e}");
+                    let failed =
+                        crate::services::notify::Event::BackupFailed { error: e.to_string() };
+                    crate::services::notify::send_later(state, failed);
                 }
             }
         }

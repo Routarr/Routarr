@@ -54,7 +54,8 @@ pub struct Warning {
     /// `source_rate_limited`, `source_key_refused`,
     /// `instance_unreachable`,
     /// `unmapped_categories`, `no_enabled_instance`, `missing_metadata`,
-    /// `scheduler_panicked`, `setting_above_maximum`,
+    /// `scheduler_panicked`, `backup_failed`, `backup_overdue`,
+    /// `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`,
     /// `auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.
@@ -109,7 +110,7 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
 
     Ok(Json(StatusResponse {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        dry_run: settings.bool("global_dry_run", true),
+        dry_run: settings.bool("global_dry_run"),
         running_jobs: row.0,
         pending_decisions: row.1,
         failed_decisions: row.2,
@@ -652,12 +653,39 @@ async fn offline_warnings(
         ));
     }
 
+    // A backup that fails does so again at every interval, and nothing else
+    // shows it until the day an archive is needed.
+    if state.bool_setting("backup_enabled").await {
+        let last: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM jobs WHERE kind = 'backup'
+              ORDER BY started_at DESC, rowid DESC LIMIT 1",
+        )
+        .fetch_optional(&state.pool)
+        .await?;
+        let hours: i64 = state.setting::<i64>("backup_interval_hours").await.clamp(1, 24 * 7);
+        if last.as_deref() == Some("failed") {
+            warnings
+                .push(Warning::new("backup_failed", localizer.translate("WarnBackupFailed", &[])));
+        } else if backup_overdue(state, hours).await? {
+            let message = localizer.translate("WarnBackupOverdue", &[]);
+            warnings.push(Warning::new("backup_overdue", message));
+        }
+    }
+    if let Some(free) = data_disk_low(&state.config) {
+        let free =
+            crate::localization::human_bytes(i64::try_from(free).unwrap_or(i64::MAX), localizer);
+        warnings.push(Warning::new(
+            "data_disk_low",
+            localizer.translate("WarnDataDiskLow", &[("free", &free)]),
+        ));
+    }
+
     // A retention count stored above its ceiling is honoured as it is:
     // lowering it removes what is beyond it, and nothing but the operator's
     // own save may do that. Named here so the operator is the one who lowers
     // it: the screen refuses to save it as it stands, and this says why.
     for (key, max) in crate::services::settings::retention_counts() {
-        let stored: i64 = settings.get(key, 0i64);
+        let stored: i64 = settings.get(key);
         if stored > max {
             warnings.push(Warning::new(
                 "setting_above_maximum",
@@ -910,4 +938,39 @@ async fn gather_stats(state: &AppState) -> AppResult<AppStats> {
         unmapped_categories: row.10,
         running_jobs: row.11,
     })
+}
+
+/// No archive for twice the interval: the schedule stopped, or every attempt
+/// since vanished from the Tasks screen. An installation younger than that
+/// has not missed one yet.
+async fn backup_overdue(state: &AppState, hours: i64) -> AppResult<bool> {
+    let limit = chrono::Duration::hours(2 * hours);
+    let since = match crate::services::backup::last_taken_at(state) {
+        Some(taken) => taken,
+        None => {
+            let installed: Option<String> =
+                sqlx::query_scalar("SELECT MIN(applied_at) FROM _migrations")
+                    .fetch_one(&state.pool)
+                    .await?;
+            match installed.as_deref().and_then(crate::services::routing::parse_timestamp) {
+                Some(installed) => installed,
+                None => return Ok(false),
+            }
+        }
+    };
+    Ok(chrono::Utc::now() - since > limit)
+}
+
+/// The bytes left on the disk of the data folder, when fewer than the next
+/// backup and the database's own growth need: twice the database, and room
+/// to spare. Unknown on a filesystem that cannot say, which warns of nothing.
+fn data_disk_low(config: &crate::config::Config) -> Option<u64> {
+    let free = fs4::available_space(&config.data_dir).ok()?;
+    let database = std::fs::metadata(&config.db_path).map(|meta| meta.len()).unwrap_or(0);
+    disk_is_low(free, database).then_some(free)
+}
+
+/// Fewer bytes free than twice the database and 100 MiB.
+pub(crate) fn disk_is_low(free: u64, database: u64) -> bool {
+    free < database.saturating_mul(2).saturating_add(100 * 1024 * 1024)
 }

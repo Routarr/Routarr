@@ -13,18 +13,20 @@ services:
     volumes:
       # The container runs as uid 1000, and Docker creates a missing bind-mount
       # directory owned by root, which the container then cannot write. Run
-      # `mkdir -p data && chown 1000:1000 data` before the first start, or use a
-      # named volume.
-      - ./data:/data
+      # `mkdir -p config && chown 1000:1000 config` before the first start, or
+      # use a named volume. A volume mounted at /data instead keeps working.
+      - ./config:/config
     environment:
       - ROUTARR_PORT=9876
       - ROUTARR_HOST=0.0.0.0
-      - ROUTARR_DB_PATH=/data/routarr.db
+      - ROUTARR_DB_PATH=/config/routarr.db
       - ROUTARR_LOG_LEVEL=info
+      # The time zone the log lines are dated in, e.g. Europe/Paris.
+      - TZ=${TZ:-}
       # Protects every /api/v1 route but the few a signed-out browser needs
       # (/ping, the languages, the sign-in) and the webhook, which carries a
       # token of its own. Left unset, Routarr generates one into
-      # /data/routarr.api_key on first start and prints it in the log (`docker
+      # /config/routarr.api_key on first start and prints it in the log (`docker
       # compose logs routarr`), and Settings can replace it later without a
       # restart. Setting it here pins it instead: this value wins, and
       # changing the key then means changing this line and restarting.
@@ -38,7 +40,8 @@ services:
       - ROUTARR_TRUSTED_PROXIES=${ROUTARR_TRUSTED_PROXIES:-}
       # Encrypts the stored credentials: the Arr and metadata keys, the
       # notification address and the signing secret. Generated into
-      # /data/routarr.key when unset: back that file up with the database.
+      # /config/routarr.key when unset. Every archive in /config/backups
+      # carries it.
       - ROUTARR_SECRET_KEY=${ROUTARR_SECRET_KEY:-}
       # Only while rotating ROUTARR_SECRET_KEY. Remove it afterwards.
       - ROUTARR_PREVIOUS_SECRET_KEY=${ROUTARR_PREVIOUS_SECRET_KEY:-}
@@ -50,7 +53,7 @@ services:
     # database closes, which can take Routarr up to 20 seconds. Docker's
     # default 10 would kill it halfway.
     stop_grace_period: 30s
-    # Routarr opens a socket, reads and writes /data, and makes outbound HTTPS
+    # Routarr opens a socket, reads and writes /config, and makes outbound HTTPS
     # calls. None of that needs a Linux capability, so it drops all of them.
     # The image already runs as uid 1000, and this is what stops a future
     # dependency from quietly using one. `no-new-privileges` closes the other
@@ -59,7 +62,7 @@ services:
     #
     # The root filesystem is read-only: code running inside the process can
     # neither drop a program somewhere and run it nor change one in place.
-    # Everything Routarr writes is under /data, and /tmp, where SQLite may
+    # Everything Routarr writes is under /config, and /tmp, where SQLite may
     # spill a large sort, is a small tmpfs nothing can be run from.
     cap_drop:
       - ALL

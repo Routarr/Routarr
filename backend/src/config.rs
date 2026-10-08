@@ -33,6 +33,32 @@ fn data_dir_for(db_path: &Path) -> PathBuf {
     }
 }
 
+/// Where the image keeps the database: `/config`, as Radarr and Sonarr keep
+/// theirs.
+const IMAGE_DB_PATH: &str = "/config/routarr.db";
+
+/// Where a container that mounts `/data` and not `/config` holds its database.
+const DATA_DB_PATH: &str = "/data/routarr.db";
+
+/// The database to open: `configured`, unless it is the image's own path,
+/// holds nothing yet, and `/data` holds a database. A volume mounted at
+/// `/data` keeps its library then, and the note says how to follow the
+/// image's layout, rather than an empty library opened in its place.
+fn settled_db_path(
+    configured: PathBuf,
+    exists: impl Fn(&Path) -> bool,
+) -> (PathBuf, Option<String>) {
+    let (image, data) = (Path::new(IMAGE_DB_PATH), Path::new(DATA_DB_PATH));
+    if configured == image && !exists(image) && exists(data) {
+        let note = format!(
+            "The database is read from {DATA_DB_PATH}. To follow the image's layout, mount the \
+             same folder at /config instead of /data."
+        );
+        return (data.to_path_buf(), Some(note));
+    }
+    (configured, None)
+}
+
 /// How a caller proves who it is.
 ///
 /// The names follow the Servarr applications, which offer `None`, `Forms` and
@@ -113,6 +139,21 @@ fn log_format_from(raw: &str) -> (String, bool) {
     match raw.trim().to_ascii_lowercase().as_str() {
         format @ ("text" | "json") => (format.into(), false),
         _ => ("text".into(), true),
+    }
+}
+
+/// The tracing filter `RUST_LOG` names, kept when it parses, and what the
+/// start says of it: a filter left in an environment replaces the level set
+/// in `ROUTARR_LOG_LEVEL` without a word otherwise.
+fn log_filter_from(raw: Option<String>) -> (Option<String>, Option<String>) {
+    let Some(filter) = raw else { return (None, None) };
+    let variable = "RUST_LOG";
+    if tracing_subscriber::EnvFilter::try_new(&filter).is_ok() {
+        let note = format!("{variable} is '{filter}' and replaces the level of ROUTARR_LOG_LEVEL");
+        (Some(filter), Some(note))
+    } else {
+        let note = format!("{variable} is '{filter}', which no filter reads: it is not applied");
+        (None, Some(note))
     }
 }
 
@@ -242,6 +283,9 @@ pub struct Config {
     pub log_level: String,
     /// `text` (default) or `json`, which is easier to ship to a log collector.
     pub log_format: String,
+    /// `RUST_LOG`, a tracing filter that replaces `log_level` whole when it
+    /// parses.
+    pub log_filter: Option<String>,
     /// What was read and set aside for a default, said as warnings once the
     /// log is up: read before it, nothing would hear them.
     pub startup_notes: Vec<String>,
@@ -346,6 +390,7 @@ impl std::fmt::Debug for Config {
             data_dir,
             log_level,
             log_format,
+            log_filter,
             startup_notes,
             frontend_dir,
             tmdb_api_key,
@@ -389,6 +434,7 @@ impl std::fmt::Debug for Config {
             .field("data_dir", data_dir)
             .field("log_level", log_level)
             .field("log_format", log_format)
+            .field("log_filter", log_filter)
             .field("startup_notes", startup_notes)
             .field("frontend_dir", frontend_dir)
             .field("tmdb_api_key", &hidden(tmdb_api_key))
@@ -433,6 +479,36 @@ impl std::fmt::Debug for Config {
 /// four to work. Getting this wrong produces a double slash or a missing one in
 /// every generated URL, which is the kind of bug that only shows up behind the
 /// proxy, the one place it cannot be debugged comfortably.
+/// The most requests in flight per source a pass may hold.
+const MAX_METADATA_CONCURRENCY: usize = 16;
+
+/// The concurrency asked for, held to 1 to [`MAX_METADATA_CONCURRENCY`], and
+/// whether it had to be, which the start says rather than keeps quiet.
+fn concurrency_from(asked: usize) -> (usize, bool) {
+    let kept = asked.clamp(1, MAX_METADATA_CONCURRENCY);
+    (kept, kept != asked)
+}
+
+/// Refuse a mount point the router cannot serve and a link cannot carry: a
+/// segment of anything but letters, digits and `-._~` panics in a route, ends
+/// a URL at `?` or `#`, or breaks out of the `<base href>` the page is given.
+fn validate_base_path(base_path: &str) -> AppResult<()> {
+    let segments: Vec<&str> = base_path.trim_start_matches('/').split('/').collect();
+    let served = base_path.is_empty()
+        || segments.iter().all(|segment| {
+            !matches!(*segment, "" | "." | "..")
+                && segment.chars().all(|c| c.is_ascii_alphanumeric() || "-._~".contains(c))
+        });
+    if served {
+        return Ok(());
+    }
+    let variable = "ROUTARR_BASE_PATH";
+    Err(AppError::Config(format!(
+        "{variable} is '{base_path}', which no address can carry. Use letters, digits, '-', '.', \
+         '_' and '~' between slashes, such as /routarr"
+    )))
+}
+
 pub fn normalise_base_path(raw: &str) -> String {
     let trimmed = raw.trim().trim_matches('/');
     if trimmed.is_empty() { String::new() } else { format!("/{trimmed}") }
@@ -466,18 +542,28 @@ impl Config {
     /// default in its place: with the default, `ROUTARR_PORT=987 6` would run
     /// on 9876 while the operator believes their port is in force.
     pub fn from_env() -> AppResult<Self> {
-        let db_path =
+        let configured =
             path_or(std::env::var("ROUTARR_DB_PATH").ok(), || PathBuf::from("./data/routarr.db"));
+        let (db_path, settled) = settled_db_path(configured, Path::exists);
         // Each variable is named apart from its value: the sample-env check
         // scans this file for a quoted `ROUTARR_*` and would read a message
         // beginning with the name as a variable of its own.
-        let mut startup_notes = Vec::new();
+        let mut startup_notes: Vec<String> = settled.into_iter().collect();
         let raw_auth = env_or("ROUTARR_AUTH", "apikey");
         let (auth_mode, unknown) = AuthMode::parse(&raw_auth);
         if unknown {
             let variable = "ROUTARR_AUTH";
             startup_notes.push(format!(
                 "{variable} is '{raw_auth}', which no mode is called: the API key is required"
+            ));
+        }
+        let asked = env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?;
+        let (metadata_concurrency, clamped) = concurrency_from(asked);
+        if clamped {
+            let variable = "ROUTARR_METADATA_CONCURRENCY";
+            startup_notes.push(format!(
+                "{variable} is {asked}, outside 1 to {MAX_METADATA_CONCURRENCY}: \
+                 {metadata_concurrency}"
             ));
         }
         let raw_level = env_or("ROUTARR_LOG_LEVEL", "info");
@@ -494,6 +580,8 @@ impl Config {
             startup_notes
                 .push(format!("{variable} is '{raw_format}', neither text nor json: text"));
         }
+        let (log_filter, note) = log_filter_from(non_empty("RUST_LOG"));
+        startup_notes.extend(note);
         Ok(Self {
             host: env_or("ROUTARR_HOST", "0.0.0.0"),
             port: env_parse("ROUTARR_PORT", 9876)?,
@@ -501,6 +589,7 @@ impl Config {
             db_path,
             log_level,
             log_format,
+            log_filter,
             startup_notes,
             frontend_dir: path_or(std::env::var("ROUTARR_FRONTEND_DIR").ok(), default_frontend_dir),
             tmdb_api_key: non_empty("TMDB_API_KEY"),
@@ -565,7 +654,7 @@ impl Config {
             allow_new_master_key: env_parse("ROUTARR_ALLOW_NEW_MASTER_KEY", false)?,
             // Bounds how many requests are *open* per source, and `rate_limit`
             // bounds how many are made.
-            metadata_concurrency: env_parse("ROUTARR_METADATA_CONCURRENCY", 4usize)?.clamp(1, 16),
+            metadata_concurrency,
             tmdb_base_url: env_or("ROUTARR_TMDB_BASE_URL", DEFAULT_TMDB_BASE_URL)
                 .trim_end_matches('/')
                 .to_string(),
@@ -631,14 +720,24 @@ impl Config {
 
     /// Returns the socket address to bind to.
     pub fn bind_address(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        format!("{}:{}", bracketed(&self.host), self.port)
     }
 
-    /// Where `routarr healthcheck` asks whether the server is up: the port and
-    /// the mount point as the server itself reads them, so `routarr` and
-    /// `/routarr/` probe the address it serves.
+    /// Where `routarr healthcheck` asks whether the server is up: the host, the
+    /// port and the mount point as the server itself reads them, so a server
+    /// bound to one address, IPv6 included, is asked there.
     pub fn ping_url(&self) -> String {
-        format!("http://127.0.0.1:{}{}/api/v1/ping", self.port, self.base_path)
+        format!("http://{}:{}{}/api/v1/ping", self.probe_host(), self.port, self.base_path)
+    }
+
+    /// The address the probe reaches the server at: the loopback when it binds
+    /// every address, which only a client can not name.
+    fn probe_host(&self) -> String {
+        match self.host.trim() {
+            "" | "0.0.0.0" => "127.0.0.1".into(),
+            "::" | "[::]" => "[::1]".into(),
+            host => bracketed(host),
+        }
     }
 
     /// Point the configuration at a database, moving its data directory with
@@ -672,6 +771,7 @@ impl Config {
     /// start with a sentence naming the variable, rather than as a panic from
     /// a dependency, or as a feature that silently does nothing.
     pub fn validate(&self) -> AppResult<()> {
+        validate_base_path(&self.base_path)?;
         for origin in &self.cors_origins {
             validate_origin(origin)?;
         }
@@ -790,6 +890,7 @@ impl Config {
             data_dir: std::env::temp_dir().join(format!("routarr-tests-{}", std::process::id())),
             log_level: "error".into(),
             log_format: "text".into(),
+            log_filter: None,
             startup_notes: Vec::new(),
             frontend_dir: PathBuf::from("/nonexistent"),
             tmdb_api_key: None,
@@ -850,6 +951,14 @@ pub fn host_name(host: &str) -> String {
             name.to_string()
         }
         _ => host,
+    }
+}
+
+/// A host as it is written beside a port: an IPv6 address in brackets.
+fn bracketed(host: &str) -> String {
+    match host.parse::<std::net::Ipv6Addr>() {
+        Ok(_) => format!("[{host}]"),
+        Err(_) => host.to_string(),
     }
 }
 
@@ -922,6 +1031,20 @@ mod tests {
     /// mode keeps the API key and says so, `warning` is the level it names,
     /// and an unknown level or format falls back with a word.
     #[test]
+    fn a_mount_point_the_router_cannot_serve_is_refused_by_name() {
+        let mut config = Config::for_tests();
+        for refused in ["{x}", "a{b", "*x", "a?b", "a#b", "my app", "a\"b", "a//b", "a/../b"] {
+            config.base_path = normalise_base_path(refused);
+            let err = config.validate().expect_err(refused).to_string();
+            assert!(err.contains("ROUTARR_BASE_PATH"), "{refused}: {err}");
+        }
+        for served in ["routarr", "apps/routarr", "", "r.a_t~-1"] {
+            config.base_path = normalise_base_path(served);
+            assert!(config.validate().is_ok(), "{served}");
+        }
+    }
+
+    #[test]
     fn a_value_not_understood_is_said_rather_than_swallowed() {
         assert_eq!(AuthMode::parse("nome"), (AuthMode::ApiKey, true));
         assert_eq!(AuthMode::parse("oidc"), (AuthMode::Oidc, false));
@@ -930,6 +1053,22 @@ mod tests {
         assert_eq!(log_level_from("verbose"), ("info".to_string(), true));
         assert_eq!(log_format_from("JSON"), ("json".to_string(), false));
         assert_eq!(log_format_from("pretty"), ("text".to_string(), true));
+        assert_eq!(concurrency_from(100), (16, true));
+        assert_eq!(concurrency_from(0), (1, true));
+        assert_eq!(concurrency_from(4), (4, false));
+    }
+
+    /// `RUST_LOG` is read here with every other variable, and said at start
+    /// when it replaces the level, or when it holds no filter and does not.
+    #[test]
+    fn rust_log_is_read_here_and_said_when_it_overrides() {
+        assert_eq!(log_filter_from(None), (None, None));
+        let (kept, note) = log_filter_from(Some("routarr=debug,sqlx=info".into()));
+        assert_eq!(kept.as_deref(), Some("routarr=debug,sqlx=info"));
+        assert!(note.is_some_and(|note| note.contains("replaces")));
+        let (kept, note) = log_filter_from(Some("routarr=loud".into()));
+        assert_eq!(kept, None);
+        assert!(note.is_some_and(|note| note.contains("not applied")));
     }
 
     /// The image's probe reads this address. Written raw from the variable,
@@ -949,6 +1088,17 @@ mod tests {
         }
         config.base_path = normalise_base_path("");
         assert_eq!(config.ping_url(), "http://127.0.0.1:9876/api/v1/ping");
+
+        // The host it binds, or the loopback when it binds every address.
+        for (host, asked) in [
+            ("0.0.0.0", "127.0.0.1"),
+            ("::", "[::1]"),
+            ("::1", "[::1]"),
+            ("192.168.1.4", "192.168.1.4"),
+        ] {
+            config.host = host.into();
+            assert_eq!(config.ping_url(), format!("http://{asked}:9876/api/v1/ping"), "{host}");
+        }
     }
 
     /// `.env.example` is the only place most people will ever read the list of
@@ -969,7 +1119,7 @@ mod tests {
         for line in source.lines() {
             // Every quoted name with a known prefix, the `env_or("NAME", …)` and
             // `non_empty("NAME")` call sites among them.
-            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_"] {
+            for prefix in ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"] {
                 let Some(at) = line.find(&format!("\"{prefix}")) else { continue };
                 let rest = &line[at + 1..];
                 let Some(end) = rest.find('"') else { continue };
@@ -1012,7 +1162,9 @@ mod tests {
                     && name
                         .chars()
                         .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit())
-                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_"].iter().any(|p| name.starts_with(p))
+                    && ["ROUTARR_", "TMDB_", "OMDB_", "TVDB_", "RUST_"]
+                        .iter()
+                        .any(|p| name.starts_with(p))
             })
             .collect();
         assert!(
@@ -1200,6 +1352,25 @@ mod tests {
         assert!(err.contains("ROUTARR_MAX_LIBRARY_MIB"), "{err}");
     }
 
+    /// A container that mounts `/data` and not `/config` keeps its library,
+    /// and is told how to follow the image's layout. A path set to anything
+    /// else, or a `/config` that holds a database, is opened as it is.
+    #[test]
+    fn a_database_left_in_data_is_still_opened() {
+        let image = PathBuf::from(IMAGE_DB_PATH);
+        let only_data = |path: &Path| path == Path::new(DATA_DB_PATH);
+        let (opened, note) = settled_db_path(image.clone(), only_data);
+        assert_eq!(opened, PathBuf::from(DATA_DB_PATH));
+        assert!(note.is_some_and(|note| note.contains("/config")));
+
+        let both = |_: &Path| true;
+        assert_eq!(settled_db_path(image.clone(), both), (image.clone(), None));
+        let neither = |_: &Path| false;
+        assert_eq!(settled_db_path(image, neither).0, PathBuf::from(IMAGE_DB_PATH));
+        let elsewhere = PathBuf::from("/srv/routarr/routarr.db");
+        assert_eq!(settled_db_path(elsewhere.clone(), only_data), (elsewhere, None));
+    }
+
     /// A source's root that is no address a request can go to stops the start,
     /// naming its variable, where it would only show as the source being
     /// unreachable. A key sent over plain http is said at start.
@@ -1314,5 +1485,7 @@ mod tests {
         config.host = "127.0.0.1".into();
         config.port = 9876;
         assert_eq!(config.bind_address(), "127.0.0.1:9876");
+        config.host = "::1".into();
+        assert_eq!(config.bind_address(), "[::1]:9876");
     }
 }

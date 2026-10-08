@@ -252,7 +252,7 @@
     if (!field.range) return false;
     const value = Number(draft[field.key] ?? field.fallback);
     const [low, high] = field.range;
-    return !Number.isInteger(value) || value < low || (high !== null && value > high);
+    return !Number.isInteger(value) || value < low || value > high;
   }
   const invalid = $derived(fields.filter(outOfRange));
   // From another tab, the field that holds Save is out of sight.
@@ -264,10 +264,8 @@
       .map((entry) => entry.id),
   );
 
-  function bounds([low, high]: readonly [number, number | null]): string {
-    return high === null
-      ? t('RangeAtLeast', { min: low })
-      : t('RangeBetween', { min: low, max: high });
+  function bounds([low, high]: readonly [number, number]): string {
+    return t('RangeBetween', { min: low, max: high });
   }
 
   const active = $derived(sections.find((entry) => entry.id === section) ?? first);
@@ -775,7 +773,7 @@
                     : ''}"
                   type={field.kind === 'number' ? 'number' : 'text'}
                   min={field.range?.[0]}
-                  max={field.range?.[1] ?? undefined}
+                  max={field.range?.[1]}
                   aria-invalid={outside ? 'true' : undefined}
                   class="form-input"
                   value={draft[field.key] ?? field.fallback}
@@ -809,7 +807,7 @@
               </button>
             </div>
             <p class="text-muted text-sm mt-3">
-              {t('BackupTogetherHint')}
+              {t('BackupCopyHint')}
             </p>
           {/if}
 

@@ -3,9 +3,9 @@
      in the same browser that takes the product screenshots, because
      ImageMagick's SVG renderer has no usable text layout here.
 
-     It follows the site rather than leading it: light ground, the headline the
-     hero actually carries, and the amber split between a fill and a text
-     colour that passes AA on white. A card that lags behind the site is the
+     It follows the site rather than leading it: the dark ground the site opens
+     in, the headline the hero actually carries, and the accent the dark theme
+     writes text in. A card that lags behind the site is the
      first thing a shared link says, and it says the wrong thing. -->
 <html lang="en">
 <head>
@@ -14,8 +14,8 @@
   * { box-sizing: border-box; margin: 0; }
   html, body { width: 1200px; height: 630px; }
   body {
-    background: #ffffff;
-    color: #27272a;
+    background: #131519;
+    color: #f3f4f6;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Liberation Sans", sans-serif;
     padding: 74px 96px;
     display: flex;
@@ -29,15 +29,15 @@
     position: absolute;
     inset: 0 0 auto;
     height: 6px;
-    background: #f59e0b;
+    background: #ffa500;
   }
-  /* The same faded homelab grid as the site's hero, on the light ground. */
+  /* The same faded homelab grid as the site's hero, on the dark ground. */
   .grid-layer {
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(#dedee0 1px, transparent 1px),
-      linear-gradient(90deg, #dedee0 1px, transparent 1px);
+      linear-gradient(#2d323e 1px, transparent 1px),
+      linear-gradient(90deg, #2d323e 1px, transparent 1px);
     background-size: 44px 44px;
     -webkit-mask-image: radial-gradient(ellipse 75% 60% at 65% 0%, black, transparent 78%);
     mask-image: radial-gradient(ellipse 75% 60% at 65% 0%, black, transparent 78%);
@@ -49,13 +49,13 @@
   /* Weight 300 against 500, as the hero sets it: the size carries the claim
      and the weight steps up only for the clause that matters. */
   h1 { font-size: 92px; line-height: 1; font-weight: 300; letter-spacing: -3.2px; position: relative; }
-  h1 em { display: block; font-style: normal; font-weight: 500; color: #9e5c00; }
-  p { font-size: 26px; color: #52525b; margin-top: 26px; position: relative; }
+  h1 em { display: block; font-style: normal; font-weight: 500; color: #ffb733; }
+  p { font-size: 26px; color: #b6bcc7; margin-top: 26px; position: relative; }
   ul { display: flex; gap: 12px; list-style: none; padding: 0; position: relative; }
   li {
     font-size: 20px;
-    color: #52525b;
-    border: 1px solid #dedee0;
+    color: #b6bcc7;
+    border: 1px solid #2d323e;
     border-radius: 0;
     padding: 9px 20px;
   }
@@ -64,7 +64,7 @@
 <body>
   <div class="grid-layer"></div>
   <div class="brand">
-    <svg viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <svg viewBox="0 0 24 24" fill="none" stroke="#ffa500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M6 3v12"/><path d="M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M15 6a9 9 0 0 0-9 9"/>
     </svg>
     <span>Routarr</span>

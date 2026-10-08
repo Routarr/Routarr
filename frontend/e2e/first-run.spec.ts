@@ -33,7 +33,7 @@ test.describe('a browser with no API key', () => {
     // reads it, and the variable for whoever would rather choose the key.
     await expect(page.getByText('saved it as routarr.api_key next to the database')).toBeVisible();
     await expect(
-      page.getByText('docker exec routarr cat /data/routarr.api_key', { exact: true }),
+      page.getByText('docker exec routarr cat /config/routarr.api_key', { exact: true }),
     ).toBeVisible();
     await expect(page.getByText(/set ROUTARR_API_KEY and restart/)).toBeVisible();
 

@@ -987,14 +987,16 @@ for (const [file, html] of Object.entries(pages)) {
 }
 if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together check is reading almost nothing`);
 
-// The browser's bar follows the page, never the system: one `theme-color`, the
-// light ground, and the dark ground `site.js` writes once a visitor picks it.
-// A pair switched by `prefers-color-scheme` draws a dark bar over a light page
-// whenever the system is dark.
+// The page opens dark, and the browser's bar follows the page, never the
+// system: every page stamps `data-theme="dark"`, carries one `theme-color`
+// reading the dark ground, and `site.js` writes the light ground once a
+// visitor picks it. A pair switched by `prefers-color-scheme` draws a light
+// bar over a dark page whenever the system is light.
 for (const [file, html] of Object.entries(pages)) {
+  if (!/<html[^>]* data-theme="dark"/.test(html)) fail(`${file}: <html> does not open in the dark theme`);
   const colours = [...html.matchAll(/<meta name="theme-color"([^>]*)>/g)].map((m) => m[1]);
-  if (colours.length !== 1 || !colours[0].includes(`content="${light['--bg']}"`) || colours[0].includes('media=')) {
-    fail(`${file}: theme-color must be one tag reading the light ground ${light['--bg']}, found ${colours.length}`);
+  if (colours.length !== 1 || !colours[0].includes(`content="${explicit['--bg']}"`) || colours[0].includes('media=')) {
+    fail(`${file}: theme-color must be one tag reading the dark ground ${explicit['--bg']}, found ${colours.length}`);
   }
 }
 for (const ground of [light['--bg'], explicit['--bg']]) {

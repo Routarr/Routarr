@@ -29,7 +29,7 @@ pub struct BackupListResponse {
 pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListResponse>> {
     Ok(Json(BackupListResponse {
         backups: backup::list(&state),
-        retention_count: state.setting("backup_retention_count", 7usize).await,
+        retention_count: state.setting::<usize>("backup_retention_count").await,
     }))
 }
 

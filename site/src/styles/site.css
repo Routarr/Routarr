@@ -7,13 +7,15 @@
  * One token doing all three jobs turns the light theme's brand colour brown,
  * because the AA fix for text lands on the fills too. */
 
-/* Light is the theme, not a preference the system gets to make. Dark is reached
-   only by stamping `data-theme="dark"`, which the toggle does and the bootstrap
-   restores before first paint. There is deliberately no `prefers-color-scheme`
-   palette, and `check.mjs` refuses one: a palette the visitor's system picks is
-   a third state nothing measures, and the contrast test would then be checking
-   a theme nobody chose. On a white ground the accent's decoration and text
-   values cannot be the same, which is why it is three tokens (above). */
+/* Dark is the theme the page opens in, as the application and the Arrs do, not
+   a preference the system gets to make: every page stamps `data-theme="dark"`
+   on `<html>`, and the bootstrap replaces the stamp with the visitor's own
+   choice before first paint. These are the light palette the toggle reaches by
+   stamping `light`. There is deliberately no `prefers-color-scheme` palette,
+   and `check.mjs` refuses one: a palette the visitor's system picks is a third
+   state nothing measures, and the contrast test would then be checking a theme
+   nobody chose. On a white ground the accent's decoration and text values
+   cannot be the same, which is why it is three tokens (above). */
 :root {
   color-scheme: light;
 
@@ -208,7 +210,9 @@ img { max-width: 100%; height: auto; }
 .lang-hint button {
   border: 0;
   background: none;
-  color: var(--text-muted);
+  /* Not the muted grey: one glyph is measured as text, and on the dark band
+     that grey falls short of 4.5:1. */
+  color: var(--text-soft);
   font-size: 1.2rem;
   line-height: 1;
   cursor: pointer;
@@ -876,6 +880,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 .folder-row {
   display: grid;
@@ -982,6 +987,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 .verdict > header {
   display: flex;
@@ -1053,6 +1059,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 .rule-top {
   display: flex;
@@ -1183,6 +1190,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 .gate {
   display: grid;
@@ -1251,6 +1259,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  box-shadow: var(--shadow);
 }
 .objection {
   display: grid;

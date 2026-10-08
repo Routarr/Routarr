@@ -19,6 +19,10 @@
     jikan: 'CreditJikan',
   };
   const OMDB_LICENCE = 'https://creativecommons.org/licenses/by-nc/4.0/';
+  /** The licence's own name, which every language writes as it is. */
+  const LICENCE_NAME = 'CC BY-NC 4.0';
+  /** OMDb's sentence cut around the licence's name, which becomes its link. */
+  const omdbSentence = $derived(t('CreditOmdb').split(LICENCE_NAME));
 
   const catalogue = createAsync((signal) => api.getMetadataProviders(signal));
   const credited = $derived(
@@ -35,19 +39,25 @@
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
   <ul class="credits">
     {#each credited as provider (provider.id)}
+      <!-- Running text, the site's link after the sentence, so a credit
+           wraps as a sentence does rather than one piece per line. -->
       <li class="credit">
         {#if provider.id === 'tmdb'}
           <img class="credit-logo" src={tmdbLogo} alt={t('TmdbLogo')} />
         {/if}
-        <span>{t(CREDIT_KEY[provider.id] ?? '')}</span>
-        <a class="text-link" href={provider.website} target="_blank" rel="noopener noreferrer">
-          {host(provider.website ?? '')}
-        </a>
-        {#if provider.id === 'omdb'}
-          <a class="text-link" href={OMDB_LICENCE} target="_blank" rel="noopener noreferrer"
-            >CC BY-NC 4.0</a
-          >
+        {#if provider.id === 'omdb' && omdbSentence.length === 2}
+          {omdbSentence[0]}<a
+            class="text-link"
+            href={OMDB_LICENCE}
+            target="_blank"
+            rel="noopener noreferrer">{LICENCE_NAME}</a
+          >{omdbSentence[1]}
+        {:else}
+          {t(CREDIT_KEY[provider.id] ?? '')}
         {/if}
+        <a class="text-link" href={provider.website} target="_blank" rel="noopener noreferrer"
+          >{host(provider.website ?? '')}</a
+        >
       </li>
     {/each}
   </ul>

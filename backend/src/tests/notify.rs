@@ -561,16 +561,20 @@ async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
 async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
     let app = TestApp::new().await;
 
-    let refused = app
-        .put(
-            "/api/v1/settings",
-            serde_json::json!({ "settings": { "notification_webhook_url": "discord.com/hook" } }),
-        )
-        .await;
-
     // A typo here fails silently in the background, where nobody sees it,
-    // which is exactly what this feature exists to prevent.
-    assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST);
+    // which is exactly what this feature exists to prevent: a scheme with no
+    // host, and a space in the host, are as unusable as no scheme.
+    for typed in
+        ["discord.com/hook", "http://", "https://", "https://discord .com/api/webhooks/1/abc"]
+    {
+        let refused = app
+            .put(
+                "/api/v1/settings",
+                serde_json::json!({ "settings": { "notification_webhook_url": typed } }),
+            )
+            .await;
+        assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST, "{typed}");
+    }
 
     let accepted = app
         .put(
@@ -1073,4 +1077,28 @@ async fn a_test_notification_says_why_it_did_not_arrive() {
     let unanswered = test().await;
     assert_eq!(unanswered.status, axum::http::StatusCode::BAD_GATEWAY);
     assert!(!unanswered.json["message"].as_str().unwrap().contains("127.0.0.1"));
+}
+
+/// A scheduled backup that fails is sent, every time, as a failed sync is:
+/// nothing else says so until the day an archive is needed. The badge says it
+/// too, until a backup works again.
+#[tokio::test]
+async fn a_failed_scheduled_backup_is_sent_and_shown() {
+    let receiver = Receiver::start().await;
+    let (app, dir) = super::backup::app_with_files("backup-failure-sent").await;
+    app.store_setting("notification_webhook_url", &receiver.url).await;
+    // A file where the backups folder has to be: every attempt fails.
+    std::fs::write(dir.join("backups"), b"not a directory").unwrap();
+
+    let (mut synced, mut maintained, mut backed_up) = (Default::default(), None, None);
+    crate::jobs::scheduler::tick(&app.state, &mut synced, &mut maintained, &mut backed_up)
+        .await
+        .unwrap();
+
+    let sent = receiver.awaiting(1).await;
+    let body: serde_json::Value = serde_json::from_str(&sent[0].body).unwrap();
+    assert_eq!(body["event"], "backup_failed", "{body}");
+    let failed = app.state.localizer().await.translate("WarnBackupFailed", &[]);
+    let warned = super::warning_messages(app.get("/api/v1/status").await.assert_ok());
+    assert!(warned.contains(&failed), "{warned:?}");
 }

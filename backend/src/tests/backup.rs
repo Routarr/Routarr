@@ -109,6 +109,28 @@ async fn the_snapshot_is_a_real_database_taken_without_stopping() {
     pool.close().await;
 }
 
+/// The hourly pass folds the write-ahead log into the database file, so a
+/// copy of `routarr.db` alone, taken while Routarr runs, holds what was written
+/// before the pass rather than possibly no table at all. Such a copy is still
+/// not a safe one: the archives are.
+#[tokio::test]
+async fn a_maintenance_pass_folds_the_log_into_the_database() {
+    let (app, dir) = app_with_files("checkpoint").await;
+    app.execute(&["INSERT INTO categories (id, name) VALUES ('c-1', 'anime')"]).await;
+
+    crate::services::maintenance::run(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let copy = dir.join("copy.db");
+    std::fs::copy(dir.join("routarr.db"), &copy).unwrap();
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", copy.display())).await.unwrap();
+    let names: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM categories").fetch_all(&pool).await.unwrap();
+    assert!(names.contains(&"anime".to_string()), "the copy holds {names:?}");
+    pool.close().await;
+}
+
 /// A retention count stored above the ceiling this build enforces is honoured
 /// as it is: lowering it removes archives, and nothing but the operator's own
 /// save may do that. Named in the warnings until then, since the screen
@@ -271,6 +293,15 @@ async fn a_restore_is_staged_and_applied_only_at_the_next_start() {
     let restored: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM media").fetch_one(&pool).await.unwrap();
     assert_eq!(restored, 1, "the staged database was not applied");
+    // The backup that wrote the archive is in it as the success it was, not
+    // as a task the next start finds running and marks interrupted.
+    let interrupted = crate::jobs::JobRegistry::new(pool.clone()).recover_orphans().await.unwrap();
+    assert_eq!(interrupted, 0, "the restored database holds its backup as still running");
+    let status: String = sqlx::query_scalar("SELECT status FROM jobs WHERE kind = 'backup'")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(status, "success");
     pool.close().await;
 }
 
@@ -322,6 +353,85 @@ async fn a_restore_brings_back_no_credential_withdrawn_since() {
             .unwrap();
     assert_eq!(restored, today, "the restore brought back a replaced signing secret");
     pool.close().await;
+}
+
+/// A master key or a signing secret withdrawn since the backup stays
+/// withdrawn. The installation then holds neither, as a new host does, and
+/// only the record of the withdrawal tells the two apart: a new host still
+/// gets the archive's, and so does one whose withdrawn credentials were
+/// replaced, then lost. A key `ROUTARR_API_KEY` stands in for is not brought
+/// back either, and the record goes with the restored database.
+#[tokio::test]
+async fn a_restore_brings_back_no_key_or_secret_withdrawn_since() {
+    use crate::services::notify;
+
+    // (case, key file restored, secrets restored)
+    for (case, expected) in [
+        ("withdrawn", (false, false)),
+        ("new-host", (true, true)),
+        ("replaced-then-lost", (true, true)),
+        ("pinned", (false, true)),
+    ] {
+        let (app, _dir) = app_with_files(case).await;
+        notify::rotate_signing_secret(&app.state).await.unwrap();
+        let file =
+            backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await.unwrap();
+        if matches!(case, "withdrawn" | "replaced-then-lost") {
+            app.state.clear_api_key().await.unwrap();
+            notify::remove_signing_secrets(&app.state).await.unwrap();
+        }
+        if case == "replaced-then-lost" {
+            app.state.rotate_api_key().await.unwrap();
+            notify::rotate_signing_secret(&app.state).await.unwrap();
+        }
+        if case != "withdrawn" {
+            std::fs::remove_file(app.state.config.api_key_path()).unwrap();
+            app.execute(&["DELETE FROM webhook_secrets"]).await;
+        }
+        let app = if case == "pinned" {
+            let mut config = (*app.state.config).clone();
+            config.api_key = Some("a-pinned-key".into());
+            TestApp::around(app.state.clone().with_config(config))
+        } else {
+            app
+        };
+
+        backup::stage_restore(&app.state, &file.name, None).await.unwrap();
+        let config = app.state.config.clone();
+        app.state.pool.close().await;
+        assert!(backup::apply_pending_restore(&config).await.unwrap());
+
+        let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", config.db_path.display()))
+            .await
+            .unwrap();
+        let secrets: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM webhook_secrets")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let restored = (config.api_key_path().exists(), secrets > 0);
+        assert_eq!(restored, expected, "{case}");
+        if case == "withdrawn" {
+            let recorded: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM withdrawn_credentials")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(recorded, 2, "the restored database forgot what was withdrawn");
+        }
+        pool.close().await;
+    }
+}
+
+/// A restore writes the record of withdrawals into an archive taken before
+/// that table existed, and the next start's migration still applies to it.
+#[tokio::test]
+async fn an_archive_given_the_withdrawals_ahead_of_its_migration_still_upgrades() {
+    let pool = super::database_through("037_cache_lifetime_at_read").await;
+    sqlx::raw_sql(include_str!("../../migrations/038_withdrawn_credentials.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    crate::db::run_migrations(&pool).await.unwrap();
 }
 
 /// The master API key and the account's password are today's too: one
@@ -969,15 +1079,25 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
 #[tokio::test]
 async fn the_api_takes_lists_and_deletes_a_backup() {
-    let (app, _dir) = app_with_files("api").await;
+    let (app, dir) = app_with_files("api").await;
 
     let created = app.post("/api/v1/backups", serde_json::json!({})).await;
     let name = created.assert_ok()["name"].as_str().unwrap().to_string();
+
+    // Dated by the stamp in its name, as retention and the schedule read it,
+    // not by the file's own date, which a copy of the folder to a new host
+    // resets.
+    let file = std::fs::File::options().write(true).open(dir.join("backups").join(&name)).unwrap();
+    file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(978_307_200)).unwrap();
+    let stamp = name.trim_start_matches("routarr-backup-").trim_end_matches(".zip");
+    let stamped = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").unwrap().and_utc();
 
     let listed = app.get("/api/v1/backups").await;
     let body = listed.assert_ok();
     assert_eq!(body["backups"].as_array().unwrap().len(), 1);
     assert_eq!(body["retention_count"], 7);
+    let listed_at = body["backups"][0]["created_at"].as_str().unwrap();
+    assert_eq!(listed_at, crate::services::routing::format_timestamp(stamped));
 
     // The download is the point of the route, beyond its refusals: the bytes
     // have to be the archive, typed as one.
@@ -1378,4 +1498,37 @@ async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
         .await
         .expect("the staged database has no signing secrets table");
     assert_eq!(secrets, ["enc:today"]);
+}
+
+/// No archive for twice the interval says so: the schedule stopped, or its
+/// failures left the Tasks screen. An archive within it, or an installation
+/// too young to have missed one, says nothing.
+#[tokio::test]
+async fn a_backup_missed_for_two_intervals_is_warned_of() {
+    async fn overdue(app: &TestApp) -> bool {
+        let body = app.get("/api/v1/status").await;
+        let warnings = body.assert_ok()["warnings"].as_array().unwrap().clone();
+        warnings.iter().any(|warning| warning["code"] == "backup_overdue")
+    }
+    let (app, dir) = app_with_files("overdue").await;
+    assert!(!overdue(&app).await, "a new installation was warned of a missed backup");
+
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    std::fs::write(dir.join("backups/routarr-backup-20200101-000000.zip"), b"").unwrap();
+    assert!(overdue(&app).await, "an archive years old was not warned of");
+
+    let recent = chrono::Utc::now() - chrono::Duration::hours(30);
+    let name = format!("routarr-backup-{}.zip", recent.format("%Y%m%d-%H%M%S"));
+    std::fs::write(dir.join("backups").join(name), b"").unwrap();
+    assert!(!overdue(&app).await, "an archive inside two intervals was warned of");
+}
+
+/// The disk is low under twice the database and 100 MiB: what a backup of it
+/// and the database's own growth need.
+#[test]
+fn the_data_disk_is_low_under_twice_the_database_and_a_margin() {
+    let margin = 100 * 1024 * 1024;
+    assert!(!crate::api::health::disk_is_low(2 * 500 + margin, 500));
+    assert!(crate::api::health::disk_is_low(2 * 500 + margin - 1, 500));
+    assert!(crate::api::health::disk_is_low(margin - 1, 0));
 }

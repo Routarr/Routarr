@@ -32,7 +32,7 @@
   // directory the image sets. `scripts/smoke-image.sh` reads this line and runs
   // it against the built image, so an instruction that stopped working fails
   // the image build rather than a first visit.
-  const READ_KEY_COMMAND = 'docker exec routarr cat /data/routarr.api_key';
+  const READ_KEY_COMMAND = 'docker exec routarr cat /config/routarr.api_key';
 
   // The theme is a server setting, and the server will not answer until there
   // is a key, so this one screen follows the operating system instead. It is

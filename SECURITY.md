@@ -97,7 +97,7 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   replaces signs beside it for a day.
 - **The generated key and the generated password stay out of the log.** The
   log names the file holding each, which only the container's user reads, and
-  `docker exec routarr cat /data/routarr.api_key` prints the key: a line in
+  `docker exec routarr cat /config/routarr.api_key` prints the key: a line in
   `docker compose logs` lives as long as the logs do, and a log shipper keeps
   every line it is sent.
 - **`/auth/login` bounds what it can be made to spend, and locks nobody out.**
@@ -344,7 +344,8 @@ Not vulnerabilities to report, but decisions, with reasons.
 - **That includes replacing the key itself.** A key sent in a header is its
   own proof, so a stolen key can rotate itself. In `apikey` mode, where it is
   the only credential, that ends the operator's sessions, and the way back in
-  is to read `data/routarr.api_key`, which the rotation has already written.
+  is to read `routarr.api_key` beside the database, which the rotation has
+  already written.
   Refusing this would protect nothing, since the same key already downloads a
   backup containing the master key and with it every stored Arr credential.
 - **Routarr trusts the Arrs it is pointed at.** It reads what they return and

@@ -143,7 +143,8 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         && let Some(left) = list(state)
             .first()
             .and_then(taken_at)
-            .and_then(|taken| APPLICATION_GAP.checked_sub(taken.elapsed()))
+            .map(|taken| (chrono::Utc::now() - taken).to_std().unwrap_or_default())
+            .and_then(|age| APPLICATION_GAP.checked_sub(age))
             .filter(|left| !left.is_zero())
     {
         let seconds = left.as_secs() + 1;
@@ -161,7 +162,9 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
     let suffix = if by_application { APPLICATION_SUFFIX } else { "" };
     let outcome = match sealed::passphrase(state).await {
-        Ok(passphrase) => write_archive(&state.config, &state.pool, suffix, passphrase).await,
+        Ok(passphrase) => {
+            write_archive(&state.config, &state.pool, suffix, passphrase, Some(&job.id)).await
+        }
         Err(e) => Err(e),
     };
 
@@ -181,6 +184,36 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     outcome
 }
 
+/// Write the backup's own job into its snapshot as the success it is once the
+/// archive exists. Taken while the job runs, the row would come back running
+/// with every restore, and the first start after it would mark it interrupted:
+/// a failed backup shown for the very archive just restored.
+async fn settle_in_snapshot(snapshot: &Path, job: &str, name: &str) -> AppResult<()> {
+    use sqlx::{ConnectOptions, Connection};
+    let detail = crate::jobs::Detail::new("JobDetailBackedUp").with("file", name);
+    // A rollback journal: the snapshot is zipped alone, and a log beside it
+    // would be left out with this write in it.
+    let mut connection = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(snapshot)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Delete)
+        .connect()
+        .await?;
+    let settled = sqlx::query(
+        "UPDATE jobs SET status = 'success', detail = ?, detail_key = ?, detail_params = ?,
+                finished_at = datetime('now')
+          WHERE id = ?",
+    )
+    .bind(detail.english())
+    .bind("JobDetailBackedUp")
+    .bind(detail.stored_params())
+    .bind(job)
+    .execute(&mut connection)
+    .await;
+    connection.close().await.ok();
+    settled?;
+    Ok(())
+}
+
 /// Take a backup of a database the server has not opened yet, before a start
 /// migrates it: the archives kept afterwards would all be of the new schema,
 /// which the release before cannot open.
@@ -189,15 +222,17 @@ pub async fn before_migrating(
     pool: &sqlx::SqlitePool,
 ) -> AppResult<BackupFile> {
     let passphrase = sealed::stored_passphrase(config, pool).await?;
-    write_archive(config, pool, "", passphrase).await
+    write_archive(config, pool, "", passphrase, None).await
 }
 
-/// Write an archive, sealed for `passphrase` when there is one.
+/// Write an archive, sealed for `passphrase` when there is one, for the job
+/// `job` when one runs it.
 async fn write_archive(
     config: &crate::config::Config,
     pool: &sqlx::SqlitePool,
     suffix: &str,
     passphrase: Option<Passphrase>,
+    job: Option<&str>,
 ) -> AppResult<BackupFile> {
     let dir = backups_in(&config.data_dir);
     std::fs::create_dir_all(&dir)
@@ -229,6 +264,9 @@ async fn write_archive(
     // remove it under the task that reads it.
     let snapshot_scaffold = Scaffold(vec![snapshot.clone()]);
     vacuum_into(pool, &snapshot).await?;
+    if let Some(job) = job {
+        settle_in_snapshot(&snapshot, job, &name).await?;
+    }
 
     let schema: String =
         sqlx::query_scalar("SELECT name FROM _migrations ORDER BY id DESC LIMIT 1")
@@ -447,6 +485,15 @@ fn work_file(data_dir: &Path, label: &str) -> AppResult<PathBuf> {
 /// Read from the name, which `write_archive` stamps, rather than from the
 /// file's modification time, which a copy or a restore of the folder resets.
 pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
+    let taken = last_taken_at(state)?;
+    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
+    tokio::time::Instant::now().checked_sub(age)
+}
+
+/// When the newest archive the schedule or the owner took was written. An
+/// application's archives do not stand for one: a script taking them in a loop
+/// would hide a schedule that stopped.
+pub fn last_taken_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
     list(state).iter().find(|file| !taken_by_a_key(file)).and_then(taken_at)
 }
 
@@ -454,12 +501,16 @@ fn taken_by_a_key(file: &BackupFile) -> bool {
     stamp_of(&file.name).is_some_and(|stamp| stamp.ends_with(APPLICATION_SUFFIX))
 }
 
-fn taken_at(file: &BackupFile) -> Option<tokio::time::Instant> {
-    let stamp = stamp_of(&file.name)?;
+fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
+    stamped_at(&file.name)
+}
+
+/// When the archive `name` was taken, by the UTC stamp in its name, which a
+/// copy of the folder keeps and its file dates do not.
+fn stamped_at(name: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let stamp = stamp_of(name)?;
     let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
-    let taken = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc();
-    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
-    tokio::time::Instant::now().checked_sub(age)
+    Some(chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc())
 }
 
 /// Every archive on disk, newest first.
@@ -477,13 +528,12 @@ fn list_in(dir: &Path) -> Vec<BackupFile> {
         .filter(|entry| entry.file_name().to_str().is_some_and(is_valid_backup_name))
         .filter_map(|entry| {
             let metadata = entry.metadata().ok()?;
-            let created = metadata
-                .modified()
-                .ok()
-                .map(chrono::DateTime::<chrono::Utc>::from)
+            let name = entry.file_name().to_string_lossy().into_owned();
+            // The file's date only for a name that carries no stamp.
+            let created = stamped_at(&name)
+                .or_else(|| metadata.modified().ok().map(chrono::DateTime::<chrono::Utc>::from))
                 .map(crate::services::routing::format_timestamp)
                 .unwrap_or_default();
-            let name = entry.file_name().to_string_lossy().into_owned();
             Some(BackupFile {
                 encrypted: sealed::is_sealed_file(&entry.path()),
                 name,
@@ -505,7 +555,7 @@ pub async fn prune(state: &AppState) -> AppResult<usize> {
     // Read as stored, a value above the ceiling included: lowering a retention
     // count removes archives, so only the operator's own save does (see
     // `settings::Kind::Retention`).
-    let keep: usize = state.bounding_setting("backup_retention_count", 7usize).await?.max(1);
+    let keep: usize = state.bounding_setting::<usize>("backup_retention_count").await?.max(1);
     let (taken_by_keys, others): (Vec<BackupFile>, Vec<BackupFile>) =
         list(state).into_iter().partition(taken_by_a_key);
 
@@ -633,6 +683,46 @@ async fn opened_if_sealed(
     }
 }
 
+/// A credential the owner can withdraw outright, which a restore must not
+/// bring back while it stays withdrawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Credential {
+    MasterApiKey,
+    SigningSecret,
+}
+
+impl Credential {
+    /// Its row in `withdrawn_credentials`.
+    fn name(self) -> &'static str {
+        match self {
+            Self::MasterApiKey => "master_api_key",
+            Self::SigningSecret => "signing_secret",
+        }
+    }
+}
+
+/// Record `credential` as withdrawn, or as replaced by a new one.
+pub async fn set_withdrawn<'e>(
+    executor: impl sqlx::SqliteExecutor<'e>,
+    credential: Credential,
+    withdrawn: bool,
+) -> AppResult<()> {
+    let statement = if withdrawn {
+        "INSERT INTO withdrawn_credentials (name) VALUES (?) ON CONFLICT(name) DO NOTHING"
+    } else {
+        "DELETE FROM withdrawn_credentials WHERE name = ?"
+    };
+    sqlx::query(statement).bind(credential.name()).execute(executor).await?;
+    Ok(())
+}
+
+async fn is_withdrawn(live: &sqlx::SqlitePool, credential: Credential) -> AppResult<bool> {
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM withdrawn_credentials WHERE name = ?)")
+        .bind(credential.name())
+        .fetch_one(live)
+        .await?)
+}
+
 /// Stage `archive`, carrying into it what `live`, the database it replaces,
 /// has withdrawn since.
 async fn stage(
@@ -678,6 +768,10 @@ async fn stage(
             "the archive's database cannot be restored: {reason}"
         )));
     }
+    let key_withdrawn = match live {
+        Some(live) => is_withdrawn(live, Credential::MasterApiKey).await?,
+        None => false,
+    };
     if let Some(live) = live {
         keep_withdrawn_credentials(live, &staged_database).await?;
     }
@@ -697,8 +791,11 @@ async fn stage(
             continue;
         }
         // The API key in use stays: whoever restores holds it, and one rotated
-        // because it leaked must not come back with the archive.
-        if *target == config.api_key_path() && target.exists() {
+        // because it leaked must not come back with the archive. Nor does one
+        // withdrawn since, or one `ROUTARR_API_KEY` stands in for: unused
+        // today, it would answer again once the variable is lifted.
+        let kept = target.exists() || key_withdrawn || config.api_key.is_some();
+        if *target == config.api_key_path() && kept {
             std::fs::remove_file(&staging).ok();
             continue;
         }
@@ -995,10 +1092,11 @@ fn is_leftover(name: &str) -> bool {
 /// revoked because it leaked is part of the damage, not of the library: it
 /// stays revoked. The account's password is today's and no session survives.
 /// The signing secrets follow today's too, replaced ones included, so a
-/// receiver already given the new secret keeps accepting. A key the live
+/// receiver already given the new secret keeps accepting, and none comes back
+/// once they were withdrawn (`withdrawn_credentials`). A key the live
 /// database never held, as on a new host, comes back as the backup has it,
 /// and so do the backup's account and secrets when the live database holds
-/// none.
+/// none and withdrew none.
 async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> AppResult<()> {
     use sqlx::{ConnectOptions, Connection};
 
@@ -1016,6 +1114,12 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
         .bind(sealed::SETTING)
         .fetch_optional(live)
         .await?;
+    let withdrawn: Vec<(String, String)> =
+        sqlx::query_as("SELECT name, withdrawn_at FROM withdrawn_credentials")
+            .fetch_all(live)
+            .await?;
+    let secrets_withdrawn =
+        withdrawn.iter().any(|(name, _)| name == Credential::SigningSecret.name());
 
     // A rollback journal, not a write-ahead log: the staged file is renamed
     // alone, and a log beside it would be left behind with these writes in it.
@@ -1094,6 +1198,26 @@ async fn keep_withdrawn_credentials(live: &sqlx::SqlitePool, staged: &Path) -> A
                     .bind(created_at)
                     .execute(&mut *tx)
                     .await?;
+            }
+        }
+        // Secrets withdrawn since stay withdrawn, and the record goes with the
+        // restored database, so a restore of an older archive still finds it.
+        if secrets_withdrawn && holds("webhook_secrets").fetch_one(&mut *tx).await? {
+            sqlx::query("DELETE FROM webhook_secrets").execute(&mut *tx).await?;
+        }
+        if !withdrawn.is_empty() {
+            sqlx::raw_sql(include_str!("../../../migrations/038_withdrawn_credentials.sql"))
+                .execute(&mut *tx)
+                .await?;
+            for (name, withdrawn_at) in &withdrawn {
+                sqlx::query(
+                    "INSERT INTO withdrawn_credentials (name, withdrawn_at) VALUES (?, ?)
+                     ON CONFLICT(name) DO NOTHING",
+                )
+                .bind(name)
+                .bind(withdrawn_at)
+                .execute(&mut *tx)
+                .await?;
             }
         }
         tx.commit().await?;

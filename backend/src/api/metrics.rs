@@ -233,6 +233,26 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: limits,
     });
 
+    // The date of the newest archive the schedule or the owner took, which a
+    // rule alerts on once it is older than the interval: a failed backup says
+    // so in the jobs alone, and the log retention trims those.
+    families.push(Family {
+        name: "routarr_backup_last_success_timestamp_seconds",
+        help: "When the newest archive was written, in seconds since the Unix epoch.",
+        samples: crate::services::backup::last_taken_at(&state)
+            .map(|taken| (String::new(), taken.timestamp() as f64))
+            .into_iter()
+            .collect(),
+    });
+    families.push(Family {
+        name: "routarr_data_free_bytes",
+        help: "Bytes left on the disk holding the database and its backups.",
+        samples: fs4::available_space(&state.config.data_dir)
+            .map(|free| (String::new(), free as f64))
+            .into_iter()
+            .collect(),
+    });
+
     let jobs: Vec<(String, String, i64)> =
         sqlx::query_as("SELECT kind, status, COUNT(*) FROM jobs GROUP BY kind, status")
             .fetch_all(pool)
@@ -255,7 +275,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when global dry-run is blocking every write.",
         samples: vec![(
             String::new(),
-            if state.bool_setting("global_dry_run", true).await { 1.0 } else { 0.0 },
+            if state.bool_setting("global_dry_run").await { 1.0 } else { 0.0 },
         )],
     });
     families.push(Family {
@@ -263,7 +283,7 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when routing decisions are applied without confirmation.",
         samples: vec![(
             String::new(),
-            if state.bool_setting("auto_apply_enabled", false).await { 1.0 } else { 0.0 },
+            if state.bool_setting("auto_apply_enabled").await { 1.0 } else { 0.0 },
         )],
     });
 

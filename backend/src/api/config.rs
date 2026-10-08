@@ -331,13 +331,12 @@ pub async fn import(
         // the API, and a value it does know but refuses is worse, because it
         // looks applied. Reported rather than fatal: a bundle is restored as far as it
         // can be, and `skipped` is what says how far.
-        if let Err(e) =
-            crate::services::settings::check(key, &setting.value, &categories, &localizer)
-        {
+        let checked = crate::api::settings::stored_value(key, &setting.value);
+        if let Err(e) = crate::services::settings::check(key, &checked, &categories, &localizer) {
             report.skipped.push(format!("setting {:?}: {e}", setting.key));
             continue;
         }
-        let mut value = setting.value.clone();
+        let mut value = checked;
         if key == "metadata_providers" && !keyless.is_empty() {
             for id in &keyless {
                 report.skipped.push(format!(
@@ -357,10 +356,10 @@ pub async fn import(
              ON CONFLICT(key) DO UPDATE SET value = excluded.value",
         )
         .bind(key)
-        // Trimmed, as `PUT /settings` stores it. The gate above validates the
-        // trimmed value, so binding the raw one would let `"anime "` pass a
-        // check that `"anime"` answered and land as a name no category holds.
-        .bind(value.trim())
+        // In the form `PUT /settings` stores it. The gate above validates that
+        // form, so binding the raw one would let `"Anime "` pass a check that
+        // `"anime"` answered and land as a name no category holds.
+        .bind(&value)
         .execute(&mut *tx)
         .await?;
         report.settings += 1;

@@ -231,7 +231,7 @@ fn key_from_file(key_path: &Path) -> AppResult<String> {
         AppError::Config(format!("cannot write master key to {}: {e}", key_path.display()))
     })?;
     info!(
-        "Generated a new master key at {}. Back it up alongside the database",
+        "Generated a new master key at {}. Every archive in the backups folder carries it",
         key_path.display()
     );
     Ok(encoded)

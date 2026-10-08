@@ -235,6 +235,13 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
     if let Err(e) = sqlx::query("PRAGMA optimize").execute(&state.pool).await {
         warn!("Could not refresh the query planner's statistics: {e}");
     }
+    // The write-ahead log folded into the database file, without waiting on a
+    // reader: SQLite does it only past a thousand pages, and a copy of the file
+    // alone taken while Routarr runs would miss everything since, up to the
+    // whole schema. Such a copy is still not a safe one, the archives are.
+    if let Err(e) = sqlx::query("PRAGMA wal_checkpoint(PASSIVE)").execute(&state.pool).await {
+        warn!("Could not fold the write-ahead log into the database: {e}");
+    }
 
     match &outcome {
         Ok(report) => {
@@ -253,9 +260,9 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
 }
 
 async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
-    let decision_days: i64 = state.bounding_setting("decision_retention_days", 30).await?;
-    let log_days: i64 = state.bounding_setting("log_retention_days", 90).await?;
-    let security_days: i64 = state.bounding_setting("security_log_retention_days", 365).await?;
+    let decision_days: i64 = state.bounding_setting("decision_retention_days").await?;
+    let log_days: i64 = state.bounding_setting("log_retention_days").await?;
+    let security_days: i64 = state.bounding_setting("security_log_retention_days").await?;
     let pool = &state.pool;
 
     let mut report = MaintenanceReport::default();
@@ -389,13 +396,20 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
-    if report.decisions_removed + report.logs_removed + report.jobs_removed > 0 {
+    let removed = [
+        report.decisions_removed,
+        report.logs_removed,
+        report.jobs_removed,
+        report.metadata_cache_removed,
+        report.source_identifiers_removed,
+        report.sessions_removed,
+        report.security_events_removed,
+    ];
+    if removed.iter().any(|count| *count > 0) {
         info!(
-            "Retention: removed {} decision(s), {} log(s), {} job(s), {} cache entrie(s)",
-            report.decisions_removed,
-            report.logs_removed,
-            report.jobs_removed,
-            report.metadata_cache_removed
+            "Retention removed decisions: {}, logs: {}, tasks: {}, cache rows: {}, resolutions: \
+             {}, sessions: {}, security events: {}",
+            removed[0], removed[1], removed[2], removed[3], removed[4], removed[5], removed[6]
         );
         // Not vacuuming on purpose: SQLite reuses the freed pages for the next
         // simulation, and a full VACUUM would rewrite the whole file while the

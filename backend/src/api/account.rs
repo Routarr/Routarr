@@ -137,7 +137,7 @@ pub async fn rotate_api_key(
 ) -> AppResult<super::Json<serde_json::Value>> {
     refuse_if_pinned(&state)?;
     prove(&state, &identity, &proof_in(&body)?, client).await?;
-    let key = state.rotate_api_key()?;
+    let key = state.rotate_api_key().await?;
     end_key_sessions(&state, cookie(&headers, SESSION_COOKIE).as_deref()).await?;
     audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyReplaced"));
     Ok(super::Json(serde_json::json!({ "api_key": key })))
@@ -162,7 +162,7 @@ pub async fn delete_api_key(
         ));
     }
     prove(&state, &identity, &proof_in(&body)?, client).await?;
-    state.clear_api_key()?;
+    state.clear_api_key().await?;
     audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyWithdrawn"));
     Ok(StatusCode::NO_CONTENT)
 }
@@ -173,7 +173,7 @@ pub async fn delete_api_key(
 pub(crate) async fn revoke_every_key(state: &AppState) -> AppResult<Option<String>> {
     let revoked = applications::revoke_all(&state.pool).await?;
     let key = if state.config.api_key.is_none() && state.api_key().is_some() {
-        Some(state.rotate_api_key()?)
+        Some(state.rotate_api_key().await?)
     } else {
         None
     };

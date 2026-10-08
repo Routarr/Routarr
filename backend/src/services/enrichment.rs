@@ -148,7 +148,7 @@ async fn run_enrichment(
     }
     job.stage(Detail::new("JobDetailFetching").with("source", name)).await;
 
-    let ttl_days: i64 = state.setting("metadata_cache_ttl_days", 7).await;
+    let ttl_days: i64 = state.setting("metadata_cache_ttl_days").await;
     let targets =
         pending_targets(&state.pool, source, metadata::cache_days(source.id(), ttl_days)).await?;
     if targets.is_empty() {
@@ -400,7 +400,7 @@ async fn resolve_identifiers(
     )
     .fetch_all(&state.pool)
     .await?;
-    let scope = state.setting("anime_search", metadata::ANIME_SEARCH[0].to_string()).await;
+    let scope = state.setting::<String>("anime_search").await;
 
     // Deduplicated by local key: the same film in two Radarr instances is one
     // search, not two.
@@ -604,7 +604,7 @@ pub async fn ask_now(
     let Ok((identifiers, cached)) = read.await else {
         return fresh;
     };
-    let scope = state.setting("anime_search", metadata::ANIME_SEARCH[0].to_string()).await;
+    let scope = state.setting::<String>("anime_search").await;
     let searchable =
         metadata::may_search(&scope, &media.genre_list(), media.series_type.as_deref());
     for source in state.metadata_sources().await {

@@ -135,13 +135,13 @@ async fn decide(
     by: &Attribution,
 ) -> AppResult<AutoApplyOutcome> {
     // Opt-in. A fresh install never writes on its own.
-    if !state.bool_setting("auto_apply_enabled", false).await {
+    if !state.bool_setting("auto_apply_enabled").await {
         return Ok(AutoApplyOutcome::Held(Hold::Disabled));
     }
 
     // Checked here as well as in the executor: this one is the master switch,
     // and it should be impossible to reach the writer with it on.
-    if state.bool_setting("global_dry_run", true).await {
+    if state.bool_setting("global_dry_run").await {
         return Ok(AutoApplyOutcome::Held(Hold::DryRun));
     }
 
@@ -154,7 +154,7 @@ async fn decide(
     // worse than doing none: the library ends up half-reorganised with no record
     // of the intent. A sweep that large is a library reclassification, which is
     // a deliberate human act.
-    let cap: usize = state.bounding_setting("batch_limit", 50usize).await?;
+    let cap: usize = state.bounding_setting::<usize>("batch_limit").await?;
     if candidates.len() > cap {
         return Ok(AutoApplyOutcome::OverCap { candidates: candidates.len(), cap });
     }
