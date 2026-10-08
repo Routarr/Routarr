@@ -561,16 +561,20 @@ async fn a_slow_receiver_does_not_hold_the_unattended_apply() {
 async fn a_url_that_is_not_a_url_is_refused_at_the_settings_boundary() {
     let app = TestApp::new().await;
 
-    let refused = app
-        .put(
-            "/api/v1/settings",
-            serde_json::json!({ "settings": { "notification_webhook_url": "discord.com/hook" } }),
-        )
-        .await;
-
     // A typo here fails silently in the background, where nobody sees it,
-    // which is exactly what this feature exists to prevent.
-    assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST);
+    // which is exactly what this feature exists to prevent: a scheme with no
+    // host, and a space in the host, are as unusable as no scheme.
+    for typed in
+        ["discord.com/hook", "http://", "https://", "https://discord .com/api/webhooks/1/abc"]
+    {
+        let refused = app
+            .put(
+                "/api/v1/settings",
+                serde_json::json!({ "settings": { "notification_webhook_url": typed } }),
+            )
+            .await;
+        assert_eq!(refused.status, axum::http::StatusCode::BAD_REQUEST, "{typed}");
+    }
 
     let accepted = app
         .put(

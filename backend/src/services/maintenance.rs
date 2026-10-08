@@ -396,13 +396,20 @@ async fn purge(state: &AppState) -> AppResult<MaintenanceReport> {
     .await?
     .rows_affected();
 
-    if report.decisions_removed + report.logs_removed + report.jobs_removed > 0 {
+    let removed = [
+        report.decisions_removed,
+        report.logs_removed,
+        report.jobs_removed,
+        report.metadata_cache_removed,
+        report.source_identifiers_removed,
+        report.sessions_removed,
+        report.security_events_removed,
+    ];
+    if removed.iter().any(|count| *count > 0) {
         info!(
-            "Retention: removed {} decision(s), {} log(s), {} job(s), {} cache entrie(s)",
-            report.decisions_removed,
-            report.logs_removed,
-            report.jobs_removed,
-            report.metadata_cache_removed
+            "Retention removed decisions: {}, logs: {}, tasks: {}, cache rows: {}, resolutions: \
+             {}, sessions: {}, security events: {}",
+            removed[0], removed[1], removed[2], removed[3], removed[4], removed[5], removed[6]
         );
         // Not vacuuming on purpose: SQLite reuses the freed pages for the next
         // simulation, and a full VACUUM would rewrite the whole file while the

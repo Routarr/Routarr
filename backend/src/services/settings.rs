@@ -171,6 +171,12 @@ pub fn check(
     validate(key, value, kind, categories, localizer)
 }
 
+/// Whether `key` holds a category's name, which its writers store in the
+/// form category names take before this module compares it.
+pub fn names_a_category(key: &str) -> bool {
+    KNOWN.iter().any(|(k, kind)| *k == key && matches!(kind, Kind::Category))
+}
+
 /// The label a typed setting is shown under, for a refusal that names it.
 ///
 /// Only the settings an operator types and only the server checks: the others
@@ -268,8 +274,11 @@ fn validate(
             // error. Anything else has to be a URL we could actually POST to:
             // a typo here fails silently in the background, where nobody sees
             // it, which is precisely what this feature exists to prevent.
-            let usable =
-                value.is_empty() || value.starts_with("http://") || value.starts_with("https://");
+            let usable = value.is_empty()
+                || reqwest::Url::parse(value).is_ok_and(|url| {
+                    matches!(url.scheme(), "http" | "https")
+                        && url.host_str().is_some_and(|host| !host.is_empty())
+                });
             if !usable {
                 return Err(refused("SettingRefusedAddress", &[]));
             }

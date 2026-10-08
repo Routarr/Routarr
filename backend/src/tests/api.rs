@@ -3458,3 +3458,26 @@ async fn a_simulation_that_writes_nothing_is_not_refused_by_a_running_one() {
 
     drop(running);
 }
+
+/// The fallback category is named as a person types it and stored as category
+/// names are, so `Anime` names the category `anime` rather than being refused
+/// as one that does not exist.
+#[tokio::test]
+async fn the_fallback_category_is_named_as_typed_and_stored_as_categories_are() {
+    let app = TestApp::new().await;
+    app.execute(&["INSERT INTO categories (id, name) VALUES ('cat-anime', 'anime')"]).await;
+
+    app.put(
+        "/api/v1/settings",
+        serde_json::json!({ "settings": { "default_category": "Anime " } }),
+    )
+    .await
+    .assert_ok();
+
+    let stored: String =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'default_category'")
+            .fetch_one(&app.state.pool)
+            .await
+            .unwrap();
+    assert_eq!(stored, "anime");
+}
