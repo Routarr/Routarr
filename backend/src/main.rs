@@ -37,7 +37,23 @@ use config::{AuthMode, Config};
 use state::AppState;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> std::process::ExitCode {
+    match run().await {
+        Ok(()) => std::process::ExitCode::SUCCESS,
+        Err(error) => {
+            // In one sentence, never Rust's dump of the error: through the log
+            // once it is set up, so a JSON log keeps the line, else on stderr.
+            if tracing::dispatcher::has_been_set() {
+                log_error!("{error}");
+            } else {
+                eprintln!("Error: {error}");
+            }
+            std::process::ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let config = Config::from_env()?;
@@ -134,7 +150,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audit = Arc::clone(&state.audit);
     let app = build_router(state);
 
-    let socket = tokio::net::TcpListener::bind(&bind_addr).await?;
+    let socket = tokio::net::TcpListener::bind(&bind_addr).await.map_err(|e| {
+        error::AppError::Config(format!(
+            "Routarr cannot listen on {bind_addr} (ROUTARR_HOST, ROUTARR_PORT): {e}"
+        ))
+    })?;
     info!("Routarr web server listening on http://{bind_addr}");
 
     listener::serve(
@@ -279,6 +299,7 @@ pub(crate) async fn open_storage(
     // API key is read, since the archive can carry another one: read first,
     // the old key is served until the restart after, when it changes under
     // every client without a word.
+    db::prepare_data_dir(config)?;
     services::backup::sweep_leftovers(config);
     if services::backup::apply_pending_restore(config).await? {
         info!("A staged backup was restored");

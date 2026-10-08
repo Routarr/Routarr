@@ -63,18 +63,44 @@ const MIGRATIONS: &[(&str, &str)] = &[
 /// How large the write-ahead log stays once checkpointed, in bytes.
 const JOURNAL_SIZE_LIMIT: i64 = 64 * 1024 * 1024;
 
+/// Refuse a database that cannot live where it is configured, naming the
+/// path and the remedy: past this point SQLite says "unable to open database
+/// file", naming neither. A database path naming a directory is a misread
+/// `ROUTARR_DB_PATH`, and a folder Docker created for a bind mount belongs to
+/// root while the image runs as uid 1000.
+pub fn prepare_data_dir(config: &Config) -> crate::error::AppResult<()> {
+    use crate::error::AppError;
+    if config.db_path == *":memory:" {
+        return Ok(());
+    }
+    if config.db_path.is_dir() {
+        let path = config.db_path.display();
+        let file = config.db_path.join("routarr.db");
+        return Err(AppError::Config(format!(
+            "ROUTARR_DB_PATH names the directory {path}. Name the database file inside it, such \
+             as {}",
+            file.display()
+        )));
+    }
+    let dir = &config.data_dir;
+    let unwritable = |e: std::io::Error| {
+        AppError::Config(format!(
+            "The data directory {} cannot be written ({e}). Give it to the user Routarr runs as, \
+             uid 1000 in the image (chown -R 1000:1000 on the host), or run the container as the \
+             folder's owner with user:",
+            dir.display()
+        ))
+    };
+    std::fs::create_dir_all(dir).map_err(unwritable)?;
+    let probe = dir.join(".routarr-write-check");
+    std::fs::File::create(&probe).map_err(unwritable)?;
+    std::fs::remove_file(&probe).map_err(unwritable)?;
+    Ok(())
+}
+
 /// Initialize the SQLite connection pool and run migrations.
 pub async fn init_pool(config: &Config) -> crate::error::AppResult<SqlitePool> {
-    if let Err(e) = std::fs::create_dir_all(&config.data_dir)
-        && e.kind() != std::io::ErrorKind::AlreadyExists
-    {
-        // Said here, because the error SQLite gives afterwards is "unable to
-        // open database file" and names neither the directory nor the reason.
-        // The shape this catches is the ordinary first run: Docker creates a
-        // missing bind-mount directory owned by root, and the container is
-        // uid 1000.
-        tracing::error!("Cannot create the data directory {}: {e}", config.data_dir.display());
-    }
+    prepare_data_dir(config)?;
 
     // A path, never a URL: read as one, `%41` would be `A` and a `?` would end
     // the file name.
@@ -846,10 +872,8 @@ mod tests {
     #[test]
     fn the_server_checkpoints_the_database_once_it_stops_serving() {
         const MAIN: &str = include_str!("main.rs");
-        let after_serving = MAIN
-            .split_once("listener::serve(")
-            .expect("main serves until a stop is asked")
-            .1;
+        let after_serving =
+            MAIN.split_once("listener::serve(").expect("main serves until a stop is asked").1;
         let shutdown =
             after_serving.split_once("Routarr stopped cleanly").expect("main says it stopped").0;
         let (drained, closed) = shutdown
