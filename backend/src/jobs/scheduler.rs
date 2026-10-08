@@ -368,6 +368,9 @@ pub(crate) async fn tick(
                 Err(e) => {
                     *last_backup = Some(tokio::time::Instant::now());
                     error!("Scheduled backup failed: {e}");
+                    let failed =
+                        crate::services::notify::Event::BackupFailed { error: e.to_string() };
+                    crate::services::notify::send_later(state, failed);
                 }
             }
         }

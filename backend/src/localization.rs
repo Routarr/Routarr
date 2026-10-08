@@ -84,6 +84,28 @@ pub fn decimal_separator(code: &str) -> char {
     if DECIMAL_COMMA.contains(&base_tag(code).as_str()) { ',' } else { '.' }
 }
 
+/// Bytes as an operator reads them, in the vocabulary the interface uses.
+///
+/// Binary steps, because the figure is compared with what a file manager shows.
+/// The symbol and the decimal mark come from the language: spelled at each
+/// use, one figure would read in two vocabularies, in a refusal and in the
+/// root-folders table, on two screens an operator reads together.
+/// `frontend/src/api/format.ts` is the other half of that agreement.
+pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
+    let units = byte_units(localizer.language());
+    let mut value = bytes.max(0) as f64;
+    let mut unit = 0;
+    while value >= 1024.0 && unit < units.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
+    }
+    if unit == 0 {
+        return format!("{} {}", bytes.max(0), units[0]);
+    }
+    let separator = decimal_separator(localizer.language());
+    format!("{} {}", format!("{value:.1}").replace('.', &separator.to_string()), units[unit])
+}
+
 /// The placeholders that hold a count, written with their digits grouped
 /// the way the language groups them (`12 345` in French). A year in `{min}`,
 /// an id in `{value}` or a status in `{status}` grouped would read `2,026`, so

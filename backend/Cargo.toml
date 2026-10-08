@@ -85,6 +85,8 @@ utoipa = { version = "6", features = ["preserve_order", "preserve_path_order"] }
 # Value folding: a letter and its accent apart, so `Shōgun` and `shogun` are one
 # value whether a source wrote the accent composed or not.
 unicode-normalization = "0.1"
+# The free space of the data folder's disk, on Linux, macOS and Windows alike.
+fs4 = { version = "1.1.0", default-features = false }
 
 [dev-dependencies]
 http-body-util = "0.1"

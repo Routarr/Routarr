@@ -143,7 +143,8 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         && let Some(left) = list(state)
             .first()
             .and_then(taken_at)
-            .and_then(|taken| APPLICATION_GAP.checked_sub(taken.elapsed()))
+            .map(|taken| (chrono::Utc::now() - taken).to_std().unwrap_or_default())
+            .and_then(|age| APPLICATION_GAP.checked_sub(age))
             .filter(|left| !left.is_zero())
     {
         let seconds = left.as_secs() + 1;
@@ -447,6 +448,15 @@ fn work_file(data_dir: &Path, label: &str) -> AppResult<PathBuf> {
 /// Read from the name, which `write_archive` stamps, rather than from the
 /// file's modification time, which a copy or a restore of the folder resets.
 pub fn newest_taken(state: &AppState) -> Option<tokio::time::Instant> {
+    let taken = last_taken_at(state)?;
+    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
+    tokio::time::Instant::now().checked_sub(age)
+}
+
+/// When the newest archive the schedule or the owner took was written. An
+/// application's archives do not stand for one: a script taking them in a loop
+/// would hide a schedule that stopped.
+pub fn last_taken_at(state: &AppState) -> Option<chrono::DateTime<chrono::Utc>> {
     list(state).iter().find(|file| !taken_by_a_key(file)).and_then(taken_at)
 }
 
@@ -454,12 +464,10 @@ fn taken_by_a_key(file: &BackupFile) -> bool {
     stamp_of(&file.name).is_some_and(|stamp| stamp.ends_with(APPLICATION_SUFFIX))
 }
 
-fn taken_at(file: &BackupFile) -> Option<tokio::time::Instant> {
+fn taken_at(file: &BackupFile) -> Option<chrono::DateTime<chrono::Utc>> {
     let stamp = stamp_of(&file.name)?;
     let stamp = stamp.strip_suffix(APPLICATION_SUFFIX).unwrap_or(stamp);
-    let taken = chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc();
-    let age = (chrono::Utc::now() - taken).to_std().unwrap_or_default();
-    tokio::time::Instant::now().checked_sub(age)
+    Some(chrono::NaiveDateTime::parse_from_str(stamp, "%Y%m%d-%H%M%S").ok()?.and_utc())
 }
 
 /// Every archive on disk, newest first.

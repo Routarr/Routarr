@@ -54,6 +54,8 @@ pub enum Event {
     SimulationCompleted { simulation_id: String, total: usize, moves: usize },
     /// An apply or a revert finished. Asked for by `notify_moves_completed`.
     MovesCompleted { reverted: bool, applied: usize, failed: usize, skipped: usize, moving: usize },
+    /// A scheduled backup could not be written, every time it fails.
+    BackupFailed { error: String },
     /// Sent from Settings to check the address and the format.
     Test,
 }
@@ -63,7 +65,8 @@ impl Event {
         match self {
             Event::InstanceUnreachable { .. }
             | Event::AutoApplyFailed { .. }
-            | Event::SyncFailed { .. } => "error",
+            | Event::SyncFailed { .. }
+            | Event::BackupFailed { .. } => "error",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::AutoApplyHeld { .. } => "warning",
             _ => "info",
@@ -79,6 +82,7 @@ impl Event {
             Event::AutoApplyFailed { .. } => "auto_apply_failed",
             Event::AutoApplyHeld { .. } => "auto_apply_held",
             Event::SyncFailed { .. } => "sync_failed",
+            Event::BackupFailed { .. } => "backup_failed",
             Event::SimulationCompleted { .. } => "simulation_completed",
             Event::MovesCompleted { reverted: false, .. } => "apply_completed",
             Event::MovesCompleted { reverted: true, .. } => "revert_completed",
@@ -92,7 +96,8 @@ impl Event {
         match self {
             Event::InstanceUnreachable { .. }
             | Event::AutoApplyFailed { .. }
-            | Event::SyncFailed { .. } => "failure",
+            | Event::SyncFailed { .. }
+            | Event::BackupFailed { .. } => "failure",
             Event::MovesCompleted { failed, .. } if *failed > 0 => "warning",
             Event::AutoApplyHeld { .. } => "warning",
             Event::InstanceRecovered { .. } | Event::MovesCompleted { .. } => "success",
@@ -134,6 +139,9 @@ impl Event {
             Event::SyncFailed { instance, error, .. } => {
                 format!("Routarr could not sync '{instance}': {error}")
             }
+            Event::BackupFailed { error } => {
+                format!("Routarr could not write its scheduled backup: {error}")
+            }
             Event::SimulationCompleted { total, moves, .. } => {
                 format!("Routarr simulated the library. Titles: {total}, moves proposed: {moves}.")
             }
@@ -158,6 +166,7 @@ impl Event {
             Event::AutoApplyFailed { .. } => "Automatic apply failed",
             Event::AutoApplyHeld { .. } => "Automatic apply held back",
             Event::SyncFailed { .. } => "Sync failed",
+            Event::BackupFailed { .. } => "Backup failed",
             Event::SimulationCompleted { .. } => "Simulation finished",
             Event::MovesCompleted { reverted: false, .. } => "Apply finished",
             Event::MovesCompleted { reverted: true, .. } => "Revert finished",
@@ -186,7 +195,7 @@ impl Event {
             Event::MovesCompleted { applied, failed, skipped, moving, .. } => serde_json::json!({
                 "applied": applied, "failed": failed, "skipped": skipped, "moving": moving
             }),
-            Event::Test => serde_json::json!({}),
+            Event::BackupFailed { .. } | Event::Test => serde_json::json!({}),
         }
     }
 }
@@ -356,9 +365,10 @@ impl Event {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Notification {
     /// What happened, in snake case: `instance_unreachable`,
-    /// `instance_recovered`, `auto_apply_failed`, `sync_failed`,
-    /// `simulation_completed`, `apply_completed`, `revert_completed`, or
-    /// `test` when sent from Settings.
+    /// `instance_recovered`, `auto_apply_failed`, `auto_apply_held`,
+    /// `sync_failed`, `backup_failed`, `simulation_completed`,
+    /// `apply_completed`, `revert_completed`, or `test` when sent from
+    /// Settings. The list may grow.
     pub event: &'static str,
     /// When it happened, in RFC 3339.
     pub timestamp: String,
@@ -751,6 +761,7 @@ mod receivers {
             Event::SimulationCompleted { simulation_id: "s-1".into(), total: 3, moves: 1 },
             Event::MovesCompleted { reverted: false, applied: 1, failed: 1, skipped: 0, moving: 0 },
             Event::MovesCompleted { reverted: true, applied: 1, failed: 0, skipped: 0, moving: 0 },
+            Event::BackupFailed { error: "disk full".into() },
             Event::Test,
         ]
     }
@@ -791,6 +802,7 @@ mod receivers {
                 "info",
                 json!({ "applied": 1, "failed": 0, "skipped": 0, "moving": 0 }),
             ),
+            ("backup_failed", "error", json!({})),
             ("test", "info", json!({})),
         ];
         for (event, (name, severity, data)) in every_event().iter().zip(expected) {
@@ -810,7 +822,7 @@ mod receivers {
     fn apprise_api_accepts_routarrs_json_and_shows_its_outcome() {
         let outcomes = [
             "failure", "success", "failure", "warning", "failure", "info", "warning", "success",
-            "info",
+            "failure", "info",
         ];
         let events = every_event();
         assert_eq!(events.len(), outcomes.len());
@@ -955,7 +967,7 @@ mod receivers {
             .iter()
             .map(|event| posted(event, Format::Gotify)["priority"].as_i64().unwrap())
             .collect();
-        assert_eq!(priorities, [8, 2, 8, 5, 8, 2, 5, 2, 2]);
+        assert_eq!(priorities, [8, 2, 8, 5, 8, 2, 5, 2, 8, 2]);
         for event in every_event() {
             let sent = posted(&event, Format::Gotify);
             assert!(sent["message"].as_str().is_some_and(|text| !text.is_empty()), "{sent}");

@@ -282,3 +282,29 @@ async fn the_content_type_is_the_one_prometheus_expects() {
     assert!(content_type.starts_with("text/plain"), "got {content_type}");
     assert!(content_type.contains("version=0.0.4"), "got {content_type}");
 }
+
+/// The date of the newest archive is a series an alert reads against the
+/// interval, and the free space of the data disk another, neither of which a
+/// count of failed jobs, trimmed by the retention, can stand for.
+#[tokio::test]
+async fn the_newest_archive_and_the_free_space_are_series() {
+    let (app, _dir) = super::backup::app_with_files("metrics-backup").await;
+    let before = chrono::Utc::now().timestamp();
+    crate::services::backup::create(&app.state, &crate::jobs::Attribution::manual(None))
+        .await
+        .unwrap();
+
+    let body = scrape(&app).await;
+
+    let value = |name: &str| {
+        let line = body
+            .lines()
+            .find(|line| line.starts_with(&format!("{name} ")))
+            .unwrap_or_else(|| panic!("no {name} sample in:\n{body}"));
+        line.rsplit_once(' ').unwrap().1.parse::<f64>().unwrap()
+    };
+    let taken = value("routarr_backup_last_success_timestamp_seconds") as i64;
+    assert!((before - 1..=before + 5).contains(&taken), "{taken} against {before}");
+    assert!(value("routarr_data_free_bytes") > 0.0);
+    assert_well_formed(&body);
+}

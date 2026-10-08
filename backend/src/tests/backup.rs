@@ -1480,3 +1480,36 @@ async fn a_restore_from_before_the_signing_secrets_keeps_todays() {
         .expect("the staged database has no signing secrets table");
     assert_eq!(secrets, ["enc:today"]);
 }
+
+/// No archive for twice the interval says so: the schedule stopped, or its
+/// failures left the Tasks screen. An archive within it, or an installation
+/// too young to have missed one, says nothing.
+#[tokio::test]
+async fn a_backup_missed_for_two_intervals_is_warned_of() {
+    async fn overdue(app: &TestApp) -> bool {
+        let body = app.get("/api/v1/status").await;
+        let warnings = body.assert_ok()["warnings"].as_array().unwrap().clone();
+        warnings.iter().any(|warning| warning["code"] == "backup_overdue")
+    }
+    let (app, dir) = app_with_files("overdue").await;
+    assert!(!overdue(&app).await, "a new installation was warned of a missed backup");
+
+    std::fs::create_dir_all(dir.join("backups")).unwrap();
+    std::fs::write(dir.join("backups/routarr-backup-20200101-000000.zip"), b"").unwrap();
+    assert!(overdue(&app).await, "an archive years old was not warned of");
+
+    let recent = chrono::Utc::now() - chrono::Duration::hours(30);
+    let name = format!("routarr-backup-{}.zip", recent.format("%Y%m%d-%H%M%S"));
+    std::fs::write(dir.join("backups").join(name), b"").unwrap();
+    assert!(!overdue(&app).await, "an archive inside two intervals was warned of");
+}
+
+/// The disk is low under twice the database and 100 MiB: what a backup of it
+/// and the database's own growth need.
+#[test]
+fn the_data_disk_is_low_under_twice_the_database_and_a_margin() {
+    let margin = 100 * 1024 * 1024;
+    assert!(!crate::api::health::disk_is_low(2 * 500 + margin, 500));
+    assert!(crate::api::health::disk_is_low(2 * 500 + margin - 1, 500));
+    assert!(crate::api::health::disk_is_low(margin - 1, 0));
+}

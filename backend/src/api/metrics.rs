@@ -233,6 +233,26 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         samples: limits,
     });
 
+    // The date of the newest archive the schedule or the owner took, which a
+    // rule alerts on once it is older than the interval: a failed backup says
+    // so in the jobs alone, and the log retention trims those.
+    families.push(Family {
+        name: "routarr_backup_last_success_timestamp_seconds",
+        help: "When the newest archive was written, in seconds since the Unix epoch.",
+        samples: crate::services::backup::last_taken_at(&state)
+            .map(|taken| (String::new(), taken.timestamp() as f64))
+            .into_iter()
+            .collect(),
+    });
+    families.push(Family {
+        name: "routarr_data_free_bytes",
+        help: "Bytes left on the disk holding the database and its backups.",
+        samples: fs4::available_space(&state.config.data_dir)
+            .map(|free| (String::new(), free as f64))
+            .into_iter()
+            .collect(),
+    });
+
     let jobs: Vec<(String, String, i64)> =
         sqlx::query_as("SELECT kind, status, COUNT(*) FROM jobs GROUP BY kind, status")
             .fetch_all(pool)

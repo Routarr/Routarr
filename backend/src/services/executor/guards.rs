@@ -364,7 +364,10 @@ pub(super) async fn guard_capacity(
                     kind: confirm::CAPACITY,
                     message: localizer.translate(
                         "ErrorCapacityUnknown",
-                        &[("path", path), ("needed", &human_bytes(incoming, &localizer))],
+                        &[
+                            ("path", path),
+                            ("needed", &crate::localization::human_bytes(incoming, &localizer)),
+                        ],
                     ),
                 });
             }
@@ -379,8 +382,8 @@ pub(super) async fn guard_capacity(
                     "ErrorNotEnoughSpace",
                     &[
                         ("path", path),
-                        ("needed", &human_bytes(incoming, &localizer)),
-                        ("free", &human_bytes(free, &localizer)),
+                        ("needed", &crate::localization::human_bytes(incoming, &localizer)),
+                        ("free", &crate::localization::human_bytes(free, &localizer)),
                     ],
                 ),
             });
@@ -398,8 +401,8 @@ pub(super) async fn guard_capacity(
                 "ErrorNotEnoughSpaceShared",
                 &[
                     ("paths", &paths),
-                    ("needed", &human_bytes(needed, &localizer)),
-                    ("free", &human_bytes(free, &localizer)),
+                    ("needed", &crate::localization::human_bytes(needed, &localizer)),
+                    ("free", &crate::localization::human_bytes(free, &localizer)),
                 ],
             ),
         });
@@ -407,32 +410,10 @@ pub(super) async fn guard_capacity(
     Ok(())
 }
 
-/// Bytes as an operator reads them, in the vocabulary the interface uses.
-///
-/// Binary steps, because the figure is compared with what a file manager shows.
-/// The symbol and the decimal mark come from `localization`, not from here:
-/// spelled locally, they would name one figure in two vocabularies, here and in
-/// the root-folders table, on two screens an operator reads together.
-/// `frontend/src/api/format.ts` is the other half of that agreement.
-pub(super) fn human_bytes(bytes: i64, localizer: &crate::localization::Localizer) -> String {
-    let units = crate::localization::byte_units(localizer.language());
-    let mut value = bytes.max(0) as f64;
-    let mut unit = 0;
-    while value >= 1024.0 && unit < units.len() - 1 {
-        value /= 1024.0;
-        unit += 1;
-    }
-    if unit == 0 {
-        return format!("{} {}", bytes.max(0), units[0]);
-    }
-    let separator = crate::localization::decimal_separator(localizer.language());
-    format!("{} {}", format!("{value:.1}").replace('.', &separator.to_string()), units[unit])
-}
-
 #[cfg(test)]
 mod tests {
-    use super::human_bytes;
     use crate::localization::Localizer;
+    use crate::localization::human_bytes;
 
     /// The two halves of the application name a size the same way.
     ///
