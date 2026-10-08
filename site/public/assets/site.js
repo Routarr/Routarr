@@ -10,19 +10,19 @@
   // ---------------------------------------------------------------- theme
   var root = document.documentElement;
 
-  // Nothing stamped means light, the stylesheet's default. Read from the
-  // system instead, the first click on a dark machine would ask for the theme
-  // already on screen and do nothing visible.
+  // Every page opens stamped dark, and the visitor's own choice, restored
+  // before first paint, replaces the stamp. Read from the system instead, the
+  // first click would ask for the theme already on screen and do nothing.
   function current() {
-    return root.dataset.theme === 'dark' ? 'dark' : 'light';
+    return root.dataset.theme === 'light' ? 'light' : 'dark';
   }
 
   // Which cell is lit is CSS's, off `data-theme`, so it is right on the first
   // paint. What is left here is the state a screen reader is told, which only
   // exists once these buttons can do anything at all.
   var themeButtons = document.querySelectorAll('[data-theme-set]');
-  // The browser's bar takes the page's ground, white until the visitor picks
-  // the dark one: the system's own scheme says nothing about this page.
+  // The browser's bar takes the page's ground, dark until the visitor picks
+  // the light one: the system's own scheme says nothing about this page.
   var themeColor = document.querySelector('meta[name="theme-color"]');
   function markTheme() {
     Array.prototype.forEach.call(themeButtons, function (button) {
