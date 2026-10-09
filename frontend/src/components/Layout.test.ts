@@ -167,6 +167,36 @@ describe('Layout', () => {
     expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('half-typed');
   });
 
+  /**
+   * A session that ended is found by whichever screen asks next, and the
+   * sign-in screen follows at once rather than at the next poll, a minute on.
+   */
+  it('shows the sign-in screen as soon as any request is refused', async () => {
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'forms',
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    vi.spyOn(api, 'getStatus')
+      .mockResolvedValueOnce(status())
+      .mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"error":"unauthorized","message":"refused"}', { status: 401 }),
+        ),
+    );
+    show();
+    await screen.findByText('the page');
+
+    await api.getRules().catch(() => {});
+
+    expect(await screen.findByLabelText('Password')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
   /** Any other failure is a banner, not a gate: the pages still work. */
   it('does not ask for a key when the failure was something else', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Boom', 500, 'internal'));

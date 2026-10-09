@@ -197,6 +197,21 @@ function anySignal(signals: AbortSignal[]): AbortSignal {
  */
 const REQUEST_TIMEOUT_MS = 30_000;
 
+/**
+ * Told of every 401, whichever screen asked: a session that ended or a key
+ * refused. The shell listens, and shows its gate at once rather than at its
+ * next poll.
+ */
+let refused: (() => void) | null = null;
+
+/** Listen for refusals until the returned function is called. */
+export function onRefused(listener: () => void): () => void {
+  refused = listener;
+  return () => {
+    if (refused === listener) refused = null;
+  };
+}
+
 const readJson = (response: Response) => response.json() as Promise<never>;
 /** A file the API serves, whatever its type: the one read held to no JSON. */
 const readBlob = (response: Response) => response.blob() as Promise<never>;
@@ -281,6 +296,7 @@ async function exchange<T>(
     } catch {
       // Not the envelope.
     }
+    if (res.status === 401) refused?.();
     throw new ApiError(message, res.status, kind, requestId, confirm, includes);
   }
 

@@ -998,7 +998,7 @@
   "Type": "Type",
   "UiLanguage": "Language",
   "UiLanguageHelp": "Language of the interface and of the messages Routarr produces.",
-  "Unauthorized": "Unauthorized. Set your Routarr API key in Settings.",
+  "Unauthorized": "Your sign-in ended, or the key was refused.",
   "UnclassifiedOnly": "Unclassified only",
   "UnexpectedError": "This page stopped unexpectedly.",
   "Unknown": "unknown",

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import { AlertTriangle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
-  import { ApiError, api } from '../api/client';
+  import { ApiError, api, onRefused } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import PageFailure from './PageFailure.svelte';
@@ -11,7 +11,7 @@
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
-  import { statusRevision } from '../lib/status.svelte';
+  import { invalidateStatus, statusRevision } from '../lib/status.svelte';
   import { proofRequest } from '../lib/proof.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
@@ -203,6 +203,14 @@
 
   const unauthorized = $derived(
     status.failure instanceof ApiError && status.failure.status === 401,
+  );
+  // A refusal any screen meets is a session that ended or a key refused, so
+  // the status is read again now and the gate replaces the shell at once.
+  // Once the shell knows, there is nothing to read again.
+  $effect(() =>
+    onRefused(() => {
+      if (!unauthorized) invalidateStatus();
+    }),
   );
   // Until the mode is known, the key gate is the safer guess: it is the default
   // mode, and it tells the user where to find a credential either way.

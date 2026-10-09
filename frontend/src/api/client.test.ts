@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ApiError, api } from './client';
+import { ApiError, api, onRefused } from './client';
 import { withBase } from '../test/base';
 
 interface FakeResponse {
@@ -122,6 +122,26 @@ describe('the key in the browser', () => {
 });
 
 describe('error handling', () => {
+  /**
+   * A refused session or key, whichever screen asked, is the shell's to act
+   * on at once: it shows its gate rather than waiting for its next poll.
+   */
+  it('tells whoever listens of a refusal, and of nothing else', async () => {
+    const refused = vi.fn();
+    const stop = onRefused(refused);
+    mockFetch({ ok: false, status: 404, body: { error: 'not_found', message: 'gone' } });
+    await api.getRules().catch(() => {});
+    expect(refused).not.toHaveBeenCalled();
+
+    mockFetch({ ok: false, status: 401, body: { error: 'unauthorized', message: 'refused' } });
+    await api.getRules().catch(() => {});
+    expect(refused).toHaveBeenCalledTimes(1);
+
+    stop();
+    await api.getRules().catch(() => {});
+    expect(refused).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces the backend message, not the raw body', async () => {
     mockFetch({
       ok: false,
