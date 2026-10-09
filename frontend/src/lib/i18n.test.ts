@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { formatCount } from '../api/format';
 import { SERVER_COUNTS } from '../test/counts';
-import { loadDictionary, seedDictionary, t } from './i18n.svelte';
+import { loadDictionary, seedDictionary, startDictionary, t } from './i18n.svelte';
 
 describe('t', () => {
   /**
@@ -106,5 +106,50 @@ describe('a path in a sentence', () => {
 
       expect(t('Declared', { path: '/movies/anime' })).toBe(expected);
     }
+  });
+});
+
+describe('the dictionary the page carries', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.getElementById('dictionary')?.remove();
+    seedDictionary({});
+  });
+
+  /** Served with the page, the strings need no request, and a slow backend no blank page. */
+  it('is read before anything is fetched', async () => {
+    const fetched = vi.spyOn(api, 'getLocalization');
+    const carried = document.createElement('script');
+    carried.type = 'application/json';
+    carried.id = 'dictionary';
+    carried.textContent = JSON.stringify({
+      language: 'fr',
+      direction: 'ltr',
+      strings: { Dashboard: 'Tableau de bord' },
+      counts: [],
+      isolated: [],
+    });
+    document.head.append(carried);
+
+    await startDictionary();
+
+    expect(t('Dashboard')).toBe('Tableau de bord');
+    expect(document.documentElement.lang).toBe('fr');
+    expect(fetched).not.toHaveBeenCalled();
+  });
+
+  /** The dev server serves the page as built, with no strings in it. */
+  it('is fetched when the page carries none', async () => {
+    vi.spyOn(api, 'getLocalization').mockResolvedValue({
+      language: 'de',
+      direction: 'ltr',
+      strings: { Dashboard: 'Übersicht' },
+      counts: [],
+      isolated: [],
+    });
+
+    await startDictionary();
+
+    expect(t('Dashboard')).toBe('Übersicht');
   });
 });

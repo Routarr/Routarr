@@ -32,8 +32,13 @@ pub struct LocalizationResponse {
 /// told which language it actually got: English, if the stored value is one this
 /// build does not ship.
 pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<LocalizationResponse>> {
+    Ok(Json(answer(&state).await))
+}
+
+/// What `/localization` answers, which the page also carries from the start.
+pub async fn answer(state: &AppState) -> LocalizationResponse {
     let language = state.localizer().await.language().to_string();
-    Ok(Json(LocalizationResponse {
+    LocalizationResponse {
         strings: localization::dictionary(&language),
         // Sent with the strings so the shell turns around in the same paint it
         // switches language, rather than a frame later.
@@ -41,7 +46,7 @@ pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<Localiz
         counts: localization::COUNTS,
         isolated: localization::ISOLATED,
         language,
-    }))
+    }
 }
 
 /// Languages this build ships translations for.

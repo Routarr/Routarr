@@ -204,3 +204,49 @@ async fn a_deep_link_and_the_root_both_serve_the_application() {
     // And nothing outside.
     assert_eq!(status_of(&app, "/rules").await, StatusCode::NOT_FOUND);
 }
+
+/// The dictionary the page carries, between its script tags.
+fn embedded_dictionary(html: &str) -> serde_json::Value {
+    let open = r#"<script type="application/json" id="dictionary">"#;
+    let start = html.find(open).expect("the page carries no dictionary") + open.len();
+    let end = start + html[start..].find("</script>").expect("an unclosed dictionary");
+    serde_json::from_str(&html[start..end]).expect("a dictionary that is not JSON")
+}
+
+/// The page carries its strings, in the language set, so its first paint asks
+/// for nothing more, and a dictionary that cannot be fetched is never a blank
+/// page followed by raw keys.
+#[tokio::test]
+async fn the_page_carries_its_strings_in_the_language_set() {
+    let dir = super::TempDir::new("dictionary");
+    std::fs::write(
+        dir.join("index.html"),
+        "<html><head><title>x</title></head><body></body></html>",
+    )
+    .unwrap();
+    let mut config = Config::for_tests();
+    config.frontend_dir = dir.to_path_buf();
+    let app = serving(config).await;
+
+    let english = embedded_dictionary(&app.text("/").await);
+    assert_eq!(english["language"], "en");
+    assert_eq!(english["strings"]["Dashboard"], "Dashboard");
+    assert!(english["counts"].as_array().is_some_and(|counts| !counts.is_empty()));
+
+    app.save_setting("ui_language", "ar").await.assert_ok();
+    let arabic = embedded_dictionary(&app.text("/").await);
+    assert_eq!(arabic["language"], "ar");
+    assert_eq!(arabic["direction"], "rtl");
+}
+
+/// A string holding `</script>` would close the element early and run what
+/// follows it as a script.
+#[test]
+fn a_string_cannot_close_the_dictionary_early() {
+    let payload = serde_json::json!({ "strings": { "X": "</script><script>alert(1)</script>" } });
+
+    let html = crate::with_dictionary("<html><head></head><body></body></html>", &payload);
+
+    assert_eq!(html.matches("</script>").count(), 1, "{html}");
+    assert_eq!(embedded_dictionary(&html), payload);
+}

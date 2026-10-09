@@ -630,14 +630,14 @@ fn build_router(state: AppState) -> Router {
         // unbounded input.
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer(&config))
-        .with_state(state);
+        .with_state(state.clone());
 
     // Compression wraps the finished router so it also covers the static
     // frontend bundle attach_frontend adds: a layer attached earlier only
     // applies to the routes registered before it. The security headers go
     // outermost for the same reason: they have to reach the served HTML, not
     // just the API.
-    attach_frontend(app, &config)
+    attach_frontend(app, &config, state)
         .layer(CompressionLayer::new())
         .layer(middleware::from_fn(security_headers))
 }
@@ -797,20 +797,26 @@ async fn security_headers(request: axum::extract::Request, next: middleware::Nex
 }
 
 /// Serve the built SPA, falling back to `index.html` for client-side routes.
-fn attach_frontend(app: Router, config: &Config) -> Router {
+fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     if !config.frontend_dir.exists() {
         info!("Frontend dir {} not found, API-only mode active", config.frontend_dir.display());
         return app;
     }
 
     info!("Serving frontend assets from: {}", config.frontend_dir.display());
-    let index_html = index_html(config);
+    let page = index_html(config);
 
-    // The index is served from memory rather than from disk because it is
-    // rewritten (see `index_html`), and rewriting it per request would be waste.
+    // Read once and served from memory with its mount point set once (see
+    // `index_html`). Its strings are added per request: the language is a
+    // setting that changes while the server runs. Not stored by the browser,
+    // which would keep the strings of the language it was last served in.
     let fallback = get(move || {
-        let body = index_html.clone();
-        async move { Html(body) }
+        let page = page.clone();
+        let state = state.clone();
+        async move {
+            let html = with_dictionary(&page, &api::localization::answer(&state).await);
+            ([(axum::http::header::CACHE_CONTROL, "no-cache")], Html(html))
+        }
     });
 
     // `append_index_html_on_directories(false)` matters: left on, ServeDir
@@ -850,6 +856,22 @@ fn index_html(config: &Config) -> String {
         // No <head> means a file we do not recognise. Serving it untouched is
         // better than serving a mangled one.
         None => raw,
+    }
+}
+
+/// The page with `payload`, the `/localization` answer, before its `</head>`,
+/// where `frontend/src/main.ts` reads it before anything renders: the first
+/// paint asks for nothing more, and a dictionary that cannot be fetched is
+/// never a blank page followed by raw keys. Every `<` is escaped, so no string
+/// can close the element and run what follows. Never executed, the element is
+/// no script for the CSP to refuse.
+pub(crate) fn with_dictionary(page: &str, payload: &impl serde::Serialize) -> String {
+    let json = serde_json::to_string(payload).unwrap_or_default().replace('<', "\\u003c");
+    match page.split_once("</head>") {
+        Some((head, tail)) => format!(
+            "{head}<script type=\"application/json\" id=\"dictionary\">{json}</script>\n</head>{tail}"
+        ),
+        None => page.to_string(),
     }
 }
 

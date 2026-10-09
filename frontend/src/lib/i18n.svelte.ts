@@ -1,5 +1,6 @@
 import { api } from '../api/client';
 import { bcp47, formatCount, isolated } from '../api/format';
+import type { Localization } from '../api/types';
 
 type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
@@ -73,19 +74,37 @@ export const i18n = {
   },
 };
 
+function use(dictionary: Localization): void {
+  state.strings = dictionary.strings;
+  state.language = dictionary.language;
+  state.counts = dictionary.counts;
+  state.isolated = dictionary.isolated;
+  document.documentElement.lang = bcp47(dictionary.language);
+  // The backend owns the script list, so adding an RTL language there turns
+  // the interface around with nothing to change here.
+  state.direction = dictionary.direction;
+  document.documentElement.dir = state.direction;
+}
+
+/**
+ * Before the first render: the strings the page was served with, in the
+ * language set, which need no request, so a backend slow to answer or failing
+ * never leaves a blank page followed by raw keys. The dev server serves the
+ * page as built, with none, and they are fetched.
+ */
+export async function startDictionary(): Promise<void> {
+  const carried = document.getElementById('dictionary')?.textContent;
+  if (carried) {
+    use(JSON.parse(carried) as Localization);
+    return;
+  }
+  await loadDictionary();
+}
+
 /** Reload after the language setting changed. */
 export async function loadDictionary(): Promise<void> {
   try {
-    const response = await api.getLocalization();
-    state.strings = response.strings;
-    state.language = response.language;
-    state.counts = response.counts;
-    state.isolated = response.isolated;
-    document.documentElement.lang = bcp47(response.language);
-    // The backend owns the script list, so adding an RTL language there turns
-    // the interface around with nothing to change here.
-    state.direction = response.direction;
-    document.documentElement.dir = state.direction;
+    use(await api.getLocalization());
   } catch {
     // An unreachable backend must not blank the interface: keys render as
     // themselves, which is ugly but navigable.
