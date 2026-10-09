@@ -528,7 +528,7 @@ test.describe('reclassifying a whole library', () => {
     await page.getByRole('button', { name: /apply all/i }).click();
 
     const dialog = page.getByRole('alertdialog');
-    await expect(dialog).toContainText("'/movies/anime' is not answering");
+    await expect(dialog).toContainText(/'\/movies\/anime' has (never answered|not answered for)/);
     const writes = await writesDuring(page, () =>
       dialog.getByRole('button', { name: 'Cancel' }).click(),
     );
