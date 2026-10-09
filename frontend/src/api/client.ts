@@ -171,26 +171,6 @@ function storedKeyExchange(): Promise<void> | null {
 }
 
 /**
- * `AbortSignal.any` where the browser has it, and the same composition by hand
- * where it does not. It is Safari 17.4, Chrome 116 and Firefox 124, and every
- * load passes through it: called bare, an older browser, an iPad held on
- * iPadOS 16 or Firefox ESR 115, throws a `TypeError` on every screen. Whichever
- * signal fires first lends its reason, so a timeout still reads as a timeout.
- */
-function anySignal(signals: AbortSignal[]): AbortSignal {
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
-  const composed = new AbortController();
-  for (const signal of signals) {
-    if (signal.aborted) {
-      composed.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener('abort', () => composed.abort(signal.reason), { once: true });
-  }
-  return composed.signal;
-}
-
-/**
  * Long enough for any call answered at once, short enough to be a signal. Work
  * that may run longer, a simulation or an apply over a whole library, is
  * followed through its job (`followed`) and never meets it.
@@ -250,7 +230,7 @@ async function request<T>(
   // URL faults unchecked to spare one line here.
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
-  const signal = caller ? anySignal([caller, timeout]) : timeout;
+  const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
   try {
     return await exchange<T>(path, { ...options, headers, signal }, read);
   } catch (cause) {

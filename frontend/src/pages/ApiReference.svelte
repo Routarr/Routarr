@@ -184,7 +184,13 @@
       </ul>
 
       <h3>{t('ApiExample')}</h3>
-      <pre class="mono api-example">{curl(op, doc, server)}</pre>
+      <!-- It scrolls sideways, and Safari makes no scroller focusable on its
+           own: a named region in the tab order lets a keyboard reach its end. -->
+      <pre
+        class="mono api-example"
+        tabindex="0"
+        role="region"
+        aria-label="{t('ApiExample')} – {title}">{curl(op, doc, server)}</pre>
     </div>
   </details>
 {/snippet}

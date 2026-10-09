@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ApiError, api, onRefused } from './client';
@@ -473,53 +473,15 @@ describe('a server that never answers', () => {
     expect((failure as DOMException).name).toBe('AbortError');
   });
 
-  /** Where `AbortSignal.any` is missing, `anySignal` in `client.ts` composes by hand. */
-  describe('in a browser that predates AbortSignal.any', () => {
-    const any = AbortSignal.any;
-    beforeEach(() => {
-      Reflect.deleteProperty(AbortSignal, 'any');
-    });
-    afterEach(() => {
-      Object.defineProperty(AbortSignal, 'any', { value: any, configurable: true, writable: true });
-    });
+  it('fails at once for a caller whose signal has already aborted', async () => {
+    stubPendingFetch();
+    const caller = new AbortController();
+    caller.abort(new DOMException('superseded', 'AbortError'));
 
-    it("still aborts the request when the caller's signal aborts", async () => {
-      stubPendingFetch();
-      const caller = new AbortController();
-      const pending = api.getStatus(caller.signal);
-      caller.abort(new DOMException('superseded', 'AbortError'));
-
-      const failure = await pending.catch((e: unknown) => e);
-      expect((failure as DOMException).name).toBe('AbortError');
-    });
-
-    it('fails at once for a caller whose signal has already aborted', async () => {
-      stubPendingFetch();
-      const caller = new AbortController();
-      caller.abort(new DOMException('superseded', 'AbortError'));
-
-      const failure = api.getStatus(caller.signal).catch((e: unknown) => e);
-      // Aborted before the request leaves, not when the timeout comes round.
-      expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-      expect(((await failure) as DOMException).name).toBe('AbortError');
-    });
-
-    it('still keeps the timeout when the caller passes a signal', async () => {
-      stubPendingFetch();
-      const timer = new AbortController();
-      const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal);
-      try {
-        const pending = api.getStatus(new AbortController().signal);
-        timer.abort(new DOMException('The operation timed out.', 'TimeoutError'));
-        expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-
-        const failure = await pending.catch((e: unknown) => e);
-        expect(failure).toBeInstanceOf(ApiError);
-        expect((failure as ApiError).kind).toBe('timeout');
-      } finally {
-        timeout.mockRestore();
-      }
-    });
+    const failure = api.getStatus(caller.signal).catch((e: unknown) => e);
+    // Aborted before the request leaves, not when the timeout comes round.
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(((await failure) as DOMException).name).toBe('AbortError');
   });
 
   /**

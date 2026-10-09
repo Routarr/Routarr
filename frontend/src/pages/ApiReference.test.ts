@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -150,5 +150,18 @@ describe('ApiReference', () => {
     const example = document.querySelector('.api-example')?.textContent ?? '';
     expect(example).toContain('/api/v1/ping');
     expect(document.body.textContent).toContain('X-Api-Key: $ROUTARR_KEY');
+  });
+
+  /**
+   * The example scrolls sideways, and Safari makes no scroller focusable on its
+   * own: a named region in the tab order is how a keyboard reaches its end.
+   */
+  it('lets a keyboard reach the end of an example', async () => {
+    show();
+    await fireEvent.click(await screen.findByText('/decisions/apply'));
+
+    const example = screen.getByRole('region', { name: 'Example – POST /decisions/apply' });
+    expect(example).toHaveAttribute('tabindex', '0');
+    expect(example).toHaveClass('api-example');
   });
 });
