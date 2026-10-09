@@ -137,7 +137,8 @@
     "en": "\\bappl(y|ies|ied|ying)\\b",
     "except": [
       "AppliesTo",
-      "NoRuleApplies"
+      "NoRuleApplies",
+      "RuleInstancesHelp"
     ],
     "homonym": "\\bArr\\b",
     "words": {
@@ -476,7 +477,7 @@
       "ko": "작업",
       "nb_NO": "oppgave",
       "nl": "\\bta(a)?k",
-      "pl": "zadani",
+      "pl": "zada[nń]",
       "pt": "tarefas?",
       "ro": "sarcin",
       "ru": "задач",
@@ -580,6 +581,37 @@
       "uk": "закріп",
       "zh_CN": "固定",
       "zh_TW": "釘選"
+    }
+  },
+  "guardrails": {
+    "en": "\\bguardrails?\\b",
+    "except": [],
+    "words": {
+      "ar": "ض[ً-ْـ]*و[ً-ْـ]*ا[ً-ْـ]*ب[ً-ْـ]*ط|ض[ً-ْـ]*ا[ً-ْـ]*ب[ً-ْـ]*ط",
+      "ca": "protecci",
+      "cs": "pojist",
+      "da": "sikkerhedsspær",
+      "de": "schutzmechanism",
+      "el": "δικλείδ|δικλειδ",
+      "es": "salvaguarda",
+      "fi": "suoja",
+      "fr": "garde-fou",
+      "hu": "korlát",
+      "it": "protezion",
+      "ja": "安全装置",
+      "ko": "안전장치",
+      "nb_NO": "sikring",
+      "nl": "waarborg",
+      "pl": "zabezpiecze",
+      "pt": "salvaguarda",
+      "ro": "protec[țt]i",
+      "ru": "ограничител",
+      "sk": "poist",
+      "sv": "skyddsspärr",
+      "tr": "koruma",
+      "uk": "запобіжн",
+      "zh_CN": "安全防护",
+      "zh_TW": "安全防護"
     }
   }
 }
