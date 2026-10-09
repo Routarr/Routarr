@@ -185,7 +185,9 @@
 
       <h3>{t('ApiExample')}</h3>
       <!-- It scrolls sideways, and Safari makes no scroller focusable on its
-           own: a named region in the tab order lets a keyboard reach its end. -->
+           own: a named region in the tab order lets a keyboard reach its end,
+           as `TableRegion` does for a table. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
       <pre
         class="mono api-example"
         tabindex="0"
