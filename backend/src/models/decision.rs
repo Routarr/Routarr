@@ -73,7 +73,7 @@ pub struct Decision {
     /// 0.0 to 1.0, how many independent signals backed the winning rule.
     #[serde(default)]
     pub confidence: f32,
-    /// True once this proposal was retired: by a newer simulation, an override
+    /// True once this decision was retired: by a newer simulation, an override
     /// set or removed, a revalidation that found it stale, or the removal of
     /// its media or its instance.
     #[serde(default)]
@@ -205,7 +205,7 @@ pub struct DecisionQuery {
     pub simulation_id: Option<String>,
     /// Part of the title, ASCII letters in any case.
     pub search: Option<String>,
-    /// Include the superseded proposals. Defaults to false.
+    /// Include the superseded decisions. Defaults to false.
     pub include_superseded: Option<bool>,
     /// From 1. Defaults to 1.
     pub page: Option<u32>,

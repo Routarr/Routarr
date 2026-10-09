@@ -17,7 +17,6 @@ import Logs from './Logs.svelte';
  */
 
 const STRINGS = {
-  LogsTitle: 'Activity',
   ExportCsv: 'Export CSV',
   NoWritesYet: 'Nothing has been written yet',
   FilterByOutcome: 'Filter by outcome',

@@ -161,9 +161,9 @@ operations, new fields and new values of the open lists (`action`, `status`, `er
         (name = "status", description = "Whether Routarr is up, and what needs attention."),
         (name = "library", description = "The titles Routarr read from the Arrs, and where \
 each one goes."),
-        (name = "proposals", description = "Simulating the rules over the library, and \
-applying or reverting what they propose."),
-        (name = "exceptions", description = "Titles pinned to a category by hand, which \
+        (name = "decisions", description = "Simulating the rules over the library, and \
+applying or reverting the moves they decide."),
+        (name = "exceptions", description = "Titles whose category is forced by hand, which \
 outrank every rule."),
         (name = "tasks", description = "What ran in the background, and how it ended."),
         (name = "instances", description = "The Arrs Routarr reads, and reading them again."),
@@ -336,7 +336,7 @@ fn list_categories() {}
 /// The library, a page at a time
 ///
 /// Every title Routarr read from the Arrs, with the category the rules chose
-/// for it at the last simulation and the one an exception pins it to.
+/// for it at the last simulation and the one an exception forces on it.
 #[utoipa::path(
     get,
     path = "/media",
@@ -394,14 +394,14 @@ fn place_title() {}
 
 // --------------------------------------------------------------- proposals
 
-/// The proposals, a page at a time
+/// The decisions, a page at a time
 ///
 /// A pending decision is a move a simulation proposed. `status=pending` with
 /// `simulation_id` lists what one simulation proposed.
 #[utoipa::path(
     get,
     path = "/decisions",
-    tag = "proposals",
+    tag = "decisions",
     params(DecisionQuery),
     responses((status = 200, body = Page<Decision>))
 )]
@@ -410,7 +410,7 @@ fn list_decisions() {}
 
 /// Run the rules over the library
 ///
-/// With `persist: true` the proposals are stored under the `simulation_id`
+/// With `persist: true` the decisions are stored under the `simulation_id`
 /// this answers, replacing the pending ones of an earlier run. Only one
 /// persisting simulation runs at a time: another answers 409 until it ends.
 /// A preview, `persist: false`, waits its turn, and answers 409 while four
@@ -418,7 +418,7 @@ fn list_decisions() {}
 #[utoipa::path(
     post,
     path = "/simulate",
-    tag = "proposals",
+    tag = "decisions",
     request_body = SimulationRequest,
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
@@ -429,16 +429,16 @@ body = Accepted, headers(("Location" = String, description = "The task, under `/
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn simulate() {}
 
-/// Apply chosen proposals
+/// Apply chosen decisions
 ///
 /// Asks the Arr to move each title, behind the same guardrails as the
-/// interface. A proposal no longer pending is skipped, so sending the same
+/// interface. A decision no longer pending is skipped, so sending the same
 /// list twice moves nothing twice. `move_files` needs a key allowed to move
 /// files.
 #[utoipa::path(
     post,
     path = "/decisions/apply",
-    tag = "proposals",
+    tag = "decisions",
     request_body = ApplyDecisionsRequest,
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
@@ -462,7 +462,7 @@ fn apply() {}
 #[utoipa::path(
     post,
     path = "/decisions/apply-all",
-    tag = "proposals",
+    tag = "decisions",
     request_body = ApplyAllRequest,
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
@@ -485,7 +485,7 @@ fn apply_all() {}
 #[utoipa::path(
     post,
     path = "/decisions/revert",
-    tag = "proposals",
+    tag = "decisions",
     request_body = RevertDecisionsRequest,
     params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
 task has started, instead of its report."),),
@@ -513,9 +513,9 @@ fn revert() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_exceptions() {}
 
-/// Pin a title to a category
+/// Force a title's category
 ///
-/// Replaces the title's exception if it has one. The pending proposals for the
+/// Replaces the title's exception if it has one. The pending decisions for the
 /// title are withdrawn, since the exception now decides.
 #[utoipa::path(
     post,
@@ -538,12 +538,12 @@ fn set_exception() {}
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn remove_exception() {}
 
-/// Pin a title by the id another service gives it
+/// Force a title's category by the id another service gives it
 ///
 /// For an application that knows the title by its TMDB, TheTVDB or IMDb id.
-/// Every copy of the title the library holds is pinned, one per instance, or
-/// only the one on `instance`. Each replaces the exception its copy had, and
-/// the pending proposals for it are withdrawn. 404 when no copy is in the
+/// Every copy of the title the library holds has its category forced, one per
+/// instance, or only the one on `instance`. Each replaces the exception its copy had, and
+/// the pending decisions for it are withdrawn. 404 when no copy is in the
 /// library.
 #[utoipa::path(
     put,

@@ -82,13 +82,13 @@ Stated so a report can skip what is covered, and so a gap is easier to see.
   minutes, since each lookup reaches the Arr's own metadata service. A
   backup it takes is named apart, kept under a count of its own and taken ten
   minutes after the last at the earliest, so a loop removes none of the owner's
-  archives and does not hold the schedule off. A pin's reason holds 500
+  archives and does not hold the schedule off. An exception's reason holds 500
   characters and an installation 1000 rules, whoever writes them.
 - **What an application wrote is its own by its key, not its name.** Each task,
-  proposal, move and pin records the key that asked beside its name, and a key
-  reads its own name there and nobody else's: a key made under the name of a
-  revoked one reads the revoked one's records as anybody's. A key cannot carry
-  the names History shows for the account or the master key.
+  decision, move, exception and rule test records the key that asked beside its
+  name, and a key reads its own name there and nobody else's: a key made under
+  the name of a revoked one reads the revoked one's records as anybody's. A key
+  cannot carry the names History shows for the account or the master key.
 - **A notification can be signed.** With a signing secret, generated in the
   settings and shown once, every delivery carries Standard Webhooks headers:
   an HMAC-SHA256 of its id, its timestamp and its body, so a receiver can

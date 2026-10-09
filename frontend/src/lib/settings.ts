@@ -357,9 +357,9 @@ export const SECTIONS = [
     keys: ['security_log_retention_days'],
   },
   {
-    id: 'routing',
+    id: 'guardrails',
     page: 'settings',
-    labelKey: 'SettingsTabRouting',
+    labelKey: 'SettingsTabGuardrails',
     keys: ['global_dry_run', 'default_category', 'batch_limit', 'confirmation_threshold'],
   },
   {

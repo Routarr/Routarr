@@ -35,13 +35,13 @@ describe('navigation', () => {
     window.addEventListener('hashchange', listen);
     try {
       navigate('/settings#metadata');
-      navigate('/settings#routing');
-      navigate('/settings#routing');
+      navigate('/settings#guardrails');
+      navigate('/settings#guardrails');
     } finally {
       window.removeEventListener('hashchange', listen);
     }
 
-    expect(heard).toEqual(['#routing']);
+    expect(heard).toEqual(['#guardrails']);
   });
 
   /** As a link does in the browser: Back would otherwise take two presses to leave. */
@@ -272,10 +272,10 @@ describe('a screen that guards its work', () => {
   it('asks nothing for another section of the same screen', () => {
     const asked = guarded(false);
 
-    navigate('/settings#routing');
+    navigate('/settings#guardrails');
 
     expect(asked).not.toHaveBeenCalled();
-    expect(window.location.hash).toBe('#routing');
+    expect(window.location.hash).toBe('#guardrails');
   });
 
   it('puts the address back when Back is refused', async () => {

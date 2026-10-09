@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-/// An exception: a title pinned to a category by hand, which outranks every
-/// rule.
+/// An exception: a title whose category is forced by hand, which outranks
+/// every rule.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct OverrideEntry {
     pub id: String,
@@ -14,7 +14,7 @@ pub struct OverrideEntry {
     pub subject: Option<String>,
 }
 
-/// A title to pin, and the category to pin it to.
+/// A title, and the category to force on it.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct CreateOverrideRequest {
     /// The title's id in Routarr, as `/media` lists it.
@@ -24,7 +24,7 @@ pub struct CreateOverrideRequest {
     pub reason: Option<String>,
 }
 
-/// An exception, with the title it pins.
+/// An exception, with the title whose category it forces.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct OverrideWithMedia {
     #[serde(flatten)]

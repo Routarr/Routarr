@@ -29,7 +29,7 @@ It works in four steps, and only the last one writes to the library:
 A rule combines conditions with ALL or ANY, can carry explicit exclusions, has a priority, and
 routes to a category. The 28 conditions include genre, keywords, language, country,
 certification, age, size, paths, tags, Sonarr's series type and season count. The impact of a
-rule can be previewed before it is saved. An exception pins a title to a category and outranks
+rule can be previewed before it is saved. An exception forces a title's category and outranks
 every rule. For every title, the explanation shows what each condition expected and what it
 observed, for the winning rule and for every rule that did not win.
 
@@ -123,7 +123,7 @@ Security issues are reported privately through GitHub, as SECURITY.md describes,
 public issue. Only the most recent release is supported. Out of scope by design: a permission
 model for people (whoever signs in has the one level of access, and only the keys made for other
 applications are scoped), telemetry of any kind (opt-in included), a second database engine,
-signal weighting, nested condition groups, temporary exceptions and a persistent job queue.
+signal weighting, nested condition groups, temporary exceptions and a persistent task queue.
 
 The Site links below are the three English pages of the showcase site, and their French, German
 and Spanish copies are under Optional. Under Docs, repository files are linked as raw text, and

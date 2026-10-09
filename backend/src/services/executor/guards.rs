@@ -95,7 +95,7 @@ pub(super) async fn guard_batch_limit(state: &AppState, count: usize) -> AppResu
                 ("limit", &batch_limit.to_string()),
                 ("setting", &localizer.translate("SettingBatchLimit", &[])),
                 ("settings", &localizer.translate("Settings", &[])),
-                ("tab", &localizer.translate("SettingsTabRouting", &[])),
+                ("tab", &localizer.translate("SettingsTabGuardrails", &[])),
             ],
         )));
     }

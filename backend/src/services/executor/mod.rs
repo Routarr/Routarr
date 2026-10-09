@@ -45,7 +45,7 @@ pub struct ApplyReport {
     /// waiting. Their decisions are `requested`, and the next sync confirms or
     /// fails each.
     pub moving: usize,
-    /// Selected proposals a newer simulation replaced with a different move,
+    /// Selected decisions a newer simulation replaced with a different move,
     /// not applied. One replaced by the same move is applied through it.
     pub superseded: usize,
     /// Why the run ended before its last move, `null` when it ran through.
@@ -141,7 +141,7 @@ pub struct BatchApplyReport {
     /// Moves of files the Arr was still making when the run stopped waiting,
     /// as in `ApplyReport`.
     pub moving: usize,
-    /// Proposals of the simulation a newer one replaced with a different
+    /// Decisions of the simulation a newer one replaced with a different
     /// move, not applied.
     pub superseded: usize,
     /// True when the Arr refused a slice whole, one could not be read once

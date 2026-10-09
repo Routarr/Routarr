@@ -80,7 +80,7 @@ pub async fn create(
         .map(Json)
 }
 
-/// The category to pin a title to, and why.
+/// The category to force on a title, and why.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct PinRequest {
     /// The name of an existing category.

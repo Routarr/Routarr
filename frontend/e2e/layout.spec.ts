@@ -698,7 +698,7 @@ test.describe('every screen draws a shared thing the same way', () => {
    * mark are what only a stylesheet draws.
    */
   test('marks a value outside its bounds on its field and on its tab', async ({ page }) => {
-    await page.goto('/settings#routing');
+    await page.goto('/settings#guardrails');
     const field = page.getByLabel('Batch limit', { exact: true });
     await field.fill('0');
 
@@ -717,7 +717,7 @@ test.describe('every screen draws a shared thing the same way', () => {
       .toBe(danger);
 
     await page.getByRole('tab', { name: 'General' }).click();
-    const tab = page.getByRole('tab', { name: 'Routing: a value is outside its bounds' });
+    const tab = page.getByRole('tab', { name: 'Guardrails: a value is outside its bounds' });
     await expect(tab.locator('svg')).toBeVisible();
   });
 });

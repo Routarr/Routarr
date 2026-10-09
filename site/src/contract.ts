@@ -68,6 +68,14 @@ export interface Group {
 }
 
 const contract = (await releasedContract(version, local)) as Contract;
+
+/**
+ * A tag renamed since the release the page names, read under its current name:
+ * the catalogues hold the sentences of this checkout's tags, which `check.mjs`
+ * reads, and a release's old name would find none.
+ */
+const RENAMED: Record<string, string> = { proposals: 'decisions' };
+const current = (tag: string) => RENAMED[tag] ?? tag;
 const schemas = contract.components?.schemas ?? {};
 
 const named = (ref: string) => ref.split('/').pop() ?? ref;
@@ -122,7 +130,7 @@ const operations: (Operation & { tag: string })[] = Object.entries(contract.path
   ([path, methods]) =>
     Object.entries(methods).map(([method, operation]) => ({
       id: operation.operationId,
-      tag: operation.tags?.[0] ?? '',
+      tag: current(operation.tags?.[0] ?? ''),
       method: method.toUpperCase(),
       path,
       scope: operation['x-routarr-scope'] ?? null,
@@ -139,5 +147,6 @@ const operations: (Operation & { tag: string })[] = Object.entries(contract.path
 
 /** The groups in the contract's own order, each with its operations. */
 export const groups: Group[] = (contract.tags ?? [])
-  .map(({ name }) => ({ tag: name, operations: operations.filter((op) => op.tag === name) }))
+  .map(({ name }) => current(name))
+  .map((tag) => ({ tag, operations: operations.filter((op) => op.tag === tag) }))
   .filter((group) => group.operations.length > 0);

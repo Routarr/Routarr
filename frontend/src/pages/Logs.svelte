@@ -109,9 +109,9 @@
   </div>
 
   <div class="card">
-    <TableRegion label={t('LogsTitle')}>
+    <TableRegion label={t('Logs')}>
       <table>
-        <caption class="visually-hidden">{t('LogsTitle')}</caption>
+        <caption class="visually-hidden">{t('Logs')}</caption>
         <thead>
           <tr>
             <th>{t('When')}</th>

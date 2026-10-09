@@ -34,7 +34,7 @@
   const TAGS: Record<string, string> = {
     status: 'ApiTagStatus',
     library: 'ApiTagLibrary',
-    proposals: 'ApiTagProposals',
+    decisions: 'ApiTagDecisions',
     exceptions: 'ApiTagExceptions',
     tasks: 'ApiTagTasks',
     instances: 'ApiTagInstances',

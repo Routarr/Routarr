@@ -13,8 +13,8 @@ almost any change, and it will save you from undoing something on purpose.
 A few features have been considered and deliberately left out, because they
 complicate the engine or the interface without serving what Routarr is for:
 deciding which root folder a media item belongs in, and getting it there
-safely. Signal weighting, nested condition groups, temporary overrides and a
-persistent job queue are the ones that come up. Please open an issue before
+safely. Signal weighting, nested condition groups, temporary exceptions and a
+persistent task queue are the ones that come up. Please open an issue before
 building one of those rather than after.
 
 ## Getting set up

@@ -180,7 +180,7 @@
     window.history.replaceState(null, '', `${pathname}${search}#${id}`);
   }
 
-  // A hash that changes without a remount, as a link to `#routing` followed
+  // A hash that changes without a remount, as a link to `#guardrails` followed
   // from this very page, has to move the section too. Read once at mount, the
   // URL and the screen disagree.
   $effect(() => {
@@ -489,7 +489,7 @@
   <!-- The guide's two optional steps are done on these screens. -->
   {#if section === 'metadata'}
     <GuideStepBanner step="metadata" />
-  {:else if section === 'routing'}
+  {:else if section === 'guardrails'}
     <GuideStepBanner step="live" />
   {/if}
 
