@@ -75,6 +75,36 @@ describe('navigation', () => {
     expect(router.path).toBe('/');
   });
 
+  /**
+   * A bookmark or a proxy may add a slash: `/rules/` is the Rules screen, not
+   * a page that is not found under a menu marking Rules current.
+   */
+  it('takes a path with a trailing slash for the screen without it', () => {
+    const stop = interceptLinks();
+    try {
+      for (const base of ['', '/routarr/']) {
+        withBase(base || null);
+        window.history.replaceState({}, '', `${base.replace(/\/$/, '')}/rules/`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+
+        expect(router.path).toBe('/rules');
+      }
+    } finally {
+      stop();
+    }
+  });
+
+  it('writes the address of a screen reached with a trailing slash without it', async () => {
+    window.history.replaceState({}, '', '/rules/?from=bookmark#top');
+    vi.resetModules();
+
+    const loaded = await import('./router.svelte');
+
+    expect(loaded.router.path).toBe('/rules');
+    const { pathname, search, hash } = window.location;
+    expect(`${pathname}${search}${hash}`).toBe('/rules?from=bookmark#top');
+  });
+
   /** `/routarr` is a prefix of `/routarrX`, which is not under it. */
   it('does not take a path beside the mount point for one under it', () => {
     withBase('/routarr/');
