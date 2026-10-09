@@ -76,7 +76,7 @@
   "ScopeWriteHelp": "Add or remove an exception, which forces a title's category.",
   "ScopeConfigure": "Configure",
   "ScopeConfigureHelp": "Create, change or remove rules, categories, folder mappings, declared destinations and rule tests: what decides where every title goes.",
-  "ApiKeyPlaintextHint": "Stored in plaintext from an older version. Re-save the instance to encrypt it",
+  "ApiKeyPlaintextHint": "Stored in plaintext. Save the instance again to encrypt it.",
   "ApiKeyRejected": "That key was refused. Check it and try again.",
   "ApiKeyRemoved": "API key removed.",
   "ApiKeyRequired": "This Routarr needs an API key",

@@ -64,7 +64,7 @@ const STRINGS = {
   Saving: 'Saving…',
   ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
   InstanceDeleted: 'Instance deleted',
-  ApiKeyPlaintextHint: 'Stored in plaintext. Re-save the instance to encrypt it',
+  ApiKeyPlaintextHint: 'Stored in plaintext. Save the instance again to encrypt it.',
   ConfirmDiscardInstance: 'Close the instance without saving?',
 };
 
@@ -259,7 +259,7 @@ describe('Instances', () => {
     show([instance({ api_key_encrypted: false })]);
 
     const row = await screen.findByRole('row', { name: /Radarr/ });
-    expect(row).toHaveTextContent('Re-save the instance to encrypt it');
+    expect(row).toHaveTextContent('Save the instance again to encrypt it.');
   });
 
   /** A typed address and key go with the dialog, whether it closes or the screen changes. */
