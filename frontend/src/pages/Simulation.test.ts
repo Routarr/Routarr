@@ -43,6 +43,8 @@ const STRINGS = {
   ApplyStoppedOnRequest: 'Stopped on request',
   StopTask: 'Stop',
   ApplyAllHint: 'Every move this run proposed, in batches.',
+  SkippedUnmappedWarning: 'Skipped: {count}. Map it on {screen}.',
+  RootFolders: 'Categories and folders',
 };
 
 /** What each run stored, as `/decisions` lists it under the run's id. */
@@ -358,6 +360,19 @@ describe('what the screen refuses to do', () => {
     // The one question answers what it states, so every name goes back.
     expect(nthCall(applyAll)[2]).toEqual([]);
     expect(nthCall(applyAll, 1)[2]).toEqual(['batch', 'unreachable']);
+  });
+
+  /** The screen where the category is mapped, by the name the navigation gives it. */
+  it('sends a skipped item to the screen that maps its category', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue({
+      ...simulation([decision()]),
+      skipped_unmapped: 2,
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    expect(await screen.findByText('Skipped: 2. Map it on Categories and folders.')).toBeTruthy();
   });
 
   /** What Apply all reaches is said beside it, not in a title only a mouse shows. */

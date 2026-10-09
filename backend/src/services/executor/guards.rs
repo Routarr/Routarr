@@ -86,9 +86,17 @@ pub(super) async fn guard_batch_limit(state: &AppState, count: usize) -> AppResu
 
     let batch_limit: usize = state.bounding_setting::<usize>("batch_limit").await?;
     if count > batch_limit {
+        // The setting by its label and where it is edited: its storage key
+        // names no field anybody can find.
         return Err(AppError::BadRequest(localizer.translate(
             "ErrorBatchLimit",
-            &[("count", &count.to_string()), ("limit", &batch_limit.to_string())],
+            &[
+                ("count", &count.to_string()),
+                ("limit", &batch_limit.to_string()),
+                ("setting", &localizer.translate("SettingBatchLimit", &[])),
+                ("settings", &localizer.translate("Settings", &[])),
+                ("tab", &localizer.translate("SettingsTabRouting", &[])),
+            ],
         )));
     }
     Ok(())

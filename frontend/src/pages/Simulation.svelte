@@ -352,7 +352,12 @@
     </div>
 
     {#if result.skipped_unmapped > 0}
-      <WarningBanner message={t('SkippedUnmappedWarning', { count: result.skipped_unmapped })} />
+      <WarningBanner
+        message={t('SkippedUnmappedWarning', {
+          count: result.skipped_unmapped,
+          screen: t('RootFolders'),
+        })}
+      />
     {/if}
 
     <!-- What the plan weighs, before anything is written. `free_space` is

@@ -1826,7 +1826,12 @@ async fn applying_more_than_the_batch_limit_is_refused() {
         )
         .await;
     response.assert_status(StatusCode::BAD_REQUEST);
-    assert!(response.message().contains("above the batch limit"));
+    let message = response.message();
+    assert!(message.contains("above the batch limit"), "{message}");
+    // The setting as the interface labels it, where it is: its storage key
+    // names no field anybody can find.
+    assert!(message.contains("Batch limit") && message.contains("Settings ("), "{message}");
+    assert!(!message.contains("batch_limit"), "{message}");
 }
 
 #[tokio::test]
