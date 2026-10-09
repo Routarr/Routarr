@@ -97,11 +97,12 @@ export function seedDictionary(
   strings: Dictionary,
   language = 'en',
   counts: readonly string[] = [],
+  direction: 'ltr' | 'rtl' = 'ltr',
 ): void {
   state.strings = strings;
   state.language = language;
   state.counts = counts;
-  state.direction = 'ltr';
+  state.direction = direction;
   state.isolated = [];
 }
 

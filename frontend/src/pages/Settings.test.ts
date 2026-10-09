@@ -125,6 +125,7 @@ function mount(
   auth: AuthMode = APIKEY_MODE,
   provider: ProviderOverride = {},
   page: typeof Settings = Settings,
+  direction: 'ltr' | 'rtl' = 'ltr',
 ) {
   vi.spyOn(api, 'authMode').mockResolvedValue(auth);
   vi.spyOn(api, 'getSettings').mockResolvedValue(settings);
@@ -167,7 +168,7 @@ function mount(
     ],
     order: provider.order ?? ['arr'],
   });
-  return renderWithI18n(page, { strings: STRINGS });
+  return renderWithI18n(page, { strings: STRINGS, direction });
 }
 
 /** The metadata sources screen, with the same stand-ins as Settings. */
@@ -754,6 +755,20 @@ describe('the section strip', () => {
       ),
     );
   });
+
+  /** Right to left, the next tab is drawn on the left, and ArrowLeft reaches it. */
+  it('follows the writing direction with the arrow keys', async () => {
+    mount({}, APIKEY_MODE, {}, Settings, 'rtl');
+
+    const general = await screen.findByRole('tab', { name: 'General' });
+    await fireEvent.keyDown(general, { key: 'ArrowLeft' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe(
+        'true',
+      ),
+    );
+  });
 });
 
 /**
@@ -1318,7 +1333,10 @@ describe('the getting-started guide', () => {
     navigate('/settings#guardrails');
 
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'Guardrails' })).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByRole('tab', { name: 'Guardrails' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
     );
   });
 

@@ -455,10 +455,13 @@
 
   function onTabKey(event: KeyboardEvent) {
     const index = sections.findIndex((entry) => entry.id === section);
+    // The next tab is drawn where the text goes: on the left, right to left.
+    const [forward, back] =
+      i18n.direction === 'rtl' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
     const next =
-      event.key === 'ArrowRight'
+      event.key === forward
         ? (index + 1) % sections.length
-        : event.key === 'ArrowLeft'
+        : event.key === back
           ? (index - 1 + sections.length) % sections.length
           : event.key === 'Home'
             ? 0
