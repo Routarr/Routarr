@@ -3,6 +3,7 @@
   import { formatCount } from '../api/format';
   import { i18n, t } from '../lib/i18n.svelte';
   import { GROUPS, type Counts } from '../lib/navigation';
+  import { X } from '../lib/icons';
 
   /** Amber asks for attention, red says something failed, the rest is just a
       number, so a count is never louder than what it counts. */
@@ -25,6 +26,7 @@
     open = false,
     offstage = false,
     onNavigate,
+    onClose,
     counts = { jobs: 0, decisions: 0, failed: 0, warnings: 0 },
     version,
     onAbout,
@@ -33,6 +35,11 @@
     /** Out of sight, a closed drawer: nothing in it may take the focus. */
     offstage?: boolean;
     onNavigate?: () => void;
+    /**
+     * Closes the drawer from inside it. The open drawer makes the page inert,
+     * its toggle included, and a screen reader's swipe sends no Escape.
+     */
+    onClose?: () => void;
     counts?: Counts;
     version?: string;
     /** Opens what Routarr is: its licence and the credits its sources ask for. */
@@ -55,6 +62,15 @@
       <path d="M15 6a9 9 0 0 0-9 9" />
     </svg>
     <span class="sidebar-title">Routarr</span>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm sidebar-close"
+      aria-label={t('Dismiss')}
+      title={t('Dismiss')}
+      onclick={onClose}
+    >
+      <X size={18} aria-hidden="true" />
+    </button>
   </div>
 
   <nav class="sidebar-nav" aria-label={t('MainNavigation')}>

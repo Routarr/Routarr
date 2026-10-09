@@ -121,6 +121,14 @@
     document.querySelector<HTMLElement>('#sidebar a')?.focus();
   }
 
+  // The page under the drawer stays inert until the redraw, and an inert
+  // toggle takes no focus.
+  async function closeDrawer() {
+    drawer = false;
+    await tick();
+    drawerToggle?.focus();
+  }
+
   let palette = $state(false);
   let about = $state(false);
 
@@ -146,8 +154,7 @@
     // going back to the button that opened it. An open dialog answers Escape
     // itself.
     if (event.key === 'Escape' && drawer && !document.querySelector('dialog[open]')) {
-      drawer = false;
-      drawerToggle?.focus();
+      void closeDrawer();
       return;
     }
     // Alt and Shift are somebody else's: Ctrl+Shift+K is Firefox's console,
@@ -269,6 +276,7 @@
       open={drawer}
       offstage={narrow && !drawer}
       onNavigate={() => (drawer = false)}
+      onClose={() => void closeDrawer()}
       version={status.data?.version}
       onAbout={() => (about = true)}
       counts={{

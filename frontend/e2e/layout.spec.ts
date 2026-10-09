@@ -341,6 +341,35 @@ test.describe('on a phone', () => {
     await expect(sidebar).not.toHaveClass(/is-open/);
     await expect(page).toHaveURL(/\/library/);
   });
+
+  /**
+   * The open drawer makes the page inert, its toggle included, and a screen
+   * reader's swipe sends no Escape: the drawer carries its own way out, which
+   * hands the focus back to the toggle.
+   */
+  test('the open drawer closes from a button of its own', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/rules');
+    const toggle = page.getByRole('button', { name: 'Open navigation' });
+    await toggle.click();
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar).toHaveClass(/is-open/);
+
+    await page.keyboard.press('Shift+Tab');
+    const close = sidebar.getByRole('button', { name: 'Dismiss' });
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(sidebar).not.toHaveClass(/is-open/);
+    await expect(toggle).toBeFocused();
+
+    // Escape, the keyboard's way out, hands the focus back the same way.
+    await toggle.click();
+    await expect(sidebar).toHaveClass(/is-open/);
+    await page.keyboard.press('Escape');
+    await expect(sidebar).not.toHaveClass(/is-open/);
+    await expect(toggle).toBeFocused();
+  });
 });
 
 test.describe('spacing the reset takes away', () => {

@@ -2530,18 +2530,22 @@ td * {
 }
 
 /* The drawer button only exists where the drawer does. */
-.sidebar-toggle {
+/* The drawer's toggle in the top bar, and its close button in the drawer's
+   header, at its far end: both exist only where the navigation is a drawer. */
+.sidebar-toggle,
+.sidebar-close {
   display: none;
 }
+.sidebar-close {
+  margin-inline-start: auto;
+}
 @media (max-width: 900px) {
-  .sidebar-toggle {
+  .sidebar-toggle,
+  .sidebar-close {
     display: inline-flex;
   }
 }
 
-/* Two lines, then an ellipsis and the full sentence in the tooltip. Otherwise
-   rows keep a rhythm of their own: a three-line justification makes its row
-   twice the height of the one above. */
 /* What the explanation panel can do about its title, each action above what
    it does: side by side where they fit, one under the other on a phone. */
 .explain-actions {
@@ -2554,6 +2558,9 @@ td * {
   flex: 1 1 240px;
 }
 
+/* Two lines, then an ellipsis and the rest behind the row's button. Otherwise
+   rows keep a rhythm of their own: a three-line justification makes its row
+   twice the height of the one above. */
 .reason-line {
   font-size: 12px;
   display: -webkit-box;
