@@ -501,7 +501,6 @@
   "ImportReplace": "استبدال الكل",
   "ImportReplaceQuestion": "هل تُستبدل كل قاعدة قائمة بالقواعد الموجودة في هذا الملف؟",
   "ImportResult": "القواعد المستوردة: {count}",
-  "ImportSkipped": "، المتخطاة: {count}",
   "InYourLibrary": "‏في مكتبتك ({count})",
   "Inaccessible": "غير متاح",
   "IncludeSuperseded": "تضمين الاقتراحات التي استبدلها تشغيل أحدث",

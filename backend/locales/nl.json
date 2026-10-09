@@ -501,7 +501,6 @@
   "ImportReplace": "Alles vervangen",
   "ImportReplaceQuestion": "Alle bestaande regels vervangen door die uit dit bestand?",
   "ImportResult": "Geïmporteerde regels: {count}",
-  "ImportSkipped": ", overgeslagen: {count}",
   "InYourLibrary": "In je bibliotheek ({count})",
   "Inaccessible": "Onbereikbaar",
   "IncludeSuperseded": "Voorstellen tonen die door een nieuwere run zijn vervangen",

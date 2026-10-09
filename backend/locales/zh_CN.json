@@ -501,7 +501,6 @@
   "ImportReplace": "全部替换",
   "ImportReplaceQuestion": "要用此文件中的规则替换所有现有规则吗？",
   "ImportResult": "已导入的规则：{count}",
-  "ImportSkipped": "，已跳过：{count}",
   "InYourLibrary": "你的媒体库中（{count}）",
   "Inaccessible": "不可访问",
   "IncludeSuperseded": "包含已被更近一次运行取代的提案",

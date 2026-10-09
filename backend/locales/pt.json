@@ -501,7 +501,6 @@
   "ImportReplace": "Substituir tudo",
   "ImportReplaceQuestion": "Substituir todas as regras existentes pelas deste ficheiro?",
   "ImportResult": "Regras importadas: {count}",
-  "ImportSkipped": ", ignoradas: {count}",
   "InYourLibrary": "Na sua biblioteca ({count})",
   "Inaccessible": "Inacessível",
   "IncludeSuperseded": "Incluir propostas substituídas por uma execução mais recente",

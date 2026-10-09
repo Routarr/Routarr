@@ -501,7 +501,6 @@
   "ImportReplace": "Reemplaça-ho tot",
   "ImportReplaceQuestion": "Vols substituir totes les regles existents per les d'aquest fitxer?",
   "ImportResult": "Regles importades: {count}",
-  "ImportSkipped": ", omeses: {count}",
   "InYourLibrary": "A la teva biblioteca ({count})",
   "Inaccessible": "Inaccessible",
   "IncludeSuperseded": "Inclou les propostes substituïdes per una execució més recent",

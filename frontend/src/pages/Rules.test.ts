@@ -46,7 +46,7 @@ const STRINGS = {
   None: 'none',
   AddCondition: 'Add a condition',
   ImportResult: 'Rules imported: {count}',
-  ImportSkipped: ', skipped: {count}',
+  ImportResultWithSkipped: 'Rules imported: {count}, skipped: {skipped}',
   ImportReplaceQuestion: 'Replace the rules, or add to them?',
   RuleAnalysisUnavailable: 'The rule analysis could not be read.',
   RuleShadowed: 'Under {rule}',

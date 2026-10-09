@@ -501,7 +501,6 @@
   "ImportReplace": "全部取代",
   "ImportReplaceQuestion": "要以此檔案中的規則取代所有現有規則嗎？",
   "ImportResult": "已匯入的規則：{count}",
-  "ImportSkipped": "，已略過：{count}",
   "InYourLibrary": "你的媒體庫中（{count}）",
   "Inaccessible": "無法存取",
   "IncludeSuperseded": "包含已被較新一次執行取代的提案",

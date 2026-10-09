@@ -506,7 +506,7 @@
   "ImportReplace": "Replace all",
   "ImportReplaceQuestion": "Replace every existing rule with the ones in this file?",
   "ImportResult": "Rules imported: {count}",
-  "ImportSkipped": ", skipped: {count}",
+  "ImportResultWithSkipped": "Rules imported: {count}, skipped: {skipped}",
   "InYourLibrary": "In your library ({count})",
   "Inaccessible": "Inaccessible",
   "IncludeSuperseded": "Include decisions replaced by a newer run",

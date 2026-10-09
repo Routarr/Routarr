@@ -501,7 +501,6 @@
   "ImportReplace": "Tümünü değiştir",
   "ImportReplaceQuestion": "Mevcut tüm kurallar bu dosyadakilerle değiştirilsin mi?",
   "ImportResult": "İçe aktarılan kurallar: {count}",
-  "ImportSkipped": ", atlanan: {count}",
   "InYourLibrary": "Kitaplığınızda ({count})",
   "Inaccessible": "Erişilemez",
   "IncludeSuperseded": "Daha yeni bir çalıştırmayla değiştirilen önerileri de göster",

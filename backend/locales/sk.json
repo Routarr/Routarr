@@ -501,7 +501,6 @@
   "ImportReplace": "Nahradiť všetko",
   "ImportReplaceQuestion": "Nahradiť všetky existujúce pravidlá tými z tohto súboru?",
   "ImportResult": "Importované pravidlá: {count}",
-  "ImportSkipped": ", preskočené: {count}",
   "InYourLibrary": "Vo vašej knižnici ({count})",
   "Inaccessible": "Nedostupný",
   "IncludeSuperseded": "Zahrnúť návrhy nahradené novším behom",

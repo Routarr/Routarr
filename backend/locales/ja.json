@@ -501,7 +501,6 @@
   "ImportReplace": "すべて置換",
   "ImportReplaceQuestion": "既存のルールをすべてこのファイルの内容で置き換えますか？",
   "ImportResult": "インポートしたルール: {count}",
-  "ImportSkipped": "、スキップ: {count}",
   "InYourLibrary": "ライブラリ内 ({count})",
   "Inaccessible": "アクセス不可",
   "IncludeSuperseded": "より新しい実行に置き換えられた提案も含める",

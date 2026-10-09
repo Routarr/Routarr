@@ -501,7 +501,6 @@
   "ImportReplace": "Замінити все",
   "ImportReplaceQuestion": "Замінити всі наявні правила правилами з цього файлу?",
   "ImportResult": "Імпортовано правил: {count}",
-  "ImportSkipped": ", пропущено: {count}",
   "InYourLibrary": "У вашій бібліотеці ({count})",
   "Inaccessible": "Недоступна",
   "IncludeSuperseded": "Показувати пропозиції, замінені пізнішим запуском",

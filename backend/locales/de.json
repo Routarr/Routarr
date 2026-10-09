@@ -501,7 +501,6 @@
   "ImportReplace": "Alle ersetzen",
   "ImportReplaceQuestion": "Alle bestehenden Regeln durch die aus dieser Datei ersetzen?",
   "ImportResult": "Importierte Regeln: {count}",
-  "ImportSkipped": ", übersprungen: {count}",
   "InYourLibrary": "In Ihrer Bibliothek ({count})",
   "Inaccessible": "Nicht erreichbar",
   "IncludeSuperseded": "Von einem neueren Lauf ersetzte Vorschläge einbeziehen",

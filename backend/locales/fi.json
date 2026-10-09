@@ -501,7 +501,6 @@
   "ImportReplace": "Korvaa kaikki",
   "ImportReplaceQuestion": "Korvataanko kaikki nykyiset säännöt tämän tiedoston säännöillä?",
   "ImportResult": "Tuotuja sääntöjä: {count}",
-  "ImportSkipped": ", ohitettu: {count}",
   "InYourLibrary": "Kirjastossasi ({count})",
   "Inaccessible": "Tavoittamattomissa",
   "IncludeSuperseded": "Näytä myös uudemman ajon korvaamat ehdotukset",

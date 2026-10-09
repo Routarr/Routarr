@@ -501,7 +501,6 @@
   "ImportReplace": "Nahradit vše",
   "ImportReplaceQuestion": "Nahradit všechna stávající pravidla těmi z tohoto souboru?",
   "ImportResult": "Importovaná pravidla: {count}",
-  "ImportSkipped": ", přeskočeno: {count}",
   "InYourLibrary": "Ve vaší knihovně ({count})",
   "Inaccessible": "Nedostupná",
   "IncludeSuperseded": "Zahrnout návrhy nahrazené novějším během",

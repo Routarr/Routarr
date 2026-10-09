@@ -501,7 +501,6 @@
   "ImportReplace": "Összes cseréje",
   "ImportReplaceQuestion": "Lecseréli az összes meglévő szabályt a fájlban lévőkre?",
   "ImportResult": "Importált szabályok: {count}",
-  "ImportSkipped": ", kihagyva: {count}",
   "InYourLibrary": "A könyvtárban ({count})",
   "Inaccessible": "Nem érhető el",
   "IncludeSuperseded": "Az újabb futtatás által felváltott javaslatok megjelenítése",

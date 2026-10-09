@@ -501,7 +501,6 @@
   "ImportReplace": "Αντικατάσταση όλων",
   "ImportReplaceQuestion": "Να αντικατασταθούν όλοι οι υπάρχοντες κανόνες με αυτούς του αρχείου;",
   "ImportResult": "Κανόνες που εισήχθησαν: {count}",
-  "ImportSkipped": ", παραλείφθηκαν: {count}",
   "InYourLibrary": "Στη βιβλιοθήκη σας ({count})",
   "Inaccessible": "Μη προσβάσιμος",
   "IncludeSuperseded": "Συμπερίληψη προτάσεων που αντικαταστάθηκαν από νεότερη εκτέλεση",

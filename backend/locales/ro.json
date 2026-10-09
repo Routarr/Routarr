@@ -501,7 +501,6 @@
   "ImportReplace": "Înlocuiește tot",
   "ImportReplaceQuestion": "Înlocuiești toate regulile existente cu cele din acest fișier?",
   "ImportResult": "Reguli importate: {count}",
-  "ImportSkipped": ", omise: {count}",
   "InYourLibrary": "În biblioteca ta ({count})",
   "Inaccessible": "Inaccesibil",
   "IncludeSuperseded": "Include propunerile înlocuite de o rulare mai recentă",

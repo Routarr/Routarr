@@ -230,9 +230,12 @@
       ]);
       if (answer === null) return;
       const result = await api.importRules(parsed, answer === 'replace');
-      const summary =
-        t('ImportResult', { count: result.imported }) +
-        (result.skipped.length ? t('ImportSkipped', { count: result.skipped.length }) : '');
+      const summary = result.skipped.length
+        ? t('ImportResultWithSkipped', {
+            count: result.imported,
+            skipped: result.skipped.length,
+          })
+        : t('ImportResult', { count: result.imported });
       // A rule imported switched off, or limited to fewer instances, is
       // imported, and still needs somebody to look at it.
       const details = [...result.skipped, ...result.adjusted];

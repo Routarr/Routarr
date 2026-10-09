@@ -501,7 +501,6 @@
   "ImportReplace": "Erstatt alle",
   "ImportReplaceQuestion": "Skal alle eksisterende regler erstattes med dem i denne filen?",
   "ImportResult": "Importerte regler: {count}",
-  "ImportSkipped": ", hoppet over: {count}",
   "InYourLibrary": "I biblioteket ditt ({count})",
   "Inaccessible": "Utilgjengelig",
   "IncludeSuperseded": "Ta med forslag som er erstattet av en nyere kjøring",
