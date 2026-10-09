@@ -197,6 +197,30 @@ describe('Layout', () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * The shell's own refused read is no news to it: re-read for it, each read
+   * would supersede the last before it could say it was refused, for good.
+   */
+  it('reads its status once when the browser has no session, not in a loop', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const path = new URL(url, 'http://routarr.test').pathname;
+        asked.push(path);
+        return path.endsWith('/auth/mode')
+          ? new Response('{"mode":"apikey","api_key_configured":true,"api_key_pinned":false}')
+          : new Response('{"error":"unauthorized","message":"refused"}', { status: 401 });
+      }),
+    );
+    show();
+
+    expect(await screen.findByText('This Routarr needs an API key')).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(asked.filter((path) => path.endsWith('/status')).length).toBeLessThanOrEqual(2);
+    vi.unstubAllGlobals();
+  });
+
   /** Any other failure is a banner, not a gate: the pages still work. */
   it('does not ask for a key when the failure was something else', async () => {
     vi.spyOn(api, 'getStatus').mockRejectedValue(new ApiError('Boom', 500, 'internal'));

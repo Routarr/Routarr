@@ -207,10 +207,12 @@
   );
   // A refusal any screen meets is a session that ended or a key refused, so
   // the status is read again now and the gate replaces the shell at once.
-  // Once the shell knows, there is nothing to read again.
+  // Nothing to read again once the shell knows, nor while its own read is out:
+  // that read's refusal is its answer, and a read started for it would replace
+  // it before it lands, one after the other for good.
   $effect(() =>
     onRefused(() => {
-      if (!unauthorized) invalidateStatus();
+      if (!unauthorized && !status.loading) invalidateStatus();
     }),
   );
   // Until the mode is known, the key gate is the safer guess: it is the default
