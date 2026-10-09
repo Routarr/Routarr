@@ -21,6 +21,9 @@ pub struct LocalizationResponse {
     /// The placeholders that hold a count, grouped as the language groups
     /// digits.
     pub counts: &'static [&'static str],
+    /// The placeholders that hold a machine format, isolated in a sentence
+    /// written right to left.
+    pub isolated: &'static [&'static str],
 }
 
 /// The dictionary for the configured language.
@@ -36,6 +39,7 @@ pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<Localiz
         // switches language, rather than a frame later.
         direction: localization::direction(&language),
         counts: localization::COUNTS,
+        isolated: localization::ISOLATED,
         language,
     }))
 }

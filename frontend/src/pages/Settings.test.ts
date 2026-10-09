@@ -194,6 +194,7 @@ async function save(): Promise<Record<string, string>> {
     direction: 'ltr',
     strings: STRINGS,
     counts: [...SERVER_COUNTS],
+    isolated: [],
   });
   await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
   await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
@@ -409,6 +410,7 @@ describe('the save bar', () => {
       direction: 'ltr',
       strings: STRINGS,
       counts: [...SERVER_COUNTS],
+      isolated: [],
     });
     mount({ batch_limit: '50' });
     await openSection('Guardrails');

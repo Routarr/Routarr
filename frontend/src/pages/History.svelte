@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatTimestamp, isolated, statusKey, triggerKey } from '../api/format';
+  import { formatTimestamp, statusKey, triggerKey } from '../api/format';
   import { handFocus } from '../lib/focus';
   import type { Decision } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -272,7 +272,7 @@
       <p>
         {t('ConfirmRevert', {
           title: target.media_title,
-          path: isolated(target.current_root_folder ?? ''),
+          path: target.current_root_folder ?? '',
         })}
       </p>
       <label class="flex items-center gap-2 mt-4">

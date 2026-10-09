@@ -106,9 +106,16 @@
       {/each}
       {#each decision.alternatives as alternative, index (index)}
         <span class="text-muted text-xs">
-          {alternative.excluded_by
-            ? `⛔ ${t('ExcludedAlternative', { rule: alternative.rule_name, reason: alternative.excluded_by })}`
-            : `↳ ${t('AlsoMatched', { rule: alternative.rule_name, category: alternative.category })}`}
+          {#if alternative.excluded_by}
+            ⛔ {t('ExcludedAlternative', {
+              rule: alternative.rule_name,
+              reason: alternative.excluded_by,
+            })}
+          {:else}
+            <!-- Mirrored with the text: it points from the rule above to this one. -->
+            <span class="dir-aware" aria-hidden="true">↳</span>
+            {t('AlsoMatched', { rule: alternative.rule_name, category: alternative.category })}
+          {/if}
         </span>
       {/each}
     </div>

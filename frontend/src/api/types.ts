@@ -154,6 +154,8 @@ export interface Localization {
   strings: Record<string, string>;
   /** The placeholders that hold a count, grouped as the language groups digits. */
   counts: string[];
+  /** The placeholders that hold a machine format, isolated in a right-to-left sentence. */
+  isolated: string[];
 }
 
 export interface BackupFile {

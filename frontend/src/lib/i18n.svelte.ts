@@ -1,5 +1,5 @@
 import { api } from '../api/client';
-import { bcp47, formatCount } from '../api/format';
+import { bcp47, formatCount, isolated } from '../api/format';
 
 type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
@@ -25,11 +25,21 @@ const state = $state({
    * placeholders in the sentences it writes.
    */
   counts: [] as readonly string[],
+  /**
+   * The placeholders that hold a path, an address or a variable's name, set
+   * in an isolate in a right-to-left sentence so they keep their own
+   * direction. The server's list (`ISOLATED`), which it applies to the
+   * sentences it writes.
+   */
+  isolated: [] as readonly string[],
 });
 
 function shown(name: string, value: Params[string] | undefined): string {
-  if (typeof value !== 'number' || !state.counts.includes(name)) return String(value);
-  return formatCount(value, state.language);
+  const text =
+    typeof value === 'number' && state.counts.includes(name)
+      ? formatCount(value, state.language)
+      : String(value);
+  return state.direction === 'rtl' && state.isolated.includes(name) ? isolated(text) : text;
 }
 
 // One pass over the template: a value is never read again, so a `{name}`
@@ -70,6 +80,7 @@ export async function loadDictionary(): Promise<void> {
     state.strings = response.strings;
     state.language = response.language;
     state.counts = response.counts;
+    state.isolated = response.isolated;
     document.documentElement.lang = bcp47(response.language);
     // The backend owns the script list, so adding an RTL language there turns
     // the interface around with nothing to change here.
@@ -90,6 +101,8 @@ export function seedDictionary(
   state.strings = strings;
   state.language = language;
   state.counts = counts;
+  state.direction = 'ltr';
+  state.isolated = [];
 }
 
 /**

@@ -420,7 +420,7 @@ describe('Root folders', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/anime' }));
 
-    expect(await answerConfirmation(null)).toBe('Remove the destination \u2068/data/anime\u2069?');
+    expect(await answerConfirmation(null)).toBe('Remove the destination /data/anime?');
     expect(remove).not.toHaveBeenCalled();
   });
 

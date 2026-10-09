@@ -2,7 +2,7 @@
   import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
-  import { formatBytes, formatRelative, isolated } from '../api/format';
+  import { formatBytes, formatRelative } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -296,7 +296,7 @@
                       onclick={async () => {
                         if (
                           await askConfirmation(
-                            t('ConfirmRemoveDestination', { path: isolated(folder.path) }),
+                            t('ConfirmRemoveDestination', { path: folder.path }),
                             'Remove',
                           )
                         ) {

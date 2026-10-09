@@ -31,6 +31,7 @@ describe('loadDictionary', () => {
       direction: 'ltr',
       strings: {},
       counts: [],
+      isolated: [],
     });
 
     await loadDictionary();
@@ -54,6 +55,7 @@ describe('a count in a sentence', () => {
       direction: 'ltr',
       strings: { Moved: 'Moved: {applied} of {requested}' },
       counts: ['applied'],
+      isolated: [],
     });
     await loadDictionary();
 
@@ -74,6 +76,35 @@ describe('a count in a sentence', () => {
         cases.numbers.map((n) => formatCount(n, language)),
         language,
       ).toEqual(grouped);
+    }
+  });
+});
+
+describe('a path in a sentence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    seedDictionary({});
+  });
+
+  /**
+   * In Arabic a path's leading slash would move to its end. In English the
+   * marks would only be noise in what a reader copies.
+   */
+  it('keeps its own direction in a right-to-left sentence, and only there', async () => {
+    for (const [language, direction, expected] of [
+      ['ar', 'rtl', 'أضيفت ⁨/movies/anime⁩'],
+      ['en', 'ltr', 'أضيفت /movies/anime'],
+    ] as const) {
+      vi.spyOn(api, 'getLocalization').mockResolvedValue({
+        language,
+        direction,
+        strings: { Declared: 'أضيفت {path}' },
+        counts: [],
+        isolated: ['path'],
+      });
+      await loadDictionary();
+
+      expect(t('Declared', { path: '/movies/anime' })).toBe(expected);
     }
   });
 });

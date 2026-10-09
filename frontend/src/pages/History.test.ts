@@ -99,8 +99,7 @@ describe('History', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
 
-    // The path in an isolate, so a right-to-left sentence keeps its slash first.
-    expect(await screen.findByText('Send "Akira" back to \u2068/films\u2069?')).toBeTruthy();
+    expect(await screen.findByText('Send "Akira" back to /films?')).toBeTruthy();
   });
 
   /** Cancel means stop, not "revert quietly". */

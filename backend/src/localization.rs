@@ -106,6 +106,14 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
     format!("{} {}", format!("{value:.1}").replace('.', &separator.to_string()), units[unit])
 }
 
+/// The placeholders that hold a machine format, an address, a path or a
+/// variable's name, which keeps its own direction in a sentence. In a
+/// right-to-left language each is set in a first strong isolate, or a path's
+/// leading slash moves to its end. There only: in English the marks would be
+/// invisible noise in a log line or a payload. The interface reads this list
+/// from `/localization`.
+pub const ISOLATED: &[&str] = &["address", "file", "host", "path", "paths", "url", "variable"];
+
 /// The placeholders that hold a count, written with their digits grouped
 /// the way the language groups them (`12 345` in French). A year in `{min}`,
 /// an id in `{value}` or a status in `{status}` grouped would read `2,026`, so
@@ -407,11 +415,17 @@ impl Localizer {
             return key.to_string();
         };
 
+        let right_to_left = direction(&self.language) == "rtl";
         let grouped: Vec<(&str, String)> = params
             .iter()
             .map(|(name, value)| {
                 let count = COUNTS.contains(name).then(|| group_digits(&self.language, value));
-                (*name, count.flatten().unwrap_or_else(|| value.to_string()))
+                let shown = count.flatten().unwrap_or_else(|| value.to_string());
+                if right_to_left && ISOLATED.contains(name) {
+                    (*name, format!("\u{2068}{shown}\u{2069}"))
+                } else {
+                    (*name, shown)
+                }
             })
             .collect();
         let params: Vec<(&str, &str)> =
@@ -529,6 +543,19 @@ impl Localizer {
 
 #[cfg(test)]
 mod tests {
+    /// In an Arabic sentence a path's leading slash would move to its end. In
+    /// an English one the marks would be invisible noise in a log line.
+    #[test]
+    fn a_path_keeps_its_own_direction_in_a_right_to_left_sentence_only() {
+        let params = [("path", "/movies/anime")];
+
+        let arabic = Localizer::new("ar").translate("DestinationDeclared", &params);
+        assert!(arabic.contains("\u{2068}/movies/anime\u{2069}"), "{arabic}");
+
+        let english = Localizer::new("en").translate("DestinationDeclared", &params);
+        assert!(!english.contains('\u{2068}'), "{english}");
+    }
+
     /// The interface groups a count through `Intl.NumberFormat`, the server
     /// through `group_digits`: one table of cases holds both to the same
     /// writing, the frontend's in `i18n.test.ts`.
