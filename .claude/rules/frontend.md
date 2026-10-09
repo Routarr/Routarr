@@ -123,10 +123,11 @@ Components named without a path live in `frontend/src/components/`.
   and `api/types.ts` (`coverage` in `frontend/vite.config.ts`), so a new file without a test
   fails the per-file floor, whatever the aggregate says.
 - `npm run test:e2e` builds the release binary and the frontend, then drives Chromium against a
-  fake Radarr. Specs are chosen by tag, never by file: one that needs a sub-path mount carries
-  `@subpath` in its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode
-  carries `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key,
-  every other spec by default.
+  fake Radarr, or the engine `ROUTARR_E2E_BROWSER` names: CI runs it in Firefox and WebKit too.
+  Specs are chosen by tag, never by file: one that needs a sub-path mount carries `@subpath` in
+  its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode carries
+  `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key, every
+  other spec by default.
 - A new journey queries by role and label, not by class. The suite runs serially against one
   server, which the `instanceId` fixture resets before every test, so a spec restores any
   setting it changes beyond that reset.

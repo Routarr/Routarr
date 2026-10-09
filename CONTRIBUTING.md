@@ -83,7 +83,8 @@ npm run lint           # ESLint, type-aware
 npm run coverage       # vitest, with floors
 npm audit --audit-level=high
 npm run build && node ../scripts/check-bundle-size.mjs   # the first load's ceiling
-npm run test:e2e       # builds the release binary; a few minutes
+npm run test:e2e       # builds the release binary; a few minutes, in Chromium
+ROUTARR_E2E_BROWSER=firefox npm run test:e2e   # and webkit: CI runs every suite in all three
 npm run test:e2e:base  # the specs tagged @subpath, under ROUTARR_BASE_PATH=/routarr
 npm run test:e2e:auth  # the specs tagged @forms and @oidc, each against a server in that mode
 

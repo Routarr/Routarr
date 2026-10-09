@@ -295,7 +295,7 @@ RUN arch="$(dpkg --print-architecture)" \
 # apt-get on every rebuild. Keep in step with @playwright/test in
 # frontend/package.json. Only the browser download stays a create step.
 ARG PLAYWRIGHT_VERSION=1.63.0
-RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium \
+RUN npx --yes playwright@${PLAYWRIGHT_VERSION} install-deps chromium firefox webkit \
   && rm -rf /root/.npm /var/lib/apt/lists/*
 
 # Persistent cargo cache (volume mounted by devcontainer.json).

@@ -355,8 +355,12 @@ test.describe('on a phone', () => {
     const sidebar = page.locator('.sidebar');
     await expect(sidebar).toHaveClass(/is-open/);
 
-    await page.keyboard.press('Shift+Tab');
+    // Back from the first link, past the scrolling list Firefox stops at.
     const close = sidebar.getByRole('button', { name: 'Dismiss' });
+    for (let press = 0; press < 3; press += 1) {
+      if (await close.evaluate((button) => button === document.activeElement)) break;
+      await page.keyboard.press('Shift+Tab');
+    }
     await expect(close).toBeFocused();
     await page.keyboard.press('Enter');
 
@@ -634,7 +638,8 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
     // Below the header row, wherever the first data row happens to fall.
     const y = Math.min(bitmap.height - 1, 130);
     const strip = (x: number) => Array.from(ctx.getImageData(x, y, 16, 1).data);
-    return { left: strip(1), right: strip(bitmap.width - 17), width: bitmap.width };
+    // Two pixels in: WebKit draws the container's edge one pixel wider.
+    return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
   }, Array.from(shot));
 
   // Each 16px strip must be one flat colour: a gradient means a shadow.

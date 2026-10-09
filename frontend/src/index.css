@@ -2629,6 +2629,14 @@ td * {
 .flex-1 {
   flex: 1;
 }
+
+/* A backup's name has no break a browser may take between a hyphen and a
+   digit, and beside its three buttons it outgrows a phone: it breaks anywhere,
+   and its column may shrink below it. */
+.backup-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .flex-wrap {
   flex-wrap: wrap;
 }

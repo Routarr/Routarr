@@ -124,6 +124,9 @@ names an archive it can open: restore that one with the server stopped, as above
   copied anywhere.
 - **64-bit only.** Images are published for `linux/amd64` and `linux/arm64`: a Raspberry Pi needs a
   64-bit system.
+- **A recent browser.** The interface is made for current Chrome, Edge and Firefox, Firefox's
+  extended support release included, and Safari of the last two years. An older browser may not
+  show all of it.
 - **Under a sub-path.** Behind a reverse proxy at `/routarr`, set `ROUTARR_BASE_PATH=/routarr` and
   forward the path whole, prefix included:
   - nginx: `location /routarr/ { proxy_pass http://routarr:9876; }`, with no path after the address

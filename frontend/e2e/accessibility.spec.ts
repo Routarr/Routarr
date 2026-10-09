@@ -461,11 +461,17 @@ test.describe('the keyboard reaches every control', () => {
           });
         });
 
-        const reached = new Set<number>();
-        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // From the first control, as a reader starts. A blur leaves each browser
+        // a starting point of its own, Firefox the place the focus was.
+        const reached = new Set<number>([0]);
+        await page.locator('[data-keyboard-sweep="0"]').focus();
         for (let press = 0; press < expected.length * 2 + 20; press += 1) {
           await page.keyboard.press('Tab');
-          const focused = await page.evaluate(() => {
+          const focused = await page.evaluate(async () => {
+            // WebKit scrolls a newly focused control into view a frame later.
+            await new Promise((settled) =>
+              requestAnimationFrame(() => requestAnimationFrame(settled)),
+            );
             const el = document.activeElement as HTMLElement | null;
             if (!el || el === document.body) return null;
             const box = el.getBoundingClientRect();
