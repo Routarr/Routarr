@@ -251,7 +251,7 @@ test('every table on every screen carries a caption', async ({ page }) => {
 
 /**
  * The checks above are written for this interface. axe-core is the reference
- * nobody here wrote: WCAG 2.1 A and AA, every screen, so a failure names a rule
+ * nobody here wrote: WCAG 2.2 A and AA, every screen, so a failure names a rule
  * and not an opinion.
  */
 
@@ -265,11 +265,19 @@ const SWEEP_TIMEOUT = 120_000;
 /**
  * Every screen and every Settings section, in both themes: the light palette
  * is a second set of colours, and contrast measured in one says nothing of the
- * other.
+ * other. Once more at the width of the rail, between a phone and a desktop,
+ * where the navigation is drawn otherwise.
  */
-for (const theme of ['dark', 'light']) {
-  test(`every screen passes axe at WCAG 2.1 AA in the ${theme} theme`, async ({ page }) => {
+for (const [theme, width] of [
+  ['dark', 1280],
+  ['light', 1280],
+  ['dark', 1000],
+] as const) {
+  test(`every screen passes axe at WCAG 2.2 AA in the ${theme} theme at ${width}px`, async ({
+    page,
+  }) => {
     test.setTimeout(SWEEP_TIMEOUT);
+    await page.setViewportSize({ width, height: 900 });
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_theme: theme } }),
