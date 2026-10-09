@@ -22,7 +22,6 @@
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
-  import CommandPalette from './CommandPalette.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   /**
@@ -444,8 +443,12 @@
   <!-- Outside the routed page and outside the boundary, so a question survives
        the navigation it may itself have triggered, and so a page that throws
        does not take the dialog asking about it down with it. -->
+  <!-- Fetched when it is opened: it carries the explanation panel, which a
+       first visit has no use for. -->
   {#if palette}
-    <CommandPalette onClose={() => (palette = false)} />
+    {#await import('./CommandPalette.svelte') then { default: CommandPalette }}
+      <CommandPalette onClose={() => (palette = false)} />
+    {/await}
   {/if}
 
   <ConfirmDialog />

@@ -551,18 +551,23 @@ describe('Layout', () => {
     await screen.findByLabelText('Dry-run: writes blocked');
     const palette = () => screen.queryByRole('combobox', { name: 'Command palette' });
 
+    // Fetched when it first opens, so it arrives a moment after the key.
+    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    await waitFor(() => expect(palette()).toBeTruthy());
+    await fireEvent(palette()!.closest('dialog')!, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(palette()).toBeNull());
+
     const dialog = document.createElement('dialog');
     dialog.setAttribute('open', '');
     document.body.append(dialog);
     try {
       await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+      // Already fetched: opened, it would be drawn by the next turn.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(palette()).toBeNull();
     } finally {
       dialog.remove();
     }
-
-    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-    expect(palette()).toBeTruthy();
   });
 
   /**

@@ -13,8 +13,8 @@ Components named without a path live in `frontend/src/components/`.
   route in `ROUTE_GROUPS` in `frontend/src/lib/routes.ts` (the navigation, the command palette and
   `frontend/e2e/screens.ts` read it), and an icon in `ICONS` in `frontend/src/lib/navigation.ts`.
   `frontend/src/test/layout.test.ts` and `frontend/src/lib/routes.test.ts` fail when they disagree.
-- A page loads only through those dynamic imports. A static import from the shell moves it into the
-  entry bundle, whose size `scripts/check-bundle-size.mjs` caps.
+- A page loads only through those dynamic imports. A static import from the shell adds it to what
+  every first visit downloads, whose total `scripts/check-bundle-size.mjs` caps.
 - The mount point comes from the `<base href>` the backend injects at run time, so routing is
   `frontend/src/lib/router.svelte.ts` and not a library. Link with `<a href={href('/rules')}>`: a
   bare root-absolute `href` drops the mount point on middle-click and ctrl-click, and a bare
