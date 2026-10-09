@@ -9,6 +9,7 @@ import { ApiError, api } from '../api/client';
 import type { Category, OverrideEntry } from '../api/types';
 import Overrides from './Overrides.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 
 /**
  * An override short-circuits the whole rule engine for one item, so the screen
@@ -210,6 +211,31 @@ describe('Overrides', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('already pinned');
+  });
+
+  /** The button turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Pin it once a pin is refused', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue(
+      paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
+    );
+    let refuse = () => {};
+    vi.spyOn(api, 'createOverride').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
+    );
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    await fireEvent.input(search, { target: { value: 'perfect' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await fireEvent.click(await screen.findByText('Perfect Blue'));
+    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    await userEvent.click(pin);
+    await waitFor(() => expect(pin).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(pin));
   });
 
   it('pins once however often Pin it is pressed', async () => {

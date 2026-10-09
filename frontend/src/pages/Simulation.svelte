@@ -141,6 +141,14 @@
     }
   }
 
+  /**
+   * The apply button turns disabled while it writes, and stays so when the
+   * refresh leaves nothing to apply, so Run takes the focus the button cannot.
+   */
+  function settleFocus(pressed: HTMLElement | null) {
+    if (!leaving.signal.aborted) void handFocus(pressed, 'simulation-run');
+  }
+
   const STOPPED: Record<StopReason, string> = {
     dry_run: 'ApplyStoppedByDryRun',
     cancelled: 'ApplyStoppedOnRequest',
@@ -196,6 +204,7 @@
   async function applyAll() {
     if (!result) return;
     const simulationId = result.simulation_id;
+    const pressed = document.activeElement as HTMLElement | null;
 
     busy = 'apply';
     try {
@@ -228,12 +237,14 @@
     } finally {
       busy = null;
       applying = null;
+      settleFocus(pressed);
     }
   }
 
   async function apply() {
     const ids = [...selected];
     if (ids.length === 0) return;
+    const pressed = document.activeElement as HTMLElement | null;
 
     busy = 'apply';
     try {
@@ -258,6 +269,7 @@
     } finally {
       busy = null;
       applying = null;
+      settleFocus(pressed);
     }
   }
 
@@ -292,6 +304,7 @@
       <!-- The screen's one primary action is its next step: applying, once
            there are moves to apply, else running. -->
       <button
+        id="simulation-run"
         class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
         onclick={() => void run()}
         disabled={busy !== null}

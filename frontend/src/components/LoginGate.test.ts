@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { ApiError, api } from '../api/client';
 import { interceptLinks, router } from '../lib/router.svelte';
+import { dropFocus } from '../test/focus';
 import { click } from '../test/links';
 import LoginGate from './LoginGate.svelte';
 
@@ -78,6 +79,24 @@ describe('LoginGate', () => {
     await waitFor(() =>
       expect(screen.getByRole('alert')).toHaveTextContent('The username or the password is wrong.'),
     );
+  });
+
+  /** Sign in turns disabled while it asks, which drops its focus. */
+  it('gives the focus back to Sign in once a refusal is shown', async () => {
+    let refuse = () => {};
+    vi.spyOn(api, 'login').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
+    );
+    renderWithI18n(LoginGate, { props: { mode: 'forms' }, strings: STRINGS });
+
+    await userEvent.type(screen.getByLabelText('Password'), 'nope');
+    const button = screen.getByRole('button', { name: 'Sign in' });
+    await userEvent.click(button);
+    expect(button).toBeDisabled();
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(button));
   });
 
   /**

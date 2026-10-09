@@ -94,6 +94,7 @@
 
   async function save() {
     if (!selected || saving) return;
+    const pressed = document.activeElement as HTMLElement | null;
     saving = true;
     try {
       await api.createOverride({
@@ -106,6 +107,7 @@
       await bundle.reload();
     } catch (err) {
       dialogError = describeError(err);
+      void handFocus(pressed);
     } finally {
       saving = false;
     }

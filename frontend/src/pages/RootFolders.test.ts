@@ -227,6 +227,22 @@ describe('Root folders', () => {
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i1', '/media/movies/anime'));
   });
 
+  /** Add turns disabled with the path it cleared, so the focus goes to the next path. */
+  it('hands the focus to the path field once a destination is added', async () => {
+    vi.spyOn(api, 'declareRootFolder').mockResolvedValue({
+      id: 'rf-x',
+      path: '/media/movies/anime',
+      verified: true,
+    });
+    show([folder()], []);
+
+    const path = await screen.findByLabelText('Destination folder');
+    await userEvent.type(path, '/media/movies/anime');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(path));
+  });
+
   it('declares a destination once however often the form is submitted', async () => {
     const declare = vi.spyOn(api, 'declareRootFolder').mockReturnValue(new Promise(() => {}));
     show([folder()], []);

@@ -3,6 +3,7 @@
   import { ApiError, api } from '../api/client';
   import { takeQueryFlag } from '../api/onboarding';
   import { describeError } from '../lib/async.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
 
@@ -41,6 +42,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!username.trim() || !password) return;
+    const pressed = document.activeElement as HTMLElement | null;
     busy = true;
     error = null;
     try {
@@ -57,6 +59,7 @@
           : describeError(cause);
     } finally {
       busy = false;
+      void handFocus(pressed);
     }
   }
 </script>

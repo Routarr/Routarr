@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import { nthCall } from '../test/spy';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
@@ -389,6 +390,25 @@ describe('RuleEditor', () => {
     expect(await screen.findByText('A rule needs a name')).toBeInTheDocument();
     expect(create).not.toHaveBeenCalled();
   });
+
+  /** Save turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Save once a save is refused', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    let refuse = () => {};
+    vi.spyOn(api, 'createRule').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new ApiError('Refused', 400, 'invalid')))),
+    );
+    render();
+    await touch();
+
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    await userEvent.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(save));
+  });
 });
 
 /**
@@ -498,6 +518,32 @@ describe('the impact preview', () => {
 
     expect(await screen.findByText('The simulation is already running')).toBeTruthy();
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime');
+  });
+
+  /** The preview button turns disabled while it asks, which drops its focus out of the dialog. */
+  it('gives the focus back to the preview button once the preview is shown', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'previewRule').mockReturnValue(
+      new Promise((resolve) => {
+        answer = () =>
+          resolve({
+            issues: [],
+            before: summary(2),
+            after: summary(3),
+            changed: [],
+            changed_total: 0,
+          });
+      }),
+    );
+    open();
+
+    const button = await screen.findByRole('button', { name: 'Preview impact' });
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    dropFocus();
+    answer();
+
+    await waitFor(() => expect(document.activeElement).toBe(button));
   });
 });
 

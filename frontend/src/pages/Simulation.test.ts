@@ -8,6 +8,7 @@ import { ApiError, api, type Following } from '../api/client';
 import type { Decision, SimulationResult } from '../api/types';
 import Simulation from './Simulation.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import { statusRevision } from '../lib/status.svelte';
 
 /**
@@ -83,6 +84,18 @@ const batchReport = {
   moving: 0,
   superseded: 0,
   stopped_early: false,
+  stopped: null,
+  errors: [],
+};
+
+/** What the server answers an apply of one selected move that it made. */
+const applied = {
+  requested: 1,
+  applied: 1,
+  failed: 0,
+  skipped: 0,
+  moving: 0,
+  superseded: 0,
   stopped: null,
   errors: [],
 };
@@ -184,16 +197,7 @@ describe('what the screen shows', () => {
     const moving = decision({ media_title: 'Akira' });
     const skip = decision({ media_title: 'Dune', action: 'skip', target_root_folder: null });
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([moving, skip]));
-    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue({
-      requested: 1,
-      applied: 1,
-      failed: 0,
-      skipped: 0,
-      moving: 0,
-      superseded: 0,
-      stopped: null,
-      errors: [],
-    });
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await waitFor(() => expect(screen.getByText('Akira')).toBeTruthy());
@@ -218,21 +222,10 @@ describe('what the screen shows', () => {
  * take back, and it travels as a flag no other part of the screen shows.
  */
 describe('the file move', () => {
-  const ok = {
-    requested: 1,
-    applied: 1,
-    failed: 0,
-    skipped: 0,
-    moving: 0,
-    superseded: 0,
-    stopped: null,
-    errors: [],
-  };
-
   it('is left off unless ticked', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
-    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
@@ -244,7 +237,7 @@ describe('the file move', () => {
   it('goes with the selected moves once ticked', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
-    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    const apply = vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByLabelText('Move the files on disk too'));
@@ -315,16 +308,10 @@ describe('what the screen refuses to do', () => {
       null,
       'threshold',
     );
-    const apply = vi.spyOn(api, 'applyDecisions').mockRejectedValueOnce(refusal).mockResolvedValue({
-      requested: 1,
-      applied: 1,
-      failed: 0,
-      skipped: 0,
-      moving: 0,
-      superseded: 0,
-      stopped: null,
-      errors: [],
-    });
+    const apply = vi
+      .spyOn(api, 'applyDecisions')
+      .mockRejectedValueOnce(refusal)
+      .mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
@@ -400,24 +387,13 @@ describe('what the screen refuses to do', () => {
  * of that apply.
  */
 describe('what the screen says after applying', () => {
-  const ok = {
-    requested: 1,
-    applied: 1,
-    failed: 0,
-    skipped: 0,
-    moving: 0,
-    superseded: 0,
-    stopped: null,
-    errors: [],
-  };
-
   it('takes the previous report off screen when the next apply is refused', async () => {
     await show([]);
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
       simulation([decision({ media_title: 'Akira' })]),
     );
     vi.spyOn(api, 'applyDecisions')
-      .mockResolvedValueOnce(ok)
+      .mockResolvedValueOnce(applied)
       .mockRejectedValueOnce(new ApiError('The Arr refused the move', 502, 'bad_gateway'));
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
@@ -438,7 +414,7 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'applyAllDecisions')
       .mockRejectedValueOnce(batchQuestion())
       .mockResolvedValue(batchReport);
-    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply all/i }));
@@ -485,7 +461,7 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'runSimulation')
       .mockResolvedValueOnce(simulation([decision({ media_title: 'Akira' })]))
       .mockRejectedValueOnce(new ApiError('The library could not be read', 409, 'conflict'));
-    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
@@ -500,7 +476,7 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'runSimulation')
       .mockResolvedValueOnce(simulation([decision({ media_title: 'Akira' })]))
       .mockRejectedValueOnce(new ApiError('The library could not be read', 409, 'conflict'));
-    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     const apply = await screen.findByRole('button', { name: /apply selected/i });
     const before = statusRevision();
@@ -672,7 +648,7 @@ describe('what the screen says after applying', () => {
     vi.spyOn(api, 'runSimulation').mockResolvedValue(
       simulation([decision({ media_title: 'Akira' })]),
     );
-    vi.spyOn(api, 'applyDecisions').mockResolvedValue(ok);
+    vi.spyOn(api, 'applyDecisions').mockResolvedValue(applied);
 
     await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
     await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
@@ -709,6 +685,41 @@ describe('what the screen says after applying', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
 
     expect(screen.queryByText('Akira: The Arr refused the move')).toBeNull();
+  });
+
+  /**
+   * An apply button turns disabled while it writes, which drops its focus to
+   * the start of the page, where the next Tab begins again from the top.
+   */
+  it.each([
+    ['Apply selected', /apply selected/i],
+    ['Apply all', /apply all/i],
+  ])('hands the focus on once %s ends', async (_, name) => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    vi.spyOn(api, 'applyDecisions').mockImplementation(async () => {
+      await held;
+      return applied;
+    });
+    vi.spyOn(api, 'applyAllDecisions').mockImplementation(async () => {
+      await held;
+      return batchReport;
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    const button = await screen.findByRole('button', { name });
+    button.focus();
+    await fireEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    dropFocus();
+    release();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /run simulation/i })).toBeEnabled(),
+    );
+
+    await waitFor(() => expect(document.activeElement).not.toBe(document.body));
   });
 });
 

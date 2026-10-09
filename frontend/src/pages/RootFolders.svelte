@@ -131,6 +131,7 @@
   async function declare(event: SubmitEvent) {
     event.preventDefault();
     if (!target || !targetPath.trim() || declaring) return;
+    const pressed = document.activeElement as HTMLElement | null;
     declaring = true;
     try {
       const declared = await act(
@@ -140,6 +141,8 @@
       if (declared) targetPath = '';
     } finally {
       declaring = false;
+      // Add stays disabled once its path is cleared, so the next path takes the focus.
+      void handFocus(pressed, 'declare-path');
     }
   }
 

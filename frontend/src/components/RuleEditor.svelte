@@ -14,6 +14,7 @@
   } from '../api/types';
   import { describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -210,6 +211,7 @@
   }
 
   async function runPreview() {
+    const pressed = document.activeElement as HTMLElement | null;
     busy = 'preview';
     error = null;
     try {
@@ -218,11 +220,13 @@
       error = describeError(err);
     } finally {
       busy = null;
+      void handFocus(pressed);
     }
   }
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    const pressed = document.activeElement as HTMLElement | null;
     // Pressing Save on an untouched form is also asking. The answer is fetched
     // rather than read from `issues`, which is empty for the first few hundred
     // milliseconds after mount and stays empty if the debounced call failed,
@@ -253,6 +257,7 @@
           : describeError(err);
     } finally {
       busy = null;
+      void handFocus(pressed);
     }
   }
 </script>

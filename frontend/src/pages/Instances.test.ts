@@ -8,6 +8,7 @@ import { instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import { statusRevision } from '../lib/status.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import Instances from './Instances.svelte';
 
 /**
@@ -234,6 +235,24 @@ describe('Instances', () => {
     const dialog = await screen.findByRole('dialog');
     const alert = await within(dialog).findByRole('alert');
     expect(alert).toHaveTextContent('base_url must start with http:// or https://');
+  });
+
+  /** Save turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Save once a save is refused', async () => {
+    let refuse = () => {};
+    vi.spyOn(api, 'updateInstance').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
+    );
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    const save = await screen.findByRole('button', { name: 'Save' });
+    await userEvent.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(save));
   });
 
   /**

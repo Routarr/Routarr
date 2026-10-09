@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { renderWithI18n } from '../test/render';
 import { api } from '../api/client';
 import { createOutcome } from '../lib/outcome.svelte';
+import { dropFocus } from '../test/focus';
 import NotificationTest from './NotificationTest.svelte';
 
 /**
@@ -49,5 +50,23 @@ describe('NotificationTest', () => {
 
     await waitFor(() => expect(outcome.error).toContain('HTTP 404'));
     expect((button as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  /** The button turns disabled while the message goes, which drops its focus. */
+  it('gives the focus back to the button once the message has gone', async () => {
+    const user = userEvent.setup();
+    let release = () => {};
+    vi.spyOn(api, 'sendTestNotification').mockReturnValue(
+      new Promise<void>((resolve) => (release = resolve)),
+    );
+    renderWithI18n(NotificationTest, { props: { outcome: createOutcome() }, strings: STRINGS });
+
+    const button = screen.getByRole('button', { name: 'Send a test notification' });
+    await user.click(button);
+    expect(button).toBeDisabled();
+    dropFocus();
+    release();
+
+    await waitFor(() => expect(document.activeElement).toBe(button));
   });
 });

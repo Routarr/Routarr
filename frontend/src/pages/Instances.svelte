@@ -199,6 +199,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!editing || saving) return;
+    const pressed = document.activeElement as HTMLElement | null;
     completeScheme(editing.form);
     formError = null;
     let saved: Instance;
@@ -211,6 +212,7 @@
     } catch (err) {
       probe = null;
       formError = describeError(err);
+      void handFocus(pressed);
       return;
     } finally {
       saving = false;
