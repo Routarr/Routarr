@@ -17,13 +17,16 @@ const badge = (status: string) =>
 
 /** One badge for one question, on every screen that lists instances. */
 describe('InstanceStatus', () => {
-  /** The server's own words come from the network or the Arr, in English. */
-  it('says an instance answers, or that it failed with what it ran into in the title', () => {
+  /**
+   * What it ran into is written out: a title shows to a mouse alone, and a
+   * keyboard or a finger would read "error" and nothing else.
+   */
+  it('says an instance answers, or that it failed and what it ran into', () => {
     expect(badge('connected')?.className).toContain('badge-success');
     const failed = badge('error: connection refused');
     expect(failed?.className).toContain('badge-danger');
     expect(failed?.textContent).toBe('error');
-    expect(failed?.getAttribute('title')).toBe('connection refused');
+    expect(failed?.parentElement?.textContent).toContain('connection refused');
   });
 
   /** Neither a probe still running nor a disabled instance is a failure. */

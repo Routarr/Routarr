@@ -40,6 +40,7 @@ const STRINGS = {
   Dismiss: 'Close',
   ConfirmDiscardRule: 'Close the rule without saving?',
   Instances: 'Instances',
+  PriorityHint: 'Lower numbers are evaluated first',
 };
 
 const DRAFT: RuleDraft = {
@@ -129,6 +130,18 @@ describe('RuleEditor', () => {
    * English inside a 422 the live check swallows, and Save would stay lit on a
    * rule that cannot be saved.
    */
+  /** Which way the order runs is said under the field, where a keyboard reaches it too. */
+  it('says under the priority which rule is evaluated first', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+
+    expect(await screen.findByLabelText('Priority')).toHaveAccessibleDescription(
+      'Lower numbers are evaluated first',
+    );
+    // As text on the page: a title describes the field too, to a mouse alone.
+    expect(screen.getByText('Lower numbers are evaluated first')).toBeInTheDocument();
+  });
+
   it('holds Save on a fractional priority and says why', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();

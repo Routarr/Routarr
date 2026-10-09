@@ -10,6 +10,14 @@ import { navigate } from '../lib/router.svelte';
 // below included, and hundreds of those lines bury a real warning in the run.
 window.scrollTo = () => {};
 
+// Nor does it resize anything, and it has no `ResizeObserver` to say so. A test
+// that needs a size to change stubs one of its own.
+window.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
 // Module-level state the components share, put back after every test: a
 // confirmation left pending by a test that failed before answering it, or a
 // route another test navigated to, otherwise reaches the next test in the file.

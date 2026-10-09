@@ -127,7 +127,7 @@ describe('Diagnostics', () => {
     expect(within(row).queryByText('connected')).toBeNull();
   });
 
-  it('reports an instance failure in its words, and what the server ran into in the title', async () => {
+  it('reports an instance failure in its words, and what the server ran into beside them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({
         instances: [healthInstance({ status: 'error: connection refused', version: null })],
@@ -136,7 +136,7 @@ describe('Diagnostics', () => {
     show();
 
     const failed = await screen.findByText('error');
-    expect(failed.getAttribute('title')).toBe('connection refused');
+    expect(failed.closest('td')).toHaveTextContent('connection refused');
   });
 
   /**

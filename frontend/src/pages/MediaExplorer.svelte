@@ -153,13 +153,13 @@
                     <!-- One line, the whole title on hover. A long title that
                          wraps takes its row to twice the height of its
                          neighbours, and the year drifts off on its own. -->
-                    <strong class="cell-title" title={media.title}>{media.title}</strong>
+                    <strong class="cell-title">{media.title}</strong>
                     {#if media.year}<span class="text-muted">({media.year})</span>{/if}
                   </div>
                 </td>
                 <td>{media.instance_name}</td>
                 <td class="mono text-sm">
-                  <span class="cell-path" title={media.current_root_folder ?? undefined}>
+                  <span class="cell-path">
                     <bdi>{media.current_root_folder ?? t('None')}</bdi>
                   </span>
                 </td>

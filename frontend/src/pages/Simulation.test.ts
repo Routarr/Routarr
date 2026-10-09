@@ -42,6 +42,7 @@ const STRINGS = {
   ApplyReplaced: 'Replaced: {count}',
   ApplyStoppedOnRequest: 'Stopped on request',
   StopTask: 'Stop',
+  ApplyAllHint: 'Every move this run proposed, in batches.',
 };
 
 /** What each run stored, as `/decisions` lists it under the run's id. */
@@ -357,6 +358,18 @@ describe('what the screen refuses to do', () => {
     // The one question answers what it states, so every name goes back.
     expect(nthCall(applyAll)[2]).toEqual([]);
     expect(nthCall(applyAll, 1)[2]).toEqual(['batch', 'unreachable']);
+  });
+
+  /** What Apply all reaches is said beside it, not in a title only a mouse shows. */
+  it('says that Apply all reaches past the rows on screen', async () => {
+    await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+
+    const button = await screen.findByRole('button', { name: /apply all/i });
+    expect(button).toHaveAccessibleDescription('Every move this run proposed, in batches.');
+    expect(screen.getByText('Every move this run proposed, in batches.')).toBeInTheDocument();
   });
 
   /** A second click while the confirmed apply writes would start another. */

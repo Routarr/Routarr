@@ -423,42 +423,47 @@
   {/if}
 
   {#if movable.length > 0}
-    <div class="card flex items-center justify-between">
-      <label class="flex items-center gap-2 cursor-pointer">
-        <input type="checkbox" bind:checked={moveFiles} />
-        <span>{t('MoveFilesLabel')}</span>
-      </label>
+    <div class="card">
+      <div class="flex items-center justify-between">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" bind:checked={moveFiles} />
+          <span>{t('MoveFilesLabel')}</span>
+        </label>
 
-      <div class="flex gap-2">
-        <button
-          class="btn btn-primary"
-          onclick={() => void apply()}
-          disabled={selected.size === 0 || busy !== null}
-        >
-          <ShieldCheck size={16} />
-          {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
-        </button>
+        <div class="flex gap-2">
+          <button
+            class="btn btn-primary"
+            onclick={() => void apply()}
+            disabled={selected.size === 0 || busy !== null}
+          >
+            <ShieldCheck size={16} />
+            {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
+          </button>
 
-        <!-- Reaches past the page on screen: selecting every visible row is
+          <!-- Reaches past the page on screen: selecting every visible row is
                not everything. It targets one identified simulation, so it only
                exists once a run has produced one. -->
-        {#if result}
-          <button
-            class="btn btn-secondary"
-            onclick={() => void applyAll()}
-            disabled={result.moves_required === 0 || busy !== null}
-            title={t('ApplyAllHint')}
-          >
-            <Layers size={16} />
-            {t('ApplyAll', { count: result.moves_required })}
-          </button>
-        {/if}
-        {#if busy === 'apply' && applying}
-          <button class="btn btn-ghost" onclick={() => void cancelApply()}>
-            {t('StopTask')}
-          </button>
-        {/if}
+          {#if result}
+            <button
+              class="btn btn-secondary"
+              onclick={() => void applyAll()}
+              disabled={result.moves_required === 0 || busy !== null}
+              aria-describedby="apply-all-hint"
+            >
+              <Layers size={16} />
+              {t('ApplyAll', { count: result.moves_required })}
+            </button>
+          {/if}
+          {#if busy === 'apply' && applying}
+            <button class="btn btn-ghost" onclick={() => void cancelApply()}>
+              {t('StopTask')}
+            </button>
+          {/if}
+        </div>
       </div>
+      {#if result}
+        <p id="apply-all-hint" class="form-hint">{t('ApplyAllHint')}</p>
+      {/if}
     </div>
   {/if}
 

@@ -28,44 +28,34 @@ async function verticalSpread(cell: Locator): Promise<number> {
   });
 }
 
-test.describe('table cells stay on one line', () => {
+test.describe('a long title or path is read whole', () => {
   /**
-   * Sibling folders differ at their end, so a path cut short keeps its end:
-   * `/mnt/storage/media/movies` and `/mnt/storage/media/movies-anime` must not
-   * both read as the same start.
+   * A path cut short shows a keyboard and a finger only part of it, and
+   * sibling folders differ at their end: `/mnt/storage/media/movies` and
+   * `/mnt/storage/media/movies-anime` must not read as one.
    */
-  test('a path too long for its cell keeps its end and loses its start', async ({ page }) => {
+  test('a path too long for its cell wraps, and shows all of it', async ({ page }) => {
     await page.goto('/library');
 
     const cell = page.locator('.cell-path').first();
     await expect(cell).toBeVisible();
-    const cut = await cell.evaluate((node) => {
-      const long = '/mnt/storage/media/library/movies-anime';
+    const shown = await cell.evaluate((node) => {
       const holder = node.querySelector('bdi') ?? node;
-      holder.textContent = long;
-      const run = holder.firstChild as Text;
-      const box = node.getBoundingClientRect();
+      holder.textContent = '/mnt/storage/media/library/movies-anime/extended';
       const range = document.createRange();
-      range.setStart(run, long.length - 1);
-      range.setEnd(run, long.length);
-      const last = range.getBoundingClientRect();
-      range.setStart(run, 0);
-      range.setEnd(run, 1);
-      const first = range.getBoundingClientRect();
-      return {
-        overflows: node.scrollWidth > node.clientWidth,
-        endShown: last.left >= box.left && last.right <= box.right + 1,
-        startHidden: first.left < box.left,
-      };
+      range.selectNodeContents(node);
+      const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+      return { hidden: node.scrollWidth > node.clientWidth, lines: lines.size };
     });
-    expect(cut).toEqual({ overflows: true, endShown: true, startHidden: true });
+    expect(shown.hidden).toBe(false);
+    expect(shown.lines).toBeGreaterThan(1);
   });
 
   /**
    * A bare title shrinks its column to the longest word and stacks a long one
    * a word per line, pushing the reasons past the edge of the table.
    */
-  test("a proposal's title keeps one line, its whole text on hover", async ({ page }) => {
+  test("a proposal's long title wraps within its column, not a word per line", async ({ page }) => {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -84,20 +74,23 @@ test.describe('table cells stay on one line', () => {
 
     const title = page.locator('td .cell-title', { hasText: 'My Neighbor Totoro' });
     await expect(title).toBeVisible();
-    await expect(title).toHaveAttribute('title', 'My Neighbor Totoro');
     // Polled: the run redraws the table, and a row measured mid-redraw has no
     // line at all.
     await expect
       .poll(() =>
         title.evaluate((node) => {
+          node.textContent = 'My Neighbor Totoro: The Spirits of the Forest, Collected';
           const range = document.createRange();
           range.selectNodeContents(node);
-          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+          const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+          return node.scrollWidth <= node.clientWidth && lines.size >= 2 && lines.size <= 3;
         }),
       )
-      .toBe(1);
+      .toBe(true);
   });
+});
 
+test.describe('table cells stay on one line', () => {
   test('a timestamp is written the way the language writes it', async ({ page }) => {
     await page.goto('/instances');
 

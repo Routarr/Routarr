@@ -50,6 +50,7 @@ const STRINGS = {
   ImportReplaceQuestion: 'Replace the rules, or add to them?',
   RuleAnalysisUnavailable: 'The rule analysis could not be read.',
   RuleShadowed: 'Under {rule}',
+  RuleShadowedHint: 'Matched and never won: {count}. {rule} takes them first.',
   RuleDuplicateOf: 'Same as {rule}',
   RuleMatchedNothing: 'Matches nothing',
   Retry: 'Retry',
@@ -684,6 +685,20 @@ describe('the rule health badges', () => {
 
     const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
     expect(await within(row).findByText(badge)).toBeTruthy();
+  });
+
+  /** How many it lost and to whom is said in the row, not in a title only a mouse shows. */
+  it('says in the row how many items a shadowed rule loses', async () => {
+    vi.spyOn(api, 'getRuleHealth').mockResolvedValue({
+      total_media: 12,
+      rules: [verdict({ shadowed: 4, shadowed_by: 'Movies' })],
+    });
+    show([rule({ id: 'r1', name: 'Anime' })]);
+
+    const row = (await screen.findByText('Anime')).closest('tr') as HTMLElement;
+    expect(
+      await within(row).findByText('Matched and never won: 4. Movies takes them first.'),
+    ).toBeTruthy();
   });
 
   it('marks nothing on a rule that decides', async () => {

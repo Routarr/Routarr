@@ -379,14 +379,16 @@
           step="1"
           class="form-input"
           aria-invalid={wholePriority ? undefined : 'true'}
-          aria-describedby={wholePriority ? undefined : 'rules-priority-error'}
+          aria-describedby={wholePriority
+            ? 'rules-priority-help'
+            : 'rules-priority-help rules-priority-error'}
           value={draft.priority}
           oninput={(event) => {
             draft.priority = Number(event.currentTarget.value);
             touched();
           }}
-          title={t('PriorityHint')}
         />
+        <p id="rules-priority-help" class="form-hint">{t('PriorityHint')}</p>
         {#if !wholePriority}
           <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
         {/if}

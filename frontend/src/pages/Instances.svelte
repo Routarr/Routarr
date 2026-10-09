@@ -487,12 +487,13 @@
                     class="badge {instance.api_key_encrypted
                       ? 'badge-value muted'
                       : 'badge-warning'}"
-                    title={t(
-                      instance.api_key_encrypted ? 'ApiKeyEncryptedHint' : 'ApiKeyPlaintextHint',
-                    )}
+                    title={instance.api_key_encrypted ? t('ApiKeyEncryptedHint') : undefined}
                   >
                     {instance.api_key_encrypted ? t('ApiKeyEncrypted') : instance.api_key_masked}
                   </span>
+                  {#if !instance.api_key_encrypted}
+                    <span class="status-reason">{t('ApiKeyPlaintextHint')}</span>
+                  {/if}
                 </td>
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
                   <!-- Date and outcome read as one fact, so they share a line
@@ -524,14 +525,14 @@
                       class="badge {instance.last_sync_status === 'success'
                         ? 'badge-success'
                         : 'badge-danger'}"
-                      title={instance.last_sync_status === 'success'
-                        ? undefined
-                        : failureDetail(instance.last_sync_status)}
                     >
                       {t(
                         instance.last_sync_status === 'success' ? 'StatusSuccess' : 'StatusFailed',
                       )}
                     </span>
+                    {#if instance.last_sync_status !== 'success'}
+                      <span class="status-reason">{failureDetail(instance.last_sync_status)}</span>
+                    {/if}
                   {/if}
                 </td>
                 <td>

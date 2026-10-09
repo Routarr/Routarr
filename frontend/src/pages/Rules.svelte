@@ -330,13 +330,7 @@
                     <!-- Naming the culprit is the whole point: a rule that
                          decides nothing is a fact, but the rule taking its
                          items is the thing you can move. -->
-                    <span
-                      class="badge badge-warning ms-2"
-                      title={t('RuleShadowedHint', {
-                        count: verdict.shadowed,
-                        rule: verdict.shadowed_by,
-                      })}
-                    >
+                    <span class="badge badge-warning ms-2">
                       {t('RuleShadowed', { rule: verdict.shadowed_by })}
                     </span>
                   {:else if verdict?.duplicate_of}
@@ -362,6 +356,14 @@
                   {/if}
                   {#if rule.description}
                     <div class="text-muted text-sm">{rule.description}</div>
+                  {/if}
+                  {#if verdict?.shadowed_by}
+                    <div class="text-muted text-sm">
+                      {t('RuleShadowedHint', {
+                        count: verdict.shadowed,
+                        rule: verdict.shadowed_by,
+                      })}
+                    </div>
                   {/if}
                 </td>
                 <td><span class="badge badge-value">{rule.target_category}</span></td>

@@ -17,6 +17,8 @@
   "AllTypes": "All types",
   "AlreadyCorrect": "Already correct",
   "AlsoMatched": "also matched: {rule} → {category}",
+  "ReasonsShowAll": "Show in full",
+  "ReasonsShowLess": "Show less",
   "ApiKey": "API key",
   "ApiKeyEncrypted": "encrypted",
   "ApiKeyEncryptedHint": "Encrypted at rest",

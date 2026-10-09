@@ -1352,6 +1352,21 @@ a {
   margin-inline-start: 8px;
 }
 
+/* Why a badge reads as it does, on a line of its own under it: a title shows
+   to a mouse alone. It wraps where the timestamp cell beside it does not. */
+.status-reason {
+  display: block;
+  max-width: 280px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.cell-timestamp > .status-reason {
+  margin-inline-start: 0;
+}
+
 /* Focusable, so a keyboard can scroll a table wider than its window: an
    overflow region nothing can reach is unreachable content. */
 .table-container {
@@ -2535,6 +2550,10 @@ td * {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.is-expanded > .reason-line {
+  display: block;
+  overflow: visible;
+}
 
 /* Off-screen until it has focus, then the first thing on the page. */
 .skip-link {
@@ -2732,19 +2751,15 @@ td * {
   border: 0;
 }
 
-/* A title is one line. Anything longer is cut, and the whole of it is one hover
-   away: a row that grows to fit its longest value breaks the rhythm of every
-   row around it. */
+/* A title is read whole, by a keyboard and a finger as much as by a mouse.
+   Capped, so one long title wraps rather than widening its column for every
+   row. As wide as its words up to the cap, or the table shrinks the column to
+   the longest word and stacks the title a word per line. */
 .cell-title {
   display: inline-block;
-  /* A cap, not a hint: without one the column takes the width of the longest
-     title in the page and the ellipsis never fires, because the cell is always
-     exactly as wide as its content. */
+  width: max-content;
   max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+  overflow-wrap: anywhere;
 }
 
 /* The overflow menu of a table row. Anchored to its trigger and drawn above the
@@ -2812,23 +2827,15 @@ td * {
   flex-wrap: nowrap;
 }
 
-/* A filesystem path is the widest thing in any of these tables and the least
-   worth its width: it is read to recognise, not to parse. Truncated at the
-   start, because the end, the folder that changes, is the part that matters,
-   with the whole of it a hover away. A right-to-left box puts the cut and the
-   ellipsis at the start, and the path inside keeps its own direction in a
-   `<bdi>`, or its leading slash moves to the end. `isolate` holds the box to
-   that direction against the cells' `plaintext`, which would take it from the
-   path and cut the end again. */
+/* A filesystem path is the widest thing in these tables, and read whole too:
+   it wraps within its cap, as wide as it is up to the cap for the reason a
+   title is. The `<bdi>` inside keeps it left to right in an Arabic page, or
+   its leading slash moves to the end. */
 .cell-path {
   display: inline-block;
+  width: max-content;
   max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  direction: rtl;
-  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
 }
 
 /* A table that scrolls says so.
@@ -3154,9 +3161,7 @@ select.form-select {
 .facet-value {
   position: relative;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
 }
 

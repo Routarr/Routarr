@@ -20,5 +20,6 @@
 {:else if status === 'disabled'}
   <span class="badge badge-value muted">{t('InstanceDisabled')}</span>
 {:else}
-  <span class="badge badge-danger" title={failureDetail(status)}>{t('Error')}</span>
+  <span class="badge badge-danger">{t('Error')}</span>
+  <span class="status-reason">{failureDetail(status)}</span>
 {/if}

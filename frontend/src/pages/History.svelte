@@ -198,14 +198,12 @@
                   {/if}
                 </td>
                 <td>
-                  <strong class="cell-title" title={decision.media_title}
-                    >{decision.media_title}</strong
-                  >
+                  <strong class="cell-title">{decision.media_title}</strong>
                   <div class="text-muted text-sm">{decision.instance_name}</div>
                 </td>
                 <td><span class="badge badge-value">{decision.target_category}</span></td>
                 <td class="mono text-sm">
-                  <span class="cell-path" title={decision.target_root_folder ?? undefined}>
+                  <span class="cell-path">
                     <bdi>{decision.target_root_folder ?? t('None')}</bdi>
                   </span>
                 </td>

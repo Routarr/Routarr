@@ -139,10 +139,7 @@
                 style="width: {Math.max(4, Math.round((facet.count / axis.max) * 100))}%"
                 aria-hidden="true"
               ></span>
-              <!-- The title carries whichever text is on screen, since that is
-                   the one being truncated, and a name always contains the raw
-                   value, which is what a rule is written against. -->
-              <span class="facet-value" title={facet.label ?? facet.value}>
+              <span class="facet-value">
                 {facet.label ?? facet.value}
               </span>
               <span class="facet-count">{facet.count}</span>

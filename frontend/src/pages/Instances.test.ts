@@ -64,6 +64,7 @@ const STRINGS = {
   Saving: 'Saving…',
   ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
   InstanceDeleted: 'Instance deleted',
+  ApiKeyPlaintextHint: 'Stored in plaintext. Re-save the instance to encrypt it',
   ConfirmDiscardInstance: 'Close the instance without saving?',
 };
 
@@ -238,6 +239,27 @@ describe('Instances', () => {
     const dialog = await screen.findByRole('dialog');
     const alert = await within(dialog).findByRole('alert');
     expect(alert).toHaveTextContent('base_url must start with http:// or https://');
+  });
+
+  /** Said in the row, not in a title only a mouse can show. */
+  it('says why the last sync failed in the row', async () => {
+    show([
+      instance({
+        last_sync_status: 'error: connection refused',
+        last_sync_attempt_at: '2026-08-27 10:00:00',
+      }),
+    ]);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(row).toHaveTextContent('connection refused');
+  });
+
+  /** The remedy of a key stored in plaintext is in the row, where a keyboard reads it. */
+  it('says how to seal a key stored in plaintext in the row', async () => {
+    show([instance({ api_key_encrypted: false })]);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(row).toHaveTextContent('Re-save the instance to encrypt it');
   });
 
   /** A typed address and key go with the dialog, whether it closes or the screen changes. */
