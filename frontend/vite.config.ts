@@ -51,12 +51,12 @@ export default defineConfig({
     },
   },
 
-  // Take Svelte's browser build, not its server one. Without this a component
-  // under test renders to a string with no DOM behind it, and every query for a
-  // role or a label finds nothing.
-  resolve: {
-    conditions: ['browser'],
-  },
+  // Under test, take Svelte's browser build, not its server one. Without this a
+  // component renders to a string with no DOM behind it, and every query for a
+  // role or a label finds nothing. Under test only: the setting replaces
+  // Vite's own conditions, and the dev server would then run Svelte without
+  // its development checks.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 
   test: {
     // jsdom, not happy-dom, which does not drive `<select>` the way Svelte's
