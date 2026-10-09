@@ -133,7 +133,10 @@ function mount(
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
   vi.spyOn(api, 'getLanguages').mockResolvedValue({
     default: 'en',
-    languages: [{ code: 'en', name: 'English', completion: 100, direction: 'ltr' }],
+    languages: [
+      { code: 'en', name: 'English', completion: 100, direction: 'ltr' },
+      { code: 'nb_NO', name: 'Norsk bokmål', completion: 100, direction: 'ltr' },
+    ],
   });
   // The backups card loads on mount, and unmocked it would reach the network.
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
@@ -755,6 +758,14 @@ describe('the section strip', () => {
         'true',
       ),
     );
+  });
+
+  /** Each language's own name is read in that language, not as letters of another. */
+  it('marks each language of the picker with its own language', async () => {
+    mount({});
+
+    const option = await screen.findByRole('option', { name: 'Norsk bokmål' });
+    expect(option).toHaveAttribute('lang', 'nb-NO');
   });
 
   /** Right to left, the next tab is drawn on the left, and ArrowLeft reaches it. */

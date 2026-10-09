@@ -4,7 +4,7 @@
 
   import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatPercent } from '../api/format';
+  import { bcp47, formatPercent } from '../api/format';
   import { withProof } from '../lib/proof.svelte';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -699,8 +699,9 @@
                 >
                   {#each languages as language (language.code)}
                     <!-- A partial translation is allowed, and saying so is what
-                         keeps the picker honest. Complete ones stay unadorned. -->
-                    <option value={language.code}>
+                         keeps the picker honest. Complete ones stay unadorned.
+                         Each name is its language's own, read in it. -->
+                    <option value={language.code} lang={bcp47(language.code)}>
                       {language.completion >= 100
                         ? language.name
                         : `${language.name} (${formatPercent(language.completion / 100, i18n.language)})`}
