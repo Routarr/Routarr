@@ -74,8 +74,8 @@
               onclick={onNavigate}
               title={t(item.key)}
             >
-              <!-- The rail hides the label, so the name has to reach a screen
-                   reader, and a pointer, some other way. -->
+              <!-- The rail hides the label from sight alone: it still names
+                   the link, and the title shows it to a pointer. -->
               <item.icon size={18} />
               <span class="nav-label">{t(item.key)}</span>
               <!-- The count of what waits behind this entry. In the rail,

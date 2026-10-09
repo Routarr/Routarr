@@ -387,6 +387,19 @@ test('each screen names itself in the tab and takes the focus it was reached wit
 });
 
 /**
+ * Between a phone and a desktop the navigation is a rail of icons. An entry
+ * that counts what waits behind it is still named by its destination first,
+ * which is what a voice command says and what a screen reader reads.
+ */
+test('a rail entry with a count is named by its destination first', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await openScreen(page, '/');
+
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(nav.getByRole('link', { name: /^Simulation .+: \d+$/ })).toBeVisible();
+});
+
+/**
  * Every control a pointer can reach, the keyboard reaches, and nothing out of
  * sight takes the focus.
  *
