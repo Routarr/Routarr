@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "结果：{count}",
   "ListSeparator": "、",
   "ErrorTargetUnreachable": "「{path}」没有响应（最后一次响应 {since}）。现在应用可能会失败。",
-  "ConflictUnreachableSince": "根目录「{path}」没有响应（最后一次响应 {since}）",
   "ConflictUnreachableEver": "根目录「{path}」从未响应过",
   "LastAnswered": "最后一次响应 {since}",
   "LastUsed": "上次使用",

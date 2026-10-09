@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Résultats : {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "« {path} » ne répond pas (dernière réponse le {since}). Appliquer maintenant peut échouer.",
-  "ConflictUnreachableSince": "Le dossier racine « {path} » n'a pas répondu (dernière réponse le {since})",
   "ConflictUnreachableEver": "Le dossier racine « {path} » n'a jamais répondu",
   "LastAnswered": "Dernière réponse {since}",
   "LastUsed": "Dernière utilisation",

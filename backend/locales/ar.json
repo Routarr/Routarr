@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "النتائج: {count}",
   "ListSeparator": "، ",
   "ErrorTargetUnreachable": "‏«{path}» لا يستجيب (آخر استجابة {since}). قد تفشل عملية التطبيق الآن.",
-  "ConflictUnreachableSince": "‏المجلد الجذر «{path}» لم يستجب (آخر استجابة {since})",
   "ConflictUnreachableEver": "‏المجلد الجذر «{path}» لم يستجب قط",
   "LastAnswered": "‏آخر استجابة {since}",
   "LastUsed": "آخر استخدام",

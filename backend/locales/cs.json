@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Výsledky: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" neodpovídá (naposledy dostupné {since}). Použití nyní může selhat.",
-  "ConflictUnreachableSince": "Kořenová složka \"{path}\" neodpověděla (naposledy dostupná {since})",
   "ConflictUnreachableEver": "Kořenová složka \"{path}\" nikdy neodpověděla",
   "LastAnswered": "Naposledy odpověděla {since}",
   "LastUsed": "Naposledy využito",

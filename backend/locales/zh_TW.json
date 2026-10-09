@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "結果：{count}",
   "ListSeparator": "、",
   "ErrorTargetUnreachable": "「{path}」沒有回應（最後一次回應 {since}）。現在套用可能會失敗。",
-  "ConflictUnreachableSince": "根資料夾「{path}」沒有回應（最後一次回應 {since}）",
   "ConflictUnreachableEver": "根資料夾「{path}」從未回應過",
   "LastAnswered": "最後一次回應 {since}",
   "LastUsed": "上次使用",

@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "結果: {count}",
   "ListSeparator": "、",
   "ErrorTargetUnreachable": "「{path}」が応答しません (最終応答 {since})。今適用すると失敗する可能性があります。",
-  "ConflictUnreachableSince": "ルートフォルダー「{path}」が応答しませんでした (最終応答 {since})",
   "ConflictUnreachableEver": "ルートフォルダー「{path}」は一度も応答していません",
   "LastAnswered": "最終応答 {since}",
   "LastUsed": "最終使用",

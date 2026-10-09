@@ -195,16 +195,21 @@ pub(super) async fn guard_reachable(
 
     if let Some((path, last_seen)) = query.fetch_optional(&state.pool).await? {
         let localizer = state.localizer().await;
-        // The date rather than a verdict: twenty minutes reads as a nap and
+        // How long rather than a verdict: twenty minutes reads as a nap and
         // three days as a fault, and the operator is the one who knows their
         // hardware.
+        let since = last_seen.as_deref().and_then(crate::services::routing::parse_timestamp);
+        let message = match since {
+            Some(then) => localizer.translate(
+                "ErrorTargetUnreachable",
+                &[("path", &path), ("age", &crate::localization::human_age(then, &localizer))],
+            ),
+            None => localizer.translate("ErrorTargetNeverReached", &[("path", &path)]),
+        };
         return Err(AppError::ConfirmationRequired {
             includes: Vec::new(),
             kind: confirm::UNREACHABLE,
-            message: localizer.translate(
-                "ErrorTargetUnreachable",
-                &[("path", &path), ("since", last_seen.as_deref().unwrap_or("-"))],
-            ),
+            message,
         });
     }
     Ok(())

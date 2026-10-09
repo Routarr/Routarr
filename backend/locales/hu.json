@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Találatok: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "A(z) \"{path}\" nem válaszol (utoljára elérve: {since}). Ha most alkalmazza, sikertelen lehet.",
-  "ConflictUnreachableSince": "A(z) \"{path}\" gyökérmappa nem válaszolt (utoljára elérve: {since})",
   "ConflictUnreachableEver": "A(z) \"{path}\" gyökérmappa soha nem válaszolt",
   "LastAnswered": "Utoljára válaszolt: {since}",
   "LastUsed": "Utolsó használat",

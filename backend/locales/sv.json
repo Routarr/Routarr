@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultat: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" svarar inte (senast nådd {since}). Att tillämpa nu kan misslyckas.",
-  "ConflictUnreachableSince": "Rotmappen \"{path}\" svarade inte (senast nådd {since})",
   "ConflictUnreachableEver": "Rotmappen \"{path}\" har aldrig svarat",
   "LastAnswered": "Svarade senast {since}",
   "LastUsed": "Senast använd",

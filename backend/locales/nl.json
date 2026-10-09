@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultaten: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "'{path}' antwoordt niet (laatst bereikt op {since}). Nu toepassen kan mislukken.",
-  "ConflictUnreachableSince": "Hoofdmap '{path}' antwoordde niet (laatst bereikt op {since})",
   "ConflictUnreachableEver": "Hoofdmap '{path}' heeft nooit geantwoord",
   "LastAnswered": "Laatst geantwoord {since}",
   "LastUsed": "Laatst gebruikt",

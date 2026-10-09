@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "결과: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "'{path}'이(가) 응답하지 않습니다 (마지막 응답 {since}). 지금 적용하면 실패할 수 있습니다.",
-  "ConflictUnreachableSince": "루트 폴더 '{path}'이(가) 응답하지 않았습니다 (마지막 응답 {since})",
   "ConflictUnreachableEver": "루트 폴더 '{path}'은(는) 한 번도 응답하지 않았습니다",
   "LastAnswered": "마지막 응답 {since}",
   "LastUsed": "마지막 사용",

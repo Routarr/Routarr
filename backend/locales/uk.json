@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Результати: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "«{path}» не відповідає (остання відповідь: {since}). Застосування зараз може не вдатися.",
-  "ConflictUnreachableSince": "Кореневу теку «{path}» не вдалося опитати (остання відповідь: {since})",
   "ConflictUnreachableEver": "Коренева тека «{path}» жодного разу не відповіла",
   "LastAnswered": "Остання відповідь {since}",
   "LastUsed": "Останнє використання",

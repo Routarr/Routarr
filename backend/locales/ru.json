@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Результаты: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "«{path}» не отвечает (последний ответ: {since}). Применение сейчас может не удаться.",
-  "ConflictUnreachableSince": "Корневая папка «{path}» не ответила (последний ответ: {since})",
   "ConflictUnreachableEver": "Корневая папка «{path}» ни разу не отвечала",
   "LastAnswered": "Последний ответ {since}",
   "LastUsed": "Последнее использование",

@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Sonuçlar: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "'{path}' yanıt vermiyor (son erişim {since}). Şimdi uygulamak başarısız olabilir.",
-  "ConflictUnreachableSince": "'{path}' kök klasörü yanıt vermedi (son erişim {since})",
   "ConflictUnreachableEver": "'{path}' kök klasörü hiç yanıt vermedi",
   "LastAnswered": "Son yanıt {since}",
   "LastUsed": "Son kullanım",

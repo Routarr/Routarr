@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultater: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "«{path}» svarer ikke (sist nådd {since}). Hvis du utfører nå, kan det mislykkes.",
-  "ConflictUnreachableSince": "Rotmappen «{path}» svarte ikke (sist nådd {since})",
   "ConflictUnreachableEver": "Rotmappen «{path}» har aldri svart",
   "LastAnswered": "Svarte sist {since}",
   "LastUsed": "Sist brukt",

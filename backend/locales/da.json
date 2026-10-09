@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultater: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" svarer ikke (sidst nået {since}). Hvis du anvender nu, kan det mislykkes.",
-  "ConflictUnreachableSince": "Rodmappen \"{path}\" svarede ikke (sidst nået {since})",
   "ConflictUnreachableEver": "Rodmappen \"{path}\" har aldrig svaret",
   "LastAnswered": "Svarede sidst {since}",
   "LastUsed": "Sidst brugt",

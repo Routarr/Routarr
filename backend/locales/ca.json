@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultats: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "«{path}» no respon (darrera resposta el {since}). Aplicar ara pot fallar.",
-  "ConflictUnreachableSince": "La carpeta arrel «{path}» no ha respost (darrera resposta el {since})",
   "ConflictUnreachableEver": "La carpeta arrel «{path}» no ha respost mai",
   "LastAnswered": "Darrera resposta {since}",
   "LastUsed": "Darrer ús",

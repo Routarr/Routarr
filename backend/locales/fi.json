@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Tuloksia: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" ei vastaa (viimeksi tavoitettu {since}). Toteutus voi nyt epäonnistua.",
-  "ConflictUnreachableSince": "Juurikansio \"{path}\" ei vastannut (viimeksi tavoitettu {since})",
   "ConflictUnreachableEver": "Juurikansio \"{path}\" ei ole koskaan vastannut",
   "LastAnswered": "Vastasi viimeksi {since}",
   "LastUsed": "Viimeksi käytetty",

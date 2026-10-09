@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Resultados: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "«{path}» no responde: última respuesta el {since}. Aplicar ahora puede fallar.",
-  "ConflictUnreachableSince": "La carpeta raíz «{path}» no respondió: última respuesta el {since}",
   "ConflictUnreachableEver": "La carpeta raíz «{path}» nunca ha respondido",
   "LastAnswered": "Última respuesta {since}",
   "LastUsed": "Último uso",

@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Αποτελέσματα: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "Το «{path}» δεν απαντά (τελευταία προσπέλαση {since}). Αν εφαρμόσετε τώρα, μπορεί να αποτύχει.",
-  "ConflictUnreachableSince": "Ο ριζικός φάκελος «{path}» δεν απάντησε (τελευταία προσπέλαση {since})",
   "ConflictUnreachableEver": "Ο ριζικός φάκελος «{path}» δεν απάντησε ποτέ",
   "LastAnswered": "Τελευταία απάντηση {since}",
   "LastUsed": "Τελευταία χρήση",

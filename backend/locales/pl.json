@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Wyniki: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" nie odpowiada (ostatni kontakt: {since}). Zastosowanie teraz może się nie udać.",
-  "ConflictUnreachableSince": "Folder główny \"{path}\" nie odpowiedział (ostatni kontakt: {since})",
   "ConflictUnreachableEver": "Folder główny \"{path}\" nigdy nie odpowiedział",
   "LastAnswered": "Ostatnia odpowiedź {since}",
   "LastUsed": "Ostatnie użycie",

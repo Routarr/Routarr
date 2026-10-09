@@ -124,9 +124,12 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
             severity: "warning".into(),
             instance_name: Some(instance),
             category: None,
-            message: match last_seen {
-                Some(when) => localizer
-                    .translate("ConflictUnreachableSince", &[("path", &path), ("since", &when)]),
+            message: match last_seen.as_deref().and_then(crate::services::routing::parse_timestamp)
+            {
+                Some(then) => localizer.translate(
+                    "ConflictUnreachableFor",
+                    &[("path", &path), ("age", &crate::localization::human_age(then, &localizer))],
+                ),
                 None => localizer.translate("ConflictUnreachableEver", &[("path", &path)]),
             },
         });

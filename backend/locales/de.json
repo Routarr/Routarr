@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Ergebnisse: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" antwortet nicht (zuletzt erreicht am {since}). Das Anwenden könnte jetzt fehlschlagen.",
-  "ConflictUnreachableSince": "Stammordner \"{path}\" hat nicht geantwortet (zuletzt erreicht am {since})",
   "ConflictUnreachableEver": "Stammordner \"{path}\" hat noch nie geantwortet",
   "LastAnswered": "Zuletzt geantwortet {since}",
   "LastUsed": "Zuletzt verwendet",

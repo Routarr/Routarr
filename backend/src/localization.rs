@@ -84,6 +84,20 @@ pub fn decimal_separator(code: &str) -> char {
     if DECIMAL_COMMA.contains(&base_tag(code).as_str()) { ',' } else { '.' }
 }
 
+/// How long ago `then` was, in its largest whole unit and the reader's words,
+/// `3 h`, `2 d`. A stored UTC time in a sentence leaves the reader to work the
+/// age out in their own zone, and the age is what they weigh: twenty minutes
+/// reads as a nap and three days as a fault.
+pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
+    let minutes = (chrono::Utc::now() - then).num_minutes().max(1);
+    let (key, count) = match minutes {
+        ..60 => ("AgeMinutes", minutes),
+        60..2880 => ("AgeHours", minutes / 60),
+        _ => ("AgeDays", minutes / 1440),
+    };
+    localizer.translate(key, &[("count", &count.to_string())])
+}
+
 /// Bytes as an operator reads them, in the vocabulary the interface uses.
 ///
 /// Binary steps, because the figure is compared with what a file manager shows.
@@ -543,6 +557,22 @@ impl Localizer {
 
 #[cfg(test)]
 mod tests {
+    /// Minutes under an hour, hours under two days, days beyond: the largest
+    /// unit that keeps the figure readable.
+    #[test]
+    fn an_age_is_said_in_its_largest_whole_unit() {
+        let english = Localizer::new("en");
+        let ago = |minutes: i64| {
+            human_age(chrono::Utc::now() - chrono::Duration::minutes(minutes), &english)
+        };
+
+        assert_eq!(ago(0), "1 min");
+        assert_eq!(ago(59), "59 min");
+        assert_eq!(ago(185), "3 h");
+        assert_eq!(ago(47 * 60), "47 h");
+        assert_eq!(ago(3 * 1440 + 30), "3 d");
+    }
+
     /// In an Arabic sentence a path's leading slash would move to its end. In
     /// an English one the marks would be invisible noise in a log line.
     #[test]

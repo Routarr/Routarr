@@ -1074,7 +1074,6 @@
   "CommandPaletteResults": "Rezultate: {count}",
   "ListSeparator": ", ",
   "ErrorTargetUnreachable": "\"{path}\" nu răspunde (accesibil ultima dată la {since}). Aplicarea acum poate eșua.",
-  "ConflictUnreachableSince": "Dosarul rădăcină \"{path}\" nu a răspuns (accesibil ultima dată la {since})",
   "ConflictUnreachableEver": "Dosarul rădăcină \"{path}\" nu a răspuns niciodată",
   "LastAnswered": "Ultimul răspuns {since}",
   "LastUsed": "Ultima utilizare",

@@ -260,13 +260,10 @@ async fn mapping_conflicts_are_translated() {
     app.seed_library().await;
     speak_french(&app).await;
 
-    sqlx::query(
-        "UPDATE root_folders SET accessible = 0, last_accessible_at = '2026-09-05 03:00:00'
-         WHERE id = 'rf-1'",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.execute(&["UPDATE root_folders SET accessible = 0,
+                last_accessible_at = datetime('now', '-3 hours', '-5 minutes')
+          WHERE id = 'rf-1'"])
+        .await;
 
     let response = app.get("/api/v1/root-folders/conflicts").await;
     let conflicts = response.assert_ok().as_array().unwrap().clone();
@@ -277,9 +274,11 @@ async fn mapping_conflicts_are_translated() {
         .map(|c| c["message"].as_str().unwrap().to_string())
         .unwrap_or_default();
     assert!(message.contains("n'a pas répondu"), "{conflicts:?}");
-    // The date travels with the sentence: it is what separates a nap from a
-    // fault, and it must not be left in English beside a French clause.
-    assert!(message.contains("2026-09-05"), "{conflicts:?}");
+    // How long travels with the sentence, in its words: it is what separates
+    // a nap from a fault, and a stored UTC time is not how anyone reads one.
+    assert!(message.contains("3 h"), "{conflicts:?}");
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    assert!(!message.contains(&today), "{conflicts:?}");
 }
 
 #[tokio::test]
