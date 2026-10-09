@@ -228,8 +228,28 @@ describe('ExplanationModal', () => {
     );
 
     expect(screen.getByText('Animation')).toBeTruthy();
-    expect(screen.getByText(/Language: ja/)).toHaveTextContent(/Countries: JP ; KR/);
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
+  });
+
+  /** Named as the rule editor and the rules table name them, the code beside the name. */
+  it('names the language and the countries, not only their codes', () => {
+    show(
+      explanation({
+        metadata: {
+          genres: [],
+          keywords: [],
+          original_language: 'ja',
+          origin_countries: ['JP', 'KR'],
+          certification: null,
+          field_sources: {},
+          sources: ['arr'],
+        } as unknown as Explanation['metadata'],
+      }),
+    );
+
+    expect(screen.getByText(/Language: Japanese \(ja\)/)).toHaveTextContent(
+      /Countries: Japan \(JP\) ; South Korea \(KR\)/,
+    );
   });
 
   /**

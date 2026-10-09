@@ -2,7 +2,7 @@
   import { api } from '../api/client';
   import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
-  import { DECISION_ACTION_KEY, formatCount } from '../api/format';
+  import { DECISION_ACTION_KEY, formatCount, localName } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -112,6 +112,10 @@
       refreshing = false;
     }
   }
+
+  /** A language or a country as the rule editor names it, the code beside the name. */
+  const nameOf = (type: 'language' | 'region', code: string) =>
+    localName(type, code, i18n.language) ?? code;
 
   const OUTCOME_KEY: Record<string, string> = {
     winner: 'OutcomeWinner',
@@ -229,8 +233,13 @@
       </div>
       <p class="text-muted text-md mt-2">
         {t('MetadataSummary', {
-          language: view.metadata.original_language ?? t('None'),
-          countries: view.metadata.origin_countries.join(t('ListSeparator')) || t('None'),
+          language: view.metadata.original_language
+            ? nameOf('language', view.metadata.original_language)
+            : t('None'),
+          countries:
+            view.metadata.origin_countries
+              .map((country) => nameOf('region', country))
+              .join(t('ListSeparator')) || t('None'),
           certification: view.metadata.certification ?? t('None'),
         })}
       </p>
