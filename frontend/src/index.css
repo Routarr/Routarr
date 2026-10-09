@@ -2676,10 +2676,12 @@ td * {
   margin: 0;
   white-space: pre-line;
 }
-/* A row that is still listed but no longer counts: a disabled rule, a superseded
-   proposal. */
-.row-muted {
-  opacity: 0.55;
+/* A row that is still listed but no longer counts: a disabled rule, a disabled
+   instance, a superseded proposal. A badge says so in words, so only its text
+   is muted: an opacity would take the badges and the controls it still offers
+   under AA. */
+.row-muted td {
+  color: var(--text-muted);
 }
 /* The row a click picked, in a list of candidates. */
 .row-selected {
