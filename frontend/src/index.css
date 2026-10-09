@@ -1876,6 +1876,10 @@ td * {
 .banner-list li {
   margin-block: 2px;
 }
+/* Without a title above it, nothing to keep apart from. */
+.banner-list:first-child {
+  margin-top: 0;
+}
 .empty-state {
   display: flex;
   /* Stacked: the icon above the sentence. */
