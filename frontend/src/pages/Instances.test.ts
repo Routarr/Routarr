@@ -9,6 +9,8 @@ import { ApiError, api } from '../api/client';
 import { statusRevision } from '../lib/status.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
 
 /**
@@ -62,6 +64,7 @@ const STRINGS = {
   Saving: 'Saving…',
   ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
   InstanceDeleted: 'Instance deleted',
+  ConfirmDiscardInstance: 'Close the instance without saving?',
 };
 
 const show = (list: ReturnType<typeof instance>[]) => {
@@ -237,6 +240,33 @@ describe('Instances', () => {
     expect(alert).toHaveTextContent('base_url must start with http:// or https://');
   });
 
+  /** A typed address and key go with the dialog, whether it closes or the screen changes. */
+  it('asks before dropping a changed instance form, and keeps it on Cancel', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    expect(unloading()).toBe(false);
+    const name = await screen.findByLabelText('Name');
+    await userEvent.type(name, ' 4K');
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(router.path).not.toBe('/rules');
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(name).toHaveValue('Radarr 4K');
+  });
+
+  it('closes an untouched instance form without a question', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
   /** Save turns disabled while it writes, which drops its focus out of the dialog. */
   it('gives the focus back to Save once a save is refused', async () => {
     let refuse = () => {};
@@ -327,6 +357,7 @@ describe('Instances', () => {
       await fireEvent.click(
         within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
       );
+      await answerConfirmation();
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
       await fireEvent.click(screen.getByRole('button', { name: next }));

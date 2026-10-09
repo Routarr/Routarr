@@ -7,6 +7,8 @@ import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 import { nthCall } from '../test/spy';
 import { instance } from '../test/fixtures';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import RuleEditor from './RuleEditor.svelte';
@@ -609,6 +611,20 @@ describe('closing the editor', () => {
     expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
 
     expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
+  });
+
+  /** Back, a link or a reload drops a half-written rule as surely as Cancel. */
+  it('asks before the screen changes under a changed rule, and stays on Cancel', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+    expect(unloading()).toBe(false);
+    await touch();
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
+    expect(router.path).not.toBe('/rules');
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
   });
 

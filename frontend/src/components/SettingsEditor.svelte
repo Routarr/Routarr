@@ -35,7 +35,8 @@
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
-  import { guardLeaving, href, navigate } from '../lib/router.svelte';
+  import { href, navigate } from '../lib/router.svelte';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
   import { downloadJson } from '../lib/download';
 
   /**
@@ -231,21 +232,10 @@
     ),
   );
 
-  // Leaving by a link, Back or the browser drops the draft, which the save bar
-  // counts: asked first, as every other action that cannot be taken back.
-  $effect(() =>
-    guardLeaving(
-      async () =>
-        changed.length === 0 ||
-        askConfirmation(t('ConfirmLeaveUnsaved', { count: changed.length }), 'DiscardChanges'),
-    ),
+  holdUnsaved(
+    () => changed.length > 0,
+    () => t('ConfirmLeaveUnsaved', { count: changed.length }),
   );
-  $effect(() => {
-    if (changed.length === 0) return;
-    const hold = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', hold);
-    return () => window.removeEventListener('beforeunload', hold);
-  });
 
   /** Whether a number sits outside the bounds the backend would refuse it for. */
   function outOfRange(field: Field): boolean {

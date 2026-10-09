@@ -8,6 +8,8 @@ import { statusRevision } from '../lib/status.svelte';
 import { api, ApiError } from '../api/client';
 import type { Category, MappingConflict, RootFolder } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import RootFolders from './RootFolders.svelte';
 
 /**
@@ -52,6 +54,7 @@ const STRINGS = {
   CategoryDeleted: 'Category deleted',
   ConfirmRemoveDestination: 'Remove the destination {path}?',
   ConfirmDeleteCategory: 'Delete the category "{name}"?',
+  ConfirmLeaveUnsavedMappings: 'Leave without saving the folder categories? Unsaved: {count}',
 };
 
 function category(over: Partial<Category> = {}): Category {
@@ -166,6 +169,23 @@ describe('Root folders', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Save – /data/anime' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime'));
+  });
+
+  /** A category picked and not saved is dropped by leaving, so leaving asks first. */
+  it('asks before the screen changes under a category not saved, and stays on Cancel', async () => {
+    show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
+    const picker = await screen.findByLabelText('Category for /data/anime');
+    expect(unloading()).toBe(false);
+
+    await userEvent.selectOptions(picker, 'anime');
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe(
+      'Leave without saving the folder categories? Unsaved: 1',
+    );
+    expect(router.path).not.toBe('/rules');
+    expect(picker).toHaveValue('anime');
   });
 
   /**

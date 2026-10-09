@@ -18,6 +18,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { handFocus } from '../lib/focus';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
 
   const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances] = await Promise.all([
@@ -67,6 +68,13 @@
    */
   const picked = $state<Record<string, string>>({});
   const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
+  const unsavedPicks = $derived(
+    folders.filter((folder) => pickedFor(folder) !== (folder.category ?? '')).length,
+  );
+  holdUnsaved(
+    () => unsavedPicks > 0,
+    () => t('ConfirmLeaveUnsavedMappings', { count: unsavedPicks }),
+  );
 
   async function saveCategory(folder: RootFolder) {
     const category = pickedFor(folder);

@@ -13,6 +13,7 @@ import Settings from './Settings.svelte';
 import Sources from './Sources.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import { interceptLinks, navigate, router } from '../lib/router.svelte';
+import { unloading } from '../test/leaving';
 import { onboardingStatus } from '../test/fixtures';
 import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
@@ -354,11 +355,6 @@ describe('the save bar', () => {
   it('holds the tab open while changes are pending, and only then', async () => {
     mount({ global_dry_run: 'true' });
     await openSection('Routing');
-    const unloading = () => {
-      const event = new Event('beforeunload', { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
     expect(unloading()).toBe(false);
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');

@@ -18,6 +18,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import Modal from './Modal.svelte';
@@ -77,6 +78,10 @@
   // svelte-ignore state_referenced_locally
   const opened = JSON.stringify(initial);
   const unsaved = $derived(JSON.stringify(draft) !== opened);
+  holdUnsaved(
+    () => unsaved,
+    () => t('ConfirmDiscardRule'),
+  );
 
   /** Escape, the close button and Cancel: a half-written rule is asked about first. */
   async function close() {

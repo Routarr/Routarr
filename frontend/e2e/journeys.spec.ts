@@ -99,6 +99,33 @@ async function addCondition(page: Page, kind: string): Promise<void> {
   await page.getByRole('button', { name: `Add – ${list}` }).click();
 }
 
+test.describe('unsaved work', () => {
+  /**
+   * The browser has moved by the time Back is heard. Only a browser shows that
+   * the editor asks first, and that Cancel puts the address back with the
+   * draft still open.
+   */
+  test('Back under a half-written rule asks first, and Cancel keeps it', async ({ page }) => {
+    await openScreen(page, '/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Rules', exact: true }).click();
+    await page.getByRole('button', { name: 'New Rule' }).click();
+    const name = page.getByRole('dialog', { name: 'Create routing rule' }).getByLabel('Rule name', {
+      exact: true,
+    });
+    await name.fill('Draft');
+
+    await page.goBack();
+    const question = page.getByRole('dialog', {
+      name: 'Close the rule without saving your changes?',
+    });
+    await question.getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(question).toHaveCount(0);
+    await expect(page).toHaveURL(/\/rules$/);
+    await expect(name).toHaveValue('Draft');
+  });
+});
+
 test.describe('picking a condition value', () => {
   /**
    * A genre is a string the engine compares, and the exact spelling lives in
