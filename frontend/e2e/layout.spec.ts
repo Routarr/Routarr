@@ -615,6 +615,12 @@ test('selecting rows does not move the rows', async ({ page }) => {
  * query, and it reads as a design choice until you sample the pixels.
  */
 test('a table with nothing to scroll has no shadow down its edges', async ({ page }) => {
+  // In the light theme: on the dark card a shadow darkens the edge by a unit,
+  // which one engine's rounding also does, and on the light one by tens.
+  await api('/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: { ui_theme: 'light' } }),
+  });
   await openScreen(page, '/move-log');
 
   const container = page.locator('.table-container').first();
@@ -642,16 +648,19 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
     return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
   }, Array.from(shot));
 
-  // Each 16px strip must be one flat colour: a gradient means a shadow.
+  // Each 16px strip must be one flat colour: a gradient means a shadow, three
+  // units deep at least here. One unit per channel is an engine's rounding.
   for (const [side, pixels] of [
     ['left', edges.left],
     ['right', edges.right],
   ] as const) {
-    const first = pixels.slice(0, 4).join();
+    const first = pixels.slice(0, 4);
     const varied = [];
     for (let i = 0; i < pixels.length; i += 4) {
-      const px = pixels.slice(i, i + 4).join();
-      if (px !== first) varied.push(`x=${i / 4} ${px}`);
+      const px = pixels.slice(i, i + 4);
+      if (px.some((value, channel) => Math.abs(value - (first[channel] ?? 0)) > 1)) {
+        varied.push(`x=${i / 4} ${px.join()}`);
+      }
     }
     expect(varied, `${side} edge is not flat: ${varied.join(' | ')}`).toEqual([]);
   }

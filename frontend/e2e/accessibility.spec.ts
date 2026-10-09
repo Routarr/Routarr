@@ -395,9 +395,12 @@ test('each screen names itself in the tab and takes the focus it was reached wit
  * the sweep never reaches: its page holds a session from the start.
  */
 test('the key screen passes axe', async ({ browser }) => {
+  // A new context starts cold, and in Firefox on a CI runner its first page
+  // alone can take most of the default bound.
+  test.setTimeout(60_000);
   const context = await browser.newContext();
   const page = await context.newPage();
-  await page.goto('/');
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
   await expect(page.getByLabel('Routarr API key')).toBeVisible();
 
   const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
