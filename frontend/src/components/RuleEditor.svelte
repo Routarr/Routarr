@@ -2,10 +2,12 @@
   import { FlaskConical } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { conditionAppliesTo, defaultConditionValue } from '../api/conditions';
+  import { toggled } from '../api/format';
   import type {
     ValidationIssue,
     Category,
     ConditionCatalog,
+    Instance,
     LibraryFacets,
     MatchMode,
     RuleDraft,
@@ -25,6 +27,7 @@
     draft: initial,
     ruleId,
     categories,
+    instances,
     catalog,
     onClose,
     onSaved,
@@ -34,6 +37,8 @@
     draft: RuleDraft;
     ruleId?: string;
     categories: Category[];
+    /** What a rule can be kept to. None ticked is every instance. */
+    instances: Instance[];
     catalog: ConditionCatalog;
     onClose: () => void;
     onSaved: (message: string) => Promise<void>;
@@ -201,6 +206,13 @@
     );
     const field = rows[list][index];
     if (field) field.unreadable = unreadableText;
+    touched();
+  }
+
+  /** An empty list would read as every instance too, so none ticked is sent as `null`. */
+  function keepTo(id: string, ticked: boolean) {
+    const kept = toggled(draft.instance_ids ?? [], id, ticked);
+    draft.instance_ids = kept.length > 0 ? kept : null;
     touched();
   }
 
@@ -375,6 +387,23 @@
         {/if}
       </div>
     </div>
+
+    {#if instances.length > 0}
+      <fieldset class="form-group">
+        <legend>{t('Instances')}</legend>
+        <p class="form-hint">{t('RuleInstancesHelp')}</p>
+        {#each instances as instance (instance.id)}
+          <label class="check-option">
+            <input
+              type="checkbox"
+              checked={draft.instance_ids?.includes(instance.id) ?? false}
+              onchange={(event) => keepTo(instance.id, event.currentTarget.checked)}
+            />
+            <span>{instance.name}</span>
+          </label>
+        {/each}
+      </fieldset>
+    {/if}
 
     <div class="form-row">
       <div class="form-group flex-fill-240">

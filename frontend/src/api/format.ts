@@ -330,6 +330,11 @@ export function localName(
   }
 }
 
+/** `list` with `value` added when a box is ticked, or taken out when it is cleared. */
+export function toggled<T>(list: readonly T[], value: T, on: boolean): T[] {
+  return on ? [...list, value] : list.filter((entry) => entry !== value);
+}
+
 /**
  * `items` with the entry at `index` traded for its neighbour `by` places away,
  * or `null` when there is no such neighbour. The list handed in is left as it

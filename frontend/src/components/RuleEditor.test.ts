@@ -6,6 +6,7 @@ import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
 import { dropFocus } from '../test/focus';
 import { nthCall } from '../test/spy';
+import { instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import RuleEditor from './RuleEditor.svelte';
@@ -36,6 +37,7 @@ const STRINGS = {
   Cancel: 'Cancel',
   Dismiss: 'Close',
   ConfirmDiscardRule: 'Close the rule without saving?',
+  Instances: 'Instances',
 };
 
 const DRAFT: RuleDraft = {
@@ -73,6 +75,10 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
       draft: DRAFT,
       ruleId,
       categories: [],
+      instances: [
+        instance({ id: 'i1', name: 'Radarr 4K' }),
+        instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' }),
+      ],
       catalog: { conditions: [] },
       onClose: () => {},
       onSaved: async () => {},
@@ -415,6 +421,34 @@ describe('RuleEditor', () => {
  * `Rules` already holds the facets for its panel, and the editor asking again
  * would aggregate the whole library a second time every time it opens.
  */
+/** No instance ticked is every instance, which is what a rule covers unless told otherwise. */
+describe('the instances a rule is kept to', () => {
+  it('sends the instances ticked, and none once every box is cleared', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
+    render();
+
+    const radarr = await screen.findByRole('checkbox', { name: 'Radarr 4K' });
+    await userEvent.click(radarr);
+    await userEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(nthCall(create)[0]).toMatchObject({ instance_ids: ['i1'] });
+
+    await userEvent.click(radarr);
+    await userEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(nthCall(create, 1)[0]).toMatchObject({ instance_ids: null });
+  });
+
+  it('opens a rule with the instances it is kept to ticked', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render('r1', { draft: { ...DRAFT, instance_ids: ['i2'] } });
+
+    expect(await screen.findByRole('checkbox', { name: 'Sonarr' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Radarr 4K' })).not.toBeChecked();
+  });
+});
+
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {
     render(undefined, {

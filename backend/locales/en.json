@@ -795,6 +795,7 @@
   "RuleDuplicated": "Rule duplicated",
   "RuleEnabled": "Enabled",
   "RuleDisabled": "Disabled",
+  "RuleInstancesHelp": "With none ticked, the rule applies to every instance.",
   "RuleEvaluation": "Rule evaluation",
   "RuleImportInstancesMissing": "'{name}': limited to instances this installation does not have ({instances}), so it is not imported.",
   "RuleImportInstancesNarrowed": "'{name}': limited to the instances this installation has, without {instances}.",

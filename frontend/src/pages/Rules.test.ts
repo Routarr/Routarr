@@ -8,6 +8,7 @@ import type { Category, ConditionCatalog, LibraryFacets, Rule, RuleHealth } from
 import Rules from './Rules.svelte';
 import { answerConfirmation } from '../test/confirm';
 import { statusRevision } from '../lib/status.svelte';
+import { instance } from '../test/fixtures';
 
 /**
  * First match by ascending priority wins, so the order of this table *is* the
@@ -107,6 +108,9 @@ function rule(over: Partial<Rule> = {}): Rule {
   };
 }
 
+/** Two Radarr, so a rule kept to one of them names which. */
+const INSTANCES = [instance(), instance({ id: 'i2', name: 'Radarr 4K' })];
+
 const NO_FACETS = {
   total_media: 0,
   without_metadata: 0,
@@ -126,6 +130,7 @@ function show(rules: Rule[], served: ConditionCatalog = catalog, language = 'en'
   vi.spyOn(api, 'getRules').mockResolvedValue(rules);
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   vi.spyOn(api, 'getConditionCatalog').mockResolvedValue(served);
+  vi.spyOn(api, 'getInstances').mockResolvedValue(INSTANCES);
   if (!vi.isMockFunction(api.getRuleHealth)) {
     vi.spyOn(api, 'getRuleHealth').mockResolvedValue({ total_media: 0, rules: [] });
   }
@@ -145,6 +150,15 @@ async function rowAction(rule: string | RegExp, action: string) {
 }
 
 describe('Rules', () => {
+  /** A rule kept to some instances never fires on the others, which its row has to say. */
+  it('names the instances a rule is kept to beside its media type', async () => {
+    show([rule({ instance_ids: ['i2'] })]);
+
+    const row = await screen.findByRole('row', { name: /Japanese animation/ });
+    expect(within(row).getByText('Radarr 4K')).toBeTruthy();
+    expect(within(row).queryByText('Radarr')).toBeNull();
+  });
+
   /**
    * The badges and the library panel come from two diagnostics the list does
    * without. Failed silently, they look exactly like a healthy rule set.

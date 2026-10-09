@@ -6,7 +6,7 @@
   import { createAsync, describeError } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatTimestamp } from '../api/format';
+  import { formatTimestamp, toggled } from '../api/format';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
   import EmptyState from '../components/EmptyState.svelte';
@@ -60,10 +60,6 @@
     mayMoveFiles = false;
     dialogError = null;
     creating = true;
-  }
-
-  function toggled<T>(list: T[], value: T, on: boolean): T[] {
-    return on ? [...list, value] : list.filter((entry) => entry !== value);
   }
 
   async function save(event: SubmitEvent) {

@@ -9,6 +9,7 @@ import {
   mediaTypeKey,
   runsOf,
   swapped,
+  toggled,
 } from './format';
 
 describe('failureDetail', () => {
@@ -276,6 +277,16 @@ describe('formatPercent', () => {
     expect(formatPercent(-0.2, 'en')).toBe('0%');
     expect(formatPercent(null, 'en')).toBe('0%');
     expect(formatPercent(0.6349, 'en')).toBe('63%');
+  });
+});
+
+describe('toggled', () => {
+  it('adds what is ticked and takes out what is cleared, leaving the list it was given alone', () => {
+    const scopes = ['read'];
+
+    expect(toggled(scopes, 'operate', true)).toEqual(['read', 'operate']);
+    expect(toggled(['read', 'operate'], 'read', false)).toEqual(['operate']);
+    expect(scopes).toEqual(['read']);
   });
 });
 

@@ -23,6 +23,7 @@
     Category,
     Condition,
     ConditionCatalog,
+    Instance,
     Rule,
     RuleDraft,
     RuleMediaType,
@@ -75,9 +76,10 @@
 
   const bundle = createAsync(async (signal) => {
     analysisFailed = false;
-    const [rules, categories, catalog, health] = await Promise.all([
+    const [rules, categories, instances, catalog, health] = await Promise.all([
       api.getRules(signal),
       api.getCategories(signal),
+      api.getInstances(signal),
       api.getConditionCatalog(signal),
       // Which rules are actually deciding anything. Validation looks inside one
       // rule and nothing else looks between them, which is where
@@ -93,7 +95,7 @@
         return null;
       }),
     ]);
-    return { rules, categories, catalog, health };
+    return { rules, categories, instances, catalog, health };
   });
 
   // What the library carries, read once when the screen opens: an aggregation
@@ -115,6 +117,8 @@
 
   const rules = $derived<Rule[]>(bundle.data?.rules ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
+  const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
+  const instanceName = $derived(new Map(instances.map((instance) => [instance.id, instance.name])));
   const catalog = $derived<ConditionCatalog | undefined>(bundle.data?.catalog);
   const specByType = $derived(
     new Map((catalog?.conditions ?? []).map((spec) => [spec.type, spec])),
@@ -361,10 +365,15 @@
                   {/if}
                 </td>
                 <td><span class="badge badge-value">{rule.target_category}</span></td>
-                <td
-                  ><span class="badge badge-value muted">{t(MEDIA_TYPE_KEY[rule.media_type])}</span
-                  ></td
-                >
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    <span class="badge badge-value muted">{t(MEDIA_TYPE_KEY[rule.media_type])}</span
+                    >
+                    {#each rule.instance_ids ?? [] as id (id)}
+                      <span class="badge badge-value">{instanceName.get(id) ?? id}</span>
+                    {/each}
+                  </div>
+                </td>
                 <td>
                   <span class="badge badge-value muted">
                     {t(rule.match_mode === 'any' ? 'LogicAny' : 'LogicAll')}
@@ -464,6 +473,7 @@
       draft={editing.draft}
       ruleId={editing.id}
       {categories}
+      {instances}
       {catalog}
       onClose={() => (editing = null)}
       returnFocus="rules-new"
