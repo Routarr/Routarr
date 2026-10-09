@@ -2542,6 +2542,18 @@ td * {
 /* Two lines, then an ellipsis and the full sentence in the tooltip. Otherwise
    rows keep a rhythm of their own: a three-line justification makes its row
    twice the height of the one above. */
+/* What the explanation panel can do about its title, each action above what
+   it does: side by side where they fit, one under the other on a phone. */
+.explain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.explain-action {
+  flex: 1 1 240px;
+}
+
 .reason-line {
   font-size: 12px;
   display: -webkit-box;
