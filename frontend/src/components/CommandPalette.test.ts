@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { SCREENS } from '../lib/routes';
 import { renderWithI18n } from '../test/render';
+import { nthCall } from '../test/spy';
 import { media as film, explainedMedia } from '../test/fixtures';
 import type { MediaListItem } from '../api/types';
 import { api } from '../api/client';
@@ -129,9 +130,28 @@ describe('CommandPalette', () => {
 
     const row = await screen.findByText('Spirited Away');
     expect(getMedia).toHaveBeenCalledTimes(1);
-    expect(getMedia).toHaveBeenCalledWith({ search: 'spirited', per_page: 5 });
+    expect(getMedia).toHaveBeenCalledWith(
+      { search: 'spirited', per_page: 5 },
+      expect.any(AbortSignal),
+    );
     // What tells one film from another with the same name.
     expect(row.nextElementSibling).toHaveTextContent('2001 · Radarr · anime');
+  });
+
+  /** A search the typing has moved past is abandoned, not left to run on the server. */
+  it('abandons the search a new term replaces', async () => {
+    const getMedia = vi.spyOn(api, 'getMedia').mockReturnValue(new Promise(() => {}));
+    show();
+    await screen.findAllByRole('option');
+    const field = screen.getByRole('combobox');
+
+    await userEvent.type(field, 'akira');
+    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(1));
+    const first = nthCall(getMedia)[1];
+    expect(first?.aborted).toBe(false);
+
+    await userEvent.type(field, ' 2');
+    await waitFor(() => expect(first?.aborted).toBe(true));
   });
 
   it('says nothing rather than showing an empty box', async () => {

@@ -62,11 +62,15 @@
   let facetsError = $state<string | null>(null);
   $effect(() => {
     if (knownFacets !== null) return;
+    const closing = new AbortController();
     api
-      .getLibraryFacets()
+      .getLibraryFacets(closing.signal)
       .then((loaded) => (facets = loaded))
-      .catch((cause) => (facetsError = describeError(cause)))
+      .catch((cause) => {
+        if (!closing.signal.aborted) facetsError = describeError(cause);
+      })
       .finally(() => (facetsLoading = false));
+    return () => closing.abort();
   });
 
   // Read once, deliberately: this is the *initial* draft. The editor owns its
@@ -118,16 +122,21 @@
   const VALIDATE_DELAY_MS = 400;
   $effect(() => {
     const snapshot = JSON.stringify(draft);
+    // A question about a draft edited since is abandoned, not left to run.
+    const asking = new AbortController();
     const timer = setTimeout(() => {
       const candidate = JSON.parse(snapshot) as RuleDraft;
       api
-        .validateRule(candidate)
+        .validateRule(candidate, asking.signal)
         .then((result) => {
           if (JSON.stringify(draft) === snapshot) issues = result.issues;
         })
         .catch(() => {});
     }, VALIDATE_DELAY_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      asking.abort();
+      clearTimeout(timer);
+    };
   });
   /**
    * A condition just added has no value yet. Said before the reader had a

@@ -582,10 +582,11 @@ export const api = {
     request<unknown>(`/auth/sessions/${encodeURIComponent(handle)}`, { method: 'DELETE' }),
   endEverySession: () => request<{ ended: number }>('/auth/sessions', { method: 'DELETE' }),
 
-  validateRule: (data: RuleDraft) =>
+  validateRule: (data: RuleDraft, signal?: AbortSignal) =>
     request<{ valid: boolean; issues: ValidationIssue[] }>('/rules/validate', {
       method: 'POST',
       body: body(data),
+      signal,
     }),
   previewRule: (rule: RuleDraft, ruleId?: string) =>
     request<RulePreview>('/rules/preview', {

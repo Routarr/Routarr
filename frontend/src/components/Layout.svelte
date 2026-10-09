@@ -70,14 +70,16 @@
   // The theme is a server setting, like the language, so it has to be fetched
   // rather than read from the browser. Following the OS is a choice one makes.
   $effect(() => {
+    const closing = new AbortController();
     api
-      .getSettings()
+      .getSettings(closing.signal)
       .then(({ ui_theme }) =>
         applyTheme(typeof ui_theme === 'string' && ui_theme ? ui_theme : 'dark'),
       )
       // A theme that cannot be read is not worth an error banner: the default
       // renders perfectly well.
       .catch(() => {});
+    return () => closing.abort();
   });
 
   // Keep the chrome honest. Polling only while a job runs would leave the

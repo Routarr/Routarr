@@ -71,7 +71,10 @@
   // Stops following a sync when the screen closes. The sync goes on, and the
   // screen opened again reads what it did.
   const leaving = new AbortController();
-  $effect(() => () => leaving.abort());
+  $effect(() => () => {
+    leaving.abort();
+    stopTrying();
+  });
   // `opened` is the form as it opened, as text: whether closing drops any work.
   let editing = $state<{
     form: FormState;

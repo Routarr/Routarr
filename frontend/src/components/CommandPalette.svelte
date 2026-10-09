@@ -80,23 +80,25 @@
       searching = false;
       return;
     }
-    let live = true;
+    // A search the typing has moved past is abandoned, not left to run.
+    const search = new AbortController();
+    const live = () => !search.signal.aborted;
     searching = true;
     const timer = setTimeout(() => {
       api
-        .getMedia({ search: term, per_page: 5 })
+        .getMedia({ search: term, per_page: 5 }, search.signal)
         .then((page) => {
-          if (live) ((media = page.data), (error = null));
+          if (live()) ((media = page.data), (error = null));
         })
         .catch((cause) => {
-          if (live) ((media = []), (error = describeError(cause)));
+          if (live()) ((media = []), (error = describeError(cause)));
         })
         .finally(() => {
-          if (live) searching = false;
+          if (live()) searching = false;
         });
     }, 200);
     return () => {
-      live = false;
+      search.abort();
       clearTimeout(timer);
     };
   });

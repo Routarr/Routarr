@@ -78,15 +78,21 @@
   // nothing look the same otherwise.
   let searched = $state(false);
 
+  // Only the last search answers, and one the screen closed on is abandoned.
+  let finding: AbortController | null = null;
+  $effect(() => () => finding?.abort());
+
   async function find(event: SubmitEvent) {
     event.preventDefault();
     dialogError = null;
+    finding?.abort();
+    const mine = (finding = new AbortController());
     try {
-      const page = await api.getMedia({ search, per_page: 15 });
+      const page = await api.getMedia({ search, per_page: 15 }, mine.signal);
       results = page.data;
       searched = true;
     } catch (err) {
-      dialogError = describeError(err);
+      if (!mine.signal.aborted) dialogError = describeError(err);
     }
   }
 
