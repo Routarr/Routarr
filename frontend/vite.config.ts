@@ -99,10 +99,10 @@ export default defineConfig({
       // floor sees that one: a file nothing renders measures nothing, and a
       // file whose functions nothing calls measures its declarations alone.
       thresholds: {
-        statements: 94,
-        branches: 83,
-        functions: 92,
-        lines: 94,
+        statements: 95,
+        branches: 85,
+        functions: 93,
+        lines: 95,
         perFile: { statements: 30, branches: 30, functions: 30, lines: 30 },
       },
     },

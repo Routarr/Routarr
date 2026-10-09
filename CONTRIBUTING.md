@@ -108,7 +108,7 @@ gitleaks reads the whole history: a secret-shaped literal, a realistic fake key
 in a test included, keeps failing it after a later commit deletes it. Write a
 fake key that no scanner takes for a real one (`test-key`, `x` repeated).
 
-Coverage has floors on both sides: 96 % of backend lines, and 94 / 83 / 92 / 94 for frontend
+Coverage has floors on both sides: 96 % of backend lines, and 95 / 85 / 93 / 95 for frontend
 statements, branches, functions and lines, with 30 % of each of the four in every frontend file,
 so a screen with no test fails the run. **Raise one when the real figure moves up, never
 lower one to make a build pass.**
