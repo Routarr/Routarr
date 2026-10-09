@@ -56,10 +56,11 @@
   const jobs = $derived(jobsPage.data?.data ?? []);
   const hasRunning = $derived(jobs.some((job) => job.status === 'running'));
 
+  // Fast while a task runs, slow otherwise: the scheduler starts a sync on its
+  // own, which a screen polled only while something already ran never shows.
   poll(
     () => void jobsPage.reload(),
-    () => 3000,
-    () => hasRunning,
+    () => (hasRunning ? 3000 : 30_000),
   );
 </script>
 

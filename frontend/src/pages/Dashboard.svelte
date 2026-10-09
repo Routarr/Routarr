@@ -2,6 +2,7 @@
   import { Play, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
+  import { poll } from '../lib/poll.svelte';
   import { href } from '../lib/router.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatCount, formatRelative, formatTimestamp } from '../api/format';
@@ -44,6 +45,11 @@
   async function refresh() {
     await Promise.all([quick.reload(), probed.reload()]);
   }
+  // Its relative times and counts follow on their own while it is open.
+  poll(
+    () => void refresh(),
+    () => 60_000,
+  );
 </script>
 
 <div>

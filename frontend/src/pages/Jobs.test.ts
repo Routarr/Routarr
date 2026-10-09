@@ -145,7 +145,12 @@ describe('Tasks', () => {
     expect(screen.queryByText('Refreshing')).toBeNull();
   });
 
-  it('polls while a job runs, and stops once it finishes', async () => {
+  /**
+   * Fast while a task runs, slow once nothing does: the scheduler starts a
+   * sync on its own, and a screen read only while something already ran would
+   * never show it.
+   */
+  it('polls fast while a task runs, then at an idle pace', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const getJobs = vi
       .spyOn(api, 'getJobs')
@@ -158,13 +163,14 @@ describe('Tasks', () => {
     await vi.advanceTimersByTimeAsync(3000);
     expect(getJobs.mock.calls.length).toBeGreaterThan(before);
 
-    // Nothing running any more: the timer must go with it.
     getJobs.mockResolvedValue(paginated([job({ status: 'success' })]));
     await vi.advanceTimersByTimeAsync(3000);
     await waitFor(() => expect(screen.queryByText('Refreshing')).toBeNull());
 
     const settled = getJobs.mock.calls.length;
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(getJobs.mock.calls.length).toBe(settled);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(getJobs.mock.calls.length).toBeGreaterThan(settled);
   });
 });

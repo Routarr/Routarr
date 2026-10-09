@@ -45,6 +45,7 @@ const bothReturn = (value: ReturnType<typeof health>) =>
 afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
+  vi.useRealTimers();
   publishOnboarding(null);
   publishOnboardingFailure(null);
 });
@@ -90,6 +91,19 @@ describe('Dashboard', () => {
     await fireEvent.click(refresh);
 
     expect(refresh).toHaveAttribute('aria-busy', 'true');
+  });
+
+  /** Its "4 minutes ago" and its counts follow on their own while it is open. */
+  it('reads itself again every minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
+    show();
+    await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
+    await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(2));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(getHealth.mock.calls.length).toBeGreaterThan(2);
   });
 
   it('leads with the number the user came to see', async () => {
