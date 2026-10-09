@@ -315,6 +315,31 @@ test('a focused field is outlined when the system forces its colours', async ({ 
 });
 
 /**
+ * A row's action menu is walked with the arrows, and the action Enter would
+ * run, Delete among them, has to show which it is, in forced colours too.
+ */
+for (const forced of ['none', 'active'] as const) {
+  test(`the focused item of a row's menu is outlined, forced colours ${forced}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: forced });
+    await openScreen(page, '/instances');
+    const actions = page.getByRole('button', { name: /^Actions – / }).first();
+    await actions.focus();
+    await page.keyboard.press('ArrowDown');
+
+    const item = page.getByRole('menuitem').first();
+    await expect(item).toBeFocused();
+    const outline = await item.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    });
+    expect(outline.style).not.toBe('none');
+    expect(parseFloat(outline.width)).toBeGreaterThan(0);
+  });
+}
+
+/**
  * A dozen navigation links stand between the top of the page and its content.
  * The first Tab has to offer a way past them, and taking it has to land focus
  * where the content starts.
