@@ -329,6 +329,24 @@ describe('Instances', () => {
     expect(save.disabled).toBe(false);
   });
 
+  /** Leaving the screen stops the looking at a sync, not the sync. */
+  it.each([
+    ['Sync now – Radarr', 'syncInstance', 1],
+    ['Sync all', 'syncAll', 0],
+  ] as const)('stops following %s once the screen closes', async (button, method, at) => {
+    const sync = vi.spyOn(api, method).mockReturnValue(new Promise(() => {}) as never);
+    const { unmount } = show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: button }));
+    await waitFor(() => expect(sync).toHaveBeenCalled());
+    const following = nthCall(sync as unknown as { mock: { calls: unknown[][] } })[at] as
+      { signal?: AbortSignal } | undefined;
+    expect(following?.signal?.aborted).toBe(false);
+
+    unmount();
+    expect(following?.signal?.aborted).toBe(true);
+  });
+
   /** A grey Save says nothing about the field that holds it. */
   it('says why an interval outside its bounds holds Save', async () => {
     show([instance()]);
@@ -352,7 +370,9 @@ describe('Instances', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Sync now – Sonarr' }));
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith('i2'));
+    await waitFor(() =>
+      expect(sync).toHaveBeenCalledWith('i2', { signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('marks a disabled instance rather than hiding it', async () => {
@@ -548,7 +568,9 @@ describe('Instances', () => {
 
     await addInstance('Films');
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith('i9'));
+    await waitFor(() =>
+      expect(sync).toHaveBeenCalledWith('i9', { signal: expect.any(AbortSignal) }),
+    );
     const done = await screen.findByText('Films is synced. Titles: 12, root folders: 2');
     expect(done.closest('.banner')?.classList.contains('banner-success')).toBe(true);
     expect(statusRevision()).toBeGreaterThan(before);

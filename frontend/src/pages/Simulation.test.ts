@@ -110,8 +110,9 @@ async function show(pending: Decision[]) {
       typeof params?.simulation_id === 'string' ? (RUNS.get(params.simulation_id) ?? []) : pending,
     ),
   );
-  renderWithI18n(Simulation, { strings: STRINGS });
+  const view = renderWithI18n(Simulation, { strings: STRINGS });
   await screen.findByRole('heading', { name: 'Simulation' });
+  return view;
 }
 
 // No run is going on when the screen opens, unless a test says otherwise.
@@ -385,6 +386,22 @@ describe('what the screen refuses to do', () => {
     const button = await screen.findByRole('button', { name: /apply all/i });
     expect(button).toHaveAccessibleDescription('Every move this run proposed, in batches.');
     expect(screen.getByText('Every move this run proposed, in batches.')).toBeInTheDocument();
+  });
+
+  /** Leaving the screen stops the looking at an apply, not the apply. */
+  it('stops following an apply once the screen closes', async () => {
+    const applyDecisions = vi.spyOn(api, 'applyDecisions').mockReturnValue(new Promise(() => {}));
+    const { unmount } = await show([]);
+    vi.spyOn(api, 'runSimulation').mockResolvedValue(simulation([decision()]));
+
+    await fireEvent.click(screen.getByRole('button', { name: /run simulation/i }));
+    await fireEvent.click(await screen.findByRole('button', { name: /apply selected/i }));
+    await waitFor(() => expect(applyDecisions).toHaveBeenCalled());
+    const signal = nthCall(applyDecisions)[3]?.signal;
+    expect(signal?.aborted).toBe(false);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
   });
 
   /** A second click while the confirmed apply writes would start another. */

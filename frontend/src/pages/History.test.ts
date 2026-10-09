@@ -117,6 +117,25 @@ describe('History', () => {
     expect(revertDecisions).not.toHaveBeenCalled();
   });
 
+  /** Leaving the screen stops the looking at a revert, not the revert. */
+  it('stops following a revert once the screen closes', async () => {
+    const revertDecisions = vi.spyOn(api, 'revertDecisions').mockReturnValue(new Promise(() => {}));
+    vi.spyOn(api, 'getDecisions').mockResolvedValue(
+      paginated([decision({ status: 'applied', revertible: true })]),
+    );
+    const { unmount } = show();
+
+    await fireEvent.click(await screen.findByRole('button', { name: /Revert – Akira/ }));
+    const dialog = await screen.findByRole('dialog');
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Put back' }));
+    await waitFor(() => expect(revertDecisions).toHaveBeenCalled());
+    const signal = nthCall(revertDecisions)[3]?.signal;
+    expect(signal?.aborted).toBe(false);
+
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
   it.each([
     ['leaves the files alone unless that box is ticked', false],
     ['moves the files back when that box is ticked', true],

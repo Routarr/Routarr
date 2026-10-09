@@ -700,6 +700,64 @@ describe('a write followed through its job', () => {
     expect(await run).toMatchObject({ name: 'AbortError' });
   });
 
+  /** A proxy's hiccup during a long apply is not the apply failing. */
+  it('looks again after a look that failed, and still reads the report', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(502, { error: 'bad_gateway', message: '' }))
+        .mockResolvedValueOnce(job('success', { result: report })),
+    );
+
+    const applied = api.applyDecisions(['d1']);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(applied).resolves.toEqual(report);
+  });
+
+  it('gives up once the looks keep failing', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValue(answer(502, { error: 'bad_gateway', message: '' })),
+    );
+
+    const applied = api.applyDecisions(['d1']).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(await applied).toMatchObject({ status: 502 });
+  });
+
+  /** Nobody reads a job followed in a hidden tab, and the server is left alone meanwhile. */
+  it('waits while the tab is hidden, and looks again once it is back', async () => {
+    vi.useFakeTimers();
+    const spy = vi
+      .fn()
+      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(job('running'))
+      .mockResolvedValueOnce(job('success', { result: report }));
+    vi.stubGlobal('fetch', spy);
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+
+    const applied = api.applyDecisions(['d1']);
+    await vi.advanceTimersByTimeAsync(300);
+    hidden.mockReturnValue('hidden');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    hidden.mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(applied).resolves.toEqual(report);
+  });
+
   it('takes a report answered at once as it is', async () => {
     const spy = vi.fn().mockResolvedValueOnce(answer(200, report));
     vi.stubGlobal('fetch', spy);

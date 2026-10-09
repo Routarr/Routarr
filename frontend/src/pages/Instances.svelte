@@ -68,6 +68,10 @@
   const list = createAsync((signal) => api.getInstances(signal));
   const outcome = createOutcome();
   let busyId = $state<string | null>(null);
+  // Stops following a sync when the screen closes. The sync goes on, and the
+  // screen opened again reads what it did.
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
   // `opened` is the form as it opened, as text: whether closing drops any work.
   let editing = $state<{
     form: FormState;
@@ -248,7 +252,7 @@
   async function syncFirstTime(saved: Instance) {
     busyId = saved.id;
     try {
-      const report = await api.syncInstance(saved.id);
+      const report = await api.syncInstance(saved.id, { signal: leaving.signal });
       outcome.succeed(
         t('SyncResult', {
           name: saved.name,
@@ -300,7 +304,7 @@
   const syncNow = (instance: Instance) =>
     act(
       instance.id,
-      () => api.syncInstance(instance.id),
+      () => api.syncInstance(instance.id, { signal: leaving.signal }),
       (r) => t('SyncResult', { name: instance.name, media: r.media, folders: r.root_folders }),
     );
 
@@ -321,7 +325,7 @@
     const pressed = document.activeElement as HTMLElement | null;
     busyId = 'all';
     try {
-      const all = await api.syncAll();
+      const all = await api.syncAll({ signal: leaving.signal });
       // One line per failure: an error is free text, commas included.
       const failed = all.filter((r) => r.error).map((r) => `${r.instance_name}: ${r.error}`);
       const message = t('SyncAllResult', { count: all.length - failed.length });

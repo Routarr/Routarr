@@ -61,6 +61,11 @@
   // the row after it, else the one before, else the table.
   const revertId = (index: number) => `history-revert-${index}`;
 
+  // Stops following a revert when the screen closes. The revert goes on, and
+  // the screen opened again reads where it went.
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
   async function revert(decision: Decision, moveFiles: boolean) {
     const index = decisions.findIndex((row) => row.id === decision.id);
     reverting = null;
@@ -70,7 +75,8 @@
       // `RevertConfirm`, not `Revert`: a button beside Cancel, which several
       // languages would otherwise start with their Cancel verb.
       const report = await answering(
-        (answered) => api.revertDecisions([decision.id], moveFiles, answered),
+        (answered) =>
+          api.revertDecisions([decision.id], moveFiles, answered, { signal: leaving.signal }),
         'RevertConfirm',
       );
       if (!report) return;

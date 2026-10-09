@@ -28,7 +28,6 @@
   let busy = $state<'run' | 'apply' | null>(null);
   /** The task of the apply being followed, which Cancel stops. */
   let applying = $state<string | null>(null);
-  const followingApply: Following = { onProgress: (job) => (applying = job.id) };
   /** The refresh after an apply, whose failure sits beside the apply's report. */
   let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
@@ -86,6 +85,10 @@
   const following: Following = {
     signal: leaving.signal,
     onProgress: (job) => (progress = { current: job.progress_current, total: job.progress_total }),
+  };
+  const followingApply: Following = {
+    signal: leaving.signal,
+    onProgress: (job) => (applying = job.id),
   };
 
   $effect(() => {
