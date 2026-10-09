@@ -99,6 +99,17 @@ describe('Media explorer', () => {
     expect(badge.className).toContain('muted');
   });
 
+  /** The icon is for the eye: a screen reader is told the type in a word. */
+  it('says whether a title is a film or a series in words', async () => {
+    show([
+      media({ id: 'm1', title: 'Akira', media_type: 'movie' }),
+      media({ id: 'm2', title: 'Monster', media_type: 'series' }),
+    ]);
+
+    expect(await screen.findByRole('row', { name: /Akira/ })).toHaveTextContent('Movies');
+    expect(screen.getByRole('row', { name: /Monster/ })).toHaveTextContent('Series');
+  });
+
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
       media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }),

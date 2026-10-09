@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Film, HelpCircle, Lock, RefreshCw, Tv } from '../lib/icons';
   import { api } from '../api/client';
+  import { mediaTypeKey } from '../api/format';
   import type { Explanation, MediaListItem } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
@@ -151,14 +152,13 @@
               <tr>
                 <td>
                   <div class="flex items-center gap-2">
+                    <!-- The icon for the eye, the word for a screen reader. -->
                     {#if media.media_type === 'movie'}
                       <Film size={16} class="text-radarr" />
                     {:else}
                       <Tv size={16} class="text-sonarr" />
                     {/if}
-                    <!-- One line, the whole title on hover. A long title that
-                         wraps takes its row to twice the height of its
-                         neighbours, and the year drifts off on its own. -->
+                    <span class="visually-hidden">{t(mediaTypeKey(media.media_type))}</span>
                     <strong class="cell-title">{media.title}</strong>
                     {#if media.year}<span class="text-muted">({media.year})</span>{/if}
                   </div>
