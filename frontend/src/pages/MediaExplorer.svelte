@@ -5,6 +5,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -165,7 +166,11 @@
                 <td>{media.instance_name}</td>
                 <td class="mono text-sm">
                   <span class="cell-path">
-                    <bdi>{media.current_root_folder ?? t('None')}</bdi>
+                    {#if media.current_root_folder}
+                      <bdi>{media.current_root_folder}</bdi>
+                    {:else}
+                      <NoValue />
+                    {/if}
                   </span>
                 </td>
                 <td>

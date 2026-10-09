@@ -9,6 +9,7 @@
   import { formatTimestamp, toggled } from '../api/format';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { handFocus } from '../lib/focus';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -172,11 +173,13 @@
                   </div>
                 </td>
                 <td class="text-muted">
-                  {application.may_confirm.length === 0
-                    ? t('None')
-                    : application.may_confirm
-                        .map((guardrail) => t(guardrailKey(guardrail)))
-                        .join(t('ListSeparator'))}
+                  {#if application.may_confirm.length === 0}
+                    <NoValue />
+                  {:else}
+                    {application.may_confirm
+                      .map((guardrail) => t(guardrailKey(guardrail)))
+                      .join(t('ListSeparator'))}
+                  {/if}
                 </td>
                 <td>{t(application.may_move_files ? 'Yes' : 'No')}</td>
                 <td class="cell-timestamp">

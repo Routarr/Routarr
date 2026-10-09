@@ -7,6 +7,7 @@
   import { i18n, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import NoValue from './NoValue.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
   import Confidence from './Confidence.svelte';
@@ -212,7 +213,11 @@
     </div>
 
     <p class="text-muted text-md mt-4">
-      <span class="mono">{view.media.current_root_folder ?? t('None')}</span>
+      {#if view.media.current_root_folder}
+        <span class="mono">{view.media.current_root_folder}</span>
+      {:else}
+        <NoValue />
+      {/if}
       <span class="dir-aware">→</span>
       <span class="mono">{view.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
@@ -235,12 +240,12 @@
         {t('MetadataSummary', {
           language: view.metadata.original_language
             ? nameOf('language', view.metadata.original_language)
-            : t('None'),
+            : t('NoneSpoken'),
           countries:
             view.metadata.origin_countries
               .map((country) => nameOf('region', country))
-              .join(t('ListSeparator')) || t('None'),
-          certification: view.metadata.certification ?? t('None'),
+              .join(t('ListSeparator')) || t('NoneSpoken'),
+          certification: view.metadata.certification ?? t('NoneSpoken'),
         })}
       </p>
       <div class="flex flex-wrap gap-2 mt-2">

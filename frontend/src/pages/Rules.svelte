@@ -139,7 +139,7 @@
       label: spec?.label,
       phrase: (key, params) => t(key, params),
       separator: t('ListSeparator'),
-      empty: t('None'),
+      empty: t('NoneSpoken'),
       name: (value) => nameIn(spec?.suggestions, value),
     });
   }

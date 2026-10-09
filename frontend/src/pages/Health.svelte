@@ -5,6 +5,7 @@
   import { invalidateStatus } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatCount, formatRelative, formatTimestamp } from '../api/format';
+  import NoValue from '../components/NoValue.svelte';
   import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -108,7 +109,9 @@
                       </span>
                     </td>
                     <td><InstanceStatus status={instance.status} /></td>
-                    <td class="mono">{instance.version ?? t('None')}</td>
+                    <td class="mono">
+                      {#if instance.version}{instance.version}{:else}<NoValue />{/if}
+                    </td>
                     <td><Count value={instance.media_count} /></td>
                     <td><Count value={instance.mapped_root_folders} /></td>
                     <td

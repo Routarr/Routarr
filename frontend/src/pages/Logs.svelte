@@ -5,6 +5,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -146,7 +147,9 @@
                   ><span class="badge badge-value muted">{t(LOG_ACTION_KEY[entry.action])}</span
                   ></td
                 >
-                <td>{entry.media_title ?? t('None')}</td>
+                <td
+                  >{#if entry.media_title}{entry.media_title}{:else}<NoValue />{/if}</td
+                >
                 <td class="mono text-sm">
                   {#if entry.error_message}
                     <span class="text-danger">{entry.error_message}</span>

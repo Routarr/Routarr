@@ -8,6 +8,7 @@
   import { answering } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import Confidence from '../components/Confidence.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -210,7 +211,11 @@
                 <td><span class="badge badge-value">{decision.target_category}</span></td>
                 <td class="mono text-sm">
                   <span class="cell-path">
-                    <bdi>{decision.target_root_folder ?? t('None')}</bdi>
+                    {#if decision.target_root_folder}
+                      <bdi>{decision.target_root_folder}</bdi>
+                    {:else}
+                      <NoValue />
+                    {/if}
                   </span>
                 </td>
                 <td>{decision.matched_rule_name ?? t('DefaultCategoryFallback')}</td>

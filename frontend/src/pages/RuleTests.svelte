@@ -7,6 +7,7 @@
   import { t } from '../lib/i18n.svelte';
   import { Play, Trash2 } from '../lib/icons';
   import type { RuleTestResult, RuleTestRun } from '../api/types';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -131,7 +132,10 @@
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
-                <td class="text-muted">{testCase.source_media_title ?? t('None')}</td>
+                <td class="text-muted">
+                  {#if testCase.source_media_title}{testCase.source_media_title}{:else}<NoValue
+                    />{/if}
+                </td>
                 <td><span class="badge badge-value">{testCase.expected_category}</span></td>
                 <td>
                   {#if !verdict}
@@ -148,7 +152,9 @@
                          the question a failure actually raises. -->
                     <span class="badge badge-danger">{t('Failed')}</span>
                     <span class="text-muted ms-2">
-                      {t('RuleTestNowGoesTo', { category: verdict.actual_category ?? t('None') })}
+                      {t('RuleTestNowGoesTo', {
+                        category: verdict.actual_category ?? t('NoneSpoken'),
+                      })}
                     </span>
                   {/if}
                 </td>

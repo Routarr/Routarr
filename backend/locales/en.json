@@ -681,6 +681,7 @@
   "NoValueInLibrary": "The library carries no value for this yet",
   "NoWritesYet": "Nothing has been written to Radarr or Sonarr yet.",
   "None": "-",
+  "NoneSpoken": "none",
   "NotEvaluated": "not evaluated",
   "NotFoundHelp": "Check the address, or pick a screen from the menu.",
   "NotFoundSubtitle": "Routarr serves nothing at {path}.",

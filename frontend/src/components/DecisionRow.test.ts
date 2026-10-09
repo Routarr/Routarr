@@ -21,6 +21,7 @@ const STRINGS = {
   AlsoMatched: '{rule} also matched, for {category}',
   ExcludedAlternative: '{rule} was vetoed by {reason}',
   None: '-',
+  NoneSpoken: 'none',
   ActionMove: 'Move',
   ActionSkip: 'Skip',
   ActionNone: 'Already correct',
@@ -98,6 +99,17 @@ describe('DecisionRow', () => {
    * The rules that lost are part of the explanation. Showing only the winner
    * makes a surprising outcome impossible to argue with.
    */
+  /** A title in no root folder yet: a dash on screen, a word to a screen reader. */
+  it('says an empty folder cell in a word', () => {
+    show({
+      decision: decision({ current_root_folder: null }),
+      selected: false,
+      onToggle: vi.fn(),
+    });
+
+    expect(screen.getByText('none')).toHaveClass('visually-hidden');
+  });
+
   it('shows the rules that also matched, and the ones that were vetoed', () => {
     show({
       decision: decision({

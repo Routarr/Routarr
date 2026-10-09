@@ -6,6 +6,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp, mediaTypeKey } from '../api/format';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -174,7 +175,9 @@
                 </td>
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>
-                <td class="text-muted">{override.reason ?? t('None')}</td>
+                <td class="text-muted">
+                  {#if override.reason}{override.reason}{:else}<NoValue />{/if}
+                </td>
                 <td class="cell-timestamp">
                   <span>{formatTimestamp(override.created_at, i18n.language)}</span>
                   {#if override.subject}
@@ -282,7 +285,8 @@
                   </td>
                   <td class="text-muted">{media.instance_name}</td>
                   <td class="mono text-sm">
-                    {media.current_root_folder ?? t('None')}
+                    {#if media.current_root_folder}{media.current_root_folder}{:else}<NoValue
+                      />{/if}
                   </td>
                 </tr>
               {/each}

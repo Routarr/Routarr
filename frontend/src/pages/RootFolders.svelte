@@ -7,6 +7,7 @@
   import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -382,7 +383,9 @@
                   </span>
                 {/if}
               </td>
-              <td class="text-muted">{category.description ?? t('None')}</td>
+              <td class="text-muted">
+                {#if category.description}{category.description}{:else}<NoValue />{/if}
+              </td>
               <td><Count value={category.rule_count} /></td>
               <td><Count value={category.root_folder_count} /></td>
               <td>

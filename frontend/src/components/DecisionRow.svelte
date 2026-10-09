@@ -3,6 +3,7 @@
   import type { Decision } from '../api/types';
   import { mediaTypeKey } from '../api/format';
   import { t } from '../lib/i18n.svelte';
+  import NoValue from './NoValue.svelte';
   import Confidence from './Confidence.svelte';
 
   let {
@@ -54,7 +55,11 @@
   </td>
   <td class="mono text-sm">
     <span class="cell-path">
-      <bdi>{decision.current_root_folder ?? t('None')}</bdi>
+      {#if decision.current_root_folder}
+        <bdi>{decision.current_root_folder}</bdi>
+      {:else}
+        <NoValue />
+      {/if}
     </span>
   </td>
   <td>
