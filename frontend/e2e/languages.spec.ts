@@ -140,7 +140,9 @@ async function speak(code: string): Promise<void> {
 }
 
 test('every language holds on one line what English does, and nothing spills', async ({ page }) => {
-  test.setTimeout(300_000);
+  // Every language over every screen at two widths: some four minutes in
+  // Chromium, and WebKit on a CI runner needs about twice that.
+  test.setTimeout(600_000);
   // Motion reduced, as the interface honours it: a transition ends within the
   // frame, so a thousand resizes do not each wait out an animation.
   await page.emulateMedia({ reducedMotion: 'reduce' });

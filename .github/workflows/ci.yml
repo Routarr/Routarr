@@ -341,7 +341,8 @@ jobs:
   e2e:
     name: End-to-end in ${{ matrix.browser }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # WebKit runs the suite at about half Chromium's pace.
+    timeout-minutes: 40
     needs: changes
     # Drives the release binary *serving the built frontend*, so either side
     # changing is reason enough to run it.
