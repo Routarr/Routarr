@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { formatCount } from '../api/format';
 import { health, healthInstance, onboardingStatus, warning } from '../test/fixtures';
 import { publishOnboarding, publishOnboardingFailure } from '../lib/onboarding.svelte';
 import { statusRevision } from '../lib/status.svelte';
@@ -84,6 +85,18 @@ describe('Dashboard', () => {
     await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
     // The headline, not one of the context figures below it.
     expect(container.querySelector('.headline-value')?.textContent).toBe('12');
+  });
+
+  /** Grouped as the language groups digits, as every figure beside it is. */
+  it('groups the headline figure the way the language does', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({ stats: { ...health().stats, pending_decisions: 12345 } }),
+    );
+    const { container } = renderWithI18n(Dashboard, { strings: STRINGS, language: 'fr' });
+
+    await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
+    expect(container.querySelector('.headline-value')?.textContent).toBe(formatCount(12345, 'fr'));
+    expect(formatCount(12345, 'fr')).not.toBe('12345');
   });
 
   /**

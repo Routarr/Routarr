@@ -4,7 +4,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { href } from '../lib/router.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatRelative, formatTimestamp } from '../api/format';
+  import { formatCount, formatRelative, formatTimestamp } from '../api/format';
   import { createOutcome } from '../lib/outcome.svelte';
   import { onboarding } from '../lib/onboarding.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -101,7 +101,7 @@
            saying where to look. -->
       <div class="headline">
         <div>
-          <div class="headline-value">{stats.pending_decisions}</div>
+          <div class="headline-value">{formatCount(stats.pending_decisions, i18n.language)}</div>
           <div class="headline-label">{t('PendingDecisions')}</div>
         </div>
         <!-- The one primary action of the screen, unless the guide shows:
@@ -168,7 +168,7 @@
                     </span>
                   </td>
                   <td><InstanceStatus status={instance.status} /></td>
-                  <td>{instance.media_count}</td>
+                  <td><Count value={instance.media_count} /></td>
                   <td><Count value={instance.mapped_root_folders} /></td>
                   <td
                     class="cell-timestamp"

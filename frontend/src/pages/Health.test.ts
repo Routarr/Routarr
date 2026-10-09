@@ -151,9 +151,10 @@ describe('Diagnostics', () => {
     const { container } = show();
 
     await screen.findByText('Radarr');
-    const cell = container.querySelector('.num') as HTMLElement;
-    expect(cell.textContent).toBe('0');
-    expect(cell.className).not.toContain('danger');
+    // The row's titles are a count too, so the cell is the one reading 0.
+    const cell = [...container.querySelectorAll('.num')].find((node) => node.textContent === '0');
+    expect(cell).toBeDefined();
+    expect(cell?.className).not.toContain('danger');
   });
 
   it('invites a first instance instead of showing an empty table', async () => {

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { FacetAxis, LibraryFacets, Vocabularies } from '../api/types';
   import { localFacets, nameFacets } from '../api/conditions';
+  import { formatCount } from '../api/format';
   import { i18n, t } from '../lib/i18n.svelte';
 
   /**
@@ -142,7 +143,7 @@
               <span class="facet-value">
                 {facet.label ?? facet.value}
               </span>
-              <span class="facet-count">{facet.count}</span>
+              <span class="facet-count">{formatCount(facet.count, i18n.language)}</span>
             </div>
           {/each}
           {#if axis.hidden > 0}

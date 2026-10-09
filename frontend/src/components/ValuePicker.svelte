@@ -1,9 +1,9 @@
 <script lang="ts">
   import { X } from '../lib/icons';
   import type { Facet } from '../api/types';
-  import { t } from '../lib/i18n.svelte';
+  import { i18n, t } from '../lib/i18n.svelte';
   import { canonicalKey, addValue, removeValue } from '../api/conditions';
-  import { runsOf } from '../api/format';
+  import { formatCount, runsOf } from '../api/format';
   import { handFocus } from '../lib/focus';
 
   /**
@@ -179,7 +179,9 @@
     <!-- A vocabulary entry is not an observation, so it carries no figure: a
          0 beside it would read as "absent from the library" where the point
          is that it can be chosen anyway. -->
-    {#if option.count > 0}<span class="picker-count">{option.count}</span>{/if}
+    {#if option.count > 0}<span class="picker-count"
+        >{formatCount(option.count, i18n.language)}</span
+      >{/if}
   </div>
 {/snippet}
 

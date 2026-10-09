@@ -6,7 +6,8 @@
   import ErrorBanner from './ErrorBanner.svelte';
   import PageFailure from './PageFailure.svelte';
   import { poll } from '../lib/poll.svelte';
-  import { applyTheme, t } from '../lib/i18n.svelte';
+  import { formatCount } from '../api/format';
+  import { applyTheme, i18n, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
@@ -353,7 +354,10 @@
               title={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
             >
               <ListChecks size={14} aria-hidden="true" />
-              {guidePill.done}/{guidePill.total}
+              {formatCount(guidePill.done, i18n.language)}/{formatCount(
+                guidePill.total,
+                i18n.language,
+              )}
               <!-- After the figure, so the name starts with what the eye reads:
                    a speech input user says what they see. -->
               <span class="visually-hidden">

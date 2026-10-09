@@ -383,7 +383,7 @@
                 {/if}
               </td>
               <td class="text-muted">{category.description ?? t('None')}</td>
-              <td>{category.rule_count}</td>
+              <td><Count value={category.rule_count} /></td>
               <td><Count value={category.root_folder_count} /></td>
               <td>
                 <div class="flex gap-2">

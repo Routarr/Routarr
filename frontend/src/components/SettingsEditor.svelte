@@ -4,12 +4,13 @@
 
   import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
+  import { formatPercent } from '../api/format';
   import { withProof } from '../lib/proof.svelte';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { handFocus } from '../lib/focus';
-  import { applyTheme, loadDictionary, t } from '../lib/i18n.svelte';
+  import { applyTheme, i18n, loadDictionary, t } from '../lib/i18n.svelte';
   import {
     FIELDS,
     SECTIONS,
@@ -698,7 +699,7 @@
                     <option value={language.code}>
                       {language.completion >= 100
                         ? language.name
-                        : `${language.name} (${language.completion}%)`}
+                        : `${language.name} (${formatPercent(language.completion / 100, i18n.language)})`}
                     </option>
                   {/each}
                 </select>

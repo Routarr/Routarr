@@ -1,6 +1,7 @@
 <script lang="ts">
   import { href, isCurrent } from '../lib/router.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { formatCount } from '../api/format';
+  import { i18n, t } from '../lib/i18n.svelte';
   import { GROUPS, type Counts } from '../lib/navigation';
 
   /** Amber asks for attention, red says something failed, the rest is just a
@@ -87,7 +88,9 @@
                 <!-- The figure for the eye, the sentence for the reader. An
                      `aria-label` on a `<span>` names a generic element, which
                      ARIA prohibits and readers honour unevenly. -->
-                <span class="nav-badge {TONE[item.badge]}" aria-hidden="true">{count}</span>
+                <span class="nav-badge {TONE[item.badge]}" aria-hidden="true"
+                  >{formatCount(count, i18n.language)}</span
+                >
                 <span class="visually-hidden">{t(BADGE_LABEL[item.badge], { count })}</span>
               {/if}
             </a>
