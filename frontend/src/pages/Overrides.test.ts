@@ -21,6 +21,10 @@ const STRINGS = {
   Overrides: 'Overrides',
   NewOverride: 'New override',
   NoMediaMatches: 'Nothing matches.',
+  SearchShowingFirst: 'Showing {shown} of {total}. Refine the search.',
+  Title: 'Title',
+  Instance: 'Instance',
+  CurrentRootFolder: 'Current root folder',
   NoOverrides: 'No override yet',
   Delete: 'Delete',
   Search: 'Search',
@@ -192,6 +196,31 @@ describe('Overrides', () => {
     await fireEvent.submit(search.closest('form') as HTMLFormElement);
 
     expect(await screen.findByText('Nothing matches.')).toBeTruthy();
+  });
+
+  /**
+   * The search answers fifteen titles at most: said, so the reader refines it
+   * rather than concludes the title is missing, and announced, since a screen
+   * reader hears nothing of a table drawn under the field.
+   */
+  it('says how many it shows of how many matched, under named columns', async () => {
+    const found = Array.from({ length: 15 }, (_, i) => media({ id: `m${i}`, title: `Star ${i}` }));
+    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated(found, { total: 40 }));
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    const region = within(screen.getByRole('dialog')).getByRole('status');
+    await fireEvent.input(search, { target: { value: 'star' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(region).toHaveTextContent('Showing 15 of 40. Refine the search.'));
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['Title', 'Instance', 'Current root folder']);
   });
 
   it('shows a refused pin inside the dialog rather than behind it', async () => {

@@ -49,6 +49,8 @@
   // ---------------------------------------------------------------- creation
   let search = $state('');
   let results = $state<MediaListItem[]>([]);
+  /** How many titles matched: the search answers fifteen at most. */
+  let matched = $state(0);
   let selected = $state<MediaListItem | null>(null);
   /**
    * Derived, not captured. Reading `categories[0]` when the button is clicked
@@ -63,6 +65,7 @@
   function openCreate() {
     search = '';
     results = [];
+    matched = 0;
     searched = false;
     selected = null;
     chosenCategory = null;
@@ -90,6 +93,7 @@
     try {
       const page = await api.getMedia({ search, per_page: 15 }, mine.signal);
       results = page.data;
+      matched = page.pagination.total;
       searched = true;
     } catch (err) {
       if (!mine.signal.aborted) dialogError = describeError(err);
@@ -231,10 +235,31 @@
         </button>
       </form>
 
+      <!-- Mounted before the first search, so what each one finds is announced:
+           a table drawn under the field says nothing to a screen reader. -->
+      <div role="status" class="mt-4">
+        {#if searched && results.length === 0}
+          <p class="text-muted text-sm">{t('NoMediaMatches')}</p>
+        {:else if matched > results.length}
+          <p class="text-muted text-sm">
+            {t('SearchShowingFirst', { shown: results.length, total: matched })}
+          </p>
+        {:else if searched}
+          <p class="visually-hidden">{t('CommandPaletteResults', { count: results.length })}</p>
+        {/if}
+      </div>
+
       {#if results.length > 0}
-        <TableRegion label={t('Search')} class="mt-4 scroll-y-220">
+        <TableRegion label={t('Search')} class="mt-2 scroll-y-220">
           <table>
             <caption class="visually-hidden">{t('Search')}</caption>
+            <thead>
+              <tr>
+                <th>{t('Title')}</th>
+                <th>{t('Instance')}</th>
+                <th>{t('CurrentRootFolder')}</th>
+              </tr>
+            </thead>
             <tbody>
               {#each results as media (media.id)}
                 <tr class:row-selected={selected?.id === media.id}>
@@ -264,8 +289,6 @@
             </tbody>
           </table>
         </TableRegion>
-      {:else if searched}
-        <p class="text-muted text-sm mt-4">{t('NoMediaMatches')}</p>
       {/if}
 
       {#if selected}

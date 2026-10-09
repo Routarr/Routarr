@@ -667,6 +667,7 @@
   "NoInstanceConfigured": "No instance connected yet.",
   "NoMatchingValue": "No value matches",
   "NoMediaMatches": "No media matches. Sync an instance from the Instances page to populate this list.",
+  "SearchShowingFirst": "Showing the first {shown} of {total}. Refine the search to find the others.",
   "NoMetadataCached": "No external metadata cached, so genre, keyword and certification conditions cannot match.",
   "NoOverrides": "No exception. Every media item is classified by the rules.",
   "NoRootFolderDiscovered": "No root folder discovered yet. Add an instance and sync it.",
