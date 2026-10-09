@@ -115,9 +115,10 @@ test.describe('unsaved work', () => {
     await name.fill('Draft');
 
     await page.goBack();
-    const question = page.getByRole('dialog', {
-      name: 'Close the rule without saving your changes?',
-    });
+    const question = page.getByRole('alertdialog', { name: 'Discard' });
+    await expect(question).toHaveAccessibleDescription(
+      'Close the rule without saving your changes?',
+    );
     await question.getByRole('button', { name: 'Cancel' }).click();
 
     await expect(question).toHaveCount(0);
@@ -364,7 +365,7 @@ test.describe('guardrails are visible', () => {
     // must not warn.
     await expect(page.locator('.banner-warning')).toHaveCount(0);
 
-    await page.getByRole('tab', { name: /routing/i }).click();
+    await page.getByRole('tab', { name: /guardrails/i }).click();
     await page.getByLabel('Global dry-run').selectOption('false');
 
     // Live mode, plus automatic application: the combination writes unattended,
@@ -433,7 +434,7 @@ test.describe('reclassifying a whole library', () => {
     );
 
     await page.getByRole('button', { name: /apply all/i }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Apply' }).click();
 
     // One banner, naming how many batches it took, not one dialog per batch.
     const banner = page.locator('.banner-success');
@@ -526,7 +527,7 @@ test.describe('reclassifying a whole library', () => {
     );
     await page.getByRole('button', { name: /apply all/i }).click();
 
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText("'/movies/anime' is not answering");
     const writes = await writesDuring(page, () =>
       dialog.getByRole('button', { name: 'Cancel' }).click(),

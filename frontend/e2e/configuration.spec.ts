@@ -129,7 +129,7 @@ test.describe('exceptions', () => {
     // question from any question. Addressed by its accessible name, which the
     // button has because it is destructive and icon-only.
     await page.getByRole('button', { name: 'Delete – Akira' }).click();
-    const confirmation = page.getByRole('dialog');
+    const confirmation = page.getByRole('alertdialog');
     await expect(confirmation).toContainText('Akira');
     await confirmation.getByRole('button', { name: 'Delete', exact: true }).click();
     await expect(page.getByRole('row').filter({ hasText: 'Akira' })).toHaveCount(0);
@@ -200,7 +200,7 @@ test.describe('rule bundles', () => {
     await (await chooser).setFiles(await file.path());
     // Three outcomes, so it is three buttons: a yes/no dialog would have to
     // map one of them onto Cancel.
-    await page.getByRole('dialog').getByRole('button', { name: 'Append' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Append' }).click();
 
     await expect(page.getByText('Round trip')).toBeVisible();
     const restored = (await api('/rules')) as { name: string; priority: number }[];
@@ -263,7 +263,7 @@ test.describe('application keys', () => {
     expect((await call('/settings')).status).toBe(403);
 
     await page.getByRole('button', { name: 'Revoke – n8n' }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Revoke' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke' }).click();
     await expect(page.getByText('No application has a key yet.')).toBeVisible();
     expect((await call('/status')).status).toBe(401);
   });
@@ -410,7 +410,10 @@ test.describe('backups', () => {
     await page.getByLabel(`Delete – ${name}`).click();
     // Deleting is the one irreversible half of the pair: a restore is staged
     // and undone by not restarting, a deleted archive is the only copy.
-    await page.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click();
+    await page
+      .getByRole('alertdialog')
+      .getByRole('button', { name: 'Delete', exact: true })
+      .click();
     await expect(page.getByText(name)).toHaveCount(0);
   });
 });
@@ -583,7 +586,7 @@ test.describe('a deletion asked about', () => {
     await page.goto('/rules');
     await page.getByRole('button', { name: 'Actions – Stays put' }).click();
     await page.getByRole('menuitem', { name: 'Delete' }).click();
-    const dialog = page.getByRole('dialog');
+    const dialog = page.getByRole('alertdialog');
     await expect(dialog).toContainText('Delete the rule "Stays put"?');
     const writes = await writesDuring(page, () =>
       dialog.getByRole('button', { name: 'Cancel' }).click(),

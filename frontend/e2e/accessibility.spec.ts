@@ -495,7 +495,7 @@ test.describe('the keyboard reaches every control', () => {
  */
 test.describe('a button keeps the focus through the action it runs', () => {
   const BUTTONS: { path: string; name: RegExp }[] = [
-    { path: '/instances', name: /^Sync now – / },
+    { path: '/instances', name: /^Sync now – Radarr$/ },
     { path: '/instances', name: /^Sync all$/ },
     { path: '/simulation', name: /^Run simulation$/ },
     { path: '/settings#maintenance', name: /^Back up now$/ },
@@ -599,6 +599,8 @@ const MODALS: {
   covers: string;
   /** The name of the dialog swept, for one opened above another. */
   named?: string;
+  /** `alertdialog` for a question that interrupts, a plain dialog otherwise. */
+  role?: 'dialog' | 'alertdialog';
   open: (page: Page) => Promise<void>;
 }[] = [
   {
@@ -663,6 +665,7 @@ const MODALS: {
     // A confirmation, the one a destructive action puts in front of everybody.
     path: '/rules',
     covers: 'components/ConfirmDialog.svelte',
+    role: 'alertdialog',
     open: async (p) => {
       await p
         .getByRole('button', { name: /^Actions – / })
@@ -703,7 +706,7 @@ test('every modal names itself and every control inside it', async ({ page }) =>
     await openScreen(page, modal.path);
     await modal.open(page);
 
-    const dialog = page.getByRole('dialog', modal.named ? { name: modal.named } : {});
+    const dialog = page.getByRole(modal.role ?? 'dialog', modal.named ? { name: modal.named } : {});
     await expect(dialog, `${modal.path} #${index} did not open`).toBeVisible();
 
     const found = await dialog.evaluate((root) => {
