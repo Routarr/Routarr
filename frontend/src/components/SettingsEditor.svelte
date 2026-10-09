@@ -39,6 +39,7 @@
   import { href, navigate } from '../lib/router.svelte';
   import { holdUnsaved } from '../lib/unsaved.svelte';
   import { downloadJson } from '../lib/download';
+  import { readJsonFile } from '../lib/upload';
 
   /**
    * The settings of one screen. The Settings screen and the metadata sources
@@ -395,7 +396,7 @@
 
   async function importConfig(file: File) {
     try {
-      const parsed: unknown = JSON.parse(await file.text());
+      const parsed = await readJsonFile(file);
       // The question the Rules screen asks of a rule file, with its three
       // outcomes: Cancel imports nothing.
       let replaceRules = false;

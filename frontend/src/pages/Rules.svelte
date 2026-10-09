@@ -46,6 +46,7 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { downloadJson } from '../lib/download';
+  import { readJsonFile } from '../lib/upload';
   import { invalidateStatus } from '../lib/status.svelte';
 
   // Keyed on the union rather than on `string`: a media type added to
@@ -219,7 +220,7 @@
 
   async function importBundle(file: File) {
     try {
-      const parsed = JSON.parse(await file.text()) as RuleBundle;
+      const parsed = (await readJsonFile(file)) as RuleBundle;
       // Three outcomes, which is why a `confirm()` cannot ask this: mapping one
       // of them onto Cancel makes Cancel import the file and Escape import it
       // silently, with no way to abort at all.
@@ -240,7 +241,7 @@
       else outcome.warn(summary, details);
       await reloadAfterWrite();
     } catch (err) {
-      outcome.fail(err instanceof SyntaxError ? t('NotValidJson') : err);
+      outcome.fail(err);
     }
   }
 </script>

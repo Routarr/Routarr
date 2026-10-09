@@ -104,6 +104,7 @@ const STRINGS = {
   SettingNotificationWebhook: 'Notification webhook',
   Remove: 'Remove',
   ConfigImportResult: 'Restored: {settings} settings.',
+  NotValidJson: 'This file is not JSON.',
   ImportReplaceQuestion: 'Replace the rules, or add to them?',
   ImportAppend: 'Add',
   ImportReplace: 'Replace',
@@ -858,6 +859,20 @@ describe('importing a configuration', () => {
     await waitFor(() => expect(api.getSettings).toHaveBeenCalledTimes(2));
     expect(regions).toContain(said);
     expect(document.activeElement).toBe(button);
+  });
+
+  /** A backup archive picked by mistake is said in the reader's words, not the parser's. */
+  it('says a file that is not JSON in the dictionary, and sends nothing', async () => {
+    const importConfig = vi.spyOn(api, 'importConfig');
+    mount({});
+    await openSection('Maintenance');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['PK\u0003\u0004'], 'routarr-backup.zip', { type: 'application/zip' });
+
+    await fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText('This file is not JSON.')).toBeInTheDocument();
+    expect(importConfig).not.toHaveBeenCalled();
   });
 
   it('re-reads the settings it just overwrote', async () => {
