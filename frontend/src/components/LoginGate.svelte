@@ -64,7 +64,9 @@
   }
 </script>
 
-<div class="gate">
+<!-- The page's main landmark: the gate takes the place of the whole shell, and
+     so of the shell's own `main`. -->
+<main class="gate">
   <form novalidate class="card gate-card" onsubmit={submit}>
     <div class="card-header">
       <h1 class="card-title">
@@ -114,4 +116,4 @@
       </button>
     {/if}
   </form>
-</div>
+</main>

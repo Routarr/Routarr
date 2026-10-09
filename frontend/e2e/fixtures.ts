@@ -254,6 +254,11 @@ async function proveWithKey(page: Page): Promise<void> {
   await proof.getByRole('button', { name: 'Continue' }).click();
 }
 
+// `best-practice` on top of the standard: it is the tag that carries
+// `empty-table-header`, which the WCAG tags do not, so an unnamed column
+// header passes under them alone, and `landmark-one-main`.
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'];
+
 export {
   expect,
   api,
@@ -265,4 +270,5 @@ export {
   writesDuring,
   API,
   ARR,
+  AXE_TAGS,
 };

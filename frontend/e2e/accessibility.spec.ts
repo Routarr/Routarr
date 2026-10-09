@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { test, expect, api, openScreen, unfold } from './fixtures';
+import { test, expect, api, openScreen, unfold, AXE_TAGS } from './fixtures';
 import { moveAkira, seedRows, simulate } from './seed';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 import { screenKey } from '../src/lib/routes';
@@ -254,10 +254,6 @@ test('every table on every screen carries a caption', async ({ page }) => {
  * nobody here wrote: WCAG 2.1 A and AA, every screen, so a failure names a rule
  * and not an opinion.
  */
-// `best-practice` on top of the standard: it is the tag that carries
-// `empty-table-header`, which the WCAG tags do not, so an unnamed column
-// header passes under them alone.
-const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'];
 
 /**
  * The bound of a test that opens every screen and every Settings section and
@@ -384,6 +380,21 @@ test('each screen names itself in the tab and takes the focus it was reached wit
     .click();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(page).toHaveTitle(`${strings.Logs} · Routarr`);
+});
+
+/**
+ * The screen a browser without a session opens on in the default mode, which
+ * the sweep never reaches: its page holds a session from the start.
+ */
+test('the key screen passes axe', async ({ browser }) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/');
+  await expect(page.getByLabel('Routarr API key')).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  await context.close();
 });
 
 /**
