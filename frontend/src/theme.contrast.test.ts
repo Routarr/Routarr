@@ -217,12 +217,18 @@ describe.each([
    * only by hovering it. `--border-strong` is what every input and secondary
    * button wears instead. Passive separations keep the subtle one, since a card
    * edge identifies nothing.
+   *
+   * Measured against the fill inside the control and every ground it is drawn
+   * on: a field's fill is close to the card's, so the frame alone sets it apart.
    */
-  it('draws the boundary of a control at 3:1', () => {
-    const ratio = contrast(token(palette, '--border-strong'), token(palette, '--bg-input'));
-    expect(
-      ratio,
-      `${name}: --border-strong on --bg-input is ${ratio.toFixed(2)}:1`,
-    ).toBeGreaterThanOrEqual(3);
-  });
+  it.each(['--bg-input', '--bg-card', '--bg-base', '--bg-surface'])(
+    'draws the boundary of a control at 3:1 on %s',
+    (ground) => {
+      const ratio = contrast(token(palette, '--border-strong'), token(palette, ground));
+      expect(
+        ratio,
+        `${name}: --border-strong on ${ground} is ${ratio.toFixed(2)}:1`,
+      ).toBeGreaterThanOrEqual(3);
+    },
+  );
 });

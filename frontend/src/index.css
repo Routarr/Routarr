@@ -27,7 +27,7 @@
      suggestion. This one clears it, as theme.contrast.test.ts measures. Passive
      separations (card edges, table rules) keep the subtle one, which
      identifies nothing. */
-  --border-strong: #616a79;
+  --border-strong: #6d7686;
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4d5566;
 
@@ -157,7 +157,7 @@
   --bg-overlay: rgba(17, 20, 26, 0.45);
 
   --border-subtle: #d7dbe2;
-  --border-strong: #8b93a1;
+  --border-strong: #828a97;
   --scrollbar-thumb: #c2c8d2;
   --scrollbar-thumb-hover: #a4acb9;
 
@@ -210,7 +210,7 @@
     --bg-overlay: rgba(17, 20, 26, 0.45);
 
     --border-subtle: #d7dbe2;
-    --border-strong: #8b93a1;
+    --border-strong: #828a97;
     --scrollbar-thumb: #c2c8d2;
     --scrollbar-thumb-hover: #a4acb9;
 
