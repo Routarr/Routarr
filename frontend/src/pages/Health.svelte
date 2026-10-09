@@ -31,8 +31,13 @@
       <p class="page-subtitle">{t('DiagnosticsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-secondary" onclick={() => void report.reload()}>
-        <RefreshCw size={16} />
+      <!-- A re-check waits out every Arr that does not answer. -->
+      <button
+        class="btn btn-secondary"
+        onclick={() => void report.reload()}
+        aria-busy={report.loading}
+      >
+        <RefreshCw size={16} class={report.loading ? 'spin' : ''} />
         {t('Recheck')}
       </button>
     </div>

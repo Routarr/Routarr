@@ -53,8 +53,12 @@
       <p class="page-subtitle">{t('DashboardSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-secondary" onclick={() => void refresh()}>
-        <RefreshCw size={16} />
+      <button
+        class="btn btn-secondary"
+        onclick={() => void refresh()}
+        aria-busy={quick.loading || probed.loading}
+      >
+        <RefreshCw size={16} class={quick.loading || probed.loading ? 'spin' : ''} />
         {t('Refresh')}
       </button>
     </div>

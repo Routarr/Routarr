@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { health, healthInstance, warning } from '../test/fixtures';
@@ -36,6 +36,20 @@ const withProviders = (list: Health['metadata']['providers']) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('Diagnostics', () => {
+  /** A re-check waits out every Arr that does not answer, and says it is running. */
+  it('says the re-check is running until it ends', async () => {
+    vi.spyOn(api, 'getHealth')
+      .mockResolvedValueOnce(health())
+      .mockReturnValue(new Promise(() => {}));
+    show();
+    const recheck = await screen.findByRole('button', { name: 'Recheck' });
+    await waitFor(() => expect(recheck).not.toHaveAttribute('aria-busy', 'true'));
+
+    await fireEvent.click(recheck);
+
+    expect(recheck).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('says everything checks out rather than leaving the page silent', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();

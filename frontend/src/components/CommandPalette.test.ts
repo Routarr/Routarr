@@ -26,6 +26,7 @@ const STRINGS = {
   CommandPaletteEmpty: 'Nothing for "{query}".',
   CommandPaletteHint: 'The library is searched by title.',
   CommandPaletteResults: 'Results: {count}',
+  Loading: 'Loading…',
   MediaExplorer: 'Library',
   Dashboard: 'Dashboard',
   RulesEngine: 'Rules',
@@ -145,6 +146,26 @@ describe('CommandPalette', () => {
     expect(await screen.findByText(/Nothing for/)).toHaveTextContent('Nothing for "zzzz".');
   });
 
+  /** "Nothing for" before the library answered is a claim it has not made yet. */
+  it('says it is searching until the library answers, not that nothing matched', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'getMedia').mockReturnValue(
+      new Promise((resolve) => {
+        answer = () =>
+          resolve({ data: [], pagination: { page: 1, per_page: 5, total: 0 } } as never);
+      }),
+    );
+    show();
+    await screen.findAllByRole('option');
+
+    await userEvent.type(screen.getByRole('combobox'), 'zzzz');
+
+    expect(await screen.findByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing for/)).toBeNull();
+    answer();
+    expect(await screen.findByText(/Nothing for/)).toBeInTheDocument();
+  });
+
   /**
    * The combobox pattern: the focus stays in the field so typing can continue
    * while the arrows walk the list, and `aria-activedescendant` is the only
@@ -225,6 +246,25 @@ describe('CommandPalette', () => {
     await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal)));
     // The router never moved: the question was answered where it was asked.
     expect(router.path).not.toBe('/library');
+  });
+
+  /** The panel arrives a moment later, and the title asked about says so meanwhile. */
+  it('marks the title being explained as busy', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue({
+      data: [media()],
+      pagination: { page: 1, per_page: 5, total: 1 },
+    } as never);
+    vi.spyOn(api, 'explainMedia').mockReturnValue(new Promise(() => {}));
+    show();
+    await screen.findAllByRole('option');
+
+    await userEvent.type(screen.getByRole('combobox'), 'spirited');
+    await fireEvent.click(await screen.findByText('Spirited Away'));
+
+    expect(screen.getByRole('option', { name: /Spirited Away/ })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
   });
 
   /**

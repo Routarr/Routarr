@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Film, HelpCircle, Lock, Tv } from '../lib/icons';
+  import { Film, HelpCircle, Lock, RefreshCw, Tv } from '../lib/icons';
   import { api } from '../api/client';
   import type { Explanation, MediaListItem } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
@@ -42,10 +42,13 @@
   // Only the last title asked about answers: two quick clicks would otherwise
   // show whichever explanation lands last, under the other title's row.
   let asking: AbortController | null = null;
+  /** The title whose explanation is on its way, which its row says. */
+  let asked = $state<string | null>(null);
 
   async function explain(media: MediaListItem) {
     asking?.abort();
     const mine = (asking = new AbortController());
+    asked = media.id;
     try {
       const answer = await api.explainMedia(media.id, mine.signal);
       if (mine.signal.aborted) return;
@@ -53,6 +56,8 @@
       outcome.clear();
     } catch (err) {
       if (!mine.signal.aborted) outcome.fail(err);
+    } finally {
+      if (!mine.signal.aborted) asked = null;
     }
   }
 </script>
@@ -193,9 +198,14 @@
                     class="btn btn-secondary btn-sm"
                     onclick={() => void explain(media)}
                     aria-label="{t('WhyQuestion')} – {media.title}"
+                    aria-busy={asked === media.id}
                     title={t('WhyQuestion')}
                   >
-                    <HelpCircle size={15} aria-hidden="true" />
+                    {#if asked === media.id}
+                      <RefreshCw size={15} class="spin" aria-hidden="true" />
+                    {:else}
+                      <HelpCircle size={15} aria-hidden="true" />
+                    {/if}
                   </button>
                 </td>
               </tr>

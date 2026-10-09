@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -75,6 +75,21 @@ describe('Dashboard', () => {
     const links = screen.getAllByRole('link').map((a) => a.getAttribute('href'));
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
+  });
+
+  /** A refresh probes every Arr, which can take a connect timeout, and says it is running. */
+  it('says the refresh is running until it ends', async () => {
+    vi.spyOn(api, 'getHealth')
+      .mockResolvedValueOnce(health())
+      .mockResolvedValueOnce(health())
+      .mockReturnValue(new Promise(() => {}));
+    show();
+    const refresh = await screen.findByRole('button', { name: 'Refresh' });
+    await waitFor(() => expect(refresh).not.toHaveAttribute('aria-busy', 'true'));
+
+    await fireEvent.click(refresh);
+
+    expect(refresh).toHaveAttribute('aria-busy', 'true');
   });
 
   it('leads with the number the user came to see', async () => {

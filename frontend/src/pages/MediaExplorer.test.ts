@@ -119,6 +119,22 @@ describe('Media explorer', () => {
     await waitFor(() => expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal)));
   });
 
+  /** A question that runs for seconds says it is being answered. */
+  it('marks the row being explained as busy until its answer arrives', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'explainMedia').mockReturnValue(
+      new Promise((_, reject) => (answer = () => reject(new Error('refused')))),
+    );
+    show([media({ id: 'm7', title: 'Akira' })]);
+    const why = await screen.findByRole('button', { name: 'Why? – Akira' });
+
+    await fireEvent.click(why);
+    expect(why).toHaveAttribute('aria-busy', 'true');
+    answer();
+
+    await waitFor(() => expect(why).not.toHaveAttribute('aria-busy', 'true'));
+  });
+
   /**
    * The list is paginated server-side. A type filter applied in the browser
    * would filter one page of fifty and present it as the whole answer.
