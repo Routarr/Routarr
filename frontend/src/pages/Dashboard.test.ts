@@ -28,6 +28,7 @@ const STRINGS = {
   Connected: 'connected',
   Never: 'never',
   Checking: 'checking…',
+  Unknown: 'unknown',
   MetadataEnrichedCount: '{count} items enriched.',
   MetadataComplete: 'Nothing missing.',
   GuideTitle: 'Getting started',
@@ -185,6 +186,19 @@ describe('Dashboard', () => {
 
       expect(await screen.findByText('checking…')).toBeTruthy();
       expect(screen.queryByText('connected')).toBeNull();
+    });
+
+    /** A probe that failed is not one still running: the state is unknown. */
+    it('stops saying it checks once the probe has failed', async () => {
+      vi.spyOn(api, 'getHealth').mockImplementation((options) =>
+        options?.probe === false
+          ? Promise.resolve(health({ instances: [healthInstance({ status: 'unchecked' })] }))
+          : Promise.reject(new Error('connection refused')),
+      );
+      show();
+
+      expect(await screen.findByText('unknown')).toBeTruthy();
+      expect(screen.queryByText('checking…')).toBeNull();
     });
 
     it('replaces it with the real state once the probe answers', async () => {

@@ -115,6 +115,20 @@ describe('Layout', () => {
     expect(await screen.findByText('Status unavailable')).toBeTruthy();
   });
 
+  /** A mode read before the server stopped answering is no longer known. */
+  it('says the state is unknown once a later read fails', async () => {
+    vi.spyOn(api, 'getStatus')
+      .mockResolvedValueOnce(status({ dry_run: false }))
+      .mockRejectedValue(new Error('connection refused'));
+    show();
+    await screen.findByLabelText('Live: writes enabled');
+
+    invalidateStatus();
+
+    expect(await screen.findByText('Status unavailable')).toBeTruthy();
+    expect(screen.queryByLabelText('Live: writes enabled')).toBeNull();
+  });
+
   /**
    * A key is generated at first start, so a browser without one is the ordinary
    * first visit. Mounting the pages behind the gate instead costs a failed

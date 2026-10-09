@@ -307,14 +307,23 @@
             <Menu size={18} aria-hidden="true" />
           </button>
 
-          <!-- A mode, not an alert. `LiveModeActive` is the state this
-               application is meant to run in, and the danger colour on it
-               would spend the palette's most urgent signal on "nothing is
-               wrong". The dot carries the state, the short word names it, and
-               the full sentence is the accessible name, so the chrome keeps
-               its width in every language. -->
-          {#if status.data}
+          {#if status.error}
+            <!-- Whether writing is possible is the one thing this bar must
+                 always answer. Rendering nothing reads as "no warning", which
+                 is the opposite of what an unreachable backend means, and a
+                 mode read before the backend stopped answering is no longer
+                 known. -->
+            <span class="badge badge-danger" role="status" title={status.error}
+              >{t('StatusUnavailable')}</span
+            >
+          {:else if status.data}
             {@const held = status.data.dry_run}
+            <!-- A mode, not an alert. `LiveModeActive` is the state this
+                 application is meant to run in, and the danger colour on it
+                 would spend the palette's most urgent signal on "nothing is
+                 wrong". The dot carries the state, the short word names it,
+                 and the full sentence is the accessible name, so the chrome
+                 keeps its width in every language. -->
             <!-- `role="status"`, as the unreachable-backend badge beside it
                  already carries: a `<span>` with no role maps to `generic`,
                  for which ARIA prohibits `aria-label` and where the whole
@@ -328,13 +337,6 @@
               <i class="mode-dot {held ? 'is-held' : 'is-live'}" aria-hidden="true"></i>
               {t(held ? 'ModeDryRunShort' : 'ModeLiveShort')}
             </span>
-          {:else if status.error}
-            <!-- Whether writing is possible is the one thing this bar must
-                 always answer. Rendering nothing reads as "no warning", which
-                 is the opposite of what an unreachable backend means. -->
-            <span class="badge badge-danger" role="status" title={status.error}
-              >{t('StatusUnavailable')}</span
-            >
           {/if}
           <!-- What the state calls for beside the state itself: these come and
                go, and on this side they never move the tools on the other. -->

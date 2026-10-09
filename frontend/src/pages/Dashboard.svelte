@@ -167,7 +167,14 @@
                       {instance.instance_type}
                     </span>
                   </td>
-                  <td><InstanceStatus status={instance.status} /></td>
+                  <td>
+                    <!-- Still unchecked once the probe failed is not being checked. -->
+                    <InstanceStatus
+                      status={probed.error && instance.status === 'unchecked'
+                        ? 'unknown'
+                        : instance.status}
+                    />
+                  </td>
                   <td><Count value={instance.media_count} /></td>
                   <td><Count value={instance.mapped_root_folders} /></td>
                   <td
