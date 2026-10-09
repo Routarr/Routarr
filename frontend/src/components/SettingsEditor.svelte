@@ -475,13 +475,17 @@
   }
 </script>
 
-{#if bundle.loading}
+<!-- Above the placeholder, so an action's outcome is said in the region that
+     was there before the reload it starts. -->
+<OutcomeBanner {outcome} />
+<!-- On the first read only: over a reload it would take the form, the pressed
+     button and the focus with it. -->
+{#if bundle.loading && bundle.data === null}
   <div class="card"><Loading /></div>
 {:else}
   <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
          it one. -->
   <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
-  <OutcomeBanner {outcome} />
   <!-- The guide's two optional steps are done on these screens. -->
   {#if section === 'metadata'}
     <GuideStepBanner step="metadata" />

@@ -781,14 +781,17 @@ describe('importing a configuration', () => {
     adjusted: [],
   };
 
+  /**
+   * As the picker hands a file over: to the input, with the focus left where
+   * it was. Import opens the picker with `click()`, which focuses nothing, and
+   * an upload that clicked the input itself would put the focus on it.
+   */
   async function importFile(contents: object) {
-    // The page is a spinner while it reloads, file input included.
-    await waitFor(() => expect(document.querySelector('input[type="file"]')).not.toBeNull());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File([JSON.stringify(contents)], 'routarr-config.json', {
       type: 'application/json',
     });
-    await userEvent.upload(input, file);
+    await fireEvent.change(input, { target: { files: [file] } });
   }
 
   /**
@@ -811,6 +814,33 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
     await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(2));
     expect(importConfig).toHaveBeenLastCalledWith({ version: 1 }, false);
+  });
+
+  /**
+   * The summary goes into the region already on the page, which a screen
+   * reader announces as it changes, and the reader stays on Import. Redrawn
+   * for the reload, the region would arrive with its text and say nothing.
+   */
+  it('says the summary where it is announced, and leaves the focus on Import', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
+    mount({});
+    await openSection('Maintenance');
+    const regions = screen.getAllByRole('status');
+    const button = screen.getByRole('button', { name: 'ImportConfig' });
+    button.focus();
+
+    await importFile({ version: 1 });
+
+    const said = await waitFor(() => {
+      const region = screen
+        .getAllByRole('status')
+        .find((node) => node.textContent?.includes('Restored: 3 settings.'));
+      expect(region).toBeDefined();
+      return region;
+    });
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalledTimes(2));
+    expect(regions).toContain(said);
+    expect(document.activeElement).toBe(button);
   });
 
   it('re-reads the settings it just overwrote', async () => {
