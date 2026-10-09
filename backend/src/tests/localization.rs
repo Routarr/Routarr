@@ -276,7 +276,8 @@ async fn mapping_conflicts_are_translated() {
     assert!(message.contains("n'a pas répondu"), "{conflicts:?}");
     // How long travels with the sentence, in its words: it is what separates
     // a nap from a fault, and a stored UTC time is not how anyone reads one.
-    assert!(message.contains("3 h"), "{conflicts:?}");
+    // French keeps the figure and its unit together, with a no-break space.
+    assert!(message.contains("3\u{a0}h"), "{conflicts:?}");
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     assert!(!message.contains(&today), "{conflicts:?}");
 }
