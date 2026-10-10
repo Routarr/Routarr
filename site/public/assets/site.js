@@ -100,22 +100,23 @@
         }, 1600);
       };
 
+      // Where the clipboard is out of reach the text is selected, so the
+      // keyboard shortcut the button then names copies it: on http:// over a
+      // LAN, and where the browser refuses the clipboard to this page.
+      var refused = function () {
+        var range = document.createRange();
+        range.selectNodeContents(code);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        done(false);
+      };
+
       if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(code.innerText).then(
-          function () { done(true); },
-          function () { done(false); }
-        );
+        navigator.clipboard.writeText(code.innerText).then(function () { done(true); }, refused);
         return;
       }
-
-      // http:// on a LAN is a plausible way to read this page, and there the
-      // text is selected so the keyboard shortcut still works.
-      var range = document.createRange();
-      range.selectNodeContents(code);
-      var selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      done(false);
+      refused();
     });
   });
 

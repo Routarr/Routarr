@@ -450,6 +450,32 @@ check(await barMatches(), 'theme-color does not follow the theme a reload restor
   await tab.close();
 }
 
+// A browser that refuses the clipboard on a secure page gets the code selected,
+// so the "Press Ctrl+C" the button then says copies it.
+{
+  const tab = await context.newPage();
+  await tab.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('refused')) },
+    });
+  });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const copy = tab.locator('.copy-btn').first();
+  const label = await copy.innerText();
+  await copy.click();
+  await tab.waitForFunction((before) => document.querySelector('.copy-btn').textContent !== before, label);
+  const { said, failed, selected, code } = await copy.evaluate((button) => ({
+    said: button.textContent,
+    failed: [button.dataset.failed, button.dataset.failedMac],
+    selected: String(getSelection()),
+    code: button.closest('.terminal').querySelector('code').innerText,
+  }));
+  check(failed.includes(said), `a refused copy reads "${said}", not the shortcut to press`);
+  check(selected === code, `a refused copy selects ${selected.length} character(s) of the ${code.length} the shortcut should copy`);
+  await tab.close();
+}
+
 // ------------------------------------------------------------ analytics
 // Production carries the Cloudflare Web Analytics beacon, which the zone
 // injects at the edge, so no build here has it. The tag the zone writes is
