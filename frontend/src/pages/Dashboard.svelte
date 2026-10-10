@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from '../components/CardTitle.svelte';
   import { Play, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
@@ -153,7 +154,7 @@
 
       <div class="card">
         <div class="card-header">
-          <h2 class="card-title">{t('Instances')}</h2>
+          <CardTitle card="DashboardInstances">{t('Instances')}</CardTitle>
           <a href={href('/instances')} class="btn btn-secondary btn-sm">{t('Manage')}</a>
         </div>
         <TableRegion label={t('Instances')}>

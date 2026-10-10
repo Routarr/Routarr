@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from '../components/CardTitle.svelte';
   import { api } from '../api/client';
   import {
     byTag,
@@ -239,7 +240,9 @@
     {#each groups as group (group.tag)}
       <section class="card">
         <div class="card-header">
-          <h2 class="card-title">{t(TAGS[group.tag] ?? group.tag)}</h2>
+          <CardTitle card={TAGS[group.tag] ?? group.tag}
+            >{t(TAGS[group.tag] ?? group.tag)}</CardTitle
+          >
         </div>
         {@render prose(group.description)}
         {#each group.operations as op (op.id)}
@@ -254,7 +257,7 @@
 
     <section class="card">
       <div class="card-header">
-        <h2 class="card-title">{t('ApiSchemas')}</h2>
+        <CardTitle card="ApiSchemas">{t('ApiSchemas')}</CardTitle>
       </div>
       {#each schemas as name (name)}
         {@const schema = doc.components?.schemas?.[name] ?? {}}

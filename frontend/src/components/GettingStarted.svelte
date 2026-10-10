@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { CheckCircle2, Circle, ListChecks } from '../lib/icons';
   import { api } from '../api/client';
   import type { OnboardingState, OnboardingStatus } from '../api/types';
@@ -56,10 +57,10 @@
   <section class="card" aria-labelledby="guide-title">
     <div class="card-header">
       <div>
-        <h2 class="card-title flex items-center gap-2" id="guide-title" tabindex="-1">
+        <CardTitle card="GuideTitle" class="flex items-center gap-2" id="guide-title" tabindex={-1}>
           <ListChecks size={18} aria-hidden="true" />
           {t('GuideTitle')}
-        </h2>
+        </CardTitle>
         <p class="card-note">{t('GuideIntro')}</p>
       </div>
       <div class="guide-progress">

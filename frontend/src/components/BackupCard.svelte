@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { Archive, Download, Lock, Trash2 } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import type { RestoreResult } from '../api/types';
@@ -67,10 +68,10 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
+      <CardTitle card="Backups" class="flex items-center gap-2">
         <Archive size={18} aria-hidden="true" />
         {t('Backups')}
-      </h2>
+      </CardTitle>
       <p class="card-note">{t('BackupsHelp')}</p>
     </div>
   </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
@@ -35,7 +36,9 @@
 </script>
 
 <section aria-labelledby="source-credits-title">
-  <h2 id="source-credits-title" class="card-title">{t('SourceCreditsTitle')}</h2>
+  <CardTitle card="SourceCreditsTitle" id="source-credits-title"
+    >{t('SourceCreditsTitle')}</CardTitle
+  >
   <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />
   <ul class="credits">
     {#each credited as provider (provider.id)}

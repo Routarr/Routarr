@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { Lock } from '../lib/icons';
   import { api } from '../api/client';
   import { t } from '../lib/i18n.svelte';
@@ -49,10 +50,10 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
+      <CardTitle card="Account" class="flex items-center gap-2">
         <Lock size={18} aria-hidden="true" />
         {t('Account')}
-      </h2>
+      </CardTitle>
       <p class="card-note">{t('AccountHelp')}</p>
     </div>
   </div>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import type { RulePreview } from '../api/types';
   import { t } from '../lib/i18n.svelte';
   import Confidence from './Confidence.svelte';
@@ -9,7 +10,7 @@
 
 <div class="card card-inset mt-4">
   <div class="card-header">
-    <h3 class="card-title">{t('PreviewTitle')}</h3>
+    <CardTitle card="PreviewTitle" level={3}>{t('PreviewTitle')}</CardTitle>
   </div>
 
   {#each preview.issues as issue, index (index)}

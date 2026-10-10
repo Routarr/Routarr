@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { api } from '../api/client';
   import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
@@ -229,7 +230,7 @@
   {#if view.metadata}
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">{t('MetadataTitle')}</h3>
+        <CardTitle card="MetadataTitle" level={3}>{t('MetadataTitle')}</CardTitle>
       </div>
       <div class="flex flex-wrap gap-2 mt-2">
         {#each view.metadata.genres as genre (genre)}
@@ -281,7 +282,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">{t('RuleEvaluation')}</h3>
+      <CardTitle card="RuleEvaluation" level={3}>{t('RuleEvaluation')}</CardTitle>
     </div>
     {#if view.rule_traces.length === 0}
       <EmptyState>{t('NoRuleApplies')}</EmptyState>

@@ -3,6 +3,7 @@
   import { localFacets, nameFacets } from '../api/conditions';
   import { formatCount } from '../api/format';
   import { i18n, t } from '../lib/i18n.svelte';
+  import HelpToggle from './HelpToggle.svelte';
 
   /**
    * What the library actually holds, beside the rules that read it.
@@ -99,58 +100,66 @@
   );
 </script>
 
-<details class="card facet-panel" bind:open>
-  <!-- A native disclosure: the keyboard handling, the toggle semantics and the
+<!-- The "?" lies over the summary's line rather than in it: a button inside a
+     summary is a control nested in another, which a screen reader cannot
+     reach on its own. -->
+<div class="facet-wrap">
+  <details class="card facet-panel" bind:open>
+    <!-- A native disclosure: the keyboard handling, the toggle semantics and the
        announced state come from the browser rather than from three hand-written
        approximations. -->
-  <summary class="card-header">
-    <!-- The count belongs to the heading, not beside it: two elements for one
+    <summary class="card-header">
+      <!-- The count belongs to the heading, not beside it: two elements for one
          phrase leave a bureaucratic caption floating next to a title. A bare
          figure in parentheses because the number would otherwise have to agree
          with a noun, which is wrong at one in every language that inflects. -->
-    <h2 class="card-title">{t('InYourLibrary', { count: facets.total_media })}</h2>
-  </summary>
+      <h2 class="card-title" id="facets-title">
+        {t('InYourLibrary', { count: facets.total_media })}
+      </h2>
+    </summary>
 
-  {#if facets.without_metadata > 0}
-    <!-- The count that explains a rule matching nothing for a reason no
+    {#if facets.without_metadata > 0}
+      <!-- The count that explains a rule matching nothing for a reason no
          condition can express: those items carry nothing to match on. -->
-    <div class="banner banner-warning">
-      {t('FacetsWithoutMetadata', { count: facets.without_metadata })}
-    </div>
-  {/if}
+      <div class="banner banner-warning">
+        {t('FacetsWithoutMetadata', { count: facets.without_metadata })}
+      </div>
+    {/if}
 
-  {#if cards.length === 0}
-    <p class="text-muted">{t('FacetsEmpty')}</p>
-  {:else}
-    <div class="facet-grid">
-      {#each cards as axis (axis.key)}
-        <section class="facet-card">
-          <header>
-            <h3>{t(axis.label)}</h3>
-            {#if captionOf(axis.condition)}
-              <span class="text-muted text-sm">{captionOf(axis.condition)}</span>
-            {/if}
-          </header>
-          {#each axis.values as facet (facet.value)}
-            <div class="facet-row">
-              <!-- Decorative: the figure beside it is what carries the value,
+    {#if cards.length === 0}
+      <p class="text-muted">{t('FacetsEmpty')}</p>
+    {:else}
+      <div class="facet-grid">
+        {#each cards as axis (axis.key)}
+          <section class="facet-card">
+            <header>
+              <h3>{t(axis.label)}</h3>
+              {#if captionOf(axis.condition)}
+                <span class="text-muted text-sm">{captionOf(axis.condition)}</span>
+              {/if}
+            </header>
+            {#each axis.values as facet (facet.value)}
+              <div class="facet-row">
+                <!-- Decorative: the figure beside it is what carries the value,
                    and it is the figure a screen reader reads. -->
-              <span
-                class="facet-bar"
-                style="width: {Math.max(4, Math.round((facet.count / axis.max) * 100))}%"
-                aria-hidden="true"
-              ></span>
-              <span class="facet-value">
-                {facet.label ?? facet.value}
-              </span>
-              <span class="facet-count">{formatCount(facet.count, i18n.language)}</span>
-            </div>
-          {/each}
-          {#if axis.hidden > 0}
-            <div class="facet-more">{t('FacetsMore', { count: axis.hidden })}</div>
-          {/if}
-        </section>
-      {/each}
-    </div>
-  {/if}
-</details>
+                <span
+                  class="facet-bar"
+                  style="width: {Math.max(4, Math.round((facet.count / axis.max) * 100))}%"
+                  aria-hidden="true"
+                ></span>
+                <span class="facet-value">
+                  {facet.label ?? facet.value}
+                </span>
+                <span class="facet-count">{formatCount(facet.count, i18n.language)}</span>
+              </div>
+            {/each}
+            {#if axis.hidden > 0}
+              <div class="facet-more">{t('FacetsMore', { count: axis.hidden })}</div>
+            {/if}
+          </section>
+        {/each}
+      </div>
+    {/if}
+  </details>
+  <span class="facet-help"><HelpToggle card="LibraryFacets" title="facets-title" /></span>
+</div>

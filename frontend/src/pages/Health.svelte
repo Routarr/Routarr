@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from '../components/CardTitle.svelte';
   import { CheckCircle2, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
@@ -80,7 +81,7 @@
 
       <div class="card">
         <div class="card-header">
-          <h2 class="card-title">{t('ArrInstances')}</h2>
+          <CardTitle card="ArrInstances">{t('ArrInstances')}</CardTitle>
         </div>
         <TableRegion label={t('ArrInstances')}>
           <table>
@@ -130,7 +131,7 @@
 
       <div class="card">
         <div class="card-header">
-          <h2 class="card-title">{t('SettingMetadataProviders')}</h2>
+          <CardTitle card="HealthMetadataSources">{t('SettingMetadataProviders')}</CardTitle>
         </div>
 
         <!-- A list, not a grid of `Stat` tiles. Those are built for numbers, so
