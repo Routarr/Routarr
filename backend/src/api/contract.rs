@@ -557,7 +557,7 @@ body = Vec<OverrideEntry>))
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn pin_by_external_id() {}
 
-/// Unpin a title by the id another service gives it
+/// Remove a title's exception by the id another service gives it
 ///
 /// Removes the exception on every copy of the title, or on the one on
 /// `instance`. `deleted` is false when none had one. 404 when no copy is in

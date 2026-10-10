@@ -85,5 +85,5 @@ bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's sc
 ## llms.txt
 
 - `public/llms.txt` restates the pages, the README and what Routarr does not do, for language
-  models (llmstxt.org). `check.mjs` checks its shape and links, never its facts: it changes with
-  them.
+  models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and formats it
+  shares with the pages, read from the code. Its other facts change with the feature.

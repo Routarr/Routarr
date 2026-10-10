@@ -311,6 +311,80 @@ for (const { code } of LANGUAGES) {
   }
 }
 
+// ---------------------------------------------------- facts from the code
+// A count the site states is read from the code that makes it true: a 29th
+// condition, a 27th language, a sixth format or a gate moved in the executor
+// would otherwise leave the site wrong with every check green. A count is
+// written in digits or in words, as its sentence reads best.
+{
+  const source = (file) => readFileSync(join(ROOT, '..', file), 'utf-8');
+  const block = (text, opening) => {
+    const from = text.indexOf(opening);
+    return from < 0 ? '' : text.slice(from, text.indexOf('\n}', from));
+  };
+  const conditions = (source('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n {4}\];/)?.[0]
+    .match(/^\s+kind: "/gm) ?? []).length;
+  const languages = readdirSync(join(ROOT, '../backend/locales')).filter((file) => file.endsWith('.json')).length;
+  const formats = [...block(source('backend/src/services/notify.rs'), 'pub enum Format {').matchAll(/^\s+([A-Z]\w*),$/gm)].map((m) => m[1]);
+
+  // The executor's gates, in the order it runs them, each with the key of its
+  // name on the site. Revalidation runs last, title by title as each move is
+  // sent, rather than as a call of its own.
+  const GUARDS = {
+    guard_dry_run: 'safety.b',
+    guard_batch_limit: 'safety.b.2',
+    guard_reachable: 'safety.reach',
+    guard_capacity: 'safety.capacity',
+    guard_confirmation: 'safety.b.3',
+  };
+  const executed = [...block(source('backend/src/services/executor/mod.rs'), 'pub async fn apply_decisions(')
+    .matchAll(/\b(guard_\w+)\(/g)].map((m) => m[1]);
+  for (const guard of executed) if (!(guard in GUARDS)) fail(`the executor runs ${guard}, which the safety section does not show`);
+  const order = [...executed.map((guard) => GUARDS[guard]), 'safety.b.4'];
+  const shown = [...(readFileSync(join(ROOT, 'src/components/sections/Safety.astro'), 'utf-8')
+    .match(/const GATES[\s\S]*?\];/)?.[0] ?? '').matchAll(/name: '([^']+)'/g)].map((m) => m[1]);
+  if (shown.join() !== order.join()) fail(`the safety section shows the gates as ${shown.join(', ')}, the executor runs ${order.join(', ')}`);
+  const gates = order.length;
+
+  if (conditions < 10 || languages < 2 || formats.length < 2 || executed.length < 3) {
+    fail(`read ${conditions} condition(s), ${languages} language(s), ${formats.length} format(s) and ${executed.length} guard(s) from the code: a pattern stopped matching`);
+  }
+
+  const WORDS = {
+    en: ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'],
+    fr: ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'],
+    de: ['', 'ein', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'],
+    es: ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'],
+  };
+  const states = (text, count, code) => {
+    const word = WORDS[code]?.[count];
+    return new RegExp(`(^|[^\\p{L}\\d])(${count}${word ? `|${word}` : ''})($|[^\\p{L}\\d])`, 'iu').test(text);
+  };
+  const FACTS = [
+    ['rules.h2', conditions, 'conditions'],
+    ['features.h2', languages, 'languages'],
+    ['explain.p.2', languages, 'languages'],
+    ['features.fact.5', formats.length, 'notification formats'],
+    ['header.desc.4', gates, 'gates'],
+    ['safety.h2', gates, 'gates'],
+    ['safety.p', gates, 'gates'],
+  ];
+  for (const { code } of LANGUAGES) {
+    const said = catalogue(code);
+    for (const [key, count, what] of FACTS) {
+      if (!states(said[key] ?? '', count, code)) fail(`src/i18n/${code}.json: ${key} does not state the ${count} ${what} the code has`);
+    }
+  }
+  for (const [phrase, count] of [['conditions', conditions], ['languages', languages], ['gates', gates]]) {
+    if (!new RegExp(`\\b(${count}|${WORDS.en[count] ?? count}) ${phrase}\\b`, 'i').test(llms ?? '')) {
+      fail(`llms.txt does not state the ${count} ${phrase} the code has`);
+    }
+  }
+  for (const format of formats) {
+    if (!new RegExp(`\\b${format}\\b`, 'i').test(llms ?? '')) fail(`llms.txt names no ${format} among the notification formats`);
+  }
+}
+
 // ------------------------------------------------------- one origin, every page
 // The origin above is read off the landing and the files beside it. Every
 // other built page names it too, and no other host of the site's own.
@@ -399,6 +473,17 @@ if (!readKey) {
   ]);
   for (const key of built) {
     if (!(key in english)) fail(`src/i18n/en.json has no ${key}, which the API reference builds from the contract`);
+  }
+  // The English sentence of an operation is the contract's own summary, which
+  // the application's reference screen shows: two wordings for one operation
+  // would drift.
+  for (const methods of Object.values(contract.paths)) {
+    for (const { operationId, summary } of Object.values(methods)) {
+      const said = english[`api.ref.op.${operationId}`];
+      if (said !== undefined && said !== summary) {
+        fail(`src/i18n/en.json: api.ref.op.${operationId} reads "${said}", the contract "${summary}"`);
+      }
+    }
   }
 
   // Each entry of the reference is linkable: an operation by its
