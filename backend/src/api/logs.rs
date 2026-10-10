@@ -14,6 +14,7 @@ use crate::state::AppState;
 
 #[derive(Debug, Serialize, sqlx::FromRow, utoipa::ToSchema)]
 pub struct LogEntry {
+    /// The entry's own id.
     pub id: String,
     /// The proposal the write carried out.
     pub decision_id: Option<String>,
@@ -25,7 +26,9 @@ pub struct LogEntry {
     pub success: bool,
     /// Why it did not, a sentence for a person.
     pub error_message: Option<String>,
+    /// The instance the title is on.
     pub instance_id: Option<String>,
+    /// The title's id, as `/media` lists it.
     pub media_id: Option<String>,
     /// The title as it read when it moved.
     pub media_title: Option<String>,
@@ -39,6 +42,8 @@ pub struct LogEntry {
     #[serde(skip)]
     pub subject_key: Option<String>,
     /// When the write was made, in UTC.
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub executed_at: String,
 }
 

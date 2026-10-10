@@ -336,7 +336,11 @@ pub struct Rule {
     pub match_mode: MatchMode,
     pub target_category: String,
     pub instance_ids: Option<Vec<String>>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub updated_at: String,
 }
 
@@ -402,7 +406,8 @@ pub struct RuleBundle {
     /// imported switched off.
     pub version: u32,
     /// When it was written, in RFC 3339.
-    #[serde(default)]
+    #[serde(default, serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub exported_at: Option<String>,
     pub rules: Vec<BundledRule>,
     /// Categories referenced by the rules, so an import can recreate them.

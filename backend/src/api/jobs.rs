@@ -52,7 +52,11 @@ pub struct Job {
     /// refused.
     #[sqlx(rename = "error_code")]
     pub error: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub started_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub finished_at: Option<String>,
     /// What a finished task answered: the report the same call gives when the
     /// caller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,

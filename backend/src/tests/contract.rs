@@ -154,6 +154,50 @@ fn every_schema_is_reached_from_an_operation_or_is_the_webhook_payload() {
     assert_eq!(unreached, ["AllowedMentions", "Notification"]);
 }
 
+/// The types that report the state of an installation and its mappings say
+/// what each field holds, its values among them: an integrator reads them
+/// here, not in the source.
+#[test]
+fn every_field_of_the_status_and_mapping_types_is_described() {
+    let document = described();
+    for name in [
+        "HealthResponse",
+        "InstanceHealth",
+        "Warning",
+        "MappingConflict",
+        "LogEntry",
+        "CreateCategoryRequest",
+    ] {
+        let properties = document["components"]["schemas"][name]["properties"].as_object();
+        let undescribed: Vec<&String> = properties
+            .unwrap()
+            .iter()
+            .filter(|(_, field)| field.get("description").is_none() && field.get("$ref").is_none())
+            .map(|(field, _)| field)
+            .collect();
+        assert!(undescribed.is_empty(), "{name} leaves {undescribed:?} undescribed");
+    }
+}
+
+/// A timestamp is published as RFC 3339, which says its zone: written
+/// without one, a client reads it in its own time zone, or not at all.
+#[test]
+fn every_timestamp_is_published_as_a_date_time() {
+    let document = described();
+    let mut undated = Vec::new();
+    for (schema, body) in document["components"]["schemas"].as_object().unwrap() {
+        let Some(properties) = body["properties"].as_object() else { continue };
+        for (name, field) in properties {
+            let stamped = name.ends_with("_at")
+                || ["last_sync", "since", "timestamp"].contains(&name.as_str());
+            if stamped && field["format"] != "date-time" {
+                undated.push(format!("{schema}.{name}"));
+            }
+        }
+    }
+    assert!(undated.is_empty(), "published without a zone: {undated:?}");
+}
+
 /// The export takes the log's filters and no paging, which it never reads.
 #[test]
 fn the_log_export_documents_no_paging() {

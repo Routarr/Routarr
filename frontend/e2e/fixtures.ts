@@ -73,8 +73,8 @@ async function resetLibrary(): Promise<string> {
     await api(`/rules/${rule.id}`, { method: 'DELETE' });
   }
   // A case keeps its own copy of the film, so it outlives the instance.
-  const cases = (await api('/rule-tests')) as { id: string }[];
-  for (const pinned of cases) {
+  const cases = (await api('/rule-tests?per_page=200')) as { data: { id: string }[] };
+  for (const pinned of cases.data) {
     await api(`/rule-tests/${pinned.id}`, { method: 'DELETE' });
   }
   const keys = (await api('/applications')) as { id: string }[];

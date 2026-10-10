@@ -13,9 +13,13 @@ pub struct RootFolder {
     pub free_space: Option<i64>,
     pub accessible: bool,
     pub category: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
     /// When the folder last answered, as opposed to when it was last seen in a
     /// pass. `null` for one that has never answered.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_accessible_at: Option<String>,
     /// `arr` for a folder the instance reports, `declared` for one typed into
     /// Routarr. Only the second may be deleted here.

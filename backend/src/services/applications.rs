@@ -117,8 +117,10 @@ pub struct Application {
     pub scopes: Vec<Scope>,
     pub may_confirm: Vec<String>,
     pub may_move_files: bool,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub created_at: String,
     pub created_by: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     pub last_used_at: Option<String>,
 }
 

@@ -33,9 +33,13 @@ pub struct RuleTest {
     pub media_json: String,
     #[serde(skip_serializing)]
     pub metadata_json: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub evaluated_at: String,
     pub expected_category: String,
     pub source_media_title: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
 }
 
@@ -63,7 +67,7 @@ pub struct RuleTestRun {
 }
 
 pub async fn list(pool: &SqlitePool) -> AppResult<Vec<RuleTest>> {
-    Ok(sqlx::query_as::<_, RuleTest>("SELECT * FROM rule_tests ORDER BY name, created_at")
+    Ok(sqlx::query_as::<_, RuleTest>("SELECT * FROM rule_tests ORDER BY name, created_at, id")
         .fetch_all(pool)
         .await?)
 }

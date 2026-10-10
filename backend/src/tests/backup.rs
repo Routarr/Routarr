@@ -1135,7 +1135,7 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert_eq!(body["backups"].as_array().unwrap().len(), 1);
     assert_eq!(body["retention_count"], 7);
     let listed_at = body["backups"][0]["created_at"].as_str().unwrap();
-    assert_eq!(listed_at, crate::services::routing::format_timestamp(stamped));
+    assert_eq!(listed_at, stamped.to_rfc3339_opts(chrono::SecondsFormat::Secs, true));
 
     // The download is the point of the route, beyond its refusals: the bytes
     // have to be the archive, typed as one.

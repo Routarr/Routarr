@@ -1589,6 +1589,34 @@ async fn removing_an_override_hands_the_media_back_to_the_rules() {
         .assert_status(axum::http::StatusCode::NOT_FOUND);
 }
 
+/// A script pins a whole library through `PUT /overrides/external`, so the
+/// list answers a page at a time, the newest first, in an order that pages
+/// through every exception once.
+#[tokio::test]
+async fn the_exceptions_are_listed_a_page_at_a_time() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.execute(&[
+        "INSERT INTO media (id, instance_id, arr_id, media_type, title)
+         VALUES ('m-2', 'inst-1', 11, 'movie', 'Akira'), ('m-3', 'inst-1', 12, 'movie', 'Paprika')",
+        "INSERT INTO overrides (id, media_id, target_category, created_at)
+         VALUES ('o-1', 'm-1', 'anime', '2026-10-01 10:00:00'),
+                ('o-2', 'm-2', 'anime', '2026-10-01 10:00:00'),
+                ('o-3', 'm-3', 'anime', '2026-10-02 10:00:00')",
+    ])
+    .await;
+
+    let mut seen = Vec::new();
+    for page in 1..=3 {
+        let listed = app.get(&format!("/api/v1/overrides?per_page=1&page={page}")).await;
+        let listed = listed.assert_ok();
+        assert_eq!(listed["pagination"]["total"], 3, "{listed}");
+        assert_eq!(listed["data"].as_array().map(Vec::len), Some(1), "{listed}");
+        seen.push(listed["data"][0]["id"].as_str().unwrap().to_string());
+    }
+    assert_eq!(seen, ["o-3", "o-2", "o-1"]);
+}
+
 /// The list the Overrides screen renders, read as the screen reads it: with
 /// the key, under a mode that demands one. Each entry carries the item's title
 /// and the instance it lives on, which the list joins in.
@@ -1610,7 +1638,7 @@ async fn the_override_list_answers_with_the_key_and_names_each_item() {
     app.send(keyed("POST", body)).await.assert_ok();
 
     let listed = app.send(keyed("GET", serde_json::Value::Null)).await;
-    let listed = listed.assert_ok().as_array().expect("a list").clone();
+    let listed = listed.assert_ok()["data"].as_array().expect("a page").clone();
     assert_eq!(listed.len(), 1, "{listed:?}");
     assert_eq!(listed[0]["media_id"], "m-1");
     assert_eq!(listed[0]["target_category"], "anime");
@@ -1636,7 +1664,7 @@ async fn an_override_carries_no_lock() {
 
     let created = created.assert_ok().clone();
     assert!(created.get("locked").is_none(), "{created}");
-    let listed = app.get("/api/v1/overrides").await.assert_ok().clone();
+    let listed = app.get("/api/v1/overrides").await.assert_ok()["data"].clone();
     assert_eq!(listed.as_array().map(Vec::len), Some(1), "{listed}");
     assert!(listed[0].get("locked").is_none(), "{listed}");
     let detail = app.get("/api/v1/media/m-1").await.assert_ok().clone();

@@ -68,6 +68,9 @@ pub(crate) const LATEST: &str = "d.superseded = 0
                        AND (later.decided_at > d.decided_at
                             OR (later.decided_at = d.decided_at AND later.rowid > d.rowid)))";
 
+/// An instance's id, name, last sync outcome, switch, last success and last try.
+type Synced = (String, String, Option<String>, bool, Option<String>, Option<String>);
+
 pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     let pool = &state.pool;
     let mut families: Vec<Family> = Vec::new();
@@ -81,18 +84,21 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
     )
     .fetch_all(pool)
     .await?;
+    let media: Vec<(String, f64)> = media
+        .into_iter()
+        .map(|(id, name, kind, count)| {
+            (format!("{},media_type=\"{}\"", arr_instance(&id, &name), label(&kind)), count as f64)
+        })
+        .collect();
     families.push(Family {
         name: "routarr_media_total",
+        help: "Deprecated, use routarr_media_items.",
+        samples: media.clone(),
+    });
+    families.push(Family {
+        name: "routarr_media_items",
         help: "Media items Routarr tracks.",
-        samples: media
-            .into_iter()
-            .map(|(id, name, kind, count)| {
-                (
-                    format!("{},media_type=\"{}\"", arr_instance(&id, &name), label(&kind)),
-                    count as f64,
-                )
-            })
-            .collect(),
+        samples: media,
     });
 
     // Where the engine currently wants each item, a title already there
@@ -125,17 +131,21 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
             .collect(),
     });
 
-    // Instance health as 1/0, from the last sync. The obvious thing to alert on.
-    let instances: Vec<(String, String, Option<String>, bool)> =
-        sqlx::query_as("SELECT id, name, last_sync_status, enabled FROM instances")
-            .fetch_all(pool)
-            .await?;
+    // Instance health as 1/0, from the last sync. The obvious thing to alert on,
+    // beside when that sync was, without which a sync that stopped running
+    // reads as up for ever.
+    let instances: Vec<Synced> = sqlx::query_as(
+        "SELECT id, name, last_sync_status, enabled, last_sync_at, last_sync_attempt_at
+           FROM instances",
+    )
+    .fetch_all(pool)
+    .await?;
     families.push(Family {
         name: "routarr_instance_up",
         help: "1 when the last sync of this instance succeeded, 0 otherwise.",
         samples: instances
             .iter()
-            .map(|(id, name, status, _)| {
+            .map(|(id, name, status, ..)| {
                 let up = status.as_deref() == Some("success");
                 (arr_instance(id, name), if up { 1.0 } else { 0.0 })
             })
@@ -146,8 +156,31 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         help: "1 when this instance is enabled for syncing and routing.",
         samples: instances
             .iter()
-            .map(|(id, name, _, enabled)| {
+            .map(|(id, name, _, enabled, ..)| {
                 (arr_instance(id, name), if *enabled { 1.0 } else { 0.0 })
+            })
+            .collect(),
+    });
+    let at = |stamp: &Option<String>| {
+        stamp.as_deref().and_then(crate::services::routing::parse_timestamp)
+    };
+    families.push(Family {
+        name: "routarr_instance_last_sync_timestamp_seconds",
+        help: "When a sync of this instance last succeeded, in seconds since the Unix epoch.",
+        samples: instances
+            .iter()
+            .filter_map(|(id, name, _, _, synced, _)| {
+                Some((arr_instance(id, name), at(synced)?.timestamp() as f64))
+            })
+            .collect(),
+    });
+    families.push(Family {
+        name: "routarr_instance_last_sync_attempt_timestamp_seconds",
+        help: "When a sync of this instance was last tried, in seconds since the Unix epoch.",
+        samples: instances
+            .iter()
+            .filter_map(|(id, name, _, _, _, tried)| {
+                Some((arr_instance(id, name), at(tried)?.timestamp() as f64))
             })
             .collect(),
     });
@@ -257,15 +290,22 @@ pub async fn metrics(State(state): State<AppState>) -> AppResult<Response> {
         sqlx::query_as("SELECT kind, status, COUNT(*) FROM jobs GROUP BY kind, status")
             .fetch_all(pool)
             .await?;
+    // Kept rows, which the purge removes: a gauge, not a count of every job run.
+    let jobs: Vec<(String, f64)> = jobs
+        .into_iter()
+        .map(|(kind, status, count)| {
+            (format!("kind=\"{}\",status=\"{}\"", label(&kind), label(&status)), count as f64)
+        })
+        .collect();
     families.push(Family {
         name: "routarr_jobs_total",
-        help: "Recorded background jobs, by kind and outcome.",
-        samples: jobs
-            .into_iter()
-            .map(|(kind, status, count)| {
-                (format!("kind=\"{}\",status=\"{}\"", label(&kind), label(&status)), count as f64)
-            })
-            .collect(),
+        help: "Deprecated, use routarr_jobs.",
+        samples: jobs.clone(),
+    });
+    families.push(Family {
+        name: "routarr_jobs",
+        help: "Background jobs the retention keeps, by kind and outcome.",
+        samples: jobs,
     });
 
     // The two switches that decide whether a click writes anything. Worth a

@@ -371,6 +371,7 @@ pub struct Notification {
     /// Settings. The list may grow.
     pub event: &'static str,
     /// When it happened, in RFC 3339.
+    #[schema(format = DateTime)]
     pub timestamp: String,
     /// `error`, `warning` or `info`.
     pub severity: &'static str,
@@ -698,6 +699,8 @@ async fn signing_keys(state: &AppState) -> AppResult<Signing> {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SigningStatus {
     pub signed: bool,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub since: Option<String>,
     /// False when a secret is set and cannot be opened with this
     /// installation's key: nothing is sent until it is replaced.

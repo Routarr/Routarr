@@ -442,6 +442,60 @@ async fn an_override_lands_once_its_media_exists() {
     assert_eq!(category, "kids");
 }
 
+/// An imported exception is a pin as any other: it names who set it, the
+/// importer, in place of who set the one it replaces, and withdraws the
+/// title's pending proposals, which the pin now decides.
+#[tokio::test]
+async fn an_imported_exception_withdraws_the_titles_proposals_and_names_its_author() {
+    let bundle = export(&configured().await).await;
+    let target = TestApp::new().await;
+    target.seed_library().await;
+    target.seed_anime_rule().await;
+    target.simulate().await;
+    target
+        .execute(&["INSERT INTO overrides (id, media_id, target_category, subject)
+                    VALUES ('o-n8n', 'm-1', 'anime', 'n8n')"])
+        .await;
+    let pending = "SELECT COUNT(*) FROM decisions
+                    WHERE media_id = 'm-1' AND status = 'pending' AND superseded = 0";
+    assert_eq!(target.count(pending).await, 1, "no proposal for the pin to withdraw");
+
+    target.post("/api/v1/config/import", serde_json::json!({ "bundle": bundle })).await.assert_ok();
+
+    let (category, subject): (String, Option<String>) =
+        sqlx::query_as("SELECT target_category, subject FROM overrides WHERE media_id = 'm-1'")
+            .fetch_one(&target.state.pool)
+            .await
+            .unwrap();
+    assert_eq!((category.as_str(), subject), ("kids", None), "the import kept the old author");
+    assert_eq!(target.count(pending).await, 0, "the pin left the proposal it decides listed");
+}
+
+/// A retention a bundle lowers removes the archives above it at once, as a
+/// save on the Settings screen does, not at the next backup.
+#[tokio::test]
+async fn an_imported_retention_prunes_the_archives_above_it() {
+    let (app, dir) = super::backup::app_with_files("imported-retention").await;
+    let backups = dir.join("backups");
+    std::fs::create_dir_all(&backups).unwrap();
+    for day in 1..=3 {
+        let name = format!("routarr-backup-2026010{day}-000000.zip");
+        std::fs::write(backups.join(name), b"an archive").unwrap();
+    }
+
+    let bundle = serde_json::json!({ "bundle": {
+        "version": 1,
+        "settings": [{ "key": "backup_retention_count", "value": "1" }]
+    }});
+    app.post("/api/v1/config/import", bundle).await.assert_ok();
+
+    let left: Vec<String> = std::fs::read_dir(&backups)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["routarr-backup-20260103-000000.zip"]);
+}
+
 #[tokio::test]
 async fn a_bundle_from_a_future_version_is_refused_rather_than_half_applied() {
     let app = TestApp::new().await;
@@ -584,6 +638,9 @@ async fn a_bundle_cannot_write_an_instance_the_api_refuses() {
                     { "name": "Naked", "instance_type": "radarr",
                       "base_url": "radarr:7878", "enabled": true,
                       "sync_interval_minutes": 60, "has_api_key": false },
+                    { "name": "Queried", "instance_type": "radarr",
+                      "base_url": "http://radarr:7878/?x", "enabled": true,
+                      "sync_interval_minutes": 60, "has_api_key": false },
                 ],
                 "root_folders": [], "overrides": []
             }}),
@@ -593,11 +650,12 @@ async fn a_bundle_cannot_write_an_instance_the_api_refuses() {
         .clone();
 
     assert_eq!(report["instances"], 0);
-    let written: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM instances WHERE name IN ('Plex', 'Naked')")
-            .fetch_one(&app.state.pool)
-            .await
-            .unwrap();
+    let written: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM instances WHERE name IN ('Plex', 'Naked', 'Queried')",
+    )
+    .fetch_one(&app.state.pool)
+    .await
+    .unwrap();
     assert_eq!(written, 0, "an instance the API would refuse was written anyway");
 }
 

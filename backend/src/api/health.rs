@@ -169,7 +169,9 @@ pub struct HealthResponse {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InstanceHealth {
+    /// The instance's id, as `/instances` lists it.
     pub id: String,
+    /// The name it was given in Routarr.
     pub name: String,
     /// `radarr` or `sonarr`.
     pub instance_type: String,
@@ -184,9 +186,12 @@ pub struct InstanceHealth {
     /// The Arr's release, as a probe that reached it read it.
     pub version: Option<String>,
     /// When a sync last succeeded.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_sync: Option<String>,
     /// How the last sync ended: `success`, or `error: ` and the reason.
     pub last_sync_status: Option<String>,
+    /// The titles the last sync read from it.
     pub media_count: i64,
     /// Its root folders mapped to a category.
     pub mapped_root_folders: i64,

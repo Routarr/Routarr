@@ -61,10 +61,20 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RootFolde
 /// A mapping problem the user should resolve.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MappingConflict {
+    /// An open list. `duplicate_mapping`: two folders of one instance claim
+    /// one category. `unmapped_category`: an enabled rule targets a category
+    /// no folder holds on an instance the rule reaches. `unreachable_root_folder`:
+    /// the Arr did not reach a folder on its last look, mapped or not.
+    /// `orphaned_mapping`: a folder is mapped to a category that no longer
+    /// exists.
     pub kind: String,
+    /// `error` for what routing cannot settle, `warning` for the rest.
     pub severity: String,
+    /// The instance it is about.
     pub instance_name: Option<String>,
+    /// The category it is about, when it is about one.
     pub category: Option<String>,
+    /// What it means, in the interface language.
     pub message: String,
 }
 

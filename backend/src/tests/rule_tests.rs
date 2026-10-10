@@ -170,18 +170,27 @@ async fn an_override_does_not_mask_what_the_rules_decide() {
     );
 }
 
+/// The cases are listed a page at a time, by name, as long as the suite grows.
 #[tokio::test]
 async fn a_case_can_be_listed_and_deleted() {
     let app = TestApp::new().await;
     app.seed_library().await;
     app.seed_anime_rule().await;
     let id = pin(&app, "Akira stays in anime", "m-1", Some("anime")).await;
+    pin(&app, "Totoro stays in anime", "m-1", Some("anime")).await;
+    pin(&app, "Ghibli stays in anime", "m-1", Some("anime")).await;
 
-    let listed = app.get("/api/v1/rule-tests").await;
-    assert_eq!(listed.assert_ok().as_array().expect("array").len(), 1);
+    let first = app.get("/api/v1/rule-tests?per_page=1").await;
+    let first = first.assert_ok();
+    assert_eq!(first["data"].as_array().map(Vec::len), Some(1), "{first}");
+    assert_eq!(first["data"][0]["name"], "Akira stays in anime");
+    assert_eq!(first["pagination"]["total"], 3);
+    let second = app.get("/api/v1/rule-tests?per_page=1&page=2").await;
+    assert_eq!(second.assert_ok()["data"][0]["name"], "Ghibli stays in anime");
 
     app.delete(&format!("/api/v1/rule-tests/{id}")).await.assert_ok();
-    assert!(app.get("/api/v1/rule-tests").await.assert_ok().as_array().unwrap().is_empty());
+    let listed = app.get("/api/v1/rule-tests").await;
+    assert_eq!(listed.assert_ok()["pagination"]["total"], 2);
     assert_eq!(app.delete(&format!("/api/v1/rule-tests/{id}")).await.status, 404);
 }
 

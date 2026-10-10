@@ -36,6 +36,7 @@ const STRINGS = {
   CreateOverride: 'Pin it',
   ForceCategoryFor: 'Force category for "{title}"',
   None: '-',
+  Next: 'Next',
 };
 
 const categories = [
@@ -77,7 +78,7 @@ function override(over: Partial<OverrideEntry> = {}): OverrideEntry {
 }
 
 function show(overrides: OverrideEntry[]) {
-  vi.spyOn(api, 'getOverrides').mockResolvedValue(overrides);
+  vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated(overrides));
   vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
   return renderWithI18n(Overrides, { strings: STRINGS });
 }
@@ -328,7 +329,7 @@ it('hands the focus to the exception that took the place of the removed one', as
   vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
 
   await fireEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
-  vi.spyOn(api, 'getOverrides').mockResolvedValue([next]);
+  vi.spyOn(api, 'getOverrides').mockResolvedValue(paginated([next]));
   await answerConfirmation();
 
   await waitFor(() =>
@@ -336,4 +337,43 @@ it('hands the focus to the exception that took the place of the removed one', as
       screen.getByRole('button', { name: 'Delete – Perfect Blue' }),
     ),
   );
+});
+
+/** The exceptions come a page at a time: a script may pin a whole library. */
+describe('more exceptions than a page holds', () => {
+  it('asks the server for the next page', async () => {
+    const list = vi
+      .spyOn(api, 'getOverrides')
+      .mockResolvedValue(paginated([override()], { total: 51, total_pages: 2 }));
+    vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
+    renderWithI18n(Overrides, { strings: STRINGS });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ page: 2, per_page: 50 }, expect.any(AbortSignal)),
+    );
+  });
+
+  /** The last one of the last page gone, the page before it is the one left to show. */
+  it('steps back a page once the last exception of the last one is removed', async () => {
+    const list = vi
+      .spyOn(api, 'getOverrides')
+      .mockResolvedValueOnce(paginated([override()], { total: 51, total_pages: 2 }))
+      .mockResolvedValueOnce(paginated([override()], { page: 2, total: 51, total_pages: 2 }))
+      .mockResolvedValueOnce(paginated([], { page: 2, total: 50, total_pages: 1 }))
+      .mockResolvedValue(paginated([override({ id: 'o3', media_title: 'Paprika' })]));
+    vi.spyOn(api, 'getCategories').mockResolvedValue(categories);
+    vi.spyOn(api, 'deleteOverride').mockResolvedValue(undefined as never);
+    renderWithI18n(Overrides, { strings: STRINGS });
+    await userEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete – Akira' }));
+    await answerConfirmation();
+
+    await waitFor(() =>
+      expect(list).toHaveBeenLastCalledWith({ page: 1, per_page: 50 }, expect.any(AbortSignal)),
+    );
+  });
 });

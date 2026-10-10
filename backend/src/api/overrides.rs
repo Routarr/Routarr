@@ -25,38 +25,54 @@ type OverrideRow = (
     Option<String>,
 );
 
+/// A page of the exceptions, the newest first: a script pins a whole library
+/// through `PUT /overrides/external`, and one answer holding every pin would
+/// grow with it.
 pub async fn list(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
-) -> AppResult<Json<Vec<OverrideWithMedia>>> {
+    Query(query): Query<super::PageQuery>,
+) -> AppResult<Json<super::Page<OverrideWithMedia>>> {
+    let (page, per_page, offset) = super::paginate(query.page, query.per_page);
     let rows: Vec<OverrideRow> = sqlx::query_as(
         "SELECT o.id, o.media_id, o.target_category, o.reason, o.created_at, o.subject,
          m.title, m.media_type, i.name, o.subject_key
          FROM overrides o
          JOIN media m ON o.media_id = m.id
          JOIN instances i ON m.instance_id = i.id
-         ORDER BY o.created_at DESC",
+         ORDER BY o.created_at DESC, o.id DESC LIMIT ? OFFSET ?",
     )
+    .bind(per_page)
+    .bind(offset)
     .fetch_all(&state.pool)
     .await?;
+    // Counted as listed: an exception whose title went with a sync is in
+    // neither.
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM overrides o
+         JOIN media m ON o.media_id = m.id
+         JOIN instances i ON m.instance_id = i.id",
+    )
+    .fetch_one(&state.pool)
+    .await?;
 
-    Ok(Json(
-        rows.into_iter()
-            .map(|r| OverrideWithMedia {
-                override_entry: OverrideEntry {
-                    id: r.0,
-                    media_id: r.1,
-                    target_category: r.2,
-                    reason: r.3,
-                    created_at: r.4,
-                    subject: identity.shown_subject(r.5, r.9.as_deref()),
-                },
-                media_title: r.6,
-                media_type: r.7,
-                instance_name: r.8,
-            })
-            .collect(),
-    ))
+    let entries = rows
+        .into_iter()
+        .map(|r| OverrideWithMedia {
+            override_entry: OverrideEntry {
+                id: r.0,
+                media_id: r.1,
+                target_category: r.2,
+                reason: r.3,
+                created_at: r.4,
+                subject: identity.shown_subject(r.5, r.9.as_deref()),
+            },
+            media_title: r.6,
+            media_type: r.7,
+            instance_name: r.8,
+        })
+        .collect();
+    Ok(Json(super::Page::new(entries, page, per_page, total)))
 }
 
 pub async fn create(
@@ -145,13 +161,12 @@ async fn copies_of(state: &AppState, title: &ExternalTitle) -> AppResult<Vec<Str
     Ok(copies.into_iter().map(|media| media.id).collect())
 }
 
-/// Pin each title to `category`, replacing the pin it has, and withdraw the
-/// pending proposals of each whose category changed, which the pin now
-/// decides. A pin repeating a title's category keeps what it produced.
 /// Longest reason a pin keeps. It is a line on the exceptions screen, and
 /// the body limit alone would let one hold two megabytes.
 const REASON_MAX: usize = 500;
 
+/// Pin each title to `category`, as `by` asked, and answer the pins as they
+/// stand.
 async fn pin(
     state: &AppState,
     media_ids: &[String],
@@ -159,58 +174,14 @@ async fn pin(
     reason: Option<&str>,
     asker: &crate::api::auth::Identity,
 ) -> AppResult<Vec<OverrideEntry>> {
-    let by = asker.attribution();
     let category = category.trim().to_lowercase();
     // Checked under the write lock the pins are written with: a category
     // removed between a check and the write would leave pins naming nothing.
     let localizer = state.localizer().await;
-    if reason.is_some_and(|reason| reason.chars().count() > REASON_MAX) {
-        let refusal =
-            localizer.translate("ErrorReasonTooLong", &[("max", &REASON_MAX.to_string())]);
-        return Err(AppError::BadRequest(refusal));
-    }
     let mut tx = crate::db::write_transaction(&state.pool).await?;
     super::categories::ensure_exists(&mut tx, &category, &localizer).await?;
     crate::race::checked("overrides::pin", &category).await;
-
-    let mut changed = Vec::new();
-    for media_id in media_ids {
-        // Under the lock the pin is written with: a title removed by a sync
-        // since it was named has nothing left to pin.
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
-            .bind(media_id)
-            .fetch_one(&mut *tx)
-            .await?;
-        if !exists {
-            return Err(AppError::NotFound(format!("Media {media_id} not found")));
-        }
-        let held: Option<String> =
-            sqlx::query_scalar("SELECT target_category FROM overrides WHERE media_id = ?")
-                .bind(media_id)
-                .fetch_optional(&mut *tx)
-                .await?;
-        if held.as_deref() != Some(category.as_str()) {
-            changed.push(media_id.as_str());
-        }
-        sqlx::query(
-            "INSERT INTO overrides (id, media_id, target_category, reason, subject, subject_key)
-             VALUES (?, ?, ?, ?, ?, ?)
-             ON CONFLICT(media_id) DO UPDATE SET
-                target_category = excluded.target_category,
-                reason = excluded.reason,
-                subject = excluded.subject,
-                subject_key = excluded.subject_key",
-        )
-        .bind(Uuid::new_v4().to_string())
-        .bind(media_id)
-        .bind(&category)
-        .bind(reason)
-        .bind(&by.subject)
-        .bind(&by.key)
-        .execute(&mut *tx)
-        .await?;
-    }
-    crate::services::routing::supersede_pending(&mut tx, &changed).await?;
+    pin_in(&mut tx, media_ids, &category, reason, &asker.attribution(), &localizer).await?;
 
     // Read back so the answer carries the rows that exist: on an upsert the
     // stored id is the original one, not the one just generated. Inside the
@@ -235,6 +206,65 @@ async fn pin(
     }
     tx.commit().await?;
     Ok(pinned)
+}
+
+/// Pin each title to `category`, an existing one, in `tx`, replacing the pin
+/// it has and naming `by` as who set it, and withdraw the pending proposals
+/// of each whose category changed, which the pin now decides. A pin repeating
+/// a title's category keeps what it produced. Every writer of a pin goes
+/// through here: `POST /overrides`, `PUT /overrides/external` and
+/// `POST /config/import`.
+pub(crate) async fn pin_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    media_ids: &[String],
+    category: &str,
+    reason: Option<&str>,
+    by: &crate::jobs::Attribution,
+    localizer: &crate::localization::Localizer,
+) -> AppResult<()> {
+    if reason.is_some_and(|reason| reason.chars().count() > REASON_MAX) {
+        let refusal =
+            localizer.translate("ErrorReasonTooLong", &[("max", &REASON_MAX.to_string())]);
+        return Err(AppError::BadRequest(refusal));
+    }
+    let mut changed = Vec::new();
+    for media_id in media_ids {
+        // Under the lock the pin is written with: a title removed by a sync
+        // since it was named has nothing left to pin.
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM media WHERE id = ?)")
+            .bind(media_id)
+            .fetch_one(&mut **tx)
+            .await?;
+        if !exists {
+            return Err(AppError::NotFound(format!("Media {media_id} not found")));
+        }
+        let held: Option<String> =
+            sqlx::query_scalar("SELECT target_category FROM overrides WHERE media_id = ?")
+                .bind(media_id)
+                .fetch_optional(&mut **tx)
+                .await?;
+        if held.as_deref() != Some(category) {
+            changed.push(media_id.as_str());
+        }
+        sqlx::query(
+            "INSERT INTO overrides (id, media_id, target_category, reason, subject, subject_key)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON CONFLICT(media_id) DO UPDATE SET
+                target_category = excluded.target_category,
+                reason = excluded.reason,
+                subject = excluded.subject,
+                subject_key = excluded.subject_key",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(media_id)
+        .bind(category)
+        .bind(reason)
+        .bind(&by.subject)
+        .bind(&by.key)
+        .execute(&mut **tx)
+        .await?;
+    }
+    crate::services::routing::supersede_pending(tx, &changed).await
 }
 
 pub async fn remove(

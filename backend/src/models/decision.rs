@@ -82,10 +82,16 @@ pub struct Decision {
     #[serde(default)]
     pub simulation_id: Option<String>,
     pub error_message: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub decided_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub applied_at: Option<String>,
     /// Set when the move was rolled back through `POST /decisions/revert`.
     #[serde(default)]
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub reverted_at: Option<String>,
     /// What set the decision off: `manual`, `schedule`, `webhook`, `api`, or
     /// `auto` for the simulation the automation runs after a sync.

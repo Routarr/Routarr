@@ -53,6 +53,8 @@ pub struct BackupManifest {
 pub struct BackupFile {
     pub name: String,
     pub size_bytes: u64,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
     /// Sealed with the backup passphrase: a restore asks for it, and
     /// `routarr decrypt-backup` opens it by hand.

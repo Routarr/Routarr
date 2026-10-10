@@ -257,6 +257,7 @@
         "description": "One archive on disk.",
         "properties": {
           "created_at": {
+            "format": "date-time",
             "type": "string"
           },
           "encrypted": {
@@ -451,6 +452,8 @@
         "description": "A user-defined category for media classification.",
         "properties": {
           "created_at": {
+            "description": "When it was made, in UTC.",
+            "format": "date-time",
             "type": "string"
           },
           "description": {
@@ -460,6 +463,7 @@
             ]
           },
           "display_order": {
+            "description": "Where it sorts among the categories, lowest first.",
             "format": "int64",
             "type": "integer"
           },
@@ -467,9 +471,11 @@
             "type": "string"
           },
           "is_default": {
+            "description": "Whether it is the fallback, where every title no rule matches goes.",
             "type": "boolean"
           },
           "name": {
+            "description": "What rules, folders and exceptions name it by: lower case, letters,\ndigits, `-` and `_`.",
             "type": "string"
           }
         },
@@ -1298,21 +1304,26 @@
       },
       "CreateCategoryRequest": {
         "additionalProperties": false,
+        "description": "A category to make.",
         "properties": {
           "description": {
+            "description": "What it holds, for the person reading the list.",
             "type": [
               "string",
               "null"
             ]
           },
           "display_order": {
+            "description": "Where it sorts among the categories, lowest first. Defaults to 0.",
             "format": "int64",
             "type": "integer"
           },
           "is_default": {
+            "description": "`true` makes it the fallback for every title no rule matches, in place\nof the current one. An application key may not.",
             "type": "boolean"
           },
           "name": {
+            "description": "Trimmed and lower-cased: letters, digits, `-` and `_`.",
             "type": "string"
           }
         },
@@ -1434,6 +1445,7 @@
             "type": "array"
           },
           "applied_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1451,6 +1463,7 @@
             ]
           },
           "decided_at": {
+            "format": "date-time",
             "type": "string"
           },
           "error_message": {
@@ -1503,6 +1516,7 @@
           },
           "reverted_at": {
             "description": "Set when the move was rolled back through `POST /decisions/revert`.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1869,6 +1883,7 @@
             ]
           },
           "id": {
+            "description": "The instance's id, as `/instances` lists it.",
             "type": "string"
           },
           "instance_type": {
@@ -1877,6 +1892,7 @@
           },
           "last_sync": {
             "description": "When a sync last succeeded.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1895,10 +1911,12 @@
             "type": "integer"
           },
           "media_count": {
+            "description": "The titles the last sync read from it.",
             "format": "int64",
             "type": "integer"
           },
           "name": {
+            "description": "The name it was given in Routarr.",
             "type": "string"
           },
           "status": {
@@ -1938,6 +1956,7 @@
             "type": "string"
           },
           "created_at": {
+            "format": "date-time",
             "type": "string"
           },
           "enabled": {
@@ -1951,6 +1970,7 @@
           },
           "last_sync_at": {
             "description": "When a sync last *succeeded*. Null while none ever has.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1958,6 +1978,7 @@
           },
           "last_sync_attempt_at": {
             "description": "When one was last attempted, successful or not: the figure that says\nwhether the scheduler is running at all.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -1977,6 +1998,7 @@
             "type": "integer"
           },
           "updated_at": {
+            "format": "date-time",
             "type": "string"
           },
           "webhook_path": {
@@ -2039,6 +2061,7 @@
             ]
           },
           "finished_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -2069,6 +2092,7 @@
             "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, for a kind no call starts, and in the list\nunless it asks for it."
           },
           "started_at": {
+            "format": "date-time",
             "type": "string"
           },
           "status": {
@@ -2216,18 +2240,22 @@
           },
           "executed_at": {
             "description": "When the write was made, in UTC.",
+            "format": "date-time",
             "type": "string"
           },
           "id": {
+            "description": "The entry's own id.",
             "type": "string"
           },
           "instance_id": {
+            "description": "The instance the title is on.",
             "type": [
               "string",
               "null"
             ]
           },
           "media_id": {
+            "description": "The title's id, as `/media` lists it.",
             "type": [
               "string",
               "null"
@@ -2283,24 +2311,29 @@
         "description": "A mapping problem the user should resolve.",
         "properties": {
           "category": {
+            "description": "The category it is about, when it is about one.",
             "type": [
               "string",
               "null"
             ]
           },
           "instance_name": {
+            "description": "The instance it is about.",
             "type": [
               "string",
               "null"
             ]
           },
           "kind": {
+            "description": "An open list. `duplicate_mapping`: two folders of one instance claim\none category. `unmapped_category`: an enabled rule targets a category\nno folder holds on an instance the rule reaches. `unreachable_root_folder`:\nthe Arr did not reach a folder on its last look, mapped or not.\n`orphaned_mapping`: a folder is mapped to a category that no longer\nexists.",
             "type": "string"
           },
           "message": {
+            "description": "What it means, in the interface language.",
             "type": "string"
           },
           "severity": {
+            "description": "`error` for what routing cannot settle, `warning` for the rest.",
             "type": "string"
           }
         },
@@ -2336,6 +2369,7 @@
         "description": "A media item synchronized from an Arr instance.",
         "properties": {
           "added_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -2386,6 +2420,7 @@
             "type": "string"
           },
           "last_synced_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -2562,6 +2597,7 @@
             "type": "string"
           },
           "last_synced_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -2862,6 +2898,7 @@
           },
           "timestamp": {
             "description": "When it happened, in RFC 3339.",
+            "format": "date-time",
             "type": "string"
           },
           "title": {
@@ -2892,6 +2929,7 @@
         "description": "An exception: a title whose category is forced by hand, which outranks\nevery rule.",
         "properties": {
           "created_at": {
+            "format": "date-time",
             "type": "string"
           },
           "id": {
@@ -3011,6 +3049,42 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/MediaListItem"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
+      "Page_OverrideWithMedia": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/OverrideWithMedia"
+            },
+            "type": "array"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        },
+        "required": [
+          "data",
+          "pagination"
+        ],
+        "type": "object"
+      },
+      "Page_RuleTest": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/RuleTest"
             },
             "type": "array"
           },
@@ -3485,6 +3559,7 @@
         "description": "Request body for renaming a category.",
         "properties": {
           "name": {
+            "description": "The new name, stored as `Category.name` says.",
             "type": "string"
           }
         },
@@ -3583,12 +3658,14 @@
           },
           "last_accessible_at": {
             "description": "When the folder last answered, as opposed to when it was last seen in a\npass. `null` for one that has never answered.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
             ]
           },
           "last_synced_at": {
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -3644,6 +3721,7 @@
             "type": "array"
           },
           "created_at": {
+            "format": "date-time",
             "type": "string"
           },
           "description": {
@@ -3697,6 +3775,7 @@
             "type": "string"
           },
           "updated_at": {
+            "format": "date-time",
             "type": "string"
           }
         },
@@ -3726,6 +3805,7 @@
           },
           "exported_at": {
             "description": "When it was written, in RFC 3339.",
+            "format": "date-time",
             "type": [
               "string",
               "null"
@@ -3876,9 +3956,11 @@
         "description": "A stored case: inputs, and the category they are required to produce.",
         "properties": {
           "created_at": {
+            "format": "date-time",
             "type": "string"
           },
           "evaluated_at": {
+            "format": "date-time",
             "type": "string"
           },
           "expected_category": {
@@ -4380,13 +4462,13 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nFrom 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. Before it, a minor release may, and its release notes name each change. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
     },
     "title": "Routarr API",
-    "version": "1"
+    "version": "0.1.5"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -6062,16 +6144,38 @@
     },
     "/overrides": {
       "get": {
+        "description": "A page of them, the newest first.",
         "operationId": "list_exceptions",
+        "parameters": [
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/OverrideWithMedia"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_OverrideWithMedia"
                 }
               }
             }
@@ -6475,7 +6579,7 @@
     },
     "/root-folders/conflicts": {
       "get": {
-        "description": "A category with no folder on an instance, two folders claiming one\ncategory, a mapping to a folder that stopped answering.",
+        "description": "Two folders of one instance claiming one category, a category a rule\ntargets with no folder on an instance the rule reaches, a folder the Arr\ndid not reach on its last look, a folder mapped to a category that no\nlonger exists.",
         "operationId": "mapping_conflicts",
         "responses": {
           "200": {
@@ -6722,17 +6826,38 @@
     },
     "/rule-tests": {
       "get": {
-        "description": "Each pins the category a title should get, as the title was when it was\npinned.",
+        "description": "Each pins the category a title should get, as the title was when it was\npinned. A page of them, by name.",
         "operationId": "list_rule_tests",
+        "parameters": [
+          {
+            "description": "From 1. Defaults to 1.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          {
+            "description": "From 1 to 200. Defaults to 50.",
+            "in": "query",
+            "name": "per_page",
+            "required": false,
+            "schema": {
+              "format": "int32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/RuleTest"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/Page_RuleTest"
                 }
               }
             }

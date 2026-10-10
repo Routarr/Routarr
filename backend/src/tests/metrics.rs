@@ -47,6 +47,16 @@ async fn every_family_declares_its_help_and_type() {
     for name in &names {
         assert!(body.contains(&format!("# TYPE {name} gauge")), "{name} has no TYPE");
         assert!(name.starts_with("routarr_"), "{name} is not namespaced");
+        // `_total` names a counter, which a rate reads: a gauge under it
+        // gives nonsense the first time it goes down. One is only a former
+        // name, kept beside the gauge it points to.
+        if name.ends_with("_total") {
+            let help = format!("# HELP {name} Deprecated, use ");
+            let successor = body.split(&help).nth(1).and_then(|rest| rest.split('.').next());
+            let successor =
+                successor.unwrap_or_else(|| panic!("{name} is a gauge named a counter"));
+            assert!(names.contains(&successor), "{name} points to {successor}, never emitted");
+        }
     }
 }
 
@@ -109,14 +119,29 @@ async fn instance_health_is_a_gauge_worth_alerting_on() {
         "got:\n{body}"
     );
 
-    sqlx::query("UPDATE instances SET last_sync_status = 'success'")
-        .execute(&app.state.pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE instances SET last_sync_status = 'success',
+                last_sync_at = '2026-10-05 21:26:14', last_sync_attempt_at = '2026-10-05 21:40:00'",
+    )
+    .execute(&app.state.pool)
+    .await
+    .unwrap();
 
     let body = scrape(&app).await;
     assert!(
         body.contains(r#"routarr_instance_up{arr_instance="Radarr",arr_instance_id="inst-1"} 1"#),
+        "got:\n{body}"
+    );
+    // How old `up` is: a sync that stopped running leaves it at 1.
+    let labels = r#"{arr_instance="Radarr",arr_instance_id="inst-1"}"#;
+    assert!(
+        body.contains(&format!("routarr_instance_last_sync_timestamp_seconds{labels} 1791235574")),
+        "got:\n{body}"
+    );
+    assert!(
+        body.contains(&format!(
+            "routarr_instance_last_sync_attempt_timestamp_seconds{labels} 1791236400"
+        )),
         "got:\n{body}"
     );
 }

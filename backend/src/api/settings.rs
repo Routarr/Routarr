@@ -54,6 +54,9 @@ pub(crate) fn stored_value(key: &str, value: &str) -> String {
     }
 }
 
+/// Write the settings named and leave every other as it stands: a merge, where
+/// a `PUT` elsewhere replaces the whole resource. The Settings screen sends
+/// the fields its form changed.
 pub async fn update(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,

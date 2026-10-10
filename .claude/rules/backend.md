@@ -24,14 +24,21 @@ paths:
   and returns derive `utoipa::ToSchema`. Their `///` comments are published in
   `backend/openapi/v1.json`, so a remark for Routarr's developers goes in a `//` comment. A change
   to one of those types is pinned with `ROUTARR_WRITE_CONTRACT=1 cargo test contract`, and
-  `scripts/check-api-breaks.sh` refuses a removal, a rename or a retype against the last release.
+  `scripts/check-api-breaks.sh` refuses a removal, a rename or a retype against the last release
+  that `scripts/api-breaks/since-<tag>.txt` does not list, a list kept before 1.0 only.
+- A type read from a body or a query takes `#[serde(deny_unknown_fields)]`, flattened ones too:
+  ignored, a misspelled field changes what is written. A query is one struct of its own fields,
+  since a flattened query reads every value as text. A create answers `api::Created`, a removal
+  `api::Deleted`, and a timestamp leaves through `crate::timestamp` with
+  `#[schema(format = DateTime)]` (`backend/src/tests/contract.rs` finds each one missed).
 - A route that starts one job answers through `api::jobs::answer`: the work runs on its own task
   whatever the caller does, and `Prefer: respond-async` gets 202 once the job has started. Every
   question and refusal comes before `JobRegistry::start`, and the work calls `JobHandle::report`
   before the outcome, so a finished job always carries the report its call answers.
-- A refusal the user must read is `BadRequest`, `NotFound` or `Conflict`, and `Forbidden` what a
-  known caller may not do. `Database`, `Serialization`, `Config` and `Internal` log their text
-  and answer a generic 500 (`backend/src/error.rs`).
+- A refusal the user must read is `BadRequest`, `NotFound`, `Conflict` with the `reason` a script
+  branches on, `InProgress` when a running job holds what the call needs (409 and `Retry-After`,
+  which the scheduler skips), and `Forbidden` what a known caller may not do. `Database`,
+  `Serialization`, `Config` and `Internal` log their text and answer `internal_error`.
 
 ## One answer per question
 

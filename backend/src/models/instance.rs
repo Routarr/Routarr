@@ -83,12 +83,20 @@ pub struct InstanceResponse {
     pub enabled: bool,
     pub sync_interval_minutes: i64,
     /// When a sync last *succeeded*. Null while none ever has.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_sync_at: Option<String>,
     /// When one was last attempted, successful or not: the figure that says
     /// whether the scheduler is running at all.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_sync_attempt_at: Option<String>,
     pub last_sync_status: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub updated_at: String,
     /// Relative URL to register in Radarr/Sonarr's webhook connection, the
     /// token in it, for an Arr that sends no custom header. `null` for an

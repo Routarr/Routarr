@@ -71,7 +71,7 @@ pub async fn create(
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<super::Created<InstanceResponse>> {
     let localizer = state.localizer().await;
-    let base_url = validate(&req, &localizer)?;
+    let base_url = validate(&req.name, &req.instance_type, &req.base_url, &localizer)?;
 
     let id = Uuid::new_v4().to_string();
     let webhook_token = Uuid::new_v4().to_string();
@@ -105,7 +105,7 @@ pub async fn update(
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
     let localizer = state.localizer().await;
-    let base_url = validate(&req, &localizer)?;
+    let base_url = validate(&req.name, &req.instance_type, &req.base_url, &localizer)?;
     let existing = state.instance(&id).await?;
     let base_url = keep_saved_credentials(base_url, &existing.base_url, &localizer)?;
 
@@ -488,18 +488,24 @@ pub async fn rotate_webhook_token(
     Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
 }
 
-/// Shared validation for create and update.
+/// Whether an instance may be written as given, and its address as stored:
+/// the one check of a create, an update and a configuration import.
 ///
 /// The type comes from a list the interface offers, so its refusal stays in
 /// English. The name and the address are typed, and read under their field.
-fn validate(req: &CreateInstanceRequest, localizer: &Localizer) -> AppResult<String> {
-    req.instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
+pub(crate) fn validate(
+    name: &str,
+    instance_type: &str,
+    base_url: &str,
+    localizer: &Localizer,
+) -> AppResult<String> {
+    instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
 
-    if req.name.trim().is_empty() {
+    if name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("InstanceNameRequired", &[])));
     }
 
-    normalize_base_url(&req.base_url, localizer)
+    normalize_base_url(base_url, localizer)
 }
 
 fn normalize_base_url(raw: &str, localizer: &Localizer) -> AppResult<String> {

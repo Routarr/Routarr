@@ -548,8 +548,11 @@ pub struct Listed {
     pub subject: String,
     /// The mode that opened it: `forms`, `oidc` or `apikey`.
     pub source: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub created_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub last_used_at: String,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub expires_at: String,
     /// Whether the request asking holds this one.
     #[sqlx(skip)]

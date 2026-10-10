@@ -225,6 +225,64 @@ async fn a_deep_link_and_the_root_both_serve_the_application() {
     assert_eq!(status_of(&app, "/rules").await, StatusCode::NOT_FOUND);
 }
 
+/// A file under `assets/` is named after its content, so a browser keeps it
+/// for a year rather than asking for every chunk on every load. The page that
+/// names them is asked for every time, and so is a miss answered with it.
+#[tokio::test]
+async fn a_hashed_asset_is_kept_and_the_page_is_not() {
+    let dir = super::TempDir::new("kept-assets");
+    std::fs::write(dir.join("index.html"), "<html><head></head><body>app</body></html>").unwrap();
+    std::fs::create_dir_all(dir.join("assets")).unwrap();
+    std::fs::write(dir.join("assets/app-3f2a.js"), "console.log(1)").unwrap();
+
+    for base in ["", "/routarr"] {
+        let mut config = Config::for_tests();
+        config.base_path = normalise_base_path(base);
+        config.frontend_dir = dir.to_path_buf();
+        let app = serving(config).await;
+        let kept = |path: String| {
+            let app = &app;
+            async move {
+                let response = app.raw(&path).await;
+                assert_eq!(response.status(), StatusCode::OK, "{path}");
+                response.headers()["cache-control"].to_str().unwrap().to_string()
+            }
+        };
+
+        assert_eq!(
+            kept(format!("{base}/assets/app-3f2a.js")).await,
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(kept(format!("{base}/")).await, "no-cache");
+        assert_eq!(kept(format!("{base}/assets/gone-1b2c.js")).await, "no-cache");
+    }
+}
+
+/// The contract and the dictionary are asked for again and again, and change
+/// only with a release or the language: a client holding them is answered
+/// 304, with nothing to download again.
+#[tokio::test]
+async fn the_contract_and_the_dictionary_answer_a_client_holding_them_with_304() {
+    use axum::body::Body;
+    use axum::http::Request;
+
+    let app = mounted_at("").await;
+    for path in ["/api/v1/openapi.json", "/api/v1/localization"] {
+        let first = app.raw(path).await;
+        let tag = first.headers()["etag"].clone();
+        assert_eq!(first.headers()["cache-control"], "no-cache", "{path}");
+
+        let again = Request::get(path).header("if-none-match", &tag).body(Body::empty()).unwrap();
+        let again = app.send_raw(again).await;
+        assert_eq!(again.status(), StatusCode::NOT_MODIFIED, "{path}");
+    }
+
+    let english = app.raw("/api/v1/localization").await.headers()["etag"].clone();
+    app.save_setting("ui_language", "fr").await.assert_ok();
+    let french = app.raw("/api/v1/localization").await.headers()["etag"].clone();
+    assert_ne!(english, french, "a new language kept the tag of the old one");
+}
+
 /// The dictionary the page carries, between its script tags.
 fn embedded_dictionary(html: &str) -> serde_json::Value {
     let open = r#"<script type="application/json" id="dictionary">"#;

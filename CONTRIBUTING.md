@@ -141,6 +141,9 @@ lower one to make a build pass.**
   pin it again with `ROUTARR_WRITE_CONTRACT=1 cargo test contract` and review
   the difference. Adding is free. Removing, renaming or retyping anything
   documented breaks a client, and CI refuses it against the last release.
+  Before 1.0 a minor release may break one on purpose: the line oasdiff prints
+  goes in `scripts/api-breaks/since-<last tag>.txt`, and the release notes name
+  it.
 
 ## Improving a translation
 
@@ -236,9 +239,11 @@ and `latest`. A tag with a hyphen in it (`v1.2.0-rc.1`) publishes its exact
 version only.
 
 4. Write, at the top of that draft, the few lines saying what changed for
-   someone running Routarr. The generated list stays underneath for whoever
-   wants the detail. Then publish it, which also deploys the showcase site
-   from the tag (`.github/workflows/site.yml`).
+   someone running Routarr, each API break `scripts/api-breaks/` lists among
+   them. The generated list stays underneath for whoever wants the detail.
+   Then publish it, which also deploys the showcase site from the tag
+   (`.github/workflows/site.yml`), and delete that list: CI refuses one kept
+   past its release.
 
 The draft is the step that is easy to forget and the only one a person has to
 do: the image is on GHCR from step 3, so nothing is blocked while it waits, but

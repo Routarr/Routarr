@@ -519,7 +519,8 @@ export const api = {
   getRuleHealth: (signal?: AbortSignal) => request<RuleHealthReport>('/rules/health', { signal }),
   getLibraryFacets: (signal?: AbortSignal) => request<LibraryFacets>('/media/facets', { signal }),
 
-  getRuleTests: (signal?: AbortSignal) => request<RuleTest[]>('/rule-tests', { signal }),
+  getRuleTests: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<RuleTest>>(`/rule-tests${query(params)}`, { signal }),
   runRuleTests: () => request<RuleTestRun>('/rule-tests/run', { method: 'POST' }),
   pinRuleTest: (name: string, mediaId: string, expectedCategory?: string) =>
     request<RuleTest>('/rule-tests', {
@@ -676,7 +677,8 @@ export const api = {
     }),
   revokeApplication: (id: string) => request<unknown>(`/applications/${id}`, { method: 'DELETE' }),
 
-  getOverrides: (signal?: AbortSignal) => request<OverrideEntry[]>('/overrides', { signal }),
+  getOverrides: (params?: QueryParams, signal?: AbortSignal) =>
+    request<Paginated<OverrideEntry>>(`/overrides${query(params)}`, { signal }),
   createOverride: (data: unknown) =>
     request<OverrideEntry>('/overrides', { method: 'POST', body: body(data) }),
   deleteOverride: (id: string) => request<unknown>(`/overrides/${id}`, { method: 'DELETE' }),

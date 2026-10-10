@@ -18,12 +18,10 @@ use utoipa::openapi::security::{ApiKey, ApiKeyValue, HttpAuthScheme, HttpBuilder
 use utoipa::openapi::{ContentBuilder, OpenApi as Document, Ref, Server};
 use utoipa::{Modify, OpenApi};
 
-use super::Json;
 use crate::api::applications::scope_for;
 use crate::state::AppState;
 
 // The types the operations name, under the names the schemas take.
-use crate::api::Deleted;
 use crate::api::auth::Me;
 use crate::api::backup::BackupListResponse;
 use crate::api::conditions::ConditionCatalog;
@@ -39,6 +37,7 @@ use crate::api::root_folders::{Declared, Mapped, MappingConflict};
 use crate::api::rules::{
     PreviewRequest, PreviewResponse, Reordered, RuleImportReport, RuleVerdict,
 };
+use crate::api::{Deleted, PageQuery};
 use crate::error::ErrorResponse;
 use crate::models::{
     Category, CategoryWithUsage, CreateCategoryRequest, CreateOverrideRequest, CreateRuleRequest,
@@ -77,12 +76,15 @@ documented_page!(MediaPage, Page_MediaListItem, MediaListItem);
 documented_page!(DecisionPage, Page_Decision, Decision);
 documented_page!(JobPage, Page_Job, Job);
 documented_page!(LogPage, Page_LogEntry, LogEntry);
+documented_page!(ExceptionPage, Page_OverrideWithMedia, OverrideWithMedia);
+documented_page!(RuleTestPage, Page_RuleTest, RuleTest);
 
 #[derive(OpenApi)]
 #[openapi(
+    // No `version`: the crate's is written, so the document names the release
+    // serving it, and `scripts/check-versions.py` holds the pinned one to it.
     info(
         title = "Routarr API",
-        version = "1",
         description = "The part of Routarr's API another application may rely on: a script, \
 n8n, Home Assistant or a dashboard.\n\n\
 Authenticate with an application key, made on Routarr's Applications screen, sent as \
@@ -112,9 +114,10 @@ retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-S
 delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\n\
 An application key asks at most ten times a second past a burst of fifty, and takes a backup \
 at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\n\
-Nothing documented under `/api/v1` is removed or renamed, and no field changes type. New \
-operations, new fields and new values of the open lists (`action`, `status`, `error`, \
-`reason`, `confirm`, the kinds of a condition) may appear in any release."
+From 1.0, nothing documented under `/api/v1` is removed or renamed, and no field changes type. \
+Before it, a minor release may, and its release notes name each change. New operations, new \
+fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the \
+kinds of a condition) may appear in any release."
     ),
     servers((url = "/api/v1")),
     paths(
@@ -207,9 +210,24 @@ pub fn document(base_path: &str) -> Document {
 }
 
 /// `GET /api/v1/openapi.json`, public: it describes the software, not the
-/// installation, and a client needs it before it holds a key.
-pub async fn serve(State(state): State<AppState>) -> Json<Document> {
-    Json(document(&state.config.base_path))
+/// installation, and a client needs it before it holds a key. Written once
+/// per mount point, since it changes only with the release, and answered 304
+/// to a client that holds it already.
+pub async fn serve(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> axum::response::Response {
+    static WRITTEN: std::sync::LazyLock<
+        std::sync::Mutex<std::collections::HashMap<String, String>>,
+    > = std::sync::LazyLock::new(Default::default);
+    let base_path = &state.config.base_path;
+    let json = WRITTEN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .entry(base_path.clone())
+        .or_insert_with(|| serde_json::to_string(&document(base_path)).unwrap_or_default())
+        .clone();
+    crate::api::revalidated(&headers, json)
 }
 
 /// The two ways a key travels.
@@ -537,11 +555,14 @@ fn revert() {}
 // -------------------------------------------------------------- exceptions
 
 /// The exceptions
+///
+/// A page of them, the newest first.
 #[utoipa::path(
     get,
     path = "/overrides",
     tag = "exceptions",
-    responses((status = 200, body = Vec<OverrideWithMedia>))
+    params(PageQuery),
+    responses((status = 200, body = ExceptionPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_exceptions() {}
@@ -953,8 +974,14 @@ fn preview_rule() {}
 /// The rule tests
 ///
 /// Each pins the category a title should get, as the title was when it was
-/// pinned.
-#[utoipa::path(get, path = "/rule-tests", tag = "rules", responses((status = 200, body = Vec<RuleTest>)))]
+/// pinned. A page of them, by name.
+#[utoipa::path(
+    get,
+    path = "/rule-tests",
+    tag = "rules",
+    params(PageQuery),
+    responses((status = 200, body = RuleTestPage))
+)]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_rule_tests() {}
 
@@ -1049,8 +1076,10 @@ fn list_root_folders() {}
 
 /// What the mappings leave unsaid
 ///
-/// A category with no folder on an instance, two folders claiming one
-/// category, a mapping to a folder that stopped answering.
+/// Two folders of one instance claiming one category, a category a rule
+/// targets with no folder on an instance the rule reaches, a folder the Arr
+/// did not reach on its last look, a folder mapped to a category that no
+/// longer exists.
 #[utoipa::path(
     get,
     path = "/root-folders/conflicts",

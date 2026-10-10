@@ -35,6 +35,8 @@ pub struct MediaListItem {
     pub monitored: bool,
     pub has_files: bool,
     pub status: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
     /// The category the last stored run sends the title to, whether it moves
     /// or already sits there. Null until a run has evaluated it.
