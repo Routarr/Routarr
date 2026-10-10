@@ -775,12 +775,12 @@ function tokensOf(pattern) {
   const block = css.match(pattern)?.[1] ?? '';
   return Object.fromEntries([...block.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
 }
-// Light is the default, and dark is reached only by stamping
-// `data-theme="dark"`. A `prefers-color-scheme` block that redefined the
-// palette would hand the default back to the visitor's system, which is the
-// one decision here that must not be undone by accident.
+// Every page opens dark, and light is reached only by stamping
+// `data-theme="light"`. A `prefers-color-scheme` block that redefined the
+// palette would hand that choice to the visitor's system, which is the one
+// decision here that must not be undone by accident.
 if (/@media\s*\(prefers-color-scheme[^)]*\)\s*\{[^{]*\{[^}]*--bg:/.test(css)) {
-  fail('site.css redefines the palette under prefers-color-scheme: light is the default, dark is a stamped choice');
+  fail('site.css redefines the palette under prefers-color-scheme: every page opens dark, and light is a stamped choice');
 }
 const explicit = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
 if (Object.keys(explicit).length < 10) {
@@ -818,7 +818,7 @@ function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
-// The bare `:root` block is the light default, `explicit` the stamped dark one.
+// The bare `:root` block is the light palette, `explicit` the dark one every page opens in.
 const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // `--accent` is decorative only (borders, glows) and is exempt. The tokens that
 // carry text are `--accent-text` (amber as text) and `--accent-ink` over both

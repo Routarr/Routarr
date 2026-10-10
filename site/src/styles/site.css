@@ -1,7 +1,9 @@
 /* Routarr showcase: one stylesheet, no framework, no external request.
  *
- * The palette is the application's own (frontend/src/index.css). The accent is
- * three tokens, not one: `--accent` decorates (borders and glows, where
+ * The grounds and the accent are the application's (frontend/src/index.css),
+ * and the text and border tones are the site's own, which `check.mjs`
+ * measures against the grounds they sit on. The accent is three tokens, not
+ * one: `--accent` decorates (borders and glows, where
  * contrast rules do not apply), `--accent-text` is amber that passes AA *as
  * text* on the page, and `--accent-fill`/`--accent-ink` are the button pair.
  * One token doing all three jobs turns the light theme's brand colour brown,
@@ -59,8 +61,8 @@
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* The theme the application ships in, kept exactly as it is: a reader who
-   switches to it should not find a second Routarr. */
+/* The theme every page opens in, on the application's own dark grounds, so a
+   reader who installs it does not find a second Routarr. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
