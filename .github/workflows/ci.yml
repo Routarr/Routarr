@@ -34,7 +34,7 @@ jobs:
   # `scripts/changed-areas.sh`, which a dry run can call from a clone.
   changes:
     name: What changed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     # To read which commit of main last passed.
     permissions:
@@ -99,7 +99,7 @@ jobs:
   # hides none of the others, gitleaks included.
   repository:
     name: Repository lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -171,7 +171,7 @@ jobs:
 
   backend:
     name: Backend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # Every job carries a ceiling because GitHub's own is six hours. Sized to
@@ -240,7 +240,7 @@ jobs:
 
   coverage:
     name: Backend coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     # Instrumented, so it cannot reuse the test job's artifacts. Kept separate
@@ -269,7 +269,7 @@ jobs:
 
   frontend:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
     timeout-minutes: 15
@@ -340,7 +340,7 @@ jobs:
 
   e2e:
     name: End-to-end in ${{ matrix.browser }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # WebKit runs the suite at about half Chromium's pace.
     timeout-minutes: 40
     needs: changes
@@ -401,7 +401,7 @@ jobs:
   # passed in each, or not needed by the commit.
   e2e-done:
     name: End-to-end
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: e2e
     if: always()
     steps:
@@ -412,7 +412,7 @@ jobs:
 
   site:
     name: Showcase site
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: changes
     if: needs.changes.outputs.site == 'true'
     timeout-minutes: 15

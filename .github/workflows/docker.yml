@@ -44,7 +44,7 @@ jobs:
   # of this workflow succeeded, so a failed build leaves the image to the next.
   changes:
     name: What reaches the image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 5
     permissions:
       contents: read
@@ -90,7 +90,7 @@ jobs:
     name: Docker image (amd64)
     needs: changes
     if: needs.changes.outputs.image == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Native, no emulation. The ceiling catches a stuck build, not a slow one.
     timeout-minutes: 30
     steps:
@@ -142,7 +142,7 @@ jobs:
   isolation:
     name: Isolated under gVisor
     needs: image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
