@@ -2,11 +2,12 @@
   import { api } from '../api/client';
   import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
-  import { DECISION_ACTION_KEY, formatCount } from '../api/format';
+  import { DECISION_ACTION_KEY, formatCount, localName } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
+  import NoValue from './NoValue.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import OutcomeBanner from './OutcomeBanner.svelte';
   import Confidence from './Confidence.svelte';
@@ -113,6 +114,10 @@
     }
   }
 
+  /** A language or a country as the rule editor names it, the code beside the name. */
+  const nameOf = (type: 'language' | 'region', code: string) =>
+    localName(type, code, i18n.language) ?? code;
+
   const OUTCOME_KEY: Record<string, string> = {
     winner: 'OutcomeWinner',
     excluded: 'OutcomeExcluded',
@@ -132,38 +137,53 @@
   {/if}
 {/snippet}
 
-<Modal label={view.media.title} {onClose} maxWidth={780} maxHeight="88vh">
+<!-- Opened on its heading: opened from the quick search by Enter, a panel on
+     its first button would take a second Enter as a pin nobody asked for. -->
+<Modal
+  label={view.media.title}
+  {onClose}
+  maxWidth={780}
+  maxHeight="88vh"
+  initialFocus="explain-title"
+>
   <div class="modal-header">
-    <h2 class="modal-title">{view.media.title}</h2>
-    <div class="flex gap-2 items-center">
+    <h2 id="explain-title" class="modal-title" tabindex="-1">{view.media.title}</h2>
+    <button
+      class="btn btn-secondary btn-sm"
+      onclick={onClose}
+      aria-label={t('Dismiss')}
+      title={t('Dismiss')}
+    >
+      ✕
+    </button>
+  </div>
+
+  <div class="explain-actions">
+    <div class="explain-action">
       <button
         class="btn btn-secondary btn-sm"
         disabled={refreshing}
         onclick={() => void refresh()}
-        title={t('RefreshTitleMetadataHint')}
+        aria-describedby="explain-refresh-hint"
       >
         <RefreshCw size={14} />
         {t('RefreshTitleMetadata')}
       </button>
+      <p id="explain-refresh-hint" class="form-hint">{t('RefreshTitleMetadataHint')}</p>
+    </div>
+    <div class="explain-action">
       <!-- Disabled once taken rather than hidden: a button that vanishes leaves
            the user unsure whether it worked. -->
       <button
         class="btn btn-secondary btn-sm"
         disabled={pinning || pinned}
         onclick={() => void pin()}
-        title={t('PinAsRuleTestHint')}
+        aria-describedby="explain-pin-hint"
       >
         <ShieldCheck size={14} />
         {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
       </button>
-      <button
-        class="btn btn-secondary btn-sm"
-        onclick={onClose}
-        aria-label={t('Dismiss')}
-        title={t('Dismiss')}
-      >
-        ✕
-      </button>
+      <p id="explain-pin-hint" class="form-hint">{t('PinAsRuleTestHint')}</p>
     </div>
   </div>
 
@@ -193,7 +213,11 @@
     </div>
 
     <p class="text-muted text-md mt-4">
-      <span class="mono">{view.media.current_root_folder ?? t('None')}</span>
+      {#if view.media.current_root_folder}
+        <span class="mono">{view.media.current_root_folder}</span>
+      {:else}
+        <NoValue />
+      {/if}
       <span class="dir-aware">→</span>
       <span class="mono">{view.target_root_folder ?? t('NoRootFolderMapped')}</span>
     </p>
@@ -214,9 +238,14 @@
       </div>
       <p class="text-muted text-md mt-2">
         {t('MetadataSummary', {
-          language: view.metadata.original_language ?? t('None'),
-          countries: view.metadata.origin_countries.join(t('ListSeparator')) || t('None'),
-          certification: view.metadata.certification ?? t('None'),
+          language: view.metadata.original_language
+            ? nameOf('language', view.metadata.original_language)
+            : t('NoneSpoken'),
+          countries:
+            view.metadata.origin_countries
+              .map((country) => nameOf('region', country))
+              .join(t('ListSeparator')) || t('NoneSpoken'),
+          certification: view.metadata.certification ?? t('NoneSpoken'),
         })}
       </p>
       <div class="flex flex-wrap gap-2 mt-2">

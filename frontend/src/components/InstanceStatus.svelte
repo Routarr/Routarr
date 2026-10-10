@@ -7,18 +7,22 @@
    * is drawn, on the dashboard and on Diagnostics alike.
    *
    * `unchecked` is a probe that has not answered yet: saying so beats showing
-   * a state nobody knows, and beats an empty cell read as "no instance". A
-   * disabled instance is not a failure, so it takes no alarm colour.
+   * a state nobody knows, and beats an empty cell read as "no instance".
+   * `unknown` is one whose probe failed. A disabled instance is not a
+   * failure, so it takes no alarm colour.
    */
   let { status }: { status: string } = $props();
 </script>
 
 {#if status === 'unchecked'}
   <span class="badge badge-value muted">{t('Checking')}</span>
+{:else if status === 'unknown'}
+  <span class="badge badge-value muted">{t('Unknown')}</span>
 {:else if status === 'connected'}
   <span class="badge badge-success">{t('Connected')}</span>
 {:else if status === 'disabled'}
   <span class="badge badge-value muted">{t('InstanceDisabled')}</span>
 {:else}
-  <span class="badge badge-danger" title={failureDetail(status)}>{t('Error')}</span>
+  <span class="badge badge-danger">{t('Error')}</span>
+  <span class="status-reason">{failureDetail(status)}</span>
 {/if}

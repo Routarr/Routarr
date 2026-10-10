@@ -28,4 +28,23 @@ describe('OutcomeBanner', () => {
     expect(region).toHaveTextContent('Instances synced: 1');
     expect(region).not.toHaveTextContent('Settings saved');
   });
+
+  /**
+   * Forty failed moves are one failure with forty lines, not forty alerts a
+   * screen reader reads one after the other.
+   */
+  it('lists the failed items in one banner, under the one alert', () => {
+    const outcome = createOutcome();
+    renderWithI18n(OutcomeBanner, { props: { outcome }, strings: {} });
+
+    outcome.fail('Applied: 0 of 3', ['Akira: refused', 'Dune: refused', 'Heat: refused']);
+    flushSync();
+
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+    expect(screen.getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Akira: refused',
+      'Dune: refused',
+      'Heat: refused',
+    ]);
+  });
 });

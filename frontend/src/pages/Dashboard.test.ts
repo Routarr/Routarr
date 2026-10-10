@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
+import { formatCount } from '../api/format';
 import { health, healthInstance, onboardingStatus, warning } from '../test/fixtures';
 import { publishOnboarding, publishOnboardingFailure } from '../lib/onboarding.svelte';
 import { statusRevision } from '../lib/status.svelte';
@@ -27,6 +28,7 @@ const STRINGS = {
   Connected: 'connected',
   Never: 'never',
   Checking: 'checking…',
+  Unknown: 'unknown',
   MetadataEnrichedCount: '{count} items enriched.',
   MetadataComplete: 'Nothing missing.',
   GuideTitle: 'Getting started',
@@ -43,6 +45,7 @@ const bothReturn = (value: ReturnType<typeof health>) =>
 afterEach(() => {
   withBase(null);
   vi.restoreAllMocks();
+  vi.useRealTimers();
   publishOnboarding(null);
   publishOnboardingFailure(null);
 });
@@ -75,6 +78,34 @@ describe('Dashboard', () => {
     for (const link of links) expect(link).toMatch(/^\/routarr\//);
   });
 
+  /** A refresh probes every Arr, which can take a connect timeout, and says it is running. */
+  it('says the refresh is running until it ends', async () => {
+    vi.spyOn(api, 'getHealth')
+      .mockResolvedValueOnce(health())
+      .mockResolvedValueOnce(health())
+      .mockReturnValue(new Promise(() => {}));
+    show();
+    const refresh = await screen.findByRole('button', { name: 'Refresh' });
+    await waitFor(() => expect(refresh).not.toHaveAttribute('aria-busy', 'true'));
+
+    await fireEvent.click(refresh);
+
+    expect(refresh).toHaveAttribute('aria-busy', 'true');
+  });
+
+  /** Its "4 minutes ago" and its counts follow on their own while it is open. */
+  it('reads itself again every minute', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
+    show();
+    await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
+    await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(2));
+
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(getHealth.mock.calls.length).toBeGreaterThan(2);
+  });
+
   it('leads with the number the user came to see', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({ stats: { ...health().stats, pending_decisions: 12 } }),
@@ -84,6 +115,18 @@ describe('Dashboard', () => {
     await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
     // The headline, not one of the context figures below it.
     expect(container.querySelector('.headline-value')?.textContent).toBe('12');
+  });
+
+  /** Grouped as the language groups digits, as every figure beside it is. */
+  it('groups the headline figure the way the language does', async () => {
+    vi.spyOn(api, 'getHealth').mockResolvedValue(
+      health({ stats: { ...health().stats, pending_decisions: 12345 } }),
+    );
+    const { container } = renderWithI18n(Dashboard, { strings: STRINGS, language: 'fr' });
+
+    await screen.findByRole('heading', { name: 'Dashboard', level: 1 });
+    expect(container.querySelector('.headline-value')?.textContent).toBe(formatCount(12345, 'fr'));
+    expect(formatCount(12345, 'fr')).not.toBe('12345');
   });
 
   /**
@@ -172,6 +215,19 @@ describe('Dashboard', () => {
 
       expect(await screen.findByText('checking…')).toBeTruthy();
       expect(screen.queryByText('connected')).toBeNull();
+    });
+
+    /** A probe that failed is not one still running: the state is unknown. */
+    it('stops saying it checks once the probe has failed', async () => {
+      vi.spyOn(api, 'getHealth').mockImplementation((options) =>
+        options?.probe === false
+          ? Promise.resolve(health({ instances: [healthInstance({ status: 'unchecked' })] }))
+          : Promise.reject(new Error('connection refused')),
+      );
+      show();
+
+      expect(await screen.findByText('unknown')).toBeTruthy();
+      expect(screen.queryByText('checking…')).toBeNull();
     });
 
     it('replaces it with the real state once the probe answers', async () => {

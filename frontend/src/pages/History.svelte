@@ -1,13 +1,14 @@
 <script lang="ts">
   import { Undo2 } from '../lib/icons';
   import { api } from '../api/client';
-  import { formatTimestamp, isolated, statusKey, triggerKey } from '../api/format';
+  import { formatTimestamp, statusKey, triggerKey } from '../api/format';
   import { handFocus } from '../lib/focus';
   import type { Decision } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { answering } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import Confidence from '../components/Confidence.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -61,6 +62,11 @@
   // the row after it, else the one before, else the table.
   const revertId = (index: number) => `history-revert-${index}`;
 
+  // Stops following a revert when the screen closes. The revert goes on, and
+  // the screen opened again reads where it went.
+  const leaving = new AbortController();
+  $effect(() => () => leaving.abort());
+
   async function revert(decision: Decision, moveFiles: boolean) {
     const index = decisions.findIndex((row) => row.id === decision.id);
     reverting = null;
@@ -70,7 +76,8 @@
       // `RevertConfirm`, not `Revert`: a button beside Cancel, which several
       // languages would otherwise start with their Cancel verb.
       const report = await answering(
-        (answered) => api.revertDecisions([decision.id], moveFiles, answered),
+        (answered) =>
+          api.revertDecisions([decision.id], moveFiles, answered, { signal: leaving.signal }),
         'RevertConfirm',
       );
       if (!report) return;
@@ -198,15 +205,17 @@
                   {/if}
                 </td>
                 <td>
-                  <strong class="cell-title" title={decision.media_title}
-                    >{decision.media_title}</strong
-                  >
+                  <strong class="cell-title">{decision.media_title}</strong>
                   <div class="text-muted text-sm">{decision.instance_name}</div>
                 </td>
                 <td><span class="badge badge-value">{decision.target_category}</span></td>
                 <td class="mono text-sm">
-                  <span class="cell-path" title={decision.target_root_folder ?? undefined}>
-                    <bdi>{decision.target_root_folder ?? t('None')}</bdi>
+                  <span class="cell-path">
+                    {#if decision.target_root_folder}
+                      <bdi>{decision.target_root_folder}</bdi>
+                    {:else}
+                      <NoValue />
+                    {/if}
                   </span>
                 </td>
                 <td>{decision.matched_rule_name ?? t('DefaultCategoryFallback')}</td>
@@ -274,7 +283,7 @@
       <p>
         {t('ConfirmRevert', {
           title: target.media_title,
-          path: isolated(target.current_root_folder ?? ''),
+          path: target.current_root_folder ?? '',
         })}
       </p>
       <label class="flex items-center gap-2 mt-4">

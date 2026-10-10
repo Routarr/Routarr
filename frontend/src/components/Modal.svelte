@@ -27,6 +27,8 @@
     closeOnBackdrop = false,
     initialFocus,
     returnFocus,
+    alert = false,
+    describedBy,
     children,
   }: {
     /** Names the dialog for assistive technology, usually the visible title. */
@@ -55,6 +57,13 @@
      * page, where a screen reader loses its place.
      */
     returnFocus?: string;
+    /**
+     * A question that interrupts, which a screen reader announces as one: an
+     * `alertdialog`, named by `label` and described by `describedBy`.
+     */
+    alert?: boolean;
+    /** The id of the text that describes the dialog beyond its name. */
+    describedBy?: string;
     children: Snippet;
   } = $props();
 
@@ -110,7 +119,9 @@
 <dialog
   bind:this={dialog}
   class="modal-overlay"
+  role={alert ? 'alertdialog' : undefined}
   aria-label={label}
+  aria-describedby={describedBy}
   oncancel={(event) => {
     event.preventDefault();
     onClose();

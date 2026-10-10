@@ -603,12 +603,10 @@ async fn a_tmdb_key_that_arrives_after_a_save_is_reported() {
 
     maintenance::converge(&app.state).await.unwrap();
 
-    let expected = app.state.localizer().await.translate(
-        "WarnProviderKeyUnlisted",
-        &[("provider", "TMDB"), ("variable", "TMDB_API_KEY")],
-    );
     let warnings = warnings(&app).await;
-    assert!(warnings.contains(&expected), "{warnings:?}");
+    let warning = warnings.iter().find(|w| w.contains("TMDB_API_KEY")).expect("no warning");
+    // The screen the sources are listed on, by the name the navigation gives it.
+    assert!(warning.contains("Metadata sources"), "{warning}");
 }
 
 /// A key in the environment for a listed source is the ordinary case.

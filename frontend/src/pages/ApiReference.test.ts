@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
@@ -15,7 +15,7 @@ import ApiReference from './ApiReference.svelte';
 const STRINGS = {
   ApiReference: 'API reference',
   ApiTagStatus: 'Status',
-  ApiTagProposals: 'Proposals',
+  ApiTagDecisions: 'Decisions',
   ApiNoKey: 'no key',
   ScopeOperate: 'operate',
   ApiSearch: 'Search the operations',
@@ -34,15 +34,15 @@ const DOC: OpenApiDocument = {
   servers: [{ url: '/api/v1' }],
   tags: [
     { name: 'status', description: 'Whether Routarr is up.' },
-    { name: 'proposals', description: 'Applying.' },
+    { name: 'decisions', description: 'Applying.' },
   ],
   paths: {
     '/ping': { get: { operationId: 'ping', summary: 'Whether Routarr is up', tags: ['status'] } },
     '/decisions/apply': {
       post: {
         operationId: 'apply',
-        summary: 'Apply chosen proposals',
-        tags: ['proposals'],
+        summary: 'Apply chosen decisions',
+        tags: ['decisions'],
         'x-routarr-scope': 'operate',
         parameters: [
           {
@@ -80,8 +80,8 @@ describe('ApiReference', () => {
     const status = (await screen.findByRole('heading', { name: 'Status' })).closest('section')!;
     expect(within(status as HTMLElement).getByText('/ping')).toBeTruthy();
     expect(within(status as HTMLElement).getByText('no key')).toBeTruthy();
-    const proposals = screen.getByRole('heading', { name: 'Proposals' }).closest('section')!;
-    expect(within(proposals as HTMLElement).getByText('operate')).toBeTruthy();
+    const decisions = screen.getByRole('heading', { name: 'Decisions' }).closest('section')!;
+    expect(within(decisions as HTMLElement).getByText('operate')).toBeTruthy();
   });
 
   it('marks the contract prose as English and its code as code', async () => {
@@ -150,5 +150,18 @@ describe('ApiReference', () => {
     const example = document.querySelector('.api-example')?.textContent ?? '';
     expect(example).toContain('/api/v1/ping');
     expect(document.body.textContent).toContain('X-Api-Key: $ROUTARR_KEY');
+  });
+
+  /**
+   * The example scrolls sideways, and Safari makes no scroller focusable on its
+   * own: a named region in the tab order is how a keyboard reaches its end.
+   */
+  it('lets a keyboard reach the end of an example', async () => {
+    show();
+    await fireEvent.click(await screen.findByText('/decisions/apply'));
+
+    const example = screen.getByRole('region', { name: 'Example – POST /decisions/apply' });
+    expect(example).toHaveAttribute('tabindex', '0');
+    expect(example).toHaveClass('api-example');
   });
 });

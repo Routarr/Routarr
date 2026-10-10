@@ -49,7 +49,7 @@ export const STEP_GUIDES: Record<OnboardingStep['id'], StepGuide> = {
     titleKey: 'GuideLiveTitle',
     textKey: 'GuideLiveText',
     actionKey: 'GuideLiveAction',
-    to: '/settings#routing',
+    to: '/settings#guardrails',
   },
 };
 

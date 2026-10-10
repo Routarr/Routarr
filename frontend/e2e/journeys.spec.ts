@@ -99,6 +99,34 @@ async function addCondition(page: Page, kind: string): Promise<void> {
   await page.getByRole('button', { name: `Add – ${list}` }).click();
 }
 
+test.describe('unsaved work', () => {
+  /**
+   * The browser has moved by the time Back is heard. Only a browser shows that
+   * the editor asks first, and that Cancel puts the address back with the
+   * draft still open.
+   */
+  test('Back under a half-written rule asks first, and Cancel keeps it', async ({ page }) => {
+    await openScreen(page, '/');
+    await page.getByRole('navigation').getByRole('link', { name: 'Rules', exact: true }).click();
+    await page.getByRole('button', { name: 'New Rule' }).click();
+    const name = page.getByRole('dialog', { name: 'Create routing rule' }).getByLabel('Rule name', {
+      exact: true,
+    });
+    await name.fill('Draft');
+
+    await page.goBack();
+    const question = page.getByRole('alertdialog', { name: 'Discard' });
+    await expect(question).toHaveAccessibleDescription(
+      'Close the rule without saving your changes?',
+    );
+    await question.getByRole('button', { name: 'Cancel' }).click();
+
+    await expect(question).toHaveCount(0);
+    await expect(page).toHaveURL(/\/rules$/);
+    await expect(name).toHaveValue('Draft');
+  });
+});
+
 test.describe('picking a condition value', () => {
   /**
    * A genre is a string the engine compares, and the exact spelling lives in
@@ -337,7 +365,7 @@ test.describe('guardrails are visible', () => {
     // must not warn.
     await expect(page.locator('.banner-warning')).toHaveCount(0);
 
-    await page.getByRole('tab', { name: /routing/i }).click();
+    await page.getByRole('tab', { name: /guardrails/i }).click();
     await page.getByLabel('Global dry-run').selectOption('false');
 
     // Live mode, plus automatic application: the combination writes unattended,
@@ -406,7 +434,7 @@ test.describe('reclassifying a whole library', () => {
     );
 
     await page.getByRole('button', { name: /apply all/i }).click();
-    await page.getByRole('dialog').getByRole('button', { name: 'Apply' }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Apply' }).click();
 
     // One banner, naming how many batches it took, not one dialog per batch.
     const banner = page.locator('.banner-success');
@@ -499,8 +527,8 @@ test.describe('reclassifying a whole library', () => {
     );
     await page.getByRole('button', { name: /apply all/i }).click();
 
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toContainText("'/movies/anime' is not answering");
+    const dialog = page.getByRole('alertdialog');
+    await expect(dialog).toContainText(/'\/movies\/anime' has (never answered|not answered for)/);
     const writes = await writesDuring(page, () =>
       dialog.getByRole('button', { name: 'Cancel' }).click(),
     );

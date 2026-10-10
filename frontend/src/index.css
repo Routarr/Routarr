@@ -27,7 +27,7 @@
      suggestion. This one clears it, as theme.contrast.test.ts measures. Passive
      separations (card edges, table rules) keep the subtle one, which
      identifies nothing. */
-  --border-strong: #616a79;
+  --border-strong: #6d7686;
   --scrollbar-thumb: #3a4150;
   --scrollbar-thumb-hover: #4d5566;
 
@@ -157,7 +157,7 @@
   --bg-overlay: rgba(17, 20, 26, 0.45);
 
   --border-subtle: #d7dbe2;
-  --border-strong: #8b93a1;
+  --border-strong: #828a97;
   --scrollbar-thumb: #c2c8d2;
   --scrollbar-thumb-hover: #a4acb9;
 
@@ -210,7 +210,7 @@
     --bg-overlay: rgba(17, 20, 26, 0.45);
 
     --border-subtle: #d7dbe2;
-    --border-strong: #8b93a1;
+    --border-strong: #828a97;
     --scrollbar-thumb: #c2c8d2;
     --scrollbar-thumb-hover: #a4acb9;
 
@@ -1352,6 +1352,21 @@ a {
   margin-inline-start: 8px;
 }
 
+/* Why a badge reads as it does, on a line of its own under it: a title shows
+   to a mouse alone. It wraps where the timestamp cell beside it does not. */
+.status-reason {
+  display: block;
+  max-width: 280px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.cell-timestamp > .status-reason {
+  margin-inline-start: 0;
+}
+
 /* Focusable, so a keyboard can scroll a table wider than its window: an
    overflow region nothing can reach is unreachable content. */
 .table-container {
@@ -1861,6 +1876,10 @@ td * {
 .banner-list li {
   margin-block: 2px;
 }
+/* Without a title above it, nothing to keep apart from. */
+.banner-list:first-child {
+  margin-top: 0;
+}
 .empty-state {
   display: flex;
   /* Stacked: the icon above the sentence. */
@@ -2311,14 +2330,29 @@ td * {
  * because below that width the choice is not "narrower navigation", it is
  * "navigation or content".
  */
-@media (max-width: 1200px) {
-  .sidebar {
-    width: var(--sidebar-rail);
-  }
+/* The rail's words are out of sight, not out of the page: a label still names
+   its link, which a voice command calls by that name, and a link with a count
+   would otherwise be named by its count alone. The drawer below 900px shows
+   them again. */
+@media (min-width: 901px) and (max-width: 1200px) {
   .sidebar .sidebar-title,
   .sidebar .nav-label,
   .sidebar .foot-name {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+}
+
+@media (max-width: 1200px) {
+  .sidebar {
+    width: var(--sidebar-rail);
   }
   /* 68px fits no word, so the group is drawn rather than named. The rule is
      what keeps the grouping legible where the label cannot be. */
@@ -2374,11 +2408,6 @@ td * {
   .sidebar.is-open,
   [dir='rtl'] .sidebar.is-open {
     transform: none;
-  }
-  .sidebar .sidebar-title,
-  .sidebar .nav-label,
-  .sidebar .foot-name {
-    display: revert;
   }
   /* The drawer is the full 250px, so the group gets its name back. The rail's
      rule above applies at every width below 1200px, and undone nowhere else,
@@ -2505,16 +2534,35 @@ td * {
 }
 
 /* The drawer button only exists where the drawer does. */
-.sidebar-toggle {
+/* The drawer's toggle in the top bar, and its close button in the drawer's
+   header, at its far end: both exist only where the navigation is a drawer. */
+.sidebar-toggle,
+.sidebar-close {
   display: none;
 }
+.sidebar-close {
+  margin-inline-start: auto;
+}
 @media (max-width: 900px) {
-  .sidebar-toggle {
+  .sidebar-toggle,
+  .sidebar-close {
     display: inline-flex;
   }
 }
 
-/* Two lines, then an ellipsis and the full sentence in the tooltip. Otherwise
+/* What the explanation panel can do about its title, each action above what
+   it does: side by side where they fit, one under the other on a phone. */
+.explain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+.explain-action {
+  flex: 1 1 240px;
+}
+
+/* Two lines, then an ellipsis and the rest behind the row's button. Otherwise
    rows keep a rhythm of their own: a three-line justification makes its row
    twice the height of the one above. */
 .reason-line {
@@ -2524,6 +2572,10 @@ td * {
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.is-expanded > .reason-line {
+  display: block;
+  overflow: visible;
 }
 
 /* Off-screen until it has focus, then the first thing on the page. */
@@ -2545,9 +2597,11 @@ td * {
 }
 
 /* Out of the tab order, so only a script focuses it: the page after the skip
-   link, a settings panel after a save, the guide's heading. The ring belongs on
-   controls, not on a whole region. */
-[tabindex='-1']:focus {
+   link, a settings panel after a save, a heading, a menu or a list before its
+   first item. The ring belongs on controls, not on a whole region, and a
+   menu's items are controls: keyed on `tabindex` alone, the rule would hide
+   the item the arrows land on. */
+:is(h1, h2, main, [role='tabpanel'], [role='menu'], [role='listbox'])[tabindex='-1']:focus {
   outline: none;
 }
 
@@ -2574,6 +2628,14 @@ td * {
 }
 .flex-1 {
   flex: 1;
+}
+
+/* A backup's name has no break a browser may take between a hyphen and a
+   digit, and beside its three buttons it outgrows a phone: it breaks anywhere,
+   and its column may shrink below it. */
+.backup-file {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .flex-wrap {
   flex-wrap: wrap;
@@ -2674,10 +2736,12 @@ td * {
   margin: 0;
   white-space: pre-line;
 }
-/* A row that is still listed but no longer counts: a disabled rule, a superseded
-   proposal. */
-.row-muted {
-  opacity: 0.55;
+/* A row that is still listed but no longer counts: a disabled rule, a disabled
+   instance, a superseded proposal. A badge says so in words, so only its text
+   is muted: an opacity would take the badges and the controls it still offers
+   under AA. */
+.row-muted td {
+  color: var(--text-muted);
 }
 /* The row a click picked, in a list of candidates. */
 .row-selected {
@@ -2718,19 +2782,15 @@ td * {
   border: 0;
 }
 
-/* A title is one line. Anything longer is cut, and the whole of it is one hover
-   away: a row that grows to fit its longest value breaks the rhythm of every
-   row around it. */
+/* A title is read whole, by a keyboard and a finger as much as by a mouse.
+   Capped, so one long title wraps rather than widening its column for every
+   row. As wide as its words up to the cap, or the table shrinks the column to
+   the longest word and stacks the title a word per line. */
 .cell-title {
   display: inline-block;
-  /* A cap, not a hint: without one the column takes the width of the longest
-     title in the page and the ellipsis never fires, because the cell is always
-     exactly as wide as its content. */
+  width: max-content;
   max-width: 280px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
+  overflow-wrap: anywhere;
 }
 
 /* The overflow menu of a table row. Anchored to its trigger and drawn above the
@@ -2772,6 +2832,12 @@ td * {
 .action-menu-item:hover {
   background-color: var(--bg-card-hover);
 }
+/* Inside the item: the list clips what overhangs it. */
+.action-menu-item:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: -2px;
+  background-color: var(--bg-card-hover);
+}
 .action-menu-item.is-danger {
   color: var(--status-danger);
 }
@@ -2792,23 +2858,15 @@ td * {
   flex-wrap: nowrap;
 }
 
-/* A filesystem path is the widest thing in any of these tables and the least
-   worth its width: it is read to recognise, not to parse. Truncated at the
-   start, because the end, the folder that changes, is the part that matters,
-   with the whole of it a hover away. A right-to-left box puts the cut and the
-   ellipsis at the start, and the path inside keeps its own direction in a
-   `<bdi>`, or its leading slash moves to the end. `isolate` holds the box to
-   that direction against the cells' `plaintext`, which would take it from the
-   path and cut the end again. */
+/* A filesystem path is the widest thing in these tables, and read whole too:
+   it wraps within its cap, as wide as it is up to the cap for the reason a
+   title is. The `<bdi>` inside keeps it left to right in an Arabic page, or
+   its leading slash moves to the end. */
 .cell-path {
   display: inline-block;
+  width: max-content;
   max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  direction: rtl;
-  unicode-bidi: isolate;
+  overflow-wrap: anywhere;
 }
 
 /* A table that scrolls says so.
@@ -3134,9 +3192,7 @@ select.form-select {
 .facet-value {
   position: relative;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   color: var(--text-primary);
 }
 

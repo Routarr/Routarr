@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Send } from '../lib/icons';
   import { api } from '../api/client';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
   import type { Outcome } from '../lib/outcome.svelte';
 
@@ -15,6 +16,7 @@
   let sending = $state(false);
 
   async function send() {
+    const pressed = document.activeElement as HTMLElement | null;
     sending = true;
     try {
       await api.sendTestNotification();
@@ -23,6 +25,7 @@
       outcome.fail(cause);
     } finally {
       sending = false;
+      void handFocus(pressed);
     }
   }
 </script>

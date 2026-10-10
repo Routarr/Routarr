@@ -8,6 +8,9 @@ import { instance } from '../test/fixtures';
 import { ApiError, api } from '../api/client';
 import { statusRevision } from '../lib/status.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import Instances from './Instances.svelte';
 
 /**
@@ -61,6 +64,8 @@ const STRINGS = {
   Saving: 'Saving…',
   ConfirmDeleteInstance: 'Delete "{name}" with its titles, mappings and exceptions?',
   InstanceDeleted: 'Instance deleted',
+  ApiKeyPlaintextHint: 'Stored in plaintext. Save the instance again to encrypt it.',
+  ConfirmDiscardInstance: 'Close the instance without saving?',
 };
 
 const show = (list: ReturnType<typeof instance>[]) => {
@@ -236,6 +241,72 @@ describe('Instances', () => {
     expect(alert).toHaveTextContent('base_url must start with http:// or https://');
   });
 
+  /** Said in the row, not in a title only a mouse can show. */
+  it('says why the last sync failed in the row', async () => {
+    show([
+      instance({
+        last_sync_status: 'error: connection refused',
+        last_sync_attempt_at: '2026-08-27 10:00:00',
+      }),
+    ]);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(row).toHaveTextContent('connection refused');
+  });
+
+  /** The remedy of a key stored in plaintext is in the row, where a keyboard reads it. */
+  it('says how to seal a key stored in plaintext in the row', async () => {
+    show([instance({ api_key_encrypted: false })]);
+
+    const row = await screen.findByRole('row', { name: /Radarr/ });
+    expect(row).toHaveTextContent('Save the instance again to encrypt it.');
+  });
+
+  /** A typed address and key go with the dialog, whether it closes or the screen changes. */
+  it('asks before dropping a changed instance form, and keeps it on Cancel', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    expect(unloading()).toBe(false);
+    const name = await screen.findByLabelText('Name');
+    await userEvent.type(name, ' 4K');
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(router.path).not.toBe('/rules');
+    await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(await answerConfirmation(null)).toBe('Close the instance without saving?');
+    expect(name).toHaveValue('Radarr 4K');
+  });
+
+  it('closes an untouched instance form without a question', async () => {
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  /** Save turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Save once a save is refused', async () => {
+    let refuse = () => {};
+    vi.spyOn(api, 'updateInstance').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
+    );
+    show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Edit – Radarr' }));
+    const save = await screen.findByRole('button', { name: 'Save' });
+    await userEvent.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(save));
+  });
+
   /**
    * A number field emptied binds `null`, and the server wants an integer. Sent,
    * the save would come back 422 from serde, in English, behind the dialog.
@@ -256,6 +327,24 @@ describe('Instances', () => {
     expect(save.disabled).toBe(true);
     await fireEvent.input(every, { target: { value: '30' } });
     expect(save.disabled).toBe(false);
+  });
+
+  /** Leaving the screen stops the looking at a sync, not the sync. */
+  it.each([
+    ['Sync now – Radarr', 'syncInstance', 1],
+    ['Sync all', 'syncAll', 0],
+  ] as const)('stops following %s once the screen closes', async (button, method, at) => {
+    const sync = vi.spyOn(api, method).mockReturnValue(new Promise(() => {}) as never);
+    const { unmount } = show([instance()]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: button }));
+    await waitFor(() => expect(sync).toHaveBeenCalled());
+    const following = nthCall(sync as unknown as { mock: { calls: unknown[][] } })[at] as
+      { signal?: AbortSignal } | undefined;
+    expect(following?.signal?.aborted).toBe(false);
+
+    unmount();
+    expect(following?.signal?.aborted).toBe(true);
   });
 
   /** A grey Save says nothing about the field that holds it. */
@@ -281,7 +370,9 @@ describe('Instances', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Sync now – Sonarr' }));
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith('i2'));
+    await waitFor(() =>
+      expect(sync).toHaveBeenCalledWith('i2', { signal: expect.any(AbortSignal) }),
+    );
   });
 
   it('marks a disabled instance rather than hiding it', async () => {
@@ -308,6 +399,7 @@ describe('Instances', () => {
       await fireEvent.click(
         within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
       );
+      await answerConfirmation();
       await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
       await fireEvent.click(screen.getByRole('button', { name: next }));
@@ -476,7 +568,9 @@ describe('Instances', () => {
 
     await addInstance('Films');
 
-    await waitFor(() => expect(sync).toHaveBeenCalledWith('i9'));
+    await waitFor(() =>
+      expect(sync).toHaveBeenCalledWith('i9', { signal: expect.any(AbortSignal) }),
+    );
     const done = await screen.findByText('Films is synced. Titles: 12, root folders: 2');
     expect(done.closest('.banner')?.classList.contains('banner-success')).toBe(true);
     expect(statusRevision()).toBeGreaterThan(before);

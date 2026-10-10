@@ -1,16 +1,17 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
   import { AlertTriangle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
-  import { ApiError, api } from '../api/client';
+  import { ApiError, api, onRefused } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import PageFailure from './PageFailure.svelte';
   import { poll } from '../lib/poll.svelte';
-  import { applyTheme, t } from '../lib/i18n.svelte';
+  import { formatCount } from '../api/format';
+  import { applyTheme, i18n, t } from '../lib/i18n.svelte';
   import { href, router } from '../lib/router.svelte';
   import { focusHeadingOf } from '../lib/focus';
   import { screenKey } from '../lib/routes';
-  import { statusRevision } from '../lib/status.svelte';
+  import { invalidateStatus, statusRevision } from '../lib/status.svelte';
   import { proofRequest } from '../lib/proof.svelte';
   import { guideProgress, outsideTheGuide } from '../api/onboarding';
   import {
@@ -21,7 +22,6 @@
   import ApiKeyGate from './ApiKeyGate.svelte';
   import LoginGate from './LoginGate.svelte';
   import Sidebar from './Sidebar.svelte';
-  import CommandPalette from './CommandPalette.svelte';
   import ConfirmDialog from './ConfirmDialog.svelte';
 
   /**
@@ -69,14 +69,16 @@
   // The theme is a server setting, like the language, so it has to be fetched
   // rather than read from the browser. Following the OS is a choice one makes.
   $effect(() => {
+    const closing = new AbortController();
     api
-      .getSettings()
+      .getSettings(closing.signal)
       .then(({ ui_theme }) =>
         applyTheme(typeof ui_theme === 'string' && ui_theme ? ui_theme : 'dark'),
       )
       // A theme that cannot be read is not worth an error banner: the default
       // renders perfectly well.
       .catch(() => {});
+    return () => closing.abort();
   });
 
   // Keep the chrome honest. Polling only while a job runs would leave the
@@ -120,6 +122,14 @@
     document.querySelector<HTMLElement>('#sidebar a')?.focus();
   }
 
+  // The page under the drawer stays inert until the redraw, and an inert
+  // toggle takes no focus.
+  async function closeDrawer() {
+    drawer = false;
+    await tick();
+    drawerToggle?.focus();
+  }
+
   let palette = $state(false);
   let about = $state(false);
 
@@ -145,8 +155,7 @@
     // going back to the button that opened it. An open dialog answers Escape
     // itself.
     if (event.key === 'Escape' && drawer && !document.querySelector('dialog[open]')) {
-      drawer = false;
-      drawerToggle?.focus();
+      void closeDrawer();
       return;
     }
     // Alt and Shift are somebody else's: Ctrl+Shift+K is Firefox's console,
@@ -195,6 +204,16 @@
 
   const unauthorized = $derived(
     status.failure instanceof ApiError && status.failure.status === 401,
+  );
+  // A refusal any screen meets is a session that ended or a key refused, so
+  // the status is read again now and the gate replaces the shell at once.
+  // Nothing to read again once the shell knows, nor while its own read is out:
+  // that read's refusal is its answer, and a read started for it would replace
+  // it before it lands, one after the other for good.
+  $effect(() =>
+    onRefused(() => {
+      if (!unauthorized && !status.loading) invalidateStatus();
+    }),
   );
   // Until the mode is known, the key gate is the safer guess: it is the default
   // mode, and it tells the user where to find a credential either way.
@@ -268,6 +287,7 @@
       open={drawer}
       offstage={narrow && !drawer}
       onNavigate={() => (drawer = false)}
+      onClose={() => void closeDrawer()}
       version={status.data?.version}
       onAbout={() => (about = true)}
       counts={{
@@ -298,14 +318,23 @@
             <Menu size={18} aria-hidden="true" />
           </button>
 
-          <!-- A mode, not an alert. `LiveModeActive` is the state this
-               application is meant to run in, and the danger colour on it
-               would spend the palette's most urgent signal on "nothing is
-               wrong". The dot carries the state, the short word names it, and
-               the full sentence is the accessible name, so the chrome keeps
-               its width in every language. -->
-          {#if status.data}
+          {#if status.error}
+            <!-- Whether writing is possible is the one thing this bar must
+                 always answer. Rendering nothing reads as "no warning", which
+                 is the opposite of what an unreachable backend means, and a
+                 mode read before the backend stopped answering is no longer
+                 known. -->
+            <span class="badge badge-danger" role="status" title={status.error}
+              >{t('StatusUnavailable')}</span
+            >
+          {:else if status.data}
             {@const held = status.data.dry_run}
+            <!-- A mode, not an alert. `LiveModeActive` is the state this
+                 application is meant to run in, and the danger colour on it
+                 would spend the palette's most urgent signal on "nothing is
+                 wrong". The dot carries the state, the short word names it,
+                 and the full sentence is the accessible name, so the chrome
+                 keeps its width in every language. -->
             <!-- `role="status"`, as the unreachable-backend badge beside it
                  already carries: a `<span>` with no role maps to `generic`,
                  for which ARIA prohibits `aria-label` and where the whole
@@ -319,13 +348,6 @@
               <i class="mode-dot {held ? 'is-held' : 'is-live'}" aria-hidden="true"></i>
               {t(held ? 'ModeDryRunShort' : 'ModeLiveShort')}
             </span>
-          {:else if status.error}
-            <!-- Whether writing is possible is the one thing this bar must
-                 always answer. Rendering nothing reads as "no warning", which
-                 is the opposite of what an unreachable backend means. -->
-            <span class="badge badge-danger" role="status" title={status.error}
-              >{t('StatusUnavailable')}</span
-            >
           {/if}
           <!-- What the state calls for beside the state itself: these come and
                go, and on this side they never move the tools on the other. -->
@@ -353,7 +375,10 @@
               title={t('GuidePillLabel', { done: guidePill.done, total: guidePill.total })}
             >
               <ListChecks size={14} aria-hidden="true" />
-              {guidePill.done}/{guidePill.total}
+              {formatCount(guidePill.done, i18n.language)}/{formatCount(
+                guidePill.total,
+                i18n.language,
+              )}
               <!-- After the figure, so the name starts with what the eye reads:
                    a speech input user says what they see. -->
               <span class="visually-hidden">
@@ -420,8 +445,12 @@
   <!-- Outside the routed page and outside the boundary, so a question survives
        the navigation it may itself have triggered, and so a page that throws
        does not take the dialog asking about it down with it. -->
+  <!-- Fetched when it is opened: it carries the explanation panel, which a
+       first visit has no use for. -->
   {#if palette}
-    <CommandPalette onClose={() => (palette = false)} />
+    {#await import('./CommandPalette.svelte') then { default: CommandPalette }}
+      <CommandPalette onClose={() => (palette = false)} />
+    {/await}
   {/if}
 
   <ConfirmDialog />

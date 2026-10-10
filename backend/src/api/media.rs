@@ -327,7 +327,7 @@ pub struct MediaDetail {
     pub exception: Option<PinnedCategory>,
 }
 
-/// The category an exception pins a title to, and why.
+/// The category an exception forces on a title, and why.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PinnedCategory {
     pub target_category: String,

@@ -171,31 +171,26 @@ function storedKeyExchange(): Promise<void> | null {
 }
 
 /**
- * `AbortSignal.any` where the browser has it, and the same composition by hand
- * where it does not. It is Safari 17.4, Chrome 116 and Firefox 124, and every
- * load passes through it: called bare, an older browser, an iPad held on
- * iPadOS 16 or Firefox ESR 115, throws a `TypeError` on every screen. Whichever
- * signal fires first lends its reason, so a timeout still reads as a timeout.
- */
-function anySignal(signals: AbortSignal[]): AbortSignal {
-  if (typeof AbortSignal.any === 'function') return AbortSignal.any(signals);
-  const composed = new AbortController();
-  for (const signal of signals) {
-    if (signal.aborted) {
-      composed.abort(signal.reason);
-      break;
-    }
-    signal.addEventListener('abort', () => composed.abort(signal.reason), { once: true });
-  }
-  return composed.signal;
-}
-
-/**
  * Long enough for any call answered at once, short enough to be a signal. Work
  * that may run longer, a simulation or an apply over a whole library, is
  * followed through its job (`followed`) and never meets it.
  */
 const REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Told of every 401, whichever screen asked: a session that ended or a key
+ * refused. The shell listens, and shows its gate at once rather than at its
+ * next poll.
+ */
+let refused: (() => void) | null = null;
+
+/** Listen for refusals until the returned function is called. */
+export function onRefused(listener: () => void): () => void {
+  refused = listener;
+  return () => {
+    if (refused === listener) refused = null;
+  };
+}
 
 const readJson = (response: Response) => response.json() as Promise<never>;
 /** A file the API serves, whatever its type: the one read held to no JSON. */
@@ -235,7 +230,7 @@ async function request<T>(
   // URL faults unchecked to spare one line here.
   const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
   const caller = options.signal instanceof AbortSignal ? options.signal : null;
-  const signal = caller ? anySignal([caller, timeout]) : timeout;
+  const signal = caller ? AbortSignal.any([caller, timeout]) : timeout;
   try {
     return await exchange<T>(path, { ...options, headers, signal }, read);
   } catch (cause) {
@@ -281,6 +276,7 @@ async function exchange<T>(
     } catch {
       // Not the envelope.
     }
+    if (res.status === 401) refused?.();
     throw new ApiError(message, res.status, kind, requestId, confirm, includes);
   }
 
@@ -307,6 +303,13 @@ const download = (path: string) => request<Blob>(path, {}, readBlob);
  */
 const FOLLOW_FIRST_MS = 200;
 const FOLLOW_EVERY_MS = 1000;
+
+/**
+ * Looks that may fail in a row, a proxy's hiccup or a stall, before the follow
+ * gives up: the job runs on regardless, and a failure reported after one
+ * missed look would read as the apply failing while its moves complete.
+ */
+const FOLLOW_RETRIES = 3;
 
 /**
  * A write that can run past the request bound: an apply over a whole library,
@@ -366,11 +369,52 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** A failure the next look may not meet: no answer, or the server's own. */
+const transient = (cause: unknown) =>
+  cause instanceof ApiError &&
+  (cause.kind === 'timeout' || cause.kind === 'unreachable' || cause.status >= 500);
+
+/**
+ * Until the tab is in front again: a job followed in a hidden tab is looked
+ * at by nobody, and the server is left alone meanwhile.
+ */
+function inFront(signal?: AbortSignal): Promise<void> {
+  if (document.visibilityState !== 'hidden') return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const settle = () => {
+      document.removeEventListener('visibilitychange', onChange);
+      signal?.removeEventListener('abort', onAbort);
+    };
+    const onChange = () => {
+      if (document.visibilityState === 'hidden') return;
+      settle();
+      resolve();
+    };
+    const onAbort = () => {
+      settle();
+      reject(signal?.reason as Error);
+    };
+    document.addEventListener('visibilitychange', onChange);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /** A started job, looked at until it finishes, and the report it keeps. */
 async function followJob<T>(id: string, following: Following = {}): Promise<T> {
   const signal = following.signal instanceof AbortSignal ? following.signal : undefined;
+  let failed = 0;
   for (let wait = FOLLOW_FIRST_MS; ; wait = Math.min(wait * 2, FOLLOW_EVERY_MS)) {
-    const job = await request<Job>(`/jobs/${id}`, { signal });
+    await inFront(signal);
+    let job: Job;
+    try {
+      job = await request<Job>(`/jobs/${id}`, { signal });
+      failed = 0;
+    } catch (cause) {
+      if (!transient(cause) || failed === FOLLOW_RETRIES) throw cause;
+      failed += 1;
+      await pause(FOLLOW_EVERY_MS * 2 ** failed, signal);
+      continue;
+    }
     if (job.status === 'running') {
       if (typeof following.onProgress === 'function') following.onProgress(job);
       await pause(wait, signal);
@@ -429,8 +473,10 @@ export const api = {
       body: body(data),
       signal,
     }),
-  syncInstance: (id: string) => followed<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }),
-  syncAll: () => followed<SyncReport[]>('/instances/sync', { method: 'POST' }),
+  syncInstance: (id: string, following?: Following) =>
+    followed<SyncReport>(`/instances/${id}/sync`, { method: 'POST' }, following),
+  syncAll: (following?: Following) =>
+    followed<SyncReport[]>('/instances/sync', { method: 'POST' }, following),
   rotateWebhookToken: (id: string) =>
     request<Instance>(`/instances/${id}/webhook-token`, { method: 'POST' }),
 
@@ -516,10 +562,11 @@ export const api = {
     request<unknown>(`/auth/sessions/${encodeURIComponent(handle)}`, { method: 'DELETE' }),
   endEverySession: () => request<{ ended: number }>('/auth/sessions', { method: 'DELETE' }),
 
-  validateRule: (data: RuleDraft) =>
+  validateRule: (data: RuleDraft, signal?: AbortSignal) =>
     request<{ valid: boolean; issues: ValidationIssue[] }>('/rules/validate', {
       method: 'POST',
       body: body(data),
+      signal,
     }),
   previewRule: (rule: RuleDraft, ruleId?: string) =>
     request<RulePreview>('/rules/preview', {
@@ -587,11 +634,17 @@ export const api = {
       following,
     ),
 
-  revertDecisions: (decision_ids: string[], move_files = false, confirm: string[] = []) =>
-    followed<ApplyReport>('/decisions/revert', {
-      method: 'POST',
-      body: body({ decision_ids, move_files, confirm }),
-    }),
+  revertDecisions: (
+    decision_ids: string[],
+    move_files = false,
+    confirm: string[] = [],
+    following?: Following,
+  ) =>
+    followed<ApplyReport>(
+      '/decisions/revert',
+      { method: 'POST', body: body({ decision_ids, move_files, confirm }) },
+      following,
+    ),
   /** Stop a running apply or revert before its next move. It answers before it stops. */
   cancelJob: (id: string) =>
     request<void>(`/jobs/${id}/cancel`, { method: 'POST' }, () => Promise.resolve()),

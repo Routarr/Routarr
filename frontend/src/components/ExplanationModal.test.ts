@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { explainedMedia } from '../test/fixtures';
@@ -42,6 +42,7 @@ const STRINGS = {
   ArrStatusReleased: 'Released',
   RefreshTitleMetadata: 'Ask the sources again',
   RefreshTitleMetadataHint: 'Reads this title again.',
+  PinAsRuleTestHint: 'Report it if a rule change moves it.',
   TitleRefreshed: 'Sources that answered: {count}',
   TitleRefreshedByNone: 'No source answered.',
 };
@@ -90,6 +91,32 @@ function source(id: string, display_name: string, website: string | null): Metad
 afterEach(() => vi.restoreAllMocks());
 
 describe('ExplanationModal', () => {
+  /**
+   * Opened from the quick search by Enter, a panel that focused its first
+   * button would take a second Enter as a pin nobody asked for.
+   */
+  it('opens on its heading, not on a button that writes', async () => {
+    show(explanation());
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole('heading', { level: 2 })),
+    );
+  });
+
+  /** What each action does is said beside it, not in a title only a mouse shows. */
+  it('says beside each action what it does', () => {
+    show(explanation());
+
+    expect(
+      screen.getByRole('button', { name: 'Ask the sources again' }),
+    ).toHaveAccessibleDescription('Reads this title again.');
+    expect(screen.getByRole('button', { name: 'Pin as a rule test' })).toHaveAccessibleDescription(
+      'Report it if a rule change moves it.',
+    );
+    expect(screen.getByText('Reads this title again.')).toBeInTheDocument();
+    expect(screen.getByText('Report it if a rule change moves it.')).toBeInTheDocument();
+  });
+
   /**
    * A refused pin has to be announced. Drawn as a red box with no role, it is
    * seen by sighted users, heard by no screen reader, and the button simply
@@ -201,8 +228,28 @@ describe('ExplanationModal', () => {
     );
 
     expect(screen.getByText('Animation')).toBeTruthy();
-    expect(screen.getByText(/Language: ja/)).toHaveTextContent(/Countries: JP ; KR/);
     expect(screen.getByText(/Sources/)).toHaveTextContent(/^Sources : arr\s*→\s*tmdb$/);
+  });
+
+  /** Named as the rule editor and the rules table name them, the code beside the name. */
+  it('names the language and the countries, not only their codes', () => {
+    show(
+      explanation({
+        metadata: {
+          genres: [],
+          keywords: [],
+          original_language: 'ja',
+          origin_countries: ['JP', 'KR'],
+          certification: null,
+          field_sources: {},
+          sources: ['arr'],
+        } as unknown as Explanation['metadata'],
+      }),
+    );
+
+    expect(screen.getByText(/Language: Japanese \(ja\)/)).toHaveTextContent(
+      /Countries: Japan \(JP\) ; South Korea \(KR\)/,
+    );
   });
 
   /**

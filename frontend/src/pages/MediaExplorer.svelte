@@ -1,10 +1,12 @@
 <script lang="ts">
-  import { Film, HelpCircle, Lock, Tv } from '../lib/icons';
+  import { Film, HelpCircle, Lock, RefreshCw, Tv } from '../lib/icons';
   import { api } from '../api/client';
+  import { mediaTypeKey } from '../api/format';
   import type { Explanation, MediaListItem } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -42,10 +44,13 @@
   // Only the last title asked about answers: two quick clicks would otherwise
   // show whichever explanation lands last, under the other title's row.
   let asking: AbortController | null = null;
+  /** The title whose explanation is on its way, which its row says. */
+  let asked = $state<string | null>(null);
 
   async function explain(media: MediaListItem) {
     asking?.abort();
     const mine = (asking = new AbortController());
+    asked = media.id;
     try {
       const answer = await api.explainMedia(media.id, mine.signal);
       if (mine.signal.aborted) return;
@@ -53,6 +58,8 @@
       outcome.clear();
     } catch (err) {
       if (!mine.signal.aborted) outcome.fail(err);
+    } finally {
+      if (!mine.signal.aborted) asked = null;
     }
   }
 </script>
@@ -145,22 +152,25 @@
               <tr>
                 <td>
                   <div class="flex items-center gap-2">
+                    <!-- The icon for the eye, the word for a screen reader. -->
                     {#if media.media_type === 'movie'}
                       <Film size={16} class="text-radarr" />
                     {:else}
                       <Tv size={16} class="text-sonarr" />
                     {/if}
-                    <!-- One line, the whole title on hover. A long title that
-                         wraps takes its row to twice the height of its
-                         neighbours, and the year drifts off on its own. -->
-                    <strong class="cell-title" title={media.title}>{media.title}</strong>
+                    <span class="visually-hidden">{t(mediaTypeKey(media.media_type))}</span>
+                    <strong class="cell-title">{media.title}</strong>
                     {#if media.year}<span class="text-muted">({media.year})</span>{/if}
                   </div>
                 </td>
                 <td>{media.instance_name}</td>
                 <td class="mono text-sm">
-                  <span class="cell-path" title={media.current_root_folder ?? undefined}>
-                    <bdi>{media.current_root_folder ?? t('None')}</bdi>
+                  <span class="cell-path">
+                    {#if media.current_root_folder}
+                      <bdi>{media.current_root_folder}</bdi>
+                    {:else}
+                      <NoValue />
+                    {/if}
                   </span>
                 </td>
                 <td>
@@ -193,9 +203,14 @@
                     class="btn btn-secondary btn-sm"
                     onclick={() => void explain(media)}
                     aria-label="{t('WhyQuestion')} – {media.title}"
+                    aria-busy={asked === media.id}
                     title={t('WhyQuestion')}
                   >
-                    <HelpCircle size={15} aria-hidden="true" />
+                    {#if asked === media.id}
+                      <RefreshCw size={15} class="spin" aria-hidden="true" />
+                    {:else}
+                      <HelpCircle size={15} aria-hidden="true" />
+                    {/if}
                   </button>
                 </td>
               </tr>

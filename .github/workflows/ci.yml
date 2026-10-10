@@ -339,13 +339,22 @@ jobs:
         run: node scripts/check-bundle-size.mjs
 
   e2e:
-    name: End-to-end
+    name: End-to-end in ${{ matrix.browser }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # WebKit runs the suite at about half Chromium's pace.
+    timeout-minutes: 40
     needs: changes
     # Drives the release binary *serving the built frontend*, so either side
     # changing is reason enough to run it.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    # Once per engine the README promises, each the whole suite: a fault one
+    # engine shows is not stopped by another's.
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      ROUTARR_E2E_BROWSER: ${{ matrix.browser }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -359,7 +368,7 @@ jobs:
 
       - run: npm ci
         working-directory: frontend
-      - run: npx playwright install chromium --with-deps
+      - run: npx playwright install ${{ matrix.browser }} --with-deps
         working-directory: frontend
 
       # Drives the release binary serving the built frontend against a fake
@@ -384,9 +393,22 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: failure()
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.browser }}
           path: frontend/test-results/
           retention-days: 7
+
+  # The one name the branch rules require, for the three engines' runs:
+  # passed in each, or not needed by the commit.
+  e2e-done:
+    name: End-to-end
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always()
+    steps:
+      - name: Every engine passed
+        env:
+          RESULT: ${{ needs.e2e.result }}
+        run: test "$RESULT" = success || test "$RESULT" = skipped
 
   site:
     name: Showcase site

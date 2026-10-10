@@ -1761,22 +1761,30 @@ async fn a_move_that_leaves_its_files_asks_nothing_about_free_space() {
 async fn a_sleeping_destination_is_asked_about_before_anything_is_written() {
     let app = TestApp::new().await;
     pending_move(&app, 1_000, 500_000_000_000, 400_000_000_000).await;
-    sqlx::query(
-        "UPDATE root_folders SET accessible = 0, last_accessible_at = '2026-09-05 03:00:00'
-         WHERE rtrim(path, '/') = '/movies/anime'",
-    )
-    .execute(&app.state.pool)
-    .await
-    .unwrap();
+    app.execute(&["UPDATE root_folders SET accessible = 0,
+                last_accessible_at = datetime('now', '-3 hours', '-5 minutes')
+          WHERE rtrim(path, '/') = '/movies/anime'"])
+        .await;
 
     let refused = apply(&app, &[]).await;
     assert_eq!(refused.status, 409, "it wrote into a folder that is not answering");
     assert_eq!(refused.json["confirm"], "unreachable");
     let message = refused.message();
     assert!(message.contains("/movies/anime"), "the refusal must name the folder: {message}");
-    // The date, not a verdict: twenty minutes reads as a nap and three days as
-    // a fault, and the operator is the one who knows their hardware.
-    assert!(message.contains("2026-09-05"), "and say when it last answered: {message}");
+    // How long, not a verdict: twenty minutes reads as a nap and three days as
+    // a fault, and the operator is the one who knows their hardware. A stored
+    // UTC time would leave them to work out the age in their own zone.
+    assert!(message.contains("3 h"), "and say how long it has been quiet: {message}");
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    assert!(!message.contains(&today), "no stored time in the sentence: {message}");
+
+    // A folder that never answered says so, rather than a dash for a date.
+    app.execute(&[
+        "UPDATE root_folders SET last_accessible_at = NULL WHERE rtrim(path, '/') = '/movies/anime'",
+    ])
+    .await;
+    let never = apply(&app, &[]).await.message();
+    assert!(never.contains("never answered") && !never.contains("-)"), "{never}");
 
     // Answered, it gets out of the way, and answers only itself.
     let allowed = apply(&app, &["unreachable"]).await;

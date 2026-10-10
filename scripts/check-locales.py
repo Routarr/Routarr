@@ -100,8 +100,8 @@ NOT_COUNTS = {
     "free", "handle", "host", "id", "index", "instance", "key", "kind", "label", "language", "max",
     "message", "min", "minimum", "name", "names", "needed", "next", "number", "observed", "opened",
     "origin", "path", "paths", "provider", "query", "reason", "regions", "route", "rule", "scope",
-    "scopes", "screen", "second", "section", "service", "since", "size", "source", "sources",
-    "status", "title", "url", "used", "value", "values",
+    "scopes", "screen", "second", "section", "service", "setting", "since", "size", "source",
+    "sources", "status", "tab", "title", "url", "used", "value", "values",
     "variable", "version", "when", "year",
 }
 

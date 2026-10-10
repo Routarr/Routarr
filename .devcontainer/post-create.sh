@@ -50,9 +50,10 @@ for tool in cargo-audit cargo-llvm-cov; do
   fi
 done
 
-# Fast no-op when the volume already holds this Chromium build.
+# Fast no-op when the volume already holds these builds. The three engines the
+# end-to-end suite runs in, one at a time (ROUTARR_E2E_BROWSER).
 cd "$root/frontend"
-npx playwright install chromium
+npx playwright install chromium firefox webkit
 
 # Register RTK's hook with Claude Code. Idempotent, and cheap enough to rerun:
 # it writes into ~/.claude, and a fresh volume starts without it.

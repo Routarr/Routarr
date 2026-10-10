@@ -148,7 +148,7 @@ pub struct ApplyDecisionsRequest {
 /// Apply everything one simulation proposed, in slices.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct ApplyAllRequest {
-    /// The simulation whose proposals to apply.
+    /// The simulation whose decisions to apply.
     pub simulation_id: String,
     /// Move the files on disk with each title. A key needs to be allowed to.
     #[serde(default)]

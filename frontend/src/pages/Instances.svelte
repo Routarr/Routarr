@@ -29,6 +29,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import GuideStepBanner from '../components/GuideStepBanner.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -67,7 +68,25 @@
   const list = createAsync((signal) => api.getInstances(signal));
   const outcome = createOutcome();
   let busyId = $state<string | null>(null);
-  let editing = $state<{ form: FormState; id?: string; webhook?: Instance } | null>(null);
+  // Stops following a sync when the screen closes. The sync goes on, and the
+  // screen opened again reads what it did.
+  const leaving = new AbortController();
+  $effect(() => () => {
+    leaving.abort();
+    stopTrying();
+  });
+  // `opened` is the form as it opened, as text: whether closing drops any work.
+  let editing = $state<{
+    form: FormState;
+    opened: string;
+    id?: string;
+    webhook?: Instance;
+  } | null>(null);
+  const formChanged = $derived(editing !== null && JSON.stringify(editing.form) !== editing.opened);
+  holdUnsaved(
+    () => formChanged,
+    () => t('ConfirmDiscardInstance'),
+  );
 
   const instances = $derived(list.data ?? []);
 
@@ -199,6 +218,7 @@
   async function submit(event: SubmitEvent) {
     event.preventDefault();
     if (!editing || saving) return;
+    const pressed = document.activeElement as HTMLElement | null;
     completeScheme(editing.form);
     formError = null;
     let saved: Instance;
@@ -211,6 +231,7 @@
     } catch (err) {
       probe = null;
       formError = describeError(err);
+      void handFocus(pressed);
       return;
     } finally {
       saving = false;
@@ -234,7 +255,7 @@
   async function syncFirstTime(saved: Instance) {
     busyId = saved.id;
     try {
-      const report = await api.syncInstance(saved.id);
+      const report = await api.syncInstance(saved.id, { signal: leaving.signal });
       outcome.succeed(
         t('SyncResult', {
           name: saved.name,
@@ -286,7 +307,7 @@
   const syncNow = (instance: Instance) =>
     act(
       instance.id,
-      () => api.syncInstance(instance.id),
+      () => api.syncInstance(instance.id, { signal: leaving.signal }),
       (r) => t('SyncResult', { name: instance.name, media: r.media, folders: r.root_folders }),
     );
 
@@ -307,7 +328,7 @@
     const pressed = document.activeElement as HTMLElement | null;
     busyId = 'all';
     try {
-      const all = await api.syncAll();
+      const all = await api.syncAll({ signal: leaving.signal });
       // One line per failure: an error is free text, commas included.
       const failed = all.filter((r) => r.error).map((r) => `${r.instance_name}: ${r.error}`);
       const message = t('SyncAllResult', { count: all.length - failed.length });
@@ -345,9 +366,14 @@
     stopTrying();
     formError = null;
     probe = null;
-    editing = { form: blankForm() };
+    const form = blankForm();
+    editing = { form, opened: JSON.stringify(form) };
   }
-  function close() {
+  /** Escape, the close button and Cancel: a changed form is asked about first. */
+  async function close() {
+    if (formChanged && !(await askConfirmation(t('ConfirmDiscardInstance'), 'DiscardChanges'))) {
+      return;
+    }
     stopTrying();
     editing = null;
     formError = null;
@@ -359,19 +385,16 @@
     stopTrying();
     formError = null;
     probe = null;
-    editing = {
-      id: instance.id,
-      webhook: instance,
-      form: {
-        name: instance.name,
-        instance_type: instance.instance_type,
-        base_url: instance.base_url,
-        // Blank means "keep the stored key" on the backend.
-        api_key: '',
-        enabled: instance.enabled,
-        sync_interval_minutes: instance.sync_interval_minutes,
-      },
+    const form: FormState = {
+      name: instance.name,
+      instance_type: instance.instance_type,
+      base_url: instance.base_url,
+      // Blank means "keep the stored key" on the backend.
+      api_key: '',
+      enabled: instance.enabled,
+      sync_interval_minutes: instance.sync_interval_minutes,
     };
+    editing = { id: instance.id, webhook: instance, form, opened: JSON.stringify(form) };
   }
 </script>
 
@@ -471,12 +494,13 @@
                     class="badge {instance.api_key_encrypted
                       ? 'badge-value muted'
                       : 'badge-warning'}"
-                    title={t(
-                      instance.api_key_encrypted ? 'ApiKeyEncryptedHint' : 'ApiKeyPlaintextHint',
-                    )}
+                    title={instance.api_key_encrypted ? t('ApiKeyEncryptedHint') : undefined}
                   >
                     {instance.api_key_encrypted ? t('ApiKeyEncrypted') : instance.api_key_masked}
                   </span>
+                  {#if !instance.api_key_encrypted}
+                    <span class="status-reason">{t('ApiKeyPlaintextHint')}</span>
+                  {/if}
                 </td>
                 <td class="cell-timestamp" title={instance.last_sync_at ?? undefined}>
                   <!-- Date and outcome read as one fact, so they share a line
@@ -508,14 +532,14 @@
                       class="badge {instance.last_sync_status === 'success'
                         ? 'badge-success'
                         : 'badge-danger'}"
-                      title={instance.last_sync_status === 'success'
-                        ? undefined
-                        : failureDetail(instance.last_sync_status)}
                     >
                       {t(
                         instance.last_sync_status === 'success' ? 'StatusSuccess' : 'StatusFailed',
                       )}
                     </span>
+                    {#if instance.last_sync_status !== 'success'}
+                      <span class="status-reason">{failureDetail(instance.last_sync_status)}</span>
+                    {/if}
                   {/if}
                 </td>
                 <td>
@@ -615,7 +639,7 @@
     {@const intervalOk = intervalFits(form.sync_interval_minutes)}
     <Modal
       label={t(isEdit ? 'EditInstance' : 'AddInstance')}
-      onClose={close}
+      onClose={() => void close()}
       initialFocus="instances-name"
       returnFocus="instances-add"
     >
@@ -623,7 +647,7 @@
         <h2 class="modal-title">{t(isEdit ? 'EditInstance' : 'AddInstance')}</h2>
         <button
           class="btn btn-secondary btn-sm"
-          onclick={close}
+          onclick={() => void close()}
           aria-label={t('Dismiss')}
           title={t('Dismiss')}
         >
@@ -778,7 +802,7 @@
           {/if}
         </div>
         <div class="dialog-actions">
-          <button type="button" class="btn btn-secondary" onclick={close}>
+          <button type="button" class="btn btn-secondary" onclick={() => void close()}>
             {t('Cancel')}
           </button>
           <div class="flex flex-wrap gap-2">

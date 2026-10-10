@@ -13,8 +13,8 @@ almost any change, and it will save you from undoing something on purpose.
 A few features have been considered and deliberately left out, because they
 complicate the engine or the interface without serving what Routarr is for:
 deciding which root folder a media item belongs in, and getting it there
-safely. Signal weighting, nested condition groups, temporary overrides and a
-persistent job queue are the ones that come up. Please open an issue before
+safely. Signal weighting, nested condition groups, temporary exceptions and a
+persistent task queue are the ones that come up. Please open an issue before
 building one of those rather than after.
 
 ## Getting set up
@@ -82,8 +82,9 @@ npm run check          # svelte-check, then the types of the e2e specs
 npm run lint           # ESLint, type-aware
 npm run coverage       # vitest, with floors
 npm audit --audit-level=high
-npm run build && node ../scripts/check-bundle-size.mjs   # the two bundles' ceilings
-npm run test:e2e       # builds the release binary; a few minutes
+npm run build && node ../scripts/check-bundle-size.mjs   # the first load's ceiling
+npm run test:e2e       # builds the release binary; a few minutes, in Chromium
+ROUTARR_E2E_BROWSER=firefox npm run test:e2e   # and webkit: CI runs every suite in all three
 npm run test:e2e:base  # the specs tagged @subpath, under ROUTARR_BASE_PATH=/routarr
 npm run test:e2e:auth  # the specs tagged @forms and @oidc, each against a server in that mode
 
@@ -107,7 +108,7 @@ gitleaks reads the whole history: a secret-shaped literal, a realistic fake key
 in a test included, keeps failing it after a later commit deletes it. Write a
 fake key that no scanner takes for a real one (`test-key`, `x` repeated).
 
-Coverage has floors on both sides: 96 % of backend lines, and 94 / 83 / 92 / 94 for frontend
+Coverage has floors on both sides: 96 % of backend lines, and 95 / 85 / 93 / 95 for frontend
 statements, branches, functions and lines, with 30 % of each of the four in every frontend file,
 so a screen with no test fails the run. **Raise one when the real figure moves up, never
 lower one to make a build pass.**

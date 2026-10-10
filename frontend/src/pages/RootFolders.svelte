@@ -2,11 +2,12 @@
   import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
-  import { formatBytes, formatRelative, isolated } from '../api/format';
+  import { formatBytes, formatRelative } from '../api/format';
   import { createAsync, describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -18,6 +19,7 @@
   import TableRegion from '../components/TableRegion.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { handFocus } from '../lib/focus';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
 
   const bundle = createAsync(async (signal) => {
     const [folders, categories, conflicts, instances] = await Promise.all([
@@ -67,6 +69,13 @@
    */
   const picked = $state<Record<string, string>>({});
   const pickedFor = (folder: RootFolder) => picked[folder.id] ?? folder.category ?? '';
+  const unsavedPicks = $derived(
+    folders.filter((folder) => pickedFor(folder) !== (folder.category ?? '')).length,
+  );
+  holdUnsaved(
+    () => unsavedPicks > 0,
+    () => t('ConfirmLeaveUnsavedMappings', { count: unsavedPicks }),
+  );
 
   async function saveCategory(folder: RootFolder) {
     const category = pickedFor(folder);
@@ -131,6 +140,7 @@
   async function declare(event: SubmitEvent) {
     event.preventDefault();
     if (!target || !targetPath.trim() || declaring) return;
+    const pressed = document.activeElement as HTMLElement | null;
     declaring = true;
     try {
       const declared = await act(
@@ -140,6 +150,8 @@
       if (declared) targetPath = '';
     } finally {
       declaring = false;
+      // Add stays disabled once its path is cleared, so the next path takes the focus.
+      void handFocus(pressed, 'declare-path');
     }
   }
 
@@ -285,7 +297,7 @@
                       onclick={async () => {
                         if (
                           await askConfirmation(
-                            t('ConfirmRemoveDestination', { path: isolated(folder.path) }),
+                            t('ConfirmRemoveDestination', { path: folder.path }),
                             'Remove',
                           )
                         ) {
@@ -371,8 +383,10 @@
                   </span>
                 {/if}
               </td>
-              <td class="text-muted">{category.description ?? t('None')}</td>
-              <td>{category.rule_count}</td>
+              <td class="text-muted">
+                {#if category.description}{category.description}{:else}<NoValue />{/if}
+              </td>
+              <td><Count value={category.rule_count} /></td>
               <td><Count value={category.root_folder_count} /></td>
               <td>
                 <div class="flex gap-2">

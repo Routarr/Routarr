@@ -1,48 +1,52 @@
 #!/usr/bin/env node
 /**
- * Ceilings on the two bundles every visit downloads.
+ * A ceiling on the script a first visit downloads before anything is shown.
  *
  * Each screen is its own chunk, so opening the dashboard does not download the
  * rule builder with it. That property drifts one import at a time, and only a
- * ceiling notices. The entry carries the shell and the router, the shared
- * runtime carries Svelte and the icons. Both are measured raw, the way the
+ * ceiling notices. What the first load fetches is what `dist/index.html`
+ * names: the entry, and every module Vite preloads because the entry imports
+ * it statically, the shared runtime among them. A module the shell imports
+ * statically is fetched there whatever chunk it is built into, so the files
+ * are read from the page, not matched by name. Measured raw, the way the
  * fingerprinted files sit in `dist/assets`.
  *
  *   node scripts/check-bundle-size.mjs      # after `npm run build` in frontend/
  */
-import { readdirSync, statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const ASSETS = fileURLToPath(new URL('../frontend/dist/assets/', import.meta.url));
+const DIST = fileURLToPath(new URL('../frontend/dist/', import.meta.url));
+const CEILING = 124_000;
 
-const CEILINGS = [
-  { name: 'the entry bundle', pattern: /^index-[\w-]+\.js$/, ceiling: 28_000 },
-  { name: 'the shared runtime', pattern: /^vendor-[\w-]+\.js$/, ceiling: 75_000 },
-];
-
-let files;
+let page;
 try {
-  files = readdirSync(ASSETS);
+  page = readFileSync(`${DIST}index.html`, 'utf-8');
 } catch {
-  console.error(`check-bundle-size: ${ASSETS} does not exist: run \`npm run build\` in frontend/ first`);
+  console.error(`check-bundle-size: ${DIST}index.html does not exist: run \`npm run build\` in frontend/ first`);
   process.exit(1);
 }
 
-const failures = [];
-for (const { name, pattern, ceiling } of CEILINGS) {
-  const matches = files.filter((file) => pattern.test(file));
-  // A pattern that matches nothing would pass without measuring anything.
-  if (matches.length !== 1) {
-    failures.push(`${name}: expected one file matching ${pattern}, found ${matches.length}`);
-    continue;
-  }
-  const size = statSync(`${ASSETS}${matches[0]}`).size;
-  const verdict = size > ceiling ? 'over' : 'within';
-  console.log(`${name}: ${matches[0]} is ${size} bytes, ${verdict} the ${ceiling}-byte ceiling`);
-  if (size > ceiling) failures.push(`${name} (${matches[0]}) is ${size} bytes; the ceiling is ${ceiling}`);
+const named = (pattern) => [...page.matchAll(pattern)].map((match) => match[1].replace(/^\.?\//, ''));
+const files = [
+  ...named(/<script type="module"[^>]*\ssrc="([^"]+\.js)"/g),
+  ...named(/<link rel="modulepreload"[^>]*\shref="([^"]+\.js)"/g),
+];
+// A page whose entry the pattern no longer finds would pass measuring nothing.
+if (!files.some((file) => /^assets\/index-[\w-]+\.js$/.test(file))) {
+  console.error('check-bundle-size: dist/index.html names no entry script the check recognises');
+  process.exit(1);
 }
 
-if (failures.length) {
-  for (const failure of failures) console.error(`check-bundle-size: ${failure}`);
+let total = 0;
+for (const file of files) {
+  const size = statSync(`${DIST}${file}`).size;
+  total += size;
+  console.log(`  ${file}: ${size} bytes`);
+}
+const verdict = total > CEILING ? 'over' : 'within';
+console.log(`the first load: ${files.length} files, ${total} bytes, ${verdict} the ${CEILING}-byte ceiling`);
+if (total > CEILING) {
+  console.error(`check-bundle-size: the first load is ${total} bytes; the ceiling is ${CEILING}`);
   process.exit(1);
 }

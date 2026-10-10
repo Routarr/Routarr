@@ -1,7 +1,9 @@
 <script lang="ts">
   import { href, isCurrent } from '../lib/router.svelte';
-  import { t } from '../lib/i18n.svelte';
+  import { formatCount } from '../api/format';
+  import { i18n, t } from '../lib/i18n.svelte';
   import { GROUPS, type Counts } from '../lib/navigation';
+  import { X } from '../lib/icons';
 
   /** Amber asks for attention, red says something failed, the rest is just a
       number, so a count is never louder than what it counts. */
@@ -24,6 +26,7 @@
     open = false,
     offstage = false,
     onNavigate,
+    onClose,
     counts = { jobs: 0, decisions: 0, failed: 0, warnings: 0 },
     version,
     onAbout,
@@ -32,6 +35,11 @@
     /** Out of sight, a closed drawer: nothing in it may take the focus. */
     offstage?: boolean;
     onNavigate?: () => void;
+    /**
+     * Closes the drawer from inside it. The open drawer makes the page inert,
+     * its toggle included, and a screen reader's swipe sends no Escape.
+     */
+    onClose?: () => void;
     counts?: Counts;
     version?: string;
     /** Opens what Routarr is: its licence and the credits its sources ask for. */
@@ -54,6 +62,15 @@
       <path d="M15 6a9 9 0 0 0-9 9" />
     </svg>
     <span class="sidebar-title">Routarr</span>
+    <button
+      type="button"
+      class="btn btn-ghost btn-sm sidebar-close"
+      aria-label={t('Dismiss')}
+      title={t('Dismiss')}
+      onclick={onClose}
+    >
+      <X size={18} aria-hidden="true" />
+    </button>
   </div>
 
   <nav class="sidebar-nav" aria-label={t('MainNavigation')}>
@@ -74,8 +91,8 @@
               onclick={onNavigate}
               title={t(item.key)}
             >
-              <!-- The rail hides the label, so the name has to reach a screen
-                   reader, and a pointer, some other way. -->
+              <!-- The rail hides the label from sight alone: it still names
+                   the link, and the title shows it to a pointer. -->
               <item.icon size={18} />
               <span class="nav-label">{t(item.key)}</span>
               <!-- The count of what waits behind this entry. In the rail,
@@ -87,7 +104,9 @@
                 <!-- The figure for the eye, the sentence for the reader. An
                      `aria-label` on a `<span>` names a generic element, which
                      ARIA prohibits and readers honour unevenly. -->
-                <span class="nav-badge {TONE[item.badge]}" aria-hidden="true">{count}</span>
+                <span class="nav-badge {TONE[item.badge]}" aria-hidden="true"
+                  >{formatCount(count, i18n.language)}</span
+                >
                 <span class="visually-hidden">{t(BADGE_LABEL[item.badge], { count })}</span>
               {/if}
             </a>

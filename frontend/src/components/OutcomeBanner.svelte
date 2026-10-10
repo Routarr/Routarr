@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Outcome } from '../lib/outcome.svelte';
+  import BannerList from './BannerList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import SuccessBanner from './SuccessBanner.svelte';
   import WarningBanner from './WarningBanner.svelte';
@@ -22,6 +23,7 @@
     <SuccessBanner message={outcome.notice} />
   {/if}
 </div>
-{#each outcome.details as detail, index (index)}
-  <ErrorBanner message={detail} />
-{/each}
+<!-- One banner for every item that failed, outside the live regions: the
+     headline above is what is announced, and forty alerts read one after the
+     other would bury it. -->
+<BannerList tone="danger" items={outcome.details.map((text) => ({ text }))} />

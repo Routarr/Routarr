@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
+import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { test, expect } from './fixtures';
+import { test, expect, AXE_TAGS } from './fixtures';
 
 /**
  * Each way of signing in, against a server running in that mode:
@@ -49,3 +50,17 @@ test('the provider signs the browser in @oidc', async ({ page }) => {
 
   await expect(signedIn(page)).toBeVisible();
 });
+
+/**
+ * The first screen every new user sees, in each mode: the one the sweep of the
+ * application screens never reaches, since it opens behind a session.
+ */
+for (const mode of ['forms', 'oidc']) {
+  test(`the sign-in screen passes axe @${mode}`, async ({ page }) => {
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+
+    const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+    expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  });
+}

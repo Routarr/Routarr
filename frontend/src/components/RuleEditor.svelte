@@ -2,10 +2,12 @@
   import { FlaskConical } from '../lib/icons';
   import { ApiError, api } from '../api/client';
   import { conditionAppliesTo, defaultConditionValue } from '../api/conditions';
+  import { toggled } from '../api/format';
   import type {
     ValidationIssue,
     Category,
     ConditionCatalog,
+    Instance,
     LibraryFacets,
     MatchMode,
     RuleDraft,
@@ -14,7 +16,9 @@
   } from '../api/types';
   import { describeError } from '../lib/async.svelte';
   import { askConfirmation } from '../lib/confirm.svelte';
+  import { handFocus } from '../lib/focus';
   import { t } from '../lib/i18n.svelte';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
   import ConditionList from './ConditionList.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
   import Modal from './Modal.svelte';
@@ -24,6 +28,7 @@
     draft: initial,
     ruleId,
     categories,
+    instances,
     catalog,
     onClose,
     onSaved,
@@ -33,6 +38,8 @@
     draft: RuleDraft;
     ruleId?: string;
     categories: Category[];
+    /** What a rule can be kept to. None ticked is every instance. */
+    instances: Instance[];
     catalog: ConditionCatalog;
     onClose: () => void;
     onSaved: (message: string) => Promise<void>;
@@ -55,11 +62,15 @@
   let facetsError = $state<string | null>(null);
   $effect(() => {
     if (knownFacets !== null) return;
+    const closing = new AbortController();
     api
-      .getLibraryFacets()
+      .getLibraryFacets(closing.signal)
       .then((loaded) => (facets = loaded))
-      .catch((cause) => (facetsError = describeError(cause)))
+      .catch((cause) => {
+        if (!closing.signal.aborted) facetsError = describeError(cause);
+      })
       .finally(() => (facetsLoading = false));
+    return () => closing.abort();
   });
 
   // Read once, deliberately: this is the *initial* draft. The editor owns its
@@ -71,6 +82,10 @@
   // svelte-ignore state_referenced_locally
   const opened = JSON.stringify(initial);
   const unsaved = $derived(JSON.stringify(draft) !== opened);
+  holdUnsaved(
+    () => unsaved,
+    () => t('ConfirmDiscardRule'),
+  );
 
   /** Escape, the close button and Cancel: a half-written rule is asked about first. */
   async function close() {
@@ -107,16 +122,21 @@
   const VALIDATE_DELAY_MS = 400;
   $effect(() => {
     const snapshot = JSON.stringify(draft);
+    // A question about a draft edited since is abandoned, not left to run.
+    const asking = new AbortController();
     const timer = setTimeout(() => {
       const candidate = JSON.parse(snapshot) as RuleDraft;
       api
-        .validateRule(candidate)
+        .validateRule(candidate, asking.signal)
         .then((result) => {
           if (JSON.stringify(draft) === snapshot) issues = result.issues;
         })
         .catch(() => {});
     }, VALIDATE_DELAY_MS);
-    return () => clearTimeout(timer);
+    return () => {
+      asking.abort();
+      clearTimeout(timer);
+    };
   });
   /**
    * A condition just added has no value yet. Said before the reader had a
@@ -203,6 +223,13 @@
     touched();
   }
 
+  /** An empty list would read as every instance too, so none ticked is sent as `null`. */
+  function keepTo(id: string, ticked: boolean) {
+    const kept = toggled(draft.instance_ids ?? [], id, ticked);
+    draft.instance_ids = kept.length > 0 ? kept : null;
+    touched();
+  }
+
   function removeCondition(list: 'conditions' | 'exclusions', index: number) {
     draft[list] = draft[list].filter((_, i) => i !== index);
     rows[list] = rows[list].filter((_, i) => i !== index);
@@ -210,6 +237,7 @@
   }
 
   async function runPreview() {
+    const pressed = document.activeElement as HTMLElement | null;
     busy = 'preview';
     error = null;
     try {
@@ -218,11 +246,13 @@
       error = describeError(err);
     } finally {
       busy = null;
+      void handFocus(pressed);
     }
   }
 
   async function save(event: SubmitEvent) {
     event.preventDefault();
+    const pressed = document.activeElement as HTMLElement | null;
     // Pressing Save on an untouched form is also asking. The answer is fetched
     // rather than read from `issues`, which is empty for the first few hundred
     // milliseconds after mount and stays empty if the debounced call failed,
@@ -253,6 +283,7 @@
           : describeError(err);
     } finally {
       busy = null;
+      void handFocus(pressed);
     }
   }
 </script>
@@ -357,19 +388,38 @@
           step="1"
           class="form-input"
           aria-invalid={wholePriority ? undefined : 'true'}
-          aria-describedby={wholePriority ? undefined : 'rules-priority-error'}
+          aria-describedby={wholePriority
+            ? 'rules-priority-help'
+            : 'rules-priority-help rules-priority-error'}
           value={draft.priority}
           oninput={(event) => {
             draft.priority = Number(event.currentTarget.value);
             touched();
           }}
-          title={t('PriorityHint')}
         />
+        <p id="rules-priority-help" class="form-hint">{t('PriorityHint')}</p>
         {#if !wholePriority}
           <p id="rules-priority-error" class="field-error">{t('EnterWholeNumber')}</p>
         {/if}
       </div>
     </div>
+
+    {#if instances.length > 0}
+      <fieldset class="form-group">
+        <legend>{t('Instances')}</legend>
+        <p class="form-hint">{t('RuleInstancesHelp')}</p>
+        {#each instances as instance (instance.id)}
+          <label class="check-option">
+            <input
+              type="checkbox"
+              checked={draft.instance_ids?.includes(instance.id) ?? false}
+              onchange={(event) => keepTo(instance.id, event.currentTarget.checked)}
+            />
+            <span>{instance.name}</span>
+          </label>
+        {/each}
+      </fieldset>
+    {/if}
 
     <div class="form-row">
       <div class="form-group flex-fill-240">

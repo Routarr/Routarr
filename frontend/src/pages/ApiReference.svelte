@@ -34,7 +34,7 @@
   const TAGS: Record<string, string> = {
     status: 'ApiTagStatus',
     library: 'ApiTagLibrary',
-    proposals: 'ApiTagProposals',
+    decisions: 'ApiTagDecisions',
     exceptions: 'ApiTagExceptions',
     tasks: 'ApiTagTasks',
     instances: 'ApiTagInstances',
@@ -184,7 +184,15 @@
       </ul>
 
       <h3>{t('ApiExample')}</h3>
-      <pre class="mono api-example">{curl(op, doc, server)}</pre>
+      <!-- It scrolls sideways, and Safari makes no scroller focusable on its
+           own: a named region in the tab order lets a keyboard reach its end,
+           as `TableRegion` does for a table. -->
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <pre
+        class="mono api-example"
+        tabindex="0"
+        role="region"
+        aria-label="{t('ApiExample')} – {title}">{curl(op, doc, server)}</pre>
     </div>
   </details>
 {/snippet}

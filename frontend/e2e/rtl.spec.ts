@@ -187,6 +187,38 @@ test.describe('right to left', () => {
     expect(await mono.evaluate((node) => getComputedStyle(node).direction)).toBe('ltr');
   });
 
+  /**
+   * A path in an Arabic sentence, laid out in the sentence's direction, puts
+   * its leading slash at its far end: `/no-such/screen` would read
+   * `no-such/screen/`. In an isolate it keeps its own order.
+   */
+  test('a path in an Arabic sentence keeps its slash first', async ({ page }) => {
+    await setLanguage('ar');
+    await page.goto('/no-such/screen');
+    await expect
+      .poll(() => page.evaluate(() => getComputedStyle(document.body).direction))
+      .toBe('rtl');
+    const subtitle = page.locator('.page-subtitle');
+    await expect(subtitle).toContainText('no-such/screen');
+
+    const slashFirst = await subtitle.evaluate((node, path: string) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        const at = text.textContent?.indexOf(path) ?? -1;
+        if (at < 0) continue;
+        const box = (index: number) => {
+          const range = document.createRange();
+          range.setStart(text, index);
+          range.setEnd(text, index + 1);
+          return range.getBoundingClientRect();
+        };
+        return box(at).left < box(at + 1).left;
+      }
+      return null;
+    }, '/no-such/screen');
+    expect(slashFirst).toBe(true);
+  });
+
   test('a Latin sentence keeps its full stop at its end', async ({ page, instanceId }) => {
     // On the rules table in Arabic, a description written in English must not
     // render as `.aimed at small children`. A full stop is direction-neutral,

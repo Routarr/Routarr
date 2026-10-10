@@ -6,6 +6,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
   import { formatTimestamp, mediaTypeKey } from '../api/format';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import Modal from '../components/Modal.svelte';
@@ -49,6 +50,8 @@
   // ---------------------------------------------------------------- creation
   let search = $state('');
   let results = $state<MediaListItem[]>([]);
+  /** How many titles matched: the search answers fifteen at most. */
+  let matched = $state(0);
   let selected = $state<MediaListItem | null>(null);
   /**
    * Derived, not captured. Reading `categories[0]` when the button is clicked
@@ -63,6 +66,7 @@
   function openCreate() {
     search = '';
     results = [];
+    matched = 0;
     searched = false;
     selected = null;
     chosenCategory = null;
@@ -78,15 +82,22 @@
   // nothing look the same otherwise.
   let searched = $state(false);
 
+  // Only the last search answers, and one the screen closed on is abandoned.
+  let finding: AbortController | null = null;
+  $effect(() => () => finding?.abort());
+
   async function find(event: SubmitEvent) {
     event.preventDefault();
     dialogError = null;
+    finding?.abort();
+    const mine = (finding = new AbortController());
     try {
-      const page = await api.getMedia({ search, per_page: 15 });
+      const page = await api.getMedia({ search, per_page: 15 }, mine.signal);
       results = page.data;
+      matched = page.pagination.total;
       searched = true;
     } catch (err) {
-      dialogError = describeError(err);
+      if (!mine.signal.aborted) dialogError = describeError(err);
     }
   }
 
@@ -94,6 +105,7 @@
 
   async function save() {
     if (!selected || saving) return;
+    const pressed = document.activeElement as HTMLElement | null;
     saving = true;
     try {
       await api.createOverride({
@@ -106,6 +118,7 @@
       await bundle.reload();
     } catch (err) {
       dialogError = describeError(err);
+      void handFocus(pressed);
     } finally {
       saving = false;
     }
@@ -162,7 +175,9 @@
                 </td>
                 <td>{override.instance_name}</td>
                 <td><span class="badge badge-value">{override.target_category}</span></td>
-                <td class="text-muted">{override.reason ?? t('None')}</td>
+                <td class="text-muted">
+                  {#if override.reason}{override.reason}{:else}<NoValue />{/if}
+                </td>
                 <td class="cell-timestamp">
                   <span>{formatTimestamp(override.created_at, i18n.language)}</span>
                   {#if override.subject}
@@ -223,10 +238,31 @@
         </button>
       </form>
 
+      <!-- Mounted before the first search, so what each one finds is announced:
+           a table drawn under the field says nothing to a screen reader. -->
+      <div role="status" class="mt-4">
+        {#if searched && results.length === 0}
+          <p class="text-muted text-sm">{t('NoMediaMatches')}</p>
+        {:else if matched > results.length}
+          <p class="text-muted text-sm">
+            {t('SearchShowingFirst', { shown: results.length, total: matched })}
+          </p>
+        {:else if searched}
+          <p class="visually-hidden">{t('CommandPaletteResults', { count: results.length })}</p>
+        {/if}
+      </div>
+
       {#if results.length > 0}
-        <TableRegion label={t('Search')} class="mt-4 scroll-y-220">
+        <TableRegion label={t('Search')} class="mt-2 scroll-y-220">
           <table>
             <caption class="visually-hidden">{t('Search')}</caption>
+            <thead>
+              <tr>
+                <th>{t('Title')}</th>
+                <th>{t('Instance')}</th>
+                <th>{t('CurrentRootFolder')}</th>
+              </tr>
+            </thead>
             <tbody>
               {#each results as media (media.id)}
                 <tr class:row-selected={selected?.id === media.id}>
@@ -249,15 +285,14 @@
                   </td>
                   <td class="text-muted">{media.instance_name}</td>
                   <td class="mono text-sm">
-                    {media.current_root_folder ?? t('None')}
+                    {#if media.current_root_folder}{media.current_root_folder}{:else}<NoValue
+                      />{/if}
                   </td>
                 </tr>
               {/each}
             </tbody>
           </table>
         </TableRegion>
-      {:else if searched}
-        <p class="text-muted text-sm mt-4">{t('NoMediaMatches')}</p>
       {/if}
 
       {#if selected}

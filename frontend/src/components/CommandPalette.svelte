@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '../api/client';
   import { runsOf } from '../api/format';
-  import { Search } from '../lib/icons';
+  import { RefreshCw, Search } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
   import { DESTINATIONS } from '../lib/navigation';
@@ -37,6 +37,8 @@
 
   let query = $state('');
   let media = $state<MediaListItem[]>([]);
+  /** The library is being asked about what was typed. */
+  let searching = $state(false);
   let cursor = $state(0);
   let explaining = $state<Explanation | null>(null);
   let error = $state<string | null>(null);
@@ -75,21 +77,28 @@
     if (term.length < 2) {
       media = [];
       error = null;
+      searching = false;
       return;
     }
-    let live = true;
+    // A search the typing has moved past is abandoned, not left to run.
+    const search = new AbortController();
+    const live = () => !search.signal.aborted;
+    searching = true;
     const timer = setTimeout(() => {
       api
-        .getMedia({ search: term, per_page: 5 })
+        .getMedia({ search: term, per_page: 5 }, search.signal)
         .then((page) => {
-          if (live) ((media = page.data), (error = null));
+          if (live()) ((media = page.data), (error = null));
         })
         .catch((cause) => {
-          if (live) ((media = []), (error = describeError(cause)));
+          if (live()) ((media = []), (error = describeError(cause)));
+        })
+        .finally(() => {
+          if (live()) searching = false;
         });
     }, 200);
     return () => {
-      live = false;
+      search.abort();
       clearTimeout(timer);
     };
   });
@@ -107,6 +116,8 @@
 
   // Only the last title chosen answers, as on the library screen.
   let asking: AbortController | null = null;
+  /** The title whose explanation is on its way, which its option says. */
+  let asked = $state<string | null>(null);
 
   async function open(row: Row) {
     if (row.kind === 'nav') {
@@ -116,12 +127,15 @@
     }
     asking?.abort();
     const mine = (asking = new AbortController());
+    asked = row.media.id;
     try {
       error = null;
       const answer = await api.explainMedia(row.media.id, mine.signal);
       if (!mine.signal.aborted) explaining = answer;
     } catch (cause) {
       if (!mine.signal.aborted) error = describeError(cause);
+    } finally {
+      if (!mine.signal.aborted) asked = null;
     }
   }
 
@@ -199,7 +213,10 @@
         <p class="palette-error" role="alert">{error}</p>
       {/if}
 
-      {#if rows.length === 0}
+      {#if rows.length === 0 && searching}
+        <!-- Until the library answers, "nothing for" is a claim it has not made. -->
+        <p class="palette-empty">{t('Loading')}</p>
+      {:else if rows.length === 0}
         <p class="palette-empty">
           {t('CommandPaletteEmpty', { query: query.trim() })}
           <span>{t('CommandPaletteHint')}</span>
@@ -239,13 +256,19 @@
                   role="option"
                   tabindex="-1"
                   aria-selected={index === cursor}
+                  aria-busy={row.kind === 'media' && asked === row.media.id}
                   onclick={() => void open(row)}
                 >
                   {#if row.kind === 'nav'}
                     <span class="palette-name">{row.label}</span>
                     <span class="palette-hint" title={row.hint}>{row.hint}</span>
                   {:else}
-                    <span class="palette-name">{row.media.title}</span>
+                    <span class="palette-name">
+                      {row.media.title}
+                      {#if asked === row.media.id}
+                        <RefreshCw size={12} class="spin" aria-hidden="true" />
+                      {/if}
+                    </span>
                     <span class="palette-meta">
                       {[
                         row.media.year ?? null,

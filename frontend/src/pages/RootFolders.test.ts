@@ -8,6 +8,8 @@ import { statusRevision } from '../lib/status.svelte';
 import { api, ApiError } from '../api/client';
 import type { Category, MappingConflict, RootFolder } from '../api/types';
 import { answerConfirmation } from '../test/confirm';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import RootFolders from './RootFolders.svelte';
 
 /**
@@ -52,6 +54,7 @@ const STRINGS = {
   CategoryDeleted: 'Category deleted',
   ConfirmRemoveDestination: 'Remove the destination {path}?',
   ConfirmDeleteCategory: 'Delete the category "{name}"?',
+  ConfirmLeaveUnsavedMappings: 'Leave without saving the folder categories? Unsaved: {count}',
 };
 
 function category(over: Partial<Category> = {}): Category {
@@ -168,6 +171,23 @@ describe('Root folders', () => {
     await waitFor(() => expect(update).toHaveBeenCalledWith('rf1', 'anime'));
   });
 
+  /** A category picked and not saved is dropped by leaving, so leaving asks first. */
+  it('asks before the screen changes under a category not saved, and stays on Cancel', async () => {
+    show([folder({ path: '/data/anime', category: null })], [category({ name: 'anime' })]);
+    const picker = await screen.findByLabelText('Category for /data/anime');
+    expect(unloading()).toBe(false);
+
+    await userEvent.selectOptions(picker, 'anime');
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe(
+      'Leave without saving the folder categories? Unsaved: 1',
+    );
+    expect(router.path).not.toBe('/rules');
+    expect(picker).toHaveValue('anime');
+  });
+
   /**
    * Mapping a category is what clears the "categories mapped to nothing"
    * warning, and the shell counts that warning in two places. It owns the
@@ -225,6 +245,22 @@ describe('Root folders', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
     await waitFor(() => expect(declare).toHaveBeenCalledWith('i1', '/media/movies/anime'));
+  });
+
+  /** Add turns disabled with the path it cleared, so the focus goes to the next path. */
+  it('hands the focus to the path field once a destination is added', async () => {
+    vi.spyOn(api, 'declareRootFolder').mockResolvedValue({
+      id: 'rf-x',
+      path: '/media/movies/anime',
+      verified: true,
+    });
+    show([folder()], []);
+
+    const path = await screen.findByLabelText('Destination folder');
+    await userEvent.type(path, '/media/movies/anime');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(document.activeElement).toBe(path));
   });
 
   it('declares a destination once however often the form is submitted', async () => {
@@ -384,7 +420,7 @@ describe('Root folders', () => {
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Remove – /data/anime' }));
 
-    expect(await answerConfirmation(null)).toBe('Remove the destination \u2068/data/anime\u2069?');
+    expect(await answerConfirmation(null)).toBe('Remove the destination /data/anime?');
     expect(remove).not.toHaveBeenCalled();
   });
 

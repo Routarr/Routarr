@@ -16,10 +16,16 @@
 </script>
 
 {#if open}
-  <!-- The question is the dialog's accessible name: it is the whole content,
-       and a separate title would say less than the sentence already does. -->
-  <Modal label={message} onClose={() => settle(null)} maxWidth={520}>
-    <p class="pre-line">{message}</p>
+  <!-- Named by what it would do and described by the question, which a
+       screen reader then reads once, as an alert dialog's description. -->
+  <Modal
+    label={choices[0] ? t(choices[0].label) : message}
+    onClose={() => settle(null)}
+    maxWidth={520}
+    alert
+    describedBy="confirm-question"
+  >
+    <p id="confirm-question" class="pre-line">{message}</p>
     <div class="dialog-actions">
       <button class="btn btn-secondary" onclick={() => settle(null)}>{t('Cancel')}</button>
       <div class="flex flex-wrap gap-2">

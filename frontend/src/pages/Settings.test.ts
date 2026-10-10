@@ -13,6 +13,7 @@ import Settings from './Settings.svelte';
 import Sources from './Sources.svelte';
 import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
 import { interceptLinks, navigate, router } from '../lib/router.svelte';
+import { unloading } from '../test/leaving';
 import { onboardingStatus } from '../test/fixtures';
 import { withBase } from '../test/base';
 import { answerConfirmation } from '../test/confirm';
@@ -42,7 +43,7 @@ const STRINGS = {
   AutoApplyWarning: 'Automatic application is armed',
   SettingsSaved: 'Saved',
   SettingsSections: 'Sections',
-  SettingsTabRouting: 'Routing',
+  SettingsTabGuardrails: 'Guardrails',
   SettingBatchLimit: 'Batch limit',
   SettingLogRetention: 'Log retention',
   SettingsTabAutomation: 'Automation',
@@ -103,6 +104,7 @@ const STRINGS = {
   SettingNotificationWebhook: 'Notification webhook',
   Remove: 'Remove',
   ConfigImportResult: 'Restored: {settings} settings.',
+  NotValidJson: 'This file is not JSON.',
   ImportReplaceQuestion: 'Replace the rules, or add to them?',
   ImportAppend: 'Add',
   ImportReplace: 'Replace',
@@ -124,13 +126,17 @@ function mount(
   auth: AuthMode = APIKEY_MODE,
   provider: ProviderOverride = {},
   page: typeof Settings = Settings,
+  direction: 'ltr' | 'rtl' = 'ltr',
 ) {
   vi.spyOn(api, 'authMode').mockResolvedValue(auth);
   vi.spyOn(api, 'getSettings').mockResolvedValue(settings);
   vi.spyOn(api, 'getCategories').mockResolvedValue([]);
   vi.spyOn(api, 'getLanguages').mockResolvedValue({
     default: 'en',
-    languages: [{ code: 'en', name: 'English', completion: 100, direction: 'ltr' }],
+    languages: [
+      { code: 'en', name: 'English', completion: 100, direction: 'ltr' },
+      { code: 'nb_NO', name: 'Norsk bokmål', completion: 100, direction: 'ltr' },
+    ],
   });
   // The backups card loads on mount, and unmocked it would reach the network.
   vi.spyOn(api, 'listBackups').mockResolvedValue({ backups: [], retention_count: 7 });
@@ -166,7 +172,7 @@ function mount(
     ],
     order: provider.order ?? ['arr'],
   });
-  return renderWithI18n(page, { strings: STRINGS });
+  return renderWithI18n(page, { strings: STRINGS, direction });
 }
 
 /** The metadata sources screen, with the same stand-ins as Settings. */
@@ -193,6 +199,7 @@ async function save(): Promise<Record<string, string>> {
     direction: 'ltr',
     strings: STRINGS,
     counts: [...SERVER_COUNTS],
+    isolated: [],
   });
   await fireEvent.click(await screen.findByRole('button', { name: 'Save' }));
   await waitFor(() => expect(update).toHaveBeenCalledTimes(1));
@@ -212,7 +219,7 @@ describe('the unattended-writing warning', () => {
 
     // The tabs, not the heading: the heading draws before the settings load,
     // and an absence checked then holds whatever the loaded screen does.
-    await screen.findByRole('tab', { name: 'Routing' });
+    await screen.findByRole('tab', { name: 'Guardrails' });
     expect(screen.queryByText('Automatic application is armed')).toBeNull();
   });
 
@@ -245,7 +252,7 @@ describe('the save bar', () => {
   it('is absent until something is edited', async () => {
     mount({ global_dry_run: 'true' });
 
-    await screen.findByRole('tab', { name: 'Routing' });
+    await screen.findByRole('tab', { name: 'Guardrails' });
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
   });
 
@@ -256,7 +263,7 @@ describe('the save bar', () => {
    */
   it('appears with a count once a field changes, and says what it covers', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
 
@@ -266,7 +273,7 @@ describe('the save bar', () => {
 
   it('sends every field of the screen, and none of the other screen', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     const payload = await save();
@@ -306,7 +313,7 @@ describe('the save bar', () => {
    */
   it('tells the shell its counters are out of date', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
 
     const before = statusRevision();
@@ -318,7 +325,7 @@ describe('the save bar', () => {
   /** Leaving drops the draft the bar counts, so the reader is asked first. */
   it('asks before leaving with unsaved changes, and stays on Cancel', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     await screen.findByText('Unsaved changes: 1');
 
@@ -331,7 +338,7 @@ describe('the save bar', () => {
 
   it('leaves once the reader agrees to drop the changes', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     await screen.findByText('Unsaved changes: 1');
 
@@ -343,7 +350,7 @@ describe('the save bar', () => {
 
   it('leaves without a question when nothing is pending', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     navigate('/rules');
 
@@ -353,12 +360,7 @@ describe('the save bar', () => {
 
   it('holds the tab open while changes are pending, and only then', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
-    const unloading = () => {
-      const event = new Event('beforeunload', { cancelable: true });
-      window.dispatchEvent(event);
-      return event.defaultPrevented;
-    };
+    await openSection('Guardrails');
     expect(unloading()).toBe(false);
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
@@ -369,7 +371,7 @@ describe('the save bar', () => {
 
   it('puts the draft back when the change is discarded', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     await screen.findByText('Unsaved changes: 1');
@@ -384,7 +386,7 @@ describe('the save bar', () => {
    */
   it('hands the focus to the open section once a save takes the bar away', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     (await screen.findByRole('button', { name: 'Save' })).focus();
 
@@ -395,7 +397,7 @@ describe('the save bar', () => {
 
   it('hands the focus to the open section once a discard takes the bar away', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     const discard = await screen.findByRole('button', { name: 'Discard' });
     discard.focus();
@@ -413,9 +415,10 @@ describe('the save bar', () => {
       direction: 'ltr',
       strings: STRINGS,
       counts: [...SERVER_COUNTS],
+      isolated: [],
     });
     mount({ batch_limit: '50' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     const field = await screen.findByLabelText('Batch limit');
     await fireEvent.input(field, { target: { value: '25' } });
     field.focus();
@@ -720,10 +723,10 @@ describe('the section strip', () => {
     window.history.replaceState({}, '', '/routarr/settings');
     mount({});
 
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     expect(window.location.pathname).toBe('/routarr/settings');
-    expect(window.location.hash).toBe('#routing');
+    expect(window.location.hash).toBe('#guardrails');
   });
 
   it('opens the section named in the URL', async () => {
@@ -749,6 +752,28 @@ describe('the section strip', () => {
 
     const general = await screen.findByRole('tab', { name: 'General' });
     await fireEvent.keyDown(general, { key: 'ArrowRight' });
+
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe(
+        'true',
+      ),
+    );
+  });
+
+  /** Each language's own name is read in that language, not as letters of another. */
+  it('marks each language of the picker with its own language', async () => {
+    mount({});
+
+    const option = await screen.findByRole('option', { name: 'Norsk bokmål' });
+    expect(option).toHaveAttribute('lang', 'nb-NO');
+  });
+
+  /** Right to left, the next tab is drawn on the left, and ArrowLeft reaches it. */
+  it('follows the writing direction with the arrow keys', async () => {
+    mount({}, APIKEY_MODE, {}, Settings, 'rtl');
+
+    const general = await screen.findByRole('tab', { name: 'General' });
+    await fireEvent.keyDown(general, { key: 'ArrowLeft' });
 
     await waitFor(() =>
       expect(screen.getByRole('tab', { name: 'Security' }).getAttribute('aria-selected')).toBe(
@@ -785,14 +810,17 @@ describe('importing a configuration', () => {
     adjusted: [],
   };
 
+  /**
+   * As the picker hands a file over: to the input, with the focus left where
+   * it was. Import opens the picker with `click()`, which focuses nothing, and
+   * an upload that clicked the input itself would put the focus on it.
+   */
   async function importFile(contents: object) {
-    // The page is a spinner while it reloads, file input included.
-    await waitFor(() => expect(document.querySelector('input[type="file"]')).not.toBeNull());
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File([JSON.stringify(contents)], 'routarr-config.json', {
       type: 'application/json',
     });
-    await userEvent.upload(input, file);
+    await fireEvent.change(input, { target: { files: [file] } });
   }
 
   /**
@@ -815,6 +843,47 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
     await waitFor(() => expect(importConfig).toHaveBeenCalledTimes(2));
     expect(importConfig).toHaveBeenLastCalledWith({ version: 1 }, false);
+  });
+
+  /**
+   * The summary goes into the region already on the page, which a screen
+   * reader announces as it changes, and the reader stays on Import. Redrawn
+   * for the reload, the region would arrive with its text and say nothing.
+   */
+  it('says the summary where it is announced, and leaves the focus on Import', async () => {
+    vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
+    mount({});
+    await openSection('Maintenance');
+    const regions = screen.getAllByRole('status');
+    const button = screen.getByRole('button', { name: 'ImportConfig' });
+    button.focus();
+
+    await importFile({ version: 1 });
+
+    const said = await waitFor(() => {
+      const region = screen
+        .getAllByRole('status')
+        .find((node) => node.textContent?.includes('Restored: 3 settings.'));
+      expect(region).toBeDefined();
+      return region;
+    });
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalledTimes(2));
+    expect(regions).toContain(said);
+    expect(document.activeElement).toBe(button);
+  });
+
+  /** A backup archive picked by mistake is said in the reader's words, not the parser's. */
+  it('says a file that is not JSON in the dictionary, and sends nothing', async () => {
+    const importConfig = vi.spyOn(api, 'importConfig');
+    mount({});
+    await openSection('Maintenance');
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(['PK\u0003\u0004'], 'routarr-backup.zip', { type: 'application/zip' });
+
+    await fireEvent.change(input, { target: { files: [file] } });
+
+    expect(await screen.findByText('This file is not JSON.')).toBeInTheDocument();
+    expect(importConfig).not.toHaveBeenCalled();
   });
 
   it('re-reads the settings it just overwrote', async () => {
@@ -864,7 +933,7 @@ describe('importing a configuration', () => {
   it('replaces an unsaved edit with the values it wrote', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true', batch_limit: '50' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     await openSection('Maintenance');
     vi.mocked(api.getSettings).mockResolvedValue({ global_dry_run: 'true', batch_limit: '25' });
@@ -872,7 +941,7 @@ describe('importing a configuration', () => {
     await importFile({ version: 1 });
 
     await screen.findByText('Restored: 3 settings.');
-    await openSection('Routing');
+    await openSection('Guardrails');
     await waitFor(() =>
       expect((screen.getByLabelText('Batch limit') as HTMLInputElement).value).toBe('25'),
     );
@@ -887,7 +956,7 @@ describe('importing a configuration', () => {
   it('drops an edit made before it even when the read after it fails', async () => {
     vi.spyOn(api, 'importConfig').mockResolvedValue(BUNDLE);
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     await openSection('Maintenance');
     vi.mocked(api.getSettings)
@@ -899,7 +968,7 @@ describe('importing a configuration', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
 
     await waitFor(() => expect(screen.queryByText('The settings could not be read')).toBeNull());
-    await openSection('Routing');
+    await openSection('Guardrails');
     expect((screen.getByLabelText('Global dry-run') as HTMLSelectElement).value).toBe('true');
     expect(screen.queryByText('Unsaved changes: 1')).toBeNull();
   });
@@ -1100,7 +1169,7 @@ describe('the API key card', () => {
 describe('a number outside its bounds', () => {
   it('disables Save and marks the field, until it is back in range', async () => {
     mount({ batch_limit: '50' });
-    await openSection('Routing');
+    await openSection('Guardrails');
 
     const field = (await screen.findByLabelText('Batch limit')) as HTMLInputElement;
     expect(field.getAttribute('min')).toBe('1');
@@ -1124,7 +1193,7 @@ describe('a number outside its bounds', () => {
    */
   it('says the bounds under the field, and why Save waits', async () => {
     mount({ batch_limit: '50' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     const field = await screen.findByLabelText('Batch limit');
 
     await fireEvent.input(field, { target: { value: '0' } });
@@ -1141,7 +1210,7 @@ describe('a number outside its bounds', () => {
   /** From another tab, the field that holds Save is out of sight. */
   it('marks the tab that holds a value outside its bounds', async () => {
     mount({ batch_limit: '50' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await fireEvent.input(await screen.findByLabelText('Batch limit'), {
       target: { value: '0' },
     });
@@ -1149,7 +1218,7 @@ describe('a number outside its bounds', () => {
     await openSection('General');
 
     expect(
-      screen.getByRole('tab', { name: 'Routing: a value is outside its bounds' }),
+      screen.getByRole('tab', { name: 'Guardrails: a value is outside its bounds' }),
     ).toBeTruthy();
     expect(screen.getByRole('tab', { name: 'General' })).toBeTruthy();
   });
@@ -1163,7 +1232,7 @@ describe('a refused save', () => {
    */
   it('offers no retry, and keeps every edit', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     vi.spyOn(api, 'updateSettings').mockRejectedValue(
       new ApiError('The batch limit is out of range', 400, 'bad_request'),
@@ -1180,7 +1249,7 @@ describe('a refused save', () => {
   /** Save guards against a second press while one runs, and a refusal ends the run. */
   it('sends the next save once the refused one is answered', async () => {
     mount({ global_dry_run: 'true' });
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
     const update = vi
       .spyOn(api, 'updateSettings')
@@ -1206,7 +1275,7 @@ describe('a refused save', () => {
     cleanup();
     renderWithI18n(Settings, { strings: STRINGS });
     await screen.findByText('The settings could not be read');
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
 
     expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
@@ -1235,7 +1304,7 @@ describe('a refused save', () => {
     cleanup();
     renderWithI18n(Settings, { strings: STRINGS });
     await screen.findByText('The settings could not be read');
-    await openSection('Routing');
+    await openSection('Guardrails');
     await userEvent.selectOptions(await screen.findByLabelText('Global dry-run'), 'false');
 
     await fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
@@ -1275,7 +1344,7 @@ describe('the getting-started guide', () => {
       await fireEvent.click(await screen.findByRole('link', { name: 'Open the routing settings' }));
 
       await waitFor(() => expect(window.location.pathname).toBe('/settings'));
-      expect(window.location.hash).toBe('#routing');
+      expect(window.location.hash).toBe('#guardrails');
     } finally {
       stop();
     }
@@ -1287,10 +1356,13 @@ describe('the getting-started guide', () => {
     mount({});
     await screen.findByRole('tab', { name: 'General' });
 
-    navigate('/settings#routing');
+    navigate('/settings#guardrails');
 
     await waitFor(() =>
-      expect(screen.getByRole('tab', { name: 'Routing' })).toHaveAttribute('aria-selected', 'true'),
+      expect(screen.getByRole('tab', { name: 'Guardrails' })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      ),
     );
   });
 

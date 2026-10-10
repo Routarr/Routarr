@@ -33,6 +33,11 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    // The browsers the README promises: current Chrome and Edge, Firefox from
+    // its extended support release, Safari of the last two years. The code and
+    // the stylesheet use what these have, `:has()` and `AbortSignal.any` among
+    // them, with no fallback for an older one.
+    target: ['chrome130', 'edge130', 'firefox140', 'safari18'],
 
     rollupOptions: {
       output: {
@@ -51,12 +56,12 @@ export default defineConfig({
     },
   },
 
-  // Take Svelte's browser build, not its server one. Without this a component
-  // under test renders to a string with no DOM behind it, and every query for a
-  // role or a label finds nothing.
-  resolve: {
-    conditions: ['browser'],
-  },
+  // Under test, take Svelte's browser build, not its server one. Without this a
+  // component renders to a string with no DOM behind it, and every query for a
+  // role or a label finds nothing. Under test only: the setting replaces
+  // Vite's own conditions, and the dev server would then run Svelte without
+  // its development checks.
+  resolve: process.env.VITEST ? { conditions: ['browser'] } : undefined,
 
   test: {
     // jsdom, not happy-dom, which does not drive `<select>` the way Svelte's
@@ -94,10 +99,10 @@ export default defineConfig({
       // floor sees that one: a file nothing renders measures nothing, and a
       // file whose functions nothing calls measures its declarations alone.
       thresholds: {
-        statements: 94,
-        branches: 83,
-        functions: 92,
-        lines: 94,
+        statements: 95,
+        branches: 85,
+        functions: 93,
+        lines: 95,
         perFile: { statements: 30, branches: 30, functions: 30, lines: 30 },
       },
     },

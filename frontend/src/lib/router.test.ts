@@ -35,13 +35,13 @@ describe('navigation', () => {
     window.addEventListener('hashchange', listen);
     try {
       navigate('/settings#metadata');
-      navigate('/settings#routing');
-      navigate('/settings#routing');
+      navigate('/settings#guardrails');
+      navigate('/settings#guardrails');
     } finally {
       window.removeEventListener('hashchange', listen);
     }
 
-    expect(heard).toEqual(['#routing']);
+    expect(heard).toEqual(['#guardrails']);
   });
 
   /** As a link does in the browser: Back would otherwise take two presses to leave. */
@@ -73,6 +73,36 @@ describe('navigation', () => {
     navigate('/');
 
     expect(router.path).toBe('/');
+  });
+
+  /**
+   * A bookmark or a proxy may add a slash: `/rules/` is the Rules screen, not
+   * a page that is not found under a menu marking Rules current.
+   */
+  it('takes a path with a trailing slash for the screen without it', () => {
+    const stop = interceptLinks();
+    try {
+      for (const base of ['', '/routarr/']) {
+        withBase(base || null);
+        window.history.replaceState({}, '', `${base.replace(/\/$/, '')}/rules/`);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+
+        expect(router.path).toBe('/rules');
+      }
+    } finally {
+      stop();
+    }
+  });
+
+  it('writes the address of a screen reached with a trailing slash without it', async () => {
+    window.history.replaceState({}, '', '/rules/?from=bookmark#top');
+    vi.resetModules();
+
+    const loaded = await import('./router.svelte');
+
+    expect(loaded.router.path).toBe('/rules');
+    const { pathname, search, hash } = window.location;
+    expect(`${pathname}${search}${hash}`).toBe('/rules?from=bookmark#top');
   });
 
   /** `/routarr` is a prefix of `/routarrX`, which is not under it. */
@@ -272,10 +302,10 @@ describe('a screen that guards its work', () => {
   it('asks nothing for another section of the same screen', () => {
     const asked = guarded(false);
 
-    navigate('/settings#routing');
+    navigate('/settings#guardrails');
 
     expect(asked).not.toHaveBeenCalled();
-    expect(window.location.hash).toBe('#routing');
+    expect(window.location.hash).toBe('#guardrails');
   });
 
   it('puts the address back when Back is refused', async () => {

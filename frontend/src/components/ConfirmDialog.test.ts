@@ -23,6 +23,18 @@ const STRINGS = {
 const show = () => renderWithI18n(ConfirmDialog, { strings: STRINGS });
 
 describe('ConfirmDialog', () => {
+  /**
+   * An alert dialog, named by what it would do and described by its question:
+   * named by the question, it read the question twice.
+   */
+  it('is an alert dialog named by its action and described by its question', async () => {
+    show();
+    void askConfirmation('Delete "Anime"?', 'Delete');
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Delete' });
+    expect(dialog).toHaveAccessibleDescription('Delete "Anime"?');
+  });
+
   it('answers nothing when Cancel is pressed', async () => {
     show();
     const answer = askConfirmation('Delete "Anime"?', 'Delete');
@@ -30,7 +42,7 @@ describe('ConfirmDialog', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
 
     expect(await answer).toBe(false);
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryByRole('alertdialog')).toBeNull();
   });
 
   it('answers nothing on Escape', async () => {
@@ -41,7 +53,10 @@ describe('ConfirmDialog', () => {
     ]);
 
     // Escape reaches a `<dialog>` as its `cancel` event.
-    await fireEvent(await screen.findByRole('dialog'), new Event('cancel', { cancelable: true }));
+    await fireEvent(
+      await screen.findByRole('alertdialog'),
+      new Event('cancel', { cancelable: true }),
+    );
 
     expect(await answer).toBeNull();
   });

@@ -8,8 +8,8 @@
    * scrolls has to be focusable or a keyboard never reaches what is off-screen
    * (axe's `scrollable-region-focusable`). Svelte's `a11y_no_noninteractive_tabindex`
    * flags the same attribute, since a focusable region must be named: it is,
-   * by the caption of the table it holds. One component carries both the
-   * attributes and the one place the two rules have to be reconciled.
+   * by the caption of the table it holds. One component carries both for
+   * every table.
    */
   let {
     label,

@@ -2,9 +2,10 @@
   import { Play, RefreshCw } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
+  import { poll } from '../lib/poll.svelte';
   import { href } from '../lib/router.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatRelative, formatTimestamp } from '../api/format';
+  import { formatCount, formatRelative, formatTimestamp } from '../api/format';
   import { createOutcome } from '../lib/outcome.svelte';
   import { onboarding } from '../lib/onboarding.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
@@ -44,6 +45,11 @@
   async function refresh() {
     await Promise.all([quick.reload(), probed.reload()]);
   }
+  // Its relative times and counts follow on their own while it is open.
+  poll(
+    () => void refresh(),
+    () => 60_000,
+  );
 </script>
 
 <div>
@@ -53,8 +59,12 @@
       <p class="page-subtitle">{t('DashboardSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-secondary" onclick={() => void refresh()}>
-        <RefreshCw size={16} />
+      <button
+        class="btn btn-secondary"
+        onclick={() => void refresh()}
+        aria-busy={quick.loading || probed.loading}
+      >
+        <RefreshCw size={16} class={quick.loading || probed.loading ? 'spin' : ''} />
         {t('Refresh')}
       </button>
     </div>
@@ -101,7 +111,7 @@
            saying where to look. -->
       <div class="headline">
         <div>
-          <div class="headline-value">{stats.pending_decisions}</div>
+          <div class="headline-value">{formatCount(stats.pending_decisions, i18n.language)}</div>
           <div class="headline-label">{t('PendingDecisions')}</div>
         </div>
         <!-- The one primary action of the screen, unless the guide shows:
@@ -167,8 +177,15 @@
                       {instance.instance_type}
                     </span>
                   </td>
-                  <td><InstanceStatus status={instance.status} /></td>
-                  <td>{instance.media_count}</td>
+                  <td>
+                    <!-- Still unchecked once the probe failed is not being checked. -->
+                    <InstanceStatus
+                      status={probed.error && instance.status === 'unchecked'
+                        ? 'unknown'
+                        : instance.status}
+                    />
+                  </td>
+                  <td><Count value={instance.media_count} /></td>
                   <td><Count value={instance.mapped_root_folders} /></td>
                   <td
                     class="cell-timestamp"

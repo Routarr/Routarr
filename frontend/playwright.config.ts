@@ -10,6 +10,18 @@ import { defineConfig, devices } from '@playwright/test';
  * needs a throwaway database and a fake Arr on a known port, and both have to
  * be torn down afterwards.
  */
+/**
+ * The engines the README promises to support, one run of the whole suite each.
+ * Chromium unless `ROUTARR_E2E_BROWSER` names another, as each CI job does.
+ */
+const ENGINES = {
+  chromium: devices['Desktop Chrome'],
+  firefox: devices['Desktop Firefox'],
+  webkit: devices['Desktop Safari'],
+};
+const engine = (process.env.ROUTARR_E2E_BROWSER ?? 'chromium') as keyof typeof ENGINES;
+if (!(engine in ENGINES)) throw new Error(`ROUTARR_E2E_BROWSER names no engine: ${engine}`);
+
 export default defineConfig({
   testDir: './e2e',
   // The suite drives one shared server with real state, so the tests are
@@ -29,5 +41,5 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [{ name: engine, use: { ...ENGINES[engine] } }],
 });

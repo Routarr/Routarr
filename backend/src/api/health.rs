@@ -815,7 +815,11 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
                 "source_key_unlisted",
                 localizer.translate(
                     "WarnProviderKeyUnlisted",
-                    &[("provider", provider.display_name), ("variable", variable)],
+                    &[
+                        ("provider", provider.display_name),
+                        ("variable", variable),
+                        ("screen", &localizer.translate("MetadataSources", &[])),
+                    ],
                 ),
             ));
         }

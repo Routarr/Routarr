@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { SCREENS } from '../lib/routes';
 import { renderWithI18n } from '../test/render';
+import { nthCall } from '../test/spy';
 import { media as film, explainedMedia } from '../test/fixtures';
 import type { MediaListItem } from '../api/types';
 import { api } from '../api/client';
@@ -26,6 +27,7 @@ const STRINGS = {
   CommandPaletteEmpty: 'Nothing for "{query}".',
   CommandPaletteHint: 'The library is searched by title.',
   CommandPaletteResults: 'Results: {count}',
+  Loading: 'Loading…',
   MediaExplorer: 'Library',
   Dashboard: 'Dashboard',
   RulesEngine: 'Rules',
@@ -128,9 +130,28 @@ describe('CommandPalette', () => {
 
     const row = await screen.findByText('Spirited Away');
     expect(getMedia).toHaveBeenCalledTimes(1);
-    expect(getMedia).toHaveBeenCalledWith({ search: 'spirited', per_page: 5 });
+    expect(getMedia).toHaveBeenCalledWith(
+      { search: 'spirited', per_page: 5 },
+      expect.any(AbortSignal),
+    );
     // What tells one film from another with the same name.
     expect(row.nextElementSibling).toHaveTextContent('2001 · Radarr · anime');
+  });
+
+  /** A search the typing has moved past is abandoned, not left to run on the server. */
+  it('abandons the search a new term replaces', async () => {
+    const getMedia = vi.spyOn(api, 'getMedia').mockReturnValue(new Promise(() => {}));
+    show();
+    await screen.findAllByRole('option');
+    const field = screen.getByRole('combobox');
+
+    await userEvent.type(field, 'akira');
+    await waitFor(() => expect(getMedia).toHaveBeenCalledTimes(1));
+    const first = nthCall(getMedia)[1];
+    expect(first?.aborted).toBe(false);
+
+    await userEvent.type(field, ' 2');
+    await waitFor(() => expect(first?.aborted).toBe(true));
   });
 
   it('says nothing rather than showing an empty box', async () => {
@@ -143,6 +164,26 @@ describe('CommandPalette', () => {
 
     await userEvent.type(screen.getByRole('combobox'), 'zzzz');
     expect(await screen.findByText(/Nothing for/)).toHaveTextContent('Nothing for "zzzz".');
+  });
+
+  /** "Nothing for" before the library answered is a claim it has not made yet. */
+  it('says it is searching until the library answers, not that nothing matched', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'getMedia').mockReturnValue(
+      new Promise((resolve) => {
+        answer = () =>
+          resolve({ data: [], pagination: { page: 1, per_page: 5, total: 0 } } as never);
+      }),
+    );
+    show();
+    await screen.findAllByRole('option');
+
+    await userEvent.type(screen.getByRole('combobox'), 'zzzz');
+
+    expect(await screen.findByText('Loading…')).toBeInTheDocument();
+    expect(screen.queryByText(/Nothing for/)).toBeNull();
+    answer();
+    expect(await screen.findByText(/Nothing for/)).toBeInTheDocument();
   });
 
   /**
@@ -225,6 +266,25 @@ describe('CommandPalette', () => {
     await vi.waitFor(() => expect(explain).toHaveBeenCalledWith('m-1', expect.any(AbortSignal)));
     // The router never moved: the question was answered where it was asked.
     expect(router.path).not.toBe('/library');
+  });
+
+  /** The panel arrives a moment later, and the title asked about says so meanwhile. */
+  it('marks the title being explained as busy', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue({
+      data: [media()],
+      pagination: { page: 1, per_page: 5, total: 1 },
+    } as never);
+    vi.spyOn(api, 'explainMedia').mockReturnValue(new Promise(() => {}));
+    show();
+    await screen.findAllByRole('option');
+
+    await userEvent.type(screen.getByRole('combobox'), 'spirited');
+    await fireEvent.click(await screen.findByText('Spirited Away'));
+
+    expect(screen.getByRole('option', { name: /Spirited Away/ })).toHaveAttribute(
+      'aria-busy',
+      'true',
+    );
   });
 
   /**

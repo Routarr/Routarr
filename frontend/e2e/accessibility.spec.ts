@@ -1,7 +1,7 @@
 import AxeBuilder from '@axe-core/playwright';
 import type { Page } from '@playwright/test';
 
-import { test, expect, api, openScreen, unfold } from './fixtures';
+import { test, expect, api, openScreen, unfold, AXE_TAGS } from './fixtures';
 import { moveAkira, seedRows, simulate } from './seed';
 import { SCREENS, SETTINGS_SECTIONS } from './screens';
 import { screenKey } from '../src/lib/routes';
@@ -251,13 +251,9 @@ test('every table on every screen carries a caption', async ({ page }) => {
 
 /**
  * The checks above are written for this interface. axe-core is the reference
- * nobody here wrote: WCAG 2.1 A and AA, every screen, so a failure names a rule
+ * nobody here wrote: WCAG 2.2 A and AA, every screen, so a failure names a rule
  * and not an opinion.
  */
-// `best-practice` on top of the standard: it is the tag that carries
-// `empty-table-header`, which the WCAG tags do not, so an unnamed column
-// header passes under them alone.
-const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'];
 
 /**
  * The bound of a test that opens every screen and every Settings section and
@@ -269,11 +265,19 @@ const SWEEP_TIMEOUT = 120_000;
 /**
  * Every screen and every Settings section, in both themes: the light palette
  * is a second set of colours, and contrast measured in one says nothing of the
- * other.
+ * other. Once more at the width of the rail, between a phone and a desktop,
+ * where the navigation is drawn otherwise.
  */
-for (const theme of ['dark', 'light']) {
-  test(`every screen passes axe at WCAG 2.1 AA in the ${theme} theme`, async ({ page }) => {
+for (const [theme, width] of [
+  ['dark', 1280],
+  ['light', 1280],
+  ['dark', 1000],
+] as const) {
+  test(`every screen passes axe at WCAG 2.2 AA in the ${theme} theme at ${width}px`, async ({
+    page,
+  }) => {
     test.setTimeout(SWEEP_TIMEOUT);
+    await page.setViewportSize({ width, height: 900 });
     await api('/settings', {
       method: 'PUT',
       body: JSON.stringify({ settings: { ui_theme: theme } }),
@@ -313,6 +317,31 @@ test('a focused field is outlined when the system forces its colours', async ({ 
   expect(parseFloat(outline.width)).toBeGreaterThan(0);
   expect(outline.color).not.toBe('rgba(0, 0, 0, 0)');
 });
+
+/**
+ * A row's action menu is walked with the arrows, and the action Enter would
+ * run, Delete among them, has to show which it is, in forced colours too.
+ */
+for (const forced of ['none', 'active'] as const) {
+  test(`the focused item of a row's menu is outlined, forced colours ${forced}`, async ({
+    page,
+  }) => {
+    await page.emulateMedia({ forcedColors: forced });
+    await openScreen(page, '/instances');
+    const actions = page.getByRole('button', { name: /^Actions – / }).first();
+    await actions.focus();
+    await page.keyboard.press('ArrowDown');
+
+    const item = page.getByRole('menuitem').first();
+    await expect(item).toBeFocused();
+    const outline = await item.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { style: style.outlineStyle, width: style.outlineWidth };
+    });
+    expect(outline.style).not.toBe('none');
+    expect(parseFloat(outline.width)).toBeGreaterThan(0);
+  });
+}
 
 /**
  * A dozen navigation links stand between the top of the page and its content.
@@ -359,6 +388,37 @@ test('each screen names itself in the tab and takes the focus it was reached wit
     .click();
   await expect(page.getByRole('heading', { level: 1 })).toBeFocused();
   await expect(page).toHaveTitle(`${strings.Logs} · Routarr`);
+});
+
+/**
+ * The screen a browser without a session opens on in the default mode, which
+ * the sweep never reaches: its page holds a session from the start.
+ */
+test('the key screen passes axe', async ({ browser }) => {
+  // A new context starts cold, and in Firefox on a CI runner its first page
+  // alone can take most of the default bound.
+  test.setTimeout(60_000);
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.goto('/', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByLabel('Routarr API key')).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
+  expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
+  await context.close();
+});
+
+/**
+ * Between a phone and a desktop the navigation is a rail of icons. An entry
+ * that counts what waits behind it is still named by its destination first,
+ * which is what a voice command says and what a screen reader reads.
+ */
+test('a rail entry with a count is named by its destination first', async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await openScreen(page, '/');
+
+  const nav = page.getByRole('navigation', { name: 'Main navigation' });
+  await expect(nav.getByRole('link', { name: /^Simulation .+: \d+$/ })).toBeVisible();
 });
 
 /**
@@ -412,11 +472,17 @@ test.describe('the keyboard reaches every control', () => {
           });
         });
 
-        const reached = new Set<number>();
-        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        // From the first control, as a reader starts. A blur leaves each browser
+        // a starting point of its own, Firefox the place the focus was.
+        const reached = new Set<number>([0]);
+        await page.locator('[data-keyboard-sweep="0"]').focus();
         for (let press = 0; press < expected.length * 2 + 20; press += 1) {
           await page.keyboard.press('Tab');
-          const focused = await page.evaluate(() => {
+          const focused = await page.evaluate(async () => {
+            // WebKit scrolls a newly focused control into view a frame later.
+            await new Promise((settled) =>
+              requestAnimationFrame(() => requestAnimationFrame(settled)),
+            );
             const el = document.activeElement as HTMLElement | null;
             if (!el || el === document.body) return null;
             const box = el.getBoundingClientRect();
@@ -457,7 +523,7 @@ test.describe('the keyboard reaches every control', () => {
  */
 test.describe('a button keeps the focus through the action it runs', () => {
   const BUTTONS: { path: string; name: RegExp }[] = [
-    { path: '/instances', name: /^Sync now – / },
+    { path: '/instances', name: /^Sync now – Radarr$/ },
     { path: '/instances', name: /^Sync all$/ },
     { path: '/simulation', name: /^Run simulation$/ },
     { path: '/settings#maintenance', name: /^Back up now$/ },
@@ -561,6 +627,8 @@ const MODALS: {
   covers: string;
   /** The name of the dialog swept, for one opened above another. */
   named?: string;
+  /** `alertdialog` for a question that interrupts, a plain dialog otherwise. */
+  role?: 'dialog' | 'alertdialog';
   open: (page: Page) => Promise<void>;
 }[] = [
   {
@@ -625,6 +693,7 @@ const MODALS: {
     // A confirmation, the one a destructive action puts in front of everybody.
     path: '/rules',
     covers: 'components/ConfirmDialog.svelte',
+    role: 'alertdialog',
     open: async (p) => {
       await p
         .getByRole('button', { name: /^Actions – / })
@@ -665,7 +734,7 @@ test('every modal names itself and every control inside it', async ({ page }) =>
     await openScreen(page, modal.path);
     await modal.open(page);
 
-    const dialog = page.getByRole('dialog', modal.named ? { name: modal.named } : {});
+    const dialog = page.getByRole(modal.role ?? 'dialog', modal.named ? { name: modal.named } : {});
     await expect(dialog, `${modal.path} #${index} did not open`).toBeVisible();
 
     const found = await dialog.evaluate((root) => {

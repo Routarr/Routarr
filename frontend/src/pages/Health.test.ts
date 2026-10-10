@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen, within } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { health, healthInstance, warning } from '../test/fixtures';
@@ -36,6 +36,20 @@ const withProviders = (list: Health['metadata']['providers']) =>
 afterEach(() => vi.restoreAllMocks());
 
 describe('Diagnostics', () => {
+  /** A re-check waits out every Arr that does not answer, and says it is running. */
+  it('says the re-check is running until it ends', async () => {
+    vi.spyOn(api, 'getHealth')
+      .mockResolvedValueOnce(health())
+      .mockReturnValue(new Promise(() => {}));
+    show();
+    const recheck = await screen.findByRole('button', { name: 'Recheck' });
+    await waitFor(() => expect(recheck).not.toHaveAttribute('aria-busy', 'true'));
+
+    await fireEvent.click(recheck);
+
+    expect(recheck).toHaveAttribute('aria-busy', 'true');
+  });
+
   it('says everything checks out rather than leaving the page silent', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
@@ -127,7 +141,7 @@ describe('Diagnostics', () => {
     expect(within(row).queryByText('connected')).toBeNull();
   });
 
-  it('reports an instance failure in its words, and what the server ran into in the title', async () => {
+  it('reports an instance failure in its words, and what the server ran into beside them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({
         instances: [healthInstance({ status: 'error: connection refused', version: null })],
@@ -136,7 +150,7 @@ describe('Diagnostics', () => {
     show();
 
     const failed = await screen.findByText('error');
-    expect(failed.getAttribute('title')).toBe('connection refused');
+    expect(failed.closest('td')).toHaveTextContent('connection refused');
   });
 
   /**
@@ -151,9 +165,10 @@ describe('Diagnostics', () => {
     const { container } = show();
 
     await screen.findByText('Radarr');
-    const cell = container.querySelector('.num') as HTMLElement;
-    expect(cell.textContent).toBe('0');
-    expect(cell.className).not.toContain('danger');
+    // The row's titles are a count too, so the cell is the one reading 0.
+    const cell = [...container.querySelectorAll('.num')].find((node) => node.textContent === '0');
+    expect(cell).toBeDefined();
+    expect(cell?.className).not.toContain('danger');
   });
 
   it('invites a first instance instead of showing an empty table', async () => {

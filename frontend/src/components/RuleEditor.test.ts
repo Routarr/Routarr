@@ -4,7 +4,11 @@ import userEvent from '@testing-library/user-event';
 
 import { renderWithI18n } from '../test/render';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 import { nthCall } from '../test/spy';
+import { instance } from '../test/fixtures';
+import { unloading } from '../test/leaving';
+import { navigate, router } from '../lib/router.svelte';
 import { ApiError, api } from '../api/client';
 import type { PreviewChange, RuleDraft, SimulationSummary } from '../api/types';
 import RuleEditor from './RuleEditor.svelte';
@@ -35,6 +39,8 @@ const STRINGS = {
   Cancel: 'Cancel',
   Dismiss: 'Close',
   ConfirmDiscardRule: 'Close the rule without saving?',
+  Instances: 'Instances',
+  PriorityHint: 'Lower numbers are evaluated first',
 };
 
 const DRAFT: RuleDraft = {
@@ -72,6 +78,10 @@ function render(ruleId?: string, extra: Record<string, unknown> = {}) {
       draft: DRAFT,
       ruleId,
       categories: [],
+      instances: [
+        instance({ id: 'i1', name: 'Radarr 4K' }),
+        instance({ id: 'i2', name: 'Sonarr', instance_type: 'sonarr' }),
+      ],
       catalog: { conditions: [] },
       onClose: () => {},
       onSaved: async () => {},
@@ -120,6 +130,18 @@ describe('RuleEditor', () => {
    * English inside a 422 the live check swallows, and Save would stay lit on a
    * rule that cannot be saved.
    */
+  /** Which way the order runs is said under the field, where a keyboard reaches it too. */
+  it('says under the priority which rule is evaluated first', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+
+    expect(await screen.findByLabelText('Priority')).toHaveAccessibleDescription(
+      'Lower numbers are evaluated first',
+    );
+    // As text on the page: a title describes the field too, to a mouse alone.
+    expect(screen.getByText('Lower numbers are evaluated first')).toBeInTheDocument();
+  });
+
   it('holds Save on a fractional priority and says why', async () => {
     vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
     render();
@@ -389,12 +411,59 @@ describe('RuleEditor', () => {
     expect(await screen.findByText('A rule needs a name')).toBeInTheDocument();
     expect(create).not.toHaveBeenCalled();
   });
+
+  /** Save turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Save once a save is refused', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    let refuse = () => {};
+    vi.spyOn(api, 'createRule').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new ApiError('Refused', 400, 'invalid')))),
+    );
+    render();
+    await touch();
+
+    const save = screen.getByRole('button', { name: 'Save rule' });
+    await userEvent.click(save);
+    await waitFor(() => expect(save).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(save));
+  });
 });
 
 /**
  * `Rules` already holds the facets for its panel, and the editor asking again
  * would aggregate the whole library a second time every time it opens.
  */
+/** No instance ticked is every instance, which is what a rule covers unless told otherwise. */
+describe('the instances a rule is kept to', () => {
+  it('sends the instances ticked, and none once every box is cleared', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    const create = vi.spyOn(api, 'createRule').mockResolvedValue(undefined as never);
+    render();
+
+    const radarr = await screen.findByRole('checkbox', { name: 'Radarr 4K' });
+    await userEvent.click(radarr);
+    await userEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(nthCall(create)[0]).toMatchObject({ instance_ids: ['i1'] });
+
+    await userEvent.click(radarr);
+    await userEvent.click(screen.getByRole('button', { name: 'Save rule' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(nthCall(create, 1)[0]).toMatchObject({ instance_ids: null });
+  });
+
+  it('opens a rule with the instances it is kept to ticked', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render('r1', { draft: { ...DRAFT, instance_ids: ['i2'] } });
+
+    expect(await screen.findByRole('checkbox', { name: 'Sonarr' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Radarr 4K' })).not.toBeChecked();
+  });
+});
+
 describe('the facets the parent already holds', () => {
   it('are used as they are, without a second request', async () => {
     render(undefined, {
@@ -499,6 +568,32 @@ describe('the impact preview', () => {
     expect(await screen.findByText('The simulation is already running')).toBeTruthy();
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime');
   });
+
+  /** The preview button turns disabled while it asks, which drops its focus out of the dialog. */
+  it('gives the focus back to the preview button once the preview is shown', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'previewRule').mockReturnValue(
+      new Promise((resolve) => {
+        answer = () =>
+          resolve({
+            issues: [],
+            before: summary(2),
+            after: summary(3),
+            changed: [],
+            changed_total: 0,
+          });
+      }),
+    );
+    open();
+
+    const button = await screen.findByRole('button', { name: 'Preview impact' });
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toBeDisabled());
+    dropFocus();
+    answer();
+
+    await waitFor(() => expect(document.activeElement).toBe(button));
+  });
 });
 
 /**
@@ -529,6 +624,20 @@ describe('closing the editor', () => {
     expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
 
     expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
+  });
+
+  /** Back, a link or a reload drops a half-written rule as surely as Cancel. */
+  it('asks before the screen changes under a changed rule, and stays on Cancel', async () => {
+    vi.spyOn(api, 'validateRule').mockResolvedValue({ valid: true, issues: [] });
+    render();
+    expect(unloading()).toBe(false);
+    await touch();
+
+    expect(unloading()).toBe(true);
+    navigate('/rules');
+    expect(await answerConfirmation(null)).toBe('Close the rule without saving?');
+    expect(router.path).not.toBe('/rules');
     expect(screen.getByLabelText('Rule name')).toHaveValue('Anime!');
   });
 

@@ -99,6 +99,17 @@ describe('Media explorer', () => {
     expect(badge.className).toContain('muted');
   });
 
+  /** The icon is for the eye: a screen reader is told the type in a word. */
+  it('says whether a title is a film or a series in words', async () => {
+    show([
+      media({ id: 'm1', title: 'Akira', media_type: 'movie' }),
+      media({ id: 'm2', title: 'Monster', media_type: 'series' }),
+    ]);
+
+    expect(await screen.findByRole('row', { name: /Akira/ })).toHaveTextContent('Movies');
+    expect(screen.getByRole('row', { name: /Monster/ })).toHaveTextContent('Series');
+  });
+
   it('asks the server to explain the row that was clicked', async () => {
     const explain = vi.spyOn(api, 'explainMedia').mockResolvedValue({
       media: explainedMedia({ id: 'm7', current_path: '/data/films/Akira' }),
@@ -117,6 +128,22 @@ describe('Media explorer', () => {
     await fireEvent.click(await screen.findByRole('button', { name: 'Why? – Akira' }));
 
     await waitFor(() => expect(explain).toHaveBeenCalledWith('m7', expect.any(AbortSignal)));
+  });
+
+  /** A question that runs for seconds says it is being answered. */
+  it('marks the row being explained as busy until its answer arrives', async () => {
+    let answer = () => {};
+    vi.spyOn(api, 'explainMedia').mockReturnValue(
+      new Promise((_, reject) => (answer = () => reject(new Error('refused')))),
+    );
+    show([media({ id: 'm7', title: 'Akira' })]);
+    const why = await screen.findByRole('button', { name: 'Why? – Akira' });
+
+    await fireEvent.click(why);
+    expect(why).toHaveAttribute('aria-busy', 'true');
+    answer();
+
+    await waitFor(() => expect(why).not.toHaveAttribute('aria-busy', 'true'));
   });
 
   /**

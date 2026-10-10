@@ -57,4 +57,21 @@ describe('Pager', () => {
     await fireEvent.click(previous);
     expect(screen.getByTestId('page')).toHaveTextContent('1');
   });
+
+  /**
+   * At the last page the pressed Next turns disabled, which drops the focus
+   * to the page's start: it goes to Previous, where the reader can go on.
+   */
+  it('hands the focus to the other button when the pressed one reaches an end', async () => {
+    show(pages(1, 2));
+    const previous = screen.getByRole('button', { name: 'Previous' });
+    const next = screen.getByRole('button', { name: 'Next' });
+    next.focus();
+
+    await fireEvent.click(next);
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(screen.getByTestId('page')).toHaveTextContent('2');
+    expect(document.activeElement).toBe(previous);
+  });
 });

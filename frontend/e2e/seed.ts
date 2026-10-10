@@ -1,21 +1,24 @@
-import { api, apiWhenFree } from './fixtures';
+import { api, apiWhenFree, ARR } from './fixtures';
 
 /**
- * A row in every table the screens draw: two rules, an exception, a pinned
- * case, an application key, a move applied and one still proposed. The reset library has none of
- * them, and a sweep over a table with no rows checks its header and nothing a
- * row carries: a row action, a checkbox, a badge.
+ * A row in every table the screens draw: three rules, one of them switched
+ * off, a second instance switched off, an exception, a pinned case, an
+ * application key, a move applied and one still proposed. The reset library
+ * has none of them, and a sweep over a table with no rows checks its header
+ * and nothing a row carries: a row action, a checkbox, a badge, the colours
+ * of a row switched off.
  *
  * The two rules differ in name on purpose: two rows called the same thing are
  * ambiguous however they are labelled, a different defect from labelling every
  * row action "Delete".
  */
 export async function seedRows(): Promise<void> {
-  const rules: [string, string, number, string[]][] = [
-    ['Japanese animation', 'anime', 10, ['akira', 'totoro', 'perfect blue']],
-    ['Science fiction', 'standard', 20, ['matrix']],
+  const rules: [string, string, number, string[], boolean][] = [
+    ['Japanese animation', 'anime', 10, ['akira', 'totoro', 'perfect blue'], true],
+    ['Science fiction', 'standard', 20, ['matrix'], true],
+    ['Westerns', 'standard', 30, ['django'], false],
   ];
-  for (const [name, category, priority, titles] of rules) {
+  for (const [name, category, priority, titles, enabled] of rules) {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -23,13 +26,25 @@ export async function seedRows(): Promise<void> {
         target_category: category,
         media_type: 'movie',
         priority,
-        enabled: true,
+        enabled,
         condition_logic: 'any',
         conditions: [{ type: 'title_contains', value: titles }],
         exclusions: [],
       }),
     });
   }
+
+  await api('/instances', {
+    method: 'POST',
+    body: JSON.stringify({
+      name: 'Radarr 4K',
+      instance_type: 'radarr',
+      base_url: ARR,
+      api_key: 'e2e',
+      enabled: false,
+      sync_interval_minutes: 15,
+    }),
+  });
 
   const { data: films } = (await api('/media')) as { data: { id: string; title: string }[] };
   const film = (title: string) => {

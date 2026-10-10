@@ -1,7 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ApiError, api } from './client';
+import { ApiError, api, onRefused } from './client';
 import { withBase } from '../test/base';
 
 interface FakeResponse {
@@ -122,6 +122,26 @@ describe('the key in the browser', () => {
 });
 
 describe('error handling', () => {
+  /**
+   * A refused session or key, whichever screen asked, is the shell's to act
+   * on at once: it shows its gate rather than waiting for its next poll.
+   */
+  it('tells whoever listens of a refusal, and of nothing else', async () => {
+    const refused = vi.fn();
+    const stop = onRefused(refused);
+    mockFetch({ ok: false, status: 404, body: { error: 'not_found', message: 'gone' } });
+    await api.getRules().catch(() => {});
+    expect(refused).not.toHaveBeenCalled();
+
+    mockFetch({ ok: false, status: 401, body: { error: 'unauthorized', message: 'refused' } });
+    await api.getRules().catch(() => {});
+    expect(refused).toHaveBeenCalledTimes(1);
+
+    stop();
+    await api.getRules().catch(() => {});
+    expect(refused).toHaveBeenCalledTimes(1);
+  });
+
   it('surfaces the backend message, not the raw body', async () => {
     mockFetch({
       ok: false,
@@ -453,53 +473,15 @@ describe('a server that never answers', () => {
     expect((failure as DOMException).name).toBe('AbortError');
   });
 
-  /** Where `AbortSignal.any` is missing, `anySignal` in `client.ts` composes by hand. */
-  describe('in a browser that predates AbortSignal.any', () => {
-    const any = AbortSignal.any;
-    beforeEach(() => {
-      Reflect.deleteProperty(AbortSignal, 'any');
-    });
-    afterEach(() => {
-      Object.defineProperty(AbortSignal, 'any', { value: any, configurable: true, writable: true });
-    });
+  it('fails at once for a caller whose signal has already aborted', async () => {
+    stubPendingFetch();
+    const caller = new AbortController();
+    caller.abort(new DOMException('superseded', 'AbortError'));
 
-    it("still aborts the request when the caller's signal aborts", async () => {
-      stubPendingFetch();
-      const caller = new AbortController();
-      const pending = api.getStatus(caller.signal);
-      caller.abort(new DOMException('superseded', 'AbortError'));
-
-      const failure = await pending.catch((e: unknown) => e);
-      expect((failure as DOMException).name).toBe('AbortError');
-    });
-
-    it('fails at once for a caller whose signal has already aborted', async () => {
-      stubPendingFetch();
-      const caller = new AbortController();
-      caller.abort(new DOMException('superseded', 'AbortError'));
-
-      const failure = api.getStatus(caller.signal).catch((e: unknown) => e);
-      // Aborted before the request leaves, not when the timeout comes round.
-      expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-      expect(((await failure) as DOMException).name).toBe('AbortError');
-    });
-
-    it('still keeps the timeout when the caller passes a signal', async () => {
-      stubPendingFetch();
-      const timer = new AbortController();
-      const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(timer.signal);
-      try {
-        const pending = api.getStatus(new AbortController().signal);
-        timer.abort(new DOMException('The operation timed out.', 'TimeoutError'));
-        expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-
-        const failure = await pending.catch((e: unknown) => e);
-        expect(failure).toBeInstanceOf(ApiError);
-        expect((failure as ApiError).kind).toBe('timeout');
-      } finally {
-        timeout.mockRestore();
-      }
-    });
+    const failure = api.getStatus(caller.signal).catch((e: unknown) => e);
+    // Aborted before the request leaves, not when the timeout comes round.
+    expect(vi.mocked(fetch).mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(((await failure) as DOMException).name).toBe('AbortError');
   });
 
   /**
@@ -678,6 +660,64 @@ describe('a write followed through its job', () => {
 
     expect(spy.mock.calls.length).toBe(looks);
     expect(await run).toMatchObject({ name: 'AbortError' });
+  });
+
+  /** A proxy's hiccup during a long apply is not the apply failing. */
+  it('looks again after a look that failed, and still reads the report', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValueOnce(answer(502, { error: 'bad_gateway', message: '' }))
+        .mockResolvedValueOnce(job('success', { result: report })),
+    );
+
+    const applied = api.applyDecisions(['d1']);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(applied).resolves.toEqual(report);
+  });
+
+  it('gives up once the looks keep failing', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+        .mockResolvedValue(answer(502, { error: 'bad_gateway', message: '' })),
+    );
+
+    const applied = api.applyDecisions(['d1']).catch((error: unknown) => error);
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(await applied).toMatchObject({ status: 502 });
+  });
+
+  /** Nobody reads a job followed in a hidden tab, and the server is left alone meanwhile. */
+  it('waits while the tab is hidden, and looks again once it is back', async () => {
+    vi.useFakeTimers();
+    const spy = vi
+      .fn()
+      .mockResolvedValueOnce(answer(202, { job_id: 'j1' }))
+      .mockResolvedValueOnce(job('running'))
+      .mockResolvedValueOnce(job('success', { result: report }));
+    vi.stubGlobal('fetch', spy);
+    const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+
+    const applied = api.applyDecisions(['d1']);
+    await vi.advanceTimersByTimeAsync(300);
+    hidden.mockReturnValue('hidden');
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(spy).toHaveBeenCalledTimes(2);
+
+    hidden.mockReturnValue('visible');
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await expect(applied).resolves.toEqual(report);
   });
 
   it('takes a report answered at once as it is', async () => {

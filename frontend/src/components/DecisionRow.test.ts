@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { screen } from '@testing-library/svelte';
+import { fireEvent, screen } from '@testing-library/svelte';
 
 import { renderWithI18n } from '../test/render';
 import { decision } from '../test/fixtures';
@@ -21,9 +21,12 @@ const STRINGS = {
   AlsoMatched: '{rule} also matched, for {category}',
   ExcludedAlternative: '{rule} was vetoed by {reason}',
   None: '-',
+  NoneSpoken: 'none',
   ActionMove: 'Move',
   ActionSkip: 'Skip',
   ActionNone: 'Already correct',
+  ReasonsShowAll: 'Show in full',
+  ReasonsShowLess: 'Show less',
 };
 
 const show = (props: Record<string, unknown>) =>
@@ -96,6 +99,17 @@ describe('DecisionRow', () => {
    * The rules that lost are part of the explanation. Showing only the winner
    * makes a surprising outcome impossible to argue with.
    */
+  /** A title in no root folder yet: a dash on screen, a word to a screen reader. */
+  it('says an empty folder cell in a word', () => {
+    show({
+      decision: decision({ current_root_folder: null }),
+      selected: false,
+      onToggle: vi.fn(),
+    });
+
+    expect(screen.getByText('none')).toHaveClass('visually-hidden');
+  });
+
   it('shows the rules that also matched, and the ones that were vetoed', () => {
     show({
       decision: decision({
@@ -118,13 +132,59 @@ describe('DecisionRow', () => {
     expect(screen.getByText(/Concerts was vetoed by certification G/)).toBeTruthy();
   });
 
-  it('keeps the whole justification available on hover, clamped on screen', () => {
+  /**
+   * A justification is clamped to two lines, and a title shows the rest to a
+   * mouse alone. A clamped one is offered in full behind a button, which a
+   * keyboard and a finger reach too.
+   */
+  describe('a justification longer than two lines', () => {
     const reason = '✓ Original language in [ja] – found [ja]';
-    show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
 
-    const line = screen.getByText(reason);
-    expect(line.getAttribute('title')).toBe(reason);
-    expect(line.className).toContain('reason-line');
+    /** jsdom lays nothing out: the row's lines are as tall as `scrollHeight` says. */
+    function layOut(scrollHeight: number) {
+      vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(scrollHeight);
+      vi.spyOn(Element.prototype, 'clientHeight', 'get').mockReturnValue(32);
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          report: () => void;
+          constructor(report: () => void) {
+            this.report = report;
+          }
+          observe() {
+            this.report();
+          }
+          disconnect() {}
+        },
+      );
+    }
+
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('is clamped on screen, and offered in full behind a button', async () => {
+      layOut(80);
+      show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+
+      const line = screen.getByText(reason);
+      expect(line.className).toContain('reason-line');
+      const toggle = await screen.findByRole('button', { name: 'Show in full' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+
+      await fireEvent.click(toggle);
+
+      expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute(
+        'aria-expanded',
+        'true',
+      );
+      expect(line.closest('.is-expanded')).not.toBeNull();
+    });
+
+    it('offers no button when every line fits', () => {
+      layOut(32);
+      show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+
+      expect(screen.queryByRole('button', { name: 'Show in full' })).toBeNull();
+    });
   });
 });
 

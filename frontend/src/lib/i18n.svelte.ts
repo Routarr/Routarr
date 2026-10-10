@@ -1,5 +1,6 @@
 import { api } from '../api/client';
-import { bcp47, formatCount } from '../api/format';
+import { bcp47, formatCount, isolated } from '../api/format';
+import type { Localization } from '../api/types';
 
 type Dictionary = Record<string, string>;
 type Params = Record<string, string | number>;
@@ -25,11 +26,21 @@ const state = $state({
    * placeholders in the sentences it writes.
    */
   counts: [] as readonly string[],
+  /**
+   * The placeholders that hold a path, an address or a variable's name, set
+   * in an isolate in a right-to-left sentence so they keep their own
+   * direction. The server's list (`ISOLATED`), which it applies to the
+   * sentences it writes.
+   */
+  isolated: [] as readonly string[],
 });
 
 function shown(name: string, value: Params[string] | undefined): string {
-  if (typeof value !== 'number' || !state.counts.includes(name)) return String(value);
-  return formatCount(value, state.language);
+  const text =
+    typeof value === 'number' && state.counts.includes(name)
+      ? formatCount(value, state.language)
+      : String(value);
+  return state.direction === 'rtl' && state.isolated.includes(name) ? isolated(text) : text;
 }
 
 // One pass over the template: a value is never read again, so a `{name}`
@@ -63,18 +74,37 @@ export const i18n = {
   },
 };
 
+function use(dictionary: Localization): void {
+  state.strings = dictionary.strings;
+  state.language = dictionary.language;
+  state.counts = dictionary.counts;
+  state.isolated = dictionary.isolated;
+  document.documentElement.lang = bcp47(dictionary.language);
+  // The backend owns the script list, so adding an RTL language there turns
+  // the interface around with nothing to change here.
+  state.direction = dictionary.direction;
+  document.documentElement.dir = state.direction;
+}
+
+/**
+ * Before the first render: the strings the page was served with, in the
+ * language set, which need no request, so a backend slow to answer or failing
+ * never leaves a blank page followed by raw keys. The dev server serves the
+ * page as built, with none, and they are fetched.
+ */
+export async function startDictionary(): Promise<void> {
+  const carried = document.getElementById('dictionary')?.textContent;
+  if (carried) {
+    use(JSON.parse(carried) as Localization);
+    return;
+  }
+  await loadDictionary();
+}
+
 /** Reload after the language setting changed. */
 export async function loadDictionary(): Promise<void> {
   try {
-    const response = await api.getLocalization();
-    state.strings = response.strings;
-    state.language = response.language;
-    state.counts = response.counts;
-    document.documentElement.lang = bcp47(response.language);
-    // The backend owns the script list, so adding an RTL language there turns
-    // the interface around with nothing to change here.
-    state.direction = response.direction;
-    document.documentElement.dir = state.direction;
+    use(await api.getLocalization());
   } catch {
     // An unreachable backend must not blank the interface: keys render as
     // themselves, which is ugly but navigable.
@@ -86,10 +116,13 @@ export function seedDictionary(
   strings: Dictionary,
   language = 'en',
   counts: readonly string[] = [],
+  direction: 'ltr' | 'rtl' = 'ltr',
 ): void {
   state.strings = strings;
   state.language = language;
   state.counts = counts;
+  state.direction = direction;
+  state.isolated = [];
 }
 
 /**

@@ -13,15 +13,28 @@ import { basePath } from '../api/basePath';
  * position on Svelte 5.
  */
 
+// Without the mount point and without a trailing slash: a bookmark or a proxy
+// may add one, and `/rules/` is the Rules screen, not a page that is not found.
 const strip = (pathname: string) => {
   const base = basePath();
   const under = base && (pathname === base || pathname.startsWith(`${base}/`));
   const path = under ? pathname.slice(base.length) : pathname;
-  return path.startsWith('/') ? path : `/${path}`;
+  const rooted = path.startsWith('/') ? path : `/${path}`;
+  return rooted.length > 1 ? rooted.replace(/\/+$/, '') : rooted;
 };
 
 /** The current route, without the mount point. Reactive. */
 export const router = $state({ path: strip(window.location.pathname) });
+
+// Arrived with a trailing slash, the address says the screen as its links do.
+if (router.path !== '/' && window.location.pathname.endsWith('/')) {
+  const { search, hash } = window.location;
+  window.history.replaceState(
+    window.history.state,
+    '',
+    `${basePath()}${router.path}${search}${hash}`,
+  );
+}
 
 /**
  * The `href` of a route: the mount point and the path.

@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright';
 
-import { test, expect, api, ARR } from './fixtures';
+import { test, expect, api, ARR, AXE_TAGS } from './fixtures';
 
 /**
  * The getting-started guide.
@@ -83,14 +83,12 @@ test('adding an instance ticks the first step and leads straight to the next', a
   ).toBeVisible();
 });
 
-test('the guide passes axe at WCAG 2.1 AA', async ({ page }) => {
+test('the guide passes axe at WCAG 2.2 AA', async ({ page }) => {
   await showGuide();
   await page.goto('/');
   await expect(page.getByRole('region', { name: 'Getting started' })).toBeVisible();
 
-  const results = await new AxeBuilder({ page })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'])
-    .analyze();
+  const results = await new AxeBuilder({ page }).withTags(AXE_TAGS).analyze();
 
   expect(results.violations.map((v) => `${v.id}: ${v.help}`)).toEqual([]);
 });

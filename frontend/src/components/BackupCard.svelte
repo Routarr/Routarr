@@ -107,7 +107,7 @@
     <div class="mt-4 flex-col gap-2">
       {#each backups.data.backups as file, index (file.name)}
         <div class="flex gap-2 items-center">
-          <div class="flex-1">
+          <div class="flex-1 backup-file">
             <span class="mono text-md">{file.name}</span>
             {#if file.encrypted}
               <span class="badge badge-plain">

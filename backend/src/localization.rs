@@ -84,6 +84,20 @@ pub fn decimal_separator(code: &str) -> char {
     if DECIMAL_COMMA.contains(&base_tag(code).as_str()) { ',' } else { '.' }
 }
 
+/// How long ago `then` was, in its largest whole unit and the reader's words,
+/// `3 h`, `2 d`. A stored UTC time in a sentence leaves the reader to work the
+/// age out in their own zone, and the age is what they weigh: twenty minutes
+/// reads as a nap and three days as a fault.
+pub fn human_age(then: chrono::DateTime<chrono::Utc>, localizer: &Localizer) -> String {
+    let minutes = (chrono::Utc::now() - then).num_minutes().max(1);
+    let (key, count) = match minutes {
+        ..60 => ("AgeMinutes", minutes),
+        60..2880 => ("AgeHours", minutes / 60),
+        _ => ("AgeDays", minutes / 1440),
+    };
+    localizer.translate(key, &[("count", &count.to_string())])
+}
+
 /// Bytes as an operator reads them, in the vocabulary the interface uses.
 ///
 /// Binary steps, because the figure is compared with what a file manager shows.
@@ -105,6 +119,14 @@ pub fn human_bytes(bytes: i64, localizer: &Localizer) -> String {
     let separator = decimal_separator(localizer.language());
     format!("{} {}", format!("{value:.1}").replace('.', &separator.to_string()), units[unit])
 }
+
+/// The placeholders that hold a machine format, an address, a path or a
+/// variable's name, which keeps its own direction in a sentence. In a
+/// right-to-left language each is set in a first strong isolate, or a path's
+/// leading slash moves to its end. There only: in English the marks would be
+/// invisible noise in a log line or a payload. The interface reads this list
+/// from `/localization`.
+pub const ISOLATED: &[&str] = &["address", "file", "host", "path", "paths", "url", "variable"];
 
 /// The placeholders that hold a count, written with their digits grouped
 /// the way the language groups them (`12 345` in French). A year in `{min}`,
@@ -407,11 +429,17 @@ impl Localizer {
             return key.to_string();
         };
 
+        let right_to_left = direction(&self.language) == "rtl";
         let grouped: Vec<(&str, String)> = params
             .iter()
             .map(|(name, value)| {
                 let count = COUNTS.contains(name).then(|| group_digits(&self.language, value));
-                (*name, count.flatten().unwrap_or_else(|| value.to_string()))
+                let shown = count.flatten().unwrap_or_else(|| value.to_string());
+                if right_to_left && ISOLATED.contains(name) {
+                    (*name, format!("\u{2068}{shown}\u{2069}"))
+                } else {
+                    (*name, shown)
+                }
             })
             .collect();
         let params: Vec<(&str, &str)> =
@@ -529,6 +557,35 @@ impl Localizer {
 
 #[cfg(test)]
 mod tests {
+    /// Minutes under an hour, hours under two days, days beyond: the largest
+    /// unit that keeps the figure readable.
+    #[test]
+    fn an_age_is_said_in_its_largest_whole_unit() {
+        let english = Localizer::new("en");
+        let ago = |minutes: i64| {
+            human_age(chrono::Utc::now() - chrono::Duration::minutes(minutes), &english)
+        };
+
+        assert_eq!(ago(0), "1 min");
+        assert_eq!(ago(59), "59 min");
+        assert_eq!(ago(185), "3 h");
+        assert_eq!(ago(47 * 60), "47 h");
+        assert_eq!(ago(3 * 1440 + 30), "3 d");
+    }
+
+    /// In an Arabic sentence a path's leading slash would move to its end. In
+    /// an English one the marks would be invisible noise in a log line.
+    #[test]
+    fn a_path_keeps_its_own_direction_in_a_right_to_left_sentence_only() {
+        let params = [("path", "/movies/anime")];
+
+        let arabic = Localizer::new("ar").translate("DestinationDeclared", &params);
+        assert!(arabic.contains("\u{2068}/movies/anime\u{2069}"), "{arabic}");
+
+        let english = Localizer::new("en").translate("DestinationDeclared", &params);
+        assert!(!english.contains('\u{2068}'), "{english}");
+    }
+
     /// The interface groups a count through `Intl.NumberFormat`, the server
     /// through `group_digits`: one table of cases holds both to the same
     /// writing, the frontend's in `i18n.test.ts`.

@@ -28,7 +28,6 @@
   let busy = $state<'run' | 'apply' | null>(null);
   /** The task of the apply being followed, which Cancel stops. */
   let applying = $state<string | null>(null);
-  const followingApply: Following = { onProgress: (job) => (applying = job.id) };
   /** The refresh after an apply, whose failure sits beside the apply's report. */
   let refreshError = $state<string | null>(null);
   const outcome = createOutcome();
@@ -87,6 +86,10 @@
     signal: leaving.signal,
     onProgress: (job) => (progress = { current: job.progress_current, total: job.progress_total }),
   };
+  const followingApply: Following = {
+    signal: leaving.signal,
+    onProgress: (job) => (applying = job.id),
+  };
 
   $effect(() => {
     void resume();
@@ -139,6 +142,14 @@
       progress = null;
       if (!leaving.signal.aborted) void handFocus(pressed);
     }
+  }
+
+  /**
+   * The apply button turns disabled while it writes, and stays so when the
+   * refresh leaves nothing to apply, so Run takes the focus the button cannot.
+   */
+  function settleFocus(pressed: HTMLElement | null) {
+    if (!leaving.signal.aborted) void handFocus(pressed, 'simulation-run');
   }
 
   const STOPPED: Record<StopReason, string> = {
@@ -196,6 +207,7 @@
   async function applyAll() {
     if (!result) return;
     const simulationId = result.simulation_id;
+    const pressed = document.activeElement as HTMLElement | null;
 
     busy = 'apply';
     try {
@@ -228,12 +240,14 @@
     } finally {
       busy = null;
       applying = null;
+      settleFocus(pressed);
     }
   }
 
   async function apply() {
     const ids = [...selected];
     if (ids.length === 0) return;
+    const pressed = document.activeElement as HTMLElement | null;
 
     busy = 'apply';
     try {
@@ -258,6 +272,7 @@
     } finally {
       busy = null;
       applying = null;
+      settleFocus(pressed);
     }
   }
 
@@ -292,6 +307,7 @@
       <!-- The screen's one primary action is its next step: applying, once
            there are moves to apply, else running. -->
       <button
+        id="simulation-run"
         class="btn {movable.length > 0 ? 'btn-secondary' : 'btn-primary'}"
         onclick={() => void run()}
         disabled={busy !== null}
@@ -339,7 +355,12 @@
     </div>
 
     {#if result.skipped_unmapped > 0}
-      <WarningBanner message={t('SkippedUnmappedWarning', { count: result.skipped_unmapped })} />
+      <WarningBanner
+        message={t('SkippedUnmappedWarning', {
+          count: result.skipped_unmapped,
+          screen: t('RootFolders'),
+        })}
+      />
     {/if}
 
     <!-- What the plan weighs, before anything is written. `free_space` is
@@ -410,42 +431,47 @@
   {/if}
 
   {#if movable.length > 0}
-    <div class="card flex items-center justify-between">
-      <label class="flex items-center gap-2 cursor-pointer">
-        <input type="checkbox" bind:checked={moveFiles} />
-        <span>{t('MoveFilesLabel')}</span>
-      </label>
+    <div class="card">
+      <div class="flex items-center justify-between">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" bind:checked={moveFiles} />
+          <span>{t('MoveFilesLabel')}</span>
+        </label>
 
-      <div class="flex gap-2">
-        <button
-          class="btn btn-primary"
-          onclick={() => void apply()}
-          disabled={selected.size === 0 || busy !== null}
-        >
-          <ShieldCheck size={16} />
-          {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
-        </button>
+        <div class="flex gap-2">
+          <button
+            class="btn btn-primary"
+            onclick={() => void apply()}
+            disabled={selected.size === 0 || busy !== null}
+          >
+            <ShieldCheck size={16} />
+            {busy === 'apply' ? t('Applying') : t('ApplySelected', { count: selected.size })}
+          </button>
 
-        <!-- Reaches past the page on screen: selecting every visible row is
+          <!-- Reaches past the page on screen: selecting every visible row is
                not everything. It targets one identified simulation, so it only
                exists once a run has produced one. -->
-        {#if result}
-          <button
-            class="btn btn-secondary"
-            onclick={() => void applyAll()}
-            disabled={result.moves_required === 0 || busy !== null}
-            title={t('ApplyAllHint')}
-          >
-            <Layers size={16} />
-            {t('ApplyAll', { count: result.moves_required })}
-          </button>
-        {/if}
-        {#if busy === 'apply' && applying}
-          <button class="btn btn-ghost" onclick={() => void cancelApply()}>
-            {t('StopTask')}
-          </button>
-        {/if}
+          {#if result}
+            <button
+              class="btn btn-secondary"
+              onclick={() => void applyAll()}
+              disabled={result.moves_required === 0 || busy !== null}
+              aria-describedby="apply-all-hint"
+            >
+              <Layers size={16} />
+              {t('ApplyAll', { count: result.moves_required })}
+            </button>
+          {/if}
+          {#if busy === 'apply' && applying}
+            <button class="btn btn-ghost" onclick={() => void cancelApply()}>
+              {t('StopTask')}
+            </button>
+          {/if}
+        </div>
       </div>
+      {#if result}
+        <p id="apply-all-hint" class="form-hint">{t('ApplyAllHint')}</p>
+      {/if}
     </div>
   {/if}
 

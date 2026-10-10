@@ -9,6 +9,7 @@ import { ApiError, api } from '../api/client';
 import type { Category, OverrideEntry } from '../api/types';
 import Overrides from './Overrides.svelte';
 import { answerConfirmation } from '../test/confirm';
+import { dropFocus } from '../test/focus';
 
 /**
  * An override short-circuits the whole rule engine for one item, so the screen
@@ -20,6 +21,10 @@ const STRINGS = {
   Overrides: 'Overrides',
   NewOverride: 'New override',
   NoMediaMatches: 'Nothing matches.',
+  SearchShowingFirst: 'Showing {shown} of {total}. Refine the search.',
+  Title: 'Title',
+  Instance: 'Instance',
+  CurrentRootFolder: 'Current root folder',
   NoOverrides: 'No override yet',
   Delete: 'Delete',
   Search: 'Search',
@@ -193,6 +198,31 @@ describe('Overrides', () => {
     expect(await screen.findByText('Nothing matches.')).toBeTruthy();
   });
 
+  /**
+   * The search answers fifteen titles at most: said, so the reader refines it
+   * rather than concludes the title is missing, and announced, since a screen
+   * reader hears nothing of a table drawn under the field.
+   */
+  it('says how many it shows of how many matched, under named columns', async () => {
+    const found = Array.from({ length: 15 }, (_, i) => media({ id: `m${i}`, title: `Star ${i}` }));
+    vi.spyOn(api, 'getMedia').mockResolvedValue(paginated(found, { total: 40 }));
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    const region = within(screen.getByRole('dialog')).getByRole('status');
+    await fireEvent.input(search, { target: { value: 'star' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+
+    await waitFor(() => expect(region).toHaveTextContent('Showing 15 of 40. Refine the search.'));
+    const dialog = screen.getByRole('dialog');
+    expect(
+      within(dialog)
+        .getAllByRole('columnheader')
+        .map((header) => header.textContent),
+    ).toEqual(['Title', 'Instance', 'Current root folder']);
+  });
+
   it('shows a refused pin inside the dialog rather than behind it', async () => {
     const picked = media({ id: 'm7', title: 'Perfect Blue' });
     vi.spyOn(api, 'getMedia').mockResolvedValue(paginated([picked]));
@@ -210,6 +240,31 @@ describe('Overrides', () => {
 
     const dialog = await screen.findByRole('dialog');
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('already pinned');
+  });
+
+  /** The button turns disabled while it writes, which drops its focus out of the dialog. */
+  it('gives the focus back to Pin it once a pin is refused', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue(
+      paginated([media({ id: 'm7', title: 'Perfect Blue' })]),
+    );
+    let refuse = () => {};
+    vi.spyOn(api, 'createOverride').mockReturnValue(
+      new Promise((_, reject) => (refuse = () => reject(new Error('Refused')))),
+    );
+    show([]);
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'New override' }));
+    const search = await screen.findByLabelText('Search the library by title');
+    await fireEvent.input(search, { target: { value: 'perfect' } });
+    await fireEvent.submit(search.closest('form') as HTMLFormElement);
+    await fireEvent.click(await screen.findByText('Perfect Blue'));
+    const pin = await screen.findByRole('button', { name: 'Pin it' });
+    await userEvent.click(pin);
+    await waitFor(() => expect(pin).toBeDisabled());
+    dropFocus();
+    refuse();
+
+    await waitFor(() => expect(document.activeElement).toBe(pin));
   });
 
   it('pins once however often Pin it is pressed', async () => {

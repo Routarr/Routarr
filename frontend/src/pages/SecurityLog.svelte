@@ -6,6 +6,7 @@
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
@@ -183,7 +184,7 @@
                   </span>
                 </td>
                 <td>
-                  {row.subject ?? t('None')}
+                  {#if row.subject}{row.subject}{:else}<NoValue />{/if}
                   {#if row.client}
                     <span class="mono text-xs text-muted">{row.client}</span>
                   {/if}

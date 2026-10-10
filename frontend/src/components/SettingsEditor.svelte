@@ -4,12 +4,13 @@
 
   import { AlertTriangle, Download, KeyRound, Save, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
+  import { bcp47, formatPercent } from '../api/format';
   import { withProof } from '../lib/proof.svelte';
   import type { Category, MetadataProvider, Settings as SettingsMap } from '../api/types';
   import { createAsync } from '../lib/async.svelte';
   import { createOutcome } from '../lib/outcome.svelte';
   import { handFocus } from '../lib/focus';
-  import { applyTheme, loadDictionary, t } from '../lib/i18n.svelte';
+  import { applyTheme, i18n, loadDictionary, t } from '../lib/i18n.svelte';
   import {
     FIELDS,
     SECTIONS,
@@ -35,8 +36,10 @@
   import { ask, askConfirmation } from '../lib/confirm.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { onboarding, publishOnboarding } from '../lib/onboarding.svelte';
-  import { guardLeaving, href, navigate } from '../lib/router.svelte';
+  import { href, navigate } from '../lib/router.svelte';
+  import { holdUnsaved } from '../lib/unsaved.svelte';
   import { downloadJson } from '../lib/download';
+  import { readJsonFile } from '../lib/upload';
 
   /**
    * The settings of one screen. The Settings screen and the metadata sources
@@ -179,7 +182,7 @@
     window.history.replaceState(null, '', `${pathname}${search}#${id}`);
   }
 
-  // A hash that changes without a remount, as a link to `#routing` followed
+  // A hash that changes without a remount, as a link to `#guardrails` followed
   // from this very page, has to move the section too. Read once at mount, the
   // URL and the screen disagree.
   $effect(() => {
@@ -231,21 +234,10 @@
     ),
   );
 
-  // Leaving by a link, Back or the browser drops the draft, which the save bar
-  // counts: asked first, as every other action that cannot be taken back.
-  $effect(() =>
-    guardLeaving(
-      async () =>
-        changed.length === 0 ||
-        askConfirmation(t('ConfirmLeaveUnsaved', { count: changed.length }), 'DiscardChanges'),
-    ),
+  holdUnsaved(
+    () => changed.length > 0,
+    () => t('ConfirmLeaveUnsaved', { count: changed.length }),
   );
-  $effect(() => {
-    if (changed.length === 0) return;
-    const hold = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener('beforeunload', hold);
-    return () => window.removeEventListener('beforeunload', hold);
-  });
 
   /** Whether a number sits outside the bounds the backend would refuse it for. */
   function outOfRange(field: Field): boolean {
@@ -404,7 +396,7 @@
 
   async function importConfig(file: File) {
     try {
-      const parsed: unknown = JSON.parse(await file.text());
+      const parsed = await readJsonFile(file);
       // The question the Rules screen asks of a rule file, with its three
       // outcomes: Cancel imports nothing.
       let replaceRules = false;
@@ -464,10 +456,13 @@
 
   function onTabKey(event: KeyboardEvent) {
     const index = sections.findIndex((entry) => entry.id === section);
+    // The next tab is drawn where the text goes: on the left, right to left.
+    const [forward, back] =
+      i18n.direction === 'rtl' ? ['ArrowLeft', 'ArrowRight'] : ['ArrowRight', 'ArrowLeft'];
     const next =
-      event.key === 'ArrowRight'
+      event.key === forward
         ? (index + 1) % sections.length
-        : event.key === 'ArrowLeft'
+        : event.key === back
           ? (index - 1 + sections.length) % sections.length
           : event.key === 'Home'
             ? 0
@@ -485,17 +480,21 @@
   }
 </script>
 
-{#if bundle.loading}
+<!-- Above the placeholder, so an action's outcome is said in the region that
+     was there before the reload it starts. -->
+<OutcomeBanner {outcome} />
+<!-- On the first read only: over a reload it would take the form, the pressed
+     button and the focus with it. -->
+{#if bundle.loading && bundle.data === null}
   <div class="card"><Loading /></div>
 {:else}
   <!-- No Dismiss: Save waits for a read that succeeds, and only Retry gives
          it one. -->
   <ErrorBanner message={bundle.error} onRetry={() => void bundle.reload()} />
-  <OutcomeBanner {outcome} />
   <!-- The guide's two optional steps are done on these screens. -->
   {#if section === 'metadata'}
     <GuideStepBanner step="metadata" />
-  {:else if section === 'routing'}
+  {:else if section === 'guardrails'}
     <GuideStepBanner step="live" />
   {/if}
 
@@ -700,11 +699,12 @@
                 >
                   {#each languages as language (language.code)}
                     <!-- A partial translation is allowed, and saying so is what
-                         keeps the picker honest. Complete ones stay unadorned. -->
-                    <option value={language.code}>
+                         keeps the picker honest. Complete ones stay unadorned.
+                         Each name is its language's own, read in it. -->
+                    <option value={language.code} lang={bcp47(language.code)}>
                       {language.completion >= 100
                         ? language.name
-                        : `${language.name} (${language.completion}%)`}
+                        : `${language.name} (${formatPercent(language.completion / 100, i18n.language)})`}
                     </option>
                   {/each}
                 </select>

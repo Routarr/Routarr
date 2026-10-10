@@ -28,44 +28,34 @@ async function verticalSpread(cell: Locator): Promise<number> {
   });
 }
 
-test.describe('table cells stay on one line', () => {
+test.describe('a long title or path is read whole', () => {
   /**
-   * Sibling folders differ at their end, so a path cut short keeps its end:
-   * `/mnt/storage/media/movies` and `/mnt/storage/media/movies-anime` must not
-   * both read as the same start.
+   * A path cut short shows a keyboard and a finger only part of it, and
+   * sibling folders differ at their end: `/mnt/storage/media/movies` and
+   * `/mnt/storage/media/movies-anime` must not read as one.
    */
-  test('a path too long for its cell keeps its end and loses its start', async ({ page }) => {
+  test('a path too long for its cell wraps, and shows all of it', async ({ page }) => {
     await page.goto('/library');
 
     const cell = page.locator('.cell-path').first();
     await expect(cell).toBeVisible();
-    const cut = await cell.evaluate((node) => {
-      const long = '/mnt/storage/media/library/movies-anime';
+    const shown = await cell.evaluate((node) => {
       const holder = node.querySelector('bdi') ?? node;
-      holder.textContent = long;
-      const run = holder.firstChild as Text;
-      const box = node.getBoundingClientRect();
+      holder.textContent = '/mnt/storage/media/library/movies-anime/extended';
       const range = document.createRange();
-      range.setStart(run, long.length - 1);
-      range.setEnd(run, long.length);
-      const last = range.getBoundingClientRect();
-      range.setStart(run, 0);
-      range.setEnd(run, 1);
-      const first = range.getBoundingClientRect();
-      return {
-        overflows: node.scrollWidth > node.clientWidth,
-        endShown: last.left >= box.left && last.right <= box.right + 1,
-        startHidden: first.left < box.left,
-      };
+      range.selectNodeContents(node);
+      const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+      return { hidden: node.scrollWidth > node.clientWidth, lines: lines.size };
     });
-    expect(cut).toEqual({ overflows: true, endShown: true, startHidden: true });
+    expect(shown.hidden).toBe(false);
+    expect(shown.lines).toBeGreaterThan(1);
   });
 
   /**
    * A bare title shrinks its column to the longest word and stacks a long one
    * a word per line, pushing the reasons past the edge of the table.
    */
-  test("a proposal's title keeps one line, its whole text on hover", async ({ page }) => {
+  test("a proposal's long title wraps within its column, not a word per line", async ({ page }) => {
     await api('/rules', {
       method: 'POST',
       body: JSON.stringify({
@@ -84,20 +74,23 @@ test.describe('table cells stay on one line', () => {
 
     const title = page.locator('td .cell-title', { hasText: 'My Neighbor Totoro' });
     await expect(title).toBeVisible();
-    await expect(title).toHaveAttribute('title', 'My Neighbor Totoro');
     // Polled: the run redraws the table, and a row measured mid-redraw has no
     // line at all.
     await expect
       .poll(() =>
         title.evaluate((node) => {
+          node.textContent = 'My Neighbor Totoro: The Spirits of the Forest, Collected';
           const range = document.createRange();
           range.selectNodeContents(node);
-          return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+          const lines = new Set([...range.getClientRects()].map((rect) => Math.round(rect.top)));
+          return node.scrollWidth <= node.clientWidth && lines.size >= 2 && lines.size <= 3;
         }),
       )
-      .toBe(1);
+      .toBe(true);
   });
+});
 
+test.describe('table cells stay on one line', () => {
   test('a timestamp is written the way the language writes it', async ({ page }) => {
     await page.goto('/instances');
 
@@ -348,6 +341,39 @@ test.describe('on a phone', () => {
     await expect(sidebar).not.toHaveClass(/is-open/);
     await expect(page).toHaveURL(/\/library/);
   });
+
+  /**
+   * The open drawer makes the page inert, its toggle included, and a screen
+   * reader's swipe sends no Escape: the drawer carries its own way out, which
+   * hands the focus back to the toggle.
+   */
+  test('the open drawer closes from a button of its own', async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openScreen(page, '/rules');
+    const toggle = page.getByRole('button', { name: 'Open navigation' });
+    await toggle.click();
+    const sidebar = page.locator('.sidebar');
+    await expect(sidebar).toHaveClass(/is-open/);
+
+    // Back from the first link, past the scrolling list Firefox stops at.
+    const close = sidebar.getByRole('button', { name: 'Dismiss' });
+    for (let press = 0; press < 3; press += 1) {
+      if (await close.evaluate((button) => button === document.activeElement)) break;
+      await page.keyboard.press('Shift+Tab');
+    }
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Enter');
+
+    await expect(sidebar).not.toHaveClass(/is-open/);
+    await expect(toggle).toBeFocused();
+
+    // Escape, the keyboard's way out, hands the focus back the same way.
+    await toggle.click();
+    await expect(sidebar).toHaveClass(/is-open/);
+    await page.keyboard.press('Escape');
+    await expect(sidebar).not.toHaveClass(/is-open/);
+    await expect(toggle).toBeFocused();
+  });
 });
 
 test.describe('spacing the reset takes away', () => {
@@ -589,6 +615,12 @@ test('selecting rows does not move the rows', async ({ page }) => {
  * query, and it reads as a design choice until you sample the pixels.
  */
 test('a table with nothing to scroll has no shadow down its edges', async ({ page }) => {
+  // In the light theme: on the dark card a shadow darkens the edge by a unit,
+  // which one engine's rounding also does, and on the light one by tens.
+  await api('/settings', {
+    method: 'PUT',
+    body: JSON.stringify({ settings: { ui_theme: 'light' } }),
+  });
   await openScreen(page, '/move-log');
 
   const container = page.locator('.table-container').first();
@@ -612,19 +644,23 @@ test('a table with nothing to scroll has no shadow down its edges', async ({ pag
     // Below the header row, wherever the first data row happens to fall.
     const y = Math.min(bitmap.height - 1, 130);
     const strip = (x: number) => Array.from(ctx.getImageData(x, y, 16, 1).data);
-    return { left: strip(1), right: strip(bitmap.width - 17), width: bitmap.width };
+    // Two pixels in: WebKit draws the container's edge one pixel wider.
+    return { left: strip(2), right: strip(bitmap.width - 18), width: bitmap.width };
   }, Array.from(shot));
 
-  // Each 16px strip must be one flat colour: a gradient means a shadow.
+  // Each 16px strip must be one flat colour: a gradient means a shadow, three
+  // units deep at least here. One unit per channel is an engine's rounding.
   for (const [side, pixels] of [
     ['left', edges.left],
     ['right', edges.right],
   ] as const) {
-    const first = pixels.slice(0, 4).join();
+    const first = pixels.slice(0, 4);
     const varied = [];
     for (let i = 0; i < pixels.length; i += 4) {
-      const px = pixels.slice(i, i + 4).join();
-      if (px !== first) varied.push(`x=${i / 4} ${px}`);
+      const px = pixels.slice(i, i + 4);
+      if (px.some((value, channel) => Math.abs(value - (first[channel] ?? 0)) > 1)) {
+        varied.push(`x=${i / 4} ${px.join()}`);
+      }
     }
     expect(varied, `${side} edge is not flat: ${varied.join(' | ')}`).toEqual([]);
   }
@@ -705,7 +741,7 @@ test.describe('every screen draws a shared thing the same way', () => {
    * mark are what only a stylesheet draws.
    */
   test('marks a value outside its bounds on its field and on its tab', async ({ page }) => {
-    await page.goto('/settings#routing');
+    await page.goto('/settings#guardrails');
     const field = page.getByLabel('Batch limit', { exact: true });
     await field.fill('0');
 
@@ -724,7 +760,7 @@ test.describe('every screen draws a shared thing the same way', () => {
       .toBe(danger);
 
     await page.getByRole('tab', { name: 'General' }).click();
-    const tab = page.getByRole('tab', { name: 'Routing: a value is outside its bounds' });
+    const tab = page.getByRole('tab', { name: 'Guardrails: a value is outside its bounds' });
     await expect(tab.locator('svg')).toBeVisible();
   });
 });

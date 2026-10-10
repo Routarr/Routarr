@@ -141,7 +141,7 @@
             "type": "boolean"
           },
           "simulation_id": {
-            "description": "The simulation whose proposals to apply.",
+            "description": "The simulation whose decisions to apply.",
             "type": "string"
           }
         },
@@ -235,7 +235,7 @@
             ]
           },
           "superseded": {
-            "description": "Selected proposals a newer simulation replaced with a different move,\nnot applied. One replaced by the same move is applied through it.",
+            "description": "Selected decisions a newer simulation replaced with a different move,\nnot applied. One replaced by the same move is applied through it.",
             "minimum": 0,
             "type": "integer"
           }
@@ -354,7 +354,7 @@
             "type": "boolean"
           },
           "superseded": {
-            "description": "Proposals of the simulation a newer one replaced with a different\nmove, not applied.",
+            "description": "Decisions of the simulation a newer one replaced with a different\nmove, not applied.",
             "minimum": 0,
             "type": "integer"
           }
@@ -1319,7 +1319,7 @@
         "type": "object"
       },
       "CreateOverrideRequest": {
-        "description": "A title to pin, and the category to pin it to.",
+        "description": "A title, and the category to force on it.",
         "properties": {
           "media_id": {
             "description": "The title's id in Routarr, as `/media` lists it.",
@@ -1532,7 +1532,7 @@
             ]
           },
           "superseded": {
-            "description": "True once this proposal was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
+            "description": "True once this decision was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
             "type": "boolean"
           },
           "target_category": {
@@ -2829,7 +2829,7 @@
         "type": "object"
       },
       "OverrideEntry": {
-        "description": "An exception: a title pinned to a category by hand, which outranks every\nrule.",
+        "description": "An exception: a title whose category is forced by hand, which outranks\nevery rule.",
         "properties": {
           "created_at": {
             "type": "string"
@@ -2890,7 +2890,7 @@
             "type": "object"
           }
         ],
-        "description": "An exception, with the title it pins."
+        "description": "An exception, with the title whose category it forces."
       },
       "Page_Decision": {
         "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
@@ -3024,7 +3024,7 @@
                   ]
                 },
                 "superseded": {
-                  "description": "True once this proposal was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
+                  "description": "True once this decision was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
                   "type": "boolean"
                 },
                 "target_category": {
@@ -3393,7 +3393,7 @@
         "type": "object"
       },
       "PinRequest": {
-        "description": "The category to pin a title to, and why.",
+        "description": "The category to force on a title, and why.",
         "properties": {
           "reason": {
             "type": [
@@ -3412,7 +3412,7 @@
         "type": "object"
       },
       "PinnedCategory": {
-        "description": "The category an exception pins a title to, and why.",
+        "description": "The category an exception forces on a title, and why.",
         "properties": {
           "reason": {
             "type": [
@@ -5044,7 +5044,7 @@
             }
           },
           {
-            "description": "Include the superseded proposals. Defaults to false.",
+            "description": "Include the superseded decisions. Defaults to false.",
             "in": "query",
             "name": "include_superseded",
             "required": false,
@@ -5096,16 +5096,16 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "The proposals, a page at a time",
+        "summary": "The decisions, a page at a time",
         "tags": [
-          "proposals"
+          "decisions"
         ],
         "x-routarr-scope": "read"
       }
     },
     "/decisions/apply": {
       "post": {
-        "description": "Asks the Arr to move each title, behind the same guardrails as the\ninterface. A proposal no longer pending is skipped, so sending the same\nlist twice moves nothing twice. `move_files` needs a key allowed to move\nfiles.",
+        "description": "Asks the Arr to move each title, behind the same guardrails as the\ninterface. A decision no longer pending is skipped, so sending the same\nlist twice moves nothing twice. `move_files` needs a key allowed to move\nfiles.",
         "operationId": "apply",
         "parameters": [
           {
@@ -5186,9 +5186,9 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Apply chosen proposals",
+        "summary": "Apply chosen decisions",
         "tags": [
-          "proposals"
+          "decisions"
         ],
         "x-routarr-scope": "operate"
       }
@@ -5278,7 +5278,7 @@
         },
         "summary": "Apply everything a simulation proposed",
         "tags": [
-          "proposals"
+          "decisions"
         ],
         "x-routarr-scope": "operate"
       }
@@ -5368,7 +5368,7 @@
         },
         "summary": "Move titles back",
         "tags": [
-          "proposals"
+          "decisions"
         ],
         "x-routarr-scope": "operate"
       }
@@ -5956,7 +5956,7 @@
     },
     "/media": {
       "get": {
-        "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception pins it to.",
+        "description": "Every title Routarr read from the Arrs, with the category the rules chose\nfor it at the last simulation and the one an exception forces on it.",
         "operationId": "list_media",
         "parameters": [
           {
@@ -6296,7 +6296,7 @@
         "x-routarr-scope": "read"
       },
       "post": {
-        "description": "Replaces the title's exception if it has one. The pending proposals for the\ntitle are withdrawn, since the exception now decides.",
+        "description": "Replaces the title's exception if it has one. The pending decisions for the\ntitle are withdrawn, since the exception now decides.",
         "operationId": "set_exception",
         "requestBody": {
           "content": {
@@ -6329,7 +6329,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Pin a title to a category",
+        "summary": "Force a title's category",
         "tags": [
           "exceptions"
         ],
@@ -6417,7 +6417,7 @@
         "x-routarr-scope": "write"
       },
       "put": {
-        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id.\nEvery copy of the title the library holds is pinned, one per instance, or\nonly the one on `instance`. Each replaces the exception its copy had, and\nthe pending proposals for it are withdrawn. 404 when no copy is in the\nlibrary.",
+        "description": "For an application that knows the title by its TMDB, TheTVDB or IMDb id.\nEvery copy of the title the library holds has its category forced, one per\ninstance, or only the one on `instance`. Each replaces the exception its copy had, and\nthe pending decisions for it are withdrawn. 404 when no copy is in the\nlibrary.",
         "operationId": "pin_by_external_id",
         "parameters": [
           {
@@ -6503,7 +6503,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Pin a title by the id another service gives it",
+        "summary": "Force a title's category by the id another service gives it",
         "tags": [
           "exceptions"
         ],
@@ -7566,7 +7566,7 @@
     },
     "/simulate": {
       "post": {
-        "description": "With `persist: true` the proposals are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.\nA preview, `persist: false`, waits its turn, and answers 409 while four\nare already running or waiting.",
+        "description": "With `persist: true` the decisions are stored under the `simulation_id`\nthis answers, replacing the pending ones of an earlier run. Only one\npersisting simulation runs at a time: another answers 409 until it ends.\nA preview, `persist: false`, waits its turn, and answers 409 while four\nare already running or waiting.",
         "operationId": "simulate",
         "parameters": [
           {
@@ -7639,7 +7639,7 @@
         },
         "summary": "Run the rules over the library",
         "tags": [
-          "proposals"
+          "decisions"
         ],
         "x-routarr-scope": "operate"
       }
@@ -7700,11 +7700,11 @@
       "name": "library"
     },
     {
-      "description": "Simulating the rules over the library, and applying or reverting what they propose.",
-      "name": "proposals"
+      "description": "Simulating the rules over the library, and applying or reverting the moves they decide.",
+      "name": "decisions"
     },
     {
-      "description": "Titles pinned to a category by hand, which outrank every rule.",
+      "description": "Titles whose category is forced by hand, which outrank every rule.",
       "name": "exceptions"
     },
     {

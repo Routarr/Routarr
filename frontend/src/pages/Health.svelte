@@ -4,7 +4,8 @@
   import { createAsync } from '../lib/async.svelte';
   import { invalidateStatus } from '../lib/status.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
-  import { formatRelative, formatTimestamp } from '../api/format';
+  import { formatCount, formatRelative, formatTimestamp } from '../api/format';
+  import NoValue from '../components/NoValue.svelte';
   import Count from '../components/Count.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -31,8 +32,13 @@
       <p class="page-subtitle">{t('DiagnosticsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button class="btn btn-secondary" onclick={() => void report.reload()}>
-        <RefreshCw size={16} />
+      <!-- A re-check waits out every Arr that does not answer. -->
+      <button
+        class="btn btn-secondary"
+        onclick={() => void report.reload()}
+        aria-busy={report.loading}
+      >
+        <RefreshCw size={16} class={report.loading ? 'spin' : ''} />
         {t('Recheck')}
       </button>
     </div>
@@ -103,8 +109,10 @@
                       </span>
                     </td>
                     <td><InstanceStatus status={instance.status} /></td>
-                    <td class="mono">{instance.version ?? t('None')}</td>
-                    <td>{instance.media_count}</td>
+                    <td class="mono">
+                      {#if instance.version}{instance.version}{:else}<NoValue />{/if}
+                    </td>
+                    <td><Count value={instance.media_count} /></td>
                     <td><Count value={instance.mapped_root_folders} /></td>
                     <td
                       class="cell-timestamp"
@@ -162,10 +170,13 @@
         <!-- Apart from the sources: counts and a database probe among them
              would be three kinds of fact in one grid. The counts are counts. -->
         <div class="source-footer">
-          <span>{t('CachedEntries')} <b class="mono">{health.metadata.cached_items}</b></span>
+          <span
+            >{t('CachedEntries')}
+            <b class="mono">{formatCount(health.metadata.cached_items, i18n.language)}</b></span
+          >
           <span>
             {t('MissingMetadata')}
-            <b class="mono">{health.metadata.media_missing_metadata}</b>
+            <b class="mono">{formatCount(health.metadata.media_missing_metadata, i18n.language)}</b>
           </span>
           <span>
             {t('Database')}

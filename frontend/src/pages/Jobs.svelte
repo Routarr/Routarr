@@ -8,6 +8,7 @@
   import { createOutcome } from '../lib/outcome.svelte';
   import { poll } from '../lib/poll.svelte';
   import { i18n, t } from '../lib/i18n.svelte';
+  import NoValue from '../components/NoValue.svelte';
   import ProgressBar from '../components/ProgressBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ErrorBanner from '../components/ErrorBanner.svelte';
@@ -56,10 +57,11 @@
   const jobs = $derived(jobsPage.data?.data ?? []);
   const hasRunning = $derived(jobs.some((job) => job.status === 'running'));
 
+  // Fast while a task runs, slow otherwise: the scheduler starts a sync on its
+  // own, which a screen polled only while something already ran never shows.
   poll(
     () => void jobsPage.reload(),
-    () => 3000,
-    () => hasRunning,
+    () => (hasRunning ? 3000 : 30_000),
   );
 </script>
 
@@ -152,7 +154,7 @@
                       label={t(jobKindKey(job.kind))}
                     />
                   {:else}
-                    <span class="text-muted">{t('None')}</span>
+                    <span class="text-muted"><NoValue /></span>
                   {/if}
                 </td>
                 <td class="max-w-320">
@@ -162,7 +164,7 @@
                     <span class="text-danger">{job.error_message}</span>
                   {:else}
                     <span class={job.status === 'failed' ? 'text-danger' : 'text-muted'}>
-                      {job.detail ?? t('None')}
+                      {#if job.detail}{job.detail}{:else}<NoValue />{/if}
                     </span>
                   {/if}
                 </td>
@@ -170,7 +172,11 @@
                   {formatTimestamp(job.started_at, i18n.language)}
                 </td>
                 <td class="cell-timestamp" title={job.finished_at ?? undefined}>
-                  {formatTimestamp(job.finished_at, i18n.language, t('None'))}
+                  {#if job.finished_at}
+                    {formatTimestamp(job.finished_at, i18n.language)}
+                  {:else}
+                    <NoValue />
+                  {/if}
                 </td>
                 <td>
                   {#if job.status === 'running' && CANCELLABLE.has(job.kind)}

@@ -21,8 +21,10 @@ export function renderWithI18n(
     strings?: Record<string, string>;
     /** The interface language, English unless a test reads another one. */
     language?: string;
+    /** As the server would answer for that language: left to right unless a test says so. */
+    direction?: 'ltr' | 'rtl';
   } = {},
 ) {
-  seedDictionary(options.strings ?? {}, options.language, SERVER_COUNTS);
+  seedDictionary(options.strings ?? {}, options.language, SERVER_COUNTS, options.direction);
   return testingLibraryRender(component, options.props as never);
 }

@@ -23,6 +23,7 @@
     Category,
     Condition,
     ConditionCatalog,
+    Instance,
     Rule,
     RuleDraft,
     RuleMediaType,
@@ -45,6 +46,7 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import { downloadJson } from '../lib/download';
+  import { readJsonFile } from '../lib/upload';
   import { invalidateStatus } from '../lib/status.svelte';
 
   // Keyed on the union rather than on `string`: a media type added to
@@ -75,9 +77,10 @@
 
   const bundle = createAsync(async (signal) => {
     analysisFailed = false;
-    const [rules, categories, catalog, health] = await Promise.all([
+    const [rules, categories, instances, catalog, health] = await Promise.all([
       api.getRules(signal),
       api.getCategories(signal),
+      api.getInstances(signal),
       api.getConditionCatalog(signal),
       // Which rules are actually deciding anything. Validation looks inside one
       // rule and nothing else looks between them, which is where
@@ -93,7 +96,7 @@
         return null;
       }),
     ]);
-    return { rules, categories, catalog, health };
+    return { rules, categories, instances, catalog, health };
   });
 
   // What the library carries, read once when the screen opens: an aggregation
@@ -115,6 +118,8 @@
 
   const rules = $derived<Rule[]>(bundle.data?.rules ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
+  const instances = $derived<Instance[]>(bundle.data?.instances ?? []);
+  const instanceName = $derived(new Map(instances.map((instance) => [instance.id, instance.name])));
   const catalog = $derived<ConditionCatalog | undefined>(bundle.data?.catalog);
   const specByType = $derived(
     new Map((catalog?.conditions ?? []).map((spec) => [spec.type, spec])),
@@ -134,7 +139,7 @@
       label: spec?.label,
       phrase: (key, params) => t(key, params),
       separator: t('ListSeparator'),
-      empty: t('None'),
+      empty: t('NoneSpoken'),
       name: (value) => nameIn(spec?.suggestions, value),
     });
   }
@@ -215,7 +220,7 @@
 
   async function importBundle(file: File) {
     try {
-      const parsed = JSON.parse(await file.text()) as RuleBundle;
+      const parsed = (await readJsonFile(file)) as RuleBundle;
       // Three outcomes, which is why a `confirm()` cannot ask this: mapping one
       // of them onto Cancel makes Cancel import the file and Escape import it
       // silently, with no way to abort at all.
@@ -225,9 +230,12 @@
       ]);
       if (answer === null) return;
       const result = await api.importRules(parsed, answer === 'replace');
-      const summary =
-        t('ImportResult', { count: result.imported }) +
-        (result.skipped.length ? t('ImportSkipped', { count: result.skipped.length }) : '');
+      const summary = result.skipped.length
+        ? t('ImportResultWithSkipped', {
+            count: result.imported,
+            skipped: result.skipped.length,
+          })
+        : t('ImportResult', { count: result.imported });
       // A rule imported switched off, or limited to fewer instances, is
       // imported, and still needs somebody to look at it.
       const details = [...result.skipped, ...result.adjusted];
@@ -236,7 +244,7 @@
       else outcome.warn(summary, details);
       await reloadAfterWrite();
     } catch (err) {
-      outcome.fail(err instanceof SyntaxError ? t('NotValidJson') : err);
+      outcome.fail(err);
     }
   }
 </script>
@@ -326,13 +334,7 @@
                     <!-- Naming the culprit is the whole point: a rule that
                          decides nothing is a fact, but the rule taking its
                          items is the thing you can move. -->
-                    <span
-                      class="badge badge-warning ms-2"
-                      title={t('RuleShadowedHint', {
-                        count: verdict.shadowed,
-                        rule: verdict.shadowed_by,
-                      })}
-                    >
+                    <span class="badge badge-warning ms-2">
                       {t('RuleShadowed', { rule: verdict.shadowed_by })}
                     </span>
                   {:else if verdict?.duplicate_of}
@@ -359,12 +361,25 @@
                   {#if rule.description}
                     <div class="text-muted text-sm">{rule.description}</div>
                   {/if}
+                  {#if verdict?.shadowed_by}
+                    <div class="text-muted text-sm">
+                      {t('RuleShadowedHint', {
+                        count: verdict.shadowed,
+                        rule: verdict.shadowed_by,
+                      })}
+                    </div>
+                  {/if}
                 </td>
                 <td><span class="badge badge-value">{rule.target_category}</span></td>
-                <td
-                  ><span class="badge badge-value muted">{t(MEDIA_TYPE_KEY[rule.media_type])}</span
-                  ></td
-                >
+                <td>
+                  <div class="flex flex-wrap gap-1">
+                    <span class="badge badge-value muted">{t(MEDIA_TYPE_KEY[rule.media_type])}</span
+                    >
+                    {#each rule.instance_ids ?? [] as id (id)}
+                      <span class="badge badge-value">{instanceName.get(id) ?? id}</span>
+                    {/each}
+                  </div>
+                </td>
                 <td>
                   <span class="badge badge-value muted">
                     {t(rule.match_mode === 'any' ? 'LogicAny' : 'LogicAll')}
@@ -464,6 +479,7 @@
       draft={editing.draft}
       ruleId={editing.id}
       {categories}
+      {instances}
       {catalog}
       onClose={() => (editing = null)}
       returnFocus="rules-new"

@@ -13,8 +13,8 @@ Components named without a path live in `frontend/src/components/`.
   route in `ROUTE_GROUPS` in `frontend/src/lib/routes.ts` (the navigation, the command palette and
   `frontend/e2e/screens.ts` read it), and an icon in `ICONS` in `frontend/src/lib/navigation.ts`.
   `frontend/src/test/layout.test.ts` and `frontend/src/lib/routes.test.ts` fail when they disagree.
-- A page loads only through those dynamic imports. A static import from the shell moves it into the
-  entry bundle, whose size `scripts/check-bundle-size.mjs` caps.
+- A page loads only through those dynamic imports. A static import from the shell adds it to what
+  every first visit downloads, whose total `scripts/check-bundle-size.mjs` caps.
 - The mount point comes from the `<base href>` the backend injects at run time, so routing is
   `frontend/src/lib/router.svelte.ts` and not a library. Link with `<a href={href('/rules')}>`: a
   bare root-absolute `href` drops the mount point on middle-click and ctrl-click, and a bare
@@ -104,7 +104,7 @@ Components named without a path live in `frontend/src/components/`.
   text: every `<form>` is `novalidate`, every `.form-label` has `for=`, every button has a name,
   no `id` repeats, and labelled fields sit in `.form-row` rather than a bare flex row.
 - `frontend/e2e/accessibility.spec.ts` sweeps every screen: every control named, no heading level
-  skipped, a `<caption>` on every table, axe at WCAG 2.1 A and AA. A row action's `aria-label` is
+  skipped, a `<caption>` on every table, axe at WCAG 2.2 A and AA. A row action's `aria-label` is
   the action, a spaced en dash, then the subject (see `frontend/src/pages/Rules.svelte`), so no
   two rows answer to one name.
 
@@ -123,10 +123,11 @@ Components named without a path live in `frontend/src/components/`.
   and `api/types.ts` (`coverage` in `frontend/vite.config.ts`), so a new file without a test
   fails the per-file floor, whatever the aggregate says.
 - `npm run test:e2e` builds the release binary and the frontend, then drives Chromium against a
-  fake Radarr. Specs are chosen by tag, never by file: one that needs a sub-path mount carries
-  `@subpath` in its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode
-  carries `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key,
-  every other spec by default.
+  fake Radarr, or the engine `ROUTARR_E2E_BROWSER` names: CI runs it in Firefox and WebKit too.
+  Specs are chosen by tag, never by file: one that needs a sub-path mount carries `@subpath` in
+  its title and runs under `npm run test:e2e:base`, one that needs a sign-in mode carries
+  `@forms` or `@oidc` and runs under `npm run test:e2e:auth` with a page holding no key, every
+  other spec by default.
 - A new journey queries by role and label, not by class. The suite runs serially against one
   server, which the `instanceId` fixture resets before every test, so a spec restores any
   setting it changes beyond that reset.

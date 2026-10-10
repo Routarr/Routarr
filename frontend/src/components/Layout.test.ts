@@ -115,6 +115,20 @@ describe('Layout', () => {
     expect(await screen.findByText('Status unavailable')).toBeTruthy();
   });
 
+  /** A mode read before the server stopped answering is no longer known. */
+  it('says the state is unknown once a later read fails', async () => {
+    vi.spyOn(api, 'getStatus')
+      .mockResolvedValueOnce(status({ dry_run: false }))
+      .mockRejectedValue(new Error('connection refused'));
+    show();
+    await screen.findByLabelText('Live: writes enabled');
+
+    invalidateStatus();
+
+    expect(await screen.findByText('Status unavailable')).toBeTruthy();
+    expect(screen.queryByLabelText('Live: writes enabled')).toBeNull();
+  });
+
   /**
    * A key is generated at first start, so a browser without one is the ordinary
    * first visit. Mounting the pages behind the gate instead costs a failed
@@ -151,6 +165,60 @@ describe('Layout', () => {
     await vi.advanceTimersByTimeAsync(60_000);
 
     expect((screen.getByLabelText(label) as HTMLInputElement).value).toBe('half-typed');
+  });
+
+  /**
+   * A session that ended is found by whichever screen asks next, and the
+   * sign-in screen follows at once rather than at the next poll, a minute on.
+   */
+  it('shows the sign-in screen as soon as any request is refused', async () => {
+    vi.spyOn(api, 'authMode').mockResolvedValue({
+      mode: 'forms',
+      api_key_configured: true,
+      api_key_pinned: false,
+    });
+    vi.spyOn(api, 'getStatus')
+      .mockResolvedValueOnce(status())
+      .mockRejectedValue(new ApiError('Unauthorized', 401, 'unauthorized'));
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response('{"error":"unauthorized","message":"refused"}', { status: 401 }),
+        ),
+    );
+    show();
+    await screen.findByText('the page');
+
+    await api.getRules().catch(() => {});
+
+    expect(await screen.findByLabelText('Password')).toBeTruthy();
+    vi.unstubAllGlobals();
+  });
+
+  /**
+   * The shell's own refused read is no news to it: re-read for it, each read
+   * would supersede the last before it could say it was refused, for good.
+   */
+  it('reads its status once when the browser has no session, not in a loop', async () => {
+    const asked: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const path = new URL(url, 'http://routarr.test').pathname;
+        asked.push(path);
+        return path.endsWith('/auth/mode')
+          ? new Response('{"mode":"apikey","api_key_configured":true,"api_key_pinned":false}')
+          : new Response('{"error":"unauthorized","message":"refused"}', { status: 401 });
+      }),
+    );
+    show();
+
+    expect(await screen.findByText('This Routarr needs an API key')).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(asked.filter((path) => path.endsWith('/status')).length).toBeLessThanOrEqual(2);
+    vi.unstubAllGlobals();
   });
 
   /** Any other failure is a banner, not a gate: the pages still work. */
@@ -507,18 +575,23 @@ describe('Layout', () => {
     await screen.findByLabelText('Dry-run: writes blocked');
     const palette = () => screen.queryByRole('combobox', { name: 'Command palette' });
 
+    // Fetched when it first opens, so it arrives a moment after the key.
+    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    await waitFor(() => expect(palette()).toBeTruthy());
+    await fireEvent(palette()!.closest('dialog')!, new Event('cancel', { cancelable: true }));
+    await waitFor(() => expect(palette()).toBeNull());
+
     const dialog = document.createElement('dialog');
     dialog.setAttribute('open', '');
     document.body.append(dialog);
     try {
       await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+      // Already fetched: opened, it would be drawn by the next turn.
+      await new Promise((resolve) => setTimeout(resolve, 0));
       expect(palette()).toBeNull();
     } finally {
       dialog.remove();
     }
-
-    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
-    expect(palette()).toBeTruthy();
   });
 
   /**
