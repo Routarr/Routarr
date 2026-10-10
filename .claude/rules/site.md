@@ -87,3 +87,6 @@ bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's sc
 - `public/llms.txt` restates the pages, the README and what Routarr does not do, for language
   models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and formats it
   shares with the pages, read from the code. Its other facts change with the feature.
+- It links each page's Markdown copy, `index.html.md` beside the page, which `markdown.mjs`
+  writes from the built `<main>` after every build. A label and the text after it need a space
+  in the markup, or the copy and a screen reader run them together.

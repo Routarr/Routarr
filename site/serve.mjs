@@ -37,6 +37,7 @@ const TYPES = {
   '.ico': 'image/vnd.microsoft.icon',
   '.xml': 'application/xml',
   '.txt': 'text/plain',
+  '.md': 'text/markdown',
   '.json': 'application/json',
 };
 

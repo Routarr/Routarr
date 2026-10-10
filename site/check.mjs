@@ -772,6 +772,25 @@ if (llms === null) {
   if (!linked) fail(`llms.txt links to no page on ${ORIGIN}, so the link check read nothing`);
 }
 
+// ------------------------------------------------- copies for language models
+// Every page has its Markdown copy beside it (`markdown.mjs`), which llms.txt
+// links: its one top heading is the page's, and no tag of the page is left in.
+let copies = 0;
+for (const [file, page] of Object.entries(pages)) {
+  if (file.endsWith('404.html')) continue;
+  const copy = existsSync(join(DIST, `${file}.md`)) ? read(`${file}.md`) : '';
+  const heading = page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1].replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim();
+  const top = copy.match(/^# (.+)$/gm) ?? [];
+  if (!copy) fail(`${file} has no Markdown copy at ${file}.md`);
+  else if (top.length !== 1 || top[0].replace(/[*_]/g, '').slice(2).trim() !== heading) {
+    fail(`${file}.md opens on ${top.join(' / ') || 'no top heading'}, the page on "${heading}"`);
+  } else if (/<\/?(?:div|span|section|p|a|li|ul|td|tr|details|summary)\b/.test(copy.replace(/```[\s\S]*?```/g, ''))) {
+    fail(`${file}.md keeps markup of the page`);
+  }
+  copies += 1;
+}
+if (copies < 12) fail(`read ${copies} Markdown copies, expected one per page`);
+
 // ------------------------------------------------------------- og:locale
 // A link preview states the page's language, and each translation names the
 // others. A page that omits `og:locale` is taken for `en_US`, whatever its
@@ -988,7 +1007,7 @@ for (const [what, tint, grounds, texts] of TINTED) {
 // "ReadsRadarr". A space in the markup separates them for both.
 let bandsRead = 0;
 for (const [file, html] of Object.entries(pages)) {
-  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head)">[\s\S]*?<\/p>/g)) {
+  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend)">[\s\S]*?<\/p>/g)) {
     bandsRead++;
     if (/<\/(?:i|span)>(?:<span|[^\s<])/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
   }

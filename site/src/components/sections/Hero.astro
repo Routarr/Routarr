@@ -131,8 +131,8 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
       </div>
 
       <p class="plan-legend">
-        {LEGEND.map((l) => (
-          <span><span class={`chip ${l.cls}`}>{t(l.label)}</span>{t(l.note)}</span>
+        {LEGEND.map((l, at) => (
+          <>{at > 0 && ' '}<span><span class={`chip ${l.cls}`}>{t(l.label)}</span> {t(l.note)}</span></>
         ))}
       </p>
 
