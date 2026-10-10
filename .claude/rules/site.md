@@ -27,6 +27,13 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
   pairs and refuses once no page shows it. `screenshots/og.html` copies the English hero headline
   (`page.h1`) and the palette by hand, so it changes with them.
 
+## Deployment
+
+- Production is the latest published release, built at its tag and deployed by
+  `.github/workflows/site.yml`, which runs `check.mjs` and `verify.mjs` first. A site text
+  describing a feature merges with the feature and reaches visitors with the release that ships
+  it. Cloudflare builds main too, as an uploaded version it never deploys.
+
 ## Content Security Policy
 
 - `public/_headers` sets `default-src 'none'` with `'self'` sources: nothing is fetched from
@@ -54,9 +61,8 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## API page
 
-- The page shows one call and its answer, then lists every operation from the contract of the
-  release it names (`releasedContract` in `release.mjs`, `src/contract.ts`), never from main's,
-  which describes what no image carries yet. Offline it falls back to this checkout's.
+- The page shows one call and its answer, then lists every operation of this checkout's contract
+  (`src/contract.ts`), which production reads at the release's tag.
 - An operation's sentence is `api.ref.op.<operationId>` and a group's `api.ref.tag.<tag>`, in all
   four catalogues. `check.mjs` reads both from `backend/openapi/v1.json`, so a new operation on
   main needs its sentences in the same change, and a key naming none fails.

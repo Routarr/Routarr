@@ -1,14 +1,12 @@
 /**
- * What the API can do, read from the contract of the release the page names
- * (`release.mjs`) and shaped for the reference list: each operation with what
- * it takes and the top level of what it answers. Field names and types are
- * the contract's own, which no language translates. What an operation does and
- * what a group holds come from the catalogues, keyed by the contract's
+ * What the API can do, read from this checkout's contract (production builds
+ * at the release's tag) and shaped for the reference list: each operation with
+ * what it takes and the top level of what it answers. Field names and types
+ * are the contract's own, which no language translates. What an operation does
+ * and what a group holds come from the catalogues, keyed by the contract's
  * `operationId` and tag, which `check.mjs` holds to `backend/openapi/v1.json`.
  */
-import local from '../../backend/openapi/v1.json';
-import { releasedContract } from '../release.mjs';
-import { version } from './version';
+import raw from '../../backend/openapi/v1.json';
 
 interface Schema {
   $ref?: string;
@@ -67,15 +65,7 @@ export interface Group {
   operations: Operation[];
 }
 
-const contract = (await releasedContract(version, local)) as Contract;
-
-/**
- * A tag renamed since the release the page names, read under its current name:
- * the catalogues hold the sentences of this checkout's tags, which `check.mjs`
- * reads, and a release's old name would find none.
- */
-const RENAMED: Record<string, string> = { proposals: 'decisions' };
-const current = (tag: string) => RENAMED[tag] ?? tag;
+const contract = raw as Contract;
 const schemas = contract.components?.schemas ?? {};
 
 const named = (ref: string) => ref.split('/').pop() ?? ref;
@@ -130,7 +120,7 @@ const operations: (Operation & { tag: string })[] = Object.entries(contract.path
   ([path, methods]) =>
     Object.entries(methods).map(([method, operation]) => ({
       id: operation.operationId,
-      tag: current(operation.tags?.[0] ?? ''),
+      tag: operation.tags?.[0] ?? '',
       method: method.toUpperCase(),
       path,
       scope: operation['x-routarr-scope'] ?? null,
@@ -147,6 +137,5 @@ const operations: (Operation & { tag: string })[] = Object.entries(contract.path
 
 /** The groups in the contract's own order, each with its operations. */
 export const groups: Group[] = (contract.tags ?? [])
-  .map(({ name }) => current(name))
-  .map((tag) => ({ tag, operations: operations.filter((op) => op.tag === tag) }))
+  .map(({ name: tag }) => ({ tag, operations: operations.filter((op) => op.tag === tag) }))
   .filter((group) => group.operations.length > 0);
