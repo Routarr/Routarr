@@ -2030,6 +2030,39 @@ async fn explain_names_the_exclusion_that_set_a_rule_aside() {
     }
 }
 
+/// A rule test replays the rules alone, so the explanation of a title an
+/// exception forces says what the rules decide as well, and a test pinned at
+/// that category passes.
+#[tokio::test]
+async fn explain_says_what_the_rules_decide_under_an_exception() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    app.seed_anime_rule().await;
+
+    let free = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    assert_eq!(free["rules_category"], free["target_category"]);
+
+    app.execute(&["INSERT INTO overrides (id, media_id, target_category)
+                   VALUES ('o-1', 'm-1', 'standard')"])
+        .await;
+    let forced = app.get("/api/v1/media/m-1/explain").await.assert_ok().clone();
+    assert_eq!(forced["target_category"], "standard");
+    assert_eq!(forced["rules_category"], "anime");
+
+    app.post(
+        "/api/v1/rule-tests",
+        serde_json::json!({
+            "name": "Totoro",
+            "media_id": "m-1",
+            "expected_category": forced["rules_category"],
+        }),
+    )
+    .await
+    .assert_ok();
+    let run = app.post("/api/v1/rule-tests/run", serde_json::json!({})).await.assert_ok().clone();
+    assert_eq!(run["failed"], 0, "{run}");
+}
+
 /// No run reads a switched-off instance, so the move its title's explanation
 /// shows is only what the rules would do, and the explanation says so.
 #[tokio::test]

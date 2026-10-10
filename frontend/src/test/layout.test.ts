@@ -685,13 +685,42 @@ describe('every screen draws a shared thing the same way', () => {
 
   /** An icon in a title sits on the text's centre line, as the guide's does. */
   it('aligns the icon of every card title with its text', () => {
+    let titled = 0;
     const loose = pages().flatMap((file) =>
-      [...read(file).matchAll(/<h[23]\s+class="card-title([^"]*)"[^>]*>([\s\S]*?)<\/h[23]>/g)]
+      [
+        ...read(file).matchAll(/<h[23]\s+class="card-title([^"]*)"[^>]*>([\s\S]*?)<\/h[23]>/g),
+        ...read(file).matchAll(/<CardTitle\b([^>]*)>([\s\S]*?)<\/CardTitle>/g),
+      ]
         .filter((m) => /<[A-Z]\w*\s+size=/.test(m[2]!))
-        .filter((m) => !(/\bflex\b/.test(m[1]!) && /\bitems-center\b/.test(m[1]!)))
+        .filter(() => (titled += 1))
+        .filter((m) => !(/\bflex\b/.test(m[1] ?? '') && /\bitems-center\b/.test(m[1] ?? '')))
         .map((m) => `${file}:${read(file).slice(0, m.index).split('\n').length}`),
     );
+    expect(titled).toBeGreaterThan(5);
     expect(loose).toEqual([]);
+  });
+
+  /**
+   * Every card title carries the "?" that says what the card shows: drawn by
+   * `CardTitle`, or, where the heading cannot hold a button, beside its own
+   * `HelpToggle`. The gates and the proof dialog title a screen of their own,
+   * which says what it asks for in its first sentence.
+   */
+  it('gives every card title its help', () => {
+    const OWN_SCREEN = [
+      'ApiKeyGate.svelte',
+      'LoginGate.svelte',
+      'ProofDialog.svelte',
+      'CardTitle.svelte',
+    ];
+    const bare = pages()
+      .filter((file) => !OWN_SCREEN.includes(path.basename(file)))
+      .filter((file) => {
+        const source = read(file);
+        const headings = (source.match(/<h[1-6]\b[^>]*class="card-title/g) ?? []).length;
+        return headings > (source.match(/<HelpToggle\b/g) ?? []).length;
+      });
+    expect(bare).toEqual([]);
   });
 });
 

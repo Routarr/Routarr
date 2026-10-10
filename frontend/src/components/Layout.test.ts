@@ -43,6 +43,8 @@ const STRINGS = {
   GuidePillLabel: 'Getting started, required steps done: {done} of {total}',
   CommandPalette: 'Command palette',
   NotFoundTitle: 'Page not found',
+  Help: 'Help',
+  HelpTitle: 'Help: {screen}',
 };
 
 function status(over: Partial<Status> = {}): Status {
@@ -590,6 +592,44 @@ describe('Layout', () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
       expect(palette()).toBeNull();
     } finally {
+      dialog.remove();
+    }
+  });
+
+  /** `?` asks for the help of the screen on display, but types a `?` into a field. */
+  it('opens the help on ?, and on its button, but not from a field or over a dialog', async () => {
+    vi.spyOn(api, 'getStatus').mockResolvedValue(status());
+    show();
+    await screen.findByLabelText('Dry-run: writes blocked');
+    const help = () => screen.queryByRole('dialog', { name: 'Help: Dashboard' });
+    const close = async () => {
+      await fireEvent(help()!, new Event('cancel', { cancelable: true }));
+      await waitFor(() => expect(help()).toBeNull());
+    };
+
+    // Fetched when it first opens, so it arrives a moment after the key.
+    await fireEvent.keyDown(window, { key: '?', shiftKey: true });
+    await waitFor(() => expect(help()).toBeTruthy());
+    await close();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Help' }));
+    await waitFor(() => expect(help()).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Help' })).toHaveAttribute('aria-keyshortcuts', '?');
+    await close();
+
+    const field = document.createElement('input');
+    document.body.append(field);
+    const dialog = document.createElement('dialog');
+    try {
+      await fireEvent.keyDown(field, { key: '?', shiftKey: true });
+      dialog.setAttribute('open', '');
+      document.body.append(dialog);
+      await fireEvent.keyDown(window, { key: '?', shiftKey: true });
+      // Already fetched: opened, it would be drawn by the next turn.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(help()).toBeNull();
+    } finally {
+      field.remove();
       dialog.remove();
     }
   });

@@ -481,6 +481,8 @@ test.describe('buttons are one size', () => {
  * the text, and "all of" reads as a glyph sitting on its last letter.
  */
 test('every select keeps the room its arrow is drawn in', async ({ page }) => {
+  // Every screen in one test: a cold browser on a CI runner needs more than the default.
+  test.setTimeout(60_000);
   const cramped: string[] = [];
   const measure = async (where: string) => {
     const found = await page.locator('select.form-select').evaluateAll((selects) =>

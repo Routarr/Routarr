@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { Send } from '../lib/icons';
   import { api } from '../api/client';
   import { handFocus } from '../lib/focus';
@@ -33,10 +34,10 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
+      <CardTitle card="NotificationTest" class="flex items-center gap-2">
         <Send size={18} aria-hidden="true" />
         {t('NotificationTest')}
-      </h2>
+      </CardTitle>
       <p class="card-note">{t('NotificationTestHelp')}</p>
     </div>
   </div>

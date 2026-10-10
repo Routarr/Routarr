@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, type Snippet } from 'svelte';
-  import { AlertTriangle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
+  import { AlertTriangle, HelpCircle, ListChecks, LogOut, Menu, Search } from '../lib/icons';
   import { ApiError, api, onRefused } from '../api/client';
   import { createAsync, describeError } from '../lib/async.svelte';
   import ErrorBanner from './ErrorBanner.svelte';
@@ -132,6 +132,16 @@
 
   let palette = $state(false);
   let about = $state(false);
+  /** The help is open, on the screen on display or on one the quick search found. */
+  let help = $state<{ screen?: string } | null>(null);
+
+  /** Where a typed `?` is a character rather than a request for help. */
+  function typing(target: EventTarget | null): boolean {
+    return (
+      target instanceof HTMLElement &&
+      (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    );
+  }
 
   /**
    * The shortcut, and the label that teaches it.
@@ -156,6 +166,21 @@
     // itself.
     if (event.key === 'Escape' && drawer && !document.querySelector('dialog[open]')) {
       void closeDrawer();
+      return;
+    }
+    // `?` opens the help of the screen on display. A layout types it with Shift,
+    // so it is read before the modifiers are turned away. Over an open dialog
+    // the dialog holds the reader, and in a field it is a character.
+    if (
+      event.key === '?' &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      !event.altKey &&
+      !typing(event.target) &&
+      !document.querySelector('dialog[open]')
+    ) {
+      event.preventDefault();
+      help = {};
       return;
     }
     // Alt and Shift are somebody else's: Ctrl+Shift+K is Firefox's console,
@@ -309,7 +334,7 @@
         <div class="flex items-center gap-2">
           <button
             bind:this={drawerToggle}
-            class="btn btn-ghost btn-sm sidebar-toggle"
+            class="btn btn-ghost btn-sm sidebar-toggle topbar-icon"
             onclick={() => void toggleDrawer()}
             aria-label={t('OpenNavigation')}
             aria-expanded={drawer}
@@ -402,13 +427,24 @@
             <kbd class="palette-trigger-key">{shortcut}</kbd>
           </button>
 
+          <button
+            type="button"
+            class="btn btn-ghost btn-sm topbar-icon"
+            onclick={() => (help = {})}
+            aria-label={t('Help')}
+            aria-keyshortcuts="?"
+            title={t('Help')}
+          >
+            <HelpCircle size={14} aria-hidden="true" />
+          </button>
+
           <!-- Only where a browser holds a session, the key's included: a
                proxy or an open instance has none to end, and a button that
                does nothing is worse than none. -->
           {#if sessionMode || auth.data?.mode === 'apikey'}
             <button
               type="button"
-              class="btn btn-ghost btn-sm"
+              class="btn btn-ghost btn-sm topbar-icon"
               onclick={signOut}
               aria-label={t('SignOut')}
               title={t('SignOut')}
@@ -449,7 +485,20 @@
        first visit has no use for. -->
   {#if palette}
     {#await import('./CommandPalette.svelte') then { default: CommandPalette }}
-      <CommandPalette onClose={() => (palette = false)} />
+      <CommandPalette
+        onClose={() => (palette = false)}
+        onHelp={(screen) => {
+          palette = false;
+          help = { screen };
+        }}
+      />
+    {/await}
+  {/if}
+
+  <!-- Fetched when it is opened, for the reason the palette is. -->
+  {#if help}
+    {#await import('./HelpPanel.svelte') then { default: HelpPanel }}
+      <HelpPanel path={router.path} screen={help.screen} onClose={() => (help = null)} />
     {/await}
   {/if}
 

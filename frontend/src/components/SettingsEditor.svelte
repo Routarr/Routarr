@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { untrack } from 'svelte';
   import { SvelteSet } from 'svelte/reactivity';
 
@@ -551,10 +552,10 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <h2 class="card-title flex items-center gap-2">
+              <CardTitle card="RoutarrApiKey" class="flex items-center gap-2">
                 <KeyRound size={18} aria-hidden="true" />
                 {t('RoutarrApiKey')}
-              </h2>
+              </CardTitle>
               <p class="card-note">{t(keyCard.help)}</p>
             </div>
           </div>
@@ -603,7 +604,7 @@
         <div class="card">
           <div class="card-header">
             <div>
-              <h2 class="card-title">{t('GuideTitle')}</h2>
+              <CardTitle card="GuideRestart">{t('GuideTitle')}</CardTitle>
               <p class="card-note">{t('GuideRestartText')}</p>
             </div>
             <button type="button" class="btn btn-secondary" onclick={() => void restartGuide()}>
@@ -634,7 +635,7 @@
             <div class="card">
               <div class="card-header">
                 <div>
-                  <h2 class="card-title">{t(sources.labelKey)}</h2>
+                  <CardTitle card="SettingsMetadataSources">{t(sources.labelKey)}</CardTitle>
                   <p class="card-note">{t(sources.helpKey)}</p>
                 </div>
               </div>
@@ -658,9 +659,9 @@
 
         <div class="card">
           <div class="card-header">
-            <h2 class="card-title">
+            <CardTitle card={section === 'metadata' ? 'SettingsMetadataCoverage' : active.labelKey}>
               {t(section === 'metadata' ? 'SettingsMetadataCoverage' : active.labelKey)}
-            </h2>
+            </CardTitle>
           </div>
 
           <!-- The three metadata credentials are rendered by the source list

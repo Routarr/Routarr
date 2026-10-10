@@ -96,6 +96,10 @@ Components named without a path live in `frontend/src/components/`.
 - A destructive action asks through `askConfirmation` (yes or no) or `ask` (several outcomes) from
   `frontend/src/lib/confirm.svelte.ts`, never `window.confirm`. The message is a rendered string,
   a button label a dictionary key.
+- A card title is `CardTitle`, whose `card` id names its entry in `CARD_HELP`
+  (`frontend/src/lib/help-content.ts`) and in its screen's `cards`. A heading that cannot hold a
+  button, inside a `<summary>`, sits beside its own `HelpToggle`. A new screen needs its `HELP`
+  entry and a new term its `TERMS` one. `help.test.ts` and `layout.test.ts` refuse each missing.
 - A table sits in `TableRegion` with the same `label` as its `<caption>`. A search box is
   `SearchField`. Icons come from `frontend/src/lib/icons.ts`, never straight from `@lucide/svelte`.
 - Pure logic goes in `frontend/src/api/format.ts` or `frontend/src/api/conditions.ts`, where a test

@@ -369,6 +369,10 @@ pub struct Explanation {
     pub metadata: Option<MediaMetadata>,
     pub override_category: Option<String>,
     pub target_category: String,
+    /// What the rules alone decide, the exception left out: the category a
+    /// rule test pinned from this title expects, since a test replays the
+    /// rules alone. Equal to `target_category` when no exception is in force.
+    pub rules_category: String,
     pub target_root_folder: Option<String>,
     #[schema(value_type = String, extensions(("x-extensible-enum" = json!(["move", "none", "skip"]))))]
     pub action: DecisionAction,
@@ -433,6 +437,13 @@ pub async fn explain(
         routing::route_one(&state.pool, &media, now).await?;
     let routing::Route { metadata, evaluation, category, target, action } = route;
     let ctx = EvalContext { media: &media, metadata: metadata.as_ref(), now };
+    let rules_category = match override_category {
+        Some(_) => {
+            let default_category = AppState::default_category(&state.pool).await?;
+            crate::services::rule_tests::decided_by_rules(ctx, &rules, &default_category).0
+        }
+        None => category.clone(),
+    };
 
     // Trace every applicable rule, not just the winner: seeing why the *other*
     // rules did not fire is usually the actual question.
@@ -481,6 +492,7 @@ pub async fn explain(
         metadata,
         override_category,
         target_category: category,
+        rules_category,
         target_root_folder: target,
         action,
         confidence: evaluation.winner.as_ref().map(|w| w.confidence).unwrap_or(0.0),

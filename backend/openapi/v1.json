@@ -1697,6 +1697,10 @@
             },
             "type": "array"
           },
+          "rules_category": {
+            "description": "What the rules alone decide, the exception left out: the category a\nrule test pinned from this title expects, since a test replays the\nrules alone. Equal to `target_category` when no exception is in force.",
+            "type": "string"
+          },
           "target_category": {
             "type": "string"
           },
@@ -1716,6 +1720,7 @@
         "required": [
           "media",
           "target_category",
+          "rules_category",
           "action",
           "confidence",
           "rule_traces",

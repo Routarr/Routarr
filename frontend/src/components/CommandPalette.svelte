@@ -4,7 +4,9 @@
   import { RefreshCw, Search } from '../lib/icons';
   import { describeError } from '../lib/async.svelte';
   import { t } from '../lib/i18n.svelte';
+  import { searchHelp } from '../lib/help';
   import { DESTINATIONS } from '../lib/navigation';
+  import { screenKey } from '../lib/routes';
   import { navigate } from '../lib/router.svelte';
   import type { Explanation, MediaListItem } from '../api/types';
   import ExplanationModal from './ExplanationModal.svelte';
@@ -27,12 +29,14 @@
    * capacity check), and a palette exists to be fast, which is the opposite of
    * what a write to somebody's library wants. The explanation it opens is the
    * library screen's own panel, whose one write, pinning a rule test, stays
-   * inside Routarr.
+   * inside Routarr. The help answers here too, and opens on the screen it
+   * found.
    */
-  let { onClose }: { onClose: () => void } = $props();
+  let { onClose, onHelp }: { onClose: () => void; onHelp: (screen: string) => void } = $props();
 
   type Row =
     | { kind: 'nav'; id: string; to: string; label: string; hint: string }
+    | { kind: 'help'; id: string; screen: string; title: string; where: string }
     | { kind: 'media'; id: string; media: MediaListItem };
 
   let query = $state('');
@@ -43,6 +47,10 @@
   let explaining = $state<Explanation | null>(null);
   let error = $state<string | null>(null);
   let input = $state<HTMLInputElement | null>(null);
+
+  /** The first answers the help holds, once a word is typed. */
+  const HELP_ROWS = 5;
+  const help = $derived(query.trim().length < 2 ? [] : searchHelp(query, t).slice(0, HELP_ROWS));
 
   /** Matched on the translated label: it is what is on screen and what is typed. */
   const destinations = $derived(
@@ -58,6 +66,13 @@
       to: item.to,
       label,
       hint: t(item.hint),
+    })),
+    ...help.map((hit, at) => ({
+      kind: 'help' as const,
+      id: `pal-help-${at}`,
+      screen: hit.screen,
+      title: hit.title,
+      where: t(screenKey(hit.screen)),
     })),
     ...media.map((entry) => ({
       kind: 'media' as const,
@@ -123,6 +138,10 @@
     if (row.kind === 'nav') {
       navigate(row.to);
       onClose();
+      return;
+    }
+    if (row.kind === 'help') {
+      onHelp(row.screen);
       return;
     }
     asking?.abort();
@@ -234,7 +253,13 @@
           {#each runs as run (run.key)}
             <div role="group" aria-labelledby="palette-group-{run.key}">
               <div class="palette-group" id="palette-group-{run.key}" role="presentation">
-                {t(run.key === 'nav' ? 'CommandPaletteGoTo' : 'MediaExplorer')}
+                {t(
+                  run.key === 'nav'
+                    ? 'CommandPaletteGoTo'
+                    : run.key === 'help'
+                      ? 'Help'
+                      : 'MediaExplorer',
+                )}
               </div>
               {#each run.entries as { item: row, index } (row.id)}
                 <!-- The option carries the click itself rather than wrapping a
@@ -262,6 +287,9 @@
                   {#if row.kind === 'nav'}
                     <span class="palette-name">{row.label}</span>
                     <span class="palette-hint" title={row.hint}>{row.hint}</span>
+                  {:else if row.kind === 'help'}
+                    <span class="palette-name">{row.title}</span>
+                    <span class="palette-meta">{row.where}</span>
                   {:else}
                     <span class="palette-name">
                       {row.media.title}

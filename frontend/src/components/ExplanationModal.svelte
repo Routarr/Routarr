@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { api } from '../api/client';
   import { Lock, RefreshCw, ShieldCheck } from '../lib/icons';
   import type { Explanation } from '../api/types';
@@ -76,10 +77,12 @@
     pinning = true;
     pinError = null;
     try {
+      // What the rules decide, which is what a rule test replays: the
+      // category an exception forces would fail the test it makes.
       await api.pinRuleTest(
-        t('PinnedCaseName', { title: view.media.title, category: view.target_category }),
+        t('PinnedCaseName', { title: view.media.title, category: view.rules_category }),
         view.media.id,
-        view.target_category,
+        view.rules_category,
       );
       pinned = true;
     } catch (err) {
@@ -178,12 +181,17 @@
         class="btn btn-secondary btn-sm"
         disabled={pinning || pinned}
         onclick={() => void pin()}
-        aria-describedby="explain-pin-hint"
+        aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
       >
         <ShieldCheck size={14} />
         {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
       </button>
       <p id="explain-pin-hint" class="form-hint">{t('PinAsRuleTestHint')}</p>
+      {#if view.override_category}
+        <p id="explain-pin-rules" class="form-hint">
+          {t('PinRulesUnderException', { category: view.rules_category })}
+        </p>
+      {/if}
     </div>
   </div>
 
@@ -229,7 +237,7 @@
   {#if view.metadata}
     <div class="card">
       <div class="card-header">
-        <h3 class="card-title">{t('MetadataTitle')}</h3>
+        <CardTitle card="MetadataTitle" level={3}>{t('MetadataTitle')}</CardTitle>
       </div>
       <div class="flex flex-wrap gap-2 mt-2">
         {#each view.metadata.genres as genre (genre)}
@@ -281,7 +289,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h3 class="card-title">{t('RuleEvaluation')}</h3>
+      <CardTitle card="RuleEvaluation" level={3}>{t('RuleEvaluation')}</CardTitle>
     </div>
     {#if view.rule_traces.length === 0}
       <EmptyState>{t('NoRuleApplies')}</EmptyState>

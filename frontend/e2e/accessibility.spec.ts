@@ -644,6 +644,12 @@ const MODALS: {
     open: (p) => p.getByRole('button', { name: 'Quick search' }).click(),
   },
   {
+    // The help of the screen on display, from the top bar of every screen.
+    path: '/rules',
+    covers: 'components/HelpPanel.svelte',
+    open: (p) => p.getByRole('button', { name: 'Help', exact: true }).click(),
+  },
+  {
     // The version at the foot of the navigation, on every screen.
     path: '/rules',
     covers: 'components/AboutDialog.svelte',

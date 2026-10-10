@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from '../components/CardTitle.svelte';
   import { Layers, Play, ShieldCheck } from '../lib/icons';
   import { formatBytes } from '../api/format';
   import { api, type Following } from '../api/client';
@@ -379,7 +380,9 @@
       {/each}
 
       <div class="card">
-        <div class="card-header"><h2 class="card-title">{t('CapacityTitle')}</h2></div>
+        <div class="card-header">
+          <CardTitle card="CapacityTitle">{t('CapacityTitle')}</CardTitle>
+        </div>
         <TableRegion label={t('CapacityTitle')}>
           <table>
             <caption class="visually-hidden">{t('CapacityTitle')}</caption>

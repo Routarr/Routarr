@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { ShieldCheck } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
@@ -68,10 +69,10 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
+      <CardTitle card="Sessions" class="flex items-center gap-2">
         <ShieldCheck size={18} aria-hidden="true" />
         {t('Sessions')}
-      </h2>
+      </CardTitle>
       <p class="card-note">{t('SessionsHelp')}</p>
     </div>
     <button

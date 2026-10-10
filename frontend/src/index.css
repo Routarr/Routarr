@@ -572,6 +572,73 @@ a {
   font-weight: 600;
 }
 
+/* A card's title and the "?" that explains the card, one item of its header:
+   the actions on the other side keep their place. The title runs inline and
+   the "?" follows its last word, so where a line has no room left it is the
+   "?" that goes under, never a word of the title. */
+.card-title-group {
+  min-width: 0;
+}
+
+.card-title-group > .card-title {
+  display: inline;
+}
+
+.card-title-group > .card-title.flex {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.card-title-group > .help-toggle {
+  margin-inline-start: var(--space-1);
+  vertical-align: middle;
+}
+
+/* 24px square, the WCAG 2.2 minimum for a target, around a 15px glyph. */
+.help-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.help-toggle:hover,
+.help-toggle[aria-expanded='true'] {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+}
+
+/* Placed by `CardTitle` under its "?" once it has a size, and hidden until
+   then, so it never shows for a frame where the browser centres a popover. */
+.help-bubble {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: min(22rem, calc(100vw - 16px));
+  padding: var(--space-3) var(--space-4);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.55;
+  visibility: hidden;
+}
+
+.help-bubble.is-placed {
+  visibility: visible;
+}
+
 /* Buttons */
 .btn {
   display: inline-flex;
@@ -1004,7 +1071,8 @@ a {
   .sign-out-label {
     display: none;
   }
-  .palette-trigger {
+  .palette-trigger,
+  .topbar-icon {
     padding-inline: 8px;
   }
 }
@@ -1024,6 +1092,171 @@ a {
 .modal-overlay:has(.palette) {
   align-items: flex-start;
   padding-block-start: 12svh;
+}
+
+/* The help is a sheet along the trailing edge, as tall as the window, so the
+   screen it explains stays in view beside it. */
+.modal-overlay:has(.help-panel) {
+  justify-content: flex-end;
+  align-items: stretch;
+  padding: 0;
+}
+
+.modal-overlay:has(.help-panel) .modal-content {
+  max-height: none;
+  height: 100%;
+  border-radius: 0;
+  border-block: 0;
+  border-inline-end: 0;
+}
+
+.help-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.help-panel .modal-header {
+  margin-bottom: 0;
+}
+
+/* A row's search box takes 320px along its row, and here the row is a column. */
+.help-panel > .search-field {
+  flex: none;
+}
+
+.help-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.help-tabs [role='tab'] {
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.help-tabs [role='tab'][aria-selected='true'] {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent-strong);
+}
+
+.help-view h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+}
+
+.help-view h4 {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+.help-terms dt {
+  font-weight: 600;
+  margin-top: var(--space-3);
+}
+
+.help-terms dd {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.help-problems {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 0;
+  list-style: none;
+}
+
+.help-problems li {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.help-problems span {
+  color: var(--text-secondary);
+}
+
+.help-used {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* A screen named in the glossary, which shows that screen's help: a link in
+   the sentence, though it moves nowhere. */
+.help-link {
+  padding: 0;
+  margin-inline-start: var(--space-1);
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.help-hits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.help-hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.help-hit:hover {
+  border-color: var(--border-strong);
+}
+
+.help-hit-title {
+  font-weight: 600;
+}
+
+.help-hit-where {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.help-hit-text {
+  grid-column: 1 / -1;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.help-empty {
+  color: var(--text-muted);
 }
 
 /* The one place a focus ring is not wanted: the dialog is modal, this field
@@ -2533,7 +2766,6 @@ td * {
   }
 }
 
-/* The drawer button only exists where the drawer does. */
 /* The drawer's toggle in the top bar, and its close button in the drawer's
    header, at its far end: both exist only where the navigation is a drawer. */
 .sidebar-toggle,
@@ -3100,7 +3332,20 @@ select.form-select {
  * The marker is drawn rather than inherited: the browsers' own triangles differ
  * in size, colour and position, and one of them sits outside the padding box.
  * `list-style: none` plus the WebKit pseudo-element is what removes both. */
+/* The facets' "?", laid over the summary's line before its chevron, which
+   keeps room for it. */
+.facet-wrap {
+  position: relative;
+}
+
+.facet-help {
+  position: absolute;
+  top: 20px;
+  inset-inline-end: 44px;
+}
+
 .facet-panel > summary {
+  padding-inline-end: 32px;
   cursor: pointer;
   list-style: none;
   /* Closed, the header is the whole card, so it should not reserve the gap it

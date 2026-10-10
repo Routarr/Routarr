@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, screen, waitFor, within } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 
 import { SCREENS } from '../lib/routes';
+import { HELP, TERMS } from '../lib/help';
 import { renderWithI18n } from '../test/render';
 import { nthCall } from '../test/spy';
 import { media as film, explainedMedia } from '../test/fixtures';
@@ -51,8 +52,8 @@ const STRINGS = {
 const media = (over: Partial<MediaListItem> = {}) =>
   film({ id: 'm-1', title: 'Spirited Away', year: 2001, ...over });
 
-const show = (onClose = () => {}) =>
-  renderWithI18n(CommandPalette, { props: { onClose }, strings: STRINGS });
+const show = (onClose = () => {}, onHelp = vi.fn()) =>
+  renderWithI18n(CommandPalette, { props: { onClose, onHelp }, strings: STRINGS });
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -109,8 +110,9 @@ describe('CommandPalette', () => {
     await screen.findAllByRole('option');
 
     await userEvent.type(screen.getByRole('combobox'), 'diag');
-    expect(screen.getAllByRole('option')).toHaveLength(1);
-    expect(screen.getByRole('option')).toHaveTextContent('Diagnostics');
+    const destinations = within(screen.getByRole('group', { name: 'Go to' }));
+    expect(destinations.getAllByRole('option')).toHaveLength(1);
+    expect(destinations.getByRole('option')).toHaveTextContent('Diagnostics');
   });
 
   /**
@@ -249,6 +251,7 @@ describe('CommandPalette', () => {
       metadata: null,
       override_category: null,
       target_category: 'anime',
+      rules_category: 'anime',
       target_root_folder: '/movies/anime',
       action: 'move',
       confidence: 0.7,
@@ -302,7 +305,9 @@ describe('CommandPalette', () => {
     // failure is the half that never needed the network.
     await userEvent.type(screen.getByRole('combobox'), 'logs');
     await screen.findByRole('alert');
-    expect(screen.getByRole('option')).toHaveTextContent('Logs');
+    expect(
+      within(screen.getByRole('group', { name: 'Go to' })).getByRole('option'),
+    ).toHaveTextContent('Logs');
 
     // And the failure goes when the question does.
     await userEvent.clear(screen.getByRole('combobox'));
@@ -357,6 +362,7 @@ describe('CommandPalette', () => {
       metadata: null,
       override_category: null,
       target_category: 'anime',
+      rules_category: 'anime',
       target_root_folder: '/movies/anime',
       action: 'move',
       confidence: 0.7,
@@ -373,5 +379,25 @@ describe('CommandPalette', () => {
     const panel = await screen.findByRole('dialog', { name: 'Spirited Away' });
     expect(actions(panel)).toContain('Pin as a rule test');
     expect(actions(panel).filter((name) => WRITES.test(name))).toEqual([]);
+  });
+
+  /** The help answers too, and opens on the screen it found. */
+  it('offers what the help says, and opens it on that screen', async () => {
+    vi.spyOn(api, 'getMedia').mockResolvedValue({
+      data: [],
+      pagination: { page: 1, per_page: 5, total: 0, total_pages: 0 },
+    });
+    const term = Object.keys(TERMS)[0]!;
+    const onHelp = vi.fn();
+    renderWithI18n(CommandPalette, {
+      props: { onClose: () => {}, onHelp },
+      strings: { ...STRINGS, Help: 'Help', [TERMS[term]!.name]: 'Quokka' },
+    });
+
+    await userEvent.type(screen.getByRole('combobox', { name: 'Quick search' }), 'quokka');
+    const group = await screen.findByRole('group', { name: 'Help' });
+    await userEvent.click(within(group).getByRole('option', { name: /Quokka/ }));
+
+    expect(onHelp).toHaveBeenCalledWith(SCREENS.find((path) => HELP[path]!.terms.includes(term)));
   });
 });

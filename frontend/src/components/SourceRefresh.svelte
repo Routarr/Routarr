@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { api } from '../api/client';
   import { formatCount } from '../api/format';
   import type { MetadataProvider } from '../api/types';
@@ -51,7 +52,7 @@
 </script>
 
 <div class="card-header">
-  <h2 class="card-title">{t('SourceRefreshTitle')}</h2>
+  <CardTitle card="SourceRefreshTitle">{t('SourceRefreshTitle')}</CardTitle>
 </div>
 <p class="text-muted text-md">{t('SourceRefreshHelp')}</p>
 <ErrorBanner message={catalogue.error} onRetry={() => void catalogue.reload()} />

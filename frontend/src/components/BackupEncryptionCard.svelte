@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { Lock } from '../lib/icons';
   import { api } from '../api/client';
   import { t } from '../lib/i18n.svelte';
@@ -64,10 +65,10 @@
            carries the master key, which is what the note warns of. Below
            it where both do not fit, rather than the name broken in two. -->
       <div class="flex flex-wrap items-center gap-2">
-        <h2 class="card-title flex items-center gap-2">
+        <CardTitle card="BackupEncryption" class="flex items-center gap-2">
           <Lock size={18} aria-hidden="true" />
           {t('BackupEncryption')}
-        </h2>
+        </CardTitle>
         <span class="badge {encrypted ? 'badge-success' : 'badge-warning'}">
           {t(encrypted ? 'BackupEncryptionOn' : 'BackupEncryptionOff')}
         </span>

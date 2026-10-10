@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from '../components/CardTitle.svelte';
   import { Pencil, Plus, Trash2 } from '../lib/icons';
   import { api } from '../api/client';
   import type { Category, Instance, MappingConflict, RootFolder } from '../api/types';
@@ -208,7 +209,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h2 class="card-title">{t('FolderMappings')}</h2>
+      <CardTitle card="FolderMappings">{t('FolderMappings')}</CardTitle>
     </div>
     <TableRegion label={t('FolderMappings')} id="folders-table">
       <table>
@@ -355,7 +356,7 @@
 
   <div class="card">
     <div class="card-header">
-      <h2 class="card-title">{t('Categories')}</h2>
+      <CardTitle card="Categories">{t('Categories')}</CardTitle>
     </div>
     <TableRegion label={t('Categories')} id="categories-table">
       <table>

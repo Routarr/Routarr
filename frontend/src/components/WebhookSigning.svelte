@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CardTitle from './CardTitle.svelte';
   import { KeyRound } from '../lib/icons';
   import { api } from '../api/client';
   import { createAsync } from '../lib/async.svelte';
@@ -52,10 +53,10 @@
 <div class="card">
   <div class="card-header">
     <div>
-      <h2 class="card-title flex items-center gap-2">
+      <CardTitle card="WebhookSigning" class="flex items-center gap-2">
         <KeyRound size={18} aria-hidden="true" />
         {t('WebhookSigning')}
-      </h2>
+      </CardTitle>
       <p class="card-note">{t('WebhookSigningHelp')}</p>
     </div>
   </div>
