@@ -278,6 +278,12 @@ for (const [file, page] of Object.entries(pages)) {
 // A term `within` a sentence is a screen or a scope the sentence names.
 const TERMS = [
   ['hero.board.mode', 'ModeDryRunShort'],
+  ['hero.status.move', 'ActionMove'],
+  ['hero.status.correct', 'ActionNone'],
+  ['hero.rule.default', 'DefaultCategoryFallback'],
+  ['hero.tally', 'Evaluated', 'within'],
+  ['hero.tally', 'MovesRequired', 'within'],
+  ['hero.tally', 'AlreadyCorrect', 'within'],
   ['safety.b', 'SettingGlobalDryRun'],
   ['safety.b.2', 'SettingBatchLimit'],
   ['safety.b.3', 'SettingConfirmationThreshold'],
@@ -873,6 +879,20 @@ for (const [file, html] of Object.entries(pages)) {
   }
 }
 if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together check is reading almost nothing`);
+
+// The hero's plan the same way: a rule's number and its name, and a move's two
+// folders, which the arrow between them parts for the eye alone.
+let planCellsRead = 0;
+for (const [file, html] of Object.entries(pages)) {
+  for (const [cell] of html.matchAll(/<td class="plan-(?:rule|dest)">[\s\S]*?<\/td>/g)) {
+    planCellsRead++;
+    if (/<\/b>[^\s]/.test(cell)) fail(`${file}: a rule's number runs into its name: ${cell.slice(0, 90)}`);
+    if (cell.includes('class="arrow"') && !cell.includes('class="sr-only"')) {
+      fail(`${file}: a move's folders run together for a screen reader: ${cell.slice(0, 90)}`);
+    }
+  }
+}
+if (planCellsRead < 40) fail(`read ${planCellsRead} plan cell(s), so the plan check is reading almost nothing`);
 
 // The page opens dark, and the browser's bar follows the page, never the
 // system: every page stamps `data-theme="dark"`, carries one `theme-color`

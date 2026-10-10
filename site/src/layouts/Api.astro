@@ -29,12 +29,14 @@ const CALL = String.raw`curl -fsS -H "X-Api-Key: $ROUTARR_KEY" \
       | {category, folder: .root_folder.path, action, rule}'`;
 
 /* What the jq filter of CALL prints from an instance's answer, the fields in
-   the order it builds them: a change to either changes the other. */
+   the order it builds them: a change to either changes the other. TMDB 149
+   is Akira, which the hero's plan shows held in /movies, hence a move, and
+   the rule carries the name a reader of this language would have given it. */
 const ANSWER = `{
   "category": "anime",
   "folder": "/movies/anime",
-  "action": "add",
-  "rule": "Japanese animation"
+  "action": "move",
+  "rule": "${t('page.text.3')}"
 }`;
 ---
 

@@ -9,6 +9,7 @@
  *   node site/verify.mjs
  */
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, fromFrontend } from './playwright.mjs';
@@ -337,6 +338,17 @@ for (const path of LANDINGS) {
 // The count is the guard on the guard: a selector that stops matching would
 // measure nothing and pass.
 check(planCells >= 400, `measured ${planCells} plan cell(s) across the landings, expected at least 400`);
+
+// A move reads as two folders and the word between them, in the page's
+// language: the arrow that parts them on screen is hidden from a screen reader.
+for (const { code, path } of LANGUAGES) {
+  const tab = await context.newPage();
+  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+  const word = JSON.parse(readFileSync(`${ROOT}src/i18n/${code}.json`, 'utf-8'))['hero.to'];
+  const spoken = await tab.locator('.plan-dest:has(.arrow)').first().ariaSnapshot();
+  check(spoken.includes(` ${word} `), `${path}: the first move reads "${spoken.trim()}", without "${word}" between its folders`);
+  await tab.close();
+}
 
 // The dark palette is a stamped choice, so the sweep above never sees it. Each
 // page once more in dark, at a desktop width, where every block is on screen.

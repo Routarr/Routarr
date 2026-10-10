@@ -1666,19 +1666,22 @@ h2 em { font-style: normal; color: var(--accent-text); }
 /* The number sits beside the rule, not above it: stacked, every row would be
    two lines tall for a value that reads as one thing,
    "#10 Japanese animation". */
-.plan-rule b { margin-inline-end: 7px; color: var(--accent-text); }
+/* The space between them is in the markup, so a screen reader and a copy
+   read "#10 Japanese animation" too. */
+.plan-rule b { margin-inline-end: 3px; color: var(--accent-text); }
 .plan-rule i { color: var(--text-muted); font-style: italic; }
 .plan-dest .mono { font-family: var(--mono); font-size: 0.94rem; }
 .plan-dest .from { color: var(--text-muted); }
 .plan-dest .to { color: var(--accent-text); font-weight: 600; }
-.plan-dest .arrow { padding: 0 10px; color: var(--border-strong); }
+/* The direction a move goes, which WCAG asks to reach 3:1 as a graphic. A
+   screen reader hears the connector the markup carries beside it. */
+.plan-dest .arrow { padding: 0 10px; color: var(--text-muted); }
 .plan-instance { font-size: 0.9rem; color: var(--text-soft); }
 
-/* One line, in four languages. Three pairs across the card leave about thirty
-   characters per note, so the notes are two words and the row may not wrap:
-   a legend on four lines is a paragraph pretending to be a key. */
 /* Laid out as the safety section's legend: each entry after the last, the
-   row wrapping where the card is too narrow for it. */
+   row wrapping where the card is too narrow for it. An entry keeps its mark
+   and its note on one line where it can, and breaks the note on a phone,
+   where a translated one is wider than the card. */
 .plan-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1690,6 +1693,9 @@ h2 em { font-style: normal; color: var(--accent-text); }
   color: var(--text-muted);
 }
 .plan-legend > span { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; }
+@media (max-width: 479px) {
+  .plan-legend > span { white-space: normal; }
+}
 
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
    the table and the legend. */
@@ -1718,6 +1724,10 @@ h2 em { font-style: normal; color: var(--accent-text); }
    fits shows none. */
 .table-scroll {
   overflow-x: auto;
+  /* The containing block of the hidden words in its cells, which sit at the
+     place of the cell they belong to: placed by an ancestor outside, the ones
+     past the edge would make the whole page scroll sideways. */
+  position: relative;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
   background:
