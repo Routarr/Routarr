@@ -112,8 +112,12 @@ const images = await page.evaluate(() =>
 for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 
 // ----------------------------------------------------------- accessibility
-// Every page at WCAG 2.1 AA, at a desktop and a phone width: what the
-// application's own sweep holds itself to, held here as well.
+// Every page at WCAG 2.2 AA, in both themes, at a desktop and a phone width:
+// what the application's own sweep holds itself to, held here as well. Each
+// page is read as it opens, then with every disclosure of its content open,
+// since a folded panel hides its contents from axe as much as from the
+// reader. The Index panel is then read open on its own, over the page it
+// overlays.
 /* The content pages: every language of the landing and of the detail page,
    from the one list the pages are built from, because a probe that quietly
    stops covering half the site is the kind that keeps passing. */
@@ -122,48 +126,79 @@ const LANDINGS = LANGUAGES.map(({ path }) => path);
 const DETAILS = LANDINGS.map((path) => `${path}how/`);
 const APIS = LANDINGS.map((path) => `${path}api/`);
 const PAGES = [...LANDINGS, ...DETAILS, ...APIS];
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
-for (const path of [...PAGES, ...NOT_FOUND]) {
-  for (const width of [1440, 375]) {
-    const tab = await context.newPage();
-    await tab.setViewportSize({ width, height: 900 });
-    const before = problems.length;
-    await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-    const blocked = await tab.evaluate(() => window.__csp);
-    for (const violation of blocked) fail(`${path} at ${width}px: content-security-policy ${violation}`);
-    for (const problem of problems.slice(before)) fail(`${path} at ${width}px: ${problem}`);
-    const { violations, incomplete } = await new AxeBuilder({ page: tab })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze();
-    for (const violation of violations) {
-      const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-      fail(`${path} at ${width}px: ${violation.id} (${violation.impact}), ${where}`);
-    }
-    // A contrast axe could not measure is a contrast nobody checked: text over
-    // a layer it cannot see through reads as "incomplete", never as a failure.
-    // Two exceptions: a glyph that is no text (`nonBmp`), a decorative mark,
-    // and the hero's text over its grid (`pseudoContent`), which `check.mjs`
-    // measures on the tinted ground instead.
-    const reasons = (node) => node.any.map((check) => check.data?.messageKey);
-    const candidates = incomplete
-      .filter((result) => result.id === 'color-contrast')
-      .flatMap((result) => result.nodes)
-      .filter((node) => !reasons(node).every((key) => key === 'nonBmp'));
-    const inHero = await tab.evaluate(
-      (selectors) => selectors.map((selector) => Boolean(document.querySelector(selector)?.closest('.hero'))),
-      candidates.map((node) => node.target.join(' ')),
-    );
-    const unmeasured = candidates.filter(
-      (node, at) => !(inHero[at] && reasons(node).every((key) => key === 'pseudoContent')),
-    );
-    if (unmeasured.length) {
-      const where = unmeasured.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-      fail(`${path} at ${width}px: a contrast axe could not measure, ${where}`);
-    }
-    await tab.close();
+/** axe's violations, and the contrasts it could not measure, on a page as it stands. */
+async function audit(tab, where, within) {
+  const axe = new AxeBuilder({ page: tab }).withTags(AXE_TAGS);
+  const { violations, incomplete } = await (within ? axe.include(within) : axe).analyze();
+  for (const violation of violations) {
+    const nodes = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+    fail(`${where}: ${violation.id} (${violation.impact}), ${nodes}`);
+  }
+  // A contrast axe could not measure is a contrast nobody checked: text over
+  // a layer it cannot see through reads as "incomplete", never as a failure.
+  // Two exceptions: a glyph that is no text (`nonBmp`), a decorative mark,
+  // and the hero's text over its grid (`pseudoContent`), which `check.mjs`
+  // measures on the tinted ground instead.
+  const reasons = (node) => node.any.map((check) => check.data?.messageKey);
+  const candidates = incomplete
+    .filter((result) => result.id === 'color-contrast')
+    .flatMap((result) => result.nodes)
+    .filter((node) => !reasons(node).every((key) => key === 'nonBmp'));
+  const inHero = await tab.evaluate(
+    (selectors) => selectors.map((selector) => Boolean(document.querySelector(selector)?.closest('.hero'))),
+    candidates.map((node) => node.target.join(' ')),
+  );
+  const unmeasured = candidates.filter(
+    (node, at) => !(inHero[at] && reasons(node).every((key) => key === 'pseudoContent')),
+  );
+  if (unmeasured.length) {
+    const nodes = unmeasured.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+    fail(`${where}: a contrast axe could not measure, ${nodes}`);
   }
 }
+
+const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
+let audited = 0;
+// Dark is what every page opens in, and light is the visitor's stamped choice.
+for (const theme of ['dark', 'light']) {
+  for (const path of [...PAGES, ...NOT_FOUND]) {
+    for (const width of [1440, 375]) {
+      const tab = await context.newPage();
+      if (theme === 'light') await tab.addInitScript(() => localStorage.setItem('routarr.theme', 'light'));
+      await tab.setViewportSize({ width, height: 900 });
+      const before = problems.length;
+      await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+      const where = `${path} at ${width}px in ${theme}`;
+      const shown = await tab.evaluate(() => document.documentElement.dataset.theme);
+      check(shown === theme, `${where} opened in ${shown}, so the sweep read the other theme`);
+      const blocked = await tab.evaluate(() => window.__csp);
+      for (const violation of blocked) fail(`${where}: content-security-policy ${violation}`);
+      for (const problem of problems.slice(before)) fail(`${where}: ${problem}`);
+      await audit(tab, where);
+      const disclosures = await tab.evaluate(() => {
+        const all = document.querySelectorAll('main details');
+        for (const disclosure of all) disclosure.open = true;
+        return all.length;
+      });
+      if (disclosures) await audit(tab, `${where}, every disclosure open`);
+      const index = await tab.evaluate(() => {
+        const panel = document.querySelector('.index');
+        if (!panel) return false;
+        panel.open = true;
+        // axe takes text lying under the panel's opaque ground for a contrast
+        // it cannot measure, so the page beneath is hidden for this read.
+        document.querySelector('main').style.visibility = 'hidden';
+        return true;
+      });
+      if (index) await audit(tab, `${where}, the Index open`, '.index');
+      audited += 1;
+      await tab.close();
+    }
+  }
+}
+check(audited === (PAGES.length + NOT_FOUND.length) * 4, `audited ${audited} page state(s), so a sweep was skipped`);
 
 // ------------------------------------------------------------ layout
 // Every page, because a German phrase in a fixed column is exactly the kind
@@ -350,28 +385,9 @@ for (const { code, path } of LANGUAGES) {
   await tab.close();
 }
 
-// The dark palette is a stamped choice, so the sweep above never sees it. Each
-// page once more in dark, at a desktop width, where every block is on screen.
-for (const path of PAGES) {
-  const tab = await context.newPage();
-  await tab.addInitScript(() => localStorage.setItem('routarr.theme', 'dark'));
-  await tab.setViewportSize({ width: 1440, height: 900 });
-  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-  const dark = await tab.evaluate(() => document.documentElement.dataset.theme === 'dark');
-  check(dark, `${path} did not open in the dark theme, so the dark sweep read the light one`);
-  const { violations } = await new AxeBuilder({ page: tab })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .analyze();
-  for (const violation of violations) {
-    const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-    fail(`${path} in dark: ${violation.id} (${violation.impact}), ${where}`);
-  }
-  await tab.close();
-}
-
 // ------------------------------------------------------------ theme
 // Before anyone touches it, the switch says the theme on screen: a screen
-// reader reads its state, not its colour. Nothing stamped is the light default.
+// reader reads its state, not its colour.
 const announced = await page.evaluate(() =>
   [...document.querySelectorAll('[data-theme-set]')]
     .filter((button) => button.getAttribute('aria-pressed') === 'true')
@@ -388,8 +404,6 @@ check(
 // Both states are named, so the test asks for the one the page is not in:
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-// Nothing is stamped on the default, which is light, so the question is
-// whether dark was chosen, not whether light was.
 const other = await page.evaluate(() =>
   document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
 );
