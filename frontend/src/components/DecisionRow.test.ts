@@ -180,9 +180,11 @@ describe('DecisionRow', () => {
       expect(line.closest('.is-expanded')).not.toBeNull();
     });
 
-    it('offers no button when every line fits', () => {
+    it('offers no button when every line fits', async () => {
       layOut(32);
       show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+      // The lines are measured in the frame after the observer reports.
+      await new Promise((frame) => requestAnimationFrame(frame));
 
       expect(screen.queryByRole('button', { name: /^Show in full/ })).toBeNull();
     });
