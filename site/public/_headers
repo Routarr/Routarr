@@ -1,15 +1,19 @@
 # Cloudflare's static assets read this file. Harmless on any other static host.
 #
-# The Content-Security-Policy is as tight as the page allows: the site makes no
-# external request at all, so every directive can be 'self' or 'none'. A
-# resource type the page never loads (fonts, fetches, a manifest, `data:`
-# images) gets no directive, so `default-src 'none'` refuses it. The one
-# 'sha256-' is the theme bootstrap in <head>, which has to run before first
-# paint to avoid a flash of the wrong theme. `node site/check.mjs` recomputes
-# it and fails when the script changes and this line does not.
+# The Content-Security-Policy is as tight as the page allows. The build loads
+# nothing from another origin, so every directive is 'self' or 'none' but one:
+# the Cloudflare zone injects its Web Analytics beacon into every page, from a
+# versioned path under `beacon.min.js/` (hence the trailing slash), and the
+# beacon reports to this origin's `/cdn-cgi/rum` (hence `connect-src`).
+# `verify.mjs` injects the same tag and fails on a violation. A resource type
+# the page never loads (fonts, a manifest, `data:` images) gets no directive,
+# so `default-src 'none'` refuses it. The one 'sha256-' is the theme bootstrap
+# in <head>, which has to run before first paint to avoid a flash of the wrong
+# theme. `node site/check.mjs` recomputes it and fails when the script changes
+# and this line does not.
 
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-0NcntYkOqJMzoHSBAGPGUxxBmVhUtZXh1Lp7M4nrbjM='; style-src 'self'; img-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'self' 'sha256-0NcntYkOqJMzoHSBAGPGUxxBmVhUtZXh1Lp7M4nrbjM=' https://static.cloudflareinsights.com/beacon.min.js/; style-src 'self'; img-src 'self'; connect-src 'self'; form-action 'none'; frame-ancestors 'none'; base-uri 'none'
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), microphone=(), payment=(), usb=()

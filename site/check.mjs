@@ -105,8 +105,9 @@ for (const source of [index, notFound, headers, read('robots.txt'), read('sitema
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
 // `localhost` appears in the install instructions as prose, not as a host the
-// site talks to. The rest are well-known vocabulary and outbound links.
-const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1)/;
+// site talks to, and `_headers` names the Web Analytics beacon's host. The rest
+// are well-known vocabulary and outbound links.
+const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1|cloudflareinsights\.com)/;
 const own = [...origins].filter((o) => !EXTERNAL.test(o));
 if (own.length > 1) fail(`several site origins in use, pick one: ${own.join(', ')}`);
 const ORIGIN = own[0];

@@ -12,6 +12,7 @@ npm --prefix site run build    # Astro -> site/dist
 npm --prefix site run check    # astro check (types), then check.mjs over site/dist
 node site/verify.mjs           # site/dist in Chromium under the real _headers: CSP, axe, layout
 node site/serve.mjs            # preview site/dist on :8788 with the real _headers
+node site/live.mjs             # production against this checkout's _headers and version
 node site/icons.mjs            # favicon.ico and the PNG icons from public/assets/favicon.svg
 bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots/og.html
 ```
@@ -36,8 +37,9 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## Content Security Policy
 
-- `public/_headers` sets `default-src 'none'` with `'self'` sources: nothing is fetched from
-  another origin, and no element carries a `style=` attribute.
+- `public/_headers` sets `default-src 'none'` with `'self'` sources: the build fetches nothing
+  from another origin, and no element carries a `style=` attribute. The one exception is the Web
+  Analytics beacon the Cloudflare zone injects in production, which `verify.mjs` stands in for.
 - The theme bootstrap (`src/theme-bootstrap.ts`) is the one inline script that runs, allowed by
   its hash in `_headers`: an edit to it needs its new `sha256-` there, or the page loses its
   theme. Any other script is a file under `public/assets/` loaded with

@@ -14,6 +14,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { headersFor, parseHeaders } from './headers.mjs';
+
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 
 /**
@@ -38,32 +40,7 @@ const TYPES = {
   '.json': 'application/json; charset=utf-8',
 };
 
-/** Parse the Cloudflare `_headers` format: a path line, then indented headers. */
-function parseHeaders(source) {
-  const rules = [];
-  let current = null;
-  for (const raw of source.split('\n')) {
-    const line = raw.replace(/\s+$/, '');
-    if (!line || line.trimStart().startsWith('#')) continue;
-    if (!/^\s/.test(line)) {
-      current = { pattern: line.trim(), headers: [] };
-      rules.push(current);
-      continue;
-    }
-    const at = line.indexOf(':');
-    if (current && at > 0) {
-      current.headers.push([line.slice(0, at).trim(), line.slice(at + 1).trim()]);
-    }
-  }
-  return rules;
-}
-
 const RULES = parseHeaders(readFileSync(join(ROOT, '_headers'), 'utf-8'));
-
-function matches(pattern, path) {
-  if (pattern.endsWith('/*')) return path.startsWith(pattern.slice(0, -1));
-  return pattern === path;
-}
 
 /**
  * Where a path resolves under `dist`, or the directory it names.
@@ -116,12 +93,7 @@ createServer(async (request, response) => {
   }
   const file = resolved;
 
-  const headers = {};
-  for (const rule of RULES) {
-    if (matches(rule.pattern, path)) {
-      for (const [name, value] of rule.headers) headers[name] = value;
-    }
-  }
+  const headers = headersFor(RULES, path);
 
   if (!file) {
     // The `404.html` nearest the missing path, as Cloudflare's `404-page`

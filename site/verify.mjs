@@ -424,6 +424,39 @@ check(await barMatches(), 'theme-color does not follow the theme a reload restor
   await tab.close();
 }
 
+// ------------------------------------------------------------ analytics
+// Production carries the Cloudflare Web Analytics beacon, which the zone
+// injects at the edge, so no build here has it. The tag the zone writes is
+// added to a page, its script and its report answered by stand-ins, and the
+// CSP of `_headers` must admit the script and what it sends to the page's
+// own `/cdn-cgi/rum`.
+{
+  const tab = await context.newPage();
+  let reported = false;
+  await tab.route('https://static.cloudflareinsights.com/**', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: "navigator.sendBeacon('/cdn-cgi/rum', '{}');" }));
+  await tab.route('**/cdn-cgi/rum', (route) => {
+    reported = true;
+    return route.fulfill({ status: 204 });
+  });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const loaded = await tab.evaluate(() => new Promise((resolve) => {
+    const beacon = document.createElement('script');
+    beacon.type = 'module';
+    beacon.crossOrigin = 'anonymous';
+    beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920';
+    beacon.onload = () => resolve(true);
+    beacon.onerror = () => resolve(false);
+    document.body.append(beacon);
+  }));
+  await tab.waitForTimeout(300);
+  const blocked = await tab.evaluate(() => window.__csp);
+  check(loaded, 'the CSP refuses the Web Analytics beacon the zone injects');
+  check(reported, 'the Web Analytics beacon could not send its report');
+  for (const violation of blocked) fail(`the Web Analytics beacon: content-security-policy ${violation}`);
+  await tab.close();
+}
+
 // ------------------------------------------------------------ focus rings
 // A scrolling region takes the focus so the keyboard can scroll it. Its ring,
 // drawn outside it, is cut off by a card that clips its overflow, and the
