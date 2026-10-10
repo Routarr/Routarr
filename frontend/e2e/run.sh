@@ -92,6 +92,14 @@ fi
 echo "==> fake Radarr on :$ARR_PORT"
 ARR_PORT="$ARR_PORT" python3 "$ROOT/frontend/e2e/fake_arr.py" &
 ARR_PID=$!
+# Listening before the first spec, whose reset calls it: on a slow start the
+# first specs fail to connect while the rest pass.
+ARR_STATUS="http://127.0.0.1:$ARR_PORT/api/v3/system/status"
+for _ in $(seq 1 50); do
+  if curl -sf "$ARR_STATUS" >/dev/null; then break; fi
+  sleep 0.1
+done
+curl -sf "$ARR_STATUS" >/dev/null || { echo "The fake Radarr did not start" >&2; exit 1; }
 
 # Authenticated, because that is the shipped posture: with no key set, Routarr
 # generates one at first start. Running the suite open would leave the shipped
