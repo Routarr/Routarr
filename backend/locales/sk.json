@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Pripnuté",
   "PinnedCaseName": "{title} zostáva v {category}",
   "PinnedFrom": "Pripnuté z",
+  "PinRulesUnderException": "Výnimka vynucuje kategóriu tohto titulu, preto test pripne to, o čom rozhodnú pravidlá: {category}.",
   "PlaceholderNumberList": "ID oddelené čiarkami, napr. 8392, 129",
   "NotIdentifiers": "Nie sú to identifikátory, do opravy sa vynechávajú: {values}",
   "PlaceholderPath": "napr. /movies/standard",

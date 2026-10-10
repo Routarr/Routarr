@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "已固定",
   "PinnedCaseName": "{title} 保持在 {category}",
   "PinnedFrom": "固定自",
+  "PinRulesUnderException": "例外强制指定了此作品的分类，因此测试固定的是规则决定的分类：{category}。",
   "PlaceholderNumberList": "以逗号分隔的 ID，例如 8392, 129",
   "NotIdentifiers": "以下不是 ID，修正前将被忽略：{values}",
   "PlaceholderPath": "例如 /movies/standard",

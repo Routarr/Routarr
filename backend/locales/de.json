@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Angeheftet",
   "PinnedCaseName": "{title} bleibt in {category}",
   "PinnedFrom": "Angeheftet von",
+  "PinRulesUnderException": "Eine Ausnahme erzwingt die Kategorie dieses Titels, daher wird der Test an die Entscheidung der Regeln angeheftet: {category}.",
   "PlaceholderNumberList": "Kommagetrennte IDs, z. B. 8392, 129",
   "NotIdentifiers": "Keine ID, bis zur Korrektur ausgelassen: {values}",
   "PlaceholderPath": "z. B. /movies/standard",

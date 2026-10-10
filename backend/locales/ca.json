@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Fixat",
   "PinnedCaseName": "{title} es manté a {category}",
   "PinnedFrom": "Fixat des de",
+  "PinRulesUnderException": "Una excepció força la categoria d'aquest títol, així que la prova fixa el que decideixen les regles: {category}.",
   "PlaceholderNumberList": "Identificadors separats per comes, p. ex. 8392, 129",
   "NotIdentifiers": "Identificadors no vàlids, deixats de banda fins que es corregeixin: {values}",
   "PlaceholderPath": "p. ex. /movies/standard",

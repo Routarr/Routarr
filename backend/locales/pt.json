@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Fixado",
   "PinnedCaseName": "{title} permanece em {category}",
   "PinnedFrom": "Fixado a partir de",
+  "PinRulesUnderException": "Uma exceção força a categoria deste título, por isso o teste fixa o que as regras decidem: {category}.",
   "PlaceholderNumberList": "IDs separados por vírgulas, p. ex. 8392, 129",
   "NotIdentifiers": "Identificadores inválidos, deixados de fora até serem corrigidos: {values}",
   "PlaceholderPath": "p. ex. /movies/standard",

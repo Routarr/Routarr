@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Pinned",
   "PinnedCaseName": "{title} stays in {category}",
   "PinnedFrom": "Pinned from",
+  "PinRulesUnderException": "An exception forces this title, so the test pins what the rules decide: {category}.",
   "PlaceholderNumberList": "Comma-separated ids, e.g. 8392, 129",
   "NotIdentifiers": "Not an id, left out until corrected: {values}",
   "PlaceholderPath": "e.g. /movies/standard",

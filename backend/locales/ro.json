@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Fixat",
   "PinnedCaseName": "{title} rămâne în {category}",
   "PinnedFrom": "Fixat din",
+  "PinRulesUnderException": "O excepție forțează categoria acestui titlu, așa că testul fixează ce decid regulile: {category}.",
   "PlaceholderNumberList": "ID-uri separate prin virgulă, de ex. 8392, 129",
   "NotIdentifiers": "ID-uri nevalide, excluse până la corectare: {values}",
   "PlaceholderPath": "de ex. /movies/standard",

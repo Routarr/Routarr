@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "مثبَّت",
   "PinnedCaseName": "يبقى {title} في {category}",
   "PinnedFrom": "مصدر التثبيت",
+  "PinRulesUnderException": "يفرض استثناء فئة هذا العنوان، لذا يثبّت الاختبار ما تقرره القواعد: {category}.",
   "PlaceholderNumberList": "معرّفات مفصولة بفواصل، مثل 8392, 129",
   "NotIdentifiers": "قيم ليست معرّفات صالحة، مستبعدة حتى تُصحَّح: {values}",
   "PlaceholderPath": "مثل /movies/standard",

@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Festet",
   "PinnedCaseName": "{title} blir i {category}",
   "PinnedFrom": "Festet fra",
+  "PinRulesUnderException": "Et unntak tvinger frem kategorien til denne tittelen, så testen fester det reglene bestemmer: {category}.",
   "PlaceholderNumberList": "Kommaseparerte id-er, f.eks. 8392, 129",
   "NotIdentifiers": "Ikke en id, utelatt til den er rettet: {values}",
   "PlaceholderPath": "f.eks. /movies/standard",

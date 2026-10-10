@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Закріплено",
   "PinnedCaseName": "{title} лишається в {category}",
   "PinnedFrom": "Джерело закріплення",
+  "PinRulesUnderException": "Виняток примусово задає категорію цього елемента, тому тест закріплює те, що вирішують правила: {category}.",
   "PlaceholderNumberList": "Ідентифікатори через кому, напр. 8392, 129",
   "NotIdentifiers": "Це не ідентифікатори, вони не враховуються до виправлення: {values}",
   "PlaceholderPath": "напр. /movies/standard",

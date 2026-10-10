@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "已釘選",
   "PinnedCaseName": "{title} 保持在 {category}",
   "PinnedFrom": "釘選自",
+  "PinRulesUnderException": "例外強制指定了此作品的分類，因此測試釘選的是規則決定的分類：{category}。",
   "PlaceholderNumberList": "以逗號分隔的 ID，例如 8392, 129",
   "NotIdentifiers": "以下不是 ID，修正前將被忽略：{values}",
   "PlaceholderPath": "例如 /movies/standard",

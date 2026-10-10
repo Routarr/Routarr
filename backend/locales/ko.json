@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "고정됨",
   "PinnedCaseName": "{title}은(는) {category}에 남습니다",
   "PinnedFrom": "고정 출처",
+  "PinRulesUnderException": "예외가 이 작품의 카테고리를 강제 지정하므로 테스트는 규칙의 결정을 고정합니다: {category}.",
   "PlaceholderNumberList": "쉼표로 구분한 ID, 예: 8392, 129",
   "NotIdentifiers": "ID가 아니므로 수정할 때까지 제외됨: {values}",
   "PlaceholderPath": "예: /movies/standard",

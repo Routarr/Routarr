@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Vastgezet",
   "PinnedCaseName": "{title} blijft in {category}",
   "PinnedFrom": "Vastgezet vanaf",
+  "PinRulesUnderException": "Een uitzondering dwingt de categorie van deze titel af, dus wordt de test vastgezet op wat de regels beslissen: {category}.",
   "PlaceholderNumberList": "Door komma's gescheiden id's, bijv. 8392, 129",
   "NotIdentifiers": "Geen id, weggelaten tot het is verbeterd: {values}",
   "PlaceholderPath": "bijv. /movies/standard",

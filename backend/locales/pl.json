@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Przypięto",
   "PinnedCaseName": "{title} pozostaje w {category}",
   "PinnedFrom": "Przypięto z",
+  "PinRulesUnderException": "Wyjątek wymusza kategorię tego tytułu, więc test przypina to, o czym decydują reguły: {category}.",
   "PlaceholderNumberList": "Identyfikatory rozdzielone przecinkami, np. 8392, 129",
   "NotIdentifiers": "Nie są to identyfikatory, więc do czasu poprawienia nie są brane pod uwagę: {values}",
   "PlaceholderPath": "np. /movies/standard",

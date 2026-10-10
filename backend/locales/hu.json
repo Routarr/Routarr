@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Rögzítve",
   "PinnedCaseName": "{title} a(z) {category} kategóriában marad",
   "PinnedFrom": "Rögzítve innen",
+  "PinRulesUnderException": "Egy kivétel kikényszeríti ennek a címnek a kategóriáját, ezért a teszt a szabályok döntését rögzíti: {category}.",
   "PlaceholderNumberList": "Vesszővel elválasztott azonosítók, pl. 8392, 129",
   "NotIdentifiers": "Nem azonosító, javításig kimarad: {values}",
   "PlaceholderPath": "pl. /movies/standard",

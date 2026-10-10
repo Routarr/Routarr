@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "固定済み",
   "PinnedCaseName": "{title} は {category} に留まる",
   "PinnedFrom": "固定元",
+  "PinRulesUnderException": "例外がこの作品のカテゴリを強制しているため、テストはルールによる判定を固定します: {category}。",
   "PlaceholderNumberList": "カンマ区切りの ID、例: 8392, 129",
   "NotIdentifiers": "ID ではないため、修正するまで除外: {values}",
   "PlaceholderPath": "例: /movies/standard",

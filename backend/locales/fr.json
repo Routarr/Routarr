@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Épinglé",
   "PinnedCaseName": "{title} reste dans {category}",
   "PinnedFrom": "Épinglé depuis",
+  "PinRulesUnderException": "Une exception force la catégorie de ce titre, le test épingle donc ce que décident les règles : {category}.",
   "PlaceholderNumberList": "Identifiants séparés par des virgules, ex. 8392, 129",
   "NotIdentifiers": "Identifiants non valides, écartés jusqu'à correction : {values}",
   "PlaceholderPath": "ex. /movies/standard",

@@ -15,6 +15,8 @@ import ExplanationModal from './ExplanationModal.svelte';
 
 const STRINGS = {
   PinAsRuleTest: 'Pin as a rule test',
+  PinRulesUnderException:
+    'An exception forces this title, so the test pins what the rules decide: {category}.',
   ProposedCategory: 'Proposed category',
   Confidence: 'Confidence',
   ManualOverride: 'manual override',
@@ -53,6 +55,7 @@ function explanation(over: Partial<Explanation> = {}): Explanation {
     metadata: null,
     override_category: null,
     target_category: 'anime',
+    rules_category: 'anime',
     target_root_folder: '/data/anime',
     action: 'move',
     confidence: 0.7,
@@ -122,6 +125,31 @@ describe('ExplanationModal', () => {
    * seen by sighted users, heard by no screen reader, and the button simply
    * comes back.
    */
+  /** A rule test replays the rules alone: under an exception it pins what they decide, and says so. */
+  it('pins what the rules decide when an exception forces the title elsewhere', async () => {
+    const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
+    show(
+      explanation({ override_category: 'kids', target_category: 'kids', rules_category: 'anime' }),
+    );
+
+    expect(
+      screen.getByText(
+        'An exception forces this title, so the test pins what the rules decide: anime.',
+      ),
+    ).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
+    expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
+  });
+
+  it('pins the category on display, and says nothing more, when no exception is in force', async () => {
+    const pin = vi.spyOn(api, 'pinRuleTest').mockResolvedValue({} as never);
+    show(explanation());
+
+    expect(screen.queryByText(/An exception forces this title/)).toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: /pin as a rule test/i }));
+    expect(pin).toHaveBeenCalledWith(expect.any(String), expect.any(String), 'anime');
+  });
+
   it('announces a pin that was refused', async () => {
     vi.spyOn(api, 'pinRuleTest').mockRejectedValue(new ApiError('already a case', 409, 'conflict'));
     show(explanation());

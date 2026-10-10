@@ -499,6 +499,8 @@ export interface Explanation {
   metadata: MediaMetadata | null;
   override_category: string | null;
   target_category: string;
+  /** What the rules alone decide, the exception left out: what a rule test pins. */
+  rules_category: string;
   target_root_folder: string | null;
   action: DecisionAction;
   confidence: number;

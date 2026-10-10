@@ -77,10 +77,12 @@
     pinning = true;
     pinError = null;
     try {
+      // What the rules decide, which is what a rule test replays: the
+      // category an exception forces would fail the test it makes.
       await api.pinRuleTest(
-        t('PinnedCaseName', { title: view.media.title, category: view.target_category }),
+        t('PinnedCaseName', { title: view.media.title, category: view.rules_category }),
         view.media.id,
-        view.target_category,
+        view.rules_category,
       );
       pinned = true;
     } catch (err) {
@@ -179,12 +181,17 @@
         class="btn btn-secondary btn-sm"
         disabled={pinning || pinned}
         onclick={() => void pin()}
-        aria-describedby="explain-pin-hint"
+        aria-describedby="explain-pin-hint{view.override_category ? ' explain-pin-rules' : ''}"
       >
         <ShieldCheck size={14} />
         {pinned ? t('PinnedAsRuleTest') : t('PinAsRuleTest')}
       </button>
       <p id="explain-pin-hint" class="form-hint">{t('PinAsRuleTestHint')}</p>
+      {#if view.override_category}
+        <p id="explain-pin-rules" class="form-hint">
+          {t('PinRulesUnderException', { category: view.rules_category })}
+        </p>
+      {/if}
     </div>
   </div>
 

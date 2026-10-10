@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Sabitlendi",
   "PinnedCaseName": "{title} {category} içinde kalır",
   "PinnedFrom": "Sabitlendiği başlık",
+  "PinRulesUnderException": "Bir istisna bu başlığın kategorisini zorla belirlediği için test, kuralların verdiği kararı sabitler: {category}.",
   "PlaceholderNumberList": "Virgülle ayrılmış kimlikler, örn. 8392, 129",
   "NotIdentifiers": "Kimlik değil, düzeltilene kadar dikkate alınmıyor: {values}",
   "PlaceholderPath": "örn. /movies/standard",

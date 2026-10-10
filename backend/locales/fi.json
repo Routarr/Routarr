@@ -925,6 +925,7 @@
   "PinnedAsRuleTest": "Kiinnitetty",
   "PinnedCaseName": "{title} pysyy luokassa {category}",
   "PinnedFrom": "Kiinnitetty kohteesta",
+  "PinRulesUnderException": "Poikkeus pakottaa tämän nimikkeen luokan, joten testi kiinnittää sen, mitä säännöt päättävät: {category}.",
   "PlaceholderNumberList": "Pilkuin erotellut tunnisteet, esim. 8392, 129",
   "NotIdentifiers": "Ei tunnus, jätetään pois, kunnes korjataan: {values}",
   "PlaceholderPath": "esim. /movies/standard",
