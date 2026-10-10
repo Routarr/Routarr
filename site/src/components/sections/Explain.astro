@@ -12,12 +12,14 @@ const t = useTranslations(Astro.props.locale);
  *
  * Condition names are the engine's identifiers and the values are the
  * library's, so only the two words of the pair and the verdicts are
- * translated.
+ * translated. The rules are the ones the hero's plan routes by: #20 needs
+ * both of its conditions, #30 either of its two.
  */
 interface Outcome { field: string; met: boolean; expected: string; excluded?: boolean; observed: string }
 interface Verdict { number: string; name: Key; won: boolean; outcomes: Outcome[]; foot: Key }
 
 const OBSERVED_GENRES = 'Animation, Science Fiction';
+const OBSERVED_KEYWORDS = 'anime, cyberpunk';
 const VERDICTS: Verdict[] = [
   {
     number: '#10', name: 'page.text.3', won: true, foot: 'explain.foot',
@@ -29,13 +31,16 @@ const VERDICTS: Verdict[] = [
   },
   {
     number: '#20', name: 'page.text.6', won: false, foot: 'explain.foot.2',
-    outcomes: [{ field: 'genre_contains', met: false, expected: 'Documentary, Music', observed: OBSERVED_GENRES }],
+    outcomes: [
+      { field: 'genre_contains', met: false, expected: 'Music', observed: OBSERVED_GENRES },
+      { field: 'keyword_contains', met: false, expected: 'concert, live performance, tour', observed: OBSERVED_KEYWORDS },
+    ],
   },
   {
     number: '#30', name: 'page.text.8', won: false, foot: 'explain.foot.3',
     outcomes: [
-      { field: 'certification_in', met: false, expected: 'G, U, TV-Y', observed: '15' },
-      { field: 'genre_contains', met: true, expected: 'Animation', observed: OBSERVED_GENRES },
+      { field: 'genre_contains', met: false, expected: 'Family', observed: OBSERVED_GENRES },
+      { field: 'certification_in', met: false, expected: 'G, U, TV-Y, TV-G', observed: '15' },
     ],
   },
 ];

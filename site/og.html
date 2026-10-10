@@ -1,12 +1,12 @@
 <!doctype html>
-<!-- Source of the Open Graph card. Rendered by capture.mjs at exactly 1200x630
-     in the same browser that takes the product screenshots, because
-     ImageMagick's SVG renderer has no usable text layout here.
+<!-- The link preview card, rendered once per language by `og.mjs` at exactly
+     1200x630, each `data-key` filled from that language's catalogue. Chromium
+     lays out the text, which no SVG rasteriser here does with real fonts.
 
      It follows the site rather than leading it: the dark ground the site opens
-     in, the headline the hero actually carries, and the accent the dark theme
-     writes text in. A card that lags behind the site is the
-     first thing a shared link says, and it says the wrong thing. -->
+     in, the headline the hero carries, and the accent the dark theme writes
+     text in. A card that lags behind the site is the first thing a shared link
+     says, and it says the wrong thing. -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -49,9 +49,9 @@
   /* Weight 300 against 500, as the hero sets it: the size carries the claim
      and the weight steps up only for the clause that matters. */
   h1 { font-size: 92px; line-height: 1; font-weight: 300; letter-spacing: -3.2px; position: relative; }
-  h1 em { display: block; font-style: normal; font-weight: 500; color: #ffb733; }
+  h1 .grad { display: block; font-weight: 500; color: #ffb733; }
   p { font-size: 26px; color: #b6bcc7; margin-top: 26px; position: relative; }
-  ul { display: flex; gap: 12px; list-style: none; padding: 0; position: relative; }
+  ul { display: flex; flex-wrap: wrap; gap: 12px; list-style: none; padding: 0; position: relative; }
   li {
     font-size: 20px;
     color: #b6bcc7;
@@ -71,15 +71,15 @@
   </div>
 
   <div>
-    <h1>The right folder,<em>every time.</em></h1>
-    <p>Automatic root-folder routing for Radarr and Sonarr.</p>
+    <h1 data-key="page.h1"></h1>
+    <p data-key="card.lead"></p>
   </div>
 
   <ul>
-    <li>Dry-run first</li>
-    <li>Every decision explained</li>
-    <li>One Docker image</li>
-    <li>Self-hosted</li>
+    <li data-key="card.chip.1"></li>
+    <li data-key="card.chip.2"></li>
+    <li data-key="card.chip.3"></li>
+    <li data-key="card.chip.4"></li>
   </ul>
 </body>
 </html>

@@ -12,25 +12,33 @@ npm --prefix site run build    # Astro -> site/dist
 npm --prefix site run check    # astro check (types), then check.mjs over site/dist
 node site/verify.mjs           # site/dist in Chromium under the real _headers: CSP, axe, layout
 node site/serve.mjs            # preview site/dist on :8788 with the real _headers
+node site/live.mjs             # production against this checkout's _headers and version
 node site/icons.mjs            # favicon.ico and the PNG icons from public/assets/favicon.svg
-bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots/og.html
+node site/og.mjs               # public/assets/og-<code>.png, the link preview card per language
+bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's screenshot
 ```
 
 - `check.mjs` and `verify.mjs` read `site/dist`: rebuild after an edit, or they test the
   previous build.
 - Preview through `serve.mjs`. `astro dev` and `astro preview` apply no `_headers`, so a page the
   CSP breaks looks fine there.
-- `verify.mjs`, `icons.mjs` and the screenshot capture load Playwright from
+- `verify.mjs`, `live.mjs`, `icons.mjs`, `og.mjs` and the screenshot capture load Playwright from
   `frontend/node_modules` through `playwright.mjs` (`FRONTEND_DIR` overrides the path).
-- `screenshots/run.sh` writes the captures to `screenshots/captures/`, outside what ships. A page
-  that shows one takes its WebP and AVIF pair into `public/assets/shots/`, which `check.mjs`
-  pairs and refuses once no page shows it. `screenshots/og.html` copies the English hero headline
-  (`page.h1`) and the palette by hand, so it changes with them.
+- `og.html` fills each `data-key` from the catalogues but copies the palette by hand, so it
+  changes with the site's. Rerun `og.mjs` after editing a key it shows.
+
+## Deployment
+
+- Production is the latest published release, built at its tag and deployed by
+  `.github/workflows/site.yml`, which runs `check.mjs` and `verify.mjs` first. A site text
+  describing a feature merges with the feature and reaches visitors with the release that ships
+  it. Cloudflare builds main too, as an uploaded version it never deploys.
 
 ## Content Security Policy
 
-- `public/_headers` sets `default-src 'none'` with `'self'` sources: nothing is fetched from
-  another origin, and no element carries a `style=` attribute.
+- `public/_headers` sets `default-src 'none'` with `'self'` sources: the build fetches nothing
+  from another origin, and no element carries a `style=` attribute. The one exception is the Web
+  Analytics beacon the Cloudflare zone injects in production, which `verify.mjs` stands in for.
 - The theme bootstrap (`src/theme-bootstrap.ts`) is the one inline script that runs, allowed by
   its hash in `_headers`: an edit to it needs its new `sha256-` there, or the page loses its
   theme. Any other script is a file under `public/assets/` loaded with
@@ -54,9 +62,8 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 
 ## API page
 
-- The page shows one call and its answer, then lists every operation from the contract of the
-  release it names (`releasedContract` in `release.mjs`, `src/contract.ts`), never from main's,
-  which describes what no image carries yet. Offline it falls back to this checkout's.
+- The page shows one call and its answer, then lists every operation of this checkout's contract
+  (`src/contract.ts`), which production reads at the release's tag.
 - An operation's sentence is `api.ref.op.<operationId>` and a group's `api.ref.tag.<tag>`, in all
   four catalogues. `check.mjs` reads both from `backend/openapi/v1.json`, so a new operation on
   main needs its sentences in the same change, and a key naming none fails.
@@ -78,5 +85,8 @@ bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots
 ## llms.txt
 
 - `public/llms.txt` restates the pages, the README and what Routarr does not do, for language
-  models (llmstxt.org). `check.mjs` checks its shape and links, never its facts: it changes with
-  them.
+  models (llmstxt.org). `check.mjs` checks its shape, its links and the counts and formats it
+  shares with the pages, read from the code. Its other facts change with the feature.
+- It links each page's Markdown copy, `index.html.md` beside the page, which `markdown.mjs`
+  writes from the built `<main>` after every build. A label and the text after it need a space
+  in the markup, or the copy and a screen reader run them together.

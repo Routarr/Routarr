@@ -1,6 +1,6 @@
 /**
  * Seed a throwaway Routarr with a library that looks like somebody's actual
- * collection, so the showcase screenshots show the engine doing real work.
+ * collection, so the README's screenshot shows the engine doing real work.
  *
  * Never points at a development database: `run.sh` gives it its own.
  */
@@ -24,7 +24,7 @@ async function api(path, init) {
   return response.status === 204 ? null : response.json();
 }
 
-// The ports run.sh started the fakes on, which stay clear of the e2e harness's.
+// The ports run.sh started the fakes on.
 const INSTANCES = [
   { name: 'Radarr', instance_type: 'radarr', port: Number(process.env.RADARR_PORT), folders: { 1: 'standard', 2: 'anime', 3: 'kids', 4: 'concerts' } },
   { name: 'Sonarr', instance_type: 'sonarr', port: Number(process.env.SONARR_PORT), folders: { 1: 'standard', 2: 'anime', 3: 'documentaries' } },
@@ -135,5 +135,9 @@ await api('/settings', {
     },
   }),
 });
+
+// Set up the way a configured installation is: the first-run guide would
+// otherwise stand over the screen the README shows.
+await api('/onboarding', { method: 'PUT', body: JSON.stringify({ state: 'done' }) });
 
 console.log('seeded');

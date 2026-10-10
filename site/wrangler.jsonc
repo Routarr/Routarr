@@ -1,6 +1,8 @@
 /**
  * The showcase site as a Worker serving static assets. No `main`: there is no
- * Worker code, only the files Astro builds.
+ * Worker code, only the files Astro builds. `.github/workflows/site.yml`
+ * deploys it from a release's tag with the `wrangler` this package pins, and
+ * Cloudflare's own build of main only uploads a version it never deploys.
  *
  * `dist/_headers` is what carries the CSP, the security headers and the
  * caching rules, and Astro copies it there from `public/`. Cloudflare applies it

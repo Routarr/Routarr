@@ -9,6 +9,7 @@
  *   node site/verify.mjs
  */
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, fromFrontend } from './playwright.mjs';
@@ -111,8 +112,12 @@ const images = await page.evaluate(() =>
 for (const image of images) check(image.ok, `image did not load: ${image.src}`);
 
 // ----------------------------------------------------------- accessibility
-// Every page at WCAG 2.1 AA, at a desktop and a phone width: what the
-// application's own sweep holds itself to, held here as well.
+// Every page at WCAG 2.2 AA, in both themes, at a desktop and a phone width:
+// what the application's own sweep holds itself to, held here as well. Each
+// page is read as it opens, then with every disclosure of its content open,
+// since a folded panel hides its contents from axe as much as from the
+// reader. The Index panel is then read open on its own, over the page it
+// overlays.
 /* The content pages: every language of the landing and of the detail page,
    from the one list the pages are built from, because a probe that quietly
    stops covering half the site is the kind that keeps passing. */
@@ -121,48 +126,80 @@ const LANDINGS = LANGUAGES.map(({ path }) => path);
 const DETAILS = LANDINGS.map((path) => `${path}how/`);
 const APIS = LANDINGS.map((path) => `${path}api/`);
 const PAGES = [...LANDINGS, ...DETAILS, ...APIS];
+const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
-for (const path of [...PAGES, ...NOT_FOUND]) {
-  for (const width of [1440, 375]) {
-    const tab = await context.newPage();
-    await tab.setViewportSize({ width, height: 900 });
-    const before = problems.length;
-    await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-    const blocked = await tab.evaluate(() => window.__csp);
-    for (const violation of blocked) fail(`${path} at ${width}px: content-security-policy ${violation}`);
-    for (const problem of problems.slice(before)) fail(`${path} at ${width}px: ${problem}`);
-    const { violations, incomplete } = await new AxeBuilder({ page: tab })
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze();
-    for (const violation of violations) {
-      const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-      fail(`${path} at ${width}px: ${violation.id} (${violation.impact}), ${where}`);
-    }
-    // A contrast axe could not measure is a contrast nobody checked: text over
-    // a layer it cannot see through reads as "incomplete", never as a failure.
-    // Two exceptions: a glyph that is no text (`nonBmp`), a decorative mark,
-    // and the hero's text over its grid (`pseudoContent`), which `check.mjs`
-    // measures on the tinted ground instead.
-    const reasons = (node) => node.any.map((check) => check.data?.messageKey);
-    const candidates = incomplete
-      .filter((result) => result.id === 'color-contrast')
-      .flatMap((result) => result.nodes)
-      .filter((node) => !reasons(node).every((key) => key === 'nonBmp'));
-    const inHero = await tab.evaluate(
-      (selectors) => selectors.map((selector) => Boolean(document.querySelector(selector)?.closest('.hero'))),
-      candidates.map((node) => node.target.join(' ')),
-    );
-    const unmeasured = candidates.filter(
-      (node, at) => !(inHero[at] && reasons(node).every((key) => key === 'pseudoContent')),
-    );
-    if (unmeasured.length) {
-      const where = unmeasured.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-      fail(`${path} at ${width}px: a contrast axe could not measure, ${where}`);
-    }
-    await tab.close();
+/** axe's violations, and the contrasts it could not measure, on a page as it stands. */
+async function audit(tab, where, within) {
+  const axe = new AxeBuilder({ page: tab }).withTags(AXE_TAGS);
+  const { violations, incomplete } = await (within ? axe.include(within) : axe).analyze();
+  for (const violation of violations) {
+    const nodes = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+    fail(`${where}: ${violation.id} (${violation.impact}), ${nodes}`);
+  }
+  // A contrast axe could not measure is a contrast nobody checked: text over
+  // a layer it cannot see through reads as "incomplete", never as a failure.
+  // Two exceptions: a glyph that is no text (`nonBmp`), a decorative mark,
+  // and the hero's text over its grid (`pseudoContent`), which `check.mjs`
+  // measures on the tinted ground instead.
+  const reasons = (node) => node.any.map((check) => check.data?.messageKey);
+  const candidates = incomplete
+    .filter((result) => result.id === 'color-contrast')
+    .flatMap((result) => result.nodes)
+    .filter((node) => !reasons(node).every((key) => key === 'nonBmp'));
+  const inHero = await tab.evaluate(
+    (selectors) => selectors.map((selector) => Boolean(document.querySelector(selector)?.closest('.hero'))),
+    candidates.map((node) => node.target.join(' ')),
+  );
+  const unmeasured = candidates.filter(
+    (node, at) => !(inHero[at] && reasons(node).every((key) => key === 'pseudoContent')),
+  );
+  if (unmeasured.length) {
+    const nodes = unmeasured.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
+    fail(`${where}: a contrast axe could not measure, ${nodes}`);
   }
 }
+
+// The address production serves each not-found page at, `.html` dropped.
+const NOT_FOUND = LANDINGS.map((path) => `${path}404`);
+let audited = 0;
+// Dark is what every page opens in, and light is the visitor's stamped choice.
+for (const theme of ['dark', 'light']) {
+  for (const path of [...PAGES, ...NOT_FOUND]) {
+    for (const width of [1440, 375]) {
+      const tab = await context.newPage();
+      if (theme === 'light') await tab.addInitScript(() => localStorage.setItem('routarr.theme', 'light'));
+      await tab.setViewportSize({ width, height: 900 });
+      const before = problems.length;
+      await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+      const where = `${path} at ${width}px in ${theme}`;
+      const shown = await tab.evaluate(() => document.documentElement.dataset.theme);
+      check(shown === theme, `${where} opened in ${shown}, so the sweep read the other theme`);
+      const blocked = await tab.evaluate(() => window.__csp);
+      for (const violation of blocked) fail(`${where}: content-security-policy ${violation}`);
+      for (const problem of problems.slice(before)) fail(`${where}: ${problem}`);
+      await audit(tab, where);
+      const disclosures = await tab.evaluate(() => {
+        const all = document.querySelectorAll('main details');
+        for (const disclosure of all) disclosure.open = true;
+        return all.length;
+      });
+      if (disclosures) await audit(tab, `${where}, every disclosure open`);
+      const index = await tab.evaluate(() => {
+        const panel = document.querySelector('.index');
+        if (!panel) return false;
+        panel.open = true;
+        // axe takes text lying under the panel's opaque ground for a contrast
+        // it cannot measure, so the page beneath is hidden for this read.
+        document.querySelector('main').style.visibility = 'hidden';
+        return true;
+      });
+      if (index) await audit(tab, `${where}, the Index open`, '.index');
+      audited += 1;
+      await tab.close();
+    }
+  }
+}
+check(audited === (PAGES.length + NOT_FOUND.length) * 4, `audited ${audited} page state(s), so a sweep was skipped`);
 
 // ------------------------------------------------------------ layout
 // Every page, because a German phrase in a fixed column is exactly the kind
@@ -199,51 +236,77 @@ await page.setViewportSize({ width: 1440, height: 900 });
 // ------------------------------------------------------------ clipping
 // A box that holds its content by a fixed height, or shrinks under it behind
 // `overflow: hidden`, loses words without scrolling the page, so the check
-// above passes. Down to 320px (the width WCAG reflow names), every box is
-// measured against its own content, with the copy button showing its longest
-// label. Scroll regions scroll by design, an ellipsis cuts on purpose, and a
-// glyph may reach past a tight line box by a few pixels.
-let boxesMeasured = 0;
-for (const path of PAGES) {
-  const tab = await context.newPage();
-  await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-  await tab.evaluate(() => document.querySelectorAll('.copy-btn').forEach((button) => {
-    button.textContent = button.dataset.failed;
-  }));
-  for (const width of [320, 360, 390]) {
-    await tab.setViewportSize({ width, height: 900 });
-    await tab.waitForTimeout(80);
-    const { count, clipped } = await tab.evaluate(() => {
-      const clipped = [];
-      let count = 0;
-      for (const el of document.querySelectorAll('main *')) {
-        // Hidden for the eye and kept for a screen reader: `.sr-only`, or the
-        // same clip a layout applies at one width only.
-        let hidden = false;
-        for (let up = el; up && !hidden; up = up.parentElement) {
-          hidden = up.classList.contains('sr-only') || getComputedStyle(up).clipPath === 'inset(50%)';
-        }
-        if (!el.checkVisibility() || hidden) continue;
-        const style = getComputedStyle(el);
-        if (style.display === 'inline' || style.display === 'contents') continue;
-        if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
-        count += 1;
-        const hides = style.overflowX !== 'visible' || style.overflowY !== 'visible';
-        const across = el.scrollWidth - el.clientWidth;
-        const down = el.scrollHeight - el.clientHeight;
-        if (across > 1 || down > (hides ? 1 : 4)) {
-          const name = `${el.tagName.toLowerCase()}${[...el.classList].map((c) => `.${c}`).join('')}`;
-          clipped.push(`${name} "${el.textContent.trim().slice(0, 30)}" by ${across}x${down}px`);
-        }
+// above passes. Down to 320px (the width WCAG reflow names), and across the
+// band where the layouts change, every box is measured against its own
+// content, with the copy button showing its longest label. Scroll regions
+// scroll by design, an ellipsis cuts on purpose, and a glyph may reach past a
+// tight line box by a few pixels, more in a large heading.
+/** The boxes of a page whose content reaches past them, and how many were measured. */
+function clippedBoxes(tab) {
+  return tab.evaluate(() => {
+    const clipped = [];
+    let count = 0;
+    for (const el of document.querySelectorAll('main *')) {
+      // Hidden for the eye and kept for a screen reader: `.sr-only`, or the
+      // same clip a layout applies at one width only.
+      let hidden = false;
+      for (let up = el; up && !hidden; up = up.parentElement) {
+        hidden = up.classList.contains('sr-only') || getComputedStyle(up).clipPath === 'inset(50%)';
       }
-      return { count, clipped };
-    });
-    boxesMeasured += count;
-    for (const box of clipped) fail(`${path} at ${width}px: ${box} beyond its box`);
-  }
-  await tab.close();
+      if (!el.checkVisibility() || hidden) continue;
+      const style = getComputedStyle(el);
+      if (style.display === 'inline' || style.display === 'contents') continue;
+      if (/auto|scroll/.test(`${style.overflowX} ${style.overflowY}`) || style.textOverflow === 'ellipsis') continue;
+      count += 1;
+      const hides = style.overflowX !== 'visible' || style.overflowY !== 'visible';
+      const across = el.scrollWidth - el.clientWidth;
+      const down = el.scrollHeight - el.clientHeight;
+      const reach = Math.max(4, parseFloat(style.fontSize) * 0.12);
+      if (across > 1 || down > (hides ? 1 : reach)) {
+        const name = `${el.tagName.toLowerCase()}${[...el.classList].map((c) => `.${c}`).join('')}`;
+        clipped.push(`${name} "${el.textContent.trim().slice(0, 30)}" by ${across}x${down}px`);
+      }
+    }
+    return { count, clipped };
+  });
 }
-check(boxesMeasured >= 6500, `measured ${boxesMeasured} box(es) for clipping, expected at least 6500`);
+
+/** Every page at each width, `prepare` run once it has loaded. */
+async function sweepClipping(on, widths, label, prepare = async () => {}) {
+  let measured = 0;
+  for (const path of PAGES) {
+    const tab = await on.newPage();
+    await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
+    await tab.evaluate(() => document.querySelectorAll('.copy-btn').forEach((button) => {
+      button.textContent = button.dataset.failed;
+    }));
+    await prepare(tab);
+    for (const width of widths) {
+      await tab.setViewportSize({ width, height: 900 });
+      await tab.waitForTimeout(80);
+      const { count, clipped } = await clippedBoxes(tab);
+      measured += count;
+      for (const box of clipped) fail(`${path} at ${width}px${label}: ${box} beyond its box`);
+    }
+    await tab.close();
+  }
+  return measured;
+}
+
+const boxesMeasured = await sweepClipping(context, [320, 360, 390, 740, 860, 900, 950, 999], '');
+check(boxesMeasured >= 17000, `measured ${boxesMeasured} box(es) for clipping, expected at least 17000`);
+
+// WCAG 1.4.12: a reader's own stylesheet may space the text out, and nothing
+// may be lost when it does. Injected past the CSP, which refuses a style.
+{
+  const spaced = await browser.newContext({ bypassCSP: true });
+  const measured = await sweepClipping(spaced, [320, 1280], ' with WCAG text spacing', (tab) => tab.addStyleTag({
+    content: '* { line-height: 1.5 !important; letter-spacing: 0.12em !important; word-spacing: 0.16em !important; }'
+      + ' p { margin-bottom: 2em !important; }',
+  }));
+  check(measured >= 4000, `measured ${measured} box(es) under text spacing, expected at least 4000`);
+  await spaced.close();
+}
 
 // ------------------------------------------------------------ header
 // The bar holds the brand, the Index control and the repository on one row,
@@ -338,28 +401,20 @@ for (const path of LANDINGS) {
 // measure nothing and pass.
 check(planCells >= 400, `measured ${planCells} plan cell(s) across the landings, expected at least 400`);
 
-// The dark palette is a stamped choice, so the sweep above never sees it. Each
-// page once more in dark, at a desktop width, where every block is on screen.
-for (const path of PAGES) {
+// A move reads as two folders and the word between them, in the page's
+// language: the arrow that parts them on screen is hidden from a screen reader.
+for (const { code, path } of LANGUAGES) {
   const tab = await context.newPage();
-  await tab.addInitScript(() => localStorage.setItem('routarr.theme', 'dark'));
-  await tab.setViewportSize({ width: 1440, height: 900 });
   await tab.goto(`${BASE}${path}`, { waitUntil: 'networkidle' });
-  const dark = await tab.evaluate(() => document.documentElement.dataset.theme === 'dark');
-  check(dark, `${path} did not open in the dark theme, so the dark sweep read the light one`);
-  const { violations } = await new AxeBuilder({ page: tab })
-    .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-    .analyze();
-  for (const violation of violations) {
-    const where = violation.nodes.map((node) => node.target.join(' ')).slice(0, 3).join(', ');
-    fail(`${path} in dark: ${violation.id} (${violation.impact}), ${where}`);
-  }
+  const word = JSON.parse(readFileSync(`${ROOT}src/i18n/${code}.json`, 'utf-8'))['hero.to'];
+  const spoken = await tab.locator('.plan-dest:has(.arrow)').first().ariaSnapshot();
+  check(spoken.includes(` ${word} `), `${path}: the first move reads "${spoken.trim()}", without "${word}" between its folders`);
   await tab.close();
 }
 
 // ------------------------------------------------------------ theme
 // Before anyone touches it, the switch says the theme on screen: a screen
-// reader reads its state, not its colour. Nothing stamped is the light default.
+// reader reads its state, not its colour.
 const announced = await page.evaluate(() =>
   [...document.querySelectorAll('[data-theme-set]')]
     .filter((button) => button.getAttribute('aria-pressed') === 'true')
@@ -376,8 +431,6 @@ check(
 // Both states are named, so the test asks for the one the page is not in:
 // clicking the lit cell is a no-op by design and would report a dead control.
 const before = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-// Nothing is stamped on the default, which is light, so the question is
-// whether dark was chosen, not whether light was.
 const other = await page.evaluate(() =>
   document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
 );
@@ -421,6 +474,104 @@ check(await barMatches(), 'theme-color does not follow the theme a reload restor
   await tab.waitForTimeout(1900);
   const now = await copy.innerText();
   check(now === label, `the Copy button reads "${now}" after two clicks, not "${label}"`);
+  await tab.close();
+}
+
+// ------------------------------------------------------------ forced colours
+// Forced colours drop the wash and the bar that mark the language of the page,
+// the theme on screen and the mode in force: each keeps a mark its neighbour
+// does not have.
+{
+  const tab = await context.newPage();
+  await tab.emulateMedia({ forcedColors: 'active' });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const pairs = await tab.evaluate(() => {
+    const outline = (selector) => {
+      const element = document.querySelector(selector);
+      return element ? getComputedStyle(element).outlineStyle : 'missing';
+    };
+    return [
+      ['the language of the page', outline('.lang-nav a[aria-current="page"]'), outline('.lang-nav a:not([aria-current])')],
+      ['the theme on screen', outline('[data-theme-set="dark"]'), outline('[data-theme-set="light"]')],
+      ['the mode in force', outline('.rule-mode .on'), outline('.rule-mode > span:not(.on)')],
+    ];
+  });
+  for (const [what, lit, other] of pairs) {
+    check(lit !== 'missing' && other !== 'missing' && lit !== other, `in forced colours, ${what} looks like the others (${lit} beside ${other})`);
+  }
+  await tab.close();
+}
+
+// Decoration drawn by CSS is silent, and an operation names its scope as one:
+// a screen reader hears neither "slash slash" before a section's label nor a
+// triangle before an operation.
+{
+  const tab = await context.newPage();
+  await tab.goto(`${BASE}/api/`, { waitUntil: 'networkidle' });
+  const eyebrow = await tab.locator('.eyebrow').first().ariaSnapshot();
+  const summary = await tab.locator('.ref-op > summary').first().ariaSnapshot();
+  check(!eyebrow.includes('//'), `a section's label reads ${eyebrow.trim()}`);
+  check(!summary.includes('\u25B8'), `an operation reads ${summary.trim()}`);
+  check(/to ?, scope: read/.test(summary), `an operation runs its scope into its sentence: ${summary.trim()}`);
+  await tab.close();
+}
+
+// A browser that refuses the clipboard on a secure page gets the code selected,
+// so the "Press Ctrl+C" the button then says copies it.
+{
+  const tab = await context.newPage();
+  await tab.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: () => Promise.reject(new Error('refused')) },
+    });
+  });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const copy = tab.locator('.copy-btn').first();
+  const label = await copy.innerText();
+  await copy.click();
+  await tab.waitForFunction((before) => document.querySelector('.copy-btn').textContent !== before, label);
+  const { said, failed, selected, code } = await copy.evaluate((button) => ({
+    said: button.textContent,
+    failed: [button.dataset.failed, button.dataset.failedMac],
+    selected: String(getSelection()),
+    code: button.closest('.terminal').querySelector('code').innerText,
+  }));
+  check(failed.includes(said), `a refused copy reads "${said}", not the shortcut to press`);
+  check(selected === code, `a refused copy selects ${selected.length} character(s) of the ${code.length} the shortcut should copy`);
+  await tab.close();
+}
+
+// ------------------------------------------------------------ analytics
+// Production carries the Cloudflare Web Analytics beacon, which the zone
+// injects at the edge, so no build here has it. The tag the zone writes is
+// added to a page, its script and its report answered by stand-ins, and the
+// CSP of `_headers` must admit the script and what it sends to the page's
+// own `/cdn-cgi/rum`.
+{
+  const tab = await context.newPage();
+  let reported = false;
+  await tab.route('https://static.cloudflareinsights.com/**', (route) =>
+    route.fulfill({ contentType: 'text/javascript', body: "navigator.sendBeacon('/cdn-cgi/rum', '{}');" }));
+  await tab.route('**/cdn-cgi/rum', (route) => {
+    reported = true;
+    return route.fulfill({ status: 204 });
+  });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const loaded = await tab.evaluate(() => new Promise((resolve) => {
+    const beacon = document.createElement('script');
+    beacon.type = 'module';
+    beacon.crossOrigin = 'anonymous';
+    beacon.src = 'https://static.cloudflareinsights.com/beacon.min.js/v4bc70e2c01a94c73b74392e4234840661791215815920';
+    beacon.onload = () => resolve(true);
+    beacon.onerror = () => resolve(false);
+    document.body.append(beacon);
+  }));
+  await tab.waitForTimeout(300);
+  const blocked = await tab.evaluate(() => window.__csp);
+  check(loaded, 'the CSP refuses the Web Analytics beacon the zone injects');
+  check(reported, 'the Web Analytics beacon could not send its report');
+  for (const violation of blocked) fail(`the Web Analytics beacon: content-security-policy ${violation}`);
   await tab.close();
 }
 
@@ -489,7 +640,51 @@ for (const [path, width] of ['/', '/api/'].flatMap((path) => [[path, 1440], [pat
   await tab.close();
 }
 
+// ------------------------------------------------------------ reference anchors
+// An operation or a type is linked by its id, and its entry opens on arrival
+// and when a type name on the page is followed. A fragment mangled on its way
+// to the page leaves the script running.
+{
+  const tab = await context.newPage();
+  const before = problems.length;
+  // `hashchange` is a task of its own, so the entry opens a moment after the
+  // click that moved the fragment.
+  const openedByHash = () => tab
+    .waitForFunction(() => {
+      const target = document.getElementById(decodeURIComponent(location.hash.slice(1)));
+      return target?.tagName === 'DETAILS' && target.open;
+    }, null, { timeout: 2000 })
+    .then(() => true, () => false);
+  await tab.goto(`${BASE}/api/#place_title`, { waitUntil: 'networkidle' });
+  if (!(await openedByHash())) {
+    fail('/api/#place_title does not open that operation');
+  } else {
+    await tab.locator('#place_title a[href^="#schema-"]').first().click();
+    check(await openedByHash(), 'following a type name does not open its entry');
+  }
+  await tab.goto(`${BASE}/how/#%E0%A4%A`, { waitUntil: 'networkidle' });
+  for (const problem of problems.slice(before)) fail(`reference anchors: ${problem}`);
+  await tab.close();
+}
+
 // ------------------------------------------------------------ index panel
+// The open panel keeps the page's margins: its edge meets the bar's last
+// control, and a phone leaves room on its other side too.
+for (const width of [375, 1440]) {
+  const tab = await context.newPage();
+  await tab.setViewportSize({ width, height: 800 });
+  await tab.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  const edges = await tab.evaluate(() => {
+    document.querySelector('.index').open = true;
+    const panel = document.querySelector('.index-panel').getBoundingClientRect();
+    const last = document.querySelector('.site-header .wrap > :last-child').getBoundingClientRect();
+    return { left: panel.left, right: panel.right, control: last.right };
+  });
+  check(Math.abs(edges.right - edges.control) <= 1, `at ${width}px the Index panel ends at ${edges.right}, the bar's last control at ${edges.control}`);
+  check(edges.left >= 16, `at ${width}px the Index panel starts ${edges.left}px from the edge`);
+  await tab.close();
+}
+
 // On a phone the destinations stack in one column: two narrow columns fold
 // every title and every description.
 {
@@ -554,6 +749,21 @@ for (const [path, locale] of [['/', 'fr-FR'], ['/', 'de'], ['/how/', 'es-MX']]) 
   await ctx.close();
 }
 
+// Each language in the switcher is read in that language, and named in it.
+{
+  const switcher = await page.evaluate(() =>
+    [...document.querySelectorAll('.lang-nav a')].map((link) => ({
+      code: link.getAttribute('hreflang'),
+      lang: link.getAttribute('lang'),
+      name: link.querySelector('.sr-only')?.textContent.trim() ?? '',
+    })));
+  check(switcher.length === LANGUAGES.length, `the switcher offers ${switcher.length} language(s)`);
+  for (const { code, lang, name } of switcher) {
+    check(lang === code, `the switcher's ${code} is read in lang "${lang}"`);
+    check(name === LANGUAGES.find((language) => language.code === code)?.name, `the switcher's ${code} is named "${name}"`);
+  }
+}
+
 // Silent where it has nothing to say: on a page already in that language, and
 // for a language the site does not speak. A banner in either case is worse than
 // none, since it sends the reader somewhere they already are or nowhere.
@@ -584,12 +794,31 @@ for (const [path, locale, why] of [
     );
     const named = await button.getAttribute('aria-label');
     check(named === want, `the dismissal is named "${named}", expected "${want}"`);
+    const spoken = await button.getAttribute('lang');
+    check(spoken === 'fr', `the dismissal "${named}" is read in lang "${spoken}", not "fr"`);
     await button.click({ timeout: 5000 });
     check(!(await hint.isVisible()), 'dismissing the language offer left it on screen');
     await tab.reload({ waitUntil: 'networkidle' });
     check(!(await hint.isVisible()), 'the language offer came back after a reload it had been dismissed on');
   }
   await ctx.close();
+}
+
+// ------------------------------------------------------------ addresses
+// The preview answers addresses as production does: `.html` and `index.html`
+// dropped with a 307, no charset on a type, and a revalidating cache for a
+// file `_headers` names no rule for.
+for (const [from, to] of [['/404.html', '/404'], ['/how/index.html', '/how/'], ['/fr/404.html', '/fr/404']]) {
+  const answer = await fetch(`${BASE}${from}`, { redirect: 'manual' });
+  check(answer.status === 307 && answer.headers.get('location') === to, `${from} answered ${answer.status} ${answer.headers.get('location') ?? ''}, production 307 to ${to}`);
+}
+for (const [path, type] of [['/', 'text/html'], ['/robots.txt', 'text/plain'], ['/assets/site.js', 'text/javascript']]) {
+  const answer = await fetch(`${BASE}${path}`);
+  check(answer.headers.get('content-type') === type, `${path} is typed ${answer.headers.get('content-type')}, production ${type}`);
+}
+{
+  const answer = await fetch(`${BASE}/robots.txt`);
+  check(answer.headers.get('cache-control') === 'public, max-age=0, must-revalidate', `/robots.txt is cached as ${answer.headers.get('cache-control')}, production revalidates it`);
 }
 
 // ------------------------------------------------------------ 404

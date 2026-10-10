@@ -86,11 +86,13 @@ const crossLinks = PAGES.filter((other) => other.page !== page);
                 <a
                   href={pathFor(language.code, page)}
                   hreflang={language.code}
+                  lang={language.code}
                   data-dismiss={language.dismiss}
                   data-offer={language.offer}
                   aria-current={language.code === locale ? 'page' : undefined}
                 >
                   {language.label}
+                  <span class="sr-only"> {language.name}</span>
                 </a>
               ))
             }

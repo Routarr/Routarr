@@ -14,6 +14,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { headersFor, parseHeaders } from './headers.mjs';
+
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 
 /**
@@ -25,45 +27,24 @@ const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = join(HERE, 'dist');
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8788);
 
+/** The types production sends, with no charset: every page declares its own. */
 const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-  '.xml': 'application/xml; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+  '.ico': 'image/vnd.microsoft.icon',
+  '.xml': 'application/xml',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
 };
 
-/** Parse the Cloudflare `_headers` format: a path line, then indented headers. */
-function parseHeaders(source) {
-  const rules = [];
-  let current = null;
-  for (const raw of source.split('\n')) {
-    const line = raw.replace(/\s+$/, '');
-    if (!line || line.trimStart().startsWith('#')) continue;
-    if (!/^\s/.test(line)) {
-      current = { pattern: line.trim(), headers: [] };
-      rules.push(current);
-      continue;
-    }
-    const at = line.indexOf(':');
-    if (current && at > 0) {
-      current.headers.push([line.slice(0, at).trim(), line.slice(at + 1).trim()]);
-    }
-  }
-  return rules;
-}
+/** What production answers for a file `_headers` gives no cache rule. */
+const DEFAULT_CACHE = 'public, max-age=0, must-revalidate';
 
 const RULES = parseHeaders(readFileSync(join(ROOT, '_headers'), 'utf-8'));
-
-function matches(pattern, path) {
-  if (pattern.endsWith('/*')) return path.startsWith(pattern.slice(0, -1));
-  return pattern === path;
-}
 
 /**
  * Where a path resolves under `dist`, or the directory it names.
@@ -107,6 +88,13 @@ createServer(async (request, response) => {
     response.end('malformed path');
     return;
   }
+  // Production drops `.html` and `index.html` from an address with a 307.
+  const pretty = path.replace(/\/index\.html$/, '/').replace(/\.html$/, '');
+  if (pretty !== path) {
+    response.writeHead(307, { Location: pretty });
+    response.end();
+    return;
+  }
   const resolved = await resolve(path);
   // 307, as Cloudflare answers a directory named without its slash.
   if (resolved && typeof resolved === 'object') {
@@ -116,12 +104,7 @@ createServer(async (request, response) => {
   }
   const file = resolved;
 
-  const headers = {};
-  for (const rule of RULES) {
-    if (matches(rule.pattern, path)) {
-      for (const [name, value] of rule.headers) headers[name] = value;
-    }
-  }
+  const headers = { 'Cache-Control': DEFAULT_CACHE, ...headersFor(RULES, path) };
 
   if (!file) {
     // The `404.html` nearest the missing path, as Cloudflare's `404-page`

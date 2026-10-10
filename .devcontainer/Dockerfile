@@ -21,10 +21,8 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # one, and the next run then silently talks to the stale process instead of
 # failing.
 #
-# imagemagick and libavif-bin are what site/screenshots/run.sh encodes with.
-# Both, because an ImageMagick built without an AVIF delegate does not fail: it
-# writes a PNG under the .avif name, which the browser refuses and which nothing
-# downstream notices, the name being right and the pair complete.
+# imagemagick is what site/screenshots/run.sh encodes the README's screenshot
+# with.
 #
 # Comments stay outside the RUN: a `#` inside a backslash continuation is not
 # reliably stripped by every Docker parser version.
@@ -39,7 +37,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     psmisc \
     imagemagick \
-    libavif-bin \
   && rm -rf /var/lib/apt/lists/*
 
 # `scripts/check-versions.py` reads the major out of NODE_VERSION, against CI

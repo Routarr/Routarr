@@ -18,16 +18,26 @@
   let reasons = $state<HTMLElement>();
   let clamped = $state(false);
   let expanded = $state(false);
+  // Measured in the next frame: the button, shown or hidden, changes the
+  // table's layout, and a change made while the observer delivers resizes what
+  // it watches before it is done, which the browser reports as an error.
   $effect(() => {
     const box = reasons;
     if (!box) return;
+    let frame = 0;
     const observer = new ResizeObserver(() => {
-      clamped = [...box.querySelectorAll('.reason-line')].some(
-        (line) => line.scrollHeight > line.clientHeight,
-      );
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        clamped = [...box.querySelectorAll('.reason-line')].some(
+          (line) => line.scrollHeight > line.clientHeight,
+        );
+      });
     });
     observer.observe(box);
-    return () => observer.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   });
 </script>
 
@@ -128,6 +138,7 @@
       <button
         type="button"
         class="btn btn-ghost btn-sm mt-1"
+        aria-label="{t(expanded ? 'ReasonsShowLess' : 'ReasonsShowAll')} – {decision.media_title}"
         aria-expanded={expanded}
         aria-controls="reasons-{decision.id}"
         onclick={() => (expanded = !expanded)}

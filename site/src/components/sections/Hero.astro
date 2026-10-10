@@ -11,11 +11,11 @@ const t = useTranslations(locale);
 const detail = pathFor(locale, 'how');
 
 /**
- * The plan shows six titles of the demonstration library. Titles, folders and
- * instances are the library's own words and read the same in every language,
- * and the rule names and the statuses come from the catalogue. A row carries
- * only what the application's own plan shows, so the plan promises nothing the
- * product does not say.
+ * The plan shows six titles of the demonstration library, routed by the rules
+ * the explanation cards show. Titles, folders and instances are the library's
+ * own words and read the same in every language. The statuses, the default
+ * category and the tally are the simulation screen's own words, which
+ * `TERMS` in `check.mjs` holds to the application's dictionaries.
  */
 type Kind = 'go' | 'still';
 interface Departure {
@@ -31,35 +31,34 @@ interface Departure {
 const DEPARTURES: Departure[] = [
   {
     title: 'Akira (1988)', rule: { number: '#10', name: 'page.text.3' }, from: '/movies', to: '/movies/anime',
-    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.move', kind: 'go',
   },
   {
     title: 'Stop Making Sense', rule: { number: '#20', name: 'page.text.6' }, from: '/movies', to: '/movies/concerts',
-    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.move', kind: 'go',
   },
   {
     title: 'Cowboy Bebop', rule: { number: '#10', name: 'page.text.3' }, from: '/tv', to: '/tv/anime',
-    instance: 'Sonarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Sonarr', status: 'hero.status.move', kind: 'go',
   },
   {
     title: 'Paddington 2', rule: { number: '#30', name: 'page.text.8' }, from: '/movies', to: '/movies/kids',
-    instance: 'Radarr', status: 'hero.status.proposed', kind: 'go',
+    instance: 'Radarr', status: 'hero.status.move', kind: 'go',
   },
   {
     title: 'Whiplash', rule: null, from: '/movies', to: '/movies',
-    instance: 'Radarr', status: 'hero.status.stays', kind: 'still',
+    instance: 'Radarr', status: 'hero.status.correct', kind: 'still',
   },
   {
     title: 'Homecoming', rule: { number: '#20', name: 'page.text.6' }, from: '/movies/concerts', to: '/movies/concerts',
-    instance: 'Radarr', status: 'hero.status.in-place', kind: 'still',
+    instance: 'Radarr', status: 'hero.status.correct', kind: 'still',
   },
 ];
 
 const STATUS_CLASS: Record<Kind, string> = { go: 'is-go', still: 'is-still' };
 const LEGEND: { cls: string; label: Key; note: Key }[] = [
-  { cls: 'is-go', label: 'hero.status.proposed', note: 'hero.legend.proposed' },
-  { cls: 'is-still', label: 'hero.status.stays', note: 'hero.legend.stays' },
-  { cls: 'is-still', label: 'hero.status.in-place', note: 'hero.legend.in-place' },
+  { cls: 'is-go', label: 'hero.status.move', note: 'hero.legend.move' },
+  { cls: 'is-still', label: 'hero.status.correct', note: 'hero.legend.correct' },
 ];
 ---
 
@@ -85,9 +84,8 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
 
     {/* The plan, as the application holds it. Each column is something the
         simulation screen shows for a title, the instance under its name and
-        the status as its action, so nothing here promises what the product
-        does not say. A guardrail asks about an apply, never about one title,
-        so no row asks. */}
+        the status as its action. A guardrail asks about an apply, never about
+        one title, so no row asks. */}
     <div class="plan">
       <div class="plan-head">
         <span class="plan-title">{t('hero.plan')}</span>
@@ -117,11 +115,11 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
                 <tr>
                   <td class="plan-name">{d.title}</td>
                   <td class="plan-rule">
-                    {d.rule ? <><b>{d.rule.number}</b>{t(d.rule.name)}</> : <i>{t('hero.rule.none')}</i>}
+                    {d.rule ? <><b>{d.rule.number}</b> {t(d.rule.name)}</> : <i>{t('hero.rule.default')}</i>}
                   </td>
                   <td class="plan-dest">
                     <span class="mono from">{d.from}</span>
-                    {d.kind === 'still' ? null : <><span class="arrow" aria-hidden="true">&rarr;</span><span class="mono to">{d.to}</span></>}
+                    {d.kind === 'still' ? null : <><span class="arrow" aria-hidden="true">&rarr;</span><span class="sr-only"> {t('hero.to')} </span><span class="mono to">{d.to}</span></>}
                   </td>
                   <td class="plan-instance">{d.instance}</td>
                   <td><span class={`chip ${STATUS_CLASS[d.kind]}`}>{t(d.status)}</span></td>
@@ -133,8 +131,8 @@ const LEGEND: { cls: string; label: Key; note: Key }[] = [
       </div>
 
       <p class="plan-legend">
-        {LEGEND.map((l) => (
-          <span><span class={`chip ${l.cls}`}>{t(l.label)}</span>{t(l.note)}</span>
+        {LEGEND.map((l, at) => (
+          <>{at > 0 && ' '}<span><span class={`chip ${l.cls}`}>{t(l.label)}</span> {t(l.note)}</span></>
         ))}
       </p>
 

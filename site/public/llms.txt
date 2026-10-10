@@ -125,19 +125,20 @@ model for people (whoever signs in has the one level of access, and only the key
 applications are scoped), telemetry of any kind (opt-in included), a second database engine,
 signal weighting, nested condition groups, temporary exceptions and a persistent task queue.
 
-The Site links below are the three English pages of the showcase site, and their French, German
-and Spanish copies are under Optional. Under Docs, repository files are linked as raw text, and
+The Site links below are Markdown copies of the three English pages of the showcase site, each
+at its page's address with index.html.md appended, and the French, German and Spanish copies are
+under Optional. Under Docs, repository files are linked as raw text, and
 the README is the reference for installation and configuration.
 
 ## Site
 
-- [Landing page](https://routarr.app/): what Routarr does, with an example dry-run plan, a rule,
-  the six gates and the install steps.
-- [How it decides](https://routarr.app/how/): the gap Routarr fills, the four steps, how a
-  decision is explained, how root folders are declared, the full specification, and the
+- [Landing page](https://routarr.app/index.html.md): what Routarr does, with an example dry-run
+  plan, a rule, the six gates and the install steps.
+- [How it decides](https://routarr.app/how/index.html.md): the gap Routarr fills, the four steps,
+  how a decision is explained, how root folders are declared, the full specification, and the
   objections answered.
-- [API](https://routarr.app/api/): how to make an application key, one call and its answer, and
-  every operation of the release with what it takes and what it answers.
+- [API](https://routarr.app/api/index.html.md): how to make an application key, one call and its
+  answer, and every operation of the release with what it takes and what it answers.
 
 ## Docs
 
@@ -160,12 +161,12 @@ the README is the reference for installation and configuration.
 - [Compose file](https://raw.githubusercontent.com/Routarr/Routarr/main/docker-compose.yml): the
   repository's own, which builds the image from source, with comments on the volume,
   authentication and the container hardening.
-- [Landing page (French)](https://routarr.app/fr/)
-- [How it decides (French)](https://routarr.app/fr/how/)
-- [API (French)](https://routarr.app/fr/api/)
-- [Landing page (German)](https://routarr.app/de/)
-- [How it decides (German)](https://routarr.app/de/how/)
-- [API (German)](https://routarr.app/de/api/)
-- [Landing page (Spanish)](https://routarr.app/es/)
-- [How it decides (Spanish)](https://routarr.app/es/how/)
-- [API (Spanish)](https://routarr.app/es/api/)
+- [Landing page (French)](https://routarr.app/fr/index.html.md)
+- [How it decides (French)](https://routarr.app/fr/how/index.html.md)
+- [API (French)](https://routarr.app/fr/api/index.html.md)
+- [Landing page (German)](https://routarr.app/de/index.html.md)
+- [How it decides (German)](https://routarr.app/de/how/index.html.md)
+- [API (German)](https://routarr.app/de/api/index.html.md)
+- [Landing page (Spanish)](https://routarr.app/es/index.html.md)
+- [How it decides (Spanish)](https://routarr.app/es/how/index.html.md)
+- [API (Spanish)](https://routarr.app/es/api/index.html.md)

@@ -6410,7 +6410,7 @@
             "description": "A refusal or a failure, in the envelope every error shares."
           }
         },
-        "summary": "Unpin a title by the id another service gives it",
+        "summary": "Remove a title's exception by the id another service gives it",
         "tags": [
           "exceptions"
         ],

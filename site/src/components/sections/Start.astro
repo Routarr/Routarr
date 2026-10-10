@@ -1,4 +1,5 @@
 ---
+import Terminal from '../Terminal.astro';
 import { useTranslations, type Key, type Locale } from '../../i18n';
 
 interface Props { locale: Locale }
@@ -19,6 +20,22 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
   { number: '03', command: 'docker exec routarr cat /config/routarr.api_key', prompt: true, note: 'start.step.3' },
   { number: '04', command: 'http://localhost:9876', prompt: false, note: 'start.step.4' },
 ];
+
+/* The compose file, its keys and its values marked for the eye. */
+const COMPOSE = `<span class="k">services</span>:
+  <span class="k">routarr</span>:
+    <span class="k">image</span>: <span class="s">ghcr.io/routarr/routarr:latest</span>
+    <span class="k">container_name</span>: <span class="s">routarr</span>
+    <span class="k">ports</span>:
+      - <span class="s">"9876:9876"</span>
+    <span class="k">volumes</span>:
+      - <span class="s">./config:/config</span>
+    <span class="k">restart</span>: <span class="s">unless-stopped</span>
+    <span class="k">stop_grace_period</span>: <span class="s">30s</span>
+    <span class="k">cap_drop</span>:
+      - <span class="s">ALL</span>
+    <span class="k">security_opt</span>:
+      - <span class="s">no-new-privileges:true</span>`;
 ---
 
 <section id="start">
@@ -48,27 +65,7 @@ const STEPS: { number: string; command: string; prompt: boolean; note?: Key }[] 
       </ol>
 
       <div class="install-aside">
-        <div class="terminal">
-          <div class="terminal-bar">
-            <span></span><span></span><span></span>
-            <span class="name">docker-compose.yml</span>
-            <button class="copy-btn" type="button" aria-label={`${t('page.button.copy')} – docker-compose.yml`} aria-live="polite" data-copied={t('page.button.copied')} data-failed={t('page.button.copy-failed')} data-failed-mac={t('page.button.copy-failed.mac')}>{t('page.button.copy')}</button>
-          </div>
-          <pre tabindex="0"><code><span class="k">services</span>:
-  <span class="k">routarr</span>:
-    <span class="k">image</span>: <span class="s">ghcr.io/routarr/routarr:latest</span>
-    <span class="k">container_name</span>: <span class="s">routarr</span>
-    <span class="k">ports</span>:
-      - <span class="s">"9876:9876"</span>
-    <span class="k">volumes</span>:
-      - <span class="s">./config:/config</span>
-    <span class="k">restart</span>: <span class="s">unless-stopped</span>
-    <span class="k">stop_grace_period</span>: <span class="s">30s</span>
-    <span class="k">cap_drop</span>:
-      - <span class="s">ALL</span>
-    <span class="k">security_opt</span>:
-      - <span class="s">no-new-privileges:true</span></code></pre>
-        </div>
+        <Terminal locale={Astro.props.locale} name="docker-compose.yml" markup={COMPOSE} />
 
       </div>
     </div>

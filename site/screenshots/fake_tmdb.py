@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""A TMDB stand-in for the showcase screenshots.
+"""A TMDB stand-in for the README's screenshot.
 
-The screenshots exist to show what the rule engine does with real signals, so
+The screenshot exists to show what the rule engine does with real signals, so
 the metadata has to be real-shaped: genres, keywords, original language and
 certification per title. Anything else would put "no metadata" warnings on
 every screen and misrepresent the product.

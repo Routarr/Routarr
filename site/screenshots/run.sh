@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Render the showcase's captured images from the real application.
+# Render the README's screenshot of the simulation from the real application,
+# into .github/assets/simulation.webp.
 #
-# The Open Graph card goes straight into the site. The captures go to
-# screenshots/captures/, outside what the site ships, until a page shows them.
 # Everything is disposable: its own database, its own fake Radarr, Sonarr and
 # TMDB, its own ports. A development instance is never touched, and no real
 # library or API key can end up in a published image.
@@ -14,20 +13,24 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # else, where the default is the right answer.
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/backend/target}"
 HERE="$ROOT/site/screenshots"
-PORT="${SHOT_PORT:-9899}"
-# Not the e2e harness's ports (9877, 7979): both may run at once, and each
-# kills whatever holds its port.
-RADARR_PORT=7989
-SONARR_PORT=7991
-TMDB_PORT=7990
+OUT="$ROOT/.github/assets/simulation.webp"
 # Named so `prune.sh` sweeps it if this exits without its trap.
 WORK="$(mktemp -d -t routarr-shots-XXXXXX)"
-# Throwaway, and never shown: the interface masks stored keys.
-DEMO_API_KEY="showcase-only-api-key"
-# Generated per run: the instance is thrown away with its database, so a key
-# written into this file would be a secret in the repository that guards
+# Both generated per run: the instance is thrown away with its database, so a
+# key written into this file would be a secret in the repository that guards
 # nothing, and the one thing a secret scanner is right to refuse.
+DEMO_API_KEY="$(openssl rand -hex 32)"
 DEMO_SECRET_KEY="$(openssl rand -base64 32)"
+
+# A port nothing holds, asked of the kernel: a fixed one collides with an e2e
+# run or a second checkout, and freeing it would kill whatever holds it.
+free_port() {
+  python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+PORT="$(free_port)"
+RADARR_PORT="$(free_port)"
+SONARR_PORT="$(free_port)"
+TMDB_PORT="$(free_port)"
 
 PIDS=()
 cleanup() {
@@ -41,11 +44,6 @@ cleanup() {
   rm -rf "$WORK"
 }
 trap cleanup EXIT
-
-free_port() {
-  local pid
-  for pid in $(fuser -n tcp "$1" 2>/dev/null || true); do kill -9 "$pid" 2>/dev/null || true; done
-}
 
 wait_for() {
   local url=$1
@@ -68,15 +66,16 @@ start_routarr() {
   wait_for "http://127.0.0.1:$PORT/api/v1/ping"
 }
 
-echo "==> freeing ports"
-for p in "$PORT" "$RADARR_PORT" "$SONARR_PORT" "$TMDB_PORT"; do free_port "$p"; done
-
 echo "==> building"
 # From inside the crate: rustup reads `rust-toolchain.toml` from the working
 # directory, so `--manifest-path` from here would compile with whatever the
 # default toolchain is rather than the pinned one.
-(cd "$ROOT/backend" && cargo build --release >/dev/null)
-(cd "$ROOT/frontend" && npm run build >/dev/null)
+(cd "$ROOT/backend" && cargo build --release --locked >/dev/null)
+# svelte-check's report is the reason a build fails, so it is kept and shown.
+(cd "$ROOT/frontend" && npm run build >"$WORK/frontend-build.log" 2>&1) || {
+  cat "$WORK/frontend-build.log" >&2
+  exit 1
+}
 
 echo "==> fakes"
 ARR_MODE=radarr ARR_PORT="$RADARR_PORT" python3 "$HERE/fake_arr.py" & PIDS+=($!)
@@ -105,51 +104,17 @@ for _ in $(seq 1 80); do
   sleep 0.5
 done
 echo "    ${total:-0} decision(s)"
-# Captured without a decision, every screen would show its empty state and the
-# site would ship pictures of an application that does nothing.
+# Captured without a decision, the screen would show its empty state and the
+# README a picture of an application that does nothing.
 [[ "${total:-0}" -gt 0 ]] || { echo "no decision after 40 s; not capturing" >&2; exit 1; }
 
 echo "==> capturing"
 FRONTEND_DIR="$ROOT/frontend" ROUTARR_URL="http://127.0.0.1:$PORT" \
   ROUTARR_API_KEY="$DEMO_API_KEY" \
-  SHOTS_DIR="$HERE/captures" node "$HERE/capture.mjs"
+  SHOT_PNG="$WORK/simulation.png" node "$HERE/capture.mjs"
 
-# Two formats from the same PNG, never one from the other: re-encoding a lossy
-# image into another lossy format compounds both sets of artefacts, and these
-# are screenshots of text, where that shows first.
-#
-# `avifenc` rather than ImageMagick for the AVIF: an ImageMagick without the
-# delegate does not fail, it writes a PNG under the .avif name. The browser
-# refuses that file and nothing downstream notices, since the name is right and
-# the pair is complete. Encoding through the tool that only does AVIF removes
-# the possibility.
-echo "==> encoding to avif and webp"
-command -v avifenc >/dev/null || {
-  echo "avifenc is missing: install libavif-bin. Refusing to write a PNG named .avif." >&2
-  exit 1
-}
-# Encoded in the work directory and moved in as a pair: written in place, a
-# failure between the two leaves a fresh WebP beside a stale AVIF, and the AVIF
-# is the file most browsers take.
-mkdir -p "$WORK/encoded"
-for png in "$HERE"/captures/*.png; do
-  [[ -e "$png" ]] || continue
-  name="$(basename "${png%.png}")"
-  convert "$png" -quality 82 -define webp:method=6 "$WORK/encoded/$name.webp"
-  # -s 4 is the speed and size middle ground. cq-level=28 holds the AVIF in
-  # the WebP's weight class, and these are pictures of text where banding
-  # shows first.
-  avifenc --min 0 --max 63 -a end-usage=q -a cq-level=28 -s 4 "$png" "$WORK/encoded/$name.avif" >/dev/null
-  mv "$WORK/encoded/$name.webp" "$WORK/encoded/$name.avif" "$HERE/captures/"
-  rm -f "$png"
-done
-
-# `file` reads the content, not the name: a wrong encoder writes a PNG named
-# .avif without a word.
-for avif in "$HERE"/captures/*.avif; do
-  file "$avif" | grep -q "AVIF" || {
-    echo "$avif is not an AVIF file" >&2
-    exit 1
-  }
-done
-ls -la "$HERE/captures"
+# Encoded in the work directory and moved in once whole: written in place, a
+# failed encode would leave the README a broken image.
+convert "$WORK/simulation.png" -quality 82 -define webp:method=6 "$WORK/simulation.webp"
+mv "$WORK/simulation.webp" "$OUT"
+ls -la "$OUT"

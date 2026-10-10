@@ -2783,13 +2783,13 @@ td * {
 }
 
 /* A title is read whole, by a keyboard and a finger as much as by a mouse.
-   Capped, so one long title wraps rather than widening its column for every
-   row. As wide as its words up to the cap, or the table shrinks the column to
-   the longest word and stacks the title a word per line. */
+   It takes the room the table gives its column and wraps only past it. The
+   floor keeps room for a few words: sized by its longest word alone, the
+   column would stack a long title a word per line, and capped instead, a
+   title would wrap with half its column empty beside it. */
 .cell-title {
   display: inline-block;
-  width: max-content;
-  max-width: 280px;
+  min-width: 16rem;
   overflow-wrap: anywhere;
 }
 
@@ -2859,13 +2859,12 @@ td * {
 }
 
 /* A filesystem path is the widest thing in these tables, and read whole too:
-   it wraps within its cap, as wide as it is up to the cap for the reason a
-   title is. The `<bdi>` inside keeps it left to right in an Arabic page, or
-   its leading slash moves to the end. */
+   it takes its column's room and wraps past it, above a floor, for the
+   reasons a title does. The `<bdi>` inside keeps it left to right in an
+   Arabic page, or its leading slash moves to the end. */
 .cell-path {
   display: inline-block;
-  width: max-content;
-  max-width: 200px;
+  min-width: 12rem;
   overflow-wrap: anywhere;
 }
 

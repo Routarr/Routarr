@@ -1,22 +1,21 @@
 /**
- * Capture the showcase screenshots from the real application.
+ * Capture the README's screenshot of the simulation from the real application.
  *
- * Mockups age into lies the moment the interface moves. These come out of the
- * same binary the E2E suite drives, against a throwaway database, so a screen
- * that no longer looks like this is a screen that changed.
+ * A mockup ages into a lie the moment the interface moves. This one comes out
+ * of the same binary the e2e suite drives, against a throwaway database, so a
+ * screen that no longer looks like this is a screen that changed.
  */
-import { mkdirSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 
 import { chromium } from '../playwright.mjs';
 
 const BASE = process.env.ROUTARR_URL ?? 'http://127.0.0.1:9899';
-// Outside `public/` until a page shows them: the site ships what `public/`
-// holds, and `check.mjs` refuses a capture no page shows.
-const OUT = process.env.SHOTS_DIR ?? new URL('./captures/', import.meta.url).pathname;
-// The one image a page does use, as the card a shared link displays.
-const OG = new URL('../public/assets/og.png', import.meta.url).pathname;
-
-mkdirSync(OUT, { recursive: true });
+const OUT = process.env.SHOT_PNG ?? new URL('./simulation.png', import.meta.url).pathname;
+// A renamed route opens the not-found screen, which the shutter would take
+// without a word.
+const NOT_FOUND = JSON.parse(
+  readFileSync(new URL('../../backend/locales/en.json', import.meta.url), 'utf-8'),
+).NotFoundTitle;
 
 const browser = await chromium.launch();
 const context = await browser.newContext({
@@ -36,69 +35,23 @@ if (process.env.ROUTARR_API_KEY) {
 }
 
 const page = await context.newPage();
-
-async function settle() {
-  await page.waitForLoadState('networkidle');
-  // Let the dark theme's transitions land before the shutter.
-  await page.waitForTimeout(400);
-}
-
-async function shot(name) {
-  await page.screenshot({ path: `${OUT}/${name}.png` });
-  console.log(`captured ${name}`);
-}
-
-// --- dashboard ------------------------------------------------------------
-await page.goto(`${BASE}/`);
-await settle();
-await shot('dashboard');
-
-// --- root folders ---------------------------------------------------------
-await page.goto(`${BASE}/root-folders`);
-await settle();
-await shot('root-folders');
-
-// --- simulation -----------------------------------------------------------
 await page.goto(`${BASE}/simulation`);
-await settle();
+await page.waitForLoadState('networkidle');
+const heading = (await page.locator('h1').first().textContent())?.trim();
+if (!heading || heading === NOT_FOUND) throw new Error('/simulation opened the not-found screen');
+
 const run = page.getByRole('button', { name: /run simulation/i });
 if (await run.count()) {
   await run.first().click();
   await page.waitForTimeout(1500);
-  await settle();
+  await page.waitForLoadState('networkidle');
 }
-await shot('simulation');
-
-// --- the explanation panel ------------------------------------------------
-// The differentiator: condition by condition, expected against observed.
-await page.goto(`${BASE}/media`);
-await settle();
-const why = page.getByRole('button', { name: /why/i });
-if (await why.count()) {
-  // Taller viewport so the whole panel is on screen, then frame the panel
-  // itself: at the size the site displays it, a full-window shot of a dense
-  // modal is unreadable, which defeats the point of showing it.
-  await page.setViewportSize({ width: 1440, height: 1500 });
-  await why.first().click();
-  const panel = page.locator('.modal-content');
-  await panel.waitFor({ timeout: 10_000 });
-  await page.waitForTimeout(600);
-  await panel.screenshot({ path: `${OUT}/explain.png` });
-  console.log('captured explain');
-  await page.setViewportSize({ width: 1440, height: 900 });
-} else {
-  // The differentiator missing from the site is not a shot to skip: the run
-  // ends here, and the pair on disk stays what it was.
-  throw new Error('no "Why?" button found: the library has no decision to explain');
-}
-
-// --- the Open Graph card -------------------------------------------------
-// Rendered in the same browser, so it uses real text layout rather than
-// ImageMagick's SVG renderer, which has no usable fonts here.
-const card = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
-await card.goto(new URL('./og.html', import.meta.url).href);
-await card.waitForTimeout(300);
-await card.screenshot({ path: OG });
-console.log('captured og');
+// The decisions are what the README describes: their table is scrolled into
+// view, past the totals and the destinations' capacity.
+await page.locator('table').last().evaluate((table) => table.closest('section, .card')?.scrollIntoView());
+// Let the dark theme's transitions land before the shutter.
+await page.waitForTimeout(400);
+await page.screenshot({ path: OUT });
+console.log(`captured ${OUT}`);
 
 await browser.close();

@@ -135,7 +135,8 @@ describe('DecisionRow', () => {
   /**
    * A justification is clamped to two lines, and a title shows the rest to a
    * mouse alone. A clamped one is offered in full behind a button, which a
-   * keyboard and a finger reach too.
+   * keyboard and a finger reach too, named after its row since every clamped
+   * row has one.
    */
   describe('a justification longer than two lines', () => {
     const reason = '✓ Original language in [ja] – found [ja]';
@@ -167,23 +168,25 @@ describe('DecisionRow', () => {
 
       const line = screen.getByText(reason);
       expect(line.className).toContain('reason-line');
-      const toggle = await screen.findByRole('button', { name: 'Show in full' });
+      const toggle = await screen.findByRole('button', { name: 'Show in full – Akira' });
       expect(toggle).toHaveAttribute('aria-expanded', 'false');
 
       await fireEvent.click(toggle);
 
-      expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute(
+      expect(screen.getByRole('button', { name: 'Show less – Akira' })).toHaveAttribute(
         'aria-expanded',
         'true',
       );
       expect(line.closest('.is-expanded')).not.toBeNull();
     });
 
-    it('offers no button when every line fits', () => {
+    it('offers no button when every line fits', async () => {
       layOut(32);
       show({ decision: decision({ reasons: [reason] }), selected: false, onToggle: vi.fn() });
+      // The lines are measured in the frame after the observer reports.
+      await new Promise((frame) => requestAnimationFrame(frame));
 
-      expect(screen.queryByRole('button', { name: 'Show in full' })).toBeNull();
+      expect(screen.queryByRole('button', { name: /^Show in full/ })).toBeNull();
     });
   });
 });

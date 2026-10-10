@@ -52,6 +52,29 @@ test.describe('a long title or path is read whole', () => {
   });
 
   /**
+   * Wrapped at a fixed width instead, a title or a path breaks with half its
+   * column empty beside it.
+   */
+  test('a title and a path their column has room for stay on one line', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await openScreen(page, '/library');
+    const linesOf = (cell: Locator, text: string) =>
+      cell.evaluate((node, written) => {
+        (node.querySelector('bdi') ?? node.firstChild ?? node).textContent = written;
+        const range = document.createRange();
+        range.selectNodeContents(node);
+        return new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size;
+      }, text);
+
+    const title = page.locator('td .cell-title').first();
+    await expect(title).toBeVisible();
+    expect(await linesOf(title, 'Billions Club Live with The Weeknd: A Concert Film')).toBe(1);
+    expect(
+      await linesOf(page.locator('td .cell-path').first(), '/data/media/movies/concerts-and-live'),
+    ).toBe(1);
+  });
+
+  /**
    * A bare title shrinks its column to the longest word and stacks a long one
    * a word per line, pushing the reasons past the edge of the table.
    */

@@ -1,7 +1,9 @@
 /* Routarr showcase: one stylesheet, no framework, no external request.
  *
- * The palette is the application's own (frontend/src/index.css). The accent is
- * three tokens, not one: `--accent` decorates (borders and glows, where
+ * The grounds and the accent are the application's (frontend/src/index.css),
+ * and the text and border tones are the site's own, which `check.mjs`
+ * measures against the grounds they sit on. The accent is three tokens, not
+ * one: `--accent` decorates (borders and glows, where
  * contrast rules do not apply), `--accent-text` is amber that passes AA *as
  * text* on the page, and `--accent-fill`/`--accent-ink` are the button pair.
  * One token doing all three jobs turns the light theme's brand colour brown,
@@ -52,13 +54,15 @@
   --radius-md: 0;
   --shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 10px 30px rgba(15, 23, 42, 0.08);
   --maxw: 1140px;
+  /* The page's side margin, which the Index panel keeps as well. */
+  --gutter: 20px;
 
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-/* The theme the application ships in, kept exactly as it is: a reader who
-   switches to it should not find a second Routarr. */
+/* The theme every page opens in, on the application's own dark grounds, so a
+   reader who installs it does not find a second Routarr. */
 :root[data-theme="dark"] {
   color-scheme: dark;
 
@@ -132,7 +136,7 @@ code, kbd, pre { font-family: var(--mono); font-size: 0.87em; }
 
 img { max-width: 100%; height: auto; }
 
-.wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: 20px; }
+.wrap { width: 100%; max-width: var(--maxw); margin-inline: auto; padding-inline: var(--gutter); }
 
 .skip {
   position: absolute;
@@ -307,10 +311,12 @@ img { max-width: 100%; height: auto; }
 
 .index-panel {
   position: absolute;
-  inset-inline-end: 0;
+  /* Measured from the bar's padding edge, so the gutter is restated: its edge
+     meets the last control's, and a phone keeps a margin on both sides. */
+  inset-inline-end: var(--gutter);
   top: calc(100% + 8px);
   z-index: 60;
-  width: min(720px, calc(100vw - 32px));
+  width: min(720px, calc(100vw - 2 * var(--gutter)));
   padding: 14px 20px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -529,7 +535,9 @@ main > section:nth-of-type(even) {
   color: var(--accent-text);
   margin-bottom: 12px;
 }
-.eyebrow::before { content: "// "; opacity: 0.55; }
+/* Decoration, so the empty alternative after the slash keeps a screen reader
+   from reading "slash slash" before every section's label. */
+.eyebrow::before { content: "// " / ""; opacity: 0.55; }
 
 /* ---------------------------------------------------------------- hero */
 
@@ -989,10 +997,12 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   overflow: hidden;
   box-shadow: var(--shadow);
 }
+/* The verdict moves under the rule's name when the row cannot hold both. */
 .verdict > header {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 9px;
+  gap: 4px 9px;
   padding: 11px 15px;
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
@@ -1133,6 +1143,18 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   color: var(--accent-text);
   box-shadow: inset 0 -2px 0 currentColor;
 }
+/* Forced colours drop the wash and the bar that mark the mode in force, the
+   language of the page and the theme on screen, so an outline in the system's
+   own highlight marks them there. */
+@media (forced-colors: active) {
+  .lang-nav a[aria-current='page'],
+  :root:not([data-theme='dark']) .theme-nav [data-theme-set='light'],
+  :root[data-theme='dark'] .theme-nav [data-theme-set='dark'],
+  .rule-mode .on {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+}
 
 .rule-cond {
   display: grid;
@@ -1211,7 +1233,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
   letter-spacing: 0.1em;
   color: var(--text-muted);
 }
-.gate-body h3 { margin: 0; font-size: 1rem; font-weight: 650; }
+.gate-body h3 { margin: 0; font-size: 1rem; font-weight: 650; overflow-wrap: break-word; hyphens: auto; }
 .gate-body p { margin: 3px 0 0; font-size: 0.9rem; color: var(--text-muted); }
 /* Refusing and asking are different answers, so they are marked differently.
    A same-volume test is evidence, not proof, which is why capacity raises a
@@ -1425,7 +1447,7 @@ h1 .grad { display: block; font-weight: 500; color: var(--accent-text); }
    for it: the only thing saying the line opens. */
 .ref-op > summary::before {
   grid-area: mark;
-  content: '\25B8';
+  content: '\25B8' / '';
   width: 1em;
   color: var(--text-muted);
   transition: transform 0.15s;
@@ -1582,7 +1604,9 @@ h2 em { font-style: normal; color: var(--accent-text); }
   font-weight: 700;
   color: var(--text-muted);
 }
-.more-list a { color: var(--text); text-decoration: none; font-size: 0.97rem; }
+/* A German compound can be wider than its column: it breaks, hyphenated where
+   the browser holds the language's rules, rather than crossing the rule. */
+.more-list a { min-width: 0; color: var(--text); text-decoration: none; font-size: 0.97rem; overflow-wrap: break-word; hyphens: auto; }
 .more-list a:hover { color: var(--accent-text); }
 .more-say .btn { margin-top: 26px; }
 
@@ -1666,19 +1690,22 @@ h2 em { font-style: normal; color: var(--accent-text); }
 /* The number sits beside the rule, not above it: stacked, every row would be
    two lines tall for a value that reads as one thing,
    "#10 Japanese animation". */
-.plan-rule b { margin-inline-end: 7px; color: var(--accent-text); }
+/* The space between them is in the markup, so a screen reader and a copy
+   read "#10 Japanese animation" too. */
+.plan-rule b { margin-inline-end: 3px; color: var(--accent-text); }
 .plan-rule i { color: var(--text-muted); font-style: italic; }
 .plan-dest .mono { font-family: var(--mono); font-size: 0.94rem; }
 .plan-dest .from { color: var(--text-muted); }
 .plan-dest .to { color: var(--accent-text); font-weight: 600; }
-.plan-dest .arrow { padding: 0 10px; color: var(--border-strong); }
+/* The direction a move goes, which WCAG asks to reach 3:1 as a graphic. A
+   screen reader hears the connector the markup carries beside it. */
+.plan-dest .arrow { padding: 0 10px; color: var(--text-muted); }
 .plan-instance { font-size: 0.9rem; color: var(--text-soft); }
 
-/* One line, in four languages. Three pairs across the card leave about thirty
-   characters per note, so the notes are two words and the row may not wrap:
-   a legend on four lines is a paragraph pretending to be a key. */
 /* Laid out as the safety section's legend: each entry after the last, the
-   row wrapping where the card is too narrow for it. */
+   row wrapping where the card is too narrow for it. An entry keeps its mark
+   and its note on one line where it can, and breaks the note on a phone,
+   where a translated one is wider than the card. */
 .plan-legend {
   display: flex;
   flex-wrap: wrap;
@@ -1690,6 +1717,9 @@ h2 em { font-style: normal; color: var(--accent-text); }
   color: var(--text-muted);
 }
 .plan-legend > span { display: inline-flex; align-items: center; gap: 9px; white-space: nowrap; }
+@media (max-width: 479px) {
+  .plan-legend > span { white-space: normal; }
+}
 
 /* A status is a mark, not a sentence: small, on a wash, and the same object in
    the table and the legend. */
@@ -1718,6 +1748,10 @@ h2 em { font-style: normal; color: var(--accent-text); }
    fits shows none. */
 .table-scroll {
   overflow-x: auto;
+  /* The containing block of the hidden words in its cells, which sit at the
+     place of the cell they belong to: placed by an ancestor outside, the ones
+     past the edge would make the whole page scroll sideways. */
+  position: relative;
   scrollbar-width: thin;
   scrollbar-color: var(--border-strong) transparent;
   background:

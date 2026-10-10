@@ -4,8 +4,7 @@
  *
  * These are the mistakes that survive a visual review: a canonical pointing at
  * the wrong host after a domain change, a CSP hash left behind by an edited
- * script, an <img> with no dimensions quietly shifting the layout, a link to a
- * file that is not deployed.
+ * script, a link to a file that is not deployed.
  *
  *   node site/check.mjs
  */
@@ -13,15 +12,14 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { releasedVersion } from './release.mjs';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
 
 /**
  * Everything here is checked against `dist/`, which is what Cloudflare serves.
  * Checking the sources would test the intention, and this tests the artefact:
- * the distinction matters for a CSP hash, a fingerprinted stylesheet, or an
- * image that exists in `public/` and never reached the build.
+ * the distinction matters for a CSP hash, a fingerprinted stylesheet, or a
+ * file that exists in `public/` and never reached the build.
  */
 const DIST = join(ROOT, 'dist');
 const read = (file) => readFileSync(join(DIST, file), 'utf-8');
@@ -42,38 +40,7 @@ const { LANGUAGES } = await import('./src/i18n/languages.ts');
 const builtAs = (path, file) => `${path.slice(1)}${file}`;
 
 
-/** Read a WebP's intrinsic size without pulling in an image library. */
-function webpSize(file) {
-  const buffer = readFileSync(file);
-  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') return null;
-  const chunk = buffer.toString('ascii', 12, 16);
-  if (chunk === 'VP8X') {
-    return { width: buffer.readUIntLE(24, 3) + 1, height: buffer.readUIntLE(27, 3) + 1 };
-  }
-  if (chunk === 'VP8 ') {
-    return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
-  }
-  if (chunk === 'VP8L') {
-    const bits = buffer.readUInt32LE(21);
-    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
-  }
-  return null;
-}
-
-/**
- * Same, for an AVIF: from its `ispe` property box. The two formats are encoded
- * from one PNG, so a stale AVIF beside a fresh WebP is what a re-capture that
- * failed halfway leaves behind, and the AVIF is the file most browsers take.
- */
-function avifSize(file) {
-  const buffer = readFileSync(file);
-  const at = buffer.indexOf('ispe');
-  if (at < 0 || at + 16 > buffer.length) return null;
-  // Box name, then a version/flags word, then width and height.
-  return { width: buffer.readUInt32BE(at + 8), height: buffer.readUInt32BE(at + 12) };
-}
-
-/** Same, for a PNG: width and height sit in the IHDR, right after the signature. */
+/** A PNG's width and height, which sit in the IHDR right after the signature. */
 function pngSize(file) {
   if (!existsSync(file)) return null;
   const buffer = readFileSync(file);
@@ -106,8 +73,9 @@ for (const source of [index, notFound, headers, read('robots.txt'), read('sitema
   for (const [, origin] of source.matchAll(/https?:\/\/([a-z0-9.-]+)/gi)) origins.add(origin);
 }
 // `localhost` appears in the install instructions as prose, not as a host the
-// site talks to. The rest are well-known vocabulary and outbound links.
-const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1)/;
+// site talks to, and `_headers` names the Web Analytics beacon's host. The rest
+// are well-known vocabulary and outbound links.
+const EXTERNAL = /(github|schema\.org|gnu\.org|ogp\.me|sitemaps\.org|w3\.org|localhost|127\.0\.0\.1|cloudflareinsights\.com)/;
 const own = [...origins].filter((o) => !EXTERNAL.test(o));
 if (own.length > 1) fail(`several site origins in use, pick one: ${own.join(', ')}`);
 const ORIGIN = own[0];
@@ -282,8 +250,11 @@ if (comparedPages < 12) {
 // Astro fingerprints what it builds and does not fingerprint the pages, so an
 // HTML file cached for any length of time is a page a deploy cannot take back.
 // Each built page needs its own rule in `_headers`, so a page added without one
-// fails the build instead of going stale quietly.
+// fails the build instead of going stale quietly. A not-found page is served
+// for a miss, at the missing address, where Cloudflare's default answer
+// already revalidates: a rule on its own address would reach no visitor.
 for (const file of Object.keys(pages)) {
+  if (file.endsWith('404.html')) continue;
   const path = file === 'index.html' ? '/' : `/${file.replace(/index\.html$/, '')}`;
   const rule = new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n\\s+Cache-Control:[^\\n]*must-revalidate`, 'm');
   if (!rule.test(headers)) {
@@ -310,7 +281,17 @@ for (const [file, page] of Object.entries(pages)) {
 // A term `within` a sentence is a screen or a scope the sentence names.
 const TERMS = [
   ['hero.board.mode', 'ModeDryRunShort'],
+  ['hero.status.move', 'ActionMove'],
+  ['hero.status.correct', 'ActionNone'],
+  ['hero.rule.default', 'DefaultCategoryFallback'],
+  ['hero.tally', 'Evaluated', 'within'],
+  ['hero.tally', 'MovesRequired', 'within'],
+  ['hero.tally', 'AlreadyCorrect', 'within'],
   ['safety.b', 'SettingGlobalDryRun'],
+  ['faq.p', 'SettingGlobalDryRun', 'within'],
+  ['how.p', 'SettingGlobalDryRun', 'within'],
+  ['how.foot.2', 'SettingGlobalDryRun', 'within'],
+  ['features.h3', 'Instances', 'within'],
   ['safety.b.2', 'SettingBatchLimit'],
   ['safety.b.3', 'SettingConfirmationThreshold'],
   ['features.k.3', 'Overrides'],
@@ -319,6 +300,7 @@ const TERMS = [
   ['api.step.1', 'ScopeWrite', 'within'],
   ['api.step.3', 'ApiReference', 'within'],
   ['api.step.3', 'Scope', 'within'],
+  ['api.ref.scope', 'Scope', 'within'],
 ];
 for (const { code } of LANGUAGES) {
   const app = JSON.parse(readFileSync(join(ROOT, `../backend/locales/${code}.json`), 'utf-8'));
@@ -329,6 +311,80 @@ for (const { code } of LANGUAGES) {
     if (!term || (within ? !said.includes(term) : said !== term)) {
       fail(`src/i18n/${code}.json: ${siteKey} reads "${site[siteKey]}", the application says "${app[appKey]}"`);
     }
+  }
+}
+
+// ---------------------------------------------------- facts from the code
+// A count the site states is read from the code that makes it true: a 29th
+// condition, a 27th language, a sixth format or a gate moved in the executor
+// would otherwise leave the site wrong with every check green. A count is
+// written in digits or in words, as its sentence reads best.
+{
+  const source = (file) => readFileSync(join(ROOT, '..', file), 'utf-8');
+  const block = (text, opening) => {
+    const from = text.indexOf(opening);
+    return from < 0 ? '' : text.slice(from, text.indexOf('\n}', from));
+  };
+  const conditions = (source('backend/src/api/conditions.rs').match(/const CONDITIONS: &\[Spec\] = &\[[\s\S]*?\n {4}\];/)?.[0]
+    .match(/^\s+kind: "/gm) ?? []).length;
+  const languages = readdirSync(join(ROOT, '../backend/locales')).filter((file) => file.endsWith('.json')).length;
+  const formats = [...block(source('backend/src/services/notify.rs'), 'pub enum Format {').matchAll(/^\s+([A-Z]\w*),$/gm)].map((m) => m[1]);
+
+  // The executor's gates, in the order it runs them, each with the key of its
+  // name on the site. Revalidation runs last, title by title as each move is
+  // sent, rather than as a call of its own.
+  const GUARDS = {
+    guard_dry_run: 'safety.b',
+    guard_batch_limit: 'safety.b.2',
+    guard_reachable: 'safety.reach',
+    guard_capacity: 'safety.capacity',
+    guard_confirmation: 'safety.b.3',
+  };
+  const executed = [...block(source('backend/src/services/executor/mod.rs'), 'pub async fn apply_decisions(')
+    .matchAll(/\b(guard_\w+)\(/g)].map((m) => m[1]);
+  for (const guard of executed) if (!(guard in GUARDS)) fail(`the executor runs ${guard}, which the safety section does not show`);
+  const order = [...executed.map((guard) => GUARDS[guard]), 'safety.b.4'];
+  const shown = [...(readFileSync(join(ROOT, 'src/components/sections/Safety.astro'), 'utf-8')
+    .match(/const GATES[\s\S]*?\];/)?.[0] ?? '').matchAll(/name: '([^']+)'/g)].map((m) => m[1]);
+  if (shown.join() !== order.join()) fail(`the safety section shows the gates as ${shown.join(', ')}, the executor runs ${order.join(', ')}`);
+  const gates = order.length;
+
+  if (conditions < 10 || languages < 2 || formats.length < 2 || executed.length < 3) {
+    fail(`read ${conditions} condition(s), ${languages} language(s), ${formats.length} format(s) and ${executed.length} guard(s) from the code: a pattern stopped matching`);
+  }
+
+  const WORDS = {
+    en: ['', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'],
+    fr: ['', 'un', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit', 'neuf', 'dix'],
+    de: ['', 'ein', 'zwei', 'drei', 'vier', 'fünf', 'sechs', 'sieben', 'acht', 'neun', 'zehn'],
+    es: ['', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve', 'diez'],
+  };
+  const states = (text, count, code) => {
+    const word = WORDS[code]?.[count];
+    return new RegExp(`(^|[^\\p{L}\\d])(${count}${word ? `|${word}` : ''})($|[^\\p{L}\\d])`, 'iu').test(text);
+  };
+  const FACTS = [
+    ['rules.h2', conditions, 'conditions'],
+    ['features.h2', languages, 'languages'],
+    ['explain.p.2', languages, 'languages'],
+    ['features.fact.5', formats.length, 'notification formats'],
+    ['header.desc.4', gates, 'gates'],
+    ['safety.h2', gates, 'gates'],
+    ['safety.p', gates, 'gates'],
+  ];
+  for (const { code } of LANGUAGES) {
+    const said = catalogue(code);
+    for (const [key, count, what] of FACTS) {
+      if (!states(said[key] ?? '', count, code)) fail(`src/i18n/${code}.json: ${key} does not state the ${count} ${what} the code has`);
+    }
+  }
+  for (const [phrase, count] of [['conditions', conditions], ['languages', languages], ['gates', gates]]) {
+    if (!new RegExp(`\\b(${count}|${WORDS.en[count] ?? count}) ${phrase}\\b`, 'i').test(llms ?? '')) {
+      fail(`llms.txt does not state the ${count} ${phrase} the code has`);
+    }
+  }
+  for (const format of formats) {
+    if (!new RegExp(`\\b${format}\\b`, 'i').test(llms ?? '')) fail(`llms.txt names no ${format} among the notification formats`);
   }
 }
 
@@ -396,11 +452,13 @@ if (!readKey) {
 // ------------------------------------------------------- keys nobody asks for
 // A catalogue grows by addition and never by subtraction unless something
 // looks: a key that outlives the section using it is four strings a translator
-// is asked to keep. A key is referenced literally by a component.
+// is asked to keep. A key is referenced literally by a component, or by a
+// `data-key` of the link preview card (`og.html`).
 {
   const sources = readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && /\.(astro|ts)$/.test(e.name))
     .map((e) => readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8'))
+    .concat(readFileSync(join(ROOT, 'og.html'), 'utf-8'))
     .join('\n');
   // The reference builds its keys from the contract's own names
   // (`src/contract.ts`), so they are read here from this checkout's contract:
@@ -418,6 +476,38 @@ if (!readKey) {
   ]);
   for (const key of built) {
     if (!(key in english)) fail(`src/i18n/en.json has no ${key}, which the API reference builds from the contract`);
+  }
+  // The English sentence of an operation is the contract's own summary, which
+  // the application's reference screen shows: two wordings for one operation
+  // would drift.
+  for (const methods of Object.values(contract.paths)) {
+    for (const { operationId, summary } of Object.values(methods)) {
+      const said = english[`api.ref.op.${operationId}`];
+      if (said !== undefined && said !== summary) {
+        fail(`src/i18n/en.json: api.ref.op.${operationId} reads "${said}", the contract "${summary}"`);
+      }
+    }
+  }
+
+  // Each entry of the reference is linkable: an operation by its
+  // `operationId`, a type by `schema-` and its name, each once per page, and
+  // every operation shows the full path a client calls.
+  const anchors = new Set([
+    ...operations,
+    ...Object.keys(contract.components?.schemas ?? {}).map((name) => `schema-${name}`),
+  ]);
+  const server = contract.servers?.[0]?.url ?? '';
+  for (const { path } of LANGUAGES) {
+    const file = builtAs(path, 'api/index.html');
+    const page = pages[file] ?? '';
+    const ids = [...page.matchAll(/<details class="ref-op"[^>]*\bid="([^"]+)"/g)].map((m) => m[1]);
+    const entries = (page.match(/<details class="ref-op"/g) ?? []).length;
+    if (!entries || ids.length !== entries) fail(`${file}: ${entries - ids.length} of ${entries} reference entries carry no id`);
+    if (new Set(ids).size !== ids.length) fail(`${file}: two reference entries share an id`);
+    for (const id of ids) if (!anchors.has(id)) fail(`${file}: the reference entry #${id} names no operation or type`);
+    for (const [, shown] of page.matchAll(/<span class="ref-method[^"]*">[A-Z]+<\/span><code class="ref-path">([^<]+)</g)) {
+      if (!shown.startsWith(`${server}/`)) fail(`${file}: the operation ${shown} is shown without ${server}`);
+    }
   }
   const unused = Object.keys(english).filter((key) => {
     if (built.has(key)) return false;
@@ -454,14 +544,19 @@ for (const { code } of LANGUAGES) {
 // A word a stylesheet prints through `content` never reaches a catalogue, so it
 // reads in English on all four pages. The check above cannot see it, since the
 // key it would need does not exist. Symbols are fine there, letters are not.
-// CSS escapes are removed first: `\2212` is a minus sign, not text.
+// CSS escapes are removed first: `\2212` is a minus sign, not text. A symbol
+// is read aloud too, unless an alternative follows a slash: decoration takes
+// an empty one.
 const stylesheets = readdirSync(join(DIST, '_astro')).filter((file) => file.endsWith('.css'));
 let printed = 0;
 for (const sheet of stylesheets) {
-  for (const [, , value] of read(`_astro/${sheet}`).matchAll(/content:\s*(["'])((?:\\.|(?!\1).)*)\1/g)) {
+  for (const [, , value, rest] of read(`_astro/${sheet}`).matchAll(/content:\s*(["'])((?:\\.|(?!\1).)*)\1([^;}]*)/g)) {
     printed += 1;
     if (/\p{L}/u.test(value.replace(/\\[0-9a-fA-F]{1,6}\s?/g, ''))) {
       fail(`_astro/${sheet} prints "${value}" through CSS content, which no translation reaches`);
+    }
+    if (value.trim() && !/^\s*\//.test(rest)) {
+      fail(`_astro/${sheet} prints "${value}" through CSS content with no alternative after a slash, so it is read aloud`);
     }
   }
 }
@@ -472,21 +567,24 @@ if (!stylesheets.length || printed < 3) {
 }
 
 // ----------------------------------------------------------- version
-// The page states which version it describes, anywhere a visitor reads it, and
-// that version is the latest published release, or the one `backend/Cargo.toml`
-// declares when GitHub cannot say (`release.mjs`). The JSON-LD says the same.
-// Both read it the same way, so the comparison fails only on a `dist` built
-// before a release or a version change.
+// The page states which version it describes, anywhere a visitor reads it: the
+// one `backend/Cargo.toml` declares, and the JSON-LD says the same. Production
+// is built at a release's tag, which `site.yml` names in
+// `ROUTARR_SITE_RELEASE`: a checkout whose crate names another version would
+// deploy a page describing a version nobody can pull.
 const cargo = readFileSync(join(ROOT, '../backend/Cargo.toml'), 'utf-8');
-const crate = cargo.match(/^version = "([^"]+)"/m)?.[1];
-if (!crate) fail('could not read the version from Cargo.toml');
+const version = cargo.match(/^version = "([^"]+)"/m)?.[1];
+if (!version) fail('could not read the version from Cargo.toml');
 else {
-  const version = await releasedVersion(crate);
   if (!index.includes(`"softwareVersion": "${version}"`)) {
-    fail(`index.html: softwareVersion is not ${version}, the latest published release`);
+    fail(`index.html: softwareVersion is not ${version}, the version backend/Cargo.toml declares`);
   }
   if (!index.includes(`v${version}`)) {
-    fail(`index.html: the page states no version, and the latest release is ${version}`);
+    fail(`index.html: the page states no version, and backend/Cargo.toml declares ${version}`);
+  }
+  const release = process.env.ROUTARR_SITE_RELEASE;
+  if (release !== undefined && release !== `v${version}`) {
+    fail(`the build is for the release ${release || '(none named)'}, and this checkout declares ${version}`);
   }
 }
 
@@ -564,67 +662,36 @@ try {
 } catch (error) {
   fail(`index.html: the JSON-LD block is not valid JSON (${error.message})`);
 }
-// The structured data states the page's language, so its description is in it:
-// an English sentence declared French is what a search engine shows a French
-// reader.
+// The structured data is one graph: the site, the page and the software. The
+// page states its language and describes itself in its own words, since an
+// English sentence declared French is what a search engine shows a French
+// reader. The software reads the same on every page of a language, or a
+// search engine meets one application per page.
+const softwareDescriptions = {};
 for (const [file, source] of Object.entries(pages)) {
   const block = source.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
   if (!block) continue;
-  const data = JSON.parse(block);
+  const graph = JSON.parse(block)['@graph'] ?? [];
+  const node = (type) => graph.filter((entity) => entity['@type'] === type);
   const lang = source.match(/<html lang="([a-z]+)"/)?.[1];
   const meta = source.match(/<meta name="description" content="([^"]*)"/)?.[1]
     ?.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-  if (data.inLanguage !== lang) fail(`${file}: the structured data says ${data.inLanguage}, the page ${lang}`);
-  if (data.description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
-}
-
-// -------------------------------------------------------------- images
-// Every loop below counts what it examined and refuses to have examined
-// nothing: a selector that stops matching, or a path built from the wrong
-// root, otherwise turns a check into a pass.
-let imagesChecked = 0;
-for (const [name, source] of Object.entries(pages)) {
-  for (const [tag] of source.matchAll(/<img\b[^>]*>/g)) {
-    imagesChecked += 1;
-    const src = tag.match(/src="([^"]+)"/)?.[1];
-    if (!/\balt="[^"]/.test(tag)) fail(`${name}: <img src="${src}"> has no alt text`);
-    if (!/\bwidth="\d+"/.test(tag) || !/\bheight="\d+"/.test(tag)) {
-      fail(`${name}: <img src="${src}"> has no intrinsic size, so the page will shift as it loads`);
-    }
-    if (src?.startsWith('/') && !existsSync(join(DIST, src.slice(1)))) {
-      fail(`${name}: <img src="${src}"> does not exist`);
-      continue;
-    }
-
-    // Declared size against real size: a stale width/height reserves the wrong
-    // box and the page jumps when the image arrives. Re-cropping a screenshot
-    // is exactly how they go stale.
-    if (src?.endsWith('.webp')) {
-      const real = webpSize(join(DIST, src.slice(1)));
-      const declared = {
-        width: Number(tag.match(/\bwidth="(\d+)"/)?.[1]),
-        height: Number(tag.match(/\bheight="(\d+)"/)?.[1]),
-      };
-      if (real && (real.width !== declared.width || real.height !== declared.height)) {
-        fail(`${name}: <img src="${src}"> declares ${declared.width}x${declared.height} but the file is ${real.width}x${real.height}`);
-      }
-      // The AVIF the <source> above offers is the same picture, or the page
-      // jumps for the browsers that take it and not for the ones that do not.
-      const avif = join(DIST, src.slice(1).replace(/\.webp$/, '.avif'));
-      if (existsSync(avif)) {
-        const size = avifSize(avif);
-        if (!size) fail(`${name}: ${avif} carries no readable size`);
-        else if (size.width !== declared.width || size.height !== declared.height) {
-          fail(`${name}: the AVIF beside ${src} is ${size.width}x${size.height}, the page declares ${declared.width}x${declared.height}`);
-        }
-      }
-    }
+  const [site, webPage, software] = [node('WebSite'), node('WebPage'), node('SoftwareApplication')];
+  if (site.length !== 1 || site[0].name !== 'Routarr' || site[0].url !== `https://${ORIGIN}/`) {
+    fail(`${file}: the structured data names no single WebSite "Routarr" at https://${ORIGIN}/`);
   }
-}
-
-const imagesOnPage = Object.values(pages).reduce((n, html) => n + (html.match(/<img /g) || []).length, 0);
-if (imagesOnPage && imagesChecked < imagesOnPage) {
-  fail(`${imagesOnPage} <img> on the pages and only ${imagesChecked} examined: the check read past some`);
+  if (webPage.length !== 1) {
+    fail(`${file}: the structured data holds ${webPage.length} WebPage(s), expected one`);
+  } else {
+    if (webPage[0].inLanguage !== lang) fail(`${file}: the structured data says ${webPage[0].inLanguage}, the page ${lang}`);
+    if (webPage[0].description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
+  }
+  if (software.length !== 1) {
+    fail(`${file}: the structured data holds ${software.length} SoftwareApplication(s), expected one`);
+  } else {
+    const said = (softwareDescriptions[lang] ??= software[0].description);
+    if (software[0].description !== said) fail(`${file}: the software is described otherwise than on the other ${lang} pages`);
+  }
 }
 
 // -------------------------------------------------------------- links
@@ -705,6 +772,25 @@ if (llms === null) {
   if (!linked) fail(`llms.txt links to no page on ${ORIGIN}, so the link check read nothing`);
 }
 
+// ------------------------------------------------- copies for language models
+// Every page has its Markdown copy beside it (`markdown.mjs`), which llms.txt
+// links: its one top heading is the page's, and no tag of the page is left in.
+let copies = 0;
+for (const [file, page] of Object.entries(pages)) {
+  if (file.endsWith('404.html')) continue;
+  const copy = existsSync(join(DIST, `${file}.md`)) ? read(`${file}.md`) : '';
+  const heading = page.match(/<h1[^>]*>([\s\S]*?)<\/h1>/)?.[1].replace(/<[^>]+>/g, '').replace(/&#39;/g, "'").replace(/&amp;/g, '&').trim();
+  const top = copy.match(/^# (.+)$/gm) ?? [];
+  if (!copy) fail(`${file} has no Markdown copy at ${file}.md`);
+  else if (top.length !== 1 || top[0].replace(/[*_]/g, '').slice(2).trim() !== heading) {
+    fail(`${file}.md opens on ${top.join(' / ') || 'no top heading'}, the page on "${heading}"`);
+  } else if (/<\/?(?:div|span|section|p|a|li|ul|td|tr|details|summary)\b/.test(copy.replace(/```[\s\S]*?```/g, ''))) {
+    fail(`${file}.md keeps markup of the page`);
+  }
+  copies += 1;
+}
+if (copies < 12) fail(`read ${copies} Markdown copies, expected one per page`);
+
 // ------------------------------------------------------------- og:locale
 // A link preview states the page's language, and each translation names the
 // others. A page that omits `og:locale` is taken for `en_US`, whatever its
@@ -719,73 +805,6 @@ for (const { code, path } of LANGUAGES) {
   if (others !== LANGUAGES.length - 1) {
     fail(`${file}: ${others} og:locale:alternate, expected ${LANGUAGES.length - 1}`);
   }
-}
-
-// -------------------------------------------------------------- assets
-// `screenshots/run.sh` writes its captures outside `public/`, so the directory
-// holds only what a page takes in. What must never happen is shipping one
-// nothing shows.
-const shots = existsSync(join(DIST, 'assets/shots'))
-  ? readdirSync(join(DIST, 'assets/shots'))
-  : [];
-for (const shot of shots) {
-  if (!/\.(webp|avif)$/.test(shot)) {
-    fail(`assets/shots/${shot} is neither webp nor avif; run.sh should have converted it`);
-  }
-}
-
-// Every WebP has an AVIF beside it, and every AVIF a WebP. The two are encoded
-// from the same PNG in one pass, so a lone file means a run that half-finished.
-// A missing AVIF is invisible in a browser that would have taken it, and that
-// browser is the whole point of the `<source>`.
-for (const shot of shots.filter((s) => s.endsWith('.webp'))) {
-  const avif = shot.replace(/\.webp$/, '.avif');
-  if (!shots.includes(avif)) fail(`assets/shots/${avif} is missing: re-run site/screenshots/run.sh`);
-}
-for (const shot of shots.filter((s) => s.endsWith('.avif'))) {
-  const webp = shot.replace(/\.avif$/, '.webp');
-  if (!shots.includes(webp)) {
-    fail(`assets/shots/${shot} has no webp fallback: re-run site/screenshots/run.sh`);
-  }
-}
-
-// And nothing is shipped that no page shows. The pairing checks above run both
-// ways between the two formats but never against the pages. Without this, a
-// capture the harness produces and the layout never uses would ship, weigh on
-// anyone who fetches it by URL, and be kept current for nothing.
-const referenced = new Set();
-for (const source of Object.values(pages)) {
-  for (const [, file] of source.matchAll(/assets\/shots\/([a-z0-9._-]+)/gi)) referenced.add(file);
-}
-for (const shot of shots) {
-  if (!referenced.has(shot)) {
-    fail(`assets/shots/${shot} is shipped but no page shows it: use it or stop capturing it`);
-  }
-}
-
-// Every extension the site actually ships is one `serve.mjs` knows how to type.
-// A missing entry serves the file with no content-type, and a browser may then
-// refuse the `<source>` it would otherwise have taken. The preview then differs
-// from production, which is the one thing that server exists to prevent.
-{
-  const types = readFileSync(join(ROOT, 'serve.mjs'), 'utf-8').match(/const TYPES = \{([\s\S]*?)\}/)?.[1] ?? '';
-  const known = new Set([...types.matchAll(/'(\.[a-z0-9]+)'/g)].map((m) => m[1]));
-  const shipped = new Set(shots.map((s) => s.slice(s.lastIndexOf('.'))));
-  for (const ext of shipped) {
-    if (!known.has(ext)) fail(`serve.mjs has no MIME type for ${ext}`);
-  }
-}
-
-// And every `<source>` in the page points at one that exists. A typo here is a
-// broken image in exactly the browsers that support the better format.
-let sourcesChecked = 0;
-for (const match of index.matchAll(/<source srcset="([^"]+)"/g)) {
-  sourcesChecked += 1;
-  if (!existsSync(join(DIST, match[1].slice(1)))) fail(`<source> points at a missing ${match[1]}`);
-}
-const sourcesOnPage = (index.match(/<source /g) || []).length;
-if (sourcesOnPage && sourcesChecked < sourcesOnPage) {
-  fail(`${sourcesOnPage} <source> on the page and only ${sourcesChecked} examined: the check read past some`);
 }
 
 // -------------------------------------------------------------- icons
@@ -833,16 +852,24 @@ if (iconSizesChecked < Object.keys(pages).length) {
   fail(`only ${iconSizesChecked} icon size(s) measured across ${Object.keys(pages).length} pages`);
 }
 
-// The card a link preview renders: the page announces 1200x630, and a
-// mismatched image is cropped or refused by the network that reads it.
-{
-  const og = pngSize(join(DIST, 'assets/og.png'));
-  if (!og) fail('assets/og.png is missing or not a PNG');
-  else {
-    const declared = index.match(/property="og:image:width" content="(\d+)"[\s\S]*?property="og:image:height" content="(\d+)"/);
-    if (!declared) fail('the page declares no og:image size');
-    else if (og.width !== Number(declared[1]) || og.height !== Number(declared[2])) {
-      fail(`assets/og.png is ${og.width}x${og.height}, the page declares ${declared[1]}x${declared[2]}`);
+// The card a link preview renders, one per language: each page names its own
+// and announces 1200x630, and a mismatched image is cropped or refused by the
+// network that reads it.
+for (const { code, path } of LANGUAGES) {
+  for (const file of ['index.html', ...SUBPAGES]) {
+    const page = pages[builtAs(path, file)];
+    if (!page) continue;
+    const card = page.match(/property="og:image" content="https:\/\/[^/"]+(\/[^"]+)"/)?.[1];
+    if (card !== `/assets/og-${code}.png`) {
+      fail(`${builtAs(path, file)}: og:image is ${card ?? 'missing'}, not the ${code} card`);
+      continue;
+    }
+    const size = pngSize(join(DIST, card.slice(1)));
+    const declared = page.match(/property="og:image:width" content="(\d+)"[\s\S]*?property="og:image:height" content="(\d+)"/);
+    if (!size) fail(`${card} is missing or not a PNG: run node site/og.mjs`);
+    else if (!declared) fail(`${builtAs(path, file)} declares no og:image size`);
+    else if (size.width !== Number(declared[1]) || size.height !== Number(declared[2])) {
+      fail(`${card} is ${size.width}x${size.height}, the page declares ${declared[1]}x${declared[2]}`);
     }
   }
 }
@@ -873,12 +900,12 @@ function tokensOf(pattern) {
   const block = css.match(pattern)?.[1] ?? '';
   return Object.fromEntries([...block.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
 }
-// Light is the default, and dark is reached only by stamping
-// `data-theme="dark"`. A `prefers-color-scheme` block that redefined the
-// palette would hand the default back to the visitor's system, which is the
-// one decision here that must not be undone by accident.
+// Every page opens dark, and light is reached only by stamping
+// `data-theme="light"`. A `prefers-color-scheme` block that redefined the
+// palette would hand that choice to the visitor's system, which is the one
+// decision here that must not be undone by accident.
 if (/@media\s*\(prefers-color-scheme[^)]*\)\s*\{[^{]*\{[^}]*--bg:/.test(css)) {
-  fail('site.css redefines the palette under prefers-color-scheme: light is the default, dark is a stamped choice');
+  fail('site.css redefines the palette under prefers-color-scheme: every page opens dark, and light is a stamped choice');
 }
 const explicit = tokensOf(/:root\[data-theme="dark"\]\s*\{([\s\S]*?)\}/);
 if (Object.keys(explicit).length < 10) {
@@ -916,7 +943,7 @@ function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }
-// The bare `:root` block is the light default, `explicit` the stamped dark one.
+// The bare `:root` block is the light palette, `explicit` the dark one every page opens in.
 const light = tokensOf(/^:root\s*\{([\s\S]*?)\}/m);
 // `--accent` is decorative only (borders, glows) and is exempt. The tokens that
 // carry text are `--accent-text` (amber as text) and `--accent-ink` over both
@@ -980,12 +1007,26 @@ for (const [what, tint, grounds, texts] of TINTED) {
 // "ReadsRadarr". A space in the markup separates them for both.
 let bandsRead = 0;
 for (const [file, html] of Object.entries(pages)) {
-  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head)">[\s\S]*?<\/p>/g)) {
+  for (const [block] of html.matchAll(/<p class="(?:flow-k|objection objection-head|plan-legend|gates-legend)">[\s\S]*?<\/p>/g)) {
     bandsRead++;
     if (/<\/(?:i|span)>(?:<span|[^\s<])/.test(block)) fail(`${file}: a label runs into what follows it: ${block.slice(0, 90)}`);
   }
 }
 if (bandsRead < 8) fail(`read ${bandsRead} label band(s), so the run-together check is reading almost nothing`);
+
+// The hero's plan the same way: a rule's number and its name, and a move's two
+// folders, which the arrow between them parts for the eye alone.
+let planCellsRead = 0;
+for (const [file, html] of Object.entries(pages)) {
+  for (const [cell] of html.matchAll(/<td class="plan-(?:rule|dest)">[\s\S]*?<\/td>/g)) {
+    planCellsRead++;
+    if (/<\/b>[^\s]/.test(cell)) fail(`${file}: a rule's number runs into its name: ${cell.slice(0, 90)}`);
+    if (cell.includes('class="arrow"') && !cell.includes('class="sr-only"')) {
+      fail(`${file}: a move's folders run together for a screen reader: ${cell.slice(0, 90)}`);
+    }
+  }
+}
+if (planCellsRead < 40) fail(`read ${planCellsRead} plan cell(s), so the plan check is reading almost nothing`);
 
 // The page opens dark, and the browser's bar follows the page, never the
 // system: every page stamps `data-theme="dark"`, carries one `theme-color`
@@ -1005,10 +1046,11 @@ for (const ground of [light['--bg'], explicit['--bg']]) {
 
 // `--focus` is the one ring colour measured above. A ring drawn in another
 // colour is one nothing measures, and the accent on the light ground is far
-// below 3:1.
+// below 3:1. `Highlight` is the exception: a system colour, used in forced
+// colours alone, where the reader's own palette decides the contrast.
 const unmeasuredRings = [...css.matchAll(/outline(?:-color)?:\s*([^;]+);/g)]
   .map((m) => m[1].trim())
-  .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)'));
+  .filter((value) => !/^(none|0)$/.test(value) && !value.includes('var(--focus)') && !/\bHighlight$/.test(value));
 if (unmeasuredRings.length) {
   fail(`site.css draws a ring in a colour other than --focus: ${unmeasuredRings.join(', ')}`);
 }

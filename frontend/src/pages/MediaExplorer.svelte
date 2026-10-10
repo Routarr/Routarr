@@ -159,8 +159,12 @@
                       <Tv size={16} class="text-sonarr" />
                     {/if}
                     <span class="visually-hidden">{t(mediaTypeKey(media.media_type))}</span>
-                    <strong class="cell-title">{media.title}</strong>
-                    {#if media.year}<span class="text-muted">({media.year})</span>{/if}
+                    <!-- One block, so the year follows the title's last word
+                         rather than the edge of the room a title keeps. -->
+                    <span class="cell-title">
+                      <strong>{media.title}</strong>
+                      {#if media.year}<span class="text-muted">({media.year})</span>{/if}
+                    </span>
                   </div>
                 </td>
                 <td>{media.instance_name}</td>

@@ -2,6 +2,7 @@
 import { LANGUAGES } from './src/i18n/languages.ts';
 import { defineConfig } from 'astro/config';
 import sitemap from '@astrojs/sitemap';
+import { markdownCopies } from './markdown.mjs';
 import { renameSync, rmdirSync } from 'node:fs';
 
 /**
@@ -84,5 +85,7 @@ export default defineConfig({
         },
       },
     },
+    // A Markdown copy beside each page, which `llms.txt` links.
+    markdownCopies(),
   ],
 });

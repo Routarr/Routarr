@@ -100,30 +100,39 @@
         }, 1600);
       };
 
+      // Where the clipboard is out of reach the text is selected, so the
+      // keyboard shortcut the button then names copies it: on http:// over a
+      // LAN, and where the browser refuses the clipboard to this page.
+      var refused = function () {
+        var range = document.createRange();
+        range.selectNodeContents(code);
+        var selection = window.getSelection();
+        selection.removeAllRanges();
+        selection.addRange(range);
+        done(false);
+      };
+
       if (navigator.clipboard && window.isSecureContext) {
-        navigator.clipboard.writeText(code.innerText).then(
-          function () { done(true); },
-          function () { done(false); }
-        );
+        navigator.clipboard.writeText(code.innerText).then(function () { done(true); }, refused);
         return;
       }
-
-      // http:// on a LAN is a plausible way to read this page, and there the
-      // text is selected so the keyboard shortcut still works.
-      var range = document.createRange();
-      range.selectNodeContents(code);
-      var selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      done(false);
+      refused();
     });
   });
 
   // ---------------------------------------------------------------- reference
-  // A link to `#schema-Decision` lands on a folded entry, and a browser that
-  // does not unfold the target shows the one line it lands on.
+  // A link to an operation (`#place_title`) or a type (`#schema-Decision`)
+  // lands on a folded entry, and a browser that does not unfold the target
+  // shows the one line it lands on. A fragment mangled on its way here does
+  // not decode, and names nothing.
   function unfold() {
-    var target = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    var id;
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch (e) {
+      return;
+    }
+    var target = id && document.getElementById(id);
     if (target && target.tagName === 'DETAILS') target.open = true;
   }
   window.addEventListener('hashchange', unfold);
@@ -227,6 +236,8 @@
   var close = document.createElement('button');
   close.setAttribute('type', 'button');
   close.setAttribute('aria-label', source.getAttribute('data-dismiss') || 'Dismiss');
+  // Its name is in the offered language too.
+  close.setAttribute('lang', match);
   close.textContent = '\u00d7';
   close.addEventListener('click', function () {
     remember(here);

@@ -6,6 +6,10 @@
  * here is built, offered and checked. A second copy of the list, left behind,
  * builds a page nothing opens.
  *
+ * Each link names its language in that language (`name`) for a screen
+ * reader, which reads it with that language's rules: "FR" alone is two
+ * letters spelt out with the page's.
+ *
  * `offer` and `dismiss` are the wording of the "this page exists in your
  * language" hint, each in the language it offers: a French visitor is
  * addressed in French, not in the language of the page they happened to land
@@ -17,10 +21,10 @@
  * `check.mjs`, and a JSON import there needs an attribute Vite does not want.
  */
 export const LANGUAGES = [
-  { code: 'en', label: 'EN', path: '/', offer: 'This page is available in English', dismiss: 'Dismiss' },
-  { code: 'fr', label: 'FR', path: '/fr/', offer: 'Cette page existe en français', dismiss: 'Fermer' },
-  { code: 'de', label: 'DE', path: '/de/', offer: 'Diese Seite gibt es auf Deutsch', dismiss: 'Schließen' },
-  { code: 'es', label: 'ES', path: '/es/', offer: 'Esta página está disponible en español', dismiss: 'Cerrar' },
+  { code: 'en', label: 'EN', name: 'English', path: '/', offer: 'This page is available in English', dismiss: 'Dismiss' },
+  { code: 'fr', label: 'FR', name: 'Français', path: '/fr/', offer: 'Cette page existe en français', dismiss: 'Fermer' },
+  { code: 'de', label: 'DE', name: 'Deutsch', path: '/de/', offer: 'Diese Seite gibt es auf Deutsch', dismiss: 'Schließen' },
+  { code: 'es', label: 'ES', name: 'Español', path: '/es/', offer: 'Esta página está disponible en español', dismiss: 'Cerrar' },
 ] as const;
 
 export type Locale = (typeof LANGUAGES)[number]['code'];

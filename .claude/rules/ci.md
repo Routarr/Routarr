@@ -17,8 +17,8 @@ paths:
   A tag can be moved, and `release.yml` holds `packages: write`.
 - The four workflows are split on purpose, each header saying why: `ci.yml` cancels a superseded
   run, `docker.yml` queues so a started image build finishes, `release.yml` runs on a `v*` tag,
-  `site.yml` calls the Cloudflare deploy hook (secret `CLOUDFLARE_DEPLOY_HOOK`) when a release
-  is published, so the site names it.
+  `site.yml` deploys the site from the latest release's tag (secrets `CLOUDFLARE_API_TOKEN` and
+  `CLOUDFLARE_ACCOUNT_ID`) and compares production with it every week.
 - In `ci.yml`, `changes` gates every job except `repository`, and those two are the only
   unfiltered jobs. A check that must see every commit goes in one of them, as
   `scripts/check-versions.py` does in `changes`: a commit touching only a Dockerfile or

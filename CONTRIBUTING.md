@@ -217,6 +217,9 @@ version is published because somebody decided to publish it.
    `npm version X.Y.Z --no-git-tag-version --ignore-scripts` in `frontend/` and
    `site/` moves each lockfile with its manifest, and any `cargo` command run
    in `backend/` does the same for `Cargo.lock`. CI builds with `--locked`.
+   When the interface changed since the last release, refresh the README's
+   screenshot with `bash site/screenshots/run.sh`, which writes
+   `.github/assets/simulation.webp` from a throwaway instance.
 2. Commit, merge to `main`, and let CI finish. The release refuses a commit that
    is not on `main`, a tag naming another version than `backend/Cargo.toml`, a
    commit whose workflows are not green and a version the registry already holds
@@ -234,7 +237,8 @@ version only.
 
 4. Write, at the top of that draft, the few lines saying what changed for
    someone running Routarr. The generated list stays underneath for whoever
-   wants the detail. Then publish it.
+   wants the detail. Then publish it, which also deploys the showcase site
+   from the tag (`.github/workflows/site.yml`).
 
 The draft is the step that is easy to forget and the only one a person has to
 do: the image is on GHCR from step 3, so nothing is blocked while it waits, but
