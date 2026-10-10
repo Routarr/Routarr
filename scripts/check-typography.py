@@ -126,7 +126,7 @@ def main() -> int:
         ),
         "site files": sources(
             "site",
-            ("*.mjs", "wrangler.jsonc", "public/_headers", "public/robots.txt",
+            ("*.mjs", "og.html", "wrangler.jsonc", "public/_headers", "public/robots.txt",
              "public/.well-known/*.txt", "public/assets/*.js", "screenshots/*.*",
              "src/**/*.astro", "src/**/*.ts", "src/**/*.css"),
             problems,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A Radarr / Sonarr stand-in used only to produce the showcase screenshots.
+"""A Radarr / Sonarr stand-in used only to produce the README's screenshot.
 
 Separate from `frontend/e2e/fake_arr.py`, which is deliberately minimal: a test
 wants the smallest library that proves a behaviour, a screenshot wants one that

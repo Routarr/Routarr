@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
 import { SCREENS, screenKey } from './routes';
 import { iconFor } from './navigation';
 
@@ -19,6 +21,17 @@ describe('the route table', () => {
   /** The router leaves `/api` to the server, so a screen there is unreachable. */
   it('puts no screen under /api', () => {
     for (const screen of SCREENS) expect(screen).not.toMatch(/^\/api(\/|$)/);
+  });
+
+  /** The README's screenshot is taken by hand, off CI, by `site/screenshots/run.sh`. */
+  it('holds every screen the README screenshot opens', () => {
+    const capture = fs.readFileSync(
+      path.resolve(__dirname, '../../../site/screenshots/capture.mjs'),
+      'utf-8',
+    );
+    const opened = [...capture.matchAll(/goto\(`\$\{BASE\}(\/[^`]*)`\)/g)].map((match) => match[1]);
+    expect(opened.length).toBeGreaterThan(0);
+    for (const screen of opened) expect(SCREENS).toContain(screen);
   });
 
   it('refuses to dress a destination it has no icon for, naming it', () => {

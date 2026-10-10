@@ -93,7 +93,7 @@ const schema = {
     <meta property="og:url" content={canonical} />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={t(HEAD[page].card)} />
-    <meta property="og:image" content={new URL('/assets/og.png', origin).href} />
+    <meta property="og:image" content={new URL(`/assets/og-${locale}.png`, origin).href} />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content={title} />

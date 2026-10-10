@@ -77,9 +77,6 @@
 # blanket rule would cache a file added there for a year on the first visit
 # unless somebody remembered to carve it out. Each file states its own, and
 # `check.mjs` fails a file under `/assets/` that has none.
-#
-# A page that shows a screenshot takes a bounded rule for `/assets/shots/*`
-# here, for the same reason as the icons below.
 
 # Hand-placed, unfingerprinted, and replaced by `icons.mjs`, like `/favicon.ico`
 # at the root.
@@ -90,9 +87,16 @@
 /assets/apple-touch-icon.png
   Cache-Control: public, max-age=604800
 
-# The card a link preview renders. Replaced in place like the rest, and a stale
-# one is the first thing anybody sees of a shared link.
-/assets/og.png
+# The card a link preview renders, one per language (`og.mjs`). Replaced in
+# place like the rest, and a stale one is the first thing anybody sees of a
+# shared link.
+/assets/og-en.png
+  Cache-Control: public, max-age=604800
+/assets/og-fr.png
+  Cache-Control: public, max-age=604800
+/assets/og-de.png
+  Cache-Control: public, max-age=604800
+/assets/og-es.png
   Cache-Control: public, max-age=604800
 
 # Astro fingerprints what it builds, so the filename changes whenever the bytes

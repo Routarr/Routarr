@@ -14,19 +14,18 @@ node site/verify.mjs           # site/dist in Chromium under the real _headers: 
 node site/serve.mjs            # preview site/dist on :8788 with the real _headers
 node site/live.mjs             # production against this checkout's _headers and version
 node site/icons.mjs            # favicon.ico and the PNG icons from public/assets/favicon.svg
-bash site/screenshots/run.sh   # public/assets/og.png, rendered from screenshots/og.html
+node site/og.mjs               # public/assets/og-<code>.png, the link preview card per language
+bash site/screenshots/run.sh   # .github/assets/simulation.webp, the README's screenshot
 ```
 
 - `check.mjs` and `verify.mjs` read `site/dist`: rebuild after an edit, or they test the
   previous build.
 - Preview through `serve.mjs`. `astro dev` and `astro preview` apply no `_headers`, so a page the
   CSP breaks looks fine there.
-- `verify.mjs`, `icons.mjs` and the screenshot capture load Playwright from
+- `verify.mjs`, `live.mjs`, `icons.mjs`, `og.mjs` and the screenshot capture load Playwright from
   `frontend/node_modules` through `playwright.mjs` (`FRONTEND_DIR` overrides the path).
-- `screenshots/run.sh` writes the captures to `screenshots/captures/`, outside what ships. A page
-  that shows one takes its WebP and AVIF pair into `public/assets/shots/`, which `check.mjs`
-  pairs and refuses once no page shows it. `screenshots/og.html` copies the English hero headline
-  (`page.h1`) and the palette by hand, so it changes with them.
+- `og.html` fills each `data-key` from the catalogues but copies the palette by hand, so it
+  changes with the site's. Rerun `og.mjs` after editing a key it shows.
 
 ## Deployment
 

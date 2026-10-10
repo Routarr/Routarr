@@ -4,8 +4,7 @@
  *
  * These are the mistakes that survive a visual review: a canonical pointing at
  * the wrong host after a domain change, a CSP hash left behind by an edited
- * script, an <img> with no dimensions quietly shifting the layout, a link to a
- * file that is not deployed.
+ * script, a link to a file that is not deployed.
  *
  *   node site/check.mjs
  */
@@ -19,8 +18,8 @@ const ROOT = fileURLToPath(new URL('.', import.meta.url));
 /**
  * Everything here is checked against `dist/`, which is what Cloudflare serves.
  * Checking the sources would test the intention, and this tests the artefact:
- * the distinction matters for a CSP hash, a fingerprinted stylesheet, or an
- * image that exists in `public/` and never reached the build.
+ * the distinction matters for a CSP hash, a fingerprinted stylesheet, or a
+ * file that exists in `public/` and never reached the build.
  */
 const DIST = join(ROOT, 'dist');
 const read = (file) => readFileSync(join(DIST, file), 'utf-8');
@@ -41,38 +40,7 @@ const { LANGUAGES } = await import('./src/i18n/languages.ts');
 const builtAs = (path, file) => `${path.slice(1)}${file}`;
 
 
-/** Read a WebP's intrinsic size without pulling in an image library. */
-function webpSize(file) {
-  const buffer = readFileSync(file);
-  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WEBP') return null;
-  const chunk = buffer.toString('ascii', 12, 16);
-  if (chunk === 'VP8X') {
-    return { width: buffer.readUIntLE(24, 3) + 1, height: buffer.readUIntLE(27, 3) + 1 };
-  }
-  if (chunk === 'VP8 ') {
-    return { width: buffer.readUInt16LE(26) & 0x3fff, height: buffer.readUInt16LE(28) & 0x3fff };
-  }
-  if (chunk === 'VP8L') {
-    const bits = buffer.readUInt32LE(21);
-    return { width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
-  }
-  return null;
-}
-
-/**
- * Same, for an AVIF: from its `ispe` property box. The two formats are encoded
- * from one PNG, so a stale AVIF beside a fresh WebP is what a re-capture that
- * failed halfway leaves behind, and the AVIF is the file most browsers take.
- */
-function avifSize(file) {
-  const buffer = readFileSync(file);
-  const at = buffer.indexOf('ispe');
-  if (at < 0 || at + 16 > buffer.length) return null;
-  // Box name, then a version/flags word, then width and height.
-  return { width: buffer.readUInt32BE(at + 8), height: buffer.readUInt32BE(at + 12) };
-}
-
-/** Same, for a PNG: width and height sit in the IHDR, right after the signature. */
+/** A PNG's width and height, which sit in the IHDR right after the signature. */
 function pngSize(file) {
   if (!existsSync(file)) return null;
   const buffer = readFileSync(file);
@@ -396,11 +364,13 @@ if (!readKey) {
 // ------------------------------------------------------- keys nobody asks for
 // A catalogue grows by addition and never by subtraction unless something
 // looks: a key that outlives the section using it is four strings a translator
-// is asked to keep. A key is referenced literally by a component.
+// is asked to keep. A key is referenced literally by a component, or by a
+// `data-key` of the link preview card (`og.html`).
 {
   const sources = readdirSync(join(ROOT, 'src'), { recursive: true, withFileTypes: true })
     .filter((e) => e.isFile() && /\.(astro|ts)$/.test(e.name))
     .map((e) => readFileSync(join(e.parentPath ?? e.path, e.name), 'utf-8'))
+    .concat(readFileSync(join(ROOT, 'og.html'), 'utf-8'))
     .join('\n');
   // The reference builds its keys from the contract's own names
   // (`src/contract.ts`), so they are read here from this checkout's contract:
@@ -581,55 +551,6 @@ for (const [file, source] of Object.entries(pages)) {
   if (data.description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
 }
 
-// -------------------------------------------------------------- images
-// Every loop below counts what it examined and refuses to have examined
-// nothing: a selector that stops matching, or a path built from the wrong
-// root, otherwise turns a check into a pass.
-let imagesChecked = 0;
-for (const [name, source] of Object.entries(pages)) {
-  for (const [tag] of source.matchAll(/<img\b[^>]*>/g)) {
-    imagesChecked += 1;
-    const src = tag.match(/src="([^"]+)"/)?.[1];
-    if (!/\balt="[^"]/.test(tag)) fail(`${name}: <img src="${src}"> has no alt text`);
-    if (!/\bwidth="\d+"/.test(tag) || !/\bheight="\d+"/.test(tag)) {
-      fail(`${name}: <img src="${src}"> has no intrinsic size, so the page will shift as it loads`);
-    }
-    if (src?.startsWith('/') && !existsSync(join(DIST, src.slice(1)))) {
-      fail(`${name}: <img src="${src}"> does not exist`);
-      continue;
-    }
-
-    // Declared size against real size: a stale width/height reserves the wrong
-    // box and the page jumps when the image arrives. Re-cropping a screenshot
-    // is exactly how they go stale.
-    if (src?.endsWith('.webp')) {
-      const real = webpSize(join(DIST, src.slice(1)));
-      const declared = {
-        width: Number(tag.match(/\bwidth="(\d+)"/)?.[1]),
-        height: Number(tag.match(/\bheight="(\d+)"/)?.[1]),
-      };
-      if (real && (real.width !== declared.width || real.height !== declared.height)) {
-        fail(`${name}: <img src="${src}"> declares ${declared.width}x${declared.height} but the file is ${real.width}x${real.height}`);
-      }
-      // The AVIF the <source> above offers is the same picture, or the page
-      // jumps for the browsers that take it and not for the ones that do not.
-      const avif = join(DIST, src.slice(1).replace(/\.webp$/, '.avif'));
-      if (existsSync(avif)) {
-        const size = avifSize(avif);
-        if (!size) fail(`${name}: ${avif} carries no readable size`);
-        else if (size.width !== declared.width || size.height !== declared.height) {
-          fail(`${name}: the AVIF beside ${src} is ${size.width}x${size.height}, the page declares ${declared.width}x${declared.height}`);
-        }
-      }
-    }
-  }
-}
-
-const imagesOnPage = Object.values(pages).reduce((n, html) => n + (html.match(/<img /g) || []).length, 0);
-if (imagesOnPage && imagesChecked < imagesOnPage) {
-  fail(`${imagesOnPage} <img> on the pages and only ${imagesChecked} examined: the check read past some`);
-}
-
 // -------------------------------------------------------------- links
 let linksChecked = 0;
 for (const [name, source] of Object.entries(pages)) {
@@ -724,73 +645,6 @@ for (const { code, path } of LANGUAGES) {
   }
 }
 
-// -------------------------------------------------------------- assets
-// `screenshots/run.sh` writes its captures outside `public/`, so the directory
-// holds only what a page takes in. What must never happen is shipping one
-// nothing shows.
-const shots = existsSync(join(DIST, 'assets/shots'))
-  ? readdirSync(join(DIST, 'assets/shots'))
-  : [];
-for (const shot of shots) {
-  if (!/\.(webp|avif)$/.test(shot)) {
-    fail(`assets/shots/${shot} is neither webp nor avif; run.sh should have converted it`);
-  }
-}
-
-// Every WebP has an AVIF beside it, and every AVIF a WebP. The two are encoded
-// from the same PNG in one pass, so a lone file means a run that half-finished.
-// A missing AVIF is invisible in a browser that would have taken it, and that
-// browser is the whole point of the `<source>`.
-for (const shot of shots.filter((s) => s.endsWith('.webp'))) {
-  const avif = shot.replace(/\.webp$/, '.avif');
-  if (!shots.includes(avif)) fail(`assets/shots/${avif} is missing: re-run site/screenshots/run.sh`);
-}
-for (const shot of shots.filter((s) => s.endsWith('.avif'))) {
-  const webp = shot.replace(/\.avif$/, '.webp');
-  if (!shots.includes(webp)) {
-    fail(`assets/shots/${shot} has no webp fallback: re-run site/screenshots/run.sh`);
-  }
-}
-
-// And nothing is shipped that no page shows. The pairing checks above run both
-// ways between the two formats but never against the pages. Without this, a
-// capture the harness produces and the layout never uses would ship, weigh on
-// anyone who fetches it by URL, and be kept current for nothing.
-const referenced = new Set();
-for (const source of Object.values(pages)) {
-  for (const [, file] of source.matchAll(/assets\/shots\/([a-z0-9._-]+)/gi)) referenced.add(file);
-}
-for (const shot of shots) {
-  if (!referenced.has(shot)) {
-    fail(`assets/shots/${shot} is shipped but no page shows it: use it or stop capturing it`);
-  }
-}
-
-// Every extension the site actually ships is one `serve.mjs` knows how to type.
-// A missing entry serves the file with no content-type, and a browser may then
-// refuse the `<source>` it would otherwise have taken. The preview then differs
-// from production, which is the one thing that server exists to prevent.
-{
-  const types = readFileSync(join(ROOT, 'serve.mjs'), 'utf-8').match(/const TYPES = \{([\s\S]*?)\}/)?.[1] ?? '';
-  const known = new Set([...types.matchAll(/'(\.[a-z0-9]+)'/g)].map((m) => m[1]));
-  const shipped = new Set(shots.map((s) => s.slice(s.lastIndexOf('.'))));
-  for (const ext of shipped) {
-    if (!known.has(ext)) fail(`serve.mjs has no MIME type for ${ext}`);
-  }
-}
-
-// And every `<source>` in the page points at one that exists. A typo here is a
-// broken image in exactly the browsers that support the better format.
-let sourcesChecked = 0;
-for (const match of index.matchAll(/<source srcset="([^"]+)"/g)) {
-  sourcesChecked += 1;
-  if (!existsSync(join(DIST, match[1].slice(1)))) fail(`<source> points at a missing ${match[1]}`);
-}
-const sourcesOnPage = (index.match(/<source /g) || []).length;
-if (sourcesOnPage && sourcesChecked < sourcesOnPage) {
-  fail(`${sourcesOnPage} <source> on the page and only ${sourcesChecked} examined: the check read past some`);
-}
-
 // -------------------------------------------------------------- icons
 // The SVG favicon is the source of truth, but it is not enough on its own:
 // older Safari ignores `type="image/svg+xml"`, and crawlers and unfurlers ask
@@ -836,16 +690,24 @@ if (iconSizesChecked < Object.keys(pages).length) {
   fail(`only ${iconSizesChecked} icon size(s) measured across ${Object.keys(pages).length} pages`);
 }
 
-// The card a link preview renders: the page announces 1200x630, and a
-// mismatched image is cropped or refused by the network that reads it.
-{
-  const og = pngSize(join(DIST, 'assets/og.png'));
-  if (!og) fail('assets/og.png is missing or not a PNG');
-  else {
-    const declared = index.match(/property="og:image:width" content="(\d+)"[\s\S]*?property="og:image:height" content="(\d+)"/);
-    if (!declared) fail('the page declares no og:image size');
-    else if (og.width !== Number(declared[1]) || og.height !== Number(declared[2])) {
-      fail(`assets/og.png is ${og.width}x${og.height}, the page declares ${declared[1]}x${declared[2]}`);
+// The card a link preview renders, one per language: each page names its own
+// and announces 1200x630, and a mismatched image is cropped or refused by the
+// network that reads it.
+for (const { code, path } of LANGUAGES) {
+  for (const file of ['index.html', ...SUBPAGES]) {
+    const page = pages[builtAs(path, file)];
+    if (!page) continue;
+    const card = page.match(/property="og:image" content="https:\/\/[^/"]+(\/[^"]+)"/)?.[1];
+    if (card !== `/assets/og-${code}.png`) {
+      fail(`${builtAs(path, file)}: og:image is ${card ?? 'missing'}, not the ${code} card`);
+      continue;
+    }
+    const size = pngSize(join(DIST, card.slice(1)));
+    const declared = page.match(/property="og:image:width" content="(\d+)"[\s\S]*?property="og:image:height" content="(\d+)"/);
+    if (!size) fail(`${card} is missing or not a PNG: run node site/og.mjs`);
+    else if (!declared) fail(`${builtAs(path, file)} declares no og:image size`);
+    else if (size.width !== Number(declared[1]) || size.height !== Number(declared[2])) {
+      fail(`${card} is ${size.width}x${size.height}, the page declares ${declared[1]}x${declared[2]}`);
     }
   }
 }
