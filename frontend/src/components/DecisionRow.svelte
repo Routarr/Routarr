@@ -128,6 +128,7 @@
       <button
         type="button"
         class="btn btn-ghost btn-sm mt-1"
+        aria-label="{t(expanded ? 'ReasonsShowLess' : 'ReasonsShowAll')} – {decision.media_title}"
         aria-expanded={expanded}
         aria-controls="reasons-{decision.id}"
         onclick={() => (expanded = !expanded)}
