@@ -33,7 +33,7 @@ pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> 
 pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<NewRuleTest>,
-) -> AppResult<Json<RuleTest>> {
+) -> AppResult<super::Created<RuleTest>> {
     rule_tests::validate(&body, &state.localizer().await)?;
 
     let media = crate::api::media::load_media(&state, &body.media_id).await?;
@@ -91,7 +91,7 @@ pub async fn create(
         .bind(&id)
         .fetch_one(&state.pool)
         .await?;
-    Ok(Json(created))
+    Ok(super::Created::at(&state, format!("/rule-tests/{id}"), created))
 }
 
 pub async fn delete(

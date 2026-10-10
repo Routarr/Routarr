@@ -37,8 +37,7 @@ use serde::Serialize;
 ///
 /// The stock extractor answers a body it cannot parse with a `text/plain`
 /// 400, 415 or 422 of its own, outside the `{ error, message }` envelope
-/// every other failure uses, and the message is serde's, which names the
-/// Rust field it choked on. Every handler takes and returns this one instead.
+/// every other failure uses. Every handler takes and returns this one instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Json<T>(pub T);
 
@@ -125,6 +124,27 @@ impl<T: Serialize> IntoResponse for Json<T> {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Deleted {
     pub deleted: bool,
+}
+
+/// What a creation answers: 201, the new resource, and in `Location` the
+/// address it is found at from now on.
+pub struct Created<T> {
+    location: String,
+    body: T,
+}
+
+impl<T> Created<T> {
+    /// `path` under the API, as `/rules/{id}`.
+    pub fn at(state: &crate::state::AppState, path: impl std::fmt::Display, body: T) -> Self {
+        Self { location: format!("{}/api/v1{path}", state.config.base_path), body }
+    }
+}
+
+impl<T: Serialize> IntoResponse for Created<T> {
+    fn into_response(self) -> Response {
+        let location = [(axum::http::header::LOCATION, self.location)];
+        (StatusCode::CREATED, location, axum::Json(self.body)).into_response()
+    }
 }
 
 /// The envelope of every paged list: the media, the decisions, the tasks and

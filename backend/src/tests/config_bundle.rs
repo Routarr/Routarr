@@ -845,7 +845,7 @@ async fn a_category_the_bundle_could_not_create_is_not_a_valid_default() {
 /// An override short-circuits the engine entirely, so one naming a category
 /// this installation does not have would route its item nowhere. It is refused
 /// and reported in `skipped`, which is the one place a partial restore is
-/// visible.
+/// visible. The lock a bundle may hold on one is read and dropped.
 #[tokio::test]
 async fn a_bundle_cannot_pin_media_to_a_category_that_does_not_exist() {
     let app = configured().await;

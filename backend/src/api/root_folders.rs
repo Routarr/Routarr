@@ -208,7 +208,7 @@ pub async fn conflicts(State(state): State<AppState>) -> AppResult<Json<Vec<Mapp
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<DeclareRootFolder>,
-) -> AppResult<Json<Declared>> {
+) -> AppResult<super::Created<Declared>> {
     let localizer = state.localizer().await;
     // A share to Windows and a plain folder to Linux, so read one way or the
     // other it is somewhere the operator did not mean.
@@ -244,9 +244,10 @@ pub async fn create(
     .fetch_one(&state.pool)
     .await?;
     if taken {
-        return Err(AppError::Conflict(
-            localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
-        ));
+        return Err(AppError::Conflict {
+            reason: "already_listed",
+            message: localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
+        });
     }
 
     let seen = match state.adapter(&instance) {
@@ -285,9 +286,10 @@ pub async fn create(
     .map_err(|e| gone_instance(e, &req.instance_id))?
     .rows_affected();
     if inserted == 0 {
-        return Err(AppError::Conflict(
-            localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
-        ));
+        return Err(AppError::Conflict {
+            reason: "already_listed",
+            message: localizer.translate("ErrorDestinationAlreadyListed", &[("path", &path)]),
+        });
     }
 
     // Straight away, not at the next pass: a destination that sits under a
@@ -297,7 +299,8 @@ pub async fn create(
     let mut connection = state.pool.acquire().await?;
     crate::services::sync::inherit_declared(&mut connection, &req.instance_id).await?;
 
-    Ok(Json(Declared { id, path, verified: seen == Some(true) }))
+    let declared = Declared { id: id.clone(), path, verified: seen == Some(true) };
+    Ok(super::Created::at(&state, format!("/root-folders/{id}"), declared))
 }
 
 /// An instance removed since it was read leaves the insert pointing at
@@ -350,7 +353,10 @@ pub async fn delete(
                 .fetch_one(&state.pool)
                 .await?;
         return Err(if still_there {
-            AppError::Conflict(state.localizer().await.translate("ErrorDestinationNotOurs", &[]))
+            AppError::Conflict {
+                reason: "not_declared",
+                message: state.localizer().await.translate("ErrorDestinationNotOurs", &[]),
+            }
         } else {
             AppError::NotFound("No such folder".into())
         });
@@ -388,10 +394,11 @@ pub async fn update_category(
         .await?;
 
         if let Some(path) = taken {
-            return Err(AppError::Conflict(
-                localizer
+            return Err(AppError::Conflict {
+                reason: "category_mapped",
+                message: localizer
                     .translate("ErrorCategoryAlreadyMapped", &[("category", cat), ("path", &path)]),
-            ));
+            });
         }
         crate::race::checked("root_folders::map", cat).await;
     }

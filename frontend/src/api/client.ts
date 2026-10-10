@@ -452,11 +452,18 @@ export const api = {
    * five seconds when an Arr is unreachable, and every instance then reports
    * `status: 'unchecked'` rather than a guess.
    */
-  getHealth: (options: { probe?: boolean } = {}, signal?: AbortSignal) =>
-    request<Health>(`/health${options.probe === false ? '?probe=false' : ''}`, { signal }),
+  /**
+   * `probe: false` reads the database alone. `fresh` probes again, where a
+   * probe of the last 30 seconds is otherwise answered again.
+   */
+  getHealth: (options: { probe?: boolean; fresh?: boolean } = {}, signal?: AbortSignal) =>
+    request<Health>(
+      `/health${query({ probe: options.probe === false ? false : undefined, fresh: options.fresh || undefined })}`,
+      { signal },
+    ),
   getJobs: (params?: QueryParams, signal?: AbortSignal) =>
     request<Paginated<Job>>(`/jobs${query(params)}`, { signal }),
-  purge: () => request<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
+  purge: () => followed<MaintenanceReport>('/maintenance/purge', { method: 'POST' }),
 
   // ---------------------------------------------------------- instances
   getInstances: (signal?: AbortSignal) => request<Instance[]>('/instances', { signal }),
@@ -701,7 +708,7 @@ export const api = {
   refreshSource: (source: string) =>
     followed<EnrichmentReport>('/metadata/refresh', { method: 'POST', body: body({ source }) }),
   listBackups: (signal?: AbortSignal) => request<BackupList>('/backups', { signal }),
-  createBackup: () => request<BackupFile>('/backups', { method: 'POST', body: body({}) }),
+  createBackup: () => followed<BackupFile>('/backups', { method: 'POST', body: body({}) }),
   deleteBackup: (name: string) =>
     request<unknown>(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   /** Set the backup passphrase, an empty one stopping the encryption. */

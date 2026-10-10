@@ -59,6 +59,7 @@ pub struct Instance {
 
 /// Request body for creating/updating an instance.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateInstanceRequest {
     pub name: String,
     pub instance_type: String,

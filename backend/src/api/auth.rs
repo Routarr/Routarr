@@ -341,14 +341,9 @@ pub async fn authenticate(
             if extract_key(request.headers()).is_some() {
                 refused(&state, client, refusal(audit::Kind::ApiKey, "AuditApiKeyRefused"));
             }
-            (
-                StatusCode::UNAUTHORIZED,
-                axum::Json(serde_json::json!({
-                    "error": "unauthorized",
-                    "message": "Missing or invalid API key. Send it as X-Api-Key or Authorization: Bearer <key>."
-                })),
+            unauthorized_because(
+                "Missing or invalid API key. Send it as X-Api-Key or Authorization: Bearer <key>.",
             )
-                .into_response()
         }
     }
 }
@@ -365,12 +360,17 @@ fn refused_origin(request: &Request<Body>) -> audit::Event<'static> {
 
 /// The refusal of a token shaped like an application key that names no live one.
 fn unknown_application_key() -> Response {
+    unauthorized_because("This application key does not exist or was revoked.")
+}
+
+/// A 401 in the envelope, naming the scheme a key is sent with: RFC 9110
+/// requires the challenge on every 401, and a Bearer one opens no browser
+/// dialog, where a Basic one would.
+fn unauthorized_because(message: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        axum::Json(serde_json::json!({
-            "error": "unauthorized",
-            "message": "This application key does not exist or was revoked.",
-        })),
+        [(axum::http::header::WWW_AUTHENTICATE, r#"Bearer realm="Routarr""#)],
+        axum::Json(serde_json::json!({ "error": "unauthorized", "message": message })),
     )
         .into_response()
 }
@@ -569,6 +569,7 @@ pub async fn mode(State(state): State<AppState>) -> super::Json<serde_json::Valu
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Credentials {
     pub username: String,
     pub password: String,
@@ -578,13 +579,7 @@ pub struct Credentials {
 ///
 /// Saying which was wrong tells an attacker that the others were right.
 fn unauthorized() -> Response {
-    (
-        StatusCode::UNAUTHORIZED,
-        axum::Json(
-            serde_json::json!({ "error": "unauthorized", "message": "Wrong username or password." }),
-        ),
-    )
-        .into_response()
+    unauthorized_because("Wrong username or password.")
 }
 
 /// Where a request comes from: the peer, or the client a trusted proxy
@@ -738,6 +733,7 @@ pub async fn login(
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct KeySession {
     pub key: String,
 }
@@ -768,14 +764,7 @@ pub async fn key_session(
         let event = refusal(audit::Kind::SignIn, "AuditKeySessionRefused");
         state.audit.record(event.by(None, client));
         state.sign_in.failed(client);
-        return (
-            StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "unauthorized",
-                "message": "This key opens nothing.",
-            })),
-        )
-            .into_response();
+        return unauthorized_because("This key opens nothing.");
     }
     state.sign_in.succeeded(client);
 

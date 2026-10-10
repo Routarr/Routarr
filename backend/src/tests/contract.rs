@@ -113,6 +113,140 @@ async fn the_contract_is_served_without_a_key_under_its_mount_point() {
     assert_eq!(served.assert_ok()["servers"], json!([{ "url": "/routarr/api/v1" }]));
 }
 
+/// Every published schema is one an operation answers or takes, or the
+/// notification the webhook receives, which no operation names: a schema no
+/// call reaches is a model a generated client builds for nothing, and an item
+/// described inline beside its own schema is one type defined twice.
+#[test]
+fn every_schema_is_reached_from_an_operation_or_is_the_webhook_payload() {
+    fn references(value: &Value, found: &mut BTreeSet<String>) {
+        match value {
+            Value::Object(map) => {
+                for (key, inner) in map {
+                    match (key.as_str(), inner.as_str()) {
+                        ("$ref", Some(target)) => {
+                            found.insert(target.rsplit('/').next().unwrap().to_string());
+                        }
+                        _ => references(inner, found),
+                    }
+                }
+            }
+            Value::Array(items) => items.iter().for_each(|item| references(item, found)),
+            _ => {}
+        }
+    }
+    let document = described();
+    let schemas = document["components"]["schemas"].as_object().unwrap();
+    let mut reached = BTreeSet::new();
+    references(&document["paths"], &mut reached);
+    let mut waiting: Vec<String> = reached.iter().cloned().collect();
+    while let Some(name) = waiting.pop() {
+        let mut found = BTreeSet::new();
+        references(&schemas[&name], &mut found);
+        for name in found {
+            if reached.insert(name.clone()) {
+                waiting.push(name);
+            }
+        }
+    }
+
+    let unreached: Vec<&String> = schemas.keys().filter(|name| !reached.contains(*name)).collect();
+    assert_eq!(unreached, ["AllowedMentions", "Notification"]);
+}
+
+/// The export takes the log's filters and no paging, which it never reads.
+#[test]
+fn the_log_export_documents_no_paging() {
+    let document = described();
+    let named = |path: &str| -> BTreeSet<String> {
+        document["paths"][path]["get"]["parameters"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|parameter| parameter["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    let paged = named("/logs");
+    let exported = named("/logs/export");
+    assert!(paged.contains("page") && paged.contains("per_page"), "{paged:?}");
+    assert!(!exported.contains("page") && !exported.contains("per_page"), "{exported:?}");
+    let filters: BTreeSet<_> =
+        paged.into_iter().filter(|name| name != "page" && name != "per_page").collect();
+    assert_eq!(exported, filters);
+}
+
+/// A field a request body does not define is refused by name, on every
+/// operation that takes a body: ignored, a misspelled field changes what is
+/// written, as `categroy` unmapping a folder would. The body is refused
+/// before the handler runs, so each one here only has to parse.
+#[tokio::test]
+async fn every_documented_request_body_refuses_a_field_it_does_not_define() {
+    let app = TestApp::new().await;
+    let rule = json!({
+        "name": "Anime",
+        "media_type": "both",
+        "target_category": "anime",
+        "conditions": [{ "type": "original_language", "value": ["ja"] }]
+    });
+    let bodies = [
+        ("POST", "/categories", "/categories", json!({ "name": "kids" })),
+        ("PUT", "/categories/{id}", "/categories/c-1", json!({ "name": "kids" })),
+        ("POST", "/decisions/apply", "/decisions/apply", json!({ "decision_ids": ["d-1"] })),
+        ("POST", "/decisions/apply-all", "/decisions/apply-all", json!({ "simulation_id": "s" })),
+        ("POST", "/decisions/revert", "/decisions/revert", json!({ "decision_ids": ["d-1"] })),
+        ("POST", "/overrides", "/overrides", json!({ "media_id": "m", "target_category": "a" })),
+        (
+            "PUT",
+            "/overrides/external",
+            "/overrides/external?type=movie&tmdb=8392",
+            json!({ "target_category": "anime" }),
+        ),
+        ("POST", "/root-folders", "/root-folders", json!({ "instance_id": "i", "path": "/p" })),
+        (
+            "PUT",
+            "/root-folders/{id}/category",
+            "/root-folders/rf-1/category",
+            json!({ "category": null }),
+        ),
+        ("POST", "/rule-tests", "/rule-tests", json!({ "name": "t", "media_id": "m" })),
+        ("POST", "/rules", "/rules", rule.clone()),
+        (
+            "POST",
+            "/rules/import",
+            "/rules/import",
+            json!({ "bundle": { "version": 2, "rules": [] } }),
+        ),
+        ("POST", "/rules/preview", "/rules/preview", json!({ "rule": rule })),
+        ("POST", "/rules/reorder", "/rules/reorder", json!({ "rule_ids": [] })),
+        ("POST", "/rules/validate", "/rules/validate", rule.clone()),
+        ("PUT", "/rules/{id}", "/rules/r-1", rule),
+        ("POST", "/simulate", "/simulate", json!({})),
+    ];
+
+    let mut documented = BTreeSet::new();
+    for (path, item) in described()["paths"].as_object().unwrap() {
+        for (method, operation) in item.as_object().unwrap() {
+            if operation.get("requestBody").is_some() {
+                documented.insert((method.to_uppercase(), path.clone()));
+            }
+        }
+    }
+    let tried: BTreeSet<_> =
+        bodies.iter().map(|(method, route, ..)| (method.to_string(), route.to_string())).collect();
+    assert_eq!(tried, documented, "an operation taking a body has no case here");
+
+    for (method, route, path, mut body) in bodies {
+        body["x_unknown"] = json!(1);
+        let path = format!("/api/v1{path}");
+        let refused = match method {
+            "PUT" => app.put(&path, body).await,
+            _ => app.post(&path, body).await,
+        };
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{method} {route}: {}", refused.json);
+        assert!(refused.message().contains("x_unknown"), "{method} {route}: {}", refused.json);
+    }
+}
+
 /// Holds each answer to the status the call expects and to the schema the
 /// contract states for it, and remembers which successes it saw: an error
 /// validated against the shared envelope does not stand for a success.
@@ -153,6 +287,12 @@ impl Checker {
             errors.join("\n"),
             response.json
         );
+        // A creation says where the new resource is, as the contract states.
+        if response.status == StatusCode::CREATED {
+            let location = response.location().unwrap_or_default();
+            assert!(location.starts_with("/api/v1/"), "{method} {route} answered no Location");
+            assert!(responses["201"]["headers"]["Location"].is_object(), "{method} {route}");
+        }
         if response.status.is_success() {
             self.seen.insert((method.to_string(), route.to_string(), status));
         }
@@ -238,7 +378,7 @@ async fn every_documented_operation_answers_as_its_schema_says() {
 
     let pin = json!({ "media_id": "m-1", "target_category": "anime", "reason": "a test" });
     let set = app.post("/api/v1/overrides", pin).await;
-    checker.check("POST", "/overrides", 200, &set);
+    checker.check("POST", "/overrides", 201, &set);
     checker.check("GET", "/overrides", 200, &app.get("/api/v1/overrides").await);
     let exception = set.json["id"].as_str().unwrap();
     let removed = app.delete(&format!("/api/v1/overrides/{exception}")).await;
@@ -355,7 +495,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
         json!({ "instance_id": "inst-1", "path": "/movies/anime/kids" }),
     );
     let declared = declared.await;
-    checker.check("POST", "/root-folders", 200, &declared);
+    checker.check("POST", "/root-folders", 201, &declared);
     let folder = declared.json["id"].as_str().unwrap().to_string();
     let mapping = format!("/api/v1/root-folders/{folder}/category");
     let mapped = app.put(&mapping, json!({ "category": null })).await;
@@ -363,7 +503,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     let removed = app.delete(&format!("/api/v1/root-folders/{folder}")).await;
     checker.check("DELETE", "/root-folders/{id}", 200, &removed);
     let created = app.post("/api/v1/categories", json!({ "name": "docs" })).await;
-    checker.check("POST", "/categories", 200, &created);
+    checker.check("POST", "/categories", 201, &created);
     let category = created.json["id"].as_str().unwrap().to_string();
     let renaming = format!("/api/v1/categories/{category}");
     let renamed = app.put(&renaming, json!({ "name": "documentaries" })).await;
@@ -388,13 +528,13 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     let preview = app.post("/api/v1/rules/preview", json!({ "rule": draft.clone() })).await;
     checker.check("POST", "/rules/preview", 200, &preview);
     let created = app.post("/api/v1/rules", draft.clone()).await;
-    checker.check("POST", "/rules", 200, &created);
+    checker.check("POST", "/rules", 201, &created);
     let rule = created.json["id"].as_str().unwrap().to_string();
     checker.check("GET", "/rules/{id}", 200, &app.get(&format!("/api/v1/rules/{rule}")).await);
     let updated = app.put(&format!("/api/v1/rules/{rule}"), draft).await;
     checker.check("PUT", "/rules/{id}", 200, &updated);
     let copied = app.post(&format!("/api/v1/rules/{rule}/duplicate"), json!({})).await;
-    checker.check("POST", "/rules/{id}/duplicate", 200, &copied);
+    checker.check("POST", "/rules/{id}/duplicate", 201, &copied);
     let ids: Vec<Value> = app
         .get("/api/v1/rules")
         .await
@@ -415,7 +555,7 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
     let media = app.get("/api/v1/media?per_page=1").await.json["data"][0]["id"].clone();
     let pinned =
         app.post("/api/v1/rule-tests", json!({ "name": "A case", "media_id": media })).await;
-    checker.check("POST", "/rule-tests", 200, &pinned);
+    checker.check("POST", "/rule-tests", 201, &pinned);
     checker.check(
         "POST",
         "/rule-tests/run",
@@ -431,9 +571,15 @@ async fn configure(app: &TestApp, checker: &mut Checker) {
 
 /// The backups, on an installation that keeps its files on disk.
 async fn keep_backups(checker: &mut Checker) {
-    let (app, _dir) = super::backup::app_with_files("contract").await;
-    checker.check("POST", "/backups", 200, &app.post("/api/v1/backups", json!({})).await);
+    let (app, dir) = super::backup::app_with_files("contract").await;
+    let taken = app.post("/api/v1/backups", json!({})).await;
+    checker.check("POST", "/backups", 200, &taken);
     checker.check("GET", "/backups", 200, &app.get("/api/v1/backups").await);
+    // Archives are named to the second, and the next one may be taken in it.
+    std::fs::remove_file(dir.join("backups").join(taken.json["name"].as_str().unwrap())).unwrap();
+    let started = app.send(super::preferring_async("/api/v1/backups", json!({}))).await;
+    checker.check("POST", "/backups", 202, &started);
+    super::finished(&app, started.json["job_id"].as_str().unwrap()).await;
 }
 
 /// A closed vocabulary is published as a string with its values, and those

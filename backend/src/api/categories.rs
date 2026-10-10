@@ -57,9 +57,10 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<CategoryW
 /// refusal is translated rather than leaked.
 fn name_conflict(error: sqlx::Error, name: &str) -> AppError {
     match &error {
-        sqlx::Error::Database(db) if db.is_unique_violation() => {
-            AppError::Conflict(format!("Category '{name}' already exists"))
-        }
+        sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict {
+            reason: "name_taken",
+            message: format!("Category '{name}' already exists"),
+        },
         _ => AppError::from(error),
     }
 }
@@ -122,7 +123,7 @@ pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateCategoryRequest>,
-) -> AppResult<Json<Category>> {
+) -> AppResult<super::Created<Category>> {
     // The fallback is a setting, and no application key reaches the settings.
     if req.is_default && identity.application.is_some() {
         let refusal = state.localizer().await.translate("ErrorFallbackOwnerOnly", &[]);
@@ -156,29 +157,18 @@ pub async fn create(
 
     tx.commit().await?;
 
-    Ok(Json(Category {
+    let location = format!("/categories/{id}");
+    let created = Category {
         id,
         name,
         description: req.description,
         is_default: req.is_default,
         display_order: req.display_order,
         created_at: crate::services::routing::format_timestamp(chrono::Utc::now()),
-    }))
+    };
+    Ok(super::Created::at(&state, location, created))
 }
 
-/// Rename a category, and carry every reference to it along.
-///
-/// The name is the join key, with no foreign key to cascade, so it lives in
-/// this row, in every column that names a category, and in the
-/// `default_category` setting. Missing that last one leaves an installation
-/// holding a setting its own validator rejects the next time anything is saved.
-///
-/// The decision history follows too. A rename is not a deletion: the category
-/// is the same thing under a new name, and leaving old rows pointing at a name
-/// that no longer exists would put ghosts in the history screen and break its
-/// category filter. Justifications already rendered keep the old word, as they
-/// keep the language they were written in, and the next simulation replaces
-/// them.
 /// Refuse `name` unless a category holds it, read on `connection`: the write
 /// transaction of the row about to name it, so no removal lands between the
 /// check and the write (`db::write_transaction`).
@@ -200,6 +190,19 @@ pub(crate) async fn ensure_exists(
     }
 }
 
+/// Rename a category, and carry every reference to it along.
+///
+/// The name is the join key, with no foreign key to cascade, so it lives in
+/// this row, in every column that names a category, and in the
+/// `default_category` setting. Missing that last one leaves an installation
+/// holding a setting its own validator rejects the next time anything is saved.
+///
+/// The decision history follows too. A rename is not a deletion: the category
+/// is the same thing under a new name, and leaving old rows pointing at a name
+/// that no longer exists would put ghosts in the history screen and break its
+/// category filter. Justifications already rendered keep the old word, as they
+/// keep the language they were written in, and the next simulation replaces
+/// them.
 pub async fn rename(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -326,9 +329,12 @@ pub async fn remove(
             .await?;
 
     if rules + folders + overrides + tests > 0 {
-        return Err(AppError::Conflict(format!(
-            "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}, rule tests: {tests}"
-        )));
+        return Err(AppError::Conflict {
+            reason: "in_use",
+            message: format!(
+                "Category '{name}' is still in use. Rules: {rules}, root folder mappings: {folders}, overrides: {overrides}, rule tests: {tests}"
+            ),
+        });
     }
 
     crate::race::checked("categories::remove", &name).await;

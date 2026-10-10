@@ -73,6 +73,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<ProvidersResp
 /// What to ask the sources again about: one source's answers, one title's,
 /// both, or everything when neither is named.
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RefreshRequest {
     pub source: Option<String>,
     pub media_id: Option<String>,

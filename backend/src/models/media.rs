@@ -94,6 +94,7 @@ impl From<Media> for MediaView {
 /// Query parameters for media listing.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct MediaQuery {
     /// Only the titles of this instance.
     pub instance_id: Option<String>,

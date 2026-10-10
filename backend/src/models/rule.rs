@@ -71,7 +71,7 @@ impl std::str::FromStr for MatchMode {
 // `evaluate_single_condition`, a `CONDITIONS` entry in `api::conditions` and
 // a `ConditionLabel` key. The rule builder reads the catalogue.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
-#[serde(tag = "type", content = "value")]
+#[serde(tag = "type", content = "value", deny_unknown_fields)]
 pub enum Condition {
     /// Genres must contain at least one of these values.
     // The `_all` counterpart of each pair below is the same question with the
@@ -362,6 +362,7 @@ impl Rule {
 /// A rule as written: what `POST /rules`, `PUT /rules/{id}`, `/rules/validate`
 /// and `/rules/preview` take.
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRuleRequest {
     pub name: String,
     #[serde(default)]
@@ -386,6 +387,7 @@ pub struct CreateRuleRequest {
 
 /// Request for reordering rules.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ReorderRulesRequest {
     /// Ordered list of rule IDs, from highest priority (index 0) to lowest.
     pub rule_ids: Vec<String>,
@@ -393,6 +395,7 @@ pub struct ReorderRulesRequest {
 
 /// Portable rule bundle, produced by `GET /rules/export`.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RuleBundle {
     /// The format, which this build writes as 2. A version 1 bundle names no
     /// instance a rule is limited to, and its rules without instance ids are
@@ -411,6 +414,7 @@ pub struct RuleBundle {
 /// nothing on another installation, and a scope dropped would let the rule
 /// route every instance.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct BundledRule {
     #[serde(flatten)]
     pub rule: CreateRuleRequest,
@@ -422,6 +426,7 @@ pub struct BundledRule {
 
 /// Request body for `POST /rules/import`.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ImportRulesRequest {
     pub bundle: RuleBundle,
     /// Delete every existing rule first instead of appending.

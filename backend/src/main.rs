@@ -118,6 +118,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         notifications: Arc::default(),
         key_rates: Arc::default(),
         route_misses: Arc::default(),
+        last_probe: Arc::default(),
         config: Arc::new(config),
     };
 
@@ -444,6 +445,19 @@ async fn api_not_found() -> Response {
         .into_response()
 }
 
+/// A path that exists, asked with a method it does not take. The router adds
+/// the `Allow` header that lists the ones it does.
+async fn api_method_not_allowed() -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        axum::Json(serde_json::json!({
+            "error": "method_not_allowed",
+            "message": "This API route does not take this method.",
+        })),
+    )
+        .into_response()
+}
+
 /// What the request span records as the path.
 ///
 /// The webhook token is a credential, and the span is on every line logged
@@ -614,7 +628,11 @@ fn build_router(state: AppState) -> Router {
     // A miss under the API prefix is a JSON 404, whatever the method: left to
     // the application's fallback it would answer `index.html` with a 200, and
     // a script with a typo in its path would parse HTML as JSON.
-    let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
+    let api_routes = public
+        .merge(protected)
+        .merge(webhooks)
+        .method_not_allowed_fallback(api_method_not_allowed)
+        .fallback(api_not_found);
 
     let mut api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
     // Mounted under a sub-path, the root, where someone typing the bare
@@ -745,7 +763,7 @@ pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Resp
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         axum::Json(serde_json::json!({
-            "error": "internal",
+            "error": "internal_error",
             "message": "Something went wrong. The request id is in the response headers.",
         })),
     )

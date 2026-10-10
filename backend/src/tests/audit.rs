@@ -77,7 +77,7 @@ async fn a_revoked_application_key_is_logged_by_its_id() {
     let (id, secret) = token.strip_prefix("rtr_").unwrap().split_once('_').unwrap();
     app.send(Request::delete(format!("/api/v1/applications/{id}")).body(Body::empty()).unwrap())
         .await
-        .assert_status(StatusCode::NO_CONTENT);
+        .assert_ok();
 
     let request = from(
         [203, 0, 113, 9],

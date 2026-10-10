@@ -676,9 +676,50 @@ async fn the_health_page_probes_every_enabled_source() {
     assert_eq!(providers[3]["connected"], true);
 }
 
+/// Two callers at once share one probe, and a caller soon after reads it
+/// again: each source is asked once, at the pace every other request to it
+/// keeps. "Recheck" asks again.
+#[tokio::test]
+async fn one_probe_answers_every_caller_until_a_recheck() {
+    let sources = FakeSources::start().await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist").await;
+    let asked = || sources.recorded().paths.iter().filter(|path| *path == "/anilist").count();
+
+    let (first, second) = tokio::join!(app.get("/api/v1/health"), app.get("/api/v1/health"));
+    first.assert_ok();
+    second.assert_ok();
+    app.get("/api/v1/health").await.assert_ok();
+    assert_eq!(asked(), 1, "{:?}", sources.recorded().paths);
+
+    app.get("/api/v1/health?fresh=true").await.assert_ok();
+    assert_eq!(asked(), 2, "a recheck read the last probe again");
+}
+
+/// A source that does not answer says why, so a refused key is told from a
+/// source that is down, and the log keeps what it answered.
+#[tokio::test]
+async fn a_failed_source_probe_says_why_and_is_logged() {
+    use tracing_subscriber::layer::SubscriberExt;
+    let log = super::LogCapture::default();
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(log.clone()));
+    let _logging = tracing::subscriber::set_default(subscriber);
+    let sources = FakeSources::failing(500).await;
+    let app = TestApp::one_film_on(&sources, "arr,anilist").await;
+
+    let health = app.get("/api/v1/health").await;
+    let anilist = health.assert_ok()["metadata"]["providers"][1].clone();
+
+    assert_eq!(
+        (anilist["connected"].as_bool(), anilist["reason"].as_str()),
+        (Some(false), Some("unreachable"))
+    );
+    assert!(log.contents().contains("The probe of a metadata source failed"), "{}", log.contents());
+}
+
 /// Whether the health page reads TheTVDB as connected.
 async fn tvdb_connected(app: &TestApp) -> serde_json::Value {
-    let health = app.get("/api/v1/health").await.assert_ok().clone();
+    let health = app.get("/api/v1/health?fresh=true").await.assert_ok().clone();
     let providers = health["metadata"]["providers"].as_array().unwrap().clone();
     providers.into_iter().find(|p| p["id"] == "tvdb").expect("tvdb is listed")["connected"].clone()
 }

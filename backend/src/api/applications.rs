@@ -5,7 +5,7 @@ use axum::extract::State;
 
 use super::Path;
 use crate::services::audit::Kind;
-use axum::http::{Method, StatusCode};
+use axum::http::Method;
 
 use crate::api::auth::Identity;
 use crate::error::{AppError, AppResult};
@@ -132,6 +132,7 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<Applicati
 /// Make a key. Its token is in this answer and nowhere else, ever.
 /// A key asked for, with the proof a session gives (`api::account::prove`).
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Requested {
     #[serde(flatten)]
     pub application: NewApplication,
@@ -144,7 +145,7 @@ pub async fn create(
     axum::Extension(identity): axum::Extension<Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
     Json(requested): Json<Requested>,
-) -> AppResult<Json<Minted>> {
+) -> AppResult<super::Created<Minted>> {
     crate::api::account::prove(&state, &identity, &requested.proof, client).await?;
     let minted = applications::create(&state, requested.application, identity.actor()).await?;
     let made = &minted.application;
@@ -159,7 +160,8 @@ pub async fn create(
         .with("id", &made.id)
         .with("scopes", scopes.join(", "));
     crate::api::auth::audited(&state, &identity, client, event);
-    Ok(Json(minted))
+    let location = format!("/applications/{}", minted.application.id);
+    Ok(super::Created::at(&state, location, minted))
 }
 
 pub async fn revoke(
@@ -167,9 +169,9 @@ pub async fn revoke(
     axum::Extension(identity): axum::Extension<Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
     Path(id): Path<String>,
-) -> AppResult<StatusCode> {
+) -> AppResult<Json<super::Deleted>> {
     applications::revoke(&state.pool, &id).await?;
     let event = crate::api::auth::allowed(Kind::ApplicationKey, "AuditApplicationKeyRevoked");
     crate::api::auth::audited(&state, &identity, client, event.with("id", &id));
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(super::Deleted { deleted: true }))
 }

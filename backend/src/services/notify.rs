@@ -497,9 +497,10 @@ pub async fn send_test(state: &AppState, localizer: &Localizer) -> AppResult<()>
         Err(Undelivered::NoAddress) => {
             Err(AppError::BadRequest(localizer.translate("NotificationTestNoAddress", &[])))
         }
-        Err(Undelivered::SecretUnreadable) => {
-            Err(AppError::Conflict(localizer.translate("SigningSecretUnreadable", &[])))
-        }
+        Err(Undelivered::SecretUnreadable) => Err(AppError::Conflict {
+            reason: "secret_unreadable",
+            message: localizer.translate("SigningSecretUnreadable", &[]),
+        }),
         Err(Undelivered::Failed { error: AppError::ExternalApi { status, .. }, .. })
             if status != 0 =>
         {

@@ -271,7 +271,13 @@ mod tests {
     #[test]
     fn what_is_not_about_the_address_passes_through() {
         assert_eq!(cause_of(&upstream(0, "connection reset by peer")), None);
-        assert_eq!(cause_of(&AppError::Conflict("a sync is already running".into())), None);
+        assert_eq!(
+            cause_of(&AppError::InProgress {
+                reason: "sync_running",
+                message: "a sync is already running".into()
+            }),
+            None
+        );
     }
 
     #[test]

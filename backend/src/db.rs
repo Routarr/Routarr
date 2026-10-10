@@ -58,6 +58,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("036_rating_country_changes", include_str!("../migrations/036_rating_country_changes.sql")),
     ("037_cache_lifetime_at_read", include_str!("../migrations/037_cache_lifetime_at_read.sql")),
     ("038_withdrawn_credentials", include_str!("../migrations/038_withdrawn_credentials.sql")),
+    ("039_job_error_code", include_str!("../migrations/039_job_error_code.sql")),
 ];
 
 /// How large the write-ahead log stays once checkpointed, in bytes.

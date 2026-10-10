@@ -633,7 +633,13 @@ async fn a_second_backup_in_the_same_second_is_refused_before_any_copy() {
 
     let refused = backup::create(&app.state, &crate::jobs::Attribution::manual(None)).await;
 
-    assert!(matches!(refused, Err(crate::error::AppError::Conflict(_))), "{refused:?}");
+    assert!(
+        matches!(
+            refused,
+            Err(crate::error::AppError::InProgress { reason: "backup_just_taken", .. })
+        ),
+        "{refused:?}"
+    );
     let left: Vec<String> = std::fs::read_dir(&backups)
         .unwrap()
         .filter_map(Result::ok)
@@ -1002,7 +1008,10 @@ async fn a_restore_is_staged_one_at_a_time() {
     let refused = backup::stage_restore(&app.state, &file.name, None)
         .await
         .expect_err("a second staging must wait for the first");
-    assert!(matches!(refused, crate::error::AppError::Conflict(_)), "{refused}");
+    assert!(
+        matches!(refused, crate::error::AppError::InProgress { reason: "restore_staging", .. }),
+        "{refused}"
+    );
     drop(held);
 
     backup::stage_restore(&app.state, &file.name, None).await.unwrap();
@@ -1077,6 +1086,35 @@ async fn what_an_interrupted_run_leaves_is_swept_at_the_next_start() {
 
 // ------------------------------------------------------------------- API
 
+/// A backup runs to its end whatever its caller does. One whose caller left
+/// still writes its archive and says so on its task, and holds the backup
+/// lock until then, so a second one asked meanwhile waits its turn.
+#[tokio::test]
+async fn a_backup_whose_caller_leaves_still_records_its_outcome() {
+    let (app, dir) = app_with_files("caller-leaves").await;
+    let request = axum::http::Request::post("/api/v1/backups")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from("{}"))
+        .unwrap();
+
+    let held = super::races::left_at(&app, "backup::create", request).await;
+    let meanwhile = app.post("/api/v1/backups", serde_json::json!({})).await;
+    assert_eq!(
+        meanwhile.assert_status(axum::http::StatusCode::CONFLICT)["reason"],
+        "backup_running"
+    );
+    held.release();
+
+    let task: String = sqlx::query_scalar("SELECT id FROM jobs WHERE kind = 'backup'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    let task = super::finished(&app, &task).await;
+    assert_eq!(task["status"], "success", "{task}");
+    assert_eq!(std::fs::read_dir(dir.join("backups")).unwrap().count(), 1);
+    assert!(task["result"]["name"].is_string(), "the task keeps no report: {task}");
+}
+
 #[tokio::test]
 async fn the_api_takes_lists_and_deletes_a_backup() {
     let (app, dir) = app_with_files("api").await;
@@ -1115,7 +1153,7 @@ async fn the_api_takes_lists_and_deletes_a_backup() {
     assert_eq!(&bytes[..2], b"PK", "not a zip archive");
 
     let deleted = app.delete(&format!("/api/v1/backups/{name}")).await;
-    deleted.assert_ok();
+    assert_eq!(deleted.assert_ok(), &serde_json::json!({ "deleted": true }));
     assert!(backup::list(&app.state).is_empty());
 }
 

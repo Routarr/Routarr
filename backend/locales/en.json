@@ -1349,6 +1349,7 @@
   "SigningSecretMintedOnce": "Copy it now. It is shown once and cannot be read again.",
   "ErrorPreviewsWaiting": "Previews are already waiting for the library. Try again once one has finished.",
   "ErrorProposalsReplaced": "A newer simulation replaced these decisions with other moves. Review the latest simulation and apply again.",
+  "ErrorPurgeRunning": "A purge is already running. Try again once it has finished.",
   "ErrorTaskNotCancellable": "This task can no longer be stopped: it has ended, or it is not an apply or a revert.",
   "JobDetailAppliedBatchesMoving": "Applied: {applied}, failed: {failed}, still moving: {moving}, batches run: {run} of {planned}",
   "JobDetailAppliedMoving": "Applied: {applied}, failed: {failed}, still moving: {moving}",

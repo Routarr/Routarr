@@ -16,6 +16,7 @@ pub struct OverrideEntry {
 
 /// A title, and the category to force on it.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateOverrideRequest {
     /// The title's id in Routarr, as `/media` lists it.
     pub media_id: String,

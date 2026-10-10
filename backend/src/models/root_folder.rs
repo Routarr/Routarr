@@ -24,6 +24,7 @@ pub struct RootFolder {
 
 /// Request to declare a destination the Arr does not report.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DeclareRootFolder {
     pub instance_id: String,
     pub path: String,
@@ -31,7 +32,12 @@ pub struct DeclareRootFolder {
 
 /// Request to update a root folder's category mapping.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateRootFolderCategory {
+    /// The category the folder receives, or null to unmap it. Required: a body
+    /// that leaves it out, or misspells it, would otherwise unmap the folder.
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[schema(required = true)]
     pub category: Option<String>,
 }
 

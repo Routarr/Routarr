@@ -242,7 +242,10 @@ async fn an_encrypted_archive_is_opened_by_hand_into_a_private_zip() {
         assert_eq!(mode & 0o077, 0, "the zip in clear is readable by others: {mode:o}");
     }
     let again = backup::decrypt_offline(&config, &file.name, &out, None).await;
-    assert!(matches!(again, Err(crate::error::AppError::Conflict(_))), "{again:?}");
+    assert!(
+        matches!(again, Err(crate::error::AppError::Conflict { reason: "file_exists", .. })),
+        "{again:?}"
+    );
 
     let elsewhere = TempDir::new("sealed-by-hand-elsewhere");
     let mut other = config.clone();

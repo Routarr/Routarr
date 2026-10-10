@@ -661,7 +661,7 @@ async fn a_concurrent_sync_of_the_same_instance_is_refused() {
 
     assert!(matches!(
         sync::sync_instance(&app.state, "inst-1", &crate::jobs::Attribution::manual(None)).await,
-        Err(crate::error::AppError::Conflict(_))
+        Err(crate::error::AppError::InProgress { reason: "sync_running", .. })
     ));
 }
 
@@ -958,7 +958,7 @@ async fn a_declared_destination_survives_the_sync_that_does_not_report_it() {
             serde_json::json!({ "instance_id": "i-1", "path": "/movies/anime/kids" }),
         )
         .await;
-    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.status, 201, "{}", created.json);
     assert_eq!(created.json["verified"], true, "the instance can see it: {}", created.json);
 
     app.post("/api/v1/instances/i-1/sync", serde_json::json!({})).await.assert_ok();
@@ -1295,7 +1295,7 @@ async fn a_folder_at_the_top_of_the_filesystem_is_verified() {
             serde_json::json!({ "instance_id": "i-1", "path": "/movies" }),
         )
         .await;
-    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.status, 201, "{}", created.json);
     assert_eq!(created.json["verified"], true, "{}", created.json);
 }
 
@@ -1313,7 +1313,7 @@ async fn a_folder_whose_name_needs_encoding_is_verified() {
             serde_json::json!({ "instance_id": "i-1", "path": "/movies/Kids & Family+" }),
         )
         .await;
-    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.status, 201, "{}", created.json);
     assert_eq!(created.json["verified"], true, "{}", created.json);
 }
 
@@ -1333,7 +1333,7 @@ async fn a_declared_series_destination_is_checked_against_sonarr() {
         )
         .await;
     // 200 and not 201: the declaration is idempotent, so it may be a no-op.
-    assert_eq!(created.status, 200, "a folder Sonarr can see was refused: {}", created.json);
+    assert_eq!(created.status, 201, "a folder Sonarr can see was refused: {}", created.json);
     assert_eq!(created.json["verified"], true, "{}", created.json);
 
     // And the same misspelling that the movie side refuses.
@@ -1359,7 +1359,7 @@ async fn an_instance_that_cannot_be_asked_does_not_block_the_declaration() {
             serde_json::json!({ "instance_id": "i-dead", "path": "/anything" }),
         )
         .await;
-    assert_eq!(created.status, 200, "{}", created.json);
+    assert_eq!(created.status, 201, "{}", created.json);
     // Saved, but honestly: nothing confirmed the path.
     assert_eq!(created.json["verified"], false);
 }

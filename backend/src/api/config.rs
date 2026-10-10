@@ -28,6 +28,7 @@ use crate::state::AppState;
 const BUNDLE_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigBundle {
     pub version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,12 +48,14 @@ pub struct ConfigBundle {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Setting {
     pub key: String,
     pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Category {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +64,7 @@ pub struct Category {
 
 /// An Arr connection, minus the one thing that cannot travel.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Instance {
     pub name: String,
     pub instance_type: String,
@@ -79,6 +83,7 @@ pub struct Instance {
 
 /// A folder mapping, keyed by what means the same thing on another machine.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RootFolderMapping {
     pub instance_name: String,
     pub path: String,
@@ -87,6 +92,7 @@ pub struct RootFolderMapping {
 
 /// A human decision about one media, keyed by its external identity.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Override {
     /// Kept for the human reading the bundle: matching goes by external id.
     pub media_title: String,
@@ -102,6 +108,11 @@ pub struct Override {
     pub target_category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    // A bundle may hold a lock on an exception. It is read and dropped, since
+    // an exception pins its title whatever it holds: refused, the whole bundle
+    // would not import.
+    #[serde(rename = "locked", default, skip_serializing)]
+    pub _locked: Option<serde::de::IgnoredAny>,
 }
 
 pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundle>> {
@@ -180,6 +191,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
             tvdb_id,
             target_category,
             reason,
+            _locked: None,
         }
     })
     .collect();
@@ -199,6 +211,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     pub bundle: ConfigBundle,
     /// Whether the bundle's rules replace the rules in place, rather than

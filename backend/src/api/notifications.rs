@@ -37,11 +37,11 @@ pub async fn remove_signing(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     crate::api::auth::Client(client): crate::api::auth::Client,
-) -> AppResult<StatusCode> {
+) -> AppResult<Json<super::Deleted>> {
     notify::remove_signing_secrets(&state).await?;
     let event = allowed(Kind::SigningSecret, "AuditSigningSecretsRemoved");
     crate::api::auth::audited(&state, &identity, client, event);
-    Ok(StatusCode::NO_CONTENT)
+    Ok(Json(super::Deleted { deleted: true }))
 }
 
 /// Send a test notification to the saved address, in the saved format, and

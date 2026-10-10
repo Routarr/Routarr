@@ -235,16 +235,10 @@ impl TestApp {
     pub async fn send(&self, request: Request<Body>) -> TestResponse {
         let response = self.send_raw(request).await;
         let status = response.status();
-        // Kept before the body is consumed: a redirect has no body worth
-        // reading and everything it says is in this header.
-        let location = response
-            .headers()
-            .get(axum::http::header::LOCATION)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_string);
+        let headers = response.headers().clone();
         let bytes = response.into_body().collect().await.expect("body").to_bytes();
         let json = serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null);
-        TestResponse { status, json, location }
+        TestResponse { status, json, headers }
     }
 
     /// Seed a Radarr instance, a mapped root folder and one media item.
@@ -602,13 +596,18 @@ fn json_request(method: &str, path: &str, body: serde_json::Value) -> Request<Bo
 pub struct TestResponse {
     pub status: StatusCode,
     pub json: serde_json::Value,
-    location: Option<String>,
+    headers: axum::http::HeaderMap,
 }
 
 impl TestResponse {
-    /// Where a redirect points, which is the whole content of one.
+    /// Where a redirect or a creation points, which is the whole content of a
+    /// redirect.
     pub fn location(&self) -> Option<String> {
-        self.location.clone()
+        self.header(axum::http::header::LOCATION.as_str())
+    }
+
+    pub fn header(&self, name: &str) -> Option<String> {
+        self.headers.get(name).and_then(|value| value.to_str().ok()).map(str::to_string)
     }
 }
 

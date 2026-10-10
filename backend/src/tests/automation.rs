@@ -281,6 +281,7 @@ async fn respond_async_answers_the_started_task_whose_result_holds_the_report() 
     assert_eq!(response.status(), StatusCode::ACCEPTED);
     let headers = response.headers().clone();
     assert_eq!(headers["preference-applied"], "respond-async");
+    assert!(headers.contains_key(axum::http::header::RETRY_AFTER), "{headers:?}");
     let location = headers[axum::http::header::LOCATION].to_str().unwrap().to_string();
     let bytes = http_body_util::BodyExt::collect(response.into_body()).await.unwrap().to_bytes();
     let accepted: Value = serde_json::from_slice(&bytes).unwrap();
@@ -297,6 +298,25 @@ async fn respond_async_answers_the_started_task_whose_result_holds_the_report() 
 
     let sync = app.send_raw(preferring_async("/api/v1/instances/inst-1/sync", json!({}))).await;
     assert_eq!(sync.status(), StatusCode::ACCEPTED);
+}
+
+/// A call that did not wait reads the code it would have answered, so a
+/// script tells an Arr that does not answer from a fault of Routarr's own.
+#[tokio::test]
+async fn an_asynchronous_failure_keeps_its_code() {
+    let app = TestApp::new().await;
+    app.seed_instance_at("inst-1", "radarr", "http://127.0.0.1:1").await;
+    let waited = app.post("/api/v1/instances/inst-1/sync", json!({})).await;
+    assert_eq!(waited.status, StatusCode::BAD_GATEWAY, "{:?}", waited.json);
+
+    let started = app.send(preferring_async("/api/v1/instances/inst-1/sync", json!({}))).await;
+    let task =
+        finished(&app, started.assert_status(StatusCode::ACCEPTED)["job_id"].as_str().unwrap())
+            .await;
+
+    assert_eq!(task["status"], "failed", "{task}");
+    assert_eq!(task["error"], waited.json["error"], "{task}");
+    assert_eq!(task["error_message"], waited.json["message"], "{task}");
 }
 
 /// A question is asked before any work starts, so it answers at once

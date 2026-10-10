@@ -47,6 +47,7 @@ pub struct OnboardingStep {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OnboardingUpdate {
     pub state: String,
 }

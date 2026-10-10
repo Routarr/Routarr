@@ -24,16 +24,15 @@ use crate::state::AppState;
 
 // The types the operations name, under the names the schemas take.
 use crate::api::Deleted;
-use crate::api::Page;
 use crate::api::auth::Me;
 use crate::api::backup::BackupListResponse;
 use crate::api::conditions::ConditionCatalog;
 use crate::api::decisions::{ApplyAllRequest, ApplyDecisionsRequest, RevertDecisionsRequest};
 use crate::api::health::{HealthQuery, HealthResponse, Pong, StatusResponse};
 use crate::api::jobs::{Accepted, Job, JobQuery};
-use crate::api::logs::{LogEntry, LogQuery};
+use crate::api::logs::{LogEntry, LogFilter, LogQuery};
 use crate::api::media::LibraryFacets;
-use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, PlacementOptions};
+use crate::api::media::{Explanation, ExternalTitle, MediaDetail, MediaListItem, RouteQuery};
 use crate::api::metadata::ProvidersResponse;
 use crate::api::overrides::PinRequest;
 use crate::api::root_folders::{Declared, Mapped, MappingConflict};
@@ -59,6 +58,26 @@ use crate::services::sync::SyncReport;
 /// The scope an operation asks of an application key, as the document states it.
 pub const SCOPE_EXTENSION: &str = "x-routarr-scope";
 
+/// A page of a list as the contract describes it: its items reference their
+/// own schema, where `Page<T>` describes each again inline. The handlers
+/// answer `Page<T>`, which serializes the same.
+macro_rules! documented_page {
+    ($page:ident, $name:ident, $item:ty) => {
+        #[derive(utoipa::ToSchema)]
+        #[schema(as = $name)]
+        #[expect(dead_code, reason = "a page's documentation, never built")]
+        struct $page {
+            data: Vec<$item>,
+            pagination: crate::api::Pagination,
+        }
+    };
+}
+
+documented_page!(MediaPage, Page_MediaListItem, MediaListItem);
+documented_page!(DecisionPage, Page_Decision, Decision);
+documented_page!(JobPage, Page_Job, Job);
+documented_page!(LogPage, Page_LogEntry, LogEntry);
+
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -71,15 +90,18 @@ Authenticate with an application key, made on Routarr's Applications screen, sen
 needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted \
 each on its own. The owner's key reaches every operation.\n\n\
 A failure answers one envelope: `error`, a stable code, and `message`, a sentence in the \
-interface language that is not part of the contract. A move that crosses a guardrail answers \
+interface language that is not part of the contract. A `conflict` names its `reason`: one a \
+running task causes comes with `Retry-After` and clears once the task ends, any other stays \
+until somebody changes what refuses. A move that crosses a guardrail answers \
 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other \
 guardrails its question states. Send those names back in `confirm` to go ahead, or, when \
 `answerable` is false, leave the question to a person.\n\n\
-A call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits \
-for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the \
-task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its \
-`result` holds the report once it has finished. A guardrail's question and any refusal still \
-answer at once.\n\n\
+A call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for \
+it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon \
+as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait \
+before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has \
+finished, or its `error` the code the call would have answered. A guardrail's question and any \
+refusal still answer at once.\n\n\
 The notification webhook set in Routarr's settings receives a `Notification` for each failure, \
 and for the syncs that failed, the simulations and the moves that finished when asked to. A \
 format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, \
@@ -92,7 +114,7 @@ An application key asks at most ten times a second past a burst of fifty, and ta
 at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\n\
 Nothing documented under `/api/v1` is removed or renamed, and no field changes type. New \
 operations, new fields and new values of the open lists (`action`, `status`, `error`, \
-`confirm`, the kinds of a condition) may appear in any release."
+`reason`, `confirm`, the kinds of a condition) may appear in any release."
     ),
     servers((url = "/api/v1")),
     paths(
@@ -309,14 +331,21 @@ fn metrics() {}
 /// Reach every Arr and source, and report
 ///
 /// Probes each enabled instance and metadata source, up to a connect timeout
-/// each, and records what it found for `/status` to repeat. `probe=false`
-/// answers from what the last probe recorded.
+/// each, and records what it found for `/status` to repeat. A probe of the
+/// same configuration in the last 30 seconds is answered again unless
+/// `fresh=true`, and a call made while one runs waits for it. `probe=false`
+/// reads the database alone: instances read `unchecked` and sources
+/// `connected: null`, while `warnings` repeat what the last probe found.
 #[utoipa::path(
     get,
     path = "/health",
     tag = "status",
     params(HealthQuery),
-    responses((status = 200, body = HealthResponse))
+    responses(
+        (status = 200, body = HealthResponse),
+        (status = 503, description = "The database does not answer: `status` reads `failing`.",
+body = HealthResponse),
+    )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn health() {}
@@ -342,7 +371,7 @@ fn list_categories() {}
     path = "/media",
     tag = "library",
     params(MediaQuery),
-    responses((status = 200, body = Page<MediaListItem>))
+    responses((status = 200, body = MediaPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_media() {}
@@ -386,7 +415,7 @@ fn explain_media() {}
     get,
     path = "/route",
     tag = "library",
-    params(ExternalTitle, PlacementOptions),
+    params(RouteQuery),
     responses((status = 200, body = Placement))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -403,7 +432,7 @@ fn place_title() {}
     path = "/decisions",
     tag = "decisions",
     params(DecisionQuery),
-    responses((status = 200, body = Page<Decision>))
+    responses((status = 200, body = DecisionPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_decisions() {}
@@ -424,7 +453,8 @@ fn list_decisions() {}
 task has started, instead of its report."),),
     responses((status = 200, body = SimulationResult), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),)
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn simulate() {}
@@ -446,9 +476,10 @@ task has started, instead of its report."),),
         (status = 200, body = ApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
-or another apply is running.", body = ErrorResponse),
+another apply is running, or the global dry run is on.", body = ErrorResponse),
     )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -470,9 +501,10 @@ task has started, instead of its report."),),
         (status = 200, body = BatchApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),
-        (status = 409, description = "The `batch` confirmation is asked, or another apply is \
-running.", body = ErrorResponse),
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
+        (status = 409, description = "The `batch` confirmation is asked, another apply is \
+running, or the global dry run is on.", body = ErrorResponse),
     )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -493,9 +525,10 @@ task has started, instead of its report."),),
         (status = 200, body = ApplyReport),
         (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
         (status = 409, description = "A guardrail asks for a confirmation, named in `confirm`, \
-or an apply is running.", body = ErrorResponse),
+an apply is running, or the global dry run is on.", body = ErrorResponse),
     )
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
@@ -522,7 +555,8 @@ fn list_exceptions() {}
     path = "/overrides",
     tag = "exceptions",
     request_body = CreateOverrideRequest,
-    responses((status = 200, body = OverrideEntry))
+    responses((status = 201, body = OverrideEntry,
+headers(("Location" = String, description = "Where the new exception is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn set_exception() {}
@@ -580,7 +614,7 @@ fn unpin_by_external_id() {}
     path = "/jobs",
     tag = "tasks",
     params(JobQuery),
-    responses((status = 200, body = Page<Job>))
+    responses((status = 200, body = JobPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_tasks() {}
@@ -612,7 +646,8 @@ fn get_task() {}
 task has started, instead of its reports."),),
     responses((status = 200, body = Vec<SyncReport>), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),)
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_all() {}
@@ -628,7 +663,8 @@ fn sync_all() {}
 task has started, instead of its report."),),
     responses((status = 200, body = SyncReport), (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
 body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
-("Preference-Applied" = String, description = "`respond-async`."))),)
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),)
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn sync_instance() {}
@@ -698,21 +734,24 @@ fn library_facets() {}
     path = "/logs",
     tag = "tasks",
     params(LogQuery),
-    responses((status = 200, body = Page<LogEntry>))
+    responses((status = 200, body = LogPage))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn list_logs() {}
 
 /// The same log as a CSV file
 ///
-/// The filters of `/logs`, up to 50 000 rows. A cell that would start a
-/// formula in a spreadsheet is quoted so it does not.
+/// The filters of `/logs`, without its paging, up to the newest 50 000 rows.
+/// A cell that would start a formula in a spreadsheet starts with an
+/// apostrophe, which the spreadsheet reads as text.
 #[utoipa::path(
     get,
     path = "/logs/export",
     tag = "tasks",
-    params(LogQuery),
-    responses((status = 200, description = "The log as CSV.", content_type = "text/csv"))
+    params(LogFilter),
+    responses((status = 200, description = "The log as CSV.", content_type = "text/csv",
+headers(("X-Routarr-Truncated" = String, description = "`true` when the log holds more rows \
+than the export."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn export_logs() {}
@@ -736,7 +775,22 @@ fn list_backups() {}
 ///
 /// Before a large apply, for instance. The oldest past the retention count
 /// is removed.
-#[utoipa::path(post, path = "/backups", tag = "backups", responses((status = 200, body = BackupFile)))]
+#[utoipa::path(
+    post,
+    path = "/backups",
+    tag = "backups",
+    params(("Prefer" = Option<String>, Header, description = "`respond-async` answers 202 once the \
+task has started, instead of its report."),),
+    responses(
+        (status = 200, body = BackupFile),
+        (status = 202, description = "The task has started, as `Prefer: respond-async` asked.",
+body = Accepted, headers(("Location" = String, description = "The task, under `/jobs`."),
+("Preference-Applied" = String, description = "`respond-async`."),
+("Retry-After" = u32, description = "Seconds to wait before the first look at the task."))),
+        (status = 409, description = "A backup is already running, or one was taken this \
+second.", body = ErrorResponse),
+    )
+)]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn take_backup() {}
 
@@ -768,7 +822,8 @@ fn get_rule() {}
     path = "/rules",
     tag = "rules",
     request_body = CreateRuleRequest,
-    responses((status = 200, body = Rule))
+    responses((status = 201, body = Rule,
+headers(("Location" = String, description = "Where the new rule is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn create_rule() {}
@@ -802,7 +857,8 @@ fn remove_rule() {}
     path = "/rules/{id}/duplicate",
     tag = "rules",
     params(("id" = String, Path, description = "The rule to copy.")),
-    responses((status = 200, body = Rule))
+    responses((status = 201, body = Rule,
+headers(("Location" = String, description = "Where the new copy is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn duplicate_rule() {}
@@ -908,7 +964,8 @@ fn list_rule_tests() {}
     path = "/rule-tests",
     tag = "rules",
     request_body = NewRuleTest,
-    responses((status = 200, body = RuleTest))
+    responses((status = 201, body = RuleTest,
+headers(("Location" = String, description = "Where the new test is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn create_rule_test() {}
@@ -942,7 +999,8 @@ fn run_rule_tests() {}
     path = "/categories",
     tag = "categories",
     request_body = CreateCategoryRequest,
-    responses((status = 200, body = Category))
+    responses((status = 201, body = Category,
+headers(("Location" = String, description = "Where the new category is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn create_category() {}
@@ -1011,7 +1069,8 @@ fn mapping_conflicts() {}
     path = "/root-folders",
     tag = "categories",
     request_body = DeclareRootFolder,
-    responses((status = 200, body = Declared))
+    responses((status = 201, body = Declared,
+headers(("Location" = String, description = "Where the new destination is found."))))
 )]
 #[expect(dead_code, reason = "a route's documentation, never called")]
 fn declare_destination() {}

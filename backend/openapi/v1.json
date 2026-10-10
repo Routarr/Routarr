@@ -130,6 +130,7 @@
         "type": "object"
       },
       "ApplyAllRequest": {
+        "additionalProperties": false,
         "description": "Apply everything one simulation proposed, in slices.",
         "properties": {
           "confirm": {
@@ -151,6 +152,7 @@
         "type": "object"
       },
       "ApplyDecisionsRequest": {
+        "additionalProperties": false,
         "description": "Request to apply selected decisions.",
         "properties": {
           "confirm": {
@@ -1295,6 +1297,7 @@
         "type": "array"
       },
       "CreateCategoryRequest": {
+        "additionalProperties": false,
         "properties": {
           "description": {
             "type": [
@@ -1319,6 +1322,7 @@
         "type": "object"
       },
       "CreateOverrideRequest": {
+        "additionalProperties": false,
         "description": "A title, and the category to force on it.",
         "properties": {
           "media_id": {
@@ -1343,6 +1347,7 @@
         "type": "object"
       },
       "CreateRuleRequest": {
+        "additionalProperties": false,
         "description": "A rule as written: what `POST /rules`, `PUT /rules/{id}`, `/rules/validate`\nand `/rules/preview` take.",
         "properties": {
           "conditions": {
@@ -1562,6 +1567,7 @@
         "type": "object"
       },
       "DeclareRootFolder": {
+        "additionalProperties": false,
         "description": "Request to declare a destination the Arr does not report.",
         "properties": {
           "instance_id": {
@@ -1629,7 +1635,7 @@
             ]
           },
           "error": {
-            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`conflict`, `confirmation_required`, `too_many_requests`, `busy`,\n`reauthentication_required`, `passphrase_required`, `external_api_error`,\nor an internal kind.",
+            "description": "A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,\n`method_not_allowed`, `conflict`, `confirmation_required`,\n`payload_too_large`, `unsupported_media_type`, `too_many_requests`,\n`busy`, `reauthentication_required`, `passphrase_required`,\n`external_api_error` or `internal_error`. An open list.",
             "type": "string"
           },
           "includes": {
@@ -1645,6 +1651,13 @@
           "message": {
             "description": "A sentence for a person, in the interface language. Never part of the\ncontract.",
             "type": "string"
+          },
+          "reason": {
+            "description": "Why a `conflict` refuses, an open list. A job still running, with a\n`Retry-After` header: `apply_running`, `simulation_running`,\n`previews_full`, `sync_running`, `enrichment_running`, `backup_running`,\n`backup_just_taken`, `restore_staging`, `purge_running`. A state that\nstays until somebody changes it: `name_taken`, `in_use`,\n`already_listed`, `not_declared`, `category_mapped`,\n`proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,\n`only_credential`, `secret_unreadable`.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -1763,9 +1776,11 @@
       "HealthResponse": {
         "properties": {
           "database": {
+            "description": "`connected`, or `error` when the database does not answer.",
             "type": "string"
           },
           "instances": {
+            "description": "Every instance, in name order.",
             "items": {
               "$ref": "#/components/schemas/InstanceHealth"
             },
@@ -1778,12 +1793,15 @@
             "$ref": "#/components/schemas/AppStats"
           },
           "status": {
+            "description": "`ok`, `degraded` while a warning of severity `error` stands, or\n`failing`, answered 503, when the database does not answer.",
             "type": "string"
           },
           "version": {
+            "description": "This server's release.",
             "type": "string"
           },
           "warnings": {
+            "description": "Every warning standing, those `/status` lists, with what this probe\nfound.",
             "items": {
               "$ref": "#/components/schemas/Warning"
             },
@@ -1802,6 +1820,7 @@
         "type": "object"
       },
       "ImportRulesRequest": {
+        "additionalProperties": false,
         "description": "Request body for `POST /rules/import`.",
         "properties": {
           "bundle": {
@@ -1842,25 +1861,36 @@
       },
       "InstanceHealth": {
         "properties": {
+          "detail": {
+            "description": "Why the probe failed, in the interface language: what to change, when\nthe address or the key explains it. Null unless `status` is an error.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
           "instance_type": {
+            "description": "`radarr` or `sonarr`.",
             "type": "string"
           },
           "last_sync": {
+            "description": "When a sync last succeeded.",
             "type": [
               "string",
               "null"
             ]
           },
           "last_sync_status": {
+            "description": "How the last sync ended: `success`, or `error: ` and the reason.",
             "type": [
               "string",
               "null"
             ]
           },
           "mapped_root_folders": {
+            "description": "Its root folders mapped to a category.",
             "format": "int64",
             "type": "integer"
           },
@@ -1872,9 +1902,11 @@
             "type": "string"
           },
           "status": {
+            "description": "`connected`, `disabled`, `unchecked` when nothing was probed, or\n`error: ` and the sentence `detail` holds. The sentence after the\ncolon is kept for the clients that read it there, and goes in a\ncoming release: read `detail`.",
             "type": "string"
           },
           "version": {
+            "description": "The Arr's release, as a probe that reached it read it.",
             "type": [
               "string",
               "null"
@@ -1992,7 +2024,15 @@
               "null"
             ]
           },
+          "error": {
+            "description": "The code the call would have answered had it waited, the envelope's\n`error`, for a task that failed on an error. Null otherwise, and for a\nfailure the task reports itself, such as every move of an apply\nrefused.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "error_message": {
+            "description": "Why the task failed, a sentence for a person.",
             "type": [
               "string",
               "null"
@@ -2143,6 +2183,7 @@
       "LogEntry": {
         "properties": {
           "action": {
+            "description": "`move`, or `revert` for a move taken back. An open list.",
             "type": "string"
           },
           "actor": {
@@ -2153,24 +2194,28 @@
             ]
           },
           "decision_id": {
+            "description": "The proposal the write carried out.",
             "type": [
               "string",
               "null"
             ]
           },
           "details": {
+            "description": "Where the title went, from and to.",
             "type": [
               "string",
               "null"
             ]
           },
           "error_message": {
+            "description": "Why it did not, a sentence for a person.",
             "type": [
               "string",
               "null"
             ]
           },
           "executed_at": {
+            "description": "When the write was made, in UTC.",
             "type": "string"
           },
           "id": {
@@ -2189,6 +2234,7 @@
             ]
           },
           "media_title": {
+            "description": "The title as it read when it moved.",
             "type": [
               "string",
               "null"
@@ -2202,6 +2248,7 @@
             ]
           },
           "success": {
+            "description": "Whether the Arr took the write.",
             "type": "boolean"
           }
         },
@@ -2736,6 +2783,13 @@
           },
           "needs_key": {
             "type": "boolean"
+          },
+          "reason": {
+            "description": "Why a probed source did not answer: `key_refused`, `quota_spent`,\n`rate_limited` or `unreachable`. An open list. Null otherwise.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -2747,6 +2801,7 @@
         "type": "object"
       },
       "NewRuleTest": {
+        "additionalProperties": false,
         "description": "What a caller supplies to pin a case.",
         "properties": {
           "expected_category": {
@@ -2898,165 +2953,10 @@
         "description": "An exception, with the title whose category it forces."
       },
       "Page_Decision": {
-        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
-              "description": "A routing decision computed by the rule engine.",
-              "properties": {
-                "action": {
-                  "type": "string",
-                  "x-extensible-enum": [
-                    "move",
-                    "none",
-                    "skip"
-                  ]
-                },
-                "actor": {
-                  "description": "What set the decision off: `manual`, `schedule`, `webhook`, `api`, or\n`auto` for the simulation the automation runs after a sync.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "alternatives": {
-                  "items": {
-                    "$ref": "#/components/schemas/AlternativeDecision"
-                  },
-                  "type": "array"
-                },
-                "applied_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "confidence": {
-                  "description": "0.0 to 1.0, how many independent signals backed the winning rule.",
-                  "format": "float",
-                  "type": "number"
-                },
-                "current_root_folder": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "decided_at": {
-                  "type": "string"
-                },
-                "error_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "id": {
-                  "type": "string"
-                },
-                "instance_id": {
-                  "type": "string"
-                },
-                "instance_name": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "is_override": {
-                  "type": "boolean"
-                },
-                "matched_rule_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "matched_rule_name": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "media_id": {
-                  "type": "string"
-                },
-                "media_title": {
-                  "type": "string"
-                },
-                "media_type": {
-                  "type": "string"
-                },
-                "reasons": {
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                },
-                "reverted_at": {
-                  "description": "Set when the move was rolled back through `POST /decisions/revert`.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "revertible": {
-                  "description": "Whether a revert may undo this move now: only the latest standing move\nof a title is, while the title is still where it put it and the folder\nit came from is still one of its instance's root folders.",
-                  "type": "boolean"
-                },
-                "simulation_id": {
-                  "description": "Groups every decision produced by the same simulation run.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "status": {
-                  "type": "string",
-                  "x-extensible-enum": [
-                    "pending",
-                    "requested",
-                    "applied",
-                    "failed",
-                    "skipped"
-                  ]
-                },
-                "subject": {
-                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nNull when nobody asked (the scheduler or a webhook), and under a mode\nthat names nobody. An application key reads its own name and null for\nanyone else.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "superseded": {
-                  "description": "True once this decision was retired: by a newer simulation, an override\nset or removed, a revalidation that found it stale, or the removal of\nits media or its instance.",
-                  "type": "boolean"
-                },
-                "target_category": {
-                  "type": "string"
-                },
-                "target_root_folder": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "id",
-                "media_id",
-                "media_title",
-                "media_type",
-                "instance_id",
-                "target_category",
-                "is_override",
-                "reasons",
-                "alternatives",
-                "action",
-                "status",
-                "decided_at"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/Decision"
             },
             "type": "array"
           },
@@ -3071,83 +2971,10 @@
         "type": "object"
       },
       "Page_Job": {
-        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
-              "properties": {
-                "detail": {
-                  "description": "What the task did, in the interface language.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "error_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "finished_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "id": {
-                  "type": "string"
-                },
-                "instance_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "kind": {
-                  "description": "`sync`, `sync_all`, `enrich`, `simulate`, `preview` (a simulation that\nstores nothing), `apply`, `revert`, `backup`, `maintenance` or\n`scheduler`.",
-                  "type": "string"
-                },
-                "progress_current": {
-                  "format": "int64",
-                  "type": "integer"
-                },
-                "progress_total": {
-                  "format": "int64",
-                  "type": "integer"
-                },
-                "result": {
-                  "description": "What a finished task answered: the report the same call gives when the\ncaller waits, an `ApplyReport`, a `BatchApplyReport` or a `SyncReport`,\nor for a simulation its `SimulationResult`. A stored simulation's comes\nwithout `decisions`, which `GET /decisions?simulation_id=` lists, and a\npreview's keeps the ones it returned. An apply or a revert that failed\nkeeps the report of what it attempted. Null while the task runs, when\nany other task failed, for a kind no call starts, and in the list\nunless it asks for it."
-                },
-                "started_at": {
-                  "type": "string"
-                },
-                "status": {
-                  "description": "`running`, `success`, `failed`, or `cancelled` for an apply or a\nrevert somebody stopped.",
-                  "type": "string"
-                },
-                "subject": {
-                  "description": "Who asked: an application's name, or the person a sign-in mode names.\nAn application key reads its own name and null for anyone else.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "trigger": {
-                  "description": "What set the task off: `manual`, `schedule`, `webhook`, `api`, or `auto`\nfor what the automation runs after a sync.",
-                  "type": "string"
-                }
-              },
-              "required": [
-                "id",
-                "kind",
-                "status",
-                "trigger",
-                "progress_current",
-                "progress_total",
-                "started_at"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/Job"
             },
             "type": "array"
           },
@@ -3162,81 +2989,10 @@
         "type": "object"
       },
       "Page_LogEntry": {
-        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
-              "properties": {
-                "action": {
-                  "type": "string"
-                },
-                "actor": {
-                  "description": "What set the write off: `manual`, `schedule`, `webhook`, `api` for an\napplication key, or `auto` for a move the automation applied.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "decision_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "details": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "error_message": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "executed_at": {
-                  "type": "string"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "instance_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "media_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "media_title": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "subject": {
-                  "description": "Who asked, when the mode vouched for a name, or the application key's\nname. An application key reads its own name here and `null` for anyone\nelse's.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "success": {
-                  "type": "boolean"
-                }
-              },
-              "required": [
-                "id",
-                "action",
-                "success",
-                "executed_at"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/LogEntry"
             },
             "type": "array"
           },
@@ -3251,110 +3007,10 @@
         "type": "object"
       },
       "Page_MediaListItem": {
-        "description": "The envelope of every paged list: the media, the decisions, the tasks and\nthe move log.",
         "properties": {
           "data": {
             "items": {
-              "properties": {
-                "arr_id": {
-                  "format": "int64",
-                  "type": "integer"
-                },
-                "computed_category": {
-                  "description": "The category the last stored run sends the title to, whether it moves\nor already sits there. Null until a run has evaluated it.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "current_root_folder": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "has_files": {
-                  "type": "boolean"
-                },
-                "has_metadata": {
-                  "type": "boolean"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "imdb_id": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "instance_id": {
-                  "type": "string"
-                },
-                "instance_name": {
-                  "type": "string"
-                },
-                "last_synced_at": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "media_type": {
-                  "type": "string"
-                },
-                "monitored": {
-                  "type": "boolean"
-                },
-                "override_category": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "status": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "title": {
-                  "type": "string"
-                },
-                "tmdb_id": {
-                  "format": "int64",
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                },
-                "tvdb_id": {
-                  "format": "int64",
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                },
-                "year": {
-                  "format": "int64",
-                  "type": [
-                    "integer",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "id",
-                "instance_id",
-                "instance_name",
-                "arr_id",
-                "media_type",
-                "title",
-                "monitored",
-                "has_files",
-                "has_metadata"
-              ],
-              "type": "object"
+              "$ref": "#/components/schemas/MediaListItem"
             },
             "type": "array"
           },
@@ -3398,6 +3054,7 @@
         "type": "object"
       },
       "PinRequest": {
+        "additionalProperties": false,
         "description": "The category to force on a title, and why.",
         "properties": {
           "reason": {
@@ -3570,14 +3227,10 @@
           "status": {
             "description": "Always `ok`: an answer at all is the news.",
             "type": "string"
-          },
-          "version": {
-            "type": "string"
           }
         },
         "required": [
-          "status",
-          "version"
+          "status"
         ],
         "type": "object"
       },
@@ -3639,6 +3292,7 @@
         "type": "object"
       },
       "PreviewRequest": {
+        "additionalProperties": false,
         "properties": {
           "instance_ids": {
             "items": {
@@ -3827,6 +3481,7 @@
         "type": "object"
       },
       "RenameCategoryRequest": {
+        "additionalProperties": false,
         "description": "Request body for renaming a category.",
         "properties": {
           "name": {
@@ -3839,6 +3494,7 @@
         "type": "object"
       },
       "ReorderRulesRequest": {
+        "additionalProperties": false,
         "description": "Request for reordering rules.",
         "properties": {
           "rule_ids": {
@@ -3868,6 +3524,7 @@
         "type": "object"
       },
       "RevertDecisionsRequest": {
+        "additionalProperties": false,
         "description": "Request to roll a previously applied decision back to its original folder.",
         "properties": {
           "confirm": {
@@ -4057,6 +3714,7 @@
         "type": "object"
       },
       "RuleBundle": {
+        "additionalProperties": false,
         "description": "Portable rule bundle, produced by `GET /rules/export`.",
         "properties": {
           "categories": {
@@ -4399,6 +4057,7 @@
         "type": "object"
       },
       "SimulationRequest": {
+        "additionalProperties": false,
         "description": "Request to run a simulation.",
         "properties": {
           "instance_ids": {
@@ -4602,15 +4261,20 @@
         "type": "object"
       },
       "UpdateRootFolderCategory": {
+        "additionalProperties": false,
         "description": "Request to update a root folder's category mapping.",
         "properties": {
           "category": {
+            "description": "The category the folder receives, or null to unmap it. Required: a body\nthat leaves it out, or misspells it, would otherwise unmap the folder.",
             "type": [
               "string",
               "null"
             ]
           }
         },
+        "required": [
+          "category"
+        ],
         "type": "object"
       },
       "ValidationIssue": {
@@ -4676,23 +4340,29 @@
         "description": "One warning, in the reader's language.",
         "properties": {
           "code": {
-            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `source_quota_spent`,\n`source_rate_limited`, `source_key_refused`,\n`instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `backup_failed`, `backup_overdue`,\n`data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`,\n`auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.\nThe list may grow.",
+            "description": "What the warning is about, stable across releases and languages:\n`api_unauthenticated`, `api_external_auth`, `source_needs_key`,\n`source_key_unlisted`, `source_unreachable`, `source_quota_spent`,\n`source_rate_limited`, `source_key_refused`,\n`instance_unreachable`,\n`unmapped_categories`, `no_enabled_instance`, `missing_metadata`,\n`scheduler_panicked`, `backup_failed`, `backup_overdue`,\n`data_disk_low`, `setting_above_maximum`,\n`instance_without_mapping`, `certification_country_outside_regions`,\n`certification_country_changed`,\n`auto_apply_held`, `arr_below_version`, `oidc_open_to_anyone` or\n`backup_passphrase_unreadable`. The list may grow.",
             "type": "string"
           },
           "guide_step": {
-            "description": "The getting-started step this warning restates, if one does.",
+            "description": "The getting-started step this warning restates, whose banner says the\nsame thing while the step is open: `instance`, `categories` or\n`metadata`. Null for most.",
             "type": [
               "string",
               "null"
             ]
           },
           "message": {
+            "description": "What it means, in the interface language.",
+            "type": "string"
+          },
+          "severity": {
+            "description": "`error` for a fault that stops part of Routarr working, `warning` for\na configuration that needs looking at, `info` for a state worth\nknowing. An open list. `/health` reads `degraded` while one is `error`.",
             "type": "string"
           }
         },
         "required": [
           "code",
-          "message"
+          "message",
+          "severity"
         ],
         "type": "object"
       }
@@ -4710,7 +4380,7 @@
     }
   },
   "info": {
-    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, the sync of one instance) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `confirm`, the kinds of a condition) may appear in any release.",
+    "description": "The part of Routarr's API another application may rely on: a script, n8n, Home Assistant or a dashboard.\n\nAuthenticate with an application key, made on Routarr's Applications screen, sent as `X-Api-Key: rtr_...` or `Authorization: Bearer rtr_...`. Each operation names the scope it needs in `x-routarr-scope`. Every key reads, and `operate`, `write` and `configure` are granted each on its own. The owner's key reaches every operation.\n\nA failure answers one envelope: `error`, a stable code, and `message`, a sentence in the interface language that is not part of the contract. A `conflict` names its `reason`: one a running task causes comes with `Retry-After` and clears once the task ends, any other stays until somebody changes what refuses. A move that crosses a guardrail answers 409 `confirmation_required` with the guardrail's name in `confirm`, and in `includes` the other guardrails its question states. Send those names back in `confirm` to go ahead, or, when `answerable` is false, leave the question to a person.\n\nA call that starts long work (a simulation, an apply, a revert, a sync, a backup) waits for it and answers its report. Sent with `Prefer: respond-async`, it answers 202 as soon as the task has started, with `Location` naming the task and `Retry-After` the seconds to wait before looking: `GET /jobs/{id}` follows it, and its `result` holds the report once it has finished, or its `error` the code the call would have answered. A guardrail's question and any refusal still answer at once.\n\nThe notification webhook set in Routarr's settings receives a `Notification` for each failure, and for the syncs that failed, the simulations and the moves that finished when asked to. A format set to Discord, ntfy, Gotify or Apprise, or recognised from a Discord or ntfy.sh address, writes the same events in that receiver's own shape instead, which this contract does not cover. With a signing secret every shape is signed as Standard Webhooks specifies: `webhook-id`, stable across retries, `webhook-timestamp`, and `webhook-signature`, `v1,` and a base64 HMAC-SHA256 of `id.timestamp.body` under the secret's key, twice while a new secret replaces an old one. A delivery refused with 5xx or 429, or not answered, is tried again after 10 s, 60 s and 5 min.\n\nAn application key asks at most ten times a second past a burst of fifty, and takes a backup at most every ten minutes. Past either it is answered `429`, with `Retry-After` in seconds.\n\nNothing documented under `/api/v1` is removed or renamed, and no field changes type. New operations, new fields and new values of the open lists (`action`, `status`, `error`, `reason`, `confirm`, the kinds of a condition) may appear in any release.",
     "license": {
       "identifier": "GPL-3.0-only",
       "name": "GPL-3.0-only"
@@ -4785,6 +4455,20 @@
       "post": {
         "description": "Before a large apply, for instance. The oldest past the retention count\nis removed.",
         "operationId": "take_backup",
+        "parameters": [
+          {
+            "description": "`respond-async` answers 202 once the task has started, instead of its report.",
+            "in": "header",
+            "name": "Prefer",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4794,6 +4478,48 @@
                 }
               }
             }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Accepted"
+                }
+              }
+            },
+            "description": "The task has started, as `Prefer: respond-async` asked.",
+            "headers": {
+              "Location": {
+                "description": "The task, under `/jobs`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Preference-Applied": {
+                "description": "`respond-async`.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "A backup is already running, or one was taken this second."
           },
           "default": {
             "content": {
@@ -4859,11 +4585,19 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Category"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new category is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -5167,6 +4901,14 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
               }
             }
           },
@@ -5178,7 +4920,7 @@
                 }
               }
             },
-            "description": "A guardrail asks for a confirmation, named in `confirm`, or another apply is running."
+            "description": "A guardrail asks for a confirmation, named in `confirm`, another apply is running, or the global dry run is on."
           },
           "default": {
             "content": {
@@ -5257,6 +4999,14 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
               }
             }
           },
@@ -5268,7 +5018,7 @@
                 }
               }
             },
-            "description": "The `batch` confirmation is asked, or another apply is running."
+            "description": "The `batch` confirmation is asked, another apply is running, or the global dry run is on."
           },
           "default": {
             "content": {
@@ -5347,6 +5097,14 @@
                 "schema": {
                   "type": "string"
                 }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
               }
             }
           },
@@ -5358,7 +5116,7 @@
                 }
               }
             },
-            "description": "A guardrail asks for a confirmation, named in `confirm`, or an apply is running."
+            "description": "A guardrail asks for a confirmation, named in `confirm`, an apply is running, or the global dry run is on."
           },
           "default": {
             "content": {
@@ -5380,13 +5138,22 @@
     },
     "/health": {
       "get": {
-        "description": "Probes each enabled instance and metadata source, up to a connect timeout\neach, and records what it found for `/status` to repeat. `probe=false`\nanswers from what the last probe recorded.",
+        "description": "Probes each enabled instance and metadata source, up to a connect timeout\neach, and records what it found for `/status` to repeat. A probe of the\nsame configuration in the last 30 seconds is answered again unless\n`fresh=true`, and a call made while one runs waits for it. `probe=false`\nreads the database alone: instances read `unchecked` and sources\n`connected: null`, while `warnings` repeat what the last probe found.",
         "operationId": "health",
         "parameters": [
           {
-            "description": "`false` answers from what the last probe recorded. Defaults to true,\nexcept for a request another site set off.",
+            "description": "`false` reads the database alone: every enabled instance reads\n`unchecked` and every source `connected: null`, while `warnings` repeat\nwhat the last probe found. Defaults to true, except for a request\nanother site set off.",
             "in": "query",
             "name": "probe",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "`true` probes again even when a probe of the same configuration ran in\nthe last 30 seconds, whose findings are otherwise answered again.",
+            "in": "query",
+            "name": "fresh",
             "required": false,
             "schema": {
               "type": "boolean"
@@ -5402,6 +5169,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            },
+            "description": "The database does not answer: `status` reads `failing`."
           },
           "default": {
             "content": {
@@ -5507,6 +5284,14 @@
                 "description": "`respond-async`.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
                 }
               }
             }
@@ -5628,6 +5413,14 @@
                 "description": "`respond-async`.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
                 }
               }
             }
@@ -5780,6 +5573,7 @@
         "operationId": "list_logs",
         "parameters": [
           {
+            "description": "Only the writes on this instance.",
             "in": "query",
             "name": "instance_id",
             "required": false,
@@ -5788,6 +5582,7 @@
             }
           },
           {
+            "description": "Only the writes of this title.",
             "in": "query",
             "name": "media_id",
             "required": false,
@@ -5796,6 +5591,7 @@
             }
           },
           {
+            "description": "`move` or `revert`.",
             "in": "query",
             "name": "action",
             "required": false,
@@ -5804,6 +5600,7 @@
             }
           },
           {
+            "description": "Only the writes the Arr took, or only those it did not.",
             "in": "query",
             "name": "success",
             "required": false,
@@ -5812,6 +5609,7 @@
             }
           },
           {
+            "description": "Text in the title or the details.",
             "in": "query",
             "name": "search",
             "required": false,
@@ -5820,6 +5618,7 @@
             }
           },
           {
+            "description": "From 1. Defaults to 1.",
             "in": "query",
             "name": "page",
             "required": false,
@@ -5830,6 +5629,7 @@
             }
           },
           {
+            "description": "From 1 to 200. Defaults to 50.",
             "in": "query",
             "name": "per_page",
             "required": false,
@@ -5870,10 +5670,11 @@
     },
     "/logs/export": {
       "get": {
-        "description": "The filters of `/logs`, up to 50 000 rows. A cell that would start a\nformula in a spreadsheet is quoted so it does not.",
+        "description": "The filters of `/logs`, without its paging, up to the newest 50 000 rows.\nA cell that would start a formula in a spreadsheet starts with an\napostrophe, which the spreadsheet reads as text.",
         "operationId": "export_logs",
         "parameters": [
           {
+            "description": "Only the writes on this instance.",
             "in": "query",
             "name": "instance_id",
             "required": false,
@@ -5882,6 +5683,7 @@
             }
           },
           {
+            "description": "Only the writes of this title.",
             "in": "query",
             "name": "media_id",
             "required": false,
@@ -5890,6 +5692,7 @@
             }
           },
           {
+            "description": "`move` or `revert`.",
             "in": "query",
             "name": "action",
             "required": false,
@@ -5898,6 +5701,7 @@
             }
           },
           {
+            "description": "Only the writes the Arr took, or only those it did not.",
             "in": "query",
             "name": "success",
             "required": false,
@@ -5906,31 +5710,12 @@
             }
           },
           {
+            "description": "Text in the title or the details.",
             "in": "query",
             "name": "search",
             "required": false,
             "schema": {
               "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
-            }
-          },
-          {
-            "in": "query",
-            "name": "per_page",
-            "required": false,
-            "schema": {
-              "format": "int32",
-              "minimum": 0,
-              "type": "integer"
             }
           }
         ],
@@ -5939,7 +5724,15 @@
             "content": {
               "text/csv": {}
             },
-            "description": "The log as CSV."
+            "description": "The log as CSV.",
+            "headers": {
+              "X-Routarr-Truncated": {
+                "description": "`true` when the log holds more rows than the export.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "default": {
             "content": {
@@ -6314,11 +6107,19 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OverrideEntry"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new exception is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6637,11 +6438,19 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Declared"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new destination is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -6958,11 +6767,19 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RuleTest"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new test is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -7105,11 +6922,19 @@
           "required": true
         },
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Rule"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new rule is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -7542,11 +7367,19 @@
           }
         ],
         "responses": {
-          "200": {
+          "201": {
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Rule"
+                }
+              }
+            },
+            "headers": {
+              "Location": {
+                "description": "Where the new copy is found.",
+                "schema": {
+                  "type": "string"
                 }
               }
             }
@@ -7627,6 +7460,14 @@
                 "description": "`respond-async`.",
                 "schema": {
                   "type": "string"
+                }
+              },
+              "Retry-After": {
+                "description": "Seconds to wait before the first look at the task.",
+                "schema": {
+                  "format": "int32",
+                  "minimum": 0,
+                  "type": "integer"
                 }
               }
             }

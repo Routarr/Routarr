@@ -39,6 +39,7 @@ pub async fn get_all(State(state): State<AppState>) -> AppResult<Json<serde_json
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateSettingsRequest {
     pub settings: HashMap<String, String>,
 }

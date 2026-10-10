@@ -458,6 +458,90 @@ async fn a_body_that_cannot_be_parsed_still_gets_the_error_envelope() {
     }
 }
 
+/// A script decides whether to ask again from the code alone: a running apply
+/// clears in a while and says when to come back, a name already taken never
+/// clears by waiting.
+#[tokio::test]
+async fn a_refusal_that_will_clear_is_told_from_one_that_will_not() {
+    let arr = FakeArr::start().await;
+    let (app, decision) = super::one_move_ready(&arr).await;
+    let held = app.state.jobs.try_lock("apply").expect("the apply lock");
+
+    let body = serde_json::json!({ "decision_ids": [decision] });
+    let refused = app.post("/api/v1/decisions/apply", body).await;
+    assert_eq!(refused.assert_status(StatusCode::CONFLICT)["reason"], "apply_running");
+    assert!(refused.header("retry-after").is_some(), "{:?}", refused.json);
+    drop(held);
+
+    let category = serde_json::json!({ "name": "concerts" });
+    app.post("/api/v1/categories", category.clone()).await.assert_ok();
+    let refused = app.post("/api/v1/categories", category).await;
+    assert_eq!(refused.assert_status(StatusCode::CONFLICT)["reason"], "name_taken");
+    assert_eq!(refused.header("retry-after"), None);
+}
+
+/// A field a nested part of a body does not define is refused as one at the
+/// top is: a condition's, a bundled rule's (whose fields are its rule's, read
+/// flat), a configuration bundle's, and a key request's, read from two parts.
+#[tokio::test]
+async fn a_field_the_server_does_not_define_is_refused_wherever_it_is_nested() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mut misspelled_condition = anime_rule_body();
+    misspelled_condition["conditions"][0]["values"] = serde_json::json!(["ja"]);
+    let mut bundled = anime_rule_body();
+    bundled["exclusion"] = serde_json::json!([]);
+    let cases = [
+        ("/api/v1/rules", misspelled_condition, "values"),
+        (
+            "/api/v1/rules/import",
+            serde_json::json!({ "bundle": { "version": 2, "rules": [bundled.clone()] } }),
+            "exclusion",
+        ),
+        (
+            "/api/v1/config/import",
+            serde_json::json!({ "bundle": { "version": 1, "rules": [bundled] } }),
+            "exclusion",
+        ),
+        (
+            "/api/v1/config/import",
+            serde_json::json!({ "bundle": { "version": 1, "setings": [] } }),
+            "setings",
+        ),
+        (
+            "/api/v1/applications",
+            serde_json::json!({ "name": "n8n", "scope": ["operate"], "current_key": "k" }),
+            "scope",
+        ),
+    ];
+    for (path, body, field) in cases {
+        let refused = app.post(path, body).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{path}: {}", refused.json);
+        assert!(refused.message().contains(field), "{path}: {}", refused.json);
+    }
+    assert_eq!(app.count("SELECT COUNT(*) FROM rules").await, 0);
+}
+
+/// A mapping sent without its category, or with the field misspelled, would
+/// otherwise read as an unmapping, and the category would reach no folder.
+#[tokio::test]
+async fn a_mapping_change_without_its_category_field_is_refused() {
+    let app = TestApp::new().await;
+    app.seed_library().await;
+    let mapped = || app.count("SELECT COUNT(*) FROM root_folders WHERE category = 'anime'");
+    assert_eq!(mapped().await, 1);
+
+    for body in [serde_json::json!({}), serde_json::json!({ "categroy": "anime" })] {
+        let refused = app.put("/api/v1/root-folders/rf-2/category", body.clone()).await;
+        assert_eq!(refused.status, StatusCode::BAD_REQUEST, "{body}: {}", refused.json);
+        assert_eq!(mapped().await, 1, "{body} unmapped the folder");
+    }
+    app.put("/api/v1/root-folders/rf-2/category", serde_json::json!({ "category": null }))
+        .await
+        .assert_ok();
+    assert_eq!(mapped().await, 0);
+}
+
 /// A query string the stock extractor cannot parse is answered in text/plain,
 /// which the interface cannot unwrap into a translated message.
 #[tokio::test]
@@ -470,6 +554,12 @@ async fn a_query_that_cannot_be_parsed_still_gets_the_error_envelope() {
         "/api/v1/logs/export?success=maybe",
         "/api/v1/jobs?page=abc",
         "/api/v1/health?probe=maybe",
+        // A parameter the route does not take: ignored, the first would
+        // export the whole log and the second list every task.
+        "/api/v1/logs/export?instance=x",
+        "/api/v1/logs/export?page=2",
+        "/api/v1/jobs?state=running",
+        "/api/v1/route?type=movie&tmdb=8392&tag=kids",
     ] {
         let response = app.get(path).await;
         assert_eq!(response.status, StatusCode::BAD_REQUEST, "{path}");
@@ -1532,18 +1622,17 @@ async fn the_override_list_answers_with_the_key_and_names_each_item() {
 
 /// An override pins a title to a category, and that is all it does: it wins
 /// over every rule already. A lock on it would protect nothing, so the API
-/// answers none, and an older client still sending one is heard.
+/// neither takes one nor answers one.
 #[tokio::test]
 async fn an_override_carries_no_lock() {
     let app = TestApp::new().await;
     app.seed_library().await;
+    let pin = serde_json::json!({ "media_id": "m-1", "target_category": "anime" });
+    let mut locked = pin.clone();
+    locked["locked"] = serde_json::json!(true);
 
-    let created = app
-        .post(
-            "/api/v1/overrides",
-            serde_json::json!({ "media_id": "m-1", "target_category": "anime", "locked": true }),
-        )
-        .await;
+    app.post("/api/v1/overrides", locked).await.assert_status(StatusCode::BAD_REQUEST);
+    let created = app.post("/api/v1/overrides", pin).await;
 
     let created = created.assert_ok().clone();
     assert!(created.get("locked").is_none(), "{created}");
@@ -1796,6 +1885,8 @@ async fn every_setting_read_can_be_written_back_as_it_came() {
 
 // ------------------------------------------------------------ decisions
 
+/// The global dry run is a state of the installation, not a fault in the
+/// request: told apart by its reason, it is the one refusal a setting clears.
 #[tokio::test]
 async fn applying_is_blocked_while_dry_run_is_on() {
     let app = TestApp::new().await;
@@ -1807,7 +1898,7 @@ async fn applying_is_blocked_while_dry_run_is_on() {
     let response =
         app.post("/api/v1/decisions/apply", serde_json::json!({ "decision_ids": ids })).await;
 
-    response.assert_status(StatusCode::BAD_REQUEST);
+    assert_eq!(response.assert_status(StatusCode::CONFLICT)["reason"], "dry_run");
     assert!(response.message().contains("dry-run"));
 }
 
@@ -2563,9 +2654,38 @@ async fn logs_can_be_exported_as_csv() {
     let response = app.raw("/api/v1/logs/export").await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(response.headers()["content-type"], "text/csv; charset=utf-8");
+    assert!(!response.headers().contains_key("x-routarr-truncated"));
     let csv = app.text("/api/v1/logs/export").await;
     // The comma and the quotes stay inside one field, the quotes doubled.
     assert!(csv.contains(r#","Totoro","a,b ""quoted""","#), "{csv}");
+}
+
+/// An export holds the newest 50 000 rows, and says so when the log holds
+/// more, rather than handing on a file that reads as the whole log.
+#[tokio::test]
+async fn an_export_says_when_it_leaves_rows_out() {
+    let app = TestApp::new().await;
+    app.execute(&["INSERT INTO execution_logs (id, action, success, media_title, executed_at)
+                   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 50001)
+                   SELECT 'log-' || i, 'move', 1, 'Title ' || i,
+                          datetime('2026-01-01', '+' || i || ' seconds')
+                     FROM n"])
+        .await;
+
+    let response = app.raw("/api/v1/logs/export").await;
+    assert_eq!(response.headers()["x-routarr-truncated"], "true");
+    // Left unread while the next export runs: an export holds no connection
+    // between two pages, and the tests' pool has one.
+    let csv = app.text("/api/v1/logs/export").await;
+    let mut lines = csv.lines();
+    assert!(lines.next().unwrap().starts_with("executed_at,"), "the header row");
+    assert!(lines.next().unwrap().contains("\"Title 50001\""), "the newest first");
+    assert_eq!(csv.lines().count(), 50_001, "the header and 50 000 rows");
+    assert!(csv.lines().last().unwrap().contains("\"Title 2\""), "each page after the last");
+    assert!(!csv.contains("\"Title 1\""), "the oldest is the one left out");
+
+    let filtered = app.raw("/api/v1/logs/export?search=Title%2050001").await;
+    assert!(!filtered.headers().contains_key("x-routarr-truncated"));
 }
 
 /// Every write says what set it off and, when a mode vouched for a name, who:
@@ -2784,10 +2904,58 @@ async fn health_without_a_probe_answers_from_the_database_alone() {
         // would read as a live connection state and be wrong the moment an Arr
         // goes down between two syncs.
         assert_eq!(instance["status"], "unchecked");
-        assert!(instance["version"].is_null());
+        assert!(instance["version"].is_null() && instance["detail"].is_null());
         // The counts come from the database, so they are real either way.
         assert!(instance["media_count"].as_i64().unwrap() >= 0);
     }
+    for source in health["metadata"]["providers"].as_array().unwrap() {
+        assert!(source["connected"].is_null(), "{source}");
+    }
+}
+
+/// A status a monitor alerts on reads `degraded` for a fault, not for every
+/// fact worth knowing: a library with titles no source describes, on an
+/// installation whose every part answers, is `ok`.
+#[tokio::test]
+async fn informational_warnings_leave_health_ok() {
+    let arr = FakeArr::start().await;
+    let app = TestApp::one_film_to_move(&arr, true).await;
+    app.execute(&["INSERT INTO media (id, instance_id, arr_id, media_type, title, monitored)
+                   VALUES ('m-obscure', 'inst-1', 99, 'movie', 'Obscure', 1)"])
+        .await;
+
+    let health = app.get("/api/v1/health").await;
+    let health = health.assert_ok();
+
+    let codes: Vec<(&str, &str)> = health["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|w| (w["code"].as_str().unwrap(), w["severity"].as_str().unwrap()))
+        .collect();
+    assert!(codes.contains(&("missing_metadata", "info")), "{codes:?}");
+    assert!(codes.iter().all(|(_, severity)| *severity != "error"), "{codes:?}");
+    assert_eq!(health["status"], "ok", "{codes:?}");
+
+    app.seed_instance_at("i-dead", "radarr", "http://127.0.0.1:1").await;
+    let down = app.get("/api/v1/health").await;
+    assert_eq!(down.assert_ok()["status"], "degraded");
+}
+
+/// A database that does not answer is named as such, with the status a
+/// load balancer reads, rather than a 500 that reads as a bug.
+#[tokio::test]
+async fn a_database_that_fails_is_reported_as_failing() {
+    let app = TestApp::new().await;
+    app.state.pool.close().await;
+
+    let health = app.get("/api/v1/health").await;
+
+    let health = health.assert_status(StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(
+        (health["status"].as_str(), health["database"].as_str()),
+        (Some("failing"), Some("error"))
+    );
 }
 
 /// By default Diagnostics probes, and that is what it is for. A parameter that
@@ -2828,7 +2996,8 @@ async fn health_reports_actionable_warnings() {
     let warnings = warning_messages(health);
     assert!(warnings.iter().any(|w| w.contains("TMDB")));
     assert!(warnings.iter().any(|w| w.contains("unauthenticated")));
-    assert_eq!(health["status"], "degraded");
+    // Settings to look at, and no fault among them.
+    assert_eq!(health["status"], "ok");
 }
 
 // ------------------------------------------------------------ helpers
@@ -2923,6 +3092,32 @@ async fn a_retention_of_zero_keeps_everything() {
     {
         assert_eq!(report[removed], 0, "{removed}: {report}");
     }
+}
+
+/// A purge runs to its end whatever its caller does: one whose caller left
+/// still records what it removed. One asked while it runs is refused as a
+/// wait, never answered with a report of nothing removed.
+#[tokio::test]
+async fn a_purge_whose_caller_leaves_still_records_its_outcome() {
+    let app = aged_rows().await;
+    let request = Request::post("/api/v1/maintenance/purge")
+        .header("content-type", "application/json")
+        .body(Body::from("{}"))
+        .unwrap();
+
+    let held = super::races::left_at(&app, "maintenance::run", request).await;
+    let meanwhile = app.post("/api/v1/maintenance/purge", serde_json::json!({})).await;
+    assert_eq!(meanwhile.assert_status(StatusCode::CONFLICT)["reason"], "purge_running");
+    assert!(meanwhile.header("retry-after").is_some());
+    held.release();
+
+    let task: String = sqlx::query_scalar("SELECT id FROM jobs WHERE kind = 'maintenance'")
+        .fetch_one(&app.state.pool)
+        .await
+        .unwrap();
+    let task = super::finished(&app, &task).await;
+    assert_eq!(task["status"], "success", "{task}");
+    assert_eq!(task["result"]["logs_removed"], 1, "{task}");
 }
 
 /// A row a day past each default window and a row a day inside it, and a

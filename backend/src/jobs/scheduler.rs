@@ -319,8 +319,8 @@ pub(crate) async fn tick(
                 last_sync.insert(instance.id.clone(), now);
                 synced_any = true;
             }
-            // A conflict means a manual sync is already running, not an error.
-            Err(crate::error::AppError::Conflict(_)) => {}
+            // A manual sync is already running, which is not an error.
+            Err(crate::error::AppError::InProgress { .. }) => {}
             // Stamped on the attempt, as the backup below is: an instance that
             // is down waits its own interval, rather than costing a full
             // connect timeout on every tick in a loop the others wait behind.
@@ -362,9 +362,9 @@ pub(crate) async fn tick(
                 // show what needs attention. `sync` draws the same line, with
                 // `last_sync_attempt_at` beside `last_sync_at`.
                 Ok(_) => *last_backup = Some(tokio::time::Instant::now()),
-                // A conflict means one is already running: nothing was
-                // attempted, so nothing is recorded and the next tick tries.
-                Err(crate::error::AppError::Conflict(_)) => {}
+                // One is already running: nothing was attempted, so nothing
+                // is recorded and the next tick tries.
+                Err(crate::error::AppError::InProgress { .. }) => {}
                 Err(e) => {
                     *last_backup = Some(tokio::time::Instant::now());
                     error!("Scheduled backup failed: {e}");
@@ -385,6 +385,9 @@ pub(crate) async fn tick(
     if maintenance_due {
         match maintenance::run(state, &Attribution::unattended(TRIGGER_SCHEDULE)).await {
             Ok(_) => *last_maintenance = Some(now),
+            // A purge somebody asked for is running, and does what this one
+            // would: nothing was attempted, so the next tick tries.
+            Err(crate::error::AppError::InProgress { .. }) => {}
             // Same reason as the backup above: an hourly pass that fails must
             // not become a pass on every tick.
             Err(e) => {

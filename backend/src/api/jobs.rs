@@ -44,7 +44,14 @@ pub struct Job {
     pub detail_params: Option<String>,
     pub progress_current: i64,
     pub progress_total: i64,
+    /// Why the task failed, a sentence for a person.
     pub error_message: Option<String>,
+    /// The code the call would have answered had it waited, the envelope's
+    /// `error`, for a task that failed on an error. Null otherwise, and for a
+    /// failure the task reports itself, such as every move of an apply
+    /// refused.
+    #[sqlx(rename = "error_code")]
+    pub error: Option<String>,
     pub started_at: String,
     pub finished_at: Option<String>,
     /// What a finished task answered: the report the same call gives when the
@@ -65,7 +72,7 @@ pub struct Job {
 macro_rules! job_fields {
     () => {
         "id, kind, status, trigger, subject, subject_key, instance_id, detail, detail_key, detail_params,
-         progress_current, progress_total, error_message, started_at, finished_at"
+         progress_current, progress_total, error_message, error_code, started_at, finished_at"
     };
 }
 
@@ -132,7 +139,11 @@ where
         let location = format!("{}/api/v1/jobs/{job_id}", state.config.base_path);
         return Ok((
             StatusCode::ACCEPTED,
-            [(header::LOCATION, location), (PREFERENCE_APPLIED, "respond-async".to_string())],
+            [
+                (header::LOCATION, location),
+                (PREFERENCE_APPLIED, "respond-async".to_string()),
+                (header::RETRY_AFTER, FIRST_LOOK_SECONDS.to_string()),
+            ],
             Json(Accepted { job_id }),
         )
             .into_response());
@@ -143,11 +154,16 @@ where
     Ok(Json(report).into_response())
 }
 
+/// The seconds a caller that did not wait leaves before its first look at
+/// the task.
+const FIRST_LOOK_SECONDS: u32 = 2;
+
 /// Says the server honoured the preference (RFC 7240).
 const PREFERENCE_APPLIED: HeaderName = HeaderName::from_static("preference-applied");
 
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct JobQuery {
     /// Only the tasks in this status.
     pub status: Option<String>,
@@ -234,8 +250,9 @@ pub async fn cancel(
         .await?;
     match known {
         None => Err(AppError::NotFound(format!("Job {id} not found"))),
-        Some(_) => Err(AppError::Conflict(
-            state.localizer().await.translate("ErrorTaskNotCancellable", &[]),
-        )),
+        Some(_) => Err(AppError::Conflict {
+            reason: "not_cancellable",
+            message: state.localizer().await.translate("ErrorTaskNotCancellable", &[]),
+        }),
     }
 }

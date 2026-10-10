@@ -63,7 +63,7 @@ pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
     Json(req): Json<CreateOverrideRequest>,
-) -> AppResult<Json<OverrideEntry>> {
+) -> AppResult<super::Created<OverrideEntry>> {
     crate::race::checked("overrides::create", &req.media_id).await;
     let pinned = pin(
         &state,
@@ -73,15 +73,16 @@ pub async fn create(
         &identity,
     )
     .await?;
-    pinned
+    let pinned = pinned
         .into_iter()
         .next()
-        .ok_or_else(|| AppError::Internal("a pin went unwritten".into()))
-        .map(Json)
+        .ok_or_else(|| AppError::Internal("a pin went unwritten".into()))?;
+    Ok(super::Created::at(&state, format!("/overrides/{}", pinned.id), pinned))
 }
 
 /// The category to force on a title, and why.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PinRequest {
     /// The name of an existing category.
     pub target_category: String,

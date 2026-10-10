@@ -125,6 +125,7 @@ pub struct AlternativeDecision {
 
 /// Request to run a simulation.
 #[derive(Debug, Default, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SimulationRequest {
     #[serde(default)]
     pub instance_ids: Option<Vec<String>>,
@@ -190,6 +191,7 @@ pub struct CapacityForecast {
 /// Query parameters for decision listing.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct DecisionQuery {
     /// Only the decisions about this instance's titles.
     pub instance_id: Option<String>,

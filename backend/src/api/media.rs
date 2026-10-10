@@ -204,6 +204,7 @@ pub async fn list(
 /// holds it or on one.
 #[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct ExternalTitle {
     /// `movie` or `series`.
     #[serde(rename = "type")]
@@ -246,10 +247,26 @@ impl ExternalTitle {
     }
 }
 
-/// What `GET /route` takes beside the title.
-#[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
+/// What `GET /route` reads from one query string: the title, named as
+/// `ExternalTitle` names it, and how it would be added.
+// Its own fields rather than the two types flattened: a flattened query reads
+// every value as text, and no number parses.
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
-pub struct PlacementOptions {
+#[serde(deny_unknown_fields)]
+pub struct RouteQuery {
+    /// `movie` or `series`.
+    #[serde(rename = "type")]
+    pub media_type: String,
+    /// The title's TMDB id. Name the title by exactly one of `tmdb`, `tvdb`
+    /// and `imdb`.
+    pub tmdb: Option<i64>,
+    /// The title's TheTVDB id.
+    pub tvdb: Option<i64>,
+    /// The title's IMDb id, as `tt0133093`.
+    pub imdb: Option<String>,
+    /// Only the copy on this instance.
+    pub instance: Option<String>,
     /// The tag labels a title the Arr does not hold would be added with,
     /// separated by commas, for the rules that read tags.
     pub tags: Option<String>,
@@ -264,14 +281,26 @@ pub struct PlacementOptions {
     pub enrich: Option<bool>,
 }
 
+impl RouteQuery {
+    fn title(&self) -> ExternalTitle {
+        ExternalTitle {
+            media_type: self.media_type.clone(),
+            tmdb: self.tmdb,
+            tvdb: self.tvdb,
+            imdb: self.imdb.clone(),
+            instance: self.instance.clone(),
+        }
+    }
+}
+
 /// Where a title another service names would go, on each Arr that holds it or
 /// knows it.
 pub async fn place(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
-    Query(title): Query<ExternalTitle>,
-    Query(options): Query<PlacementOptions>,
+    Query(options): Query<RouteQuery>,
 ) -> AppResult<Json<crate::services::placement::Placement>> {
+    let title = options.title();
     let enrich = options.enrich.unwrap_or(false);
     // Asking the sources now spends the owner's quotas, as the `operate`
     // probes of `/health` do. What is cached is the read scope's.

@@ -260,6 +260,28 @@ async fn no_near_miss_key_is_accepted() {
     }
 }
 
+/// RFC 9110 requires a challenge on every 401. The one named is the scheme a
+/// key is honoured under, and a Bearer challenge opens no browser dialog.
+#[tokio::test]
+async fn a_refused_key_names_the_scheme_to_use() {
+    let app = TestApp::with_api_key("s3cret").await;
+
+    for key in [None, Some("wrong"), Some("rtr_gone_x")] {
+        let mut request = Request::get("/api/v1/settings");
+        if let Some(key) = key {
+            request = request.header("x-api-key", key);
+        }
+        let refused = app.send(request.body(Body::empty()).unwrap()).await;
+        assert_eq!(refused.status, StatusCode::UNAUTHORIZED, "{key:?}");
+        assert_eq!(refused.json["error"], "unauthorized", "{key:?}");
+        assert_eq!(
+            refused.header("www-authenticate").as_deref(),
+            Some(r#"Bearer realm="Routarr""#),
+            "{key:?}"
+        );
+    }
+}
+
 /// A `Bearer` token is accepted under that scheme however it is cased, as
 /// HTTP compares a scheme. `Basic` and a bare token do not slip through.
 #[tokio::test]
@@ -1478,7 +1500,7 @@ async fn a_panicking_handler_answers_five_hundred_with_its_request_id() {
     let body = response.into_body().collect().await.unwrap().to_bytes();
     let json: serde_json::Value =
         serde_json::from_slice(&body).expect("a JSON body like any other error");
-    assert_eq!(json["error"], "internal");
+    assert_eq!(json["error"], "internal_error");
 }
 
 /// The panic itself reaches the log, in the request's span: the id a user
@@ -1588,7 +1610,7 @@ async fn a_key_minted_in_a_session_mode_is_the_one_on_disk() {
                 .unwrap(),
         )
         .await;
-    removed.assert_status(StatusCode::NO_CONTENT);
+    assert_eq!(removed.assert_ok()["deleted"], true);
     assert_eq!(crate::crypto::read_api_key(&app.state.config.api_key_path()), None);
     assert_eq!(get_with_key(&app, "/api/v1/status", &minted).await, StatusCode::UNAUTHORIZED);
 }

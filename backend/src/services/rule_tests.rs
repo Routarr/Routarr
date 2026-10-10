@@ -149,6 +149,7 @@ fn run_one(
 
 /// What a caller supplies to pin a case.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct NewRuleTest {
     pub name: String,
     /// The library item to snapshot. Resolved once, here, and never referenced

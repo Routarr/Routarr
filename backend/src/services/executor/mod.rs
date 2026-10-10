@@ -107,7 +107,10 @@ pub async fn apply_decisions(
     let (current, superseded) = current_proposals(&state.pool, &asked).await?;
     if current.is_empty() && superseded > 0 {
         let localizer = state.localizer().await;
-        return Err(AppError::Conflict(localizer.translate("ErrorProposalsReplaced", &[])));
+        return Err(AppError::Conflict {
+            reason: "proposals_replaced",
+            message: localizer.translate("ErrorProposalsReplaced", &[]),
+        });
     }
     let decision_ids = current.as_slice();
     // The limit first: it is a count, so it costs no query, and it keeps a
@@ -176,7 +179,10 @@ pub async fn apply_simulation_in_batches(
     let localizer = state.localizer().await;
     let (ids, superseded) = applicable_from_simulation(&state.pool, simulation_id).await?;
     if ids.is_empty() && superseded > 0 {
-        return Err(AppError::Conflict(localizer.translate("ErrorProposalsReplaced", &[])));
+        return Err(AppError::Conflict {
+            reason: "proposals_replaced",
+            message: localizer.translate("ErrorProposalsReplaced", &[]),
+        });
     }
     if ids.is_empty() {
         return Err(AppError::BadRequest(localizer.translate("ErrorNoSelection", &[])));
@@ -218,7 +224,10 @@ pub async fn apply_simulation_in_batches(
     }
 
     let Some(lock) = state.jobs.try_lock("apply") else {
-        return Err(AppError::Conflict(localizer.translate("ErrorApplyInProgress", &[])));
+        return Err(AppError::InProgress {
+            reason: "apply_running",
+            message: localizer.translate("ErrorApplyInProgress", &[]),
+        });
     };
 
     let size: usize = state.bounding_setting::<usize>("batch_limit").await?.max(1);
@@ -377,9 +386,10 @@ async fn run_apply(
     superseded: usize,
 ) -> AppResult<ApplyReport> {
     let Some(lock) = state.jobs.try_lock("apply") else {
-        return Err(AppError::Conflict(
-            state.localizer().await.translate("ErrorApplyInProgress", &[]),
-        ));
+        return Err(AppError::InProgress {
+            reason: "apply_running",
+            message: state.localizer().await.translate("ErrorApplyInProgress", &[]),
+        });
     };
     run_locked(state, decision_ids, move_files, by, lock, superseded).await
 }
@@ -467,9 +477,10 @@ pub async fn revert_decisions(
     refuse_unknown_decisions(state, decision_ids).await?;
 
     let Some(lock) = state.jobs.try_lock("apply") else {
-        return Err(AppError::Conflict(
-            state.localizer().await.translate("ErrorApplyInProgress", &[]),
-        ));
+        return Err(AppError::InProgress {
+            reason: "apply_running",
+            message: state.localizer().await.translate("ErrorApplyInProgress", &[]),
+        });
     };
 
     let mut job = state

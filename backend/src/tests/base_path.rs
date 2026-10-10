@@ -24,6 +24,26 @@ async fn mounted_at(base: &str) -> TestApp {
     serving(config).await
 }
 
+/// A route asked with a method it does not take answers the envelope every
+/// other failure carries, and the `Allow` header HTTP requires on a 405, so a
+/// client that parses every failure as one shape does not fail on this one.
+#[tokio::test]
+async fn a_method_a_route_does_not_take_answers_the_envelope_and_its_allow_header() {
+    use axum::body::Body;
+    use axum::http::Request;
+
+    for (base, prefix) in [("", ""), ("/routarr", "/routarr")] {
+        let app = mounted_at(base).await;
+        let request = Request::patch(format!("{prefix}/api/v1/rules")).body(Body::empty()).unwrap();
+        let response = app.send(request).await;
+
+        assert_eq!(response.status, StatusCode::METHOD_NOT_ALLOWED, "{prefix}");
+        assert_eq!(response.json["error"], "method_not_allowed", "{}", response.json);
+        let allow = response.header("allow").unwrap_or_default();
+        assert!(allow.contains("GET") && allow.contains("POST"), "allow: {allow}");
+    }
+}
+
 /// Under the API prefix every miss is a JSON 404, whatever the method and
 /// wherever the application is mounted. Answered with `index.html` and a 200,
 /// a typo in an API path leaves a script parsing HTML as JSON, with a message

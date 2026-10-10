@@ -90,10 +90,10 @@ async fn sync_instance_inner(
     // Refuse to pile up concurrent syncs of the same instance: the scheduler and
     // a user clicking "Sync" would otherwise fight over the same rows.
     let Some(_lock) = state.jobs.try_lock(&format!("sync:{}", instance.id)) else {
-        return Err(AppError::Conflict(format!(
-            "A sync is already running for instance '{}'",
-            instance.name
-        )));
+        return Err(AppError::InProgress {
+            reason: "sync_running",
+            message: format!("A sync is already running for instance '{}'", instance.name),
+        });
     };
 
     let mut job = state

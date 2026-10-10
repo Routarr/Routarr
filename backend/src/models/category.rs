@@ -13,11 +13,13 @@ pub struct Category {
 
 /// Request body for renaming a category.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RenameCategoryRequest {
     pub name: String,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateCategoryRequest {
     pub name: String,
     pub description: Option<String>,

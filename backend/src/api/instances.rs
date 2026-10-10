@@ -58,9 +58,10 @@ fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceR
 /// instance by it, and two would be one there.
 fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Localizer) -> AppError {
     match &e {
-        sqlx::Error::Database(db) if db.is_unique_violation() => {
-            AppError::Conflict(localizer.translate("ErrorInstanceNameTaken", &[("name", name)]))
-        }
+        sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict {
+            reason: "name_taken",
+            message: localizer.translate("ErrorInstanceNameTaken", &[("name", name)]),
+        },
         _ => e.into(),
     }
 }
@@ -68,7 +69,7 @@ fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Local
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateInstanceRequest>,
-) -> AppResult<Json<InstanceResponse>> {
+) -> AppResult<super::Created<InstanceResponse>> {
     let localizer = state.localizer().await;
     let base_url = validate(&req, &localizer)?;
 
@@ -93,7 +94,9 @@ pub async fn create(
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
 
-    Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
+    let created =
+        InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path);
+    Ok(super::Created::at(&state, format!("/instances/{id}"), created))
 }
 
 pub async fn update(
@@ -164,9 +167,10 @@ pub async fn remove(
     // Not under a sync of it: its writes would fail on rows gone, and the
     // failure would be notified for an instance that no longer exists.
     let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
-        return Err(AppError::Conflict(
-            "This instance is being synced. Delete it once the sync has finished.".into(),
-        ));
+        return Err(AppError::InProgress {
+            reason: "sync_running",
+            message: "This instance is being synced. Delete it once the sync has finished.".into(),
+        });
     };
     // One transaction: the proposals go with the instance or not at all.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -241,6 +245,7 @@ pub async fn test(
 
 /// Values typed in the instance form, tried before anything is saved.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProbeRequest {
     pub instance_type: String,
     pub base_url: String,
@@ -385,11 +390,14 @@ async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
         Ok(explained) | Err(explained) => explained,
     };
     if let Some(task) = crate::jobs::registry::announced() {
-        let _ = sqlx::query("UPDATE jobs SET error_message = ? WHERE id = ? AND status = 'failed'")
-            .bind(explained.public_message())
-            .bind(task)
-            .execute(&state.pool)
-            .await;
+        let _ = sqlx::query(
+            "UPDATE jobs SET error_message = ?, error_code = ? WHERE id = ? AND status = 'failed'",
+        )
+        .bind(explained.public_message())
+        .bind(explained.code())
+        .bind(task)
+        .execute(&state.pool)
+        .await;
     }
     explained
 }

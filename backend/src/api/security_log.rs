@@ -60,6 +60,7 @@ impl From<Row> for SecurityEvent {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SecurityLogQuery {
     pub kind: Option<Kind>,
     pub outcome: Option<Outcome>,
