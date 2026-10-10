@@ -18,6 +18,8 @@ pub struct Media {
     pub monitored: bool,
     pub has_files: bool,
     pub status: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub added_at: Option<String>,
     /// Sonarr's own classification (`standard`, `anime` or `daily`), null for
     /// movies.
@@ -37,6 +39,8 @@ pub struct Media {
     /// ISO 639-1, normalised from the Arr's language *name* at sync time.
     pub original_language: Option<String>,
     pub certification: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
 }
 
@@ -94,6 +98,7 @@ impl From<Media> for MediaView {
 /// Query parameters for media listing.
 #[derive(Debug, Default, Deserialize, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct MediaQuery {
     /// Only the titles of this instance.
     pub instance_id: Option<String>,

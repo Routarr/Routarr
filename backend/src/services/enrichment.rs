@@ -70,9 +70,10 @@ pub async fn refresh(
 async fn pass_lock(state: &AppState) -> AppResult<crate::jobs::JobLock> {
     match state.jobs.try_lock("enrich") {
         Some(lock) => Ok(lock),
-        None => Err(AppError::Conflict(
-            state.localizer().await.translate("ErrorEnrichmentInProgress", &[]),
-        )),
+        None => Err(AppError::InProgress {
+            reason: "enrichment_running",
+            message: state.localizer().await.translate("ErrorEnrichmentInProgress", &[]),
+        }),
     }
 }
 

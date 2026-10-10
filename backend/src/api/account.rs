@@ -18,6 +18,7 @@ use crate::state::AppState;
 /// withdrawn: the password in `forms`, the API key in `apikey`. A session left
 /// open on a shared machine would otherwise make keys that outlive it.
 #[derive(Debug, Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Proof {
     #[serde(default)]
     pub current_password: Option<String>,
@@ -103,11 +104,13 @@ pub async fn prove(
 
 fn refuse_if_pinned(state: &AppState) -> AppResult<()> {
     if state.config.api_key.is_some() {
-        return Err(AppError::Conflict(
-            "ROUTARR_API_KEY sets this key, so it cannot be changed here. Change the variable \
+        return Err(AppError::Conflict {
+            reason: "key_pinned",
+            message:
+                "ROUTARR_API_KEY sets this key, so it cannot be changed here. Change the variable \
              and restart."
-                .into(),
-        ));
+                    .into(),
+        });
     }
     Ok(())
 }
@@ -149,22 +152,20 @@ pub async fn delete_api_key(
     axum::Extension(identity): axum::Extension<Identity>,
     Client(client): Client,
     body: axum::body::Bytes,
-) -> AppResult<StatusCode> {
+) -> AppResult<super::Json<super::Deleted>> {
     refuse_if_pinned(&state)?;
     // In `apikey` mode it is the only credential there is, and the middleware
     // refuses every request once it is gone, including the one that would put
     // it back.
     if state.config.auth_mode == AuthMode::ApiKey {
-        return Err(AppError::Conflict(
-            "The API key is the only way in while ROUTARR_AUTH=apikey. Switch to a session mode \
+        return Err(AppError::Conflict { reason: "only_credential", message: "The API key is the only way in while ROUTARR_AUTH=apikey. Switch to a session mode \
              before removing it."
-                .into(),
-        ));
+                .into() });
     }
     prove(&state, &identity, &proof_in(&body)?, client).await?;
     state.clear_api_key().await?;
     audited(&state, &identity, client, allowed(audit::Kind::ApiKey, "AuditApiKeyWithdrawn"));
-    Ok(StatusCode::NO_CONTENT)
+    Ok(super::Json(super::Deleted { deleted: true }))
 }
 
 /// Revoke every application key and replace the API key, unless the
@@ -183,6 +184,7 @@ pub(crate) async fn revoke_every_key(state: &AppState) -> AppResult<Option<Strin
 }
 
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PasswordChange {
     pub current: String,
     pub new_password: String,
@@ -299,11 +301,10 @@ pub async fn end_session(
     }
     let event = allowed(audit::Kind::SignOut, "AuditSessionEnded").with("handle", &handle);
     audited(&state, &identity, client, event);
+    let ended = super::Json(super::Deleted { deleted: true });
     if current {
         let cleared = super::auth::session_cookie(&state, &headers, "", 0);
-        return Ok(
-            ([(axum::http::header::SET_COOKIE, cleared)], StatusCode::NO_CONTENT).into_response()
-        );
+        return Ok(([(axum::http::header::SET_COOKIE, cleared)], ended).into_response());
     }
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok(ended.into_response())
 }

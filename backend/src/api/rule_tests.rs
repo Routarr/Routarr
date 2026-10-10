@@ -17,8 +17,22 @@ use crate::services::rule_engine::EvalContext;
 use crate::services::rule_tests::{self, NewRuleTest, RuleTest, RuleTestRun};
 use crate::state::AppState;
 
-pub async fn list(State(state): State<AppState>) -> AppResult<Json<Vec<RuleTest>>> {
-    Ok(Json(rule_tests::list(&state.pool).await?))
+/// A page of the cases, by name. The replay reads every case, the list a page.
+pub async fn list(
+    State(state): State<AppState>,
+    super::Query(query): super::Query<super::PageQuery>,
+) -> AppResult<Json<super::Page<RuleTest>>> {
+    let (page, per_page, offset) = super::paginate(query.page, query.per_page);
+    let cases = sqlx::query_as::<_, RuleTest>(
+        "SELECT * FROM rule_tests ORDER BY name, created_at, id LIMIT ? OFFSET ?",
+    )
+    .bind(per_page)
+    .bind(offset)
+    .fetch_all(&state.pool)
+    .await?;
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rule_tests").fetch_one(&state.pool).await?;
+    Ok(Json(super::Page::new(cases, page, per_page, total)))
 }
 
 pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> {
@@ -33,7 +47,7 @@ pub async fn run(State(state): State<AppState>) -> AppResult<Json<RuleTestRun>> 
 pub async fn create(
     State(state): State<AppState>,
     Json(body): Json<NewRuleTest>,
-) -> AppResult<Json<RuleTest>> {
+) -> AppResult<super::Created<RuleTest>> {
     rule_tests::validate(&body, &state.localizer().await)?;
 
     let media = crate::api::media::load_media(&state, &body.media_id).await?;
@@ -91,7 +105,7 @@ pub async fn create(
         .bind(&id)
         .fetch_one(&state.pool)
         .await?;
-    Ok(Json(created))
+    Ok(super::Created::at(&state, format!("/rule-tests/{id}"), created))
 }
 
 pub async fn delete(

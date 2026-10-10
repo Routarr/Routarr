@@ -203,7 +203,7 @@ async fn guardrail_refusals_are_translated() {
     let response =
         app.post("/api/v1/decisions/apply", serde_json::json!({ "decision_ids": ["x"] })).await;
 
-    response.assert_status(StatusCode::BAD_REQUEST);
+    response.assert_status(StatusCode::CONFLICT);
     assert!(response.message().contains("essai à blanc global"), "{}", response.message());
 }
 
@@ -224,6 +224,32 @@ async fn diagnostics_warnings_are_translated() {
 /// id the interface itself sent is a client fault and stays English, as it does
 /// in Radarr and Sonarr. Translating those would put the whole dictionary
 /// behind every 404.
+/// A probe that cannot reach an Arr says what to change, in the interface
+/// language, as the instance's own test says it, and the warning built from
+/// it carries neither a state code nor the transport's English.
+#[tokio::test]
+async fn a_probed_instance_failure_is_explained_in_the_interface_language() {
+    let app = TestApp::new().await;
+    speak_french(&app).await;
+    app.seed_instance_at("i-1", "radarr", "http://127.0.0.1:1").await;
+
+    let health = app.get("/api/v1/health").await;
+    let instance = health.assert_ok()["instances"][0].clone();
+    let tested = app.post("/api/v1/instances/i-1/test", serde_json::json!({})).await;
+    assert_eq!(instance["detail"].as_str(), Some(tested.message().as_str()), "{instance}");
+    assert_eq!(instance["status"], format!("error: {}", tested.message()));
+
+    let status = app.get("/api/v1/status").await;
+    let warnings = status.assert_ok()["warnings"].as_array().unwrap().clone();
+    let unreachable = warnings
+        .iter()
+        .find(|warning| warning["code"] == "instance_unreachable")
+        .expect("the probe's finding");
+    let message = unreachable["message"].as_str().unwrap();
+    assert!(message.contains(&tested.message()), "{message}");
+    assert!(!message.contains("error:") && !message.contains("is unreachable"), "{message}");
+}
+
 #[tokio::test]
 async fn a_refusal_about_what_was_typed_is_translated() {
     let app = TestApp::new().await;

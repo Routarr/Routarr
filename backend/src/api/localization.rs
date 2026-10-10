@@ -31,8 +31,12 @@ pub struct LocalizationResponse {
 /// The language is read back from the resolved `Localizer`, so the frontend is
 /// told which language it actually got: English, if the stored value is one this
 /// build does not ship.
-pub async fn dictionary(State(state): State<AppState>) -> AppResult<Json<LocalizationResponse>> {
-    Ok(Json(answer(&state).await))
+pub async fn dictionary(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+) -> AppResult<axum::response::Response> {
+    let json = serde_json::to_string(&answer(&state).await)?;
+    Ok(super::revalidated(&headers, json))
 }
 
 /// What `/localization` answers, which the page also carries from the start.

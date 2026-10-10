@@ -13,6 +13,7 @@
   import OutcomeBanner from '../components/OutcomeBanner.svelte';
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
+  import Pager from '../components/Pager.svelte';
 
   /**
    * Pinned expectations, replayed against the rules as they stand.
@@ -22,7 +23,13 @@
    * every rule below it, and the routing that quietly moves is the one nobody
    * was watching.
    */
-  const cases = createAsync((signal) => api.getRuleTests(signal));
+  let page = $state(1);
+  const cases = createAsync(
+    (signal) => api.getRuleTests({ page, per_page: 50 }, signal),
+    () => [page],
+  );
+  const listed = $derived(cases.data?.data ?? []);
+  const total = $derived(cases.data?.pagination.total ?? 0);
 
   let run = $state<RuleTestRun | null>(null);
   let busy = $state(false);
@@ -67,6 +74,8 @@
       run = null;
       outcome.succeed(t('RuleTestDeleted'));
       await cases.reload();
+      // The last case of the last page leaves the page before it to show.
+      if (listed.length === 0 && page > 1) page -= 1;
       void handFocus(deleteId(index), deleteId(index - 1), 'rule-tests-table');
     } catch (err) {
       outcome.fail(err);
@@ -85,11 +94,7 @@
       <p class="page-subtitle">{t('RuleTestsSubtitle')}</p>
     </div>
     <div class="flex gap-2">
-      <button
-        class="btn btn-primary"
-        disabled={busy || (cases.data?.length ?? 0) === 0}
-        onclick={() => void runAll()}
-      >
+      <button class="btn btn-primary" disabled={busy || total === 0} onclick={() => void runAll()}>
         <Play size={16} class={busy ? 'spin' : ''} />
         {busy ? t('RunningRuleTests') : t('RunRuleTests')}
       </button>
@@ -121,14 +126,14 @@
                would take the focus with them. -->
           {#if cases.loading && cases.data === null}
             <TableSkeleton columns={5} />
-          {:else if (cases.data?.length ?? 0) === 0 && !cases.error}
+          {:else if total === 0 && !cases.error}
             <tr>
               <td colspan="5">
                 <EmptyState>{t('NoRuleTests')}</EmptyState>
               </td>
             </tr>
           {:else}
-            {#each cases.data ?? [] as testCase, index (testCase.id)}
+            {#each listed as testCase, index (testCase.id)}
               {@const verdict = verdictOf(testCase.id)}
               <tr>
                 <td><strong>{testCase.name}</strong></td>
@@ -175,5 +180,6 @@
         </tbody>
       </table>
     </TableRegion>
+    <Pager pagination={cases.data?.pagination} bind:page countKey="RuleTestCount" />
   </div>
 </div>

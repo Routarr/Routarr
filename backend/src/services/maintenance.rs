@@ -9,7 +9,7 @@ use std::collections::HashSet;
 use sqlx::{AssertSqlSafe, SqlitePool};
 use tracing::{info, warn};
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::jobs::{Attribution, Detail, JobKind};
 use crate::services::metadata;
 use crate::state::AppState;
@@ -223,11 +223,13 @@ pub struct MaintenanceReport {
 /// Purge stale rows according to the retention settings.
 pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceReport> {
     let Some(_lock) = state.jobs.try_lock("maintenance") else {
-        return Ok(MaintenanceReport::default());
+        let message = state.localizer().await.translate("ErrorPurgeRunning", &[]);
+        return Err(AppError::InProgress { reason: "purge_running", message });
     };
 
-    let job =
+    let mut job =
         state.jobs.start(JobKind::Maintenance, by, None, Detail::new("JobDetailPurging")).await?;
+    crate::race::checked("maintenance::run", "").await;
     let outcome = purge(state).await;
 
     // The planner's statistics, which a connection the pool never closes
@@ -245,6 +247,7 @@ pub async fn run(state: &AppState, by: &Attribution) -> AppResult<MaintenanceRep
 
     match &outcome {
         Ok(report) => {
+            job.report(report);
             job.succeed(
                 Detail::new("JobDetailPurged")
                     .with("decisions", report.decisions_removed)

@@ -1,0 +1,5 @@
+# The breaks of v1 the release after v0.1.5 accepts, one per line as oasdiff
+# reports it. Each is named in that release's notes.
+GET /overrides the response's body `type` changed from `array<object>` to `object` for status `200`
+POST /overrides removed the success response with the status `200`
+GET /ping removed the required property `version` from the response with the `200` status

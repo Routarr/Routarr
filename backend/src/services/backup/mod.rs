@@ -53,6 +53,8 @@ pub struct BackupManifest {
 pub struct BackupFile {
     pub name: String,
     pub size_bytes: u64,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
     /// Sealed with the backup passphrase: a restore asks for it, and
     /// `routarr decrypt-backup` opens it by hand.
@@ -155,11 +157,15 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
         return Err(AppError::TooManyRequests { message, retry_after: seconds });
     }
     let Some(_lock) = state.jobs.try_lock("backup") else {
-        return Err(AppError::Conflict("A backup is already running".into()));
+        return Err(AppError::InProgress {
+            reason: "backup_running",
+            message: "A backup is already running".into(),
+        });
     };
 
-    let job =
+    let mut job =
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailBackingUp")).await?;
+    crate::race::checked("backup::create", "").await;
     let suffix = if by_application { APPLICATION_SUFFIX } else { "" };
     let outcome = match sealed::passphrase(state).await {
         Ok(passphrase) => {
@@ -169,7 +175,10 @@ pub async fn create(state: &AppState, by: &Attribution) -> AppResult<BackupFile>
     };
 
     match &outcome {
-        Ok(file) => job.succeed(Detail::new("JobDetailBackedUp").with("file", &file.name)).await,
+        Ok(file) => {
+            job.report(file);
+            job.succeed(Detail::new("JobDetailBackedUp").with("file", &file.name)).await
+        }
         Err(e) => job.fail(e).await,
     }
 
@@ -249,9 +258,7 @@ async fn write_archive(
     // the whole database is written for nothing. Checked again at the end,
     // since the name can be taken meanwhile.
     if path.exists() || dir.join(&plain_name).exists() {
-        return Err(AppError::Conflict(
-            "A backup was taken this second. Try again in a moment.".into(),
-        ));
+        return Err(taken_this_second());
     }
 
     // A consistent snapshot of the live database, WAL included, in the work
@@ -312,6 +319,14 @@ async fn write_archive(
     info!("Backup written to {} ({size_bytes} bytes)", path.display());
     let encrypted = sealed::is_sealed_file(&path);
     Ok(BackupFile { name, size_bytes, created_at: manifest.created_at, encrypted })
+}
+
+/// An archive is named to the second, and the name is taken.
+fn taken_this_second() -> AppError {
+    AppError::InProgress {
+        reason: "backup_just_taken",
+        message: "A backup was taken this second. Try again in a moment.".into(),
+    }
 }
 
 /// `VACUUM INTO` against the live pool.
@@ -436,7 +451,7 @@ fn build_zip(
 
     // Never over an archive that already exists, which `rename` would replace.
     if path.exists() {
-        return Err(AppError::Internal(format!("{} already exists", path.display())));
+        return Err(taken_this_second());
     }
     std::fs::rename(&partial, path)
         .map_err(|e| AppError::Internal(format!("cannot name {}: {e}", path.display())))?;
@@ -626,7 +641,10 @@ pub async fn stage_restore(
         return Err(AppError::NotFound("Unknown backup".into()));
     }
     let Some(lock) = state.jobs.try_lock("restore") else {
-        return Err(AppError::Conflict("A restore is already being staged".into()));
+        return Err(AppError::InProgress {
+            reason: "restore_staging",
+            message: "A restore is already being staged".into(),
+        });
     };
 
     let state = state.clone();
@@ -893,7 +911,10 @@ pub async fn decrypt_offline(
     }
     let out = PathBuf::from(out);
     if out.exists() {
-        return Err(AppError::Conflict(format!("{} exists already", out.display())));
+        return Err(AppError::Conflict {
+            reason: "file_exists",
+            message: format!("{} exists already", out.display()),
+        });
     }
     let folder = |path: &Path| path.parent().and_then(|parent| std::fs::canonicalize(parent).ok());
     if folder(&out).is_some_and(|parent| {

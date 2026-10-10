@@ -28,6 +28,7 @@ use crate::state::AppState;
 const BUNDLE_VERSION: u32 = 1;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigBundle {
     pub version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,12 +48,14 @@ pub struct ConfigBundle {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Setting {
     pub key: String,
     pub value: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Category {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,6 +64,7 @@ pub struct Category {
 
 /// An Arr connection, minus the one thing that cannot travel.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Instance {
     pub name: String,
     pub instance_type: String,
@@ -79,6 +83,7 @@ pub struct Instance {
 
 /// A folder mapping, keyed by what means the same thing on another machine.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RootFolderMapping {
     pub instance_name: String,
     pub path: String,
@@ -87,6 +92,7 @@ pub struct RootFolderMapping {
 
 /// A human decision about one media, keyed by its external identity.
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Override {
     /// Kept for the human reading the bundle: matching goes by external id.
     pub media_title: String,
@@ -102,6 +108,11 @@ pub struct Override {
     pub target_category: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    // A bundle may hold a lock on an exception. It is read and dropped, since
+    // an exception pins its title whatever it holds: refused, the whole bundle
+    // would not import.
+    #[serde(rename = "locked", default, skip_serializing)]
+    pub _locked: Option<serde::de::IgnoredAny>,
 }
 
 pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundle>> {
@@ -180,6 +191,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
             tvdb_id,
             target_category,
             reason,
+            _locked: None,
         }
     })
     .collect();
@@ -199,6 +211,7 @@ pub async fn export(State(state): State<AppState>) -> AppResult<Json<ConfigBundl
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     pub bundle: ConfigBundle,
     /// Whether the bundle's rules replace the rules in place, rather than
@@ -352,8 +365,8 @@ pub async fn import(
         }
 
         sqlx::query(
-            "INSERT INTO settings (key, value) VALUES (?, ?)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            "INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now'))
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
         )
         .bind(key)
         // In the form `PUT /settings` stores it. The gate above validates that
@@ -394,29 +407,26 @@ pub async fn import(
     // instance that looks connected but cannot authenticate would fail on every
     // scheduler tick and fill the log with noise the user did not ask for.
     for instance in &bundle.instances {
-        // The same three checks `POST /instances` applies. Written into the
-        // table unchecked, a type no adapter knows or a URL with no scheme
-        // produces a row the create endpoint would have refused, and one the
-        // edit screen cannot save without fixing first.
-        if instance.instance_type.parse::<crate::models::InstanceType>().is_err() {
-            report.skipped.push(format!(
-                "instance '{}': '{}' is not a known instance type",
-                instance.name, instance.instance_type
-            ));
-            continue;
-        }
-        let base_url = instance.base_url.trim().trim_end_matches('/');
-        if !base_url.starts_with("http://") && !base_url.starts_with("https://") {
-            report.skipped.push(format!(
-                "instance '{}': base_url must start with http:// or https://",
-                instance.name
-            ));
-            continue;
-        }
-        if instance.name.trim().is_empty() {
-            report.skipped.push("an instance with no name was left out".to_string());
-            continue;
-        }
+        // The check `POST /instances` applies: written unchecked, a type no
+        // adapter knows or an address the key would leak past makes a row the
+        // create endpoint refuses, and one the edit screen cannot save.
+        let checked = super::instances::validate(
+            &instance.name,
+            &instance.instance_type,
+            &instance.base_url,
+            &localizer,
+        );
+        let base_url = match checked {
+            Ok(base_url) => base_url,
+            Err(e) => {
+                report.skipped.push(format!(
+                    "instance '{}': {}",
+                    instance.name,
+                    e.public_message()
+                ));
+                continue;
+            }
+        };
 
         // Stored as `POST /instances` stores it: the name trimmed, the interval
         // within the day the scheduler clamps it to when it reads it, so the
@@ -445,7 +455,7 @@ pub async fn import(
         .bind(Uuid::new_v4().to_string())
         .bind(name)
         .bind(instance.instance_type.to_lowercase())
-        .bind(base_url)
+        .bind(&base_url)
         .bind(instance.sync_interval_minutes.clamp(1, crate::jobs::MAX_SYNC_INTERVAL_MINUTES))
         .bind(Uuid::new_v4().to_string())
         .execute(&mut *tx)
@@ -553,11 +563,10 @@ pub async fn import(
             continue;
         }
 
-        // The same two checks `POST /overrides` applies. An override
-        // short-circuits the engine entirely, so one naming a category this
-        // installation does not have routes its item nowhere, silently, and
-        // without appearing in `skipped`, which is the one place a partial
-        // restore is supposed to be visible.
+        // An override short-circuits the engine entirely, so one naming a
+        // category this installation does not have routes its item nowhere,
+        // silently, and without appearing in `skipped`, which is the one place
+        // a partial restore is supposed to be visible.
         let category = over.target_category.trim().to_lowercase();
         if !categories.contains(&category) {
             report.skipped.push(format!(
@@ -576,21 +585,18 @@ pub async fn import(
                 media_ids.len()
             ));
         }
-        for media_id in &media_ids {
-            sqlx::query(
-                "INSERT INTO overrides (id, media_id, target_category, reason)
-                 VALUES (?, ?, ?, ?)
-                 ON CONFLICT(media_id) DO UPDATE SET
-                    target_category = excluded.target_category,
-                    reason = excluded.reason",
-            )
-            .bind(Uuid::new_v4().to_string())
-            .bind(media_id)
-            .bind(&category)
-            .bind(&over.reason)
-            .execute(&mut *tx)
-            .await?;
-            report.overrides += 1;
+        // As `POST /overrides` pins: the importer named as who set it, and the
+        // proposals the pin now decides withdrawn.
+        let reason = over.reason.as_deref();
+        let by = identity.attribution();
+        match super::overrides::pin_in(&mut tx, &media_ids, &category, reason, &by, &localizer)
+            .await
+        {
+            Ok(()) => report.overrides += media_ids.len(),
+            Err(AppError::BadRequest(why)) => {
+                report.skipped.push(format!("override for '{}': {why}", over.media_title));
+            }
+            Err(e) => return Err(e),
         }
     }
 
@@ -635,6 +641,13 @@ pub async fn import(
     }
 
     tx.commit().await?;
+    // As `PUT /settings` does: archives above a lowered retention go now, not
+    // at the next backup.
+    if bundle.settings.iter().any(|setting| setting.key == "backup_retention_count")
+        && let Err(e) = crate::services::backup::prune(&state).await
+    {
+        tracing::warn!("Could not prune backups after the retention changed: {e}");
+    }
     crate::api::auth::audited(&state, &identity, client, bundled);
     Ok(Json(report))
 }

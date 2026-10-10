@@ -13,9 +13,13 @@ pub struct RootFolder {
     pub free_space: Option<i64>,
     pub accessible: bool,
     pub category: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_synced_at: Option<String>,
     /// When the folder last answered, as opposed to when it was last seen in a
     /// pass. `null` for one that has never answered.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_accessible_at: Option<String>,
     /// `arr` for a folder the instance reports, `declared` for one typed into
     /// Routarr. Only the second may be deleted here.
@@ -24,6 +28,7 @@ pub struct RootFolder {
 
 /// Request to declare a destination the Arr does not report.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct DeclareRootFolder {
     pub instance_id: String,
     pub path: String,
@@ -31,7 +36,12 @@ pub struct DeclareRootFolder {
 
 /// Request to update a root folder's category mapping.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateRootFolderCategory {
+    /// The category the folder receives, or null to unmap it. Required: a body
+    /// that leaves it out, or misspells it, would otherwise unmap the folder.
+    #[serde(deserialize_with = "Option::deserialize")]
+    #[schema(required = true)]
     pub category: Option<String>,
 }
 

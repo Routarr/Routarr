@@ -25,8 +25,17 @@ pub enum AppError {
     #[error("Bad request: {0}")]
     BadRequest(String),
 
-    #[error("Conflict: {0}")]
-    Conflict(String),
+    /// The state of what the call names refuses it, and stays so until somebody
+    /// changes it: a name already taken, a category still in use. `reason`
+    /// tells a script which, where the sentence is for a person.
+    #[error("Conflict: {message}")]
+    Conflict { reason: &'static str, message: String },
+
+    /// A job holding what the call needs is running, and the same call may
+    /// pass once it ends. Answered 409 like `Conflict`, with a `Retry-After`,
+    /// so a script tells a wait from a refusal that will not clear.
+    #[error("In progress: {message}")]
+    InProgress { reason: &'static str, message: String },
 
     /// A destructive batch needs an explicit second pass from the caller.
     ///
@@ -140,7 +149,8 @@ impl AppError {
         match self {
             AppError::NotFound(message)
             | AppError::BadRequest(message)
-            | AppError::Conflict(message)
+            | AppError::Conflict { message, .. }
+            | AppError::InProgress { message, .. }
             | AppError::UpstreamDown(message)
             | AppError::Forbidden(message)
             | AppError::ConfirmationRequired { message, .. }
@@ -170,17 +180,31 @@ fn describe_external(service: &str, status: u16, message: &str) -> String {
     }
 }
 
+/// Seconds a caller refused by a running job waits before asking again.
+const RETRY_IN_PROGRESS: u64 = 5;
+
 /// The envelope every refusal and failure answers.
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     /// A stable code: `bad_request`, `unauthorized`, `forbidden`, `not_found`,
-    /// `conflict`, `confirmation_required`, `too_many_requests`, `busy`,
-    /// `reauthentication_required`, `passphrase_required`, `external_api_error`,
-    /// or an internal kind.
+    /// `method_not_allowed`, `conflict`, `confirmation_required`,
+    /// `payload_too_large`, `unsupported_media_type`, `too_many_requests`,
+    /// `busy`, `reauthentication_required`, `passphrase_required`,
+    /// `external_api_error` or `internal_error`. An open list.
     pub error: String,
     /// A sentence for a person, in the interface language. Never part of the
     /// contract.
     pub message: String,
+    /// Why a `conflict` refuses, an open list. A job still running, with a
+    /// `Retry-After` header: `apply_running`, `simulation_running`,
+    /// `previews_full`, `sync_running`, `enrichment_running`, `backup_running`,
+    /// `backup_just_taken`, `restore_staging`, `purge_running`. A state that
+    /// stays until somebody changes it: `name_taken`, `in_use`,
+    /// `already_listed`, `not_declared`, `category_mapped`,
+    /// `proposals_replaced`, `dry_run`, `not_cancellable`, `key_pinned`,
+    /// `only_credential`, `secret_unreadable`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<&'static str>,
     /// The guardrail that asks, for `confirmation_required`. Sending it back
     /// in `confirm` accepts that question and no other.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -194,16 +218,23 @@ pub struct ErrorResponse {
     pub includes: Option<Vec<&'static str>>,
 }
 
-impl IntoResponse for AppError {
-    fn into_response(self) -> Response {
-        let (status, error_type) = match &self {
-            AppError::Database(_) => (StatusCode::INTERNAL_SERVER_ERROR, "database_error"),
-            AppError::Serialization(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "serialization_error")
+impl AppError {
+    /// The stable code of the envelope's `error`, which a task that failed on
+    /// this error keeps beside its sentence.
+    pub fn code(&self) -> &'static str {
+        self.status_and_code().1
+    }
+
+    fn status_and_code(&self) -> (StatusCode, &'static str) {
+        match self {
+            internal if internal.is_internal() => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
             }
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
-            AppError::Conflict(_) => (StatusCode::CONFLICT, "conflict"),
+            AppError::Conflict { .. } | AppError::InProgress { .. } => {
+                (StatusCode::CONFLICT, "conflict")
+            }
             AppError::ConfirmationRequired { .. } | AppError::ConfirmationWithheld { .. } => {
                 (StatusCode::CONFLICT, "confirmation_required")
             }
@@ -217,9 +248,14 @@ impl IntoResponse for AppError {
             AppError::ExternalApi { .. } | AppError::UpstreamDown(_) => {
                 (StatusCode::BAD_GATEWAY, "external_api_error")
             }
-            AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
-            AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
-        };
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+        }
+    }
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, error_type) = self.status_and_code();
 
         if self.is_internal() {
             log_error!("{self}");
@@ -235,13 +271,27 @@ impl IntoResponse for AppError {
             }
             _ => (None, None, None),
         };
+        let reason = match &self {
+            AppError::Conflict { reason, .. } | AppError::InProgress { reason, .. } => {
+                Some(*reason)
+            }
+            _ => None,
+        };
         let retry_after = match &self {
             AppError::TooManyRequests { retry_after, .. } => Some(*retry_after),
             AppError::Busy(_) => Some(1),
+            AppError::InProgress { .. } => Some(RETRY_IN_PROGRESS),
+            AppError::ExternalApi { retry_after, .. } => *retry_after,
             _ => None,
         };
-        let body =
-            ErrorResponse { error: error_type.to_string(), message, confirm, answerable, includes };
+        let body = ErrorResponse {
+            error: error_type.to_string(),
+            message,
+            reason,
+            confirm,
+            answerable,
+            includes,
+        };
 
         let mut response = (status, axum::Json(body)).into_response();
         if let Some(seconds) = retry_after {

@@ -117,13 +117,16 @@ pub struct Application {
     pub scopes: Vec<Scope>,
     pub may_confirm: Vec<String>,
     pub may_move_files: bool,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub created_at: String,
     pub created_by: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
     pub last_used_at: Option<String>,
 }
 
 /// What the owner asks for when making a key.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NewApplication {
     pub name: String,
     #[serde(default)]
@@ -258,7 +261,7 @@ pub async fn create(
         Err(sqlx::Error::Database(e)) if e.is_unique_violation() => {
             let refusal =
                 state.localizer().await.translate("ErrorApplicationNameTaken", &[("name", &name)]);
-            return Err(AppError::Conflict(refusal));
+            return Err(AppError::Conflict { reason: "name_taken", message: refusal });
         }
         Err(e) => return Err(e.into()),
     }

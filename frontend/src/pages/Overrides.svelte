@@ -16,19 +16,24 @@
   import TableSkeleton from '../components/TableSkeleton.svelte';
   import TableRegion from '../components/TableRegion.svelte';
   import SearchField from '../components/SearchField.svelte';
+  import Pager from '../components/Pager.svelte';
 
-  const bundle = createAsync(async (signal) => {
-    const [overrides, categories] = await Promise.all([
-      api.getOverrides(signal),
-      api.getCategories(signal),
-    ]);
-    return { overrides, categories };
-  });
+  let page = $state(1);
+  const bundle = createAsync(
+    async (signal) => {
+      const [overrides, categories] = await Promise.all([
+        api.getOverrides({ page, per_page: 50 }, signal),
+        api.getCategories(signal),
+      ]);
+      return { overrides, categories };
+    },
+    () => [page],
+  );
 
   const outcome = createOutcome();
   let creating = $state(false);
 
-  const overrides = $derived(bundle.data?.overrides ?? []);
+  const overrides = $derived(bundle.data?.overrides.data ?? []);
   const categories = $derived<Category[]>(bundle.data?.categories ?? []);
 
   // A removed exception takes its row and the pressed Delete with it: the one
@@ -41,6 +46,8 @@
       await api.deleteOverride(id);
       outcome.succeed(t('OverrideRemoved'));
       await bundle.reload();
+      // The last exception of the last page leaves the page before it to show.
+      if (overrides.length === 0 && page > 1) page -= 1;
       void handFocus(deleteId(index), deleteId(index - 1), 'overrides-table');
     } catch (err) {
       outcome.fail(err);
@@ -203,6 +210,7 @@
         </tbody>
       </table>
     </TableRegion>
+    <Pager pagination={bundle.data?.overrides.pagination} bind:page countKey="OverrideCount" />
   </div>
 
   {#if creating}

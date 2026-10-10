@@ -92,6 +92,9 @@ pub struct AppState {
     pub key_rates: Arc<crate::services::applications::Rates>,
     /// The titles an Arr did not know when a placement asked, for a while.
     pub route_misses: Arc<crate::services::placement::Misses>,
+    /// The last probe `/health` made, which a second caller waits for and a
+    /// caller soon after reads again.
+    pub last_probe: Arc<tokio::sync::Mutex<Option<Arc<crate::api::health::Probe>>>>,
 }
 
 /// The settings table as it stood when it was read, by [`AppState::settings`].
@@ -99,6 +102,15 @@ pub struct AppState {
 /// Parsed the way the single-key readers parse, so an answer is the same
 /// whichever of the two a caller asked.
 pub struct Settings(std::collections::HashMap<String, String>);
+
+/// Over every row, in key order.
+impl std::hash::Hash for Settings {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let mut rows: Vec<_> = self.0.iter().collect();
+        rows.sort();
+        rows.hash(state);
+    }
+}
 
 impl Settings {
     /// The stored text, or `None` when the key has no row.
@@ -513,6 +525,7 @@ impl AppState {
             audit: Arc::new(crate::services::audit::Log::storing(pool.clone())),
             key_rates: Arc::default(),
             route_misses: Arc::default(),
+            last_probe: Arc::default(),
             config: Arc::new(config),
             pool,
         }

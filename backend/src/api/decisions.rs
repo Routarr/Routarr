@@ -133,6 +133,7 @@ pub async fn list(
 
 /// Request to apply selected decisions.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ApplyDecisionsRequest {
     /// The pending decisions to apply.
     pub decision_ids: Vec<String>,
@@ -147,6 +148,7 @@ pub struct ApplyDecisionsRequest {
 
 /// Apply everything one simulation proposed, in slices.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ApplyAllRequest {
     /// The simulation whose decisions to apply.
     pub simulation_id: String,
@@ -163,6 +165,7 @@ pub struct ApplyAllRequest {
 
 /// Request to roll a previously applied decision back to its original folder.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct RevertDecisionsRequest {
     /// The applied decisions to move back.
     pub decision_ids: Vec<String>,

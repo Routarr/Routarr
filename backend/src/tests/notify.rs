@@ -653,7 +653,7 @@ async fn a_notification_is_signed_with_the_secret_shown_once() {
     assert_eq!(body["data"]["instance"], "Radarr");
 
     let removed = app.delete("/api/v1/notifications/webhook-secret").await;
-    assert_eq!(removed.status, axum::http::StatusCode::NO_CONTENT);
+    assert_eq!(removed.assert_ok()["deleted"], true);
     notify::send(&app.state, recovered()).await;
     assert_eq!(receiver.deliveries().pop().unwrap().signature, None);
 }

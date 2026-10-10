@@ -29,6 +29,7 @@ mod paths;
 mod race;
 mod services;
 mod state;
+mod timestamp;
 
 #[cfg(test)]
 mod tests;
@@ -118,6 +119,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
         notifications: Arc::default(),
         key_rates: Arc::default(),
         route_misses: Arc::default(),
+        last_probe: Arc::default(),
         config: Arc::new(config),
     };
 
@@ -444,6 +446,19 @@ async fn api_not_found() -> Response {
         .into_response()
 }
 
+/// A path that exists, asked with a method it does not take. The router adds
+/// the `Allow` header that lists the ones it does.
+async fn api_method_not_allowed() -> Response {
+    (
+        StatusCode::METHOD_NOT_ALLOWED,
+        axum::Json(serde_json::json!({
+            "error": "method_not_allowed",
+            "message": "This API route does not take this method.",
+        })),
+    )
+        .into_response()
+}
+
 /// What the request span records as the path.
 ///
 /// The webhook token is a credential, and the span is on every line logged
@@ -614,7 +629,11 @@ fn build_router(state: AppState) -> Router {
     // A miss under the API prefix is a JSON 404, whatever the method: left to
     // the application's fallback it would answer `index.html` with a 200, and
     // a script with a typo in its path would parse HTML as JSON.
-    let api_routes = public.merge(protected).merge(webhooks).fallback(api_not_found);
+    let api_routes = public
+        .merge(protected)
+        .merge(webhooks)
+        .method_not_allowed_fallback(api_method_not_allowed)
+        .fallback(api_not_found);
 
     let mut api = Router::new().nest(&format!("{}/api/v1", config.base_path), api_routes);
     // Mounted under a sub-path, the root, where someone typing the bare
@@ -745,7 +764,7 @@ pub(crate) fn panic_response(_: Box<dyn std::any::Any + Send + 'static>) -> Resp
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         axum::Json(serde_json::json!({
-            "error": "internal",
+            "error": "internal_error",
             "message": "Something went wrong. The request id is in the response headers.",
         })),
     )
@@ -826,6 +845,8 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
     let service = ServeDir::new(&config.frontend_dir)
         .append_index_html_on_directories(false)
         .fallback(fallback);
+    let service =
+        Router::new().fallback_service(service).layer(middleware::from_fn(keep_hashed_files));
 
     if config.base_path.is_empty() {
         app.fallback_service(service)
@@ -833,6 +854,23 @@ fn attach_frontend(app: Router, config: &Config, state: AppState) -> Router {
         // Mounted under a sub-path, anything outside it is not ours to answer.
         app.nest_service(&config.base_path, service)
     }
+}
+
+/// A file under `assets/` is named after a hash of what it holds, so a build
+/// that changes it gives it another name, and a browser may keep one as long
+/// as it likes rather than asking for every chunk again on every load. The
+/// page names them and is never kept (`attach_frontend`), and a miss there,
+/// answered with the page, keeps the page's own `no-cache`.
+async fn keep_hashed_files(request: axum::extract::Request, next: middleware::Next) -> Response {
+    let hashed = request.uri().path().starts_with("/assets/");
+    let mut response = next.run(request).await;
+    if hashed && response.status().is_success() {
+        response
+            .headers_mut()
+            .entry(axum::http::header::CACHE_CONTROL)
+            .or_insert(axum::http::HeaderValue::from_static("public, max-age=31536000, immutable"));
+    }
+    response
 }
 
 /// Read `index.html` and point its relative asset URLs at the mount point.

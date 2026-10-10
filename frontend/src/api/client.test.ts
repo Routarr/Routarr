@@ -620,6 +620,18 @@ describe('a write followed through its job', () => {
     ]);
   });
 
+  /** A backup or a purge of a large library runs past the request bound. */
+  it('follows a backup and a purge as tasks, past the bound of one request', async () => {
+    for (const call of [() => api.createBackup(), () => api.purge()]) {
+      const spy = vi.fn().mockResolvedValueOnce(answer(200, { name: 'taken' }));
+      vi.stubGlobal('fetch', spy);
+
+      await call();
+
+      expect(fetchCall(spy).options.headers.Prefer).toBe('respond-async');
+    }
+  });
+
   it('tells the caller how far the job has gone, look by look', async () => {
     vi.useFakeTimers();
     vi.stubGlobal(

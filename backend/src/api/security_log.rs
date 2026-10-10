@@ -17,6 +17,7 @@ use crate::state::AppState;
 #[derive(Debug, Serialize)]
 pub struct SecurityEvent {
     pub id: i64,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
     pub at: String,
     pub kind: String,
     pub outcome: String,
@@ -60,6 +61,7 @@ impl From<Row> for SecurityEvent {
 }
 
 #[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SecurityLogQuery {
     pub kind: Option<Kind>,
     pub outcome: Option<Outcome>,

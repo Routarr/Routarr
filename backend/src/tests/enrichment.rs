@@ -419,7 +419,7 @@ async fn a_concurrent_pass_is_refused() {
 
     assert!(matches!(
         enrichment::enrich_all_media(&app.state, &crate::jobs::Attribution::manual(None)).await,
-        Err(crate::error::AppError::Conflict(_))
+        Err(crate::error::AppError::InProgress { reason: "enrichment_running", .. })
     ));
 }
 

@@ -128,7 +128,6 @@ test.describe('right to left', () => {
         media_type: 'movie',
         priority: 10,
         enabled: true,
-        condition_logic: 'any',
         conditions: [{ type: 'title_contains', value: ['akira'] }],
         exclusions: [],
       }),
@@ -236,7 +235,7 @@ test.describe('right to left', () => {
         match_mode: 'all',
         priority: 10,
         enabled: true,
-        instance_id: instanceId,
+        instance_ids: [instanceId],
         conditions: [{ type: 'genre_contains', value: ['Animation'] }],
       }),
     });

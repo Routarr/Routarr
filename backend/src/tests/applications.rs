@@ -290,7 +290,7 @@ async fn a_revoked_or_unknown_key_is_refused_even_where_nothing_is_asked() {
     send(&app, "GET", "/api/v1/status", Some(&token), None).await.assert_ok();
 
     let revoked = send(&app, "DELETE", &format!("/api/v1/applications/{id}"), None, None).await;
-    assert_eq!(revoked.status, StatusCode::NO_CONTENT);
+    assert_eq!(revoked.assert_ok()["deleted"], true);
     // Gone from the list, and revoked once only.
     let listed = send(&app, "GET", "/api/v1/applications", None, None).await;
     assert_eq!(listed.assert_ok().as_array().unwrap().len(), 0, "a revoked key is still listed");
@@ -678,7 +678,7 @@ async fn an_application_reads_its_own_name_and_no_one_elses() {
     let owner = send(&app, "GET", "/api/v1/jobs/j-person", None, None).await;
     assert_eq!(owner.assert_ok()["subject"], person, "the owner lost sight of who asked");
     let owner = send(&app, "GET", "/api/v1/overrides", None, None).await;
-    assert_eq!(owner.assert_ok()[0]["subject"], person);
+    assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
     let owner = send(&app, "GET", "/api/v1/logs", None, None).await;
     assert_eq!(owner.assert_ok()["data"][0]["subject"], person);
 }
@@ -715,7 +715,7 @@ async fn a_pin_names_the_application_that_set_it() {
     let set = send(&app, "POST", "/api/v1/overrides", Some(&token), Some(pin)).await;
     assert_eq!(set.assert_ok()["subject"], "request-bot");
     let listed = send(&app, "GET", "/api/v1/overrides", Some(&token), None).await;
-    assert_eq!(listed.assert_ok()[0]["subject"], "request-bot");
+    assert_eq!(listed.assert_ok()["data"][0]["subject"], "request-bot");
 }
 
 /// A key names who made it: the master key is `apikey`, and an open mode,
@@ -852,14 +852,14 @@ async fn a_new_key_under_a_revoked_name_does_not_read_the_old_ones_records_as_it
     let pin = json!({ "media_id": "m-1", "target_category": "anime" });
     send(&app, "POST", "/api/v1/overrides", Some(&first), Some(pin)).await.assert_ok();
     let own = send(&app, "GET", "/api/v1/overrides", Some(&first), None).await;
-    assert_eq!(own.assert_ok()[0]["subject"], "homepage", "a key lost sight of its own pin");
+    assert_eq!(own.assert_ok()["data"][0]["subject"], "homepage", "a key lost sight of its pin");
 
     let revoked = format!("/api/v1/applications/{}", key_id(&first));
-    send(&app, "DELETE", &revoked, None, None).await.assert_status(StatusCode::NO_CONTENT);
+    send(&app, "DELETE", &revoked, None, None).await.assert_ok();
     let second = mint(&app, None, json!({ "name": "homepage" })).await;
 
     let read = send(&app, "GET", "/api/v1/overrides", Some(&second), None).await;
-    assert_eq!(read.assert_ok()[0]["subject"], Value::Null, "the new key read the old one's pin");
+    assert_eq!(read.assert_ok()["data"][0]["subject"], Value::Null, "the new key read the old pin");
 }
 
 /// The account, the master key and the open modes write these names on what

@@ -8,6 +8,8 @@ pub struct OverrideEntry {
     pub media_id: String,
     pub target_category: String,
     pub reason: Option<String>,
+    #[serde(serialize_with = "crate::timestamp::rfc3339")]
+    #[schema(format = DateTime)]
     pub created_at: String,
     /// Who set it: an application's name, or the person a sign-in mode names.
     /// An application key reads its own name and null for anyone else.
@@ -16,6 +18,7 @@ pub struct OverrideEntry {
 
 /// A title, and the category to force on it.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateOverrideRequest {
     /// The title's id in Routarr, as `/media` lists it.
     pub media_id: String,

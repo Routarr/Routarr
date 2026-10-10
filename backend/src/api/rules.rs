@@ -1,6 +1,6 @@
 //! Rule administration: CRUD, validation, import/export and impact preview.
 
-use super::{Deleted, Json};
+use super::{Created, Deleted, Json};
 use axum::extract::State;
 
 use super::Path;
@@ -36,7 +36,7 @@ pub async fn get_one(
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateRuleRequest>,
-) -> AppResult<Json<Rule>> {
+) -> AppResult<Created<Rule>> {
     let issues = check(&state, &req).await?;
     reject_on_error(&issues)?;
 
@@ -46,7 +46,7 @@ pub async fn create(
     let mut tx = target_held(&state, &req).await?;
     insert_rule(&mut tx, &id, &req, &localizer).await?;
     tx.commit().await?;
-    fetch_rule(&state, &id).await.map(Json)
+    Ok(Created::at(&state, format!("/rules/{id}"), fetch_rule(&state, &id).await?))
 }
 
 pub async fn update(
@@ -107,7 +107,7 @@ pub async fn remove(
 pub async fn duplicate(
     State(state): State<AppState>,
     Path(id): Path<String>,
-) -> AppResult<Json<Rule>> {
+) -> AppResult<Created<Rule>> {
     let source = fetch_rule(&state, &id).await?;
     let new_id = Uuid::new_v4().to_string();
     let localizer = state.localizer().await;
@@ -124,7 +124,7 @@ pub async fn duplicate(
     let mut tx = target_held(&state, &copy).await?;
     insert_rule(&mut tx, &new_id, &copy, &localizer).await?;
     tx.commit().await?;
-    fetch_rule(&state, &new_id).await.map(Json)
+    Ok(Created::at(&state, format!("/rules/{new_id}"), fetch_rule(&state, &new_id).await?))
 }
 
 /// A copy's name in the reader's words, its source's name cut short enough
@@ -211,6 +211,7 @@ pub struct RuleImportReport {
 }
 
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PreviewRequest {
     /// The rule being edited. When `rule_id` is set it replaces that rule,
     /// otherwise it is appended to the current set.

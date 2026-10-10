@@ -50,6 +50,20 @@ describe('Diagnostics', () => {
     expect(recheck).toHaveAttribute('aria-busy', 'true');
   });
 
+  /** Opening the screen reads a probe of the last moments again, a recheck asks anew. */
+  it('asks for a fresh probe on a recheck alone', async () => {
+    const getHealth = vi.spyOn(api, 'getHealth').mockResolvedValue(health());
+    show();
+    const recheck = await screen.findByRole('button', { name: 'Recheck' });
+    await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(1));
+    expect(getHealth).toHaveBeenLastCalledWith({ fresh: false }, expect.any(AbortSignal));
+
+    await fireEvent.click(recheck);
+
+    await waitFor(() => expect(getHealth).toHaveBeenCalledTimes(2));
+    expect(getHealth).toHaveBeenLastCalledWith({ fresh: true }, expect.any(AbortSignal));
+  });
+
   it('says everything checks out rather than leaving the page silent', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(health());
     show();
@@ -94,14 +108,29 @@ describe('Diagnostics', () => {
   it('tells a source waiting for a key apart from one that answered badly', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       withProviders([
-        { id: 'tmdb', display_name: 'TMDB', needs_key: true, configured: false, connected: null },
-        { id: 'omdb', display_name: 'OMDb', needs_key: true, configured: true, connected: false },
+        {
+          id: 'tmdb',
+          display_name: 'TMDB',
+          needs_key: true,
+          configured: false,
+          connected: null,
+          reason: null,
+        },
+        {
+          id: 'omdb',
+          display_name: 'OMDb',
+          needs_key: true,
+          configured: true,
+          connected: false,
+          reason: 'key_refused',
+        },
         {
           id: 'arr',
           display_name: 'Radarr / Sonarr',
           needs_key: false,
           configured: true,
           connected: true,
+          reason: null,
         },
       ]),
     );
@@ -128,6 +157,7 @@ describe('Diagnostics', () => {
           needs_key: false,
           configured: true,
           connected: null,
+          reason: null,
         },
       ]),
     );
@@ -144,13 +174,19 @@ describe('Diagnostics', () => {
   it('reports an instance failure in its words, and what the server ran into beside them', async () => {
     vi.spyOn(api, 'getHealth').mockResolvedValue(
       health({
-        instances: [healthInstance({ status: 'error: connection refused', version: null })],
+        instances: [
+          healthInstance({
+            status: 'error: Nothing answers at the address',
+            detail: 'Nothing answers at the address',
+            version: null,
+          }),
+        ],
       }),
     );
     show();
 
     const failed = await screen.findByText('error');
-    expect(failed.closest('td')).toHaveTextContent('connection refused');
+    expect(failed.closest('td')).toHaveTextContent('Nothing answers at the address');
   });
 
   /**

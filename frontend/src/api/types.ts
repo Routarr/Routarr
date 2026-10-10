@@ -535,6 +535,8 @@ export interface Job {
   progress_current: number;
   progress_total: number;
   error_message: string | null;
+  /** The code the call would have answered, for a task that failed on an error. */
+  error: string | null;
   started_at: string;
   finished_at: string | null;
   /** The report a finished task answered, when a call started it. */
@@ -545,6 +547,8 @@ export interface Job {
 export interface ErrorBody {
   error: string;
   message: string;
+  /** Why a `conflict` refuses: a running task, or a state somebody has to change. */
+  reason?: string;
   /** The guardrail that asks, for `confirmation_required`. */
   confirm?: string;
   /** Beside `confirm`: whether this caller may send the name back. */
@@ -644,6 +648,8 @@ export interface Warning {
   /** What the warning is about, stable across releases and languages. */
   code: string;
   message: string;
+  /** `error` for a fault, `warning` for a configuration to look at, `info` for a fact. */
+  severity: 'error' | 'warning' | 'info';
   /** The getting-started step this warning restates, whose banner says it too. */
   guide_step: OnboardingStep['id'] | null;
 }
@@ -658,6 +664,7 @@ export interface Status {
 }
 
 export interface Health {
+  /** `ok`, `degraded` for a fault among the warnings, `failing` for a database down. */
   status: string;
   version: string;
   database: string;
@@ -667,6 +674,8 @@ export interface Health {
     name: string;
     instance_type: string;
     status: string;
+    /** Why the probe failed, what to change, in the interface language. */
+    detail: string | null;
     version: string | null;
     last_sync: string | null;
     last_sync_status: string | null;
@@ -680,6 +689,8 @@ export interface Health {
       needs_key: boolean;
       configured: boolean;
       connected: boolean | null;
+      /** Why a probed source did not answer: `key_refused`, `unreachable`... */
+      reason: string | null;
     }[];
     cached_items: number;
     media_missing_metadata: number;

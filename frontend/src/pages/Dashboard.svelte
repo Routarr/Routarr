@@ -184,6 +184,7 @@
                       status={probed.error && instance.status === 'unchecked'
                         ? 'unknown'
                         : instance.status}
+                      detail={instance.detail}
                     />
                   </td>
                   <td><Count value={instance.media_count} /></td>

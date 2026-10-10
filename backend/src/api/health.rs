@@ -5,6 +5,9 @@ use axum::extract::State;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use axum::http::StatusCode;
 
 use sqlx::AssertSqlSafe;
 
@@ -16,16 +19,16 @@ use crate::services::metadata;
 use crate::state::{AppState, Settings};
 
 /// What the liveness probe answers.
+// No version: the probe needs no key, and `/status` gives the version to one.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Pong {
     /// Always `ok`: an answer at all is the news.
     pub status: &'static str,
-    pub version: &'static str,
 }
 
 /// Liveness probe: no database work, no outbound calls, no authentication.
 pub async fn ping() -> Json<Pong> {
-    Json(Pong { status: "ok", version: env!("CARGO_PKG_VERSION") })
+    Json(Pong { status: "ok" })
 }
 
 /// Counts and warnings, read from the database without probing anything.
@@ -58,22 +61,50 @@ pub struct Warning {
     /// `data_disk_low`, `setting_above_maximum`,
     /// `instance_without_mapping`, `certification_country_outside_regions`,
     /// `certification_country_changed`,
-    /// `auto_apply_held`, `arr_below_version` or `oidc_open_to_anyone`.
-    /// The list may grow.
+    /// `auto_apply_held`, `arr_below_version`, `oidc_open_to_anyone` or
+    /// `backup_passphrase_unreadable`. The list may grow.
     pub code: &'static str,
+    /// What it means, in the interface language.
     pub message: String,
-    /// The getting-started step this warning restates, if one does.
-    // Its banner says the same thing while the step is open.
+    /// `error` for a fault that stops part of Routarr working, `warning` for
+    /// a configuration that needs looking at, `info` for a state worth
+    /// knowing. An open list. `/health` reads `degraded` while one is `error`.
+    pub severity: &'static str,
+    /// The getting-started step this warning restates, whose banner says the
+    /// same thing while the step is open: `instance`, `categories` or
+    /// `metadata`. Null for most.
     pub guide_step: Option<&'static str>,
 }
 
 impl Warning {
     fn new(code: &'static str, message: String) -> Self {
-        Self { code, message, guide_step: None }
+        Self { code, message, severity: severity_of(code), guide_step: None }
     }
 
     fn restating(step: &'static str, code: &'static str, message: String) -> Self {
-        Self { code, message, guide_step: Some(step) }
+        Self { code, message, severity: severity_of(code), guide_step: Some(step) }
+    }
+}
+
+/// How much a warning weighs. A fault stops something Routarr does: an Arr
+/// or a source it cannot reach or that refuses its key, a pass that panics,
+/// backups that fail or cannot be taken. A choice the operator made, or a
+/// fact about the library, is information, and keeps `/health` at `ok`.
+fn severity_of(code: &str) -> &'static str {
+    match code {
+        "instance_unreachable"
+        | "source_unreachable"
+        | "source_key_refused"
+        | "scheduler_panicked"
+        | "backup_failed"
+        | "backup_passphrase_unreadable"
+        | "data_disk_low" => "error",
+        "api_external_auth"
+        | "source_key_unlisted"
+        | "missing_metadata"
+        | "certification_country_outside_regions"
+        | "certification_country_changed" => "info",
+        _ => "warning",
     }
 }
 
@@ -118,31 +149,55 @@ pub async fn status(State(state): State<AppState>) -> AppResult<Json<StatusRespo
     }))
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Default, Serialize, utoipa::ToSchema)]
 pub struct HealthResponse {
-    pub status: String,
-    pub version: String,
-    pub database: String,
+    /// `ok`, `degraded` while a warning of severity `error` stands, or
+    /// `failing`, answered 503, when the database does not answer.
+    pub status: &'static str,
+    /// This server's release.
+    pub version: &'static str,
+    /// `connected`, or `error` when the database does not answer.
+    pub database: &'static str,
+    /// Every instance, in name order.
     pub instances: Vec<InstanceHealth>,
     pub metadata: MetadataHealth,
     pub stats: AppStats,
+    /// Every warning standing, those `/status` lists, with what this probe
+    /// found.
     pub warnings: Vec<Warning>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct InstanceHealth {
+    /// The instance's id, as `/instances` lists it.
     pub id: String,
+    /// The name it was given in Routarr.
     pub name: String,
+    /// `radarr` or `sonarr`.
     pub instance_type: String,
+    /// `connected`, `disabled`, `unchecked` when nothing was probed, or
+    /// `error: ` and the sentence `detail` holds. The sentence after the
+    /// colon is kept for the clients that read it there, and goes in a
+    /// coming release: read `detail`.
     pub status: String,
+    /// Why the probe failed, in the interface language: what to change, when
+    /// the address or the key explains it. Null unless `status` is an error.
+    pub detail: Option<String>,
+    /// The Arr's release, as a probe that reached it read it.
     pub version: Option<String>,
+    /// When a sync last succeeded.
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub last_sync: Option<String>,
+    /// How the last sync ended: `success`, or `error: ` and the reason.
     pub last_sync_status: Option<String>,
+    /// The titles the last sync read from it.
     pub media_count: i64,
+    /// Its root folders mapped to a category.
     pub mapped_root_folders: i64,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Default, Serialize, utoipa::ToSchema)]
 pub struct MetadataHealth {
     /// Every source in the user's order, whether or not it can answer.
     pub providers: Vec<MetadataProviderHealth>,
@@ -161,9 +216,12 @@ pub struct MetadataProviderHealth {
     /// Probed only for a fetched, configured source. Null for the Arr, whose
     /// instances are probed on their own.
     pub connected: Option<bool>,
+    /// Why a probed source did not answer: `key_refused`, `quota_spent`,
+    /// `rate_limited` or `unreachable`. An open list. Null otherwise.
+    pub reason: Option<&'static str>,
 }
 
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Default, Serialize, utoipa::ToSchema)]
 pub struct AppStats {
     pub total_instances: i64,
     pub total_media: i64,
@@ -187,10 +245,16 @@ pub struct AppStats {
 /// which is exactly when somebody is looking at the dashboard to find out why.
 #[derive(Debug, Deserialize, Default, utoipa::IntoParams)]
 #[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
 pub struct HealthQuery {
-    /// `false` answers from what the last probe recorded. Defaults to true,
-    /// except for a request another site set off.
+    /// `false` reads the database alone: every enabled instance reads
+    /// `unchecked` and every source `connected: null`, while `warnings` repeat
+    /// what the last probe found. Defaults to true, except for a request
+    /// another site set off.
     probe: Option<bool>,
+    /// `true` probes again even when a probe of the same configuration ran in
+    /// the last 30 seconds, whose findings are otherwise answered again.
+    fresh: Option<bool>,
 }
 
 /// Full diagnostics. Instances are probed concurrently and each probe is bounded
@@ -200,7 +264,21 @@ pub async fn health_check(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Query(query): Query<HealthQuery>,
-) -> AppResult<Json<HealthResponse>> {
+) -> AppResult<(StatusCode, Json<HealthResponse>)> {
+    // First, and alone: every other figure below is read from the database,
+    // and a database that does not answer would otherwise read as a 500 the
+    // first of them raises, or as an empty library.
+    if let Err(e) = sqlx::query("SELECT 1").execute(&state.pool).await {
+        tracing::error!("The database does not answer the health check: {e}");
+        let failing = HealthResponse {
+            status: "failing",
+            version: env!("CARGO_PKG_VERSION"),
+            database: "error",
+            ..HealthResponse::default()
+        };
+        return Ok((StatusCode::SERVICE_UNAVAILABLE, Json(failing)));
+    }
+
     // A page of another site can send a browser here with its cookie, and a
     // probe reaches every Arr and source and writes what it found. Such a
     // request reads what the last probe recorded instead.
@@ -213,18 +291,22 @@ pub async fn health_check(
     let settings = state.settings().await;
     let localizer = Localizer::new(&AppState::language_from(&settings));
 
-    let database = match sqlx::query("SELECT 1").execute(pool).await {
-        Ok(_) => "connected",
-        Err(_) => "error",
-    };
-
     let instances = state.instances(false).await?;
-
-    let (instance_health, connectivity) = if probe {
-        futures::join!(probe_instances(&state, &instances), probe_sources(&state))
-    } else {
-        (describe_instances(&state, &instances).await, HashMap::new())
+    let probed = match probe {
+        true => Some(probed(&state, &instances, &settings, query.fresh.unwrap_or(false)).await?),
+        false => None,
     };
+    let mut instance_health = Vec::with_capacity(instances.len());
+    for instance in &instances {
+        let reached = match &probed {
+            _ if !instance.enabled => Reached::state("disabled"),
+            Some(probe) => {
+                probe.instances.get(&instance.id).cloned().unwrap_or(Reached::state("unchecked"))
+            }
+            None => Reached::state("unchecked"),
+        };
+        instance_health.push(counts_for(&state, instance, reached, &localizer).await?);
+    }
 
     let stats = gather_stats(&state).await?;
 
@@ -240,34 +322,79 @@ pub async fn health_check(
     .fetch_one(pool)
     .await?;
 
-    let providers = provider_health(&state, &connectivity, &settings);
+    let none = HashMap::new();
+    let connectivity = probed.as_ref().map_or(&none, |probe| &probe.sources);
+    let providers = provider_health(&state, connectivity, &settings);
 
-    // A probe writes down what it found before anything is reported, so the
-    // two findings it alone can make survive into the answer `/status` gives.
-    // That endpoint is polled and must never probe: an unreachable host costs a
-    // full connect timeout. Without this the dashboard would report a source
-    // that stopped answering while the navigation beside it, unable to know,
-    // counts zero.
-    if probe {
-        record_probe(&state, &connectivity, &instance_health).await?;
-    }
-
-    // One list, produced in one place. What a probe learned is in the table by
-    // now, so `offline_warnings` is the single source for all of them and not
-    // merely for most.
+    // What a probe found is in `probe_results` by now, so `offline_warnings`
+    // is the single source for every warning and not merely for most.
     let warnings = offline_warnings(&state, &localizer, &settings).await?;
+    let faulty = warnings.iter().any(|warning| warning.severity == "error");
 
-    let status = if database == "connected" && warnings.is_empty() { "ok" } else { "degraded" };
+    Ok((
+        StatusCode::OK,
+        Json(HealthResponse {
+            status: if faulty { "degraded" } else { "ok" },
+            version: env!("CARGO_PKG_VERSION"),
+            database: "connected",
+            instances: instance_health,
+            metadata: MetadataHealth { providers, cached_items, media_missing_metadata },
+            stats,
+            warnings,
+        }),
+    ))
+}
 
-    Ok(Json(HealthResponse {
-        status: status.to_string(),
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        database: database.to_string(),
-        instances: instance_health,
-        metadata: MetadataHealth { providers, cached_items, media_missing_metadata },
-        stats,
-        warnings,
-    }))
+/// How long a probe's findings answer again for the same configuration.
+const PROBE_REUSE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// What one probe of every Arr and source found, and of which configuration.
+pub(crate) struct Probe {
+    at: std::time::Instant,
+    of: u64,
+    instances: HashMap<String, Reached>,
+    sources: HashMap<String, Probed>,
+}
+
+/// The last probe when it is younger than [`PROBE_REUSE`] and looked at the
+/// configuration in place, or a new one, written to `probe_results` before it
+/// is answered. One at a time: a caller arriving while a probe runs waits for
+/// it and reads it, rather than asking every Arr and source again, at a pace
+/// each source keeps for every other request too.
+async fn probed(
+    state: &AppState,
+    instances: &[Instance],
+    settings: &Settings,
+    fresh: bool,
+) -> AppResult<Arc<Probe>> {
+    let of = configuration_of(instances, settings);
+    let mut last = state.last_probe.lock().await;
+    if let Some(probe) =
+        last.as_ref().filter(|probe| !fresh && probe.of == of && probe.at.elapsed() < PROBE_REUSE)
+    {
+        return Ok(Arc::clone(probe));
+    }
+    let (reached, sources) =
+        futures::join!(probe_instances(state, instances), probe_sources(state));
+    let probe = Arc::new(Probe { at: std::time::Instant::now(), of, instances: reached, sources });
+    record_probe(state, &probe).await?;
+    *last = Some(Arc::clone(&probe));
+    Ok(probe)
+}
+
+/// What a probe depends on: each instance's address, key and type, and every
+/// setting, among them the sources, their order and their keys. A probe of
+/// another configuration is never answered again: an address just corrected
+/// would read as still failing.
+fn configuration_of(instances: &[Instance], settings: &Settings) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    for instance in instances {
+        let Instance { id, instance_type, base_url, api_key, enabled, updated_at, .. } = instance;
+        (id, instance_type, base_url, api_key, enabled, updated_at).hash(&mut hasher);
+    }
+    settings.hash(&mut hasher);
+    hasher.finish()
 }
 
 /// What the last probe found, for the endpoints that may not probe themselves.
@@ -298,17 +425,19 @@ async fn last_probe_warnings(state: &AppState, localizer: &Localizer) -> AppResu
                 warnings.push(Warning::new(code, localizer.translate(key, &provider)));
             }
         } else if let Some(id) = subject.strip_prefix("instance:") {
-            let name: Option<String> =
-                sqlx::query_scalar("SELECT name FROM instances WHERE id = ?")
+            let instance: Option<(String, String, String)> =
+                sqlx::query_as("SELECT name, instance_type, base_url FROM instances WHERE id = ?")
                     .bind(id)
                     .fetch_optional(&state.pool)
                     .await?;
-            if let Some(name) = name {
+            if let Some((name, kind, base_url)) = instance {
+                let failure = Failure::read(detail.as_deref().unwrap_or_default());
+                let told = failure.told(&kind, &base_url, localizer);
                 warnings.push(Warning::new(
                     "instance_unreachable",
                     localizer.translate(
                         "WarnInstanceUnreachable",
-                        &[("name", &name), ("status", detail.as_deref().unwrap_or(""))],
+                        &[("name", &name), ("status", &told)],
                     ),
                 ));
             }
@@ -344,20 +473,17 @@ pub(crate) fn below_version(
 /// in practice it is rewritten on every visit, but nothing here expires it,
 /// which is why the diagnostics page states its own findings from a live probe
 /// rather than from this table.
-async fn record_probe(
-    state: &AppState,
-    sources: &HashMap<String, Probed>,
-    instances: &[InstanceHealth],
-) -> AppResult<()> {
+async fn record_probe(state: &AppState, probe: &Probe) -> AppResult<()> {
     // The sources probed, which leaves out the Arr, reached through the
     // instance probes instead, and a source that could not be built at all:
     // neither was looked at, so neither has a verdict to record.
-    let rows: Vec<(String, bool, Option<String>)> = sources
+    let rows: Vec<(String, bool, Option<String>)> = probe
+        .sources
         .iter()
         .map(|(id, probed)| (format!("source:{id}"), probed.connected, probed.detail.clone()))
-        .chain(instances.iter().map(|i| {
-            let ok = !i.status.starts_with("error");
-            (format!("instance:{}", i.id), ok, (!ok).then(|| i.status.clone()))
+        .chain(probe.instances.iter().map(|(id, reached)| {
+            let failure = reached.failure.as_ref().map(Failure::stored);
+            (format!("instance:{id}"), failure.is_none(), failure)
         }))
         .collect();
 
@@ -415,6 +541,7 @@ const VERDICTS: [(&str, &str, &str); 3] = [
 ];
 
 /// What a probe of one source found.
+#[derive(Clone)]
 struct Probed {
     connected: bool,
     /// One of [`VERDICTS`], or nothing.
@@ -422,6 +549,19 @@ struct Probed {
 }
 
 impl Probed {
+    /// Why it did not answer, as `MetadataProviderHealth.reason` names it:
+    /// its warning's code without the `source_` the warnings share.
+    fn reason(&self) -> Option<&'static str> {
+        if self.connected {
+            return None;
+        }
+        let code = VERDICTS
+            .iter()
+            .find(|(said, ..)| self.detail.as_deref() == Some(*said))
+            .map_or("source_unreachable", |(_, code, _)| *code);
+        code.strip_prefix("source_")
+    }
+
     /// The verdict on `outcome`. A refusal names the key only where the
     /// source takes one: a keyless source refusing is one not answering.
     fn of(outcome: &crate::error::AppResult<bool>, needs_key: bool) -> Self {
@@ -501,6 +641,9 @@ async fn paced_probe(
     pace.acquire().await;
     let outcome = source.test_connection().await;
     source.paced_after(&pace, &outcome).await;
+    if let Err(e) = &outcome {
+        tracing::warn!(source = source.id(), "The probe of a metadata source failed: {e}");
+    }
     outcome
 }
 
@@ -521,6 +664,7 @@ fn provider_health(
             // `None` for the Arr, which is reached through the instance probes
             // above, and for a source that cannot be built at all.
             connected: connectivity.get(provider.id).map(|probed| probed.connected),
+            reason: connectivity.get(provider.id).and_then(Probed::reason),
         })
         .collect()
 }
@@ -828,82 +972,136 @@ fn metadata_warnings(state: &AppState, localizer: &Localizer, settings: &Setting
     warnings
 }
 
-/// The same rows without the network call.
-///
-/// `status` is `unchecked` rather than a guess. Reporting the last sync's
-/// outcome here would read as a live connection state and be wrong the moment
-/// an Arr goes down between two syncs. Saying nothing is the honest answer, and
-/// the interface asks for the real one in the background.
-async fn describe_instances(state: &AppState, instances: &[Instance]) -> Vec<InstanceHealth> {
-    join_all(instances.iter().map(|instance| describe_instance(state, instance))).await
+/// What a probe of one Arr found, or `unchecked` and `disabled`, which no
+/// probe asks.
+#[derive(Clone)]
+struct Reached {
+    /// `connected`, `disabled`, `unchecked` or `error`.
+    status: &'static str,
+    version: Option<String>,
+    failure: Option<Failure>,
 }
 
-async fn describe_instance(state: &AppState, instance: &Instance) -> InstanceHealth {
-    let mut health = counts_for(state, instance).await;
-    health.status = if instance.enabled { "unchecked".into() } else { "disabled".into() };
-    health
+impl Reached {
+    fn state(status: &'static str) -> Self {
+        Self { status, version: None, failure: None }
+    }
 }
 
-async fn probe_instances(state: &AppState, instances: &[Instance]) -> Vec<InstanceHealth> {
-    join_all(instances.iter().map(|instance| probe_instance(state, instance))).await
+/// Why a probe of an Arr failed, as `probe_results` keeps it: what the Arr
+/// or the network said, which [`Failure::told`] turns into what to change in
+/// the language of whoever reads it, or a sentence already told.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum Failure {
+    Upstream { status: u16, message: String },
+    Told { sentence: String },
 }
 
-/// The counts a database can answer for one instance. Both paths want these,
-/// and only the probe adds a network call on top.
-async fn counts_for(state: &AppState, instance: &Instance) -> InstanceHealth {
-    let media_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM media WHERE instance_id = ?")
-        .bind(&instance.id)
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(0);
+impl Failure {
+    fn of(error: &crate::error::AppError) -> Self {
+        match error {
+            crate::error::AppError::ExternalApi { status, message, .. } => {
+                Failure::Upstream { status: *status, message: message.clone() }
+            }
+            other => Failure::Told { sentence: other.public_message() },
+        }
+    }
 
-    let mapped_root_folders: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM root_folders WHERE instance_id = ? AND category IS NOT NULL AND category != ''",
+    fn stored(&self) -> String {
+        serde_json::to_string(self).unwrap_or_default()
+    }
+
+    /// A row holding anything else holds a sentence.
+    fn read(stored: &str) -> Self {
+        serde_json::from_str(stored)
+            .unwrap_or_else(|_| Failure::Told { sentence: stored.to_string() })
+    }
+
+    /// What to change, when the address or the key explains it, as
+    /// `POST /instances/{id}/test` says it.
+    fn told(&self, kind: &str, base_url: &str, localizer: &Localizer) -> String {
+        match self {
+            Failure::Upstream { status, message } => {
+                let error = crate::error::AppError::ExternalApi {
+                    service: crate::services::connection::service_name(kind).to_string(),
+                    status: *status,
+                    message: message.clone(),
+                    retry_after: None,
+                };
+                crate::services::connection::explained(error, kind, base_url, localizer)
+                    .public_message()
+            }
+            Failure::Told { sentence } => sentence.clone(),
+        }
+    }
+}
+
+async fn probe_instances(state: &AppState, instances: &[Instance]) -> HashMap<String, Reached> {
+    let probes = instances.iter().map(|instance| async move {
+        (instance.id.clone(), probe_instance(state, instance).await)
+    });
+    join_all(probes).await.into_iter().collect()
+}
+
+async fn probe_instance(state: &AppState, instance: &Instance) -> Reached {
+    if !instance.enabled {
+        return Reached::state("disabled");
+    }
+    let reached = match state.adapter(instance) {
+        Ok(adapter) => adapter.test_connection().await.map(|answered| answered.version),
+        Err(e) => Err(e),
+    };
+    match reached {
+        Ok(version) => Reached { status: "connected", version: Some(version), failure: None },
+        Err(e) => {
+            // Any key reads what a probe found, through `/status`: an internal
+            // failure reads as one generic sentence, and goes to the log.
+            if e.is_internal() {
+                tracing::warn!(instance = %instance.name, "The probe failed: {e}");
+            }
+            Reached { status: "error", version: None, failure: Some(Failure::of(&e)) }
+        }
+    }
+}
+
+/// One instance as `/health` answers it: what the database counts, and what
+/// the probe found, told in the reader's language.
+async fn counts_for(
+    state: &AppState,
+    instance: &Instance,
+    reached: Reached,
+    localizer: &Localizer,
+) -> AppResult<InstanceHealth> {
+    let (media_count, mapped_root_folders): (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM media WHERE instance_id = ?1),
+                (SELECT COUNT(*) FROM root_folders
+                  WHERE instance_id = ?1 AND category IS NOT NULL AND category != '')",
     )
     .bind(&instance.id)
     .fetch_one(&state.pool)
-    .await
-    .unwrap_or(0);
+    .await?;
+    let detail = reached
+        .failure
+        .as_ref()
+        .map(|failure| failure.told(&instance.instance_type, &instance.base_url, localizer));
+    let status = match &detail {
+        Some(detail) => format!("error: {detail}"),
+        None => reached.status.to_string(),
+    };
 
-    InstanceHealth {
+    Ok(InstanceHealth {
         id: instance.id.clone(),
         name: instance.name.clone(),
         instance_type: instance.instance_type.clone(),
-        status: String::new(),
-        version: None,
+        status,
+        detail,
+        version: reached.version,
         last_sync: instance.last_sync_at.clone(),
         last_sync_status: instance.last_sync_status.clone(),
         media_count,
         mapped_root_folders,
-    }
-}
-
-async fn probe_instance(state: &AppState, instance: &Instance) -> InstanceHealth {
-    let mut health = counts_for(state, instance).await;
-
-    let (status, version) = if !instance.enabled {
-        ("disabled".to_string(), None)
-    } else {
-        // What a probe found is shown to any key, through `/status`: an
-        // internal failure reads as one generic sentence and goes to the log.
-        let failed = |e: crate::error::AppError| {
-            if e.is_internal() {
-                tracing::warn!(instance = %instance.name, "The probe failed: {e}");
-            }
-            (format!("error: {}", e.public_message()), None)
-        };
-        match state.adapter(instance) {
-            Ok(adapter) => match adapter.test_connection().await {
-                Ok(s) => ("connected".to_string(), Some(s.version)),
-                Err(e) => failed(e),
-            },
-            Err(e) => failed(e),
-        }
-    };
-
-    health.status = status;
-    health.version = version;
-    health
+    })
 }
 
 /// All counters in one round trip instead of a dozen sequential `COUNT(*)`s.

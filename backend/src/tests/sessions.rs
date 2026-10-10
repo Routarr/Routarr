@@ -41,7 +41,7 @@ async fn a_session_cannot_mint_a_key_without_the_password() {
     assert_eq!(status, StatusCode::OK);
     let new = json!({ "name": "nightly", "current_password": generated_password(&app) });
     let (status, body) = with_session(&app, "POST", "/api/v1/applications", &session, new).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(status, StatusCode::CREATED, "{body}");
 }
 
 /// A password changed because it leaked closes what it opened, and the keys
@@ -257,8 +257,8 @@ async fn the_sessions_are_listed_ended_one_by_one_and_all_at_once() {
     let other = listed.iter().find(|s| s["current"] == false).unwrap();
     let handle = other["handle"].as_str().unwrap();
     let ended = format!("/api/v1/auth/sessions/{handle}");
-    let (status, _) = with_session(&app, "DELETE", &ended, &mine, Value::Null).await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, body) = with_session(&app, "DELETE", &ended, &mine, Value::Null).await;
+    assert_eq!((status, &body["deleted"]), (StatusCode::OK, &Value::Bool(true)));
     let (status, _) = with_session(&app, "DELETE", &ended, &mine, Value::Null).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "a session ended twice");
 

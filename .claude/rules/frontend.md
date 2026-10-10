@@ -20,8 +20,8 @@ Components named without a path live in `frontend/src/components/`.
   bare root-absolute `href` drops the mount point on middle-click and ctrl-click, and a bare
   `#fragment` resolves against the base and reloads the page. Never a `role="link"` element.
 - What the chrome polls reads `/status`, and the guide `/onboarding`. `/health` probes every Arr
-  and metadata source, a full connect timeout per unreachable host. `/health?probe=false` answers
-  from the database.
+  and metadata source, a full connect timeout per unreachable host, and answers a probe of the
+  last 30 seconds again unless a recheck sends `fresh`. `/health?probe=false` reads the database.
 - After a write that can add or remove a warning (an instance, a category mapping, a metadata
   source or key, a settings save or import) or move a step of the guide (a rule, a simulation),
   call `invalidateStatus()` from `frontend/src/lib/status.svelte.ts`. Otherwise the shell corrects

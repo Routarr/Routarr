@@ -6,7 +6,10 @@
 # Compares backend/openapi/v1.json with the same file at the newest release tag,
 # through oasdiff: an operation, a parameter or a field removed or renamed, a
 # type changed, an input made required, a value no longer accepted. Anything
-# added passes. A break belongs in `/api/v2`, never in v1.
+# added passes. From 1.0 a break belongs in `/api/v2`, never in v1. Before it,
+# a minor release may break v1: each break it accepts is a line of
+# `scripts/api-breaks/since-<tag>.txt`, named in its release notes, and the
+# list goes once the next tag is pushed.
 #
 # It needs the tags and their history (`fetch-depth: 0` in CI). A release that
 # predates the pinned contract has nothing to compare with, and passes.
@@ -28,6 +31,29 @@ trap 'rm -f "$base"' EXIT
 if ! git -C "$ROOT" show "$tag:$CONTRACT" > "$base" 2>/dev/null; then
   echo "$tag has no pinned contract: nothing to compare with."
   exit 0
+fi
+
+# A list kept past its release would wave through the next one's breaks
+# unread, and from 1.0 there is none to keep.
+accepted="$ROOT/scripts/api-breaks/since-$tag.txt"
+for list in "$ROOT"/scripts/api-breaks/since-*.txt; do
+  [ -e "$list" ] || continue
+  if [ "$list" != "$accepted" ]; then
+    echo "error: ${list#"$ROOT"/} lists the breaks of a release already tagged. Delete it."
+    exit 1
+  fi
+  case "$tag" in
+    v0.*) ;;
+    *)
+      echo "error: ${list#"$ROOT"/} accepts breaks of v1 after 1.0. They belong in /api/v2."
+      exit 1
+      ;;
+  esac
+done
+ignore=()
+if [ -e "$accepted" ]; then
+  ignore=(--err-ignore "$accepted")
+  echo "Breaks accepted for this release: ${accepted#"$ROOT"/}"
 fi
 
 echo "Comparing $CONTRACT with $tag"
@@ -85,4 +111,4 @@ PY
 # one adds to (`#[serde(flatten)]`) is published as `allOf`, and compared
 # branch by branch, every field of it reads as removed.
 oasdiff breaking "$base" "$ROOT/$CONTRACT" \
-  --severity-levels "$ROOT/scripts/oasdiff-levels.txt" --fail-on ERR --flatten-allof
+  --severity-levels "$ROOT/scripts/oasdiff-levels.txt" --fail-on ERR --flatten-allof "${ignore[@]}"

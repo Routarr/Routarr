@@ -32,7 +32,7 @@ impl Gate {
         self.reached.notified().await;
     }
 
-    fn release(&self) {
+    pub(crate) fn release(&self) {
         self.released.notify_one();
     }
 }
@@ -58,6 +58,23 @@ pub(crate) async fn hold(point: &'static str, subject: &str) {
         gate.reached.notify_one();
         gate.released.notified().await;
     }
+}
+
+/// Send `request` up to `point`, then drop it as a caller that leaves does: a
+/// closed tab, a proxy's timeout. The work it started is still held there,
+/// until the gate handed back is released.
+pub(crate) async fn left_at(
+    app: &TestApp,
+    point: &'static str,
+    request: axum::http::Request<axum::body::Body>,
+) -> Arc<Gate> {
+    use tower::ServiceExt;
+    let gate = arm(point, "");
+    let call = tokio::spawn(app.router.clone().oneshot(request));
+    gate.reached().await;
+    call.abort();
+    let _ = call.await;
+    gate
 }
 
 /// Run `first` up to its check about `subject` at `point`, then `second`,

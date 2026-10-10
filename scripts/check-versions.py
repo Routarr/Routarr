@@ -219,8 +219,9 @@ def main() -> int:
 
     # --- Routarr's own version ----------------------------------------------
     # `Cargo.toml` is the one that counts: the tag names it, and the showcase
-    # page is checked against it. The other two are carried along, so the only
-    # question is whether a bump reached them.
+    # page is checked against it. The others are carried along, so the only
+    # question is whether a bump reached them. The pinned contract states it
+    # as its own version, which `cargo test contract` writes again.
     product = find("backend/Cargo.toml", r'^version\s*=\s*"([^"]+)"')
     failures += agree(
         "The Routarr version",
@@ -228,6 +229,7 @@ def main() -> int:
             product,
             find("frontend/package.json", r'^\s*"version":\s*"([^"]+)"'),
             find("site/package.json", r'^\s*"version":\s*"([^"]+)"'),
+            find("backend/openapi/v1.json", r'^    "version":\s*"([^"]+)"'),
         ],
     )
 

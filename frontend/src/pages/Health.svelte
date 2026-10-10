@@ -17,12 +17,19 @@
   import TableRegion from '../components/TableRegion.svelte';
 
   // A probe records what it finds, and the shell counts that among its
-  // warnings without probing itself.
+  // warnings without probing itself. Opening the screen reads a probe of the
+  // last moments again, and a recheck asks every Arr and source anew.
+  let fresh = false;
   const report = createAsync(async (signal) => {
-    const found = await api.getHealth(undefined, signal);
+    const found = await api.getHealth({ fresh }, signal);
+    fresh = false;
     invalidateStatus();
     return found;
   });
+  function recheck() {
+    fresh = true;
+    void report.reload();
+  }
   const health = $derived(report.data);
 </script>
 
@@ -34,11 +41,7 @@
     </div>
     <div class="flex gap-2">
       <!-- A re-check waits out every Arr that does not answer. -->
-      <button
-        class="btn btn-secondary"
-        onclick={() => void report.reload()}
-        aria-busy={report.loading}
-      >
+      <button class="btn btn-secondary" onclick={recheck} aria-busy={report.loading}>
         <RefreshCw size={16} class={report.loading ? 'spin' : ''} />
         {t('Recheck')}
       </button>
@@ -48,11 +51,7 @@
   {#if report.loading && !health}
     <div class="card"><Loading label={t('RunningDiagnostics')} /></div>
   {:else}
-    <ErrorBanner
-      message={report.error}
-      onDismiss={() => (report.error = null)}
-      onRetry={() => void report.reload()}
-    />
+    <ErrorBanner message={report.error} onDismiss={() => (report.error = null)} onRetry={recheck} />
 
     {#if health}
       {#if health.warnings.length === 0}
@@ -109,7 +108,7 @@
                         {instance.instance_type}
                       </span>
                     </td>
-                    <td><InstanceStatus status={instance.status} /></td>
+                    <td><InstanceStatus status={instance.status} detail={instance.detail} /></td>
                     <td class="mono">
                       {#if instance.version}{instance.version}{:else}<NoValue />{/if}
                     </td>

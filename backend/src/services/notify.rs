@@ -371,6 +371,7 @@ pub struct Notification {
     /// Settings. The list may grow.
     pub event: &'static str,
     /// When it happened, in RFC 3339.
+    #[schema(format = DateTime)]
     pub timestamp: String,
     /// `error`, `warning` or `info`.
     pub severity: &'static str,
@@ -497,9 +498,10 @@ pub async fn send_test(state: &AppState, localizer: &Localizer) -> AppResult<()>
         Err(Undelivered::NoAddress) => {
             Err(AppError::BadRequest(localizer.translate("NotificationTestNoAddress", &[])))
         }
-        Err(Undelivered::SecretUnreadable) => {
-            Err(AppError::Conflict(localizer.translate("SigningSecretUnreadable", &[])))
-        }
+        Err(Undelivered::SecretUnreadable) => Err(AppError::Conflict {
+            reason: "secret_unreadable",
+            message: localizer.translate("SigningSecretUnreadable", &[]),
+        }),
         Err(Undelivered::Failed { error: AppError::ExternalApi { status, .. }, .. })
             if status != 0 =>
         {
@@ -697,6 +699,8 @@ async fn signing_keys(state: &AppState) -> AppResult<Signing> {
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SigningStatus {
     pub signed: bool,
+    #[serde(serialize_with = "crate::timestamp::rfc3339_or_null")]
+    #[schema(format = DateTime)]
     pub since: Option<String>,
     /// False when a secret is set and cannot be opened with this
     /// installation's key: nothing is sent until it is replaced.

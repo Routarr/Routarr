@@ -27,7 +27,6 @@ export async function seedRows(): Promise<void> {
         media_type: 'movie',
         priority,
         enabled,
-        condition_logic: 'any',
         conditions: [{ type: 'title_contains', value: titles }],
         exclusions: [],
       }),

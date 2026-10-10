@@ -58,9 +58,10 @@ fn shown(state: &AppState, identity: &Identity, instance: Instance) -> InstanceR
 /// instance by it, and two would be one there.
 fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Localizer) -> AppError {
     match &e {
-        sqlx::Error::Database(db) if db.is_unique_violation() => {
-            AppError::Conflict(localizer.translate("ErrorInstanceNameTaken", &[("name", name)]))
-        }
+        sqlx::Error::Database(db) if db.is_unique_violation() => AppError::Conflict {
+            reason: "name_taken",
+            message: localizer.translate("ErrorInstanceNameTaken", &[("name", name)]),
+        },
         _ => e.into(),
     }
 }
@@ -68,9 +69,9 @@ fn name_taken(e: sqlx::Error, name: &str, localizer: &crate::localization::Local
 pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateInstanceRequest>,
-) -> AppResult<Json<InstanceResponse>> {
+) -> AppResult<super::Created<InstanceResponse>> {
     let localizer = state.localizer().await;
-    let base_url = validate(&req, &localizer)?;
+    let base_url = validate(&req.name, &req.instance_type, &req.base_url, &localizer)?;
 
     let id = Uuid::new_v4().to_string();
     let webhook_token = Uuid::new_v4().to_string();
@@ -93,7 +94,9 @@ pub async fn create(
     .await
     .map_err(|e| name_taken(e, req.name.trim(), &localizer))?;
 
-    Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
+    let created =
+        InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path);
+    Ok(super::Created::at(&state, format!("/instances/{id}"), created))
 }
 
 pub async fn update(
@@ -102,7 +105,7 @@ pub async fn update(
     Json(req): Json<CreateInstanceRequest>,
 ) -> AppResult<Json<InstanceResponse>> {
     let localizer = state.localizer().await;
-    let base_url = validate(&req, &localizer)?;
+    let base_url = validate(&req.name, &req.instance_type, &req.base_url, &localizer)?;
     let existing = state.instance(&id).await?;
     let base_url = keep_saved_credentials(base_url, &existing.base_url, &localizer)?;
 
@@ -164,9 +167,10 @@ pub async fn remove(
     // Not under a sync of it: its writes would fail on rows gone, and the
     // failure would be notified for an instance that no longer exists.
     let Some(_sync) = state.jobs.try_lock(&format!("sync:{id}")) else {
-        return Err(AppError::Conflict(
-            "This instance is being synced. Delete it once the sync has finished.".into(),
-        ));
+        return Err(AppError::InProgress {
+            reason: "sync_running",
+            message: "This instance is being synced. Delete it once the sync has finished.".into(),
+        });
     };
     // One transaction: the proposals go with the instance or not at all.
     let mut tx = crate::db::write_transaction(&state.pool).await?;
@@ -241,6 +245,7 @@ pub async fn test(
 
 /// Values typed in the instance form, tried before anything is saved.
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProbeRequest {
     pub instance_type: String,
     pub base_url: String,
@@ -385,11 +390,14 @@ async fn explained(state: &AppState, id: &str, error: AppError) -> AppError {
         Ok(explained) | Err(explained) => explained,
     };
     if let Some(task) = crate::jobs::registry::announced() {
-        let _ = sqlx::query("UPDATE jobs SET error_message = ? WHERE id = ? AND status = 'failed'")
-            .bind(explained.public_message())
-            .bind(task)
-            .execute(&state.pool)
-            .await;
+        let _ = sqlx::query(
+            "UPDATE jobs SET error_message = ?, error_code = ? WHERE id = ? AND status = 'failed'",
+        )
+        .bind(explained.public_message())
+        .bind(explained.code())
+        .bind(task)
+        .execute(&state.pool)
+        .await;
     }
     explained
 }
@@ -480,18 +488,24 @@ pub async fn rotate_webhook_token(
     Ok(Json(InstanceResponse::from_instance(state.instance(&id).await?, &state.config.base_path)))
 }
 
-/// Shared validation for create and update.
+/// Whether an instance may be written as given, and its address as stored:
+/// the one check of a create, an update and a configuration import.
 ///
 /// The type comes from a list the interface offers, so its refusal stays in
 /// English. The name and the address are typed, and read under their field.
-fn validate(req: &CreateInstanceRequest, localizer: &Localizer) -> AppResult<String> {
-    req.instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
+pub(crate) fn validate(
+    name: &str,
+    instance_type: &str,
+    base_url: &str,
+    localizer: &Localizer,
+) -> AppResult<String> {
+    instance_type.parse::<InstanceType>().map_err(AppError::BadRequest)?;
 
-    if req.name.trim().is_empty() {
+    if name.trim().is_empty() {
         return Err(AppError::BadRequest(localizer.translate("InstanceNameRequired", &[])));
     }
 
-    normalize_base_url(&req.base_url, localizer)
+    normalize_base_url(base_url, localizer)
 }
 
 fn normalize_base_url(raw: &str, localizer: &Localizer) -> AppResult<String> {

@@ -67,7 +67,8 @@ impl Confirmed {
 pub(super) async fn guard_dry_run(state: &AppState) -> AppResult<()> {
     if state.bool_setting("global_dry_run").await {
         let localizer = state.localizer().await;
-        return Err(AppError::BadRequest(localizer.translate("ErrorDryRunEnabled", &[])));
+        let message = localizer.translate("ErrorDryRunEnabled", &[]);
+        return Err(AppError::Conflict { reason: "dry_run", message });
     }
     Ok(())
 }

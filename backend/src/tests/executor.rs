@@ -1052,7 +1052,8 @@ async fn a_revert_is_held_by_the_dry_run_and_the_batch_limit() {
     let all = executor::Confirmed::all();
     let localizer = crate::localization::Localizer::new("en");
     let refusal = |outcome: crate::error::AppResult<executor::ApplyReport>| match outcome {
-        Err(crate::error::AppError::BadRequest(message)) => message,
+        Err(crate::error::AppError::BadRequest(message))
+        | Err(crate::error::AppError::Conflict { message, .. }) => message,
         other => panic!("not refused: {other:?}"),
     };
 
@@ -1423,7 +1424,10 @@ async fn an_unattended_apply_is_held_by_the_dry_run() {
         executor::apply_unattended(&app.state, &[decision_id], &Attribution::manual(None), turn)
             .await;
 
-    assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))), "{refused:?}");
+    assert!(
+        matches!(refused, Err(crate::error::AppError::Conflict { reason: "dry_run", .. })),
+        "{refused:?}"
+    );
     assert!(arr.recorded().writes.is_empty(), "the dry run let an unattended move through");
 }
 

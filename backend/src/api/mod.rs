@@ -37,8 +37,7 @@ use serde::Serialize;
 ///
 /// The stock extractor answers a body it cannot parse with a `text/plain`
 /// 400, 415 or 422 of its own, outside the `{ error, message }` envelope
-/// every other failure uses, and the message is serde's, which names the
-/// Rust field it choked on. Every handler takes and returns this one instead.
+/// every other failure uses. Every handler takes and returns this one instead.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Json<T>(pub T);
 
@@ -121,10 +120,56 @@ impl<T: Serialize> IntoResponse for Json<T> {
     }
 }
 
+/// JSON a client may keep, and ask for again with `If-None-Match`: the same
+/// bytes answer 304 with nothing more. `no-cache` has it ask every time, since
+/// what it holds changes with a setting or a release.
+pub fn revalidated(headers: &axum::http::HeaderMap, json: String) -> Response {
+    use axum::http::{HeaderValue, header};
+    use sha2::Digest;
+    let digest = sha2::Sha256::digest(json.as_bytes());
+    let tag: String = digest[..12].iter().map(|byte| format!("{byte:02x}")).collect();
+    let tag = format!("\"{tag}\"");
+    let held =
+        headers.get(header::IF_NONE_MATCH).and_then(|value| value.to_str().ok()).is_some_and(
+            |sent| sent.split(',').any(|each| matches!(each.trim(), "*") || each.trim() == tag),
+        );
+    let mut response = if held {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        ([(header::CONTENT_TYPE, "application/json")], json).into_response()
+    };
+    if let Ok(tag) = HeaderValue::from_str(&tag) {
+        response.headers_mut().insert(header::ETAG, tag);
+    }
+    response.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    response
+}
+
 /// What a removal answers.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct Deleted {
     pub deleted: bool,
+}
+
+/// What a creation answers: 201, the new resource, and in `Location` the
+/// address it is found at from now on.
+pub struct Created<T> {
+    location: String,
+    body: T,
+}
+
+impl<T> Created<T> {
+    /// `path` under the API, as `/rules/{id}`.
+    pub fn at(state: &crate::state::AppState, path: impl std::fmt::Display, body: T) -> Self {
+        Self { location: format!("{}/api/v1{path}", state.config.base_path), body }
+    }
+}
+
+impl<T: Serialize> IntoResponse for Created<T> {
+    fn into_response(self) -> Response {
+        let location = [(axum::http::header::LOCATION, self.location)];
+        (StatusCode::CREATED, location, axum::Json(self.body)).into_response()
+    }
 }
 
 /// The envelope of every paged list: the media, the decisions, the tasks and
@@ -156,6 +201,17 @@ impl<T> Page<T> {
             },
         }
     }
+}
+
+/// Which page of a list that has no filter of its own.
+#[derive(Debug, Default, serde::Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct PageQuery {
+    /// From 1. Defaults to 1.
+    pub page: Option<u32>,
+    /// From 1 to 200. Defaults to 50.
+    pub per_page: Option<u32>,
 }
 
 /// Clamp user-supplied paging parameters to a sane window.

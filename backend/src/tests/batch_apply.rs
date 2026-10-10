@@ -67,7 +67,7 @@ async fn global_dry_run_still_outranks_it() {
     )
     .await;
 
-    assert!(matches!(refused, Err(crate::error::AppError::BadRequest(_))));
+    assert!(matches!(refused, Err(crate::error::AppError::Conflict { reason: "dry_run", .. })));
     assert!(arr.recorded().writes.is_empty());
 }
 
@@ -216,7 +216,13 @@ async fn a_simulation_whose_proposals_all_go_elsewhere_now_is_refused() {
     )
     .await;
 
-    assert!(matches!(refused, Err(crate::error::AppError::Conflict(_))), "{refused:?}");
+    assert!(
+        matches!(
+            refused,
+            Err(crate::error::AppError::Conflict { reason: "proposals_replaced", .. })
+        ),
+        "{refused:?}"
+    );
     assert!(arr.recorded().writes.is_empty());
 }
 

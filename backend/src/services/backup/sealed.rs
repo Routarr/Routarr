@@ -439,7 +439,10 @@ pub async fn reseal(
 ) -> AppResult<Resealed> {
     let Some(_lock) = state.jobs.lock_within("backup", std::time::Duration::from_secs(3600)).await
     else {
-        return Err(AppError::Conflict("A backup held the folder for an hour".into()));
+        return Err(AppError::InProgress {
+            reason: "backup_running",
+            message: "A backup held the folder for an hour".into(),
+        });
     };
     let job =
         state.jobs.start(JobKind::Backup, by, None, Detail::new("JobDetailResealing")).await?;

@@ -502,16 +502,17 @@ impl JobHandle {
         self.settled = true;
         self.forget_cancel();
         warn!(job_id = %self.id, kind = self.kind.as_str(), "Job failed: {error}");
-        let (id, error) = (self.id.clone(), error.public_message());
+        let (id, message, code) = (self.id.clone(), error.public_message(), error.code());
         record_outcome(self.pool.clone(), self.id.clone(), move |pool| {
-            let (id, error) = (id.clone(), error.clone());
+            let (id, message) = (id.clone(), message.clone());
             async move {
                 sqlx::query(
-                    "UPDATE jobs SET status = 'failed', error_message = ?,
+                    "UPDATE jobs SET status = 'failed', error_message = ?, error_code = ?,
                             finished_at = datetime('now')
                       WHERE id = ?",
                 )
-                .bind(error)
+                .bind(message)
+                .bind(code)
                 .bind(id)
                 .execute(&pool)
                 .await

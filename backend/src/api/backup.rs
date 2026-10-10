@@ -9,7 +9,7 @@ use super::Json;
 use axum::extract::State;
 
 use super::Path;
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
@@ -36,8 +36,11 @@ pub async fn list(State(state): State<AppState>) -> AppResult<Json<BackupListRes
 pub async fn create(
     State(state): State<AppState>,
     axum::Extension(identity): axum::Extension<crate::api::auth::Identity>,
-) -> AppResult<Json<BackupFile>> {
-    Ok(Json(backup::create(&state, &identity.attribution()).await?))
+    headers: HeaderMap,
+) -> AppResult<Response> {
+    let (task_state, by) = (state.clone(), identity.attribution());
+    let work = async move { backup::create(&task_state, &by).await };
+    crate::api::jobs::answer(&state, crate::api::jobs::prefers_async(&headers), work).await
 }
 
 /// Stream an archive to the caller.
@@ -85,9 +88,9 @@ pub async fn download(
 pub async fn remove(
     State(state): State<AppState>,
     Path(name): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<super::Deleted>> {
     backup::delete(&state, &name)?;
-    Ok(Json(serde_json::json!({ "deleted": name })))
+    Ok(Json(super::Deleted { deleted: true }))
 }
 
 #[derive(Debug, Serialize)]
@@ -130,6 +133,7 @@ pub async fn restore(
 /// The backup passphrase to set, an empty one removing it, with the proof a
 /// session gives. No `Debug`: it would print the passphrase.
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PassphraseChange {
     pub passphrase: String,
     #[serde(flatten)]

@@ -43,9 +43,10 @@ pub(crate) async fn wait_in_line(
 ) -> crate::error::AppResult<crate::jobs::registry::WaitingPlace> {
     match state.jobs.try_wait(PREVIEW_QUEUE, MAX_QUEUED_PREVIEWS) {
         Some(place) => Ok(place),
-        None => Err(crate::error::AppError::Conflict(
-            state.localizer().await.translate("ErrorPreviewsWaiting", &[]),
-        )),
+        None => Err(crate::error::AppError::InProgress {
+            reason: "previews_full",
+            message: state.localizer().await.translate("ErrorPreviewsWaiting", &[]),
+        }),
     }
 }
 
@@ -80,9 +81,10 @@ async fn simulate(
         match state.jobs.try_lock(crate::jobs::FULL_SIMULATION) {
             Some(lock) => Some(lock),
             None => {
-                return Err(crate::error::AppError::Conflict(
-                    state.localizer().await.translate("ErrorSimulationInProgress", &[]),
-                ));
+                return Err(crate::error::AppError::InProgress {
+                    reason: "simulation_running",
+                    message: state.localizer().await.translate("ErrorSimulationInProgress", &[]),
+                });
             }
         }
     } else {
