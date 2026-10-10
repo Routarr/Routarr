@@ -23,14 +23,6 @@
 # Fingerprint-free filenames, so the pages themselves must stay revalidated.
 /
   Cache-Control: public, max-age=0, must-revalidate
-/404.html
-  Cache-Control: public, max-age=0, must-revalidate
-/fr/404.html
-  Cache-Control: public, max-age=0, must-revalidate
-/de/404.html
-  Cache-Control: public, max-age=0, must-revalidate
-/es/404.html
-  Cache-Control: public, max-age=0, must-revalidate
 
 /fr/
   Cache-Control: public, max-age=0, must-revalidate

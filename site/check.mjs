@@ -250,8 +250,11 @@ if (comparedPages < 12) {
 // Astro fingerprints what it builds and does not fingerprint the pages, so an
 // HTML file cached for any length of time is a page a deploy cannot take back.
 // Each built page needs its own rule in `_headers`, so a page added without one
-// fails the build instead of going stale quietly.
+// fails the build instead of going stale quietly. A not-found page is served
+// for a miss, at the missing address, where Cloudflare's default answer
+// already revalidates: a rule on its own address would reach no visitor.
 for (const file of Object.keys(pages)) {
+  if (file.endsWith('404.html')) continue;
   const path = file === 'index.html' ? '/' : `/${file.replace(/index\.html$/, '')}`;
   const rule = new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\n\\s+Cache-Control:[^\\n]*must-revalidate`, 'm');
   if (!rule.test(headers)) {

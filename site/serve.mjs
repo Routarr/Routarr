@@ -27,16 +27,21 @@ const HERE = fileURLToPath(new URL('.', import.meta.url));
 const ROOT = join(HERE, 'dist');
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8788);
 
+/** The types production sends, with no charset: every page declares its own. */
 const TYPES = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
+  '.html': 'text/html',
+  '.css': 'text/css',
+  '.js': 'text/javascript',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
-  '.xml': 'application/xml; charset=utf-8',
-  '.txt': 'text/plain; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
+  '.ico': 'image/vnd.microsoft.icon',
+  '.xml': 'application/xml',
+  '.txt': 'text/plain',
+  '.json': 'application/json',
 };
+
+/** What production answers for a file `_headers` gives no cache rule. */
+const DEFAULT_CACHE = 'public, max-age=0, must-revalidate';
 
 const RULES = parseHeaders(readFileSync(join(ROOT, '_headers'), 'utf-8'));
 
@@ -82,6 +87,13 @@ createServer(async (request, response) => {
     response.end('malformed path');
     return;
   }
+  // Production drops `.html` and `index.html` from an address with a 307.
+  const pretty = path.replace(/\/index\.html$/, '/').replace(/\.html$/, '');
+  if (pretty !== path) {
+    response.writeHead(307, { Location: pretty });
+    response.end();
+    return;
+  }
   const resolved = await resolve(path);
   // 307, as Cloudflare answers a directory named without its slash.
   if (resolved && typeof resolved === 'object') {
@@ -91,7 +103,7 @@ createServer(async (request, response) => {
   }
   const file = resolved;
 
-  const headers = headersFor(RULES, path);
+  const headers = { 'Cache-Control': DEFAULT_CACHE, ...headersFor(RULES, path) };
 
   if (!file) {
     // The `404.html` nearest the missing path, as Cloudflare's `404-page`

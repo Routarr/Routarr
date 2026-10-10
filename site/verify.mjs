@@ -159,7 +159,8 @@ async function audit(tab, where, within) {
   }
 }
 
-const NOT_FOUND = LANDINGS.map((path) => `${path}404.html`);
+// The address production serves each not-found page at, `.html` dropped.
+const NOT_FOUND = LANDINGS.map((path) => `${path}404`);
 let audited = 0;
 // Dark is what every page opens in, and light is the visitor's stamped choice.
 for (const theme of ['dark', 'light']) {
@@ -801,6 +802,23 @@ for (const [path, locale, why] of [
     check(!(await hint.isVisible()), 'the language offer came back after a reload it had been dismissed on');
   }
   await ctx.close();
+}
+
+// ------------------------------------------------------------ addresses
+// The preview answers addresses as production does: `.html` and `index.html`
+// dropped with a 307, no charset on a type, and a revalidating cache for a
+// file `_headers` names no rule for.
+for (const [from, to] of [['/404.html', '/404'], ['/how/index.html', '/how/'], ['/fr/404.html', '/fr/404']]) {
+  const answer = await fetch(`${BASE}${from}`, { redirect: 'manual' });
+  check(answer.status === 307 && answer.headers.get('location') === to, `${from} answered ${answer.status} ${answer.headers.get('location') ?? ''}, production 307 to ${to}`);
+}
+for (const [path, type] of [['/', 'text/html'], ['/robots.txt', 'text/plain'], ['/assets/site.js', 'text/javascript']]) {
+  const answer = await fetch(`${BASE}${path}`);
+  check(answer.headers.get('content-type') === type, `${path} is typed ${answer.headers.get('content-type')}, production ${type}`);
+}
+{
+  const answer = await fetch(`${BASE}/robots.txt`);
+  check(answer.headers.get('cache-control') === 'public, max-age=0, must-revalidate', `/robots.txt is cached as ${answer.headers.get('cache-control')}, production revalidates it`);
 }
 
 // ------------------------------------------------------------ 404
