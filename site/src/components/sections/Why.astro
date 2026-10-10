@@ -15,13 +15,16 @@ const t = useTranslations(Astro.props.locale);
  * have.
  */
 
-const STEPS: { number: string; name: Key; note: Key; reads: Key | string; writes: Key }[] = [
-  { number: '01', name: 'how.h3', note: 'how.p.2', reads: 'Radarr, Sonarr', writes: 'how.writes' },
-  { number: '02', name: 'how.h3.2', note: 'how.p.3', reads: 'TMDB, AniList, OMDb…', writes: 'how.writes.2' },
-  { number: '03', name: 'how.h3.3', note: 'how.p.4', reads: 'how.reads.3', writes: 'how.writes.3' },
-  { number: '04', name: 'how.h3.4', note: 'how.p.5', reads: 'how.reads.4', writes: 'how.writes.4' },
+/* What a step reads is a sentence of the catalogue, or names no language
+   translates. */
+type Reads = { key: Key } | { names: string };
+const STEPS: { number: string; name: Key; note: Key; reads: Reads; writes: Key }[] = [
+  { number: '01', name: 'how.h3', note: 'how.p.2', reads: { names: 'Radarr, Sonarr' }, writes: 'how.writes' },
+  { number: '02', name: 'how.h3.2', note: 'how.p.3', reads: { names: 'TMDB, AniList, OMDb…' }, writes: 'how.writes.2' },
+  { number: '03', name: 'how.h3.3', note: 'how.p.4', reads: { key: 'how.reads.3' }, writes: 'how.writes.3' },
+  { number: '04', name: 'how.h3.4', note: 'how.p.5', reads: { key: 'how.reads.4' }, writes: 'how.writes.4' },
 ];
-const reading = (value: Key | string) => (value.includes(' ') && !value.startsWith('how.') ? value : t(value as Key));
+const reading = (reads: Reads) => ('key' in reads ? t(reads.key) : reads.names);
 ---
 
 <section id="why">
