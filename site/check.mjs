@@ -574,18 +574,36 @@ try {
 } catch (error) {
   fail(`index.html: the JSON-LD block is not valid JSON (${error.message})`);
 }
-// The structured data states the page's language, so its description is in it:
-// an English sentence declared French is what a search engine shows a French
-// reader.
+// The structured data is one graph: the site, the page and the software. The
+// page states its language and describes itself in its own words, since an
+// English sentence declared French is what a search engine shows a French
+// reader. The software reads the same on every page of a language, or a
+// search engine meets one application per page.
+const softwareDescriptions = {};
 for (const [file, source] of Object.entries(pages)) {
   const block = source.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)?.[1];
   if (!block) continue;
-  const data = JSON.parse(block);
+  const graph = JSON.parse(block)['@graph'] ?? [];
+  const node = (type) => graph.filter((entity) => entity['@type'] === type);
   const lang = source.match(/<html lang="([a-z]+)"/)?.[1];
   const meta = source.match(/<meta name="description" content="([^"]*)"/)?.[1]
     ?.replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, '&');
-  if (data.inLanguage !== lang) fail(`${file}: the structured data says ${data.inLanguage}, the page ${lang}`);
-  if (data.description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
+  const [site, webPage, software] = [node('WebSite'), node('WebPage'), node('SoftwareApplication')];
+  if (site.length !== 1 || site[0].name !== 'Routarr' || site[0].url !== `https://${ORIGIN}/`) {
+    fail(`${file}: the structured data names no single WebSite "Routarr" at https://${ORIGIN}/`);
+  }
+  if (webPage.length !== 1) {
+    fail(`${file}: the structured data holds ${webPage.length} WebPage(s), expected one`);
+  } else {
+    if (webPage[0].inLanguage !== lang) fail(`${file}: the structured data says ${webPage[0].inLanguage}, the page ${lang}`);
+    if (webPage[0].description !== meta) fail(`${file}: the structured data describes the page in other words than its own description`);
+  }
+  if (software.length !== 1) {
+    fail(`${file}: the structured data holds ${software.length} SoftwareApplication(s), expected one`);
+  } else {
+    const said = (softwareDescriptions[lang] ??= software[0].description);
+    if (software[0].description !== said) fail(`${file}: the software is described otherwise than on the other ${lang} pages`);
+  }
 }
 
 // -------------------------------------------------------------- links

@@ -38,20 +38,51 @@ const canonical = new URL(pathFor(locale, page), origin).href;
 /** What Open Graph calls each language. The page's `lang` is the bare code. */
 const OG_LOCALE: Record<Locale, string> = { en: 'en_US', fr: 'fr_FR', de: 'de_DE', es: 'es_ES' };
 
+/**
+ * Three entities, one graph: the site, this page, and the software. The page
+ * says what it holds in its own words, and the software is described the same
+ * way on every page of a language, so a search engine meets one application
+ * rather than one per page. The site's name is what a result shows above it.
+ */
+const website = `${origin.href}#website`;
+const software = `${origin.href}#software`;
 const schema = {
   '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: 'Routarr',
-  applicationCategory: 'MultimediaApplication',
-  applicationSubCategory: 'Media library automation',
-  operatingSystem: 'Docker (Linux, amd64 and arm64)',
-  softwareVersion: version,
-  inLanguage: locale,
-  description,
-  url: `${origin.href}`,
-  license: 'https://www.gnu.org/licenses/gpl-3.0.html',
-  isAccessibleForFree: true,
-  offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': website,
+      name: 'Routarr',
+      url: origin.href,
+      inLanguage: LANGUAGES.map((language) => language.code),
+    },
+    {
+      '@type': 'WebPage',
+      '@id': canonical,
+      url: canonical,
+      name: title,
+      description,
+      inLanguage: locale,
+      isPartOf: { '@id': website },
+      about: { '@id': software },
+    },
+    {
+      '@type': 'SoftwareApplication',
+      '@id': software,
+      name: 'Routarr',
+      applicationCategory: 'MultimediaApplication',
+      applicationSubCategory: 'Media library automation',
+      operatingSystem: 'Docker (Linux, amd64 and arm64)',
+      softwareVersion: version,
+      description: t('head.og-description'),
+      url: origin.href,
+      downloadUrl: 'https://github.com/Routarr/Routarr/pkgs/container/routarr',
+      sameAs: ['https://github.com/Routarr/Routarr'],
+      license: 'https://www.gnu.org/licenses/gpl-3.0.html',
+      isAccessibleForFree: true,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+    },
+  ],
 };
 ---
 
