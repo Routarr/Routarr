@@ -32,7 +32,7 @@
   },
   "live": {
     "en": "\\blive\\b",
-    "except": ["SettingAnimeSearchHelp"],
+    "except": ["SettingAnimeSearchHelp", "HelpPurposeDiagnostics"],
     "words": {
       "ar": "ف[ً-ْـ]*ع[ً-ْـ]*ل[ً-ْـ]*ي",
       "ca": "\\breals?\\b",
@@ -103,7 +103,8 @@
       "PinAsRuleTestHint",
       "NoRuleTests",
       "ConfirmRevert",
-      "RevertTooltip"
+      "RevertTooltip",
+      "HelpCardSettingsMetadataSources"
     ],
     "words": {
       "ar": "ن[ً-ْـ]*ق[ً-ْـ]*ل|م[ً-ْـ]*ن[ً-ْـ]*ق[ً-ْـ]*و[ً-ْـ]*ل",
@@ -138,7 +139,9 @@
     "except": [
       "AppliesTo",
       "NoRuleApplies",
-      "RuleInstancesHelp"
+      "RuleInstancesHelp",
+      "HelpCardRuleEvaluation",
+      "TermTextRuleScope"
     ],
     "homonym": "\\bArr\\b",
     "words": {
@@ -211,7 +214,8 @@
       "GuideSkip",
       "GuideSkipStep",
       "SkipToContent",
-      "ImportResultWithSkipped"
+      "ImportResultWithSkipped",
+      "HelpCardGuideTitle"
     ],
     "words": {
       "ar": "ت[ً-ْـ]*خ[ً-ْـ]*ط",
@@ -491,7 +495,7 @@
   },
   "decision": {
     "en": "\\bdecisions?\\b",
-    "except": [],
+    "except": ["HelpFixApiReference4", "TermTextOperation"],
     "words": {
       "ar": "ق[ً-ْـ]*ر[ً-ْـ]*ا[ً-ْـ]*ر",
       "ca": "decisi",
